@@ -38,6 +38,11 @@ grid_side = 0
 # The captured GameToon/character_forward stages are single-rig features and
 # reject this list in v1 (their head basis is derived from one world-space rig).
 #
+# While the debug overlay is open, clicking an object in the viewport selects it
+# and its position / rotation / scale appear in a separate "scene object" panel.
+# Those edits are applied live but are RUNTIME-ONLY: they are never written back
+# to this file, so a restart returns to the values below.
+#
 # [scene]
 # objects = []   # alternative spelling; do not also use [[scene.objects]]
 #

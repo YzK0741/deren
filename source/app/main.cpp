@@ -746,23 +746,29 @@ int main(int argc, char** argv) {
     deren::utility::vessel::vector<glm::mat4> object_transforms;
     glm::vec3 scene_focus = scene_sink;
     float scene_fit_radius = scene_radius;
+    glm::vec3 const object_anchor(0.0f, scene_floor_y, 0.0f);
+    // ONE definition of a placement, used both for the import-time wrapper and for the live gui
+    // edits below. Keeping the matrix here rather than in each caller is what makes a dragged
+    // scale continue to grow the object out of its ground anchor.
+    auto const make_object_transform = [object_anchor](deren::app_config::scene_object_settings const& object) {
+        glm::mat4 transform = glm::translate(glm::mat4(1.0f), glm::vec3(object.position[0], object.position[1], object.position[2]));
+        transform = glm::translate(transform, object_anchor);
+        transform = glm::rotate(transform, glm::radians(object.rotation[0]), glm::vec3(0.0f, 1.0f, 0.0f));
+        transform = glm::rotate(transform, glm::radians(object.rotation[1]), glm::vec3(1.0f, 0.0f, 0.0f));
+        transform = glm::rotate(transform, glm::radians(object.rotation[2]), glm::vec3(0.0f, 0.0f, 1.0f));
+        transform = glm::scale(transform, glm::vec3(object.scale[0], object.scale[1], object.scale[2]));
+        transform = glm::translate(transform, -object_anchor);
+        return transform;
+    };
     if (use_scene_objects) {
         if (settings.render.character_forward || settings.render.game_toon) {
             deren::utility::panic(std::source_location::current(),
                                   "[[scene.objects]] currently places the PBR path only; disable character_forward/game_toon or remove the object list");
         }
-        glm::vec3 const object_anchor(0.0f, scene_floor_y, 0.0f);
         object_transforms.reserve(settings.scene.objects.size());
         for (std::size_t index = 0; index < settings.scene.objects.size(); ++index) {
             deren::app_config::scene_object_settings const& object = settings.scene.objects[index];
-            glm::mat4 transform = glm::translate(glm::mat4(1.0f), glm::vec3(object.position[0], object.position[1], object.position[2]));
-            transform = glm::translate(transform, object_anchor);
-            transform = glm::rotate(transform, glm::radians(object.rotation[0]), glm::vec3(0.0f, 1.0f, 0.0f));
-            transform = glm::rotate(transform, glm::radians(object.rotation[1]), glm::vec3(1.0f, 0.0f, 0.0f));
-            transform = glm::rotate(transform, glm::radians(object.rotation[2]), glm::vec3(0.0f, 0.0f, 1.0f));
-            transform = glm::scale(transform, glm::vec3(object.scale[0], object.scale[1], object.scale[2]));
-            transform = glm::translate(transform, -object_anchor);
-            object_transforms.push_back(transform);
+            object_transforms.push_back(make_object_transform(object));
             deren::utility::log("scene: object {} '{}' position [{:.3f}, {:.3f}, {:.3f}], rotation [{:.1f}, {:.1f}, {:.1f}] deg, scale [{:.3f}, {:.3f}, {:.3f}]",
                                 index, object.name,
                                 object.position[0], object.position[1], object.position[2],
@@ -1075,6 +1081,9 @@ int main(int argc, char** argv) {
     deren::engine::scene_import_result imported = {};
     uint32_t total_primitive_count = 0;
     uint32_t total_material_count = 0;
+    // Indices into scene.roots, NOT pointers: every later import appends roots and can reallocate
+    // the vector, while the index of an already-appended wrapper stays valid.
+    deren::utility::vessel::vector<std::size_t> object_root_indices;
     auto const wrap_imported_roots = [&scene](std::size_t const first_root, deren::utility::vessel::string const& name, glm::mat4 const& placement) {
         deren::engine::scene_tree::scene_node wrapper = {};
         wrapper.node_name = name;
@@ -1106,6 +1115,7 @@ int main(int argc, char** argv) {
             deren::app_config::scene_object_settings const& object = settings.scene.objects[index];
             deren::utility::vessel::string const wrapper_name = object.name.empty() ? deren::utility::vessel::string("object") : object.name;
             wrap_imported_roots(first_root, wrapper_name, object_transforms[index]);
+            object_root_indices.push_back(scene.roots.size() - 1);
             deren::utility::log("scene: object {} '{}' imported - {} primitives, {} new materials",
                                 index, wrapper_name, copy_result.primitive_count, copy_result.material_count);
         } else if (game_toon_copies > 1) {
@@ -1118,6 +1128,16 @@ int main(int argc, char** argv) {
         // again so the BVH and any derived scene state see the final hierarchy.
         runtime.scene_changed();
     }
+    // LIVE GUI EDITS: rewrite only the wrapper's local matrix and re-dirty the scene. The children
+    // (the imported model) are untouched, so materials, skinning and the first object's animation
+    // keep running exactly as before. main calls this after a widget raised the dirty flag.
+    auto const apply_scene_object_transforms = [&] {
+        std::size_t const count = std::min(object_root_indices.size(), settings.scene.objects.size());
+        for (std::size_t index = 0; index < count; ++index) {
+            scene.roots[object_root_indices[index]].local = make_object_transform(settings.scene.objects[index]);
+        }
+        runtime.scene_changed();
+    };
     deren::utility::log("imported {} primitives ({} new materials) across {} object placement(s)", total_primitive_count, total_material_count, import_count);
     runtime.log_scene_tree();
     decltype(materials){}.swap(materials); // streaming/lazy resources retain their shared immutable sources
@@ -1544,6 +1564,11 @@ int main(int argc, char** argv) {
     gui.ssao_samples = static_cast<float>(settings.render.ssao_samples);
     gui.anim_playing = animation.is_playing(); // play checkbox initial state
     gui.current_camera = current_camera;       // combo selection (the pose seeded above)
+    // The object editor edits the SAME vector the config produced; the scene object panel is only
+    // built when this pointer is non-null (the historic single-object path leaves it null).
+    if (use_scene_objects) {
+        gui.scene_objects = &settings.scene.objects;
+    }
 
     // ---- authored (glTF) punctual lights -> the editable gui light slots ----
     // KHR_lights_punctual lights load straight into the gui slots (up to
@@ -1645,6 +1670,91 @@ int main(int argc, char** argv) {
     std::future<prepared_environment> environment_job;
     gui.environment_status = "Environment ready";
     deren::app::setup_gui(runtime, use_gui, settings, gui, animation, gui_camera_names, seed_orbit_from_camera);
+
+    // ---- CLICK PICKING for the scene object editor --------------------------------------------
+    // The runtime's orbit camera is the only camera in the interactive path, so the ray is built
+    // from the same make_orbit_camera_ubo() the frame uses. The per-object AABB is the source
+    // model's box transformed by the CURRENT placement; transforming the ray into that object's
+    // local space avoids rebuilding eight world corners per click. The projection flips Y for
+    // Vulkan (primitive.cpp: proj[1][1] *= -1), so pixel row 0 maps to ndc_y -1 and the bottom
+    // row maps to +1.
+    auto const pick_scene_object = [&](double const cursor_x, double const cursor_y) -> std::int32_t {
+        if (!use_scene_objects) {
+            return -1;
+        }
+        int32_t window_width = 0;
+        int32_t window_height = 0;
+        int32_t framebuffer_width = 0;
+        int32_t framebuffer_height = 0;
+        glfwGetWindowSize(window.window, &window_width, &window_height);
+        glfwGetFramebufferSize(window.window, &framebuffer_width, &framebuffer_height);
+        if (window_width <= 0 || window_height <= 0 || framebuffer_width <= 0 || framebuffer_height <= 0) {
+            return -1;
+        }
+        float const pixel_x = static_cast<float>(cursor_x) * static_cast<float>(framebuffer_width) / static_cast<float>(window_width);
+        float const pixel_y = static_cast<float>(cursor_y) * static_cast<float>(framebuffer_height) / static_cast<float>(window_height);
+        float const aspect = static_cast<float>(framebuffer_width) / static_cast<float>(framebuffer_height);
+        deren::engine::camera_ubo const camera = deren::engine::make_orbit_camera_ubo(
+            runtime.camera.yaw, runtime.camera.pitch, runtime.camera.distance,
+            runtime.camera.target, scene_fit_radius, aspect);
+        glm::mat4 const inverse_view_proj = glm::inverse(camera.view_proj_unjittered);
+        float const ndc_x = 2.0f * pixel_x / static_cast<float>(framebuffer_width) - 1.0f;
+        float const ndc_y = 2.0f * pixel_y / static_cast<float>(framebuffer_height) - 1.0f;
+        auto const unproject = [&](float const z) {
+            glm::vec4 const point = inverse_view_proj * glm::vec4(ndc_x, ndc_y, z, 1.0f);
+            return glm::vec3(point) / point.w;
+        };
+        glm::vec3 const ray_origin = unproject(0.0f);
+        glm::vec3 const ray_far = unproject(1.0f);
+        glm::vec3 const ray_direction = glm::normalize(ray_far - ray_origin);
+        glm::vec3 const local_min = bounds.min + scene_import_shift;
+        glm::vec3 const local_max = bounds.max + scene_import_shift;
+        auto const intersect_box = [&](glm::vec3 const& origin, glm::vec3 const& direction, glm::vec3 const& box_min, glm::vec3 const& box_max, float& hit_t) {
+            float t_min = 0.0f;
+            float t_max = 1.0e30f;
+            for (int32_t axis = 0; axis < 3; ++axis) {
+                if (glm::abs(direction[axis]) < 1.0e-8f) {
+                    if (origin[axis] < box_min[axis] || origin[axis] > box_max[axis]) {
+                        return false;
+                    }
+                    continue;
+                }
+                float const inverse_direction = 1.0f / direction[axis];
+                float t0 = (box_min[axis] - origin[axis]) * inverse_direction;
+                float t1 = (box_max[axis] - origin[axis]) * inverse_direction;
+                if (t0 > t1) {
+                    float const swap = t0;
+                    t0 = t1;
+                    t1 = swap;
+                }
+                t_min = std::max(t_min, t0);
+                t_max = std::min(t_max, t1);
+                if (t_min > t_max) {
+                    return false;
+                }
+            }
+            hit_t = t_min;
+            return t_max > 0.0f;
+        };
+        std::int32_t best_object = -1;
+        float best_t = 1.0e30f;
+        for (std::size_t index = 0; index < settings.scene.objects.size(); ++index) {
+            glm::mat4 const object_to_world = make_object_transform(settings.scene.objects[index]);
+            glm::mat4 const world_to_object = glm::inverse(object_to_world);
+            glm::vec3 const local_origin = glm::vec3(world_to_object * glm::vec4(ray_origin, 1.0f));
+            glm::vec3 const local_direction = glm::vec3(world_to_object * glm::vec4(ray_direction, 0.0f));
+            float hit_t = 0.0f;
+            if (intersect_box(local_origin, local_direction, local_min, local_max, hit_t) && hit_t < best_t) {
+                best_t = hit_t;
+                best_object = static_cast<std::int32_t>(index);
+            }
+        }
+        return best_object;
+    };
+    bool pick_mouse_was_down = false;
+    bool pick_pending = false;
+    double pick_press_x = 0.0;
+    double pick_press_y = 0.0;
 
     // Per-frame cheap clock: stamp() once per presented frame on this (the frame owner) thread,
     // so any other thread can read the current frame time as a plain atomic load. Animation /
@@ -1771,6 +1881,45 @@ int main(int argc, char** argv) {
             continue;
         }
         runtime.recreate_if_minimized();
+        // A widget edited app_settings.scene.objects on the previous frame; rewrite the one wrapper
+        // each object lives under. This runs BEFORE pace_and_acquire(), whose update_world walk
+        // publishes the locals into the draw list, and scene_changed() re-dirties the BVH/culling
+        // that a moved object invalidates.
+        if (use_scene_objects && gui.scene_object_transform_dirty) {
+            apply_scene_object_transforms();
+            gui.scene_object_transform_dirty = false;
+        }
+        // Click picking: select on RELEASE and only when the press-to-release travel is small, so
+        // an orbit drag does not change the selection. The overlay owns clicks that start or end
+        // over a panel (the same wants_mouse gate the runtime's camera callbacks use).
+        if (use_gui && use_scene_objects) {
+            bool const mouse_down = glfwGetMouseButton(window.window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+            double cursor_x = 0.0;
+            double cursor_y = 0.0;
+            glfwGetCursorPos(window.window, &cursor_x, &cursor_y);
+            if (mouse_down && !pick_mouse_was_down && !runtime.debug_gui_wants_mouse()) {
+                pick_pending = true;
+                pick_press_x = cursor_x;
+                pick_press_y = cursor_y;
+            }
+            if (!mouse_down && pick_mouse_was_down && pick_pending) {
+                double const dx = cursor_x - pick_press_x;
+                double const dy = cursor_y - pick_press_y;
+                if (dx * dx + dy * dy <= 25.0 && !runtime.debug_gui_wants_mouse()) {
+                    std::int32_t const hit = pick_scene_object(cursor_x, cursor_y);
+                    if (hit != gui.selected_object) {
+                        gui.selected_object = hit;
+                        if (hit >= 0 && static_cast<std::size_t>(hit) < settings.scene.objects.size()) {
+                            deren::utility::log("scene: selected object {} '{}'", hit, settings.scene.objects[static_cast<std::size_t>(hit)].name);
+                        } else {
+                            deren::utility::log("scene: object selection cleared");
+                        }
+                    }
+                }
+                pick_pending = false;
+            }
+            pick_mouse_was_down = mouse_down;
+        }
         // Upload only between frames. set_ibl waits for prior submissions and rolls back failed writes.
         if (environment_job.valid() && environment_job.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
             auto prepared = environment_job.get();

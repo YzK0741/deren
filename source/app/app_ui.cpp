@@ -233,6 +233,33 @@ namespace deren::app {
                 panel.add_slider("  outer cone deg", &slot.outer_cone_deg, 1.0f, 89.0f).set_visible_when(selected_spot);
             }
         }
+        // ---- LIVE SCENE-OBJECT EDITING ------------------------------------------------
+        // A SECOND PANEL, not more rows in the main one: an object has its own transform
+        // vocabulary, and the main panel already carries every render/light knob. Only the
+        // selected object's three rows draw; selection is owned by main because it is also what
+        // the viewport click pick writes. The widgets edit app_settings.scene.objects in place
+        // and raise the dirty flag main consumes - edits are runtime-only, never written back.
+        if (bindings.scene_objects != nullptr && !bindings.scene_objects->empty()) {
+            deren::gui::panel& object_panel = runtime.debug_gui().add_panel("scene object");
+            object_panel.set_default_size(settings.gui.panel_width, 180.0f);
+            object_panel.add_label([&bindings] {
+                deren::utility::vessel::vector<deren::app_config::scene_object_settings> const& objects = *bindings.scene_objects;
+                if (bindings.selected_object < 0 || static_cast<std::size_t>(bindings.selected_object) >= objects.size()) {
+                    return deren::utility::vessel::string("no object selected (click one)");
+                }
+                deren::app_config::scene_object_settings const& object = objects[static_cast<std::size_t>(bindings.selected_object)];
+                deren::utility::vessel::string const name = object.name.empty() ? deren::utility::vessel::string("<unnamed>") : object.name;
+                return deren::utility::vessel::format("{}: {}", bindings.selected_object, name);
+            });
+            auto const mark_dirty = [&bindings] { bindings.scene_object_transform_dirty = true; };
+            for (std::size_t i = 0; i < bindings.scene_objects->size(); ++i) {
+                deren::app_config::scene_object_settings& object = (*bindings.scene_objects)[i];
+                auto const selected = [&bindings, i] { return bindings.selected_object == static_cast<std::int32_t>(i); };
+                object_panel.add_vec3("  position", &object.position[0], 0.05f, mark_dirty).set_visible_when(selected);
+                object_panel.add_vec3("  rotation", &object.rotation[0], 1.0f, mark_dirty).set_visible_when(selected);
+                object_panel.add_vec3("  scale", &object.scale[0], 0.01f, mark_dirty).set_visible_when(selected);
+            }
+        }
         // camera orbit target: dragging it moves what the camera looks at / orbits around
         // (camera.target is a glm::vec3, i.e. three contiguous floats; the runtime rebuilds the
         // camera UBO from it every frame, so no on_change callback is needed)
