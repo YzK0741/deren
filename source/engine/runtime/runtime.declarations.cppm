@@ -3,8 +3,7 @@
 //
 // Same shape as vulkan.core: the declarations live in a partition, the primary re-exports them, and
 // the implementation partitions import THIS one (a partition does not see the primary interface, and
-// imports are not transitive). `import deren.engine.runtime;` is unchanged for main, chores and
-// render_start_demo.
+// imports are not transitive). `import deren.engine.runtime;` is unchanged for the app modules.
 // ============================================================================
 // ============================================================================
 // module: deren.engine.runtime
@@ -951,7 +950,7 @@ namespace deren::engine {
         // know.
         /**
          * The chain the frame CREATES and RECORDS, handed over by `set_pass_chain` and owned by whoever built it
-         * (in this application, `deren.engine.render_start_demo`). Every stage array and both GI halves are filled from it
+         * (in this application, `deren.app.renderer`). Every stage array and both GI halves are filled from it
          * BY DECLARATION NAME, which is what lets the passes live outside this class. It is REQUIRED before the
          * frame work: `create_passes` refuses to run without one and says so, and every other question this class
          * asks a chain asks it through a null check rather than falling back to a chain of its own - there is no
@@ -973,7 +972,7 @@ namespace deren::engine {
         pass::output_targets_pass* fallback_output_provider = nullptr;
 
         // THE PASSES ARE NOT CONSTRUCTED HERE ANY MORE, and the stage arrays below are what is left of this class's
-        // knowledge of them: the APPLICATION builds its chain (deren.engine.render_start_demo) and hands it over through
+        // knowledge of them: the APPLICATION builds its chain (deren.app.renderer) and hands it over through
         // `set_pass_chain`, which fills these arrays and the two GI halves BY DECLARATION NAME - the stage sequence,
         // its order and the marks are the frame loop's and stay. The two JOBS are not
         // passes and are still created here, from the same context the passes are.
@@ -1180,7 +1179,7 @@ namespace deren::engine {
          * chain is the app's (see set_pass_chain), the app has no way to name an M3 phase-A internal lane, and
          * the pass is recorded as a graph lane this renderer appends itself (runtime.post_graph.cpp lane 22).
          * It is created lazily by ensure_hzb_resources, because the app registers the pass's shader after this
-         * runtime is constructed (main.cpp: chores::setup_pipeline -> runtime.create_passes).
+         * runtime is constructed (main.cpp: deren::app::setup_pipeline -> runtime.create_passes).
          */
         std::unique_ptr<pass::hzb_build_pass> hzb_build;
         /// the two GPU-only HZB tables (one descriptor each, internal per-frame lanes - see the heap slot comments)
@@ -1542,7 +1541,7 @@ namespace deren::engine {
          * Every feature answer used to read `deferred.pipeline_ready()`, `taa_resolve.pipeline_ready()` and ten more
          * like them; they now ask the chain by the name the declaration carries, which is the only key a renderer
          * handed a chain from OUTSIDE has - and "handed from outside" is where this layer is going (see
-         * `deren.engine.render_start_demo`).
+         * `deren.app.renderer`).
          * @note the frame's own pipelines that no pass owns (the G-buffer's, the shadow fit's) are still the
          *       renderer's members, so a feature that needs one of those AND a pass's still reads both
          */
@@ -3022,7 +3021,7 @@ namespace deren::engine {
          * (it owns the ImGui renderer and the flag that turns it off), but WHICH pass records it is the chain
          * owner's to know - the overlay has no load op, so it has to be recorded inside whichever pass writes the
          * frame last, and that is a property of the chain. The owner installs this hook on the passes that may be
-         * last (`deren.engine.render_start_demo` does it in `attach`), and each pass decides for itself whether it is.
+         * last (`deren.app.renderer` does it in `attach`), and each pass decides for itself whether it is.
          */
         [[nodiscard]] pass::draw_callback overlay_draw() const noexcept;
 
@@ -4059,7 +4058,7 @@ namespace deren::engine {
         /**
          * @brief the name the character-forward pipeline is registered under, which is what its pass binds
          *
-         * THE ONE PLACE THE STRING LIVES, and it has to be reachable from three: `chores.cpp` registers the
+         * THE ONE PLACE THE STRING LIVES, and it has to be reachable from three: `app_pipelines.cpp` registers the
          * pipeline under it, `make_character_forward_frame` hands it to the pass, and a log or a test that
          * wants to ask "is the toon stage's pipeline present" uses it rather than a literal of its own.
          *

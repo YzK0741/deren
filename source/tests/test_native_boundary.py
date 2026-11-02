@@ -50,8 +50,8 @@ class NativeScopeTests(unittest.TestCase):
             root = Path(directory)
             sources = {
                 "source/backends/vulkan/core/backend.cpp": "VkDevice backend;",
-                "source/backends/vulkan/graphical_user_interface/gui.cppm": "VkDevice gui;",
-                "source/backends/vulkan/graphical_user_interface/gui_dll.cpp": "VkQueue gui_queue;",
+                "source/backends/vulkan/gui/gui.cppm": "VkDevice gui;",
+                "source/backends/vulkan/gui/gui_dll.cpp": "VkQueue gui_queue;",
                 "source/engine/runtime/engine.cpp": "VkDevice engine;",
             }
             for relative, code in sources.items():
@@ -61,8 +61,8 @@ class NativeScopeTests(unittest.TestCase):
             (root / "CMakeLists.txt").write_text(
                 "target_sources(deren_vulkan\n PRIVATE\n source/backends/vulkan/core/backend.cpp\n)\n"
                 "target_sources(deren_gui_vulkan\n PUBLIC FILE_SET CXX_MODULES FILES\n"
-                " source/backends/vulkan/graphical_user_interface/gui.cppm\n PRIVATE\n"
-                " source/backends/vulkan/graphical_user_interface/gui_dll.cpp\n)\n", encoding="utf-8")
+                " source/backends/vulkan/gui/gui.cppm\n PRIVATE\n"
+                " source/backends/vulkan/gui/gui_dll.cpp\n)\n", encoding="utf-8")
             previous = gate.REPO
             try:
                 gate.REPO = root

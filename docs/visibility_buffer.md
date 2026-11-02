@@ -41,7 +41,7 @@ The deferred scene path has two interchangeable opaque producers:
 
 Everything after the opaque handoff is identical: the depth is the frame's own G-buffer depth, the lighting
 stage samples the same targets, and the toon re-shading stage tests the same depth. The switch is
-`[render] visibility_buffer` (`false` by default, `source/application_configuration/application_configuration.cppm`).
+`[render] visibility_buffer` (`false` by default, `source/configuration/configuration.cppm`).
 
 ```
 [mesh] visibility raster   ->  R32_UINT id  +  shared gbuffer_depth

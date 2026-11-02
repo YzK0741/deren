@@ -36,7 +36,7 @@ export import deren.vstd;
 //  imports the backend at all.)
 
 /**
- * @file source/engine/acceleration_structure/acceleration_structure.cppm
+ * @file source/engine/acceleration/acceleration.cppm
  * @defgroup engine_acceleration_structure Ray-Tracing Acceleration Structures
  * @brief Bottom level acceleration structures for the renderer's own geometry buffers.
  *

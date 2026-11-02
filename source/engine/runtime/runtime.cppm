@@ -8,7 +8,7 @@
 // container; the entry hands it over and the last copy calls `api_core::release()`), and names no native
 // handle at all - the escape interface that used to carry them is deleted (abi 43).
 //
-// THE MODULE NAME AND THE PARTITION NAMES ARE THE LEGACY RUNTIME'S, deliberately: `main.cpp`, `chores`, the
+// THE MODULE NAME AND THE PARTITION NAMES ARE THE LEGACY RUNTIME'S, deliberately: `main.cpp`, the app modules, the
 // passes and the tests import `deren.engine.runtime` and must not change a line when the file list switches
 // to this runtime (`-DVR_RUNTIME=dynamic`). One runtime per BUILD TREE, because two BMIs of one module name
 // cannot both be visible to one translation unit - and the legacy tree stays the CONTROL for this one: both

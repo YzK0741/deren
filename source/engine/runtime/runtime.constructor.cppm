@@ -1990,7 +1990,7 @@ namespace deren::engine {
             return; // the descriptor heap is what the tables are published through: the next frame retries
         }
         // ---- THE PASSES, LAZILY ----
-        // The application is the shader loader (chores::setup_pipeline) and it runs AFTER this runtime's
+        // The application is the shader loader (deren::app::setup_pipeline) and it runs AFTER this runtime's
         // constructor, so the passes cannot be created at construction: the first frame's resource preparation is
         // the first point where both the shader bytes and the device exist. A registry miss is not a failure -
         // it just means the app has not registered the module yet (or never will, e.g. a headless test).
@@ -2010,7 +2010,7 @@ namespace deren::engine {
                                 "G-buffer depth and validated by the DEREN_HZB_PROBE_CAPTURE readback; nothing culls against it yet");
         }
         // THE CULL PASS IS A LAZY SECOND PASS, AND A MISSING SHADER DOES NOT BLOCK THE BUILD LANE: the app registers
-        // the module under the same two env gates (chores::setup_pipeline), so an absent registration means the
+        // the module under the same two env gates (deren::app::setup_pipeline), so an absent registration means the
         // cull lane is simply not available this run - the lane stays pruned and the frame keeps today's path.
         if (this->hzb_cull_enabled && this->hzb_cull == nullptr && !this->hzb_cull_failed) {
             if (!this->registered_shader(pass::hzb_cull_shader_name).empty()) {

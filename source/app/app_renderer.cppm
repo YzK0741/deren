@@ -1,9 +1,9 @@
 // module version: 0.2.0  (independent of the app version in CMakeLists project(VERSION))
 
 /**
- * @file source/engine/render_start_demo/render_start_demo.cppm
+ * @file source/app/app_renderer.cppm
  * @brief THE EXAMPLE: this repository's own pass chain, wired from OUTSIDE the renderer.
- * @defgroup engine_render_start_demo Render Start Demo
+ * @defgroup app_renderer Application Renderer
  *
  * WHY THIS MODULE EXISTS. `deren.engine.runtime` is a frame loop: it owns the device, the pacing, the images and the
  * frame's constants, and it records whatever chain of passes it is given. Everything that is specific to THIS
@@ -25,15 +25,12 @@
 
 module;
 
-#include <array>
-#include <cstdint>
-#include <span>
-#include <string_view>
 // NO VULKAN HEADER: the chain and the wiring this module declares are the pass framework's types, and the
 // frames a pass is handed are the contract's.
 
-export module deren.engine.render_start_demo;
+export module deren.app.renderer;
 
+import deren.vstd;
 import deren.engine.runtime;
 import deren.engine.pass;
 import deren.engine.pass.chain;              // pass_chain: the chain the runtime owns its passes in, looked up by declaration name
@@ -57,7 +54,10 @@ import deren.engine.pass.toon_screen_rim;     // ... and its second rim: a fulls
 import deren.engine.pass.game_toon_depth_rim; // ... and the GAME chain's depth rim: a dedicated contour of its own
 import deren.engine.pass.upscale;             // the resolve: the render chain's LDR image -> the presented swapchain
 
-export namespace deren::engine {
+export namespace deren::app {
+
+    using deren::engine::runtime;
+    namespace pass = deren::engine::pass;
 
     /**
      * @brief the demo's wiring: this app's passes, found by declaration name, fed stage by stage
@@ -65,7 +65,7 @@ export namespace deren::engine {
      * @note the object must outlive the renderer's recording (the runtime holds pointers into it), which is what a
      *       local in the application's own frame scope gives it
      */
-    class render_start_demo {
+    class app_renderer {
     public:
         /**
          * @brief look this renderer's passes up by the names their declarations carry, and remember the runtime
@@ -77,11 +77,11 @@ export namespace deren::engine {
         /// @brief the two callbacks the runtime asks for, with this demo as their context
         [[nodiscard]] runtime::chain_wiring wiring() noexcept {
             return runtime::chain_wiring{.owner = this,
-                                         .prepare = &render_start_demo::prepare,
-                                         .collect = &render_start_demo::collect,
-                                         .feature_active = &render_start_demo::feature_active,
-                                         .feature_available = &render_start_demo::feature_available,
-                                         .recreated = &render_start_demo::recreated};
+                                         .prepare = &app_renderer::prepare,
+                                         .collect = &app_renderer::collect,
+                                         .feature_active = &app_renderer::feature_active,
+                                         .feature_available = &app_renderer::feature_available,
+                                         .recreated = &app_renderer::recreated};
         }
 
         // =============================================================================================
@@ -102,7 +102,7 @@ export namespace deren::engine {
         /// @brief the world-space cache: its flag (the runtime's), its rate and round count (the pass's) and the
         ///        tracer's gain over it
         /// @brief which G-buffer channel the debug view shows (the pass's own parameter)
-        void set_gbuffer_channel(int32_t channel) noexcept;
+        void set_gbuffer_channel(std::int32_t channel) noexcept;
         /// @brief the flat render mode, which the lighting stage's own parameter decides
         ///
         /// NOTE the whole setter moved here rather than its value half, and that is the honest shape: the render mode
@@ -114,7 +114,7 @@ export namespace deren::engine {
         ///
         /// The SESSION-level diagnostic travels with it ("why does this switch do nothing?"), asked through the
         /// runtime's own answers rather than by reaching into it.
-        void set_ssao(bool enabled, float radius, float intensity, uint32_t samples) noexcept;
+        void set_ssao(bool enabled, float radius, float intensity, std::uint32_t samples) noexcept;
         /// @brief WHICH FILTER resolves a scaled render chain onto the output (`[render] upscale`)
         ///
         /// @param name "easu" (FSR 1's upsampler, the default) or "linear" (the bilinear reference it is measured
@@ -212,4 +212,4 @@ export namespace deren::engine {
         pass::upscale_pass* upscale = nullptr;
     };
 
-} // namespace deren::engine
+} // namespace deren::app

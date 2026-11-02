@@ -100,7 +100,7 @@ export namespace deren::gui {
     ///
     /// The verbs mirror the ones the in-engine overlay has (and had before it moved here), so the runtime's
     /// call sites and the app's panel building keep their shape: `enable_debug_gui()` calls `init()`, the
-    /// frame calls `new_frame()` and `record()`, and `chores.cpp` builds panels.
+    /// frame calls `new_frame()` and `record()`, and `app_pipelines.cpp` builds panels.
     struct overlay {
         virtual ~overlay() = default;
 

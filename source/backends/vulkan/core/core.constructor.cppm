@@ -29,14 +29,14 @@ module;
 #include <cstdint>
 #include <vulkan/vulkan.h>
 
-// LOAD-BEARING, and it is the same trap chores.cpp documents at length: with -fno-exceptions and the vendored
+// LOAD-BEARING, and it is the same trap app_pipelines.cpp documents at length: with -fno-exceptions and the vendored
 // std module, a TU that instantiates deren::utility::vessel::vector sees TWO 'operator new(size_t, align_val_t)' declarations -
 // module std's and the textual libc++ copy baked into utility:data_block.pcm - and resolves neither, which is
 // "call to operator new is ambiguous" at allocate.h. This file instantiates plenty of deren::utility::vessel::vector (the device
 // extension-name list, the descriptor pool sizes), and it began seeing both the moment deren.vulkan.core gained an
 // import edge it did not have before: descriptor_heap, whose own module carries a textual Vulkan header in its
 // global module fragment. Textually including glm here makes clang MERGE the two copies, exactly as it does for
-// chores.cpp and source/engine/animation/controller.cpp. Do not remove this include to "clean up".
+// app_pipelines.cpp and source/engine/animation/controller.cpp. Do not remove this include to "clean up".
 #include <glm/glm.hpp>
 
 module deren.vulkan.core:constructor;

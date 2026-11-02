@@ -12,7 +12,7 @@ import deren.promise.gui;
 
 import deren.utility.dynamic_link;
 
-#include "../backends/vulkan/graphical_user_interface/panel_adapter_storage.hpp"
+#include "../backends/vulkan/gui/panel_adapter_storage.hpp"
 #include "../promise/gui/gui_entry.hpp"
 
 static_assert(deren::gui::gui_abi_version == 5u, "GUI ABI5 gives the overlay its own recording targets");

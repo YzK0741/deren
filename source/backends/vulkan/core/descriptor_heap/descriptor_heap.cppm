@@ -1,7 +1,7 @@
 module; // the macro-using Vulkan header must not be imported into a module purview
 
 #include <vulkan/vulkan.h>
-// LOAD-BEARING, for the reason chores.cpp documents at length: with -fno-exceptions and the vendored std
+// LOAD-BEARING, for the reason app_pipelines.cpp documents at length: with -fno-exceptions and the vendored std
 // module, a TU that instantiates deren::utility::vessel::vector sees TWO 'operator new(size_t, align_val_t)' declarations - module
 // std's and the textual libc++ copy baked into utility:data_block.pcm - and resolves neither. This file
 // allocates (the zero-filled heap contents, and deren::utility::log's formatting), and it died with an access

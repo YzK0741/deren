@@ -385,10 +385,10 @@ target_sources(app_config
     PUBLIC
         FILE_SET CXX_MODULES
         FILES
-        source/application_configuration/application_configuration.cppm
+        source/configuration/configuration.cppm
 
     PRIVATE
-        source/application_configuration/application_configuration.cpp
+        source/configuration/configuration.cpp
 )
 
 if(VR_TOMLPP_INCLUDE_DIR)
@@ -399,7 +399,7 @@ endif()
 # toml++/impl/preprocessor.hpp): exceptions OFF gives parse_result a type with operator bool and
 # error(), exceptions ON makes parse_result an alias of toml::table and gives the parse functions a
 # different return type. The product code is written against the non-exception API ("parsed" /
-# "parsed.error().description()" in application_configuration.cpp), and clang64 gets that mode for
+# "parsed.error().description()" in configuration.cpp), and clang64 gets that mode for
 # free because the project compiles with -fno-exceptions.
 #
 # MSVC does NOT detect it: /EHsc is deliberate there (see the dialect table above - there is no
@@ -407,7 +407,7 @@ endif()
 # BOTH translation units of this target would fail to compile against it. State the mode instead of
 # inferring it, here rather than in a source file, so the module interface and the implementation are
 # guaranteed to agree: they must, because toml::parse_result is otherwise one type in
-# application_configuration.cppm and another in application_configuration.cpp. Only this target sees
+# configuration.cppm and another in configuration.cpp. Only this target sees
 # the header (checked: no other source in the tree includes toml++), so PRIVATE is enough.
 target_compile_definitions(app_config PRIVATE TOML_EXCEPTIONS=0)
 
@@ -629,10 +629,8 @@ set(VR_RUNTIME_PRIVATE_SOURCES
     source/engine/runtime/runtime.cpp
 )
 # The two places the app owns, named once so the target lists below read the same everywhere.
-set(VR_FULL_API_TARGETS deren chores)
+set(VR_FULL_API_TARGETS deren app_support)
 set(VR_APP_EXE deren)
-set(VR_FULL_API_MODULES source/engine/render_start_demo/render_start_demo.cppm)
-set(VR_FULL_API_SOURCES source/engine/render_start_demo/render_start_demo.cpp)
 
 add_library(resource_cluster_core STATIC)
 target_sources(resource_cluster_core PUBLIC FILE_SET CXX_MODULES FILES
@@ -704,10 +702,9 @@ target_sources(deren_engine
         source/engine/pass/hzb_build.cppm
         source/engine/pass/hzb_cull.cppm
         source/engine/pass/chain.cppm
-        ${VR_FULL_API_MODULES}
         source/engine/profiling/profiling.cppm
         source/engine/shadow_fit/shadow_fit.cppm
-        source/engine/acceleration_structure/acceleration_structure.cppm
+        source/engine/acceleration/acceleration.cppm
         source/engine/ray_tracing/ray_tracing.cppm
         source/engine/scene_tree/scene_tree.cppm
         source/engine/meshlet/meshlet.cppm
@@ -767,9 +764,8 @@ target_sources(deren_engine
         source/engine/pass/software_merge.cpp
         source/engine/pass/hzb_build.cpp
         source/engine/pass/hzb_cull.cpp
-        ${VR_FULL_API_SOURCES}
         source/engine/shadow_fit/shadow_fit.cpp
-        source/engine/acceleration_structure/acceleration_structure.cpp
+        source/engine/acceleration/acceleration.cpp
         source/engine/ray_tracing/ray_tracing.cpp
         source/engine/scene_tree/scene_tree.cpp
         source/engine/primitive/primitive.cpp
@@ -878,7 +874,7 @@ target_include_directories(stb_vendored
 # Dear ImGui (vendored under source/third_party/imgui, see the sources there): the Vulkan + GLFW
 # backends are compiled as plain C++ (imgui is not a module and does not follow the project's
 # -Werror policy — upstream code triggers warnings we do not own). No clang-format: the
-# PROJECT_FORMAT_SOURCES glob only covers main/source/application_configuration/source/gltf_loader/source/utility/
+# PROJECT_FORMAT_SOURCES glob only covers main/source/configuration/source/gltf_loader/source/utility/
 # engine/backends/tests/promise, never vendored third-party code.
 add_library(imgui STATIC)
 
@@ -1085,28 +1081,30 @@ target_link_libraries(asset_library
         vstd_lib
 )
 
-# Demo bootstrap chores (root-level module, next to source/app/main.cpp): main's startup-config analysis
-# (analyse_config: config-file + argv merge, source/shaders/model location) and shader-loading /
-# pipeline helpers, kept out of main.cpp. Split like the other modules: source/app/chores.cppm
-# (export import std pattern) declares, source/app/chores.cpp implements. Demo/application layer only -
-# these helpers know about app_config (settings), the runtime (deren.engine.runtime) and utility
-# log/panic, never about glTF.
-#
-# `chores` takes `runtime&` and therefore names the full runtime API - which is exactly what the ONE
-# runtime now serves (its S1-S3 gate retired with the legacy runtime: see `deren_engine`'s comment).
-add_library(chores STATIC)
-
-target_sources(chores
+# Application-level support modules. The renderer's pass wiring lives here, not in deren_engine:
+# the engine records whatever chain it is handed, while this target owns the chain this app builds.
+# This is the former `chores` target split into focused modules: startup config, pipeline setup,
+# the renderer, the debug GUI, the animation backend and the instancing stress helper.
+add_library(app_support STATIC)
+target_sources(app_support
     PUBLIC
         FILE_SET CXX_MODULES
         FILES
-        source/app/chores.cppm
-
+        source/app/app_config.cppm
+        source/app/app_pipelines.cppm
+        source/app/app_renderer.cppm
+        source/app/app_ui.cppm
+        source/app/app_animation.cppm
+        source/app/app_instancing.cppm
     PRIVATE
-        source/app/chores.cpp
+        source/app/app_config.cpp
+        source/app/app_pipelines.cpp
+        source/app/app_renderer.cpp
+        source/app/app_ui.cpp
+        source/app/app_animation.cpp
+        source/app/app_instancing.cpp
 )
-
-target_link_libraries(chores
+target_link_libraries(app_support
         app_config
         asset_library
         deren_engine
@@ -1118,7 +1116,7 @@ target_link_libraries(${PROJECT_NAME}
         backend_loader   # source/app/main.cpp calls load_api_core(): the app owns the acquisition (batch ⑥)
         static_utility
         deren_engine
-        chores
+        app_support
         # AUTO-IMPORT, and it is the opposite rule from the two graphics plugins, which are resolved
         # BY NAME at run time and are not in this link line at all (see the add_dependencies below).
         # Linking deren_assets' import library is what makes the image load before main. Its banner
@@ -1337,7 +1335,7 @@ if(VR_BUILD_TESTS)
     set_tests_properties(test_backend_boundary PROPERTIES
         WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run"
         ENVIRONMENT "TMP=${CMAKE_CURRENT_BINARY_DIR}/test-run;TEMP=${CMAKE_CURRENT_BINARY_DIR}/test-run")
-    # 完整产品先构建，再量 main/chores/引擎归档，避免半构建产生假性下降。
+    # 完整产品先构建，再量 main/app_support/引擎归档，避免半构建产生假性下降。
     add_custom_target(check-backend-boundary
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/checks/check_backend_boundary.py"
                 --build-dir "${CMAKE_CURRENT_BINARY_DIR}"
@@ -1405,7 +1403,7 @@ if(VR_BUILD_TESTS)
     # sources of truth (see the last block of that test): both are text, neither is generated from the other.
     target_compile_definitions(test_render_resources PRIVATE VR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     # test_shader_sources parses the FOUR places a .spv is named (VR_SLANG_SOURCES, the two compile scripts, and
-    # source/app/chores.cpp's load_shader calls) and compares them: one shader built by the build and not by the scripts is
+    # source/app/app_config.cpp's and app_pipelines.cpp's shader registration) and compares them: one shader built by the build and not by the scripts is
     # the drift that test exists for, and it is the mesh path's CI gate (see the test's header).
     target_compile_definitions(test_shader_sources PRIVATE VR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     # test_docs parses the WRITTEN artifacts the manual and CI are built from - Doxyfile's INPUT, the
@@ -1778,7 +1776,7 @@ add_dependencies(deren deren_gui_vulkan)
 #
 # WHAT LIVES HERE: the vendored ImGui sources (through the `imgui` static library, PRIVATE) and the whole
 # `deren.vulkan.graphical_user_interface` module, plus the C entry that adapts the module's overlay to the
-# `deren::gui::overlay` boundary (source/backends/vulkan/graphical_user_interface/gui_dll.cpp). THE DLL IS WHAT LINKS
+# `deren::gui::overlay` boundary (source/backends/vulkan/gui/gui_dll.cpp). THE DLL IS WHAT LINKS
 # `vulkan-1`: the host resolves `deren_make_gui` by NAME through its loader and links nothing of this target,
 # so `deren.exe` stops importing vulkan-1.dll - every one of those imports came from
 # `imgui_impl_vulkan.cpp`, which is compiled in here.
@@ -1797,10 +1795,10 @@ target_sources(deren_gui_vulkan
         PUBLIC
         FILE_SET CXX_MODULES
         FILES
-        source/backends/vulkan/graphical_user_interface/graphical_user_interface.cppm
+        source/backends/vulkan/gui/gui.cppm
         PRIVATE
-        source/backends/vulkan/graphical_user_interface/graphical_user_interface.cpp
-        source/backends/vulkan/graphical_user_interface/gui_dll.cpp
+        source/backends/vulkan/gui/gui.cpp
+        source/backends/vulkan/gui/gui_dll.cpp
 )
 # The project's compile options are not repeated here either - the sweep near the end of this file
 # covers this DLL like every other first-party target; only the boundary macros are target-specific.
@@ -1903,7 +1901,7 @@ endif()
 # `static_cast<size_t>(log10(val))`, and for a float in (0, 1) - e.g. the DEFAULT
 # `clear_color = [0.02, 0.02, 0.03]` - log10 is negative, so the cast is UB
 # ("-1.69897 is outside the range of representable values of type 'unsigned long long'",
-# toml++/impl/toml_formatter.inl:94). It is reachable from application_configuration.cpp:29 alone, which dumps every
+# toml++/impl/toml_formatter.inl:94). It is reachable from configuration.cpp:29 alone, which dumps every
 # key of the loaded file into the log. Upstream's bug, not this project's - and it fires from a
 # default config value, so it is not a corner case.
 #
@@ -2022,7 +2020,8 @@ if(CLANG_FORMAT_EXECUTABLE)
     # *.cpp* wildcard the others use.
     file(GLOB_RECURSE PROJECT_FORMAT_SOURCES CONFIGURE_DEPENDS
             ${CMAKE_CURRENT_SOURCE_DIR}/source/app/main.cpp
-            ${CMAKE_CURRENT_SOURCE_DIR}/source/application_configuration/*.cpp*
+            ${CMAKE_CURRENT_SOURCE_DIR}/source/app/app_*.cpp*
+            ${CMAKE_CURRENT_SOURCE_DIR}/source/configuration/*.cpp*
             ${CMAKE_CURRENT_SOURCE_DIR}/source/gltf_loader/*.cpp*
             ${CMAKE_CURRENT_SOURCE_DIR}/source/utility/*.cpp*
             ${CMAKE_CURRENT_SOURCE_DIR}/source/backends/vulkan/*.cpp*
@@ -2047,11 +2046,11 @@ if(CLANG_FORMAT_EXECUTABLE)
 
     add_custom_target(clang-format DEPENDS "${CLANG_FORMAT_STAMP}")
 
-    # Format all project targets before compiling (chores is deliberately NOT in this list: a
-    # root-level module source feeding both the format stamp and a target that depends on other
-    # format-listed targets makes ninja see a cycle; format source/app/chores.cppm manually with
-    # 'clang-format -i source/app/chores.cppm' - same style, just not automatic)
-    foreach(_tgt shared_utility static_utility backend_loader promise rhi_sync_contract app_config deren_vulkan vulkan_constant_init vulkan_synchronization renderer_layout vulkan_error_tables deren_engine deren_assets resource_cluster_core render_graph_core render_graph_rhi render_graph_execute render_graph_compose render_graph_bloom render_graph_post render_graph_lighting render_graph_geometry ${VR_APP_EXE})
+    # Format all project targets before compiling. The app support modules are part of the glob now:
+    # the old root-level `chores` module needed a manual clang-format because its source fed both the
+    # format stamp and a target that depended on other format-listed targets. Splitting it into
+    # source/app/app_*.cpp* removed that cycle.
+    foreach(_tgt shared_utility static_utility backend_loader promise rhi_sync_contract app_config deren_vulkan vulkan_constant_init vulkan_synchronization renderer_layout vulkan_error_tables deren_engine deren_assets resource_cluster_core render_graph_core render_graph_rhi render_graph_execute render_graph_compose render_graph_bloom render_graph_post render_graph_lighting render_graph_geometry app_support ${VR_APP_EXE})
         add_dependencies(${_tgt} clang-format)
     endforeach()
 
@@ -2338,7 +2337,7 @@ set(VR_SLANG_SOURCES
     # docs/superpowers/specs/2026-10-22-software-raster-design.md): the tiled compute stage that writes the private
     # R32_UINT depth/id pair (one 8x8 workgroup per 16x16 CSR tile), and the depth-only fullscreen merge that folds it
     # into the frame's G-buffer depth with LESS_OR_EQUAL + depth write. Both build their own pipelines from these
-    # modules through pass_context::shader, so they are registered (chores.cpp) as well as compiled; the merge file has
+    # modules through pass_context::shader, so they are registered (app_pipelines.cpp) as well as compiled; the merge file has
     # TWO entries. Task 2 lands the entry points; Task 3 fills the tiled walk and the SV_Depth value.
     scene/software_visibility.slang:main:compute:software_visibility.comp.spv
     scene/software_visibility_atomic.slang:main:compute:software_visibility_atomic.comp.spv

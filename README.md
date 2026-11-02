@@ -92,7 +92,7 @@ C++ code and shader sources live under `source/`:
 - `engine/`: scene, animation, runtime, resources and passes; filters live in `engine/filters/`.
 - `backends/vulkan/`: native Vulkan implementation and GUI plugin.
 - `promise/`: backend-independent RHI and GUI contracts.
-- `app/`, `application_configuration/`, `gltf_loader/`, `utility/`, `vstd/`: application and supporting modules.
+- `app/`, `configuration/`, `gltf_loader/`, `utility/`, `vstd/`: application and supporting modules.
 - `tests/`, `shaders/`, `third_party/`: tests, shader inputs and vendored code.
 
 Development and build tools live in root-level `scripts/`; README images live in `docs/screenshots/`.
@@ -247,15 +247,13 @@ Related source docs (tracked in the repo):
 ## Layout
 
 ```
-├── main.cpp                 # Demo entry point: start async loads -> runtime init -> scene import
+├── source/app/main.cpp      # Demo entry point: start async loads -> runtime init -> scene import
 │                            #   -> animation/camera/gui setup -> granular frame-phase render loop
-├── chores.cppm / chores.cpp # chores module (root-level demo bootstrap): analyse_config (config +
-│                            #   argv merge, source/shaders/model location), setup_pipeline,
-│                            #   add_instancing_grid, shader loading
+├── source/app/app_*.cppm/.cpp # deren.app.config, .pipelines, .renderer, .ui, .animation, .instancing
 ├── CMakeLists.txt           # CMake 4.3, C++23 modules build
 ├── config.example.toml      # Annotated startup-config reference (copy to config.toml)
 ├── Doxyfile                 # Doxygen config (PROJECT_NAME: "deren")
-├── source/application_configuration/  # deren.application_configuration (TOML startup config + argv merge)
+├── source/configuration/  # deren.application_configuration (TOML startup config + argv merge)
 ├── source/promise/                 # THE CONTRACT, compiled by BOTH halves of the boundary: deren.promise.rhi
 │                            #   (the api_core virtual surface and the creation parameters) and
 │                            #   deren.promise.gui; the C entry points are source/promise/rhi/backend_entry.hpp
@@ -265,7 +263,7 @@ Related source docs (tracked in the repo):
 ├── source/backends/vulkan/                  # the Vulkan backend half, owned by deren_vulkan.dll: core/ (with
 │                            #   vma, handles, init_utils, pipeline, spirv_parser, descriptor_heap),
 │                            #   constant_init, init_utils, synchronization, error_tables and the GUI
-│                            #   plugin (graphical_user_interface)
+│                            #   plugin (deren.vulkan.graphical_user_interface, source/backends/vulkan/gui)
 ├── source/engine/                  # the engine half: render_layout (the slot grid both halves compile),
 │                            #   runtime/, pass/, render_graph/, render_environment, render_resource,
 │                            #   pipelines, primitive, scene_tree, math, meshlet, acceleration_structure,

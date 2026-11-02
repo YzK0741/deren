@@ -708,15 +708,15 @@ def main() -> int:
     engine_defined, _ = read_symbols(kit_archive, nm, defined=True)
     undefined, kit_members = read_symbols(kit_archive, nm, defined=False)
 
-    # Do not measure only the engine archive: main/chores can also import backend dependencies.
+    # Do not measure only the engine archive: main/app_support can also import backend dependencies.
     from pathlib import Path
     build_path = Path(args.build_dir)
     application = []
-    chores = []
-    for name in ("libchores.a", "chores.lib"):
+    app_support = []
+    for name in ("libapp_support.a", "app_support.lib"):
         if (build_path / name).is_file():
-            chores.append(str(build_path / name))
-    application.extend(chores)
+            app_support.append(str(build_path / name))
+    application.extend(app_support)
     main_dir = build_path / "CMakeFiles" / "deren.dir"
     main_objects = []
     if main_dir.is_dir():
@@ -755,7 +755,7 @@ def main() -> int:
 
     # Symbols the backend itself defines are not reverse dependencies; different archive members can report both D and U.
     reverse = sorted((set(backend_undefined) - set(defined)) & set(engine_defined))
-    application_evidence = bool(explicit_app) or bool(main_objects and chores)
+    application_evidence = bool(explicit_app) or bool(main_objects and app_support)
 
     cross = {s: undefined[s] for s in undefined if s in defined}
     usages = sum(len(undefined[s]) for s in cross)
@@ -779,7 +779,7 @@ def main() -> int:
         "symbol_sources": cross,
         "application_evidence": {"complete": application_evidence,
                                  "main_objects": [display_path(p) for p in main_objects],
-                                 "chores_archives": [display_path(p) for p in chores],
+                                 "app_support_archives": [display_path(p) for p in app_support],
                                  "explicit_app_objects": [display_path(p) for p in explicit_app]},
     }
 
@@ -860,7 +860,7 @@ def main() -> int:
                 print(f"    UNTRACKED {symbol}")
             failed = True
         if not application_evidence:
-            print("FAIL: the flip gate needs main/chores evidence (or explicit --app-object for another layout)")
+            print("FAIL: the flip gate needs main/app_support evidence (or explicit --app-object for another layout)")
             failed = True
         # ---- (b) THE C++ RUNTIME PREMISE -------------------------------------------------------
         # The utility split's STL-across-the-seam ruling is only sound while one libc++ (and one heap)

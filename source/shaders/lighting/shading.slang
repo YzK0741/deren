@@ -502,7 +502,7 @@ float calc_shadow_area(float3 world_pos, float3 normal) {
  *
  * NaN IS NOT HANDLED IN THIS SHADER, and no amount of rounding here could handle it: `floor(NaN + 0.5)`,
  * `clamp` and the float-to-int conversion are each undefined on NaN, so a NaN reaching this lane is undefined
- * behaviour. The guard that actually exists is the host's `std::isnan` gate (`application_configuration.cpp`,
+ * behaviour. The guard that actually exists is the host's `std::isnan` gate (`configuration.cpp`,
  * NaN -> 0) together with this lane's default of 0; the host's `std::clamp` also owns the infinities
  * (+inf -> 4, -inf -> 0). So do NOT read the rule below as "any writer of the lane is safe" - it is false for
  * NaN, and it is only true because the host sanitizes before publishing.

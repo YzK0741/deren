@@ -30,7 +30,7 @@ The architecture this refactor moves TOWARD is already written down, so this is 
 * `docs/mainpage.md` (section "What is in the box"): "Most modules are independent building blocks that meet only
   through narrow interfaces, so you are free to recombine or rewire them";
 * the same page (section "What is in the box") defines `deren.vulkan.core` / `deren.engine.runtime` as "a configurable facade ... the demo entry
-  point (`main.cpp` + `deren.chores`) is a thin glue layer on top and can be replaced wholesale".
+  point (`main.cpp` + `deren.app.*`) is a thin glue layer on top and can be replaced wholesale".
 
 The measured shape of what exists instead:
 
@@ -198,7 +198,7 @@ TWO THINGS TO SETTLE BEFORE COMMITTING TO IT, both cheap:
 
 * Module names are FLAT peers (`deren.vulkan.graphical_user_interface`, `deren.engine.profiling`, `deren.engine.scene_tree`, `deren.engine.render_environment`)
   and only a region's INTERNAL parts nest (`vulkan.core.filter`, `vulkan.core.vma.handles`). The deciding
-  question is whether `main.cpp`/`deren.chores` may touch it directly: if yes, a peer module (`vulkan.gi`,
+  question is whether `main.cpp`/`deren.app.*` may touch it directly: if yes, a peer module (`vulkan.gi`,
   `vulkan.post`, `vulkan.shadow`, `vulkan.rt_scene`); if only `runtime` may, nest it.
 * Documentation belonging is expressed with `@defgroup` + `@ingroup runtime`, as
   `deren.engine.render_environment` already does.

@@ -26,7 +26,12 @@
 import deren.utility.shared;
 import deren.vstd;
 import deren.application_configuration;
-import deren.chores; // demo bootstrap helpers (shader loading / dir locating / pipelines)
+import deren.app.config;     // startup config and shader-file location
+import deren.app.pipelines;  // shader loading and the standard pipeline set
+import deren.app.renderer;   // the application's pass and post chain
+import deren.app.ui;         // the Dear ImGui debug overlay bindings
+import deren.app.animation;  // the runtime-backed animation surface
+import deren.app.instancing; // the optional instancing stress grid
 import deren.gltf_loader;
 import deren.gaussian_loader;                  // ... and a Gaussian splat cloud, when the model path names a .ply
 import deren.engine.gaussian_splatting.raster; // the cloud's immutable GPU asset (make_raster_asset) and the snapshot the runtime prepares
@@ -40,8 +45,8 @@ import deren.engine.scene_tree; // scene storage + GPU primitives (was vulkan.mo
 import deren.promise.rhi;
 #include "environment_loader.hpp"
 import deren.engine.runtime;
-import deren.engine.backend_loader;    // load_api_core(): the app owns the acquisition (batch ⑥)
-import deren.engine.render_start_demo; // the example's pass wiring: this app's chain, from outside the renderer
+import deren.engine.backend_loader; // load_api_core(): the app owns the acquisition (batch ⑥)
+import deren.app.renderer;          // this application's pass wiring, kept outside the renderer
 
 namespace {
 
@@ -309,7 +314,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    // 1-3. Resolve the startup config in one step (chores): merge the config file (config.toml
+    // 1-3. Resolve the startup config in one step (app modules): merge the config file (config.toml
     // by default, --config <path> to override) with positional argv overrides (argv[1] = model,
     // argv[2] = grid side (numeric)), then locate the source/shaders/ dir and pick the model file.
     // Panics on any missing configured/located resource. The dev-tool capture flags are removed
@@ -321,7 +326,7 @@ int main(int argc, char** argv) {
         deren::utility::error("invalid or conflicting radiance capture arguments");
         return 2;
     }
-    deren::chores::startup_config config = deren::chores::analyse_config(static_cast<int32_t>(filtered_argv.size()), filtered_argv.data());
+    deren::app::startup_config config = deren::app::analyse_config(static_cast<int32_t>(filtered_argv.size()), filtered_argv.data());
     auto& settings = config.settings;
     if (probe.enabled) {
         if (settings.render.character_forward || settings.render.game_toon || settings.render.subtilis || settings.render.software_raster || !settings.render.background_glb.empty() || std::getenv("DEREN_HZB_CULL") || std::getenv("DEREN_PROGRESSIVE_TEXTURES")) {
@@ -504,16 +509,16 @@ int main(int argc, char** argv) {
     auto const runtime_ready = std::chrono::steady_clock::now();
     deren::utility::log("vulkan runtime initialized: {:.1f} ms (async model load + env generation running in background)", std::chrono::duration<double, std::milli>(runtime_ready - startup_start).count());
 
-    // 6. Pipelines up front (deren::chores::setup_pipeline): the standard PBR pipeline (used by the
+    // 6. Pipelines up front (deren::app::setup_pipeline): the standard PBR pipeline (used by the
     //    imported scene) and the directional shadow pass. The legacy
     //    triangle demo pipeline is no longer created - nothing draws it.
-    deren::chores::setup_pipeline(runtime, shaders_dir);
-    // THE EXAMPLE'S OWN WIRING: this application's passes are fed by `deren.engine.render_start_demo`, which finds them
+    deren::app::setup_pipeline(runtime, shaders_dir);
+    // THIS APPLICATION'S OWN WIRING: its passes are fed by `deren.app.renderer`, which finds them
     // in the chain the runtime owns and answers the frame's per-stage questions (see the module's header). The
     // runtime holds none of these references itself any more, which is what lets a second application hand it a
     // different chain - and the demo object outlives the frame loop because it lives here, in the app's own scope.
-    deren::engine::render_start_demo start_demo;
-    static_cast<void>(start_demo.attach(runtime)); // builds this app's chain and hands it over
+    deren::app::app_renderer app_renderer;
+    static_cast<void>(app_renderer.attach(runtime)); // builds this app's chain and hands it over
     // ... and the CREATE step runs over that chain (the shaders above are registered by now): every pass builds what
     // it owns, and the renderer's two jobs - which are not passes - are created with them.
     runtime.create_passes();
@@ -1041,7 +1046,7 @@ int main(int argc, char** argv) {
         std::filesystem::path background_path = settings.render.background_glb;
         if (background_path.is_relative()) {
             // relative to the EXECUTABLE's directory, which is where every other asset of this application
-            // is found (the shaders dir comes from the same place, see deren::chores::analyse_config)
+            // is found (the shaders dir comes from the same place, see deren::app::analyse_config)
             background_path = deren::utility::executable_directory() / background_path;
         }
         auto background_load = deren::gltf::load_model_async(background_path.string(), {settings.render.subtilis});
@@ -1085,10 +1090,10 @@ int main(int argc, char** argv) {
         runtime.set_shadow_enabled(false);
     }
 
-    // 13. Optional instancing stress (deren::chores::add_instancing_grid): grid_side > 1 (config or
+    // 13. Optional instancing stress (deren::app::add_instancing_grid): grid_side > 1 (config or
     //     argv) draws the first imported primitive as a grid_side x grid_side grid in ONE
     //     instanced draw call (the frame loop is untouched); no-op otherwise.
-    deren::chores::add_instancing_grid(runtime, settings.grid_side, scene_radius);
+    deren::app::add_instancing_grid(runtime, settings.grid_side, scene_radius);
 
     // 13b. Clustered-light stress ([lighting] demo_lights): spawn N procedural punctual lights on a
     //      helix around the scene bounds, pushed every frame together with the overlay's slots. The
@@ -1307,7 +1312,7 @@ int main(int argc, char** argv) {
             scenes->animations.push_back(std::move(converted));
         }
     }
-    animation.init(*scenes, deren::chores::make_animation_backend(runtime), scene_import_shift, imported.import_instance);
+    animation.init(*scenes, deren::app::make_animation_backend(runtime), scene_import_shift, imported.import_instance);
     // [render] animation_time >= 0 PINS the pose: playback is wall-clock driven, so two captures of an
     // animated scene differ unless the time is fixed - and this is also what makes such a scene usable in
     // a measurement or a regression scenario at all. scrub() is the overlay's time slider, so the pose is a
@@ -1319,8 +1324,8 @@ int main(int argc, char** argv) {
             deren::utility::log("capture: --capture-animation-sweep is IGNORED - [render] animation_time pins the pose, so the clock never advances (set animation_time = -1 to play)");
         }
     }
-    // Live gui widget state (deren::chores::gui_bindings) is declared after the authored-camera
-    // seeding below, right before deren::chores::setup_gui() builds the overlay.
+    // Live gui widget state (deren::app::gui_bindings) is declared after the authored-camera
+    // seeding below, right before deren::app::setup_gui() builds the overlay.
 
     // ---- authored (glTF) camera selection ----
     // A glTF camera is used as a VIEWPOINT SEED for the orbit camera: picking one places the
@@ -1382,14 +1387,14 @@ int main(int argc, char** argv) {
     // They load straight into the editable gui light slots below (see the gui_bindings setup),
     // so imported lights are adjustable in the overlay like the demo ones.
 
-    // Optional Dear ImGui debug overlay: deren::chores::setup_gui enables it on the runtime (when
+    // Optional Dear ImGui debug overlay: deren::app::setup_gui enables it on the runtime (when
     // use_gui) and assembles the whole panel - fps label, frustum-culling / shadow
     // toggles, the camera-target drag, animation playback controls, the camera selector and
     // the shadow-bias sliders. The widgets bind to the live gui_bindings below (checkbox and
     // slider mirrors + the animation mirrors, which the frame loop keeps in sync each frame);
     // authored-camera names and the orbit-seeding callback are passed in, so chores never
     // touches glTF types.
-    deren::chores::gui_bindings gui;
+    deren::app::gui_bindings gui;
     gui.shadow_enabled = settings.render.shadow; // checkbox initial states mirror the config
     gui.fxaa_enabled = settings.render.fxaa;
     gui.bloom_enabled = settings.render.bloom;         // bloom chain initial state (the frame mirrors it below)
@@ -1398,7 +1403,7 @@ int main(int argc, char** argv) {
     gui.render_mode = settings.render.unlit ? 1 : 0; // render-mode combo (0 = pbr, 1 = unlit)
     gui.taa_enabled = settings.render.taa;           // temporal anti-aliasing (M3)
     // ... and its TWO BLEND WEIGHTS, which the frame loop mirrors into the runtime every frame
-    // (start_demo.set_taa below). Without these two lines the config's values never reached the
+    // (app_renderer.set_taa below). Without these two lines the config's values never reached the
     // renderer: chores' gui_bindings defaults (0.9 / 0.5) are what set_taa received on every frame,
     // so editing `[render] taa_blend_static` in the file changed NOTHING - measured, the flicker at a
     // pinned close-up was byte-identical at 0.90, 0.95 and 0.98 (38.22% of pixels changing per frame
@@ -1426,7 +1431,7 @@ int main(int argc, char** argv) {
     // mirrored into `gui` like the toggles above: it selects a shader path rather than a per-frame quantity, so
     // there is nothing to change between frames - and the render scale it works with is a creation option, so
     // the pair is a startup decision by construction.
-    start_demo.set_upscale_filter(settings.render.upscale);
+    app_renderer.set_upscale_filter(settings.render.upscale);
     gui.shadow_cascades = settings.render.shadow_cascades - 1;       // cascade combo index (0 = single map)
     gui.shadow_cascade_blend = settings.render.shadow_cascade_blend; // cascaded shadow maps (M4)
     gui.clustered_lights = settings.render.clustered_lights;         // clustered light culling (M5)
@@ -1440,7 +1445,7 @@ int main(int argc, char** argv) {
     // ---- authored (glTF) punctual lights -> the editable gui light slots ----
     // KHR_lights_punctual lights load straight into the gui slots (up to
     // std::size(gui.point_lights)): main pushes the enabled set through
-    // deren::chores::apply_point_lights() every frame, so imported lights are adjustable in the overlay
+    // deren::app::apply_point_lights() every frame, so imported lights are adjustable in the overlay
     // like the demo ones. Position comes from the owning node's loader-space world matrix,
     // shifted by the same import offset the geometry got. KHR directional lights are NOT mapped:
     // the engine sun is the shadow-casting analytic light configured by enable_shadows() above -
@@ -1462,7 +1467,7 @@ int main(int argc, char** argv) {
             ++imported_truncated;
             continue;
         }
-        deren::chores::gui_bindings::light_slot& slot = gui.point_lights[imported_lights++];
+        deren::app::gui_bindings::light_slot& slot = gui.point_lights[imported_lights++];
         glm::vec3 const position = glm::vec3(loader_node->transform_matrix[3]) + scene_import_shift;
         slot.enabled = true;
         slot.position[0] = position.x;
@@ -1536,7 +1541,7 @@ int main(int argc, char** argv) {
     int32_t requested_environment = applied_environment;
     std::future<prepared_environment> environment_job;
     gui.environment_status = "Environment ready";
-    deren::chores::setup_gui(runtime, use_gui, settings, gui, animation, gui_camera_names, seed_orbit_from_camera);
+    deren::app::setup_gui(runtime, use_gui, settings, gui, animation, gui_camera_names, seed_orbit_from_camera);
 
     // Per-frame cheap clock: stamp() once per presented frame on this (the frame owner) thread,
     // so any other thread can read the current frame time as a plain atomic load. Animation /
@@ -1632,7 +1637,7 @@ int main(int argc, char** argv) {
     auto const probe_started = std::chrono::steady_clock::now();
     if (probe.enabled) {
         probe_pixels.resize(std::size_t(6) * probe.size * probe.size * 4);
-        start_demo.set_radiance_capture(true);
+        app_renderer.set_radiance_capture(true);
     }
     while (true) {
         if (probe.enabled) {
@@ -1670,7 +1675,7 @@ int main(int argc, char** argv) {
                 bool published = prepared.error.empty() && runtime.set_ibl(deren::engine::ibl_input{
                                                                .prefiltered_env = prepared.environment, .irradiance = prepared.irradiance, .brdf_lut = lut_bytes, .env_size = uint32_t(env_size), .env_mip_count = uint32_t(env_mip_count), .irr_size = uint32_t(irr_size), .lut_size = uint32_t(lut_size)});
                 if (published) {
-                    start_demo.reset_temporal_history();
+                    app_renderer.reset_temporal_history();
                     applied_environment = requested_environment;
                     gui.environment_status = "Environment ready: " + gui.environment_names[applied_environment];
                     deren::utility::log("environment switched: {}", gui.environment_names[applied_environment]);
@@ -1714,7 +1719,7 @@ int main(int argc, char** argv) {
         runtime.set_exposure(gui.exposure);
         auto current_environment_state = std::tuple(gui.environment_rotation, gui.environment_strength, gui.environment_background, gui.environment_color.x, gui.environment_color.y, gui.environment_color.z, gui.environment_blur);
         if (current_environment_state != previous_environment_state) {
-            start_demo.reset_temporal_history();
+            app_renderer.reset_temporal_history();
             previous_environment_state = current_environment_state;
         }
         // Phase 2: pace + acquire the next frame slot. After pace_and_acquire() returns
@@ -1873,7 +1878,7 @@ int main(int argc, char** argv) {
                 probe_done = true;
                 break;
             }
-            start_demo.reset_temporal_history();
+            app_renderer.reset_temporal_history();
         }
         // A frame was presented: publish its stamp for cheap readers (frame_clock)
         ++resource_frame;
@@ -1905,7 +1910,7 @@ int main(int argc, char** argv) {
             // the lighting stage cannot switch pipelines per fragment, so tell it that the default
             // pipeline is the flat one - it then writes the stored albedo instead of shading, so
             // "unlit" means the same thing for the opaque scene and for the transparent pass
-            start_demo.set_unlit(gui.render_mode == 1);
+            app_renderer.set_unlit(gui.render_mode == 1);
             deren::utility::log("render mode: {} ({})", mode_name, gui.render_mode == 0 ? "lit" : "unlit / flat");
         }
 
@@ -1914,7 +1919,7 @@ int main(int argc, char** argv) {
         // punctual lights: push the gui slot set every frame, INDEPENDENT of the overlay being
         // visible - imported model lights were loaded into those slots, so they must stay lit in
         // headless-overlay runs too (the demo slots stay off unless the user enabled them)
-        deren::chores::apply_point_lights(runtime, gui, demo_lights);
+        deren::app::apply_point_lights(runtime, gui, demo_lights);
         if (settings.render.game_toon) {
             // captured hair rim depth: width 0.368, gain 10, modest strength; the contour stage owns
             // the only legal gbuffer_depth sample after the character pass.
@@ -1929,10 +1934,10 @@ int main(int argc, char** argv) {
         // G-buffer debug view (the G-buffer's stored data): mirrored every frame like the FXAA state,
         // so the config, the overlay checkbox and the channel combo all take effect immediately
         runtime.set_gbuffer_debug(gui.gbuffer_debug);
-        start_demo.set_gbuffer_channel(gui.gbuffer_channel);
+        app_renderer.set_gbuffer_channel(gui.gbuffer_channel);
         // TAA (the engine's anti-aliasing): mirrored like the other render toggles. The jitter
         // follows automatically - it is applied to the projection when TAA is active.
-        start_demo.set_taa(gui.taa_enabled, gui.taa_blend_static, gui.taa_blend_min);
+        app_renderer.set_taa(gui.taa_enabled, gui.taa_blend_static, gui.taa_blend_min);
 
         // Order matters for the M5/M6 mirrors: their availability checks read the state the lines
         // above just set (the debug view replaces the lighting stage, clustered lighting only exists
@@ -1947,7 +1952,7 @@ int main(int argc, char** argv) {
         // ... and the THIRD model, mirrored on the same terms. The frame's three-way choice gives `game_toon`
         // precedence when both model switches are on, so this pair is never silently combined into a fourth state.
         runtime.set_game_toon(gui.game_toon);
-        start_demo.set_ssao(gui.ssao_enabled, gui.ssao_radius, gui.ssao_intensity, static_cast<uint32_t>(std::max(gui.ssao_samples, 0.0f) + 0.5f));
+        app_renderer.set_ssao(gui.ssao_enabled, gui.ssao_radius, gui.ssao_intensity, static_cast<uint32_t>(std::max(gui.ssao_samples, 0.0f) + 0.5f));
         // cel shading: the combo picks a discrete band count (index 0 = off); every entry is a
         // visibly different look, unlike a continuous strength that had dead zones between bands
         constexpr deren::utility::vessel::array<float, 7> toon_band_counts = {0.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 8.0f};

@@ -599,7 +599,7 @@ applied per stage, easy ones first so that each new hazard is met in isolation. 
 
 TWO PLACES PARSE THE CONFIG, and looking at only one of them produced a wrong answer here: `runtime.cpp` reads
 `unlit`, `gbuffer-debug`, `shadow`, `rt_shadow`, `clustered`, `taa`, `ssao`, `bloom`, `fxaa`, `transparent`
-through `ask(...)`, while `application_configuration.cpp` reads the `[render]` keys that switch PASSES -
+through `ask(...)`, while `configuration.cpp` reads the `[render]` keys that switch PASSES -
 `rt_mask_bake`, `rt_skin_bake` and the whole `megalights*` family (`megalights`, `_samples`,
 `_spatial_sigma`, `_history_tolerance`, `_light_angle`, `_bias`). Grepping the first file and concluding
 "unreachable" was a mistake made and corrected in the same session; the lesson is to grep the CONFIG PARSER,
@@ -673,7 +673,7 @@ TWO ROUTES EXIST FOR THOSE STAGES, and neither needs the gate's references to be
     `IgnoreHit()` on every hit changed the Sponza RT frame by 0 pixels) and `compute_skin.comp` (shifting
     EVERY skinned vertex by +1.0 changed the skinned-fixture frame by 0 pixels) - in both cases the stage was
     not on the path the comparison exercised. The first explanation written down here ("the bake has no config
-    key") was WRONG: `rt_mask_bake` and `rt_skin_bake` are parsed by `application_configuration.cpp`, not by
+    key") was WRONG: `rt_mask_bake` and `rt_skin_bake` are parsed by `configuration.cpp`, not by
     `runtime.cpp`, and the compute-skin pass is reachable with `rt_skin_bake = true`. The MEASUREMENT was
     right and the explanation was not, which is the reason the technique is stated as a technique: make the
     stage do something visible, and see whether the frame moves - BEFORE trusting the comparison that says

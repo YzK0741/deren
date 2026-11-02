@@ -182,7 +182,7 @@ shadow_cascade_blend = 0.1
 #   chars/laevatain_goo.glb  63,835,728 B
 #   sha256 CE313E4D9515BC1887B4E0C783ABEA66A70FBFFF69ABD18992BDF33C8F5606F9
 # This block is the AUTHORITY for the cost table: the two headers that describe the field
-# (`application_configuration/application_configuration.cppm`, `vulkan/primitive/primitive.cppm`) repeat no
+# (`configuration/configuration.cppm`, `vulkan/primitive/primitive.cppm`) repeat no
 # number and point here instead, precisely because a copy of the table went stale twice.
 # The background changed by exactly 0 pixels in all three camera positions at every level, so the ladder only
 # touches the character. Levels 3 and 4 leave the same 79 hard steps: within this ROI 4 buys no extra

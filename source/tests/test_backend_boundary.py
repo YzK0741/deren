@@ -307,9 +307,9 @@ class BoundaryTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertEqual(self.baseline.read_bytes(), before)
 
-    def test_chores_without_main_is_not_complete_application_evidence(self):
+    def test_app_support_without_main_is_not_complete_application_evidence(self):
         self.make_archive("libderen_engine.a", "int engine_entry(void) { return 0; }")
-        self.make_archive("libchores.a", "int chore_entry(void) { return 0; }")
+        self.make_archive("libapp_support.a", "int chore_entry(void) { return 0; }")
         self.write_baseline([])
         self.assertEqual(self.run_gate("--require-zero").returncode, 1)
 

@@ -270,7 +270,7 @@ namespace deren::engine::animation {
      * Kept deliberately narrow: only what per-frame playback touches. The scene is a
      * direct reference (animation must walk and edit nodes in place); the rest are callbacks
      * so the controller does not depend on the host class - any object exposing the same
-     * surface can drive animations. Assemble it on the host side (see chores).
+     * surface can drive animations. Assemble it on the host side (see deren.app.animation).
      */
     export struct backend {
         deren::engine::scene_tree::scene* scene = nullptr; // tree to animate (nullptr = not bound)

@@ -1088,9 +1088,8 @@ INPUT                  = ./docs/managed_resources.md \
 				./source/utility \
 				./source/promise \
 				./source/gltf_loader \
-				./source/application_configuration \
-				./source/app/main.cpp \
-				./source/app/chores.cppm \
+				./source/configuration \
+				./source/app \
 				./source/vstd \
 				./docs/mainpage.md \
 				./docs/conventions.md \

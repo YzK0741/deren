@@ -4,7 +4,7 @@
  *        records, and how they are compiled.
  *
  * The renderer has no runtime shader compilation: prebuilt `.spv` files live in the build's `shaders/`
- * directory beside the executable, are loaded by `deren::chores::setup_pipeline()` and are turned into
+ * directory beside the executable, are loaded by `deren::app::setup_pipeline()` and are turned into
  * `vk_pipeline` objects through the `runtime::make_*_pipeline()` calls (which own the render
  * state: color format, depth, and the bindless heap - a heap pipeline has no pipeline layout to own).
  * The tree's ONE reflection is `source/backends/vulkan/core/pipeline/spirv_parser.cppm` (SPIRV-Reflect),
@@ -285,7 +285,7 @@
  * shared includes it lists as dependencies), so editing a shader is just editing a shader. The binaries
  * are **not** tracked in the repository and are not hand-synced - they are a build output, and the
  * directory is mirrored next to the executable, which is the copy the runtime loads
- * (`deren::chores::locate_shaders_dir` prefers a `source/shaders/` sibling of the running binary over anything found
+ * (`deren::app::locate_shaders_dir` prefers a `source/shaders/` sibling of the running binary over anything found
  * by walking up from the working directory). **slangc is required, not optional** - every stage is built from
  * a `.slang` source and the rule has no GLSL fallback any more, so a configuration without the compiler
  * fails loudly instead of compiling modules the project no longer uses. The retired GLSL stage sources are

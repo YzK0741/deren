@@ -4,7 +4,7 @@
 //   1. CMakeLists.txt's `VR_SLANG_SOURCES` - the canonical list, and what `cmake --build` compiles;
 //   2. source/shaders/compile_shaders.ps1 - the escape hatch for a machine without CMake;
 //   3. source/shaders/compile_shaders.sh - its POSIX twin;
-//   4. the C++ that LOADS the .spv by name at runtime (chores.cpp registers them, and a pass or the
+//   4. the C++ that LOADS the .spv by name at runtime (app_pipelines.cpp registers them, and a pass or the
 //      runtime asks for one by name).
 //
 // A drift between 1 and 2/3 is silent: the build produces the file, the script does not, and the
@@ -140,7 +140,7 @@ namespace {
     }
 
     /// The .spv names the runtime's app-side loader asks for, as `std::string_view`-style literals in
-    /// chores.cpp (`load_shader(shaders_dir, "x.spv", ...)`, `register_shader("x.spv", ...)`).
+    /// app_config.cpp/app_pipelines.cpp (`load_shader(shaders_dir, "x.spv", ...)`, `register_shader("x.spv", ...)`).
     deren::utility::vessel::set<deren::utility::vessel::string> loaded_spv_names(std::filesystem::path const& path) {
         deren::utility::vessel::set<deren::utility::vessel::string> names;
         for (deren::utility::vessel::string const& line : read_lines(path)) {
@@ -226,11 +226,13 @@ int32_t main() {
     }
 
     // ---- 4. Every .spv the APP loads by name is produced by the list ----
-    // The names chores.cpp hands to load_shader/register_shader are the ones the runtime answers, so one that
+    // The names the app modules hand to load_shader/register_shader are the ones the runtime answers, so one that
     // no rule produces is a shader that is silently empty at startup - which is what a renamed output looks
     // like from the app's side.
-    for (deren::utility::vessel::string const& name : loaded_spv_names(root + "/source/app/chores.cpp")) {
-        CHECK_MSG(outputs.contains(name), ("chores.cpp loads a .spv no VR_SLANG_SOURCES entry produces: " + name).c_str());
+    for (char const* app_source : {"/source/app/app_config.cpp", "/source/app/app_pipelines.cpp"}) {
+        for (deren::utility::vessel::string const& name : loaded_spv_names(root + app_source)) {
+            CHECK_MSG(outputs.contains(name), ("the app modules load a .spv no VR_SLANG_SOURCES entry produces: " + name).c_str());
+        }
     }
 
     // ---- 5. EVERY #include A LEAF PULLS IN IS A BUILD DEPENDENCY OF THE RULE THAT COMPILES IT ----
@@ -341,7 +343,7 @@ int32_t main() {
         }
         // THE COVERAGE IS WHAT THE TREE MAKES DERIVABLE, and it is asserted rather than assumed: a pass that names
         // the .spv it loads binds its stage here, while the stages whose shaders the APP registers (most of them -
-        // chores.cpp) are bound too far away for this scan and are covered by section 4's registration check. The
+        // app_pipelines.cpp) are bound too far away for this scan and are covered by section 4's registration check. The
         // gaussian raster stage is the one this batch added, so the contract must at least see it; when another
         // converted pass names its shader inline, it joins this rule for free.
         CHECK_MSG(lane_sources.contains("gaussian/gaussian_raster.slang"), "the derived lane contract covers gaussian/gaussian_raster.slang");

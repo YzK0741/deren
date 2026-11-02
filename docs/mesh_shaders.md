@@ -749,7 +749,7 @@ WHAT WAS REMOVED, in the order it went:
 | what | how |
 | --- | --- |
 | the two geometry `vertex_main` entries | deleted from `source/shaders/scene/pbr.slang` and `source/shaders/lighting/shadow.slang`; the shared bodies they called stay, because the mesh stages are their callers now |
-| their `.spv` from all four registries | `CMakeLists.txt`, `source/shaders/compile_shaders.ps1`, `source/shaders/compile_shaders.sh`, `chores.cpp` - `source/tests/test_shader_sources.cpp` parses all of them, so a half-done removal fails CI by name (and the two modules were deleted from the build tree, because `CMAKE_SUPPRESS_REGENERATION=ON` means a stale rule would otherwise keep compiling them) |
+| their `.spv` from all four registries | `CMakeLists.txt`, `source/shaders/compile_shaders.ps1`, `source/shaders/compile_shaders.sh`, `app_config.cpp`/`app_pipelines.cpp` - `source/tests/test_shader_sources.cpp` parses all of them, so a half-done removal fails CI by name (and the two modules were deleted from the build tree, because `CMAKE_SUPPRESS_REGENERATION=ON` means a stale rule would otherwise keep compiling them) |
 | the pipeline builders | `runtime::make_pipeline` (named `pbr`/`unlit`) and `make_gbuffer_pipeline` take a fragment stage plus the MESH/meshlet modules; a missing or refused mesh module is an ERROR, and the G-buffer pass is no longer registered in `gbuffer_pipeline` (its vertex form) at all |
 | the shadow pass's vertex form | `create` builds the MESH form first and requires it - a refusal DISABLES the pass rather than falling back - and `pipeline()`/`pipeline_ready()` consult only the mesh forms |
 | the draw paths | `bind_geometry_and_push` is gone (`vkCmdBindVertexBuffers` + `vkCmdDrawIndexed` for scene geometry), and the three `if (env.mesh_stage)` branches became a guard: a session with no mesh pipeline bound draws nothing and says so once |
@@ -774,7 +774,7 @@ form it replaced.
   scripts.** `source/shaders/compile_shaders.ps1`/`.sh` MIRROR `CMakeLists.txt`'s `VR_SLANG_SOURCES` by hand, and the
   mesh migration left `heap_probe.slang:mesh_main:mesh:heap_probe.mesh.spv` out of both - so a machine without
   CMake would have lost the mesh probe and its log-line proof. `source/tests/test_shader_sources.cpp` now parses all
-  four places a `.spv` is named (the CMake list, both scripts, and `chores.cpp`'s loads) and requires them to
+  four places a `.spv` is named (the CMake list, both scripts, and `app_config.cpp`/`app_pipelines.cpp`'s loads) and requires them to
   agree, requires the three `.mesh.spv` names to exist, and requires every `mesh_main` a `.slang` file declares
   to have an entry. It runs in CI (both jobs) and is written to FAIL: deleting a mesh entry, or a script entry,
   fails it by name.
