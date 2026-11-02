@@ -1108,9 +1108,9 @@ namespace deren::engine {
          * scenario byte-identical.
          */
         deren::utility::vessel::array<pass::frame_pass*, 1> gaussian_pass = {};
-        /// the cloud this session draws, and the instances it is drawn with (one identity instance until the
-        /// viewer grows transforms): empty means the stage above is a no-op
-        std::shared_ptr<gaussian_splatting::raster_asset const> gaussian_asset = {};
+        /// the instances this session draws: one flat span, sorted and projected together by the splat stage.
+        /// Empty means the stage above is a no-op. Each entry owns its asset, so clouds of different assets
+        /// can share the one global sort and the one composited pass.
         deren::utility::vessel::vector<gaussian_splatting::raster_instance> gaussian_instances = {};
         /**
          * THE SNAPSHOTS, ONE PER FRAME SLOT - the design's own retention rule rather than a cache.
@@ -4242,18 +4242,26 @@ namespace deren::engine {
         [[nodiscard]] pass::transparent_frame make_transparent_frame() noexcept;
 
         /**
-         * @brief hand the renderer a Gaussian splat cloud to draw, or an empty pointer to stop drawing one
+         * @brief replace the staged clouds with a single cloud, or an empty pointer to stop drawing splats
          *
-         * THE APP OWNS THE DECISION AND THE LOADING (it is the side that knows what a file is: the model path's
-         * extension picks the loader - see app_config::model_format_of), and the renderer owns the drawing: it
-         * keeps the asset alive for as long as any submitted snapshot refers to it, projects it with the camera
-         * it is already animating, and records it in the frame's own stage. One instance is built with the
-         * supplied model transform, which defaults to identity.
-         *
-         * A null asset stops the stage without touching anything else: the next frame's snapshot is empty and
-         * the pass records nothing, which is the same path a session that never configured a cloud takes.
+         * This is the original one-cloud entry point and stays a clear+add wrapper: the application that
+         * still loads one cloud keeps calling it, while a scene with several objects stages its clouds
+         * through clear_gaussian_assets()/add_gaussian_asset(). A null asset clears the stage without
+         * touching anything else.
          */
         void set_gaussian_asset(std::shared_ptr<gaussian_splatting::raster_asset const> asset, glm::mat4 const& model = glm::mat4{1.0f}) noexcept;
+
+        /// @brief remove every staged cloud; the next frame records no splat stage
+        void clear_gaussian_assets() noexcept;
+
+        /**
+         * @brief stage one cloud in the shared splat pass
+         *
+         * Every staged instance is projected, globally depth-sorted and composited by ONE pass, so adding
+         * clouds does not add passes. @p stable_id must be distinct per instance for the sort's
+         * deterministic tie-break; a cloud's model transform places it in world space.
+         */
+        void add_gaussian_asset(std::shared_ptr<gaussian_splatting::raster_asset const> asset, glm::mat4 const& model, std::uint64_t stable_id) noexcept;
 
         /// @brief this frame's immutable splat snapshot, or an empty pointer when there is nothing to draw
         [[nodiscard]] std::shared_ptr<gaussian_splatting::raster_frame const> make_gaussian_frame() noexcept;
@@ -4265,7 +4273,7 @@ namespace deren::engine {
         /// answering false here is what keeps a session with no cloud from resolving the stage's targets at all -
         /// the same reason every other stage's gate is the pass's own feature name.
         [[nodiscard]] bool gaussian_active() const noexcept {
-            return this->gaussian_asset != nullptr;
+            return !this->gaussian_instances.empty();
         }
         /**
          * @brief this frame's OPAQUE geometry again, as the character-forward pass needs it

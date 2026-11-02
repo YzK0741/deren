@@ -25,7 +25,10 @@ export namespace deren::app {
     struct startup_config {
         deren::app_config::app_settings settings = {};  // merged config-file + argv settings
         std::filesystem::path shaders_dir = {};         // shader SPIR-V directory (configured or located)
-        deren::utility::vessel::string model_path = {}; // glTF file to load (configured, model_dir, or located)
+        deren::utility::vessel::string model_path = {}; // default model (configured, model_dir, or located)
+        // One resolved model path per `[[scene.objects]]` entry, in the same order. Empty when the
+        // scene list is empty. Entries that name no model/asset inherit `model_path`.
+        std::vector<deren::utility::vessel::string> object_model_paths = {};
     };
 
     /**

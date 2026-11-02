@@ -30,7 +30,29 @@ namespace deren::app {
             deren::utility::log("app_config: loaded startup settings from '{}'", settings.config_file);
         }
 
-        startup_config config = {settings, {}, {}};
+        startup_config config = {settings, {}, {}, {}};
+        // The library is scanned at most once: the default model and every per-object `asset` id
+        // resolve through the SAME catalogue, and the warnings are reported once.
+        std::unique_ptr<deren::asset_library::asset_library> library;
+        auto const ensure_library = [&]() -> deren::asset_library::asset_library const& {
+            if (library != nullptr) {
+                return *library;
+            }
+            if (settings.paths.asset_library.empty()) {
+                deren::utility::panic(std::source_location::current(),
+                                      "an asset reference needs [paths] asset_library (pass --asset-library <dir>).");
+            }
+            library = std::make_unique<deren::asset_library::asset_library>(
+                deren::asset_library::asset_library::scan(settings.paths.asset_library));
+            if (!library->valid()) {
+                deren::utility::panic(std::source_location::current(), "cannot use asset library '{}': {}",
+                                      settings.paths.asset_library, library->error());
+            }
+            for (std::string const& warning : library->warnings()) {
+                deren::utility::log("asset library: {}", warning);
+            }
+            return *library;
+        };
 
         // 2. Shaders directory (holds GLSL sources and compiled SPIR-V): explicit config path when
         //    given, otherwise walk up from the working directory to find source/shaders/.
@@ -43,6 +65,17 @@ namespace deren::app {
             config.shaders_dir = *located;
         } else {
             deren::utility::panic("cannot find shaders/ directory. run the program from the project root, pass shaders_dir in config.toml, or use a cmake-build-* directory.");
+        }
+
+        // A scene whose placements all name their own asset does not need a separate default model: the
+        // first placement becomes the default load below. Keep the historic default lookup only when at
+        // least one placement inherits the top-level model (or there is no object list at all).
+        bool every_object_owns_model = !settings.scene.objects.empty();
+        for (deren::app_config::scene_object_settings const& object : settings.scene.objects) {
+            if (object.model.empty() && object.asset.empty()) {
+                every_object_owns_model = false;
+                break;
+            }
         }
 
         // 3. Pick the model file: `model = "ask"` opens the platform's own file dialog first (the config's
@@ -68,31 +101,18 @@ namespace deren::app {
         //     default > the old model_dir/DamagedHelmet fallback). A library is never a silent
         //     opt-in for the experimental toon path: the manifest's [toon] game_toon flag is
         //     metadata here, not a render-mode switch.
-        if (config.model_path.empty() && (!settings.asset.empty() || !settings.paths.asset_library.empty())) {
-            if (settings.paths.asset_library.empty()) {
-                deren::utility::panic(std::source_location::current(),
-                                      "asset '{}' was requested but [paths] asset_library is empty (pass --asset-library <dir>).",
-                                      settings.asset);
-            }
-            deren::asset_library::asset_library const library =
-                deren::asset_library::asset_library::scan(settings.paths.asset_library);
-            if (!library.valid()) {
-                deren::utility::panic(std::source_location::current(), "cannot use asset library '{}': {}",
-                                      settings.paths.asset_library, library.error());
-            }
-            for (std::string const& warning : library.warnings()) {
-                deren::utility::log("asset library: {}", warning);
-            }
+        if (config.model_path.empty() && (!settings.asset.empty() || (!every_object_owns_model && !settings.paths.asset_library.empty()))) {
+            deren::asset_library::asset_library const& assets = ensure_library();
             deren::asset_library::asset_entry const* selected = nullptr;
             if (!settings.asset.empty()) {
-                selected = library.find(settings.asset);
+                selected = assets.find(settings.asset);
                 if (selected == nullptr) {
                     deren::utility::panic(std::source_location::current(),
                                           "asset '{}' is not in the library at '{}'.", settings.asset,
                                           settings.paths.asset_library);
                 }
             } else {
-                selected = library.default_asset();
+                selected = assets.default_asset();
                 if (selected == nullptr) {
                     deren::utility::panic(std::source_location::current(), "asset library '{}' has no default asset.",
                                           settings.paths.asset_library);
@@ -101,17 +121,79 @@ namespace deren::app {
             config.model_path = selected->model.string();
             deren::utility::log("asset library: selected '{}' ({})", selected->id, config.model_path);
         }
-        if (config.model_path.empty() && !settings.paths.model_dir.empty()) {
-            config.model_path = (std::filesystem::path(settings.paths.model_dir) / "DamagedHelmet" / "DamagedHelmet.gltf").string();
-            if (!std::filesystem::is_regular_file(config.model_path)) {
-                deren::utility::panic(std::source_location::current(), "cannot find model '{}' under configured model_dir '{}'.", "DamagedHelmet/DamagedHelmet.gltf", settings.paths.model_dir);
-            }
-        } else if (config.model_path.empty()) {
-            if (std::optional<std::filesystem::path> const located = locate_model_file()) {
+        if (config.model_path.empty() && !every_object_owns_model) {
+            if (!settings.paths.model_dir.empty()) {
+                config.model_path = (std::filesystem::path(settings.paths.model_dir) / "DamagedHelmet" / "DamagedHelmet.gltf").string();
+                if (!std::filesystem::is_regular_file(config.model_path)) {
+                    deren::utility::panic(std::source_location::current(), "cannot find model '{}' under configured model_dir '{}'.", "DamagedHelmet/DamagedHelmet.gltf", settings.paths.model_dir);
+                }
+            } else if (std::optional<std::filesystem::path> const located = locate_model_file()) {
                 config.model_path = located->string();
             } else {
                 deren::utility::panic("cannot find asset/DamagedHelmet/DamagedHelmet.gltf. run the program from the project root or pass a model path as argv[1]");
             }
+        }
+
+        // 4. Resolve every per-object asset reference. `model` and `asset` are mutually exclusive;
+        //    an entry with neither reuses the default model above. Paths are kept in the config's own
+        //    spelling (the loader resolves relative paths from the working directory), while the
+        //    DISTINCT cap compares normalized absolute paths so two spellings of one file share a load.
+        std::vector<std::string> distinct_models;
+        for (std::size_t index = 0; index < settings.scene.objects.size(); ++index) {
+            deren::app_config::scene_object_settings const& object = settings.scene.objects[index];
+            if (!object.model.empty() && !object.asset.empty()) {
+                deren::utility::panic(std::source_location::current(),
+                                      "[[scene.objects]] entry {} '{}' sets both model and asset; name one.",
+                                      index, object.name);
+            }
+            deren::utility::vessel::string model;
+            if (!object.model.empty()) {
+                model = object.model;
+            } else if (!object.asset.empty()) {
+                deren::asset_library::asset_entry const* const selected = ensure_library().find(object.asset);
+                if (selected == nullptr) {
+                    deren::utility::panic(std::source_location::current(),
+                                          "[[scene.objects]] entry {} '{}' names asset '{}', which is not in the library at '{}'.",
+                                          index, object.name, object.asset, settings.paths.asset_library);
+                }
+                model = selected->model.string();
+            } else {
+                model = config.model_path;
+            }
+            deren::app_config::model_format const format = deren::app_config::model_format_of(model);
+            if (format == deren::app_config::model_format::unsupported) {
+                deren::utility::panic(std::source_location::current(),
+                                      "[[scene.objects]] entry {} '{}' names a model with no extension this build reads: name a .gltf/.glb scene or a .ply gaussian splat cloud.",
+                                      index, object.name);
+            }
+            // THE PIPELINE AND THE LOADER MUST AGREE. A Gaussian cloud has no meshes, so a mesh
+            // pipeline cannot draw it; conversely a .glb has no splats for the gaussian pipeline.
+            bool const object_is_gaussian = format == deren::app_config::model_format::gaussian_ply;
+            if (object_is_gaussian != (object.pipeline == deren::app_config::scene_object_pipeline_gaussian)) {
+                deren::utility::panic(std::source_location::current(),
+                                      "[[scene.objects]] entry {} '{}': a .ply cloud requires pipeline = \"gaussian\" and a .gltf/.glb requires any mesh pipeline",
+                                      index, object.name);
+            }
+            std::filesystem::path const absolute = std::filesystem::absolute(model).lexically_normal();
+            std::string const key = absolute.string();
+            if (std::find(distinct_models.begin(), distinct_models.end(), key) == distinct_models.end()) {
+                if (distinct_models.size() >= deren::app_config::max_scene_assets) {
+                    deren::utility::panic(std::source_location::current(),
+                                          "[[scene.objects]] needs more than {} distinct assets; share an asset between placements or use fewer model files.",
+                                          deren::app_config::max_scene_assets);
+                }
+                distinct_models.push_back(key);
+            }
+            config.object_model_paths.push_back(std::move(model));
+        }
+        if (!config.object_model_paths.empty()) {
+            // A scene whose placements all name their own asset needs no separate top-level model:
+            // the first placement's asset becomes the default load, and slot dedupe points object 0
+            // at that same load.
+            if (config.model_path.empty()) {
+                config.model_path = config.object_model_paths.front();
+            }
+            deren::utility::log("scene: {} object asset reference(s), {} distinct model file(s)", config.object_model_paths.size(), distinct_models.size());
         }
 
         return config;

@@ -277,10 +277,12 @@ int exercise(bool adopted) {
 
     mask = 0;
     std::memcpy(flags, &mask, sizeof(mask));
+    leaf->path = deren::engine::shading_path::character;
     runtime.set_character_forward(true);
-    auto exact = record(); // ordinary PBR is re-shaded too: no toon-family exemption
+    auto exact = record(); // a routed character leaf is re-shaded at the exact (non-coarse) LOD
     CHECK(exact.geometry.index_count == leaf->meshlet_count);
     runtime.set_character_forward(false);
+    leaf->path = deren::engine::shading_path::deferred;
     leaf->environment = true;
     auto background = record();
     CHECK(background.geometry.index_count > 0 && background.geometry.index_count < leaf->meshlet_count);

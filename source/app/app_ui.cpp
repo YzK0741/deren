@@ -252,7 +252,16 @@ namespace deren::app {
                 }
                 deren::app_config::scene_object_settings const& object = objects[static_cast<std::size_t>(bindings.selected_object)];
                 deren::utility::vessel::string const name = object.name.empty() ? deren::utility::vessel::string("<unnamed>") : object.name;
-                return deren::utility::vessel::format("{}: {}", bindings.selected_object, name);
+                switch (object.pipeline) {
+                case 3:
+                    return deren::utility::vessel::format("{}: {} - game_toon, head slot {}", bindings.selected_object, name, bindings.selected_object);
+                case 4:
+                    return deren::utility::vessel::format("{}: {} - gaussian cloud, splat stage", bindings.selected_object, name);
+                case 2:
+                    return deren::utility::vessel::format("{}: {} - deferred unlit", bindings.selected_object, name);
+                default:
+                    return deren::utility::vessel::format("{}: {} - deferred lit", bindings.selected_object, name);
+                }
             });
             auto const mark_dirty = [&bindings] { bindings.scene_object_transform_dirty = true; };
             for (std::size_t i = 0; i < bindings.scene_objects->size(); ++i) {
@@ -263,10 +272,24 @@ namespace deren::app {
                 object_panel.add_vec3("  scale", &object.scale[0], 0.01f, mark_dirty).set_visible_when(selected);
                 object_panel.add_checkbox("  visible", &object.visible, [mark_dirty](bool) { mark_dirty(); }).set_visible_when(selected);
                 object_panel.add_checkbox("  cast shadow", &object.cast_shadow, [mark_dirty](bool) { mark_dirty(); }).set_visible_when(selected);
-                object_panel
-                    .add_combo("  pipeline", deren::utility::vessel::vector<deren::utility::vessel::string>{"default", "pbr", "unlit"}, &object.pipeline,
-                               [mark_dirty](std::int32_t) { mark_dirty(); })
-                    .set_visible_when(selected);
+                if (i < bindings.object_pipeline_options.size() && i < bindings.object_pipeline_choice.size()) {
+                    auto const& options = bindings.object_pipeline_options[i];
+                    deren::utility::vessel::vector<deren::utility::vessel::string> labels;
+                    labels.reserve(options.size());
+                    for (auto const& option : options) {
+                        labels.push_back(option.name);
+                    }
+                    object_panel
+                        .add_combo("  pipeline", labels, &bindings.object_pipeline_choice[i],
+                                   [&object, &bindings, i, mark_dirty](std::int32_t choice) {
+                                       auto const& choices = bindings.object_pipeline_options[i];
+                                       if (choice >= 0 && static_cast<std::size_t>(choice) < choices.size()) {
+                                           object.pipeline = choices[static_cast<std::size_t>(choice)].value;
+                                       }
+                                       mark_dirty();
+                                   })
+                        .set_visible_when(selected);
+                }
                 if (!bindings.object_environment_names.empty()) {
                     object_panel
                         .add_combo("  environment", bindings.object_environment_names, &object.environment_index,

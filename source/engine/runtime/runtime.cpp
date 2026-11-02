@@ -1017,9 +1017,10 @@ namespace deren::engine {
             //
             // EITHER LEAF LIST KEEPS IT ALIVE, and the overlay half is not a formality: a character whose only
             // remaining geometry this frame is the article's two masks (an extreme close-up can cull everything
-            // else) still has something for the pass to multiply, and a gate that only looked at `frame_visible`
-            // would drop it. See `character_forward_pass::record`, which makes the same test from its side.
-            .character_forward_pending = this->character_forward_on && (!this->frame_visible.empty() || !this->frame_overlay.empty()),
+            // else) still has something for the pass to multiply, and a gate that only looked at the character
+            // leaves would drop it. `frame_character` rather than `frame_visible`, because only leaves routed to
+            // the character stage are re-shaded; a scene with PBR-only geometry must not activate the pass.
+            .character_forward_pending = this->character_forward_on && (!this->frame_character.empty() || !this->frame_overlay.empty()),
             .gbuffer_pipeline = this->gbuffer_pipeline_mesh.has_value() || this->gbuffer_pipeline_meshlet.has_value(),
             .structures_ready = this->structures.ready() && this->structures.handle(this->frame_ring().position()) != nullptr,
             .furnace = this->furnace,

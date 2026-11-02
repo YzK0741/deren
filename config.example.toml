@@ -26,25 +26,42 @@ model = "asset/DamagedHelmet/DamagedHelmet.gltf"
 #   instanced grid (single instanced draw call stress test; 0 = off)
 grid_side = 0
 
-# ---- [scene] simple multi-object placement (PBR path only) ----
+# ---- [scene] simple multi-object placement (deferred, unlit, game_toon or gaussian) ----
 # An EMPTY or absent list keeps the historic single-object import. Each
-# [[scene.objects]] entry imports the SAME loaded model a second time, so every
-# entry shares geometry, materials and animation. Names are for the log and
-# scene tree only; positions are world metres from the character's ground
-# anchor; rotation is Y/X/Z Euler degrees applied in that order; scale is per
-# axis and pivots on that same ground anchor (a character grows out of the
-# floor, not out of its bounding-box centre). At most 16 entries.
+# [[scene.objects]] entry imports the model named by its own `model` (a file
+# path) or `asset` (an id in [paths] asset_library); an entry naming neither
+# reuses the top-level `model`. Entries naming the same file share ONE load
+# (geometry, textures and materials), so many placements do not multiply memory.
+# At most 16 entries and at most 8 DISTINCT per-object model files (plus the
+# default load). When every entry names its own asset, the top-level `model` may
+# be omitted: the first entry becomes the default load.
 #
-# The captured GameToon/character_forward stages are single-rig features and
-# reject this list in v1 (their head basis is derived from one world-space rig).
+# Names are for the log and scene tree only; positions are world metres from
+# the object's ground anchor; rotation is Y/X/Z Euler degrees applied in that
+# order; scale is per axis and pivots on that same ground anchor (an object
+# grows out of the floor, not out of its bounding-box centre). Every asset is
+# grounded on the same floor, so differently sized models stand together.
+#
+# The character stage supports multiple per-object GameToon placements. Each
+# pipeline="game_toon" entry uses ITS asset's toon sidecar and gets its own head
+# slot, up to max_game_toon_characters (16). Gaussian splat objects use the
+# shared splat stage: one global sort and one snapshot handle every visible
+# cloud, with a distinct stable id per object.
 #
 # Each entry can also override how that object is drawn:
+#   model         - .gltf/.glb path for THIS object, or a .ply cloud when
+#                   pipeline="gaussian". Empty = the top-level model.
+#   asset         - asset-library id for THIS object (needs [paths] asset_library).
+#                   Set at most one of model/asset.
 #   visible       - false skips the object's subtree in both the colour and shadow passes
 #   cast_shadow   - false keeps the object lit normally but out of the shadow map
-#   pipeline      - "default", "pbr" or "unlit". The deferred scene path shades every opaque leaf
-#                   through its G-buffer stage, so "default" and "pbr" both mean the ordinary lit
-#                   surface; "unlit" is carried per object as a material flag (bit9) that the deferred
-#                   stage reads back through the G-buffer's material id and draws as flat base colour.
+#   pipeline      - "default", "pbr", "unlit", "game_toon" or "gaussian". The deferred scene path shades every
+#                   opaque leaf through its G-buffer stage, so "default" and "pbr" both mean the
+#                   ordinary lit surface; "unlit" is carried per object as a material flag (bit9) that
+#                   the deferred stage reads back through the G-buffer's material id and draws as flat
+#                   base colour. "game_toon" sends the object's leaves to the character stage.
+#                   "gaussian" loads a .ply cloud and stages it in the splat pass; a .ply with any
+#                   other pipeline, or a mesh with pipeline="gaussian", is a startup error.
 #   environment   - HDR file name or path for THIS object's image-based lighting. Empty/"Scene
 #                   default" follows the scene-wide environment; otherwise the engine keeps up to
 #                   three additional IBL sets resident and routes this object to the matching one
@@ -53,11 +70,13 @@ grid_side = 0
 #   material_override - clone this object's materials so the multipliers below affect only it:
 #                       tint [r,g,b] (linear multiplier), metallic_scale, roughness_scale,
 #                       emissive_scale. The shared imported material is never modified.
-#   animation     - this object's clip index (0 = the first channel-bearing animation)
+#   animation     - this object's clip index (0 = the first channel-bearing animation).
+#                   The list is the OBJECT'S OWN asset's clip list; two different
+#                   models can therefore select different clips by index and name.
 #   animation_speed - playback-rate multiplier (1 = real time, 0 = frozen)
 #   animation_playing - false leaves the pose at its current time
 # These are independent per object: each entry gets its own animation controller and
-# its own clock, so two copies can play different clips at different speeds.
+# its own clock, so two objects can play different clips at different speeds.
 #
 # While the debug overlay is open, clicking an object in the viewport selects it
 # and its placement/draw settings appear in a separate "scene object" panel. Those
@@ -69,12 +88,13 @@ grid_side = 0
 #
 # [[scene.objects]]
 # name = "left"
+# model = "asset/DamagedHelmet/DamagedHelmet.gltf"   # or: asset = "damaged-helmet"
 # position = [-1.5, 0.0, 0.0]
 # rotation = [0.0, 0.0, 0.0]
 # scale = [1.0, 1.0, 1.0]
 # visible = true
 # cast_shadow = true
-# pipeline = "default"
+# pipeline = "default"   # default | pbr | unlit | game_toon | gaussian; only game_toon enters the character stage
 # environment = ""   # e.g. "studio.hdr"; empty = the scene-wide [lighting] environment_hdr
 # material_override = false
 # tint = [1.0, 1.0, 1.0]
@@ -87,6 +107,7 @@ grid_side = 0
 #
 # [[scene.objects]]
 # name = "right"
+# model = "asset/FlightHelmet/FlightHelmet.gltf"
 # position = [1.5, 0.0, 0.0]
 # rotation = [0.0, 180.0, 0.0]
 # scale = [1.0, 1.0, 1.0]

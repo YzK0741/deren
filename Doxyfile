@@ -1098,6 +1098,7 @@ INPUT                  = ./docs/managed_resources.md \
 				./docs/resource_groups.md \
 				./docs/buffer_transfers.md \
 				./docs/shaders.md \
+				./docs/multi_pipeline_objects.md \
                 ./docs/environment_lighting.md \
 				./docs/pass_io_design.md \
 				./docs/runtime_split.md \
