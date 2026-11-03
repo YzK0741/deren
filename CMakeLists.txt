@@ -1406,6 +1406,9 @@ if(VR_BUILD_TESTS)
     # source/app/app_config.cpp's and app_pipelines.cpp's shader registration) and compares them: one shader built by the build and not by the scripts is
     # the drift that test exists for, and it is the mesh path's CI gate (see the test's header).
     target_compile_definitions(test_shader_sources PRIVATE VR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    add_test(NAME test_deferred_push_layout
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/source/tests/test_deferred_push_layout.py"
+                "${CMAKE_CURRENT_BINARY_DIR}/shaders/deferred.frag.spv")
     # test_docs parses the WRITTEN artifacts the manual and CI are built from - Doxyfile's INPUT, the
     # documents themselves, CMakeLists' VR_TEST_TARGETS and the workflow that mirrors it - so it needs
     # the source root and no library at all (see the test's header for the invariants).

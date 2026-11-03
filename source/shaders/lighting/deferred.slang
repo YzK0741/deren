@@ -39,7 +39,10 @@ struct DeferredPush
     float4 ssao;
     // 1.0 = "unlit" render mode: write the stored albedo, unshaded (see runtime::set_unlit)
     float unlit;
-    // off keeps the raster loop, which is what makes the two paths exclusive rather than complementary.
+    // Reserved by deferred_pass::push_constants: the host payload is 88 bytes before it appends
+    // the indices. Omitting this word reads frame_slot as image_index and samples another frame's
+    // G-buffer, producing duplicate silhouettes under motion even with TAA disabled.
+    float punctual;
     // THE HEAP INDICES, LAST on purpose so every field above keeps its offset.
     uint frame_slot;
     uint image_index;
