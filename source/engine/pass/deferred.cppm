@@ -22,6 +22,7 @@
 module;
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <glm/glm.hpp>
@@ -149,5 +150,10 @@ export namespace deren::engine::pass {
 
     static_assert(sizeof(deferred_pass::push_constants) == render_resource::deferred_io.push->size,
                   "the lighting stage's declared push block must be the size of the struct the renderer composes");
+    static_assert(offsetof(deferred_pass::push_constants, inv_view_proj) == 0);
+    static_assert(offsetof(deferred_pass::push_constants, ssao) == 64);
+    static_assert(offsetof(deferred_pass::push_constants, unlit) == 80);
+    static_assert(offsetof(deferred_pass::push_constants, punctual) == 84);
+    static_assert(sizeof(deferred_pass::push_constants) == 88, "deferred heap indices must follow the 88-byte host payload");
 
 } // namespace deren::engine::pass
