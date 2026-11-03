@@ -1,6 +1,6 @@
 // ============================================================================
 // module: deren.engine.acceleration_structure
-// module version: 2.0.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 2.0.1  (independent of the app version in CMakeLists project(VERSION))
 //
 // Ray-tracing acceleration structures: the bottom level structures of the
 // scene's shadow casters, built from the geometry buffers the raster passes

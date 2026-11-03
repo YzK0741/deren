@@ -1,6 +1,6 @@
 // ============================================================================
 // module: deren.engine.frame_constants
-// module version: 0.4.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 0.4.1  (independent of the app version in CMakeLists project(VERSION))
 //
 // ONE FRAME'S SHARED CONSTANTS: the per-frame facts the frame loop produces and a
 // pass may read while it records.

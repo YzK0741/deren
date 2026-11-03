@@ -6,7 +6,7 @@ Vulkan types: the backend is a DLL the executable resolves **by name** at run ti
 backend (D3D12, null, ...) is a second DLL implementing the same contract - see
 [The dynamic API](#the-dynamic-api) below.
 
-Current version: **0.3.0** - single source is `project(VERSION)` in `CMakeLists.txt`
+Current version: **0.5.0** - single source is `project(VERSION)` in `CMakeLists.txt`
 (surfaced by `--version`, the startup log banner and the instance's `app_info`); bump it there
 and keep this line in sync.
 
@@ -224,7 +224,7 @@ Most modules are independent building blocks that meet only through narrow inter
 you are free to recombine or rewire them.
 
 - `deren.vstd` - the project's STL module (modified from libc++ and trimmed to the project's
-  usage; consumed as `import deren.vstd;`, module version 0.1.1a - see `source/vstd/README.md`)
+  usage; consumed as `import deren.vstd;`, module version 0.1.2a - see `source/vstd/README.md`)
 - `deren.vulkan.core` - instance / device / swapchain / VMA allocator / pipeline / descriptor
   plumbing
 - `deren.engine.scene_tree` - pure-CPU scene storage (transform hierarchy of scene_node objects

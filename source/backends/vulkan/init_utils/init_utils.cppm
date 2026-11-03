@@ -1,6 +1,6 @@
 // ============================================================================
 // module: deren.vulkan.init_utils
-// module version: 0.1.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 0.1.1  (independent of the app version in CMakeLists project(VERSION))
 //
 // The runtime's initialization utilities: the resource-creation patterns its init
 // functions repeat. Sister module: deren.vulkan.core:init_utils holds the DEVICE-side

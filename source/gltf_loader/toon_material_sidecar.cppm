@@ -1,4 +1,4 @@
-// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.0.1  (independent of the app version in CMakeLists project(VERSION))
 
 /**
  * @file source/gltf_loader/toon_material_sidecar.cppm

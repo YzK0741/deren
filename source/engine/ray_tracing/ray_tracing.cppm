@@ -1,6 +1,6 @@
 // ============================================================================
 // module: deren.engine.ray_tracing
-// module version: 2.0.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 2.0.1  (independent of the app version in CMakeLists project(VERSION))
 //
 // THE STRUCTURE PHASE: the acceleration structures every traced effect casts rays against, the map that says
 // which caster each one was built from, and the COPIES the hit-shading path reads that geometry through (the

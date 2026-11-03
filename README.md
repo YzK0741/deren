@@ -101,23 +101,26 @@ The engine CMake target is `deren_engine` (`deren::engine`). Build shader output
 
 ## Version
 
-**0.3.0** — single source of truth is `project(VERSION)` in `CMakeLists.txt`; CMake injects
+**0.5.0** — single source of truth is `project(VERSION)` in `CMakeLists.txt`; CMake injects
 `DEREN_VERSION_{MAJOR,MINOR,PATCH}` into the code. To release a new version, bump it
-there and update this line (plus `docs/mainpage.md`). The version is surfaced by `--version`,
+there and update every copy named in `AGENTS.md` (`README.md` this line, `docs/mainpage.md`,
+`submission/01-项目介绍.md`, and the tracked generated docs). The version is surfaced by `--version`,
 the startup log banner (`deren x.y.z`), and the instance's `app_info`
 (`applicationVersion` / `engineVersion`).
 
 Each **independently reusable module set** also carries its own `module version` annotation
-in a comment block at the top of its main interface unit — `deren.utility` 1.0.0 (with
-`deren.utility.shared` 1.2.0), `deren.vstd` 0.1.1a
-(the trimmed `std` replacement), `deren.gltf_loader` 1.0.0, `deren.application_configuration` 1.0.0,
-`deren.engine.math` 1.0.1,
-`deren.vulkan.constant_init` 0.9.1 (the compile-time info-struct builders that
-`deren.vulkan.core` and `deren.engine.runtime` embed), `deren.vulkan.core` 0.24.0, `deren.engine.runtime` 1.0.0,
-`deren.engine.profiling` 1.0.0, `deren.engine.pipelines` 1.0.0, `deren.engine.shadow_fit` 1.0.0,
-`deren.engine.acceleration_structure` 2.0.0,
-`deren.engine.scene_tree` 1.0.0, `deren.engine.primitive` 1.0.0, `deren.engine.animation` 1.0.0 and
-`deren.vulkan.graphical_user_interface` 1.0.0.
+in a comment block at the top of its main interface unit. The authoritative value is that
+annotation; the main reusable sets are `deren.utility` 3.0.1 (with `deren.utility.shared`
+1.3.1), `deren.vstd` 0.1.2a (the trimmed `std` replacement), `deren.gltf_loader` 2.1.1,
+`deren.application_configuration` 1.0.1, `deren.engine.math` 1.0.1,
+`deren.vulkan.constant_init` 0.9.2 (the compile-time info-struct builders that
+`deren.vulkan.core` and `deren.engine.runtime` embed), `deren.vulkan.core` 0.24.1,
+`deren.engine.runtime` 1.1.1, `deren.engine.profiling` 1.0.1, `deren.engine.pipelines` 1.0.1,
+`deren.engine.shadow_fit` 1.0.1, `deren.engine.acceleration_structure` 2.0.1,
+`deren.engine.scene_tree` 1.0.1, `deren.engine.primitive` 1.1.1, `deren.engine.animation` 1.0.1,
+`deren.vulkan.graphical_user_interface` 1.0.1 and `deren.app.renderer` 0.2.1. The pass-level
+modules and the render-resource/backend helpers carry the same annotation; their unit headers
+are authoritative.
 They evolve on their own cadence (bump MAJOR on breaking interface changes, MINOR on additive
 features, PATCH on fixes), independent of the app version and of each other. An appended `a`
 suffix marks an **internal revision**: source-compatible style, comment or import-graph changes

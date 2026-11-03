@@ -1,6 +1,6 @@
 // ============================================================================
 // module: deren.engine.shadow_fit
-// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.0.1  (independent of the app version in CMakeLists project(VERSION))
 //
 // Directional-shadow cascade fitting, as a pure CPU calculation: given the camera,
 // the scene extent and the casters' light-space bounds, produce the per-cascade

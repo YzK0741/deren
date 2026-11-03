@@ -1,6 +1,6 @@
 // ============================================================================
 // module: asset_library
-// module version: 1.0.0
+// module version: 1.0.1
 //
 // A folder-backed asset catalogue: each asset is one directory with an
 // `asset.toml` manifest, and the library root may carry a `library.toml` that

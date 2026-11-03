@@ -1,6 +1,6 @@
 // ============================================================================
 // module: deren.vulkan.error_tables
-// module version: 0.1.0a
+// module version: 0.1.1a
 //
 // THE ERROR MECHANISM'S TRANSLATION TABLES, IN A MODULE OF THEIR OWN - which is what makes them
 // reachable from BOTH halves of the RHI boundary now that the backend is a DLL (the SHARED flip).
