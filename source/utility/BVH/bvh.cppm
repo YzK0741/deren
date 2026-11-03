@@ -16,7 +16,7 @@ export import :data_block;
  * @ingroup utility
  * @brief BVH acceleration structure: AABB boxes, morton-code building, ray hit test and frustum culling
  * @note
- *      - leaf nodes live in an internal deren::utility::vessel::vector, internal nodes are heap allocated
+ *      - leaf nodes live in an internal deque, internal nodes live in a contiguous pool owned by the bvh
  *      - make() builds the tree, rebuild() rebuilds it after leaves change
  *      - consumed by the renderer: the runtime builds a per-frame bvh over scene leaf world
  *        AABBs and frustum_culls the main pass against the camera frustum
@@ -124,7 +124,7 @@ namespace deren::utility {
 
     /**
      * @ingroup bvh
-     * @brief node of the BVH tree; leaves reference internal storage, internal nodes own heap children
+     * @brief node of the BVH tree; leaves and internal nodes are owned by the containing bvh
      * @tparam T type of the attached user data
      */
     export template <typename T>
@@ -144,12 +144,13 @@ namespace deren::utility {
         data_type* extra_data = nullptr;
 
         // A node is a node of a graph whose links are raw pointers into storage the containing
-        // bvh<T> owns: internal nodes are heap-allocated and delete their non-leaf children, while
-        // leaf children point INTO bvh<T>::leaves. Copying that would alias the same subtree (two
-        // destructors deleting it) and, for the leaf form, silently outlive nothing at all - so the
-        // shallow copy the compiler would generate is never the right operation. Deleted rather than
-        // documented: the hazard is a double free, and a compile error is a better teacher than a
-        // comment. bvh<T>::add() builds leaves in place so no copy is needed anywhere.
+        // bvh<T> owns: internal nodes live in the contiguous node pool and leaf children point INTO
+        // bvh<T>::leaves. Copying that would alias the same subtree and, for the leaf form, silently
+        // outlive nothing at all - so the shallow copy the compiler would generate is never the right
+        // operation. Deleted rather than documented: the hazard is a double free, and a compile error
+        // is a better teacher than a comment. bvh<T>::add() builds leaves in place so no copy is
+        // needed anywhere. The pool owns destruction, so the node itself has no destructor that
+        // walks its children.
         bvh_node(bvh_node const&) = delete;
         bvh_node& operator=(bvh_node const&) = delete;
         bvh_node(bvh_node&&) = default;
@@ -168,14 +169,6 @@ namespace deren::utility {
 
         [[nodiscard]] bool is_leaf() const noexcept {
             return this->left == nullptr && this->right == nullptr;
-        }
-        ~bvh_node() {
-            if (this->left != nullptr && !this->left->is_leaf()) {
-                delete this->left;
-            }
-            if (this->right != nullptr && !this->right->is_leaf()) {
-                delete this->right;
-            }
         }
     };
 
@@ -220,7 +213,13 @@ namespace deren::utility {
         // swaps also keep references valid, which make() relies on when it hands its built tree
         // to the result.
         deren::utility::vessel::deque<bvh_node<T>> leaves;
-        std::unique_ptr<bvh_node<T>> root;
+        // CONTIGUOUS NODE POOL: the build used to call `new` once per internal node and delete the
+        // subtree recursively. One reserved vector makes those nodes one allocation and keeps them
+        // cache-local; `root` is a NON-OWNING pointer into this pool (or into `leaves` for the
+        // single-leaf tree). The vector must never grow after the build: every internal node points
+        // at its children's addresses. `build_from_leaves` reserves exactly `leaves.size() - 1`.
+        deren::utility::vessel::vector<bvh_node<T>> nodes;
+        bvh_node<T>* root = nullptr;
         // normalization for morton coding: world-space midpoints are mapped into [0,1]^3 by
         // (mid - origin) * scale so the morton quantizer works for AABBs anywhere in space
         glm::vec3 origin = glm::vec3(0.0f);
@@ -258,11 +257,20 @@ namespace deren::utility {
          * @param scale normalization scale (1 / scene extent)
          * @return the root node on success, error message on failure
          */
-        static std::expected<std::unique_ptr<bvh_node<T>>, deren::utility::vessel::string> build_from_leaves( // NOLINT(*-function-cognitive-complexity)
+        static std::expected<bvh_node<T>*, deren::utility::vessel::string> build_from_leaves( // NOLINT(*-function-cognitive-complexity)
             deren::utility::vessel::deque<bvh_node<T>>& leaves,
+            deren::utility::vessel::vector<bvh_node<T>>& nodes,
             glm::vec3 const& origin,
             glm::vec3 const& scale) {
             using fail = std::unexpected<deren::utility::vessel::string>;
+            // Reserve the exact upper bound before any node address is published. `emplace_back`
+            // below never reallocates after this, so every child pointer stays valid.
+            nodes.clear();
+            nodes.reserve(leaves.size() > 1 ? leaves.size() - 1 : 0);
+            auto const allocate = [&nodes] -> bvh_node<T>* {
+                nodes.emplace_back();
+                return &nodes.back();
+            };
             // Same sanitizing guard as bvh<T>::normalize(): glm::clamp propagates NaN, so without it
             // a NaN component would reach generate_morton_from_midpoint(), whose own finite check
             // would then turn a degenerate extent into a failed BUILD. Mapping it to the origin
@@ -280,7 +288,7 @@ namespace deren::utility {
                     layers[0].push_back(&*leave_it);
                     ++leave_it;
                 } else {
-                    auto* node = new bvh_node<T>();
+                    auto* node = allocate();
                     node->left = &*leave_it;
                     ++leave_it;
                     node->right = &*leave_it;
@@ -288,12 +296,6 @@ namespace deren::utility {
                     node->aabb = node->left->aabb | node->right->aabb;
                     auto code = generate_morton_from_midpoint(normalize(node->aabb.get_midpoint()), morton_quantization);
                     if (!code) {
-                        delete node;
-                        std::ranges::for_each(layers.back(), [](auto* n) {
-                            if (n != nullptr && !n->is_leaf()) {
-                                delete n;
-                            }
-                        });
                         return fail(code.error());
                     }
                     node->code = std::move(code).value();
@@ -310,7 +312,7 @@ namespace deren::utility {
                         layers.back().push_back(*layer_it);
                         ++layer_it;
                     } else {
-                        auto* node = new bvh_node<T>();
+                        auto* node = allocate();
                         node->left = *layer_it;
                         ++layer_it;
                         node->right = *layer_it;
@@ -318,12 +320,6 @@ namespace deren::utility {
                         node->aabb = node->left->aabb | node->right->aabb;
                         auto code = generate_morton_from_midpoint(normalize(node->aabb.get_midpoint()), morton_quantization);
                         if (!code) {
-                            delete node;
-                            std::ranges::for_each(layers.back(), [](auto* n) {
-                                if (n != nullptr && !n->is_leaf()) {
-                                    delete n;
-                                }
-                            });
                             return fail(code.error());
                         }
                         node->code = std::move(code).value();
@@ -332,30 +328,10 @@ namespace deren::utility {
                 }
             }
 
-            if (layers.size() == 1) {
-                // Single element on the bottom layer - two cases:
-                //  - the sole LEAF points at an element of `leaves`: it was not new'd, handing
-                //    it to a unique_ptr would double-free on destruction, so copy it to the heap.
-                //  - ONE heap-allocated internal node (exactly two leaves paired into it): take
-                //    ownership directly - copying it would leak the original.
-                bvh_node<T>* const sole = layers.back()[0];
-                if (sole->is_leaf()) {
-                    // A fresh childless node carrying the same data, NOT a copy of the node: a node
-                    // would copy the raw child links too, and this one is handed to a unique_ptr
-                    // whose destructor deletes non-leaf children - i.e. it would delete the
-                    // deque-owned leaf it was copied from. That made the correctness of the old
-                    // `new bvh_node<T>(*sole)` depend on the leaf happening to have no links, which
-                    // is exactly the kind of invariant the deleted copy operations now enforce.
-                    auto heap_leaf = std::make_unique<bvh_node<T>>();
-                    heap_leaf->aabb = sole->aabb;
-                    heap_leaf->extra_data = sole->extra_data;
-                    heap_leaf->code = sole->code;
-                    return heap_leaf;
-                }
-                return std::unique_ptr<bvh_node<T>>(sole);
-            }
-
-            return std::unique_ptr<bvh_node<T>>(layers.back()[0]);
+            // The root is a non-owning pointer: for a single leaf it points into `leaves`, and for
+            // every larger tree it points into `nodes`. Neither container is modified after the
+            // build, so no ownership transfer or extra root copy is needed.
+            return layers.back()[0];
         }
 
     public:
@@ -390,13 +366,13 @@ namespace deren::utility {
             }
             std::ranges::sort(leaves, [](auto const& a, auto const& b) { return a.code < b.code; });
 
-            auto build_result = build_from_leaves(leaves, result.origin, result.scale);
+            auto build_result = build_from_leaves(leaves, result.nodes, result.origin, result.scale);
 
             if (!build_result) {
                 return fail(build_result.error());
             }
 
-            result.root = std::move(build_result).value();
+            result.root = *build_result;
 
             // swap, not move: the built tree's internal nodes point at these leaf addresses,
             // and deque::swap keeps every element at its address (a move may not, per the
@@ -410,8 +386,10 @@ namespace deren::utility {
          * @brief rebuild the tree from the current leaves
          */
         void rebuild() {
+            // The old root points into `nodes`; it must not survive the clear below.
+            this->root = nullptr;
             if (this->leaves.empty()) {
-                this->root = nullptr;
+                this->nodes.clear();
                 return;
             }
             this->set_extent(this->leaves);
@@ -423,13 +401,13 @@ namespace deren::utility {
                 leaf.code = std::move(morton).value();
             }
             std::ranges::sort(this->leaves, [](auto const& a, auto const& b) { return a.code < b.code; });
-            auto build_result = build_from_leaves(this->leaves, this->origin, this->scale);
+            auto build_result = build_from_leaves(this->leaves, this->nodes, this->origin, this->scale);
 
             if (!build_result) {
                 return;
             }
 
-            this->root = std::move(build_result).value();
+            this->root = *build_result;
         }
 
         /**
@@ -457,7 +435,7 @@ namespace deren::utility {
          */
         deren::utility::vessel::vector<bvh_node<T>*> get_hit(glm::vec3 const& start, glm::vec3 const& direction, float t_min = 0.01f, float t_max = std::numeric_limits<float>::infinity()) const {
             deren::utility::vessel::vector<bvh_node<T>*> hits;
-            bvh_node<T>* root = this->root.get();
+            bvh_node<T>* root = this->root;
             if (root == nullptr) {
                 return hits;
             }
@@ -513,7 +491,7 @@ namespace deren::utility {
             }
 
             deren::utility::vessel::stack<bvh_node<T>*> nodes_to_process;
-            nodes_to_process.push(this->root.get());
+            nodes_to_process.push(this->root);
 
             while (!nodes_to_process.empty()) {
                 bvh_node<T>* node = nodes_to_process.top();
