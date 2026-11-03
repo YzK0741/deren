@@ -1572,7 +1572,10 @@ namespace deren::engine {
             // SAME TOPOLOGY AS `toon_screen_rim` (target preserve-write, depth/albedo sampled reads), so it reuses
             // that adapter: the node's label says "toon screen rim" in the graph's diagnostics, but the RECORDED
             // pass is this lane's own (a different pass object with its own pipeline and colour).
-            if (this->game_toon_active() && this->character_forward_pass[0] != nullptr && this->game_toon_depth_rim_pass[0] != nullptr) {
+            // `game_toon_active()` says which fragment model the character pipeline uses; it does not say
+            // that the character stage is on. The lane also requires the stage itself, or a frame with
+            // `game_toon = true` and `character_forward = false` would run a contour over PBR depth.
+            if (this->character_forward_on && this->game_toon_active() && this->character_forward_pass[0] != nullptr && this->game_toon_depth_rim_pass[0] != nullptr) {
                 pass::stage game_rim_stage{.name = "game_toon_depth_rim", .passes = this->game_toon_depth_rim_pass};
                 this->prepare_stage(game_rim_stage);
                 passes[lane_slot(lane::game_toon_depth_rim)] = this->game_toon_depth_rim_pass[0];

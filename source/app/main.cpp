@@ -296,9 +296,11 @@ namespace {
         std::size_t head_rig = 0;
         std::optional<std::size_t> head_joint = std::nullopt;
         std::optional<deren::gltf::face_frame> captured_face_frame = std::nullopt;
+        bool valid = false;
     };
     [[nodiscard]] character_stage prepare_character_stage(deren::engine::runtime& runtime, deren::app_config::app_settings const& settings,
-                                                          deren::gltf::scenes const& scenes, deren::utility::vessel::string const& model_path);
+                                                          deren::gltf::scenes const& scenes, deren::utility::vessel::string const& model_path,
+                                                          bool captured_face_frame_requested, bool publish_toon_rig);
 
 } // namespace
 
@@ -782,8 +784,22 @@ int main(int argc, char** argv) {
     // stages. The option is ignored unless the GameToon chain is on, and one copy is the shipping path.
     uint32_t game_toon_copies = 1;
     deren::utility::vessel::vector<float> game_toon_copy_offsets;
-    float const character_radius = glm::length(bounds.max - bounds.min) * 0.5f;
-    if (settings.render.game_toon && !gaussian_only) {
+    // With scene objects every placement can name its own asset; the default load then only exists to
+    // satisfy the historic single-object path. Frame the first asset the placements actually reference
+    // instead of letting an unused default model decide the floor, sink and area-light origin.
+    bool const use_scene_objects = !settings.scene.objects.empty();
+    deren::gltf::scene_bounds reference_bounds = bounds;
+    if (use_scene_objects) {
+        for (std::size_t index = 0; index < settings.scene.objects.size(); ++index) {
+            deren::gltf::scene_bounds const& asset_bounds = scene_assets[object_asset_slot[index]].bounds;
+            if (asset_bounds.valid) {
+                reference_bounds = asset_bounds;
+                break;
+            }
+        }
+    }
+    float const character_radius = glm::length(reference_bounds.max - reference_bounds.min) * 0.5f;
+    if (settings.render.game_toon && !gaussian_only && !use_scene_objects) {
         int32_t requested = settings.render.game_toon_copies;
         if (requested < 1) {
             requested = 1;
@@ -810,13 +826,15 @@ int main(int argc, char** argv) {
                                 game_toon_copies, model_path, spacing, glm::length(bounds.max - bounds.min) * 0.5f);
         }
     } else if (settings.render.game_toon_copies > 1) {
-        deren::utility::log("game_toon: ignoring game_toon_copies = {} because the GameToon chain is off", settings.render.game_toon_copies);
+        deren::utility::log("game_toon: ignoring game_toon_copies = {} because {}", settings.render.game_toon_copies,
+                            use_scene_objects ? "scene.objects owns the placements" : "the GameToon chain is off");
     }
     if (game_toon_copy_offsets.empty()) {
         game_toon_copy_offsets.push_back(0.0f);
     }
-    glm::vec3 const scene_center = bounds.min * 0.5f + bounds.max * 0.5f;
-    float const scene_radius = glm::length(bounds.max - bounds.min) * 0.5f;
+    deren::gltf::scene_bounds const& framing_bounds = use_scene_objects ? reference_bounds : bounds;
+    glm::vec3 const scene_center = framing_bounds.min * 0.5f + framing_bounds.max * 0.5f;
+    float const scene_radius = glm::length(framing_bounds.max - framing_bounds.min) * 0.5f;
 
     // 8a. THE AREA LIGHT, DERIVED ONCE (see `deren::app_config::derive_area_light` and the `[lighting] area_light_*`
     //     notes): the reference package's 30 m soft box, expressed through the frame's ONE directional light.
@@ -824,7 +842,7 @@ int main(int argc, char** argv) {
     //     because that is the frame the manifest was authored in ("the character stands at the origin"), and in
     //     Blender that origin is on the ground under it. This engine does not keep that origin as a quantity: it
     //     sinks the whole model by `scene_radius` (see `scene_sink` below), which lands the feet at
-    //     `bounds.min.y + (-scene_center.y - scene_radius)`, with world XZ at 0. That point is what is handed
+    //     `framing_bounds.min.y + (-scene_center.y - scene_radius)`, with world XZ at 0. That point is what is handed
     //     over here, and it is logged so the number can be audited against the frame. Anchoring on
     //     `scene_center` instead was wrong: the bounding-box centre sits half a body higher, ~0.85 m here, which
     //     moves the emitter's visible elevation by ~6 degrees and its azimuth by ~16 degrees.
@@ -836,7 +854,7 @@ int main(int argc, char** argv) {
     //     that existed before these keys did.
     //     The `deren::utility::vessel::array` is not decoration: `application_configuration` deliberately does not depend on glm
     //     (the derivation is unit-tested there), so this is the one place the scene's origin crosses over.
-    float const scene_floor_y = bounds.min.y - scene_center.y - character_radius;
+    float const scene_floor_y = framing_bounds.min.y - scene_center.y - character_radius;
     deren::app_config::area_light_derived const area_light =
         deren::app_config::derive_area_light(settings.lighting, deren::utility::vessel::array<float, 3>{0.0f, scene_floor_y, 0.0f});
     // `world_centre - scene_origin`, i.e. the emitter's direction FROM the author's origin, normalised by the
@@ -887,7 +905,6 @@ int main(int argc, char** argv) {
     //     in world space. A wrapper would move the rendered head without moving that basis, so the two
     //     features are refused together instead of producing a plausible but wrong frame; the GameToon
     //     X-staging path (`game_toon_copies`) remains separate and unchanged.
-    bool const use_scene_objects = !settings.scene.objects.empty();
     deren::utility::vessel::vector<glm::mat4> object_transforms;
     glm::vec3 scene_focus = scene_sink;
     float scene_fit_radius = scene_radius;
@@ -1271,7 +1288,9 @@ int main(int argc, char** argv) {
     // ---- THE TOON CHARACTER STAGE: the head frame, the captured viewer face frame and the light rig ----
     // Resolved once here (before the import) and published before the frame loop; the loop re-publishes the
     // head basis from the rig/joint/face-frame this returns - see prepare_character_stage() at the file end.
-    character_stage const stage = prepare_character_stage(runtime, settings, *scenes, model_path);
+    character_stage const stage = prepare_character_stage(runtime, settings, *scenes, model_path,
+                                                          settings.render.game_toon && model_path.find("game_toon") != deren::utility::vessel::string::npos,
+                                                          true);
 
     // ONE IMPORT PER PLACEMENT. Each placement borrows ITS asset's drawable/material stream; the historic
     // GameToon X-staging path is the fallback when the list is empty, so both keep their own offsets and
@@ -1528,6 +1547,12 @@ int main(int argc, char** argv) {
     stage_gaussian_clouds();
     deren::utility::log("imported {} primitives ({} new materials) across {} object placement(s)", total_primitive_count, total_material_count, import_count);
     runtime.log_scene_tree();
+    // The drawable iterators above are the last users of the asset material vectors. Drop the pool's
+    // non-owning pointers before the local vectors are emptied; slot 0 would otherwise dangle into the
+    // swapped-out storage for the rest of the run.
+    for (scene_asset_entry& asset : scene_assets) {
+        asset.materials = nullptr;
+    }
     decltype(materials){}.swap(materials); // streaming/lazy resources retain their shared immutable sources
 
     // Publish one head frame to every staged character: the copies differ only by their X offset, and a centre
@@ -1862,6 +1887,27 @@ int main(int argc, char** argv) {
             extra_animations.push_back(std::move(controller));
         }
     }
+    // ONE CHARACTER STAGE PER PLACEMENT. The top-level `stage` above belongs to the default load and is
+    // correct only for the historic single-object path; every scene object can name a different asset,
+    // with its own rig, face frame and toon-light-independent head sockets. Resolve each one here, after
+    // the controllers exist, so the frame loop can publish a basis in that object's own local space.
+    deren::utility::vessel::vector<character_stage> object_stages;
+    if (use_scene_objects) {
+        object_stages.resize(settings.scene.objects.size());
+        for (std::size_t index = 0; index < settings.scene.objects.size(); ++index) {
+            scene_asset_entry const& asset = scene_assets[object_asset_slot[index]];
+            if (asset.is_gaussian() || asset.scenes == nullptr) {
+                continue;
+            }
+            // Prepare every mesh placement that COULD enter the character stage, not only the objects whose
+            // startup pipeline is `game_toon`: the object panel can switch a sidecar-bearing mesh live, and
+            // a stage resolved only at startup would leave that object on the fallback head frame. The light
+            // rig was published once for the whole process by the top-level call; repeating it per asset
+            // would only add noise.
+            object_stages[index] = prepare_character_stage(runtime, settings, *asset.scenes, asset.path,
+                                                           asset.sidecar.has_value(), false);
+        }
+    }
     // Clip names for the per-object combo (captured once: the scene's clip list is fixed after init).
     deren::utility::vessel::vector<deren::utility::vessel::vector<deren::utility::vessel::string>> object_animation_names;
     object_animation_names.reserve(object_animations.size());
@@ -2003,7 +2049,10 @@ int main(int argc, char** argv) {
     // tidiness - the frame loop mirrors `gui.character_forward` into the runtime every frame, so a config value
     // that never reached the gui (the trap the two lines above record) would be overwritten by the binding's
     // default on the very first frame.
-    gui.character_forward = settings.render.character_forward;
+    // A per-object `pipeline = "game_toon"` is itself the opt-in for the character stage: the global
+    // `[render] character_forward` flag remains the historic single-character switch, not a prerequisite.
+    // The runtime would otherwise drop every routing decision this branch makes on the floor on frame 0.
+    gui.character_forward = settings.render.character_forward || has_game_toon_object;
     // ... AND THE GAME-SHADER MODEL, on the same load-bearing copy's terms: the frame loop mirrors the binding
     // into the runtime, so a config value that never reached the binding would be overwritten by its default
     // on the first frame (`runtime::set_game_toon`).
@@ -2042,6 +2091,7 @@ int main(int argc, char** argv) {
         // the initial index here; app_ui maps the chosen index back to the pipeline value.
         gui.object_pipeline_options.clear();
         gui.object_pipeline_choice.clear();
+        gui.object_is_gaussian.clear();
         for (std::size_t index = 0; index < settings.scene.objects.size(); ++index) {
             deren::app_config::scene_object_settings& object = settings.scene.objects[index];
             scene_asset_entry const& asset = scene_assets[object_asset_slot[index]];
@@ -2072,6 +2122,7 @@ int main(int argc, char** argv) {
                 object.pipeline = options.front().value;
             }
             gui.object_pipeline_choice.push_back(choice);
+            gui.object_is_gaussian.push_back(asset.is_gaussian());
         }
     }
 
@@ -2613,7 +2664,10 @@ int main(int argc, char** argv) {
         // The captured character.frag is written for the viewer's own tone map (mode 2); with the staged skin
         // payload accessors fixed, mode 2 no longer shifts skin green, so profile-on uses the captured display
         // path and the selected tone map is left for profile-off.
-        runtime.set_tone_mapping(gui.game_toon ? 2 : gui.tone_mapping);
+        // The captured display curve belongs to the character stage. A `game_toon` model flag without the
+        // stage (the historic profile-off combination, or a scene with no character leaf) keeps the
+        // operator's selected tone map instead of silently rewriting the whole frame's transfer curve.
+        runtime.set_tone_mapping(gui.game_toon && gui.character_forward ? 2 : gui.tone_mapping);
         runtime.set_exposure(gui.exposure);
         auto current_environment_state = std::tuple(gui.environment_rotation, gui.environment_strength, gui.environment_background, gui.environment_color.x, gui.environment_color.y, gui.environment_color.z, gui.environment_blur);
         if (current_environment_state != previous_environment_state) {
@@ -2675,7 +2729,70 @@ int main(int argc, char** argv) {
         // is the captured transform for a skinned asset, kept so the wiring is the same shape as the viewer's.
         // `front.w = 1.0` marks the block as the captured frame (see `head_ubo::front`); `skin_face.slang` reads
         // that flag and stops deriving `Q80` as `-head_right`.
-        if (stage.captured_face_frame.has_value()) {
+        if (use_scene_objects) {
+            // EVERY OBJECT OWNS ITS HEAD SLOT. The historic block below publishes one asset's rig to every
+            // copy; with distinct assets that would point a second character's face at the first one's
+            // head. Each object instead reads its own controller and stage, then moves the result through
+            // its placement. `joint_world` already carries that asset's import shift; only the captured
+            // bind-pose centre still needs it, because the face frame is measured in source coordinates.
+            for (std::size_t slot = 0; slot < settings.scene.objects.size() && slot < object_animations.size(); ++slot) {
+                character_stage const& object_stage = object_stages[slot];
+                if (!object_stage.valid) {
+                    continue;
+                }
+                deren::engine::animation::controller& controller = *object_animations[slot];
+                glm::mat4 const placement = object_transforms[slot];
+                auto const world_direction = [&placement](glm::vec3 const& local) {
+                    return glm::normalize(glm::mat3(placement) * local);
+                };
+                auto const world_point = [&placement](glm::vec3 const& local) {
+                    return glm::vec3(placement * glm::vec4(local, 1.0f));
+                };
+                if (object_stage.captured_face_frame.has_value()) {
+                    deren::gltf::face_frame const& frame = *object_stage.captured_face_frame;
+                    glm::vec3 world_forward = world_direction(frame.world_forward);
+                    glm::vec3 world_right = world_direction(frame.world_right);
+                    glm::vec3 center(0.0f);
+                    bool has_center = false;
+                    if (frame.head_relative) {
+                        if (std::optional<glm::mat4> const bone = controller.joint_world(frame.skin_index, frame.head_joint); bone.has_value()) {
+                            world_forward = world_direction(glm::normalize(glm::mat3(*bone) * frame.forward));
+                            world_right = world_direction(glm::normalize(glm::mat3(*bone) * frame.right));
+                            center = world_point(glm::vec3((*bone)[3]));
+                            has_center = true;
+                        }
+                    }
+                    runtime.set_head_basis(static_cast<uint32_t>(slot), deren::engine::head_ubo{
+                                                                            .front = glm::vec4(world_forward, 1.0f),
+                                                                            .right = glm::vec4(world_right, 0.0f),
+                                                                            .up = glm::vec4(glm::normalize(glm::cross(world_right, world_forward)), 0.0f),
+                                                                            .center = glm::vec4(center, has_center ? 1.0f : 0.0f)});
+                } else if (object_stage.head_joint.has_value()) {
+                    if (std::optional<glm::mat4> const bone = controller.joint_world(object_stage.head_rig, *object_stage.head_joint); bone.has_value()) {
+                        glm::mat4 const& joint = *bone;
+                        glm::vec3 const forward_row(joint[0][2], joint[1][2], joint[2][2]);
+                        glm::vec3 const right_row(joint[0][0], joint[1][0], joint[2][0]);
+                        deren::gltf::head_basis const local = deren::gltf::head_basis_from_axes(forward_row, right_row);
+                        glm::vec3 const world_forward = world_direction(local.front);
+                        glm::vec3 const world_right = world_direction(local.right);
+                        runtime.set_head_basis(static_cast<uint32_t>(slot), deren::engine::head_ubo{
+                                                                                .front = glm::vec4(world_forward, 0.0f),
+                                                                                .right = glm::vec4(world_right, 0.0f),
+                                                                                .up = glm::vec4(glm::normalize(glm::cross(world_right, world_forward)), 0.0f),
+                                                                                .center = glm::vec4(world_point(glm::vec3(joint[3])), 1.0f)});
+                    }
+                } else {
+                    deren::gltf::head_basis const local = deren::gltf::head_basis_fallback();
+                    glm::vec3 const world_forward = world_direction(local.front);
+                    glm::vec3 const world_right = world_direction(local.right);
+                    runtime.set_head_basis(static_cast<uint32_t>(slot), deren::engine::head_ubo{
+                                                                            .front = glm::vec4(world_forward, 0.0f),
+                                                                            .right = glm::vec4(world_right, 0.0f),
+                                                                            .up = glm::vec4(glm::normalize(glm::cross(world_right, world_forward)), 0.0f),
+                                                                            .center = glm::vec4(0.0f)});
+                }
+            }
+        } else if (stage.captured_face_frame.has_value()) {
             glm::vec3 world_forward = stage.captured_face_frame->world_forward;
             glm::vec3 world_right = stage.captured_face_frame->world_right;
             glm::vec3 center(0.0f);
@@ -2820,9 +2937,11 @@ int main(int argc, char** argv) {
         // visible - imported model lights were loaded into those slots, so they must stay lit in
         // headless-overlay runs too (the demo slots stay off unless the user enabled them)
         deren::app::apply_point_lights(runtime, gui, demo_lights);
-        if (settings.render.game_toon) {
-            // captured hair rim depth: width 0.368, gain 10, modest strength; the contour stage owns
-            // the only legal gbuffer_depth sample after the character pass.
+        if (gui.game_toon && gui.character_forward) {
+            // Captured hair rim depth: width 0.368, gain 10, modest strength; the contour stage owns
+            // the only legal gbuffer_depth sample after the character pass. This follows the EFFECTIVE
+            // game-toon selection (the config value or a per-object `game_toon` pipeline), not only the
+            // historic `[render] game_toon` key, so the dedicated lane never draws with pass defaults.
             runtime.set_toon_screen_rim(0.368f, 10.0f, 0.25f, 1.0f, 0.85f, 0.95f);
         }
         runtime.set_bloom(gui.bloom_enabled ? gui.bloom_intensity : 0.0f, gui.bloom_threshold); // bloom checkbox + knobs -> post pass
@@ -2987,7 +3106,8 @@ namespace {
     // viewer face frame when the loader measured one, and the toon light rig. Runs before the scene
     // import; the caller keeps the returned rig/joint/face-frame for the loop per-frame publication. ----
     character_stage prepare_character_stage(deren::engine::runtime& runtime, deren::app_config::app_settings const& settings,
-                                            deren::gltf::scenes const& scenes, deren::utility::vessel::string const& model_path) {
+                                            deren::gltf::scenes const& scenes, deren::utility::vessel::string const& model_path,
+                                            bool const captured_face_frame_requested, bool const publish_toon_rig) {
         // ---- THE HEAD FRAME the face SDF shades against, resolved once here and published every frame ----
         //
         // THE LOADER IS ASKED FIRST, and the answer is a decision this code makes rather than a constant it never
@@ -3021,7 +3141,7 @@ namespace {
         // shader which of the two it is looking at (see `head_ubo::front`); when the loader finds no face mesh the
         // block simply is not published and `skin_face.slang` keeps its historical `-head_right` derivation.
         std::optional<deren::gltf::face_frame> captured_face_frame = std::nullopt;
-        bool const publish_captured_face_frame = settings.render.game_toon && model_path.find("game_toon") != deren::utility::vessel::string::npos;
+        bool const publish_captured_face_frame = captured_face_frame_requested;
         if (publish_captured_face_frame) {
             for (std::size_t scene_index = 0; scene_index < scenes.scene.size() && !captured_face_frame.has_value(); ++scene_index) {
                 deren::gltf::face_frame frame = deren::gltf::face_frame_of(scenes, scene_index);
@@ -3084,7 +3204,7 @@ namespace {
         // PUBLISHING HERE RATHER THAN IN THE FRAME LOOP IS THE BLOCK'S CONTRACT (see core::heap_slots::toon_rig):
         // nothing rewrites it while a frame is in flight, which is what makes a write from outside the frame path
         // safe - and the cost of that is exactly this, that the write has to happen before the loop starts.
-        {
+        if (publish_toon_rig) {
             deren::engine::toon_rig rig = {};
             rig.day.x = settings.toon.day_strength;
             rig.other_light.x = settings.toon.head_light_day0;
@@ -3124,7 +3244,7 @@ namespace {
                                 rig.env.x,
                                 static_cast<int>(rig.shadow_softness.x));
         }
-        return character_stage{head_rig, head_joint, captured_face_frame};
+        return character_stage{head_rig, head_joint, captured_face_frame, true};
     }
 
 } // namespace
