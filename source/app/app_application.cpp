@@ -1,4 +1,5 @@
-#include "app_application.hpp"
+module;
+
 #define GLFW_INCLUDE_NONE // glfw3.h must not pull <GL/gl.h>: we link no OpenGL, and this states it instead of relying on the environment
 #include "../engine/lighting/environment_controls.hpp"
 #include "../engine/lighting/radiance_capture.hpp"
@@ -24,6 +25,9 @@
 #define STB_IMAGE_STATIC
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
+
+module deren.app.application;
+
 import deren.utility.shared;
 import deren.vstd;
 import deren.application_configuration;
@@ -45,11 +49,13 @@ import deren.engine.scene_tree; // scene storage + GPU primitives (was vulkan.mo
 import deren.engine.primitive;  // per-object pipeline / shadow / material-override fields on a leaf
 // the backend-creation contract (create_info): what this app hands the runtime below
 import deren.promise.rhi;
-#include "environment_loader.hpp"
 import deren.engine.runtime;
 import deren.engine.backend_loader; // load_api_core(): the app owns the acquisition (batch ⑥)
 import deren.app.renderer;          // this application's pass wiring, kept outside the renderer
 import deren.app.toon;              // the toon material lookup callbacks and procedural bakes, moved out of main
+
+// Private helper: it uses the engine and vessel declarations above, so it belongs after the imports.
+#include "environment_loader.hpp"
 
 namespace {
 
