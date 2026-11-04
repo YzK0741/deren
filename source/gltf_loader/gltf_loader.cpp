@@ -4,6 +4,7 @@ module;
 #include <fastgltf/tools.hpp>
 #include <fastgltf/types.hpp>
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 // THE ONE PLACE THIS PROJECT'S SOURCE SEES SIMDJSON, and it sees it because fastgltf reports a material's
 // `extras` block by CALLING BACK with a `simdjson::dom::object*` - there is no other way to reach that block
@@ -17,12 +18,16 @@ module;
 #include <stb/stb_image.h>
 // `std::optional`: `scenes::texture_index_by_name` answers "no such name" with one, and `load_texture`'s
 // name lookup is a lookup that can miss by design.
+#include <cmath>
+#include <fstream>
 #include <optional>
 
 module deren.gltf_loader;
 import deren.utility.shared;
 
 import deren.utility;
+
+#include "motion_binding.hpp"
 
 namespace {
     using fastgltf::Asset;

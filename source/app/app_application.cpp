@@ -201,7 +201,7 @@ namespace {
             // --mmd-motion is consumed here even though main scans argv for it itself: the app's
             // parser would otherwise treat the flag as the positional model path and panic with
             // 0xC0000409 (exactly what an unknown first positional does).
-            if (take_value(i, arg, "--mmd-motion").has_value()) {
+            if (take_value(i, arg, "--mmd-motion").has_value() || take_value(i, arg, "--motion").has_value()) {
                 continue;
             }
             if (std::optional<std::string_view> const value = take_value(i, arg, "--capture-frames")) {
@@ -303,6 +303,35 @@ namespace {
 namespace deren::app {
     int run(int argc, char** argv) {
         static_cast<void>(deren::utility::diagnostics::install_crash_handler());
+        // CPU-only authoring/verification commands run without a window or Vulkan.
+        if (argc == 3 && std::string_view(argv[1]) == "--skeleton-hash") {
+            auto model = deren::gltf::load_model(argv[2]);
+            if (!model) {
+                deren::utility::println("cannot load skeleton model");
+                return 2;
+            }
+            auto hash = deren::gltf::skeleton_fingerprint(*model);
+            if (!hash) {
+                deren::utility::println("{}", hash.error());
+                return 2;
+            }
+            deren::utility::println("skeleton_hash={}", *hash);
+            return 0;
+        }
+        if (argc == 4 && std::string_view(argv[1]) == "--verify-motion") {
+            auto model = deren::gltf::load_model(argv[2]);
+            if (!model) {
+                deren::utility::println("cannot load skeleton model");
+                return 2;
+            }
+            auto result = deren::gltf::load_motion(*model, argv[3]);
+            if (!result) {
+                deren::utility::println("motion verification failed: {}", result.error());
+                return 2;
+            }
+            deren::utility::println("motion verified: {} clip(s)", *result);
+            return 0;
+        }
         // --version: print the version (single source: project(VERSION) in CMakeLists.txt, injected
         // as DEREN_VERSION_*) and exit before any config / Vulkan init.
         for (int32_t i = 1; i < argc; ++i) {
@@ -1844,6 +1873,24 @@ namespace deren::app {
                 deren::utility::log("mmd motion: baked clip '{}' - {} samplers, {} channels", converted.name,
                                     converted.samplers.size(), converted.channels.size());
                 scenes->animations.push_back(std::move(converted));
+            }
+        }
+        for (int32_t i = 1; i < argc; ++i) {
+            auto const argument = std::string_view(argv[i]);
+            bool const equals_form = argument.starts_with("--motion=");
+            if (argument == "--motion" || equals_form) {
+                if (!equals_form && i + 1 == argc) {
+                    deren::utility::panic("--motion requires a glTF path");
+                }
+                deren::utility::vessel::string const motion_path(equals_form ? argument.substr(9) : std::string_view(argv[i + 1]));
+                if (use_scene_objects) {
+                    deren::utility::panic("--motion currently requires the single-model scene path");
+                }
+                auto const result = deren::gltf::load_motion(*scenes, motion_path);
+                if (!result) {
+                    deren::utility::panic(std::source_location::current(), "motion verification failed: {}", result.error());
+                }
+                deren::utility::log("motion verified: {} clip(s) from '{}'", *result, motion_path);
             }
         }
         // ONE CONTROLLER PER PLACEMENT. Every controller is bound to its own import_instance and

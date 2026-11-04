@@ -685,7 +685,143 @@ void test_subtilis_extraction() {
     std::filesystem::remove_all(dir, ec);
     CHECK(!ec);
 }
+void test_standalone_motion_binding() {
+    auto target = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/source/tests/fixtures/animated_skin_plane.gltf");
+    auto motion = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/source/tests/fixtures/animated_skin_plane.gltf");
+    CHECK(target.has_value() && motion.has_value());
+    if (!target || !motion) {
+        return;
+    }
+    auto hash = deren::gltf::skeleton_fingerprint(*target);
+    CHECK(hash.has_value());
+    if (!hash) {
+        return;
+    }
+    // Reordering file node IDs must not change the binding contract.
+    motion->node_by_source.clear();
+    for (auto& scene : motion->scene) {
+        for (auto& node : scene.nodes) {
+            node.source_index += 100;
+            motion->node_by_source.emplace(node.source_index, &node);
+        }
+    }
+    for (auto& skin : motion->skins) {
+        for (auto& joint : skin.joints) {
+            joint += 100;
+        }
+    }
+    for (auto& clip : motion->animations) {
+        for (auto& channel : clip.channels) {
+            channel.target_node += 100;
+        }
+    }
+    CHECK(deren::gltf::skeleton_fingerprint(*motion) == hash);
+    auto const count = target->animations.size();
+    CHECK(deren::gltf::bind_motion(*target, *motion, *hash).has_value());
+    CHECK(target->animations.size() == count + motion->animations.size());
+    CHECK(target->animations.back().channels[0].target_node < 100);
+    auto const unchanged = target->animations.size();
+    // Matching matrix hashes alone do not make matrix-only base poses playable:
+    // rotation sampling must preserve the target node's actual translation/scale.
+    auto const animated = target->animations.back().channels[0].target_node;
+    for (auto& scene : target->scene) {
+        for (auto& node : scene.nodes) {
+            if (node.source_index == animated) {
+                node.local_transform[3][0] += 0.25f;
+            }
+        }
+    }
+    for (auto& scene : motion->scene) {
+        for (auto& node : scene.nodes) {
+            if (node.source_index == animated + 100) {
+                node.local_transform[3][0] += 0.25f;
+            }
+        }
+    }
+    auto matrix_hash = deren::gltf::skeleton_fingerprint(*target);
+    CHECK(matrix_hash);
+    if (matrix_hash) {
+        CHECK(!deren::gltf::bind_motion(*target, *motion, *matrix_hash));
+        CHECK(target->animations.size() == unchanged);
+    }
+    for (auto& scene : target->scene) {
+        for (auto& node : scene.nodes) {
+            if (node.source_index == animated) {
+                node.local_transform[3][0] -= 0.25f;
+            }
+        }
+    }
+    for (auto& scene : motion->scene) {
+        for (auto& node : scene.nodes) {
+            if (node.source_index == animated + 100) {
+                node.local_transform[3][0] -= 0.25f;
+            }
+        }
+    }
+    motion->scene[0].nodes[0].local_transform[3][0] += 0.25f;
+    CHECK(!deren::gltf::bind_motion(*target, *motion, *hash));
+    CHECK(target->animations.size() == unchanged);
+    motion->scene[0].nodes[0].local_transform[3][0] -= 0.25f;
+    motion->animations[0].samplers[0].times[0] = -1.0f;
+    CHECK(!deren::gltf::bind_motion(*target, *motion, *hash));
+    CHECK(target->animations.size() == unchanged);
+}
+
+void test_standalone_motion_file() {
+    auto target = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/source/tests/fixtures/animated_skin_plane.gltf");
+    CHECK(target);
+    if (!target) {
+        return;
+    }
+    auto hash = deren::gltf::skeleton_fingerprint(*target);
+    CHECK(hash);
+    if (!hash) {
+        return;
+    }
+    auto dir = std::filesystem::temp_directory_path() / "deren-motion-binding-test";
+    std::filesystem::create_directories(dir);
+    auto path = dir / "motion.gltf";
+    float const keys[] = {0, 1, 0, 0, 0, 1, 0, 0, 0.6f, 0.8f};
+    {
+        std::ofstream bin(dir / "motion.bin", std::ios::binary);
+        bin.write(reinterpret_cast<char const*>(keys), sizeof(keys));
+    }
+    std::string json = R"({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],
+        "nodes":[{"name":"root","children":[1]},{"name":"pole","translation":[-1,0,0],"children":[2]},{"name":"arm"}],
+        "buffers":[{"uri":"motion.bin","byteLength":40}],
+        "bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":8},{"buffer":0,"byteOffset":8,"byteLength":32}],
+        "accessors":[{"bufferView":0,"componentType":5126,"count":2,"type":"SCALAR","min":[0],"max":[1]},
+                     {"bufferView":1,"componentType":5126,"count":2,"type":"VEC4"}],
+        "animations":[{"samplers":[{"input":0,"output":1}],"channels":[{"sampler":0,"target":{"node":2,"path":"rotation"}}]}],
+        "extras":{"deren_motion":{"binding":"bip001-rest-v1","joints":[1,2],"skeleton_hash":")";
+    json.append(hash->data(), hash->size());
+    json += "\"}}}";
+    auto write = [&](std::string const& text) {
+        std::ofstream output(path);
+        output << text;
+    };
+    write(json);
+    auto const before = target->animations.size();
+    CHECK(deren::gltf::load_motion(*target, path.string()));
+    CHECK(target->animations.size() == before + 1);
+    auto invalid = json;
+    invalid.replace(invalid.find("\"node\":2"), 8, "\"node\":999");
+    write(invalid);
+    CHECK(!deren::gltf::load_motion(*target, path.string()));
+    CHECK(target->animations.size() == before + 1);
+    invalid = json;
+    invalid.replace(invalid.find("skeleton_hash") + 16, 1, "x");
+    write(invalid);
+    CHECK(!deren::gltf::load_motion(*target, path.string()));
+    CHECK(target->animations.size() == before + 1);
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+    CHECK(!ec);
+}
+
 int32_t main() {
+    test_standalone_motion_binding();
+    test_standalone_motion_file();
     test_subtilis_extraction();
     test_consuming_resolve_moves_decoded_pixels();
     test_resolved_mip_payload_has_no_undeclared_tail();
