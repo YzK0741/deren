@@ -102,7 +102,7 @@ and the mapping pointer it guards is therefore never built. They went with the r
 
 ### (e) What was measured on the first runs
 
-Two runs of `--config build-release-clang64\render-check\default.toml --capture-frames 1` with
+Two runs of `--config build\render-check\default.toml --capture-frames 1` with
 validation on. **The first** found two blockers; both were fixed and the second run passed them:
 
 1. **The heap flag is not optional when the layout is null.** Measured:
@@ -217,8 +217,8 @@ image, which is why it survived every fix that changed what the frame does.
 ## How to finish and verify
 
 ```powershell
-cmake --build build-release-clang64            # must be exit 0
-ctest --test-dir build-release-clang64         # every test target (43 today)
+cmake --build build            # must be exit 0
+ctest --test-dir build         # every test target (43 today)
 pwsh scripts\windows\check_render.ps1          # the scenario set, changed must be 0
 ```
 

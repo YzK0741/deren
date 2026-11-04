@@ -1,7 +1,7 @@
 # Runs the opt-in numerical raster probe through a hidden two-frame application run.
 param(
     [Parameter(Mandatory = $true)][string]$Config,
-    [string]$BuildDir = "build-release-dyn-clang64",
+    [string]$BuildDir = "build",
     [string]$WorkDir = ""
 )
 $ErrorActionPreference = "Stop"

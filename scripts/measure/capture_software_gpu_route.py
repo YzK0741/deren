@@ -281,7 +281,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--work', type=Path, required=False)
     parser.add_argument('--asset', type=Path, required=False)
-    parser.add_argument('--exe', type=Path, default=Path('build-release-dyn-clang64/deren.exe'))
+    parser.add_argument('--exe', type=Path, default=Path('build/deren.exe'))
     parser.add_argument('--mode', choices=('gpu', 'cpu', 'fallback'), default='gpu')
     parser.add_argument('--camera', choices=tuple(CAMERAS), default='fixture')
     parser.add_argument('--frames', type=int, default=8)

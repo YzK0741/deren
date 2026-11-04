@@ -51,7 +51,7 @@ FRAMES = 130
 EXTENT = (1280, 720)
 ASSET = Path("D:/deren-assets/2026-10-21-object-lod/bistro-object-lod.glb")
 ASSET_SHA256 = "620f424239909d023b30dd86fe953c579298a39ef2d4706bca59fc0d2982085b"
-EXE = Path("build-release-dyn-clang64/deren.exe")
+EXE = Path("build/deren.exe")
 
 # M1c's accepted numbers this gate is defined against (historical development record §4/§8):
 #   far GPU 24.46 -> 20.11 ms (session average, 130 frames), cut clusters 41,030, cut triangles 3,318,617,

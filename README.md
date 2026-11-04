@@ -73,7 +73,7 @@ python scripts/build_helpers/run.py --model path/to/model.glb -- --demo gui
 python scripts/build_helpers/build_docs.py
 ```
 
-Build directories remain `build-<config>-clang64/` on Windows and `build-<config>/` on POSIX.
+Release builds go to `build/` and Debug builds to `build-debug/`; pass `--build-dir` to either helper to override.
 Windows-only capture, gate and probe scripts live in `scripts/gates/`; platform environment setup
 lives in `scripts/setup/`. There are no per-platform build/run wrappers any more.
 
@@ -212,7 +212,7 @@ Measured on the screenshot above (RTX 4060 Laptop, 1280x720): **562,974 splats**
 # the cloud is checked in under asset/flowers (CC BY 4.0, Git LFS); after cloning:
 git lfs pull
 #   config.toml:  model = "asset/flowers/flowers_1.ply"
-./build-release-dyn-clang64/deren.exe    # left-drag orbit, wheel zoom, F12 screenshot, F1 panel, ESC quit
+./build/deren.exe    # left-drag orbit, wheel zoom, F12 screenshot, F1 panel, ESC quit
 ```
 
 `docs/gaussian_splatting.md` carries the pipeline, the numbers, the two engine gaps still open and the placeholder triangle's reasons; `docs/gaussian_loader.md` is the loader itself.
@@ -298,8 +298,8 @@ Related source docs (tracked in the repo):
 - CMake ≥ 4.3 and a compiler with C++23 / C++20 modules support (this project builds with MSYS2 clang64's clang + libc++, the toolchain `source/vstd/vstd.cppm` and `.github/workflows/ci.yml` are both tied to)
 - [Vulkan SDK](https://vulkan.lunarg.com/sdk/home): what `find_package(Vulkan REQUIRED)` resolves against, and one of the places `slangc` can come from (`Bin/slangc.exe`; MSYS2 ships no Slang package). VMA is **not** taken from its `Include/`: `deren.vulkan.core:vma` includes the vendored `source/third_party/vma/vk_mem_alloc.h`, preferred because distro Vulkan packages do not ship that header
 - System packages: `glfw3`, `glm`, `tomlplusplus` (header-only; MSYS2 `mingw-w64-clang-x86_64-{glfw,glm,tomlplusplus}`)
-- Everything else is vendored under `source/third_party/`: `spirv-reflect`, Dear ImGui (GLFW/Vulkan backends), xxHash, **fastgltf + simdjson** (the glTF parser and its JSON backend, compiled from source into a `fastgltf_vendored` target), **stb_image** (texture decode), **mimalloc** (the allocator behind `deren::utility::memory` and therefore every `vessel` container, compiled into a `mimalloc_vendored` static target), **Boost.Graph** (the render-graph core's adjacency backend, vendored as headers) and **VRDX** (the GPU radix sort the Gaussian path uses, vendored as a single-header library). No system fastgltf/simdjson/mimalloc package and no network fetch is needed — the build is self-contained on both Windows/MSYS2 and Linux. `glfw3`, `mimalloc`, `xxHash` and the other vendored libraries are still linked statically, but the **Windows Release** executable is a dynamic-C++-runtime build: it imports `libc++.dll` and needs four first-party images beside it — `deren_assets.dll` (the asset-loading stack, linked through its import library so the loader brings it in before `main`), `deren_vulkan.dll` and `deren_gui_vulkan.dll` (the two graphics plugins, each exporting one `deren_*` entry and each resolved BY NAME at run time) and `shared_utility.dll` (the process-wide log sink) — plus the build's compiled `source/shaders/` directory. `build-release-dyn-clang64/deren.exe` is therefore no longer a single portable file, and the CI artifact uploads exactly this package. Debug builds are dynamic for the same reason.
-- **Toolchains**: the build files carry an **MSVC** branch beside the clang64 one, and it is not what the scripts or CI drive (`scripts/build_helpers/build.py` requires `clang++` and pins its directories to `build-<config>-clang64`; `.github/workflows/ci.yml` installs MSYS2 clang64). cl.exe cannot use the clang64 packages' include roots, so three cache variables point the build at unpacked copies instead: `VR_GLM_INCLUDE_DIR` (a directory containing the `glm/` subtree), `VR_GLFW_ROOT` (an unpacked GLFW release: `include/` + `lib-vc2022/`) and `VR_TOMLPP_INCLUDE_DIR` (the `toml++/` subtree). MSVC also builds `source/vstd/vstd_msvc.cppm` instead of `source/vstd/vstd.cppm`: the latter re-exports `std` partition by partition, which crashes cl.exe's front end (`C1001`) on `std::span` / `std::array` / `std::tuple` instantiation, so under MSVC `deren.vstd` re-exports the toolchain's own `std` module and the STL semantics are MSVC's rather than libc++'s. Some clang flags have no MSVC equivalent and are dropped instead of approximated - the comment above the MSVC branch in `CMakeLists.txt` lists them (`-fno-exceptions`, `-fno-rtti`, `-flto`, `-march=native`, `-static`, ...) - so the two toolchains do not produce the same binary shape (and neither Release build ships as a single file any more; see the bullet above).
+- Everything else is vendored under `source/third_party/`: `spirv-reflect`, Dear ImGui (GLFW/Vulkan backends), xxHash, **fastgltf + simdjson** (the glTF parser and its JSON backend, compiled from source into a `fastgltf_vendored` target), **stb_image** (texture decode), **mimalloc** (the allocator behind `deren::utility::memory` and therefore every `vessel` container, compiled into a `mimalloc_vendored` static target), **Boost.Graph** (the render-graph core's adjacency backend, vendored as headers) and **VRDX** (the GPU radix sort the Gaussian path uses, vendored as a single-header library). No system fastgltf/simdjson/mimalloc package and no network fetch is needed — the build is self-contained on both Windows/MSYS2 and Linux. `glfw3`, `mimalloc`, `xxHash` and the other vendored libraries are still linked statically, but the **Windows Release** executable is a dynamic-C++-runtime build: it imports `libc++.dll` and needs four first-party images beside it — `deren_assets.dll` (the asset-loading stack, linked through its import library so the loader brings it in before `main`), `deren_vulkan.dll` and `deren_gui_vulkan.dll` (the two graphics plugins, each exporting one `deren_*` entry and each resolved BY NAME at run time) and `shared_utility.dll` (the process-wide log sink) — plus the build's compiled `source/shaders/` directory. `build/deren.exe` is therefore no longer a single portable file, and the CI artifact uploads exactly this package. Debug builds are dynamic for the same reason.
+- **Toolchains**: the build files carry an **MSVC** branch beside the clang64 one, and it is not what the scripts or CI drive (`scripts/build_helpers/build.py` requires `clang++` and uses `build/` for Release and `build-debug/` for Debug; `.github/workflows/ci.yml` installs MSYS2 clang64). cl.exe cannot use the clang64 packages' include roots, so three cache variables point the build at unpacked copies instead: `VR_GLM_INCLUDE_DIR` (a directory containing the `glm/` subtree), `VR_GLFW_ROOT` (an unpacked GLFW release: `include/` + `lib-vc2022/`) and `VR_TOMLPP_INCLUDE_DIR` (the `toml++/` subtree). MSVC also builds `source/vstd/vstd_msvc.cppm` instead of `source/vstd/vstd.cppm`: the latter re-exports `std` partition by partition, which crashes cl.exe's front end (`C1001`) on `std::span` / `std::array` / `std::tuple` instantiation, so under MSVC `deren.vstd` re-exports the toolchain's own `std` module and the STL semantics are MSVC's rather than libc++'s. Some clang flags have no MSVC equivalent and are dropped instead of approximated - the comment above the MSVC branch in `CMakeLists.txt` lists them (`-fno-exceptions`, `-fno-rtti`, `-flto`, `-march=native`, `-static`, ...) - so the two toolchains do not produce the same binary shape (and neither Release build ships as a single file any more; see the bullet above).
 
 #### Platform
 
@@ -356,7 +356,7 @@ Measured reference device (this repository's development machine, and the hardwa
 
 #### Disk & data
 
-- Each build tree is **~3.2 GB** measured (a Release tree with all test targets, `build-release-clang64`). A clean configure+build needs that much free space plus the object/PDB growth of a Debug tree if you keep one too.
+- Each build tree is **~3.2 GB** measured (a Release tree with all test targets, `build/`). A clean configure+build needs that much free space plus the object/PDB growth of a Debug tree if you keep one too.
 - **Sample assets ship in `asset/`; the larger regression character models do not.** The default model is `asset/DamagedHelmet/DamagedHelmet.gltf`, and the README screenshots use the assets under `asset/` (see [`asset/README.md`](asset/README.md) for their separate terms). The character models used for some regression scenarios are tens of megabytes each and are not in the repository: put those `.glb` files under `chars/` next to the executable, or point `model` in `config.toml` elsewhere. A scenario whose model file is absent fails at load with a panic naming the path — that is a missing input, not a rendering bug.
 
 ### Manual build
@@ -376,10 +376,10 @@ cmake --build build
 Run from the project root or any build directory (the program walks upward to locate `source/shaders/` and `asset/` when they are not configured):
 
 ```bash
-./build-release/deren                # or build-release-clang64/deren.exe on Windows
+./build/deren                # or build\deren.exe on Windows
 # or load a different model / lay it out as an instancing grid:
-./build-release/deren path/to/model.glb
-./build-release/deren path/to/model.glb 8   # grid_side 8: one instanced draw call
+./build/deren path/to/model.glb
+./build/deren path/to/model.glb 8   # grid_side 8: one instanced draw call
 ```
 
 By default it loads `asset/DamagedHelmet/DamagedHelmet.gltf` and renders it with PBR + IBL. Controls: **left-drag** to orbit, **wheel** to zoom, **drag the window border** to resize (the swapchain is recreated on the fly), **ESC** to quit. Loaded models that carry keyframe animations (e.g. glTF-Sample-Assets `AnimatedCube` / `BoxAnimated`) play automatically on a loop.
@@ -390,7 +390,7 @@ Startup is driven by a TOML config file — copy `config.example.toml` to
 `config.toml` (working directory) or point at one explicitly:
 
 ```bash
-./build-release/deren --config my_config.toml
+./build/deren --config my_config.toml
 ```
 
 Two helpers generate `config.toml` for you: `make_default_config.py`
@@ -404,18 +404,18 @@ Two extra dev-tool flags make a render reproducible without a human at the keybo
 
 ```bash
 # render 120 frames, save a screenshot through the same path F12 uses, then quit
-./build-release/deren --config my_config.toml --capture-frames 120
+./build/deren --config my_config.toml --capture-frames 120
 
 # ... and force the view first: yaw,pitch,distance in degrees / scene units, plus an optional
 # orbit target (6 numbers instead of 3)
-./build-release/deren --capture-frames 120 --capture-camera 31,0,10,0,-18,0
+./build/deren --capture-frames 120 --capture-camera 31,0,10,0,-18,0
 ```
 
 Two more make a capture of something that MOVES as reproducible as a still one, for the same reason: both advance by the **frame index** rather than by the wall clock, so two runs of one capture are byte-identical. `--capture-sweep <deg of yaw per frame>` orbits the camera (without it every reprojection path in the renderer is only ever exercised in its trivial case - a motion vector of zero), and `--capture-animation-sweep <seconds per frame>` advances the keyframe animation:
 
 ```bash
 # move the camera 0.5 deg per frame, and the animation 0.02 s per frame
-./build-release/deren --capture-frames 40 --capture-sweep 0.5 --capture-animation-sweep 0.02
+./build/deren --capture-frames 40 --capture-sweep 0.5 --capture-animation-sweep 0.02
 ```
 
 `--capture-animation-sweep` is what makes a **deforming** mesh measurable at all: pinning the pose with `[render] animation_time` makes a capture reproducible but uploads the same skin matrices every frame, so the deformation term of every motion vector is exactly zero and the frame cannot tell a deformation-aware renderer from one that ignores deformation. The two flags are mutually exclusive - a pinned pose never advances the clock, and the run logs that it ignored the sweep.

@@ -2,7 +2,7 @@
 # Config must name a PLY cloud and enable validation_layers. Inspect the saved image as well as the log.
 param(
     [Parameter(Mandatory = $true)][string]$Config,
-    [string]$BuildDir = 'build-release-dyn-clang64',
+    [string]$BuildDir = 'build',
     [string]$WorkDir = '',
     [ValidateRange(320, 3840)][int]$Width = 960,
     [ValidateRange(240, 2160)][int]$Height = 640,

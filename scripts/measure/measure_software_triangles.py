@@ -15,7 +15,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--work', required=True, type=Path)
     parser.add_argument('--asset', required=True, type=Path)
-    parser.add_argument('--exe', type=Path, default=Path('build-release-dyn-clang64/deren.exe'))
+    parser.add_argument('--exe', type=Path, default=Path('build/deren.exe'))
     args = parser.parse_args()
     work, asset, exe = args.work.resolve(), args.asset.resolve(), args.exe.resolve()
     work.mkdir(parents=True, exist_ok=False)

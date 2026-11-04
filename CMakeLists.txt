@@ -15,6 +15,11 @@ set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "f35a9ac6-8463-4d38-8eec-5d6008153e7d" CAC
 
 project(deren VERSION 0.5.0)
 
+# Generate compile_commands.json for clangd and the VS Code C/C++ linter. This is
+# build metadata only - it does not change any compiled artifact.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL
+    "Generate compile_commands.json for clangd and VS Code.")
+
 # Unsanitized DLLs import the same libc++ BMIs as sanitizer-enabled executables.
 # Their templates must not retain optional container-overflow runtime calls.
 # Compiler ASan/UBSan instrumentation remains enabled in the sanitized targets.
@@ -614,7 +619,7 @@ target_include_directories(deren_vulkan
 #
 # THE LEGACY BUILD TREE (`build-release-clang64`) IS RETIRED AS A CONFIGURATION, and its cache still
 # names the old option: re-configuring that directory now builds exactly what the surviving tree
-# (`build-release-dyn-clang64`) builds, because there is no switch to leave stale. Nothing in the
+# (`build`) builds, because there is no switch to leave stale. Nothing in the
 # repository points at it any more - the gates run in the surviving tree.
 # ================================================================================================
 set(VR_RUNTIME_MODULES

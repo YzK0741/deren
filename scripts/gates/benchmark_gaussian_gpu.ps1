@@ -1,4 +1,4 @@
-param([string]$BuildDir = 'build-release-dyn-clang64', [string]$WorkDir = '')
+param([string]$BuildDir = 'build', [string]$WorkDir = '')
 $ErrorActionPreference = 'Stop'
 $buildPath = (Resolve-Path -LiteralPath $BuildDir).Path
 if (-not $WorkDir) { $WorkDir = Join-Path $buildPath 'gaussian-gpu-benchmark' }

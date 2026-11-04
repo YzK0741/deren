@@ -129,14 +129,14 @@ if ($Update -and $ExtraConfig.Count -gt 0) {
     exit 1
 }
 $repo = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-if (-not $BuildDir) { $BuildDir = Join-Path $repo "build-release-clang64" }
+if (-not $BuildDir) { $BuildDir = Join-Path $repo "build" }
 $exe = Join-Path $BuildDir "deren.exe"
 if (-not (Test-Path $exe)) { Write-Error "no executable at $exe - build first (-BuildDir to point elsewhere)"; exit 1 }
 
 # CANONICALIZE THE BUILD DIR, and this is a measured defect rather than tidiness: the scenario config carries
 # `screenshot_dir = <BuildDir>\render-check` and the app is then launched with that directory as its WORKING
 # directory, so a RELATIVE -BuildDir writes a relative path into the config and the two bases no longer agree
-# about where the screenshot lands. The symptom is a FALSE FLAKY: with `-BuildDir build-release-clang64`,
+# about where the screenshot lands. The symptom is a FALSE FLAKY: with `-BuildDir build`,
 # `sponza` reported 1D72F82B946F0338 against 54B854F69AEAA620, neither of them the reference, while the
 # same binary with an absolute -BuildDir returned the reference BF180E98ADB29E7E twice. Resolving here makes
 # both spellings mean the same run.

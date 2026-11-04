@@ -3,7 +3,7 @@
 # The model is an explicit input: the sample assets are not in this repository, so
 # there is no asset-relative default (and no maintainer-local absolute path).
 param(
-    [string]$BuildDir = 'build-release-dyn-clang64',
+    [string]$BuildDir = 'build',
     [Parameter(Mandatory = $true)]
     [string]$Model,
     [int]$Frames = 40,

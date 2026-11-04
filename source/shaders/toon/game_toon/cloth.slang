@@ -10,7 +10,7 @@
 //     keywords: _DIFF_RAMP_ON _EMISSION _METALLICSPECGLOSSMAP _NORMALMAP _SPEC_RAMP_ON,
 //               plus _ANISOTROPY_SPECULAR_ON _CLEARCOAT DITHER on the record
 //   channel/formula map: docs/references/toon/cloth_port_map.md
-//   material lanes:      build-release-dyn-clang64/chars/laevatain_goo.glb.toon.tsv (+ the other characters')
+//   material lanes:      build/chars/laevatain_goo.glb.toon.tsv (+ the other characters')
 //
 // THE BOUNDARY THIS FILE KEEPS:
 //  * the GAME'S SURFACE RESPONSE is translated: the P/ORM channel dictionary, the packed normal decode, the

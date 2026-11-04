@@ -15,7 +15,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--work', required=True, type=Path)
     parser.add_argument('--asset', required=True, type=Path)
-    parser.add_argument('--exe', type=Path, default=Path('build-release-dyn-clang64/deren.exe'))
+    parser.add_argument('--exe', type=Path, default=Path('build/deren.exe'))
     parser.add_argument('--triangles', action='store_true', help='Opt in to triangle-driven atomic prototype')
     parser.add_argument('--edge-routing', action='store_true')
     args = parser.parse_args()

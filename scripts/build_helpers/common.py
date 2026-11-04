@@ -24,14 +24,18 @@ IS_WINDOWS = os.name == "nt"
 def build_dir_for(config: str, explicit: Optional[str] = None) -> Path:
     """Return the build directory for a CMake configuration.
 
-    The historical layout is kept: Windows uses build-<config>-clang64 and
-    POSIX uses build-<config>.  ``explicit`` overrides either layout.
+    ``build/`` is the canonical Release tree and ``build-debug/`` is the
+    canonical Debug tree.  The older ``build-<config>-clang64`` /
+    ``build-<config>`` names are no longer written by this helper.
+    ``explicit`` overrides the layout.
     """
     if explicit:
         path = Path(explicit)
         return path if path.is_absolute() else REPO_ROOT / path
-    suffix = "-clang64" if IS_WINDOWS else ""
-    return REPO_ROOT / ("build-" + config.lower() + suffix)
+    lowered = config.lower()
+    if lowered == "release":
+        return REPO_ROOT / "build"
+    return REPO_ROOT / ("build-" + lowered)
 
 
 def executable_for(config: str, explicit_dir: Optional[str] = None) -> Path:

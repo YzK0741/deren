@@ -17,7 +17,7 @@ rem `config.toml`, `chars\`, `shaders\`) resolve from.
 rem ------------------------------------------------------------------------------------------------------------------
 setlocal
 set "REPO=%~dp0..\.."
-set "BUILD=%REPO%\build-release-clang64"
+set "BUILD=%REPO%\build"
 if not exist "%BUILD%\deren.exe" (
     echo run.cmd: "%BUILD%\deren.exe" does not exist - build it first:
     echo     cmake -S "%REPO%" -B "%BUILD%"

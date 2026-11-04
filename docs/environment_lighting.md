@@ -9,7 +9,7 @@ The new controls operate on that pipeline; they do not add scene reflections or 
 Fetch an optional Studio Neutral panorama into the build's preset directory:
 
 ```text
-python scripts/assets/fetch_environment.py --output build-release-dyn-clang64/environments
+python scripts/assets/fetch_environment.py --output build/environments
 ```
 
 The script pins the Sample Viewer environment revision and verifies SHA256. Studio Neutral is

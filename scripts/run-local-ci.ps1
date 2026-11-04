@@ -19,13 +19,12 @@ $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
 Push-Location $repo
 try {
-    # WHICH BUILD TREE. The old default was a hand-made directory name (`build-release-dyn-clang64`)
-    # that no documented command creates, so a fresh clone that had just run
-    # `python scripts/build_helpers/build.py --type Release` got "build directory not found".
-    # Default to what that builder produces - build-<config>-clang64 on Windows, build-<config> on
-    # POSIX (scripts/build_helpers/common.py) - and then to the hand-made tree this checkout uses.
-    # -BuildDir always wins, and a path that does not exist is still reported by name.
-    $releaseCandidates = @("build-release-clang64", "build-release", "build-release-dyn-clang64")
+    # WHICH BUILD TREE. `build/` is the canonical Release tree written by
+    # `python scripts/build_helpers/build.py --type Release`; older checkouts may
+    # still have the historical build-<config>-clang64 / build-<config> names, so
+    # keep those as fallbacks. -BuildDir always wins, and a path that does not
+    # exist is still reported by name.
+    $releaseCandidates = @("build", "build-release-clang64", "build-release")
     if (-not $BuildDir) {
         $BuildDir = @($releaseCandidates | Where-Object { Test-Path -LiteralPath (Join-Path $repo $_) })[0]
     }

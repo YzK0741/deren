@@ -251,8 +251,8 @@ def self_test() -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--asset", type=Path, default=Path("D:/deren-assets/2026-10-21-object-lod/bistro-object-lod.glb"))
-    parser.add_argument("--exe", type=Path, default=Path("build-release-dyn-clang64/deren.exe"))
-    parser.add_argument("--work", type=Path, default=Path("build-release-dyn-clang64/render-optimization-comparison"))
+    parser.add_argument("--exe", type=Path, default=Path("build/deren.exe"))
+    parser.add_argument("--work", type=Path, default=Path("build/render-optimization-comparison"))
     parser.add_argument("--rounds", type=int, default=3)
     parser.add_argument("--frames", type=int, default=130)
     parser.add_argument("--discard-images", action="store_true", help="delete each screenshot after recording its SHA-256")

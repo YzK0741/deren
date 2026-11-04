@@ -229,7 +229,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--work", type=Path)
     parser.add_argument("--asset", type=Path)
-    parser.add_argument("--exe", type=Path, default=Path("build-release-dyn-clang64/deren.exe"))
+    parser.add_argument("--exe", type=Path, default=Path("build/deren.exe"))
     parser.add_argument("--rounds", type=int, default=3)
     parser.add_argument("--frames", type=int, default=130)
     parser.add_argument("--only", default=None, help="run only configurations whose key starts with this prefix (smoke)")

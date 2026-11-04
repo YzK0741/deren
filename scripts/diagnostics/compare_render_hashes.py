@@ -23,10 +23,10 @@ USAGE
                                               --against build-release-clang64/render-dyn.txt
 
     # one configuration (S5 onwards): compare one gate output against the frozen list
-    python scripts/diagnostics/compare_render_hashes.py build-release-dyn-clang64/render-check/gate-output.txt --frozen
+    python scripts/diagnostics/compare_render_hashes.py build/render-check/gate-output.txt --frozen
 
     # a standard gate run can ask check_render.ps1 to do this itself:
-    pwsh -File scripts/gates/check_render.ps1 -Full -BuildDir build-release-dyn-clang64 -Compare-frozen
+    pwsh -File scripts/gates/check_render.ps1 -Full -BuildDir build -Compare-frozen
 
     EXIT: 0 when all fourteen matched, 1 otherwise (a missing scenario counts as a mismatch: a scenario
     that did not run must never read as "unchanged").
