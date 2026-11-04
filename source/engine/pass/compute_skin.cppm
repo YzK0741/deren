@@ -1,4 +1,4 @@
-// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.0.1  (independent of the app version in CMakeLists project(VERSION))
 
 /**
  * @file source/engine/pass/compute_skin.cppm

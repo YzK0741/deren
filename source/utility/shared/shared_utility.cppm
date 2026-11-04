@@ -1,6 +1,6 @@
 // ============================================================================
 // module: deren.utility.shared
-// module version: 1.3.0
+// module version: 1.3.1
 //
 // THE PROCESS-WIDE HALF OF utility (batch ④, the dynamic-backend flip's prerequisite).
 //

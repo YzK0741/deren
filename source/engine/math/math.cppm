@@ -1,6 +1,6 @@
 // ============================================================================
 // module: deren.engine.math
-// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.0.1  (independent of the app version in CMakeLists project(VERSION))
 //
 // CPU-side math: environment cubemap generation / IBL precompute (prefilter,
 // irradiance, BRDF LUT). Pure CPU, no Vulkan dependency.

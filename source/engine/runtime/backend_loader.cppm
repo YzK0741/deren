@@ -1,6 +1,6 @@
 // ============================================================================
 // module: deren.engine.backend_loader
-// module version: 1.0.0
+// module version: 1.0.1
 //
 // WHERE THE BACKEND IS LOADED, AND WHERE THE DEVICE ROOT IS ACQUIRED (batch ⑥, abi 19).
 //

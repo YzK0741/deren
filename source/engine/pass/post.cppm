@@ -1,4 +1,4 @@
-// module version: 0.4.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 0.4.1  (independent of the app version in CMakeLists project(VERSION))
 
 /**
  * @file source/engine/pass/post.cppm

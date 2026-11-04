@@ -1,6 +1,6 @@
 // ============================================================================
 // module: deren.vulkan.graphical_user_interface
-// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.0.1  (independent of the app version in CMakeLists project(VERSION))
 //
 // Dear ImGui debug overlay: widget / panel layer driven from the runtime's frame
 // steps through the GUI plugin boundary (deren.promise.gui; the plugin's overlay_adapter

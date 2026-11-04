@@ -13,7 +13,7 @@ cmake_minimum_required(VERSION 4.3)
 set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "f35a9ac6-8463-4d38-8eec-5d6008153e7d" CACHE STRING
     "CMake's gate for the experimental `import std;` support (CMake >= 3.30).")
 
-project(deren VERSION 0.3.0)
+project(deren VERSION 0.5.0)
 
 # Unsanitized DLLs import the same libc++ BMIs as sanitizer-enabled executables.
 # Their templates must not retain optional container-overflow runtime calls.
@@ -1002,7 +1002,7 @@ target_include_directories(deren_engine
 
 # THE APPLICATION (the runtime switch and the S1-S3 gate that used to wrap this are retired: see the
 # comment above `deren_engine`).
-add_executable(deren source/app/main.cpp source/app/startup_splash.cpp)
+add_executable(deren source/app/main.cpp source/app/app_application.cpp source/app/startup_splash.cpp)
 if(WIN32)
     enable_language(RC)
     target_sources(deren PRIVATE source/app/resources/deren.rc)
@@ -1096,6 +1096,7 @@ target_sources(app_support
         source/app/app_ui.cppm
         source/app/app_animation.cppm
         source/app/app_instancing.cppm
+        source/app/app_toon.cppm
     PRIVATE
         source/app/app_config.cpp
         source/app/app_pipelines.cpp
@@ -1103,10 +1104,12 @@ target_sources(app_support
         source/app/app_ui.cpp
         source/app/app_animation.cpp
         source/app/app_instancing.cpp
+        source/app/app_toon.cpp
 )
 target_link_libraries(app_support
         app_config
         asset_library
+        deren_assets
         deren_engine
         static_utility
         vstd_lib

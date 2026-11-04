@@ -364,7 +364,7 @@ namespace {
         // IT LIVES HERE rather than in a test of its own because it is a contract between the host's sidecar
         // LANE bake and the stage that reads that lane, which is what this test is about - and because a test
         // target of its own would have to be mirrored into VR_TEST_TARGETS, the workflow and the docs.
-        std::ifstream host_file{VR_TEST_SOURCE_DIR "/source/app/main.cpp"};
+        std::ifstream host_file{VR_TEST_SOURCE_DIR "/source/app/app_toon.cpp"};
         std::ifstream shader_file{VR_TEST_SOURCE_DIR "/source/shaders/toon/character_forward.slang"};
         CHECK(host_file.good());
         CHECK(shader_file.good());
@@ -537,7 +537,7 @@ namespace {
         std::ifstream shader_file{VR_TEST_SOURCE_DIR "/source/shaders/toon/character_forward.slang"};
         std::ifstream primitive_file{VR_TEST_SOURCE_DIR "/source/engine/primitive/primitive.cppm"};
         std::ifstream runtime_file{VR_TEST_SOURCE_DIR "/source/engine/runtime/runtime.constructor.cppm"};
-        std::ifstream host_file{VR_TEST_SOURCE_DIR "/source/app/main.cpp"};
+        std::ifstream host_file{VR_TEST_SOURCE_DIR "/source/app/app_toon.cpp"};
         CHECK(shader_file.good());
         CHECK(primitive_file.good());
         CHECK(runtime_file.good());
@@ -814,7 +814,7 @@ namespace {
     void test_the_outline_mask_lane_is_wired_end_to_end() {
         std::ifstream primitive_file{VR_TEST_SOURCE_DIR "/source/engine/primitive/primitive.cppm"};
         std::ifstream constructor_file{VR_TEST_SOURCE_DIR "/source/engine/runtime/runtime.constructor.cppm"};
-        std::ifstream app_file{VR_TEST_SOURCE_DIR "/source/app/main.cpp"};
+        std::ifstream app_file{VR_TEST_SOURCE_DIR "/source/app/app_toon.cpp"};
         std::ifstream outline_file{VR_TEST_SOURCE_DIR "/source/shaders/toon/game_toon/captured/outline.slang"};
         CHECK(primitive_file.good());
         CHECK(constructor_file.good());
