@@ -1,7 +1,7 @@
 // -*- C++ -*-
 // ============================================================================
 // module: deren.promise.rhi
-// module version: 0.1.1  (independent of the app version in CMakeLists project(VERSION))
+// module version: 0.1.2  (independent of the app version in CMakeLists project(VERSION))
 //
 // The RHI boundary's contract: the abstract interfaces the engine and the backend
 // share, and nothing else (RHI plan v4, §3.1 and §4.1). One module whose public

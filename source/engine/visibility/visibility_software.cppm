@@ -1,3 +1,5 @@
+// module version: 1.0.1  (independent of the app version in CMakeLists project(VERSION))
+
 /**
  * @file visibility_software.cppm
  * @defgroup engine_visibility_software M4 subpixel software raster: the CPU front half
