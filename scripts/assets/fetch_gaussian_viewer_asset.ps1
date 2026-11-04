@@ -16,12 +16,12 @@
     opacity, scale, rotation) in binary little endian, which deren.gaussian::load_ply reads in 0.4 s.
 
 .EXAMPLE
-    ./fetch_gaussian_viewer_asset.ps1 -BuildDir build-release-dyn-clang64
-    ./fetch_gaussian_viewer_asset.ps1 -BuildDir build-release-dyn-clang64 -Proxy http://127.0.0.1:12000
+    ./fetch_gaussian_viewer_asset.ps1 -BuildDir build
+    ./fetch_gaussian_viewer_asset.ps1 -BuildDir build -Proxy http://127.0.0.1:12000
 #>
 [CmdletBinding()]
 param(
-    [string]$BuildDir = "build-release-dyn-clang64",
+    [string]$BuildDir = "build",
     # The local proxy, when the machine needs one: the NVIDIA host is plain HTTP, which git's own proxy
     # configuration does not cover.
     [string]$Proxy = "",

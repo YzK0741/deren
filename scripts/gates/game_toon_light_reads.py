@@ -16,7 +16,7 @@ from PIL import Image
 
 def main():
     root = Path(__file__).resolve().parents[2]
-    build = root / "build-release-dyn-clang64"
+    build = root / "build"
     cache = (build / "CMakeCache.txt").read_text()
     compiler = re.search(r"^VR_SLANGC_EXECUTABLE:FILEPATH=(.+)$", cache, re.M)[1]
     output = build / "shaders/game_toon.frag.spv"

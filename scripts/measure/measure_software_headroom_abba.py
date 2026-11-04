@@ -24,7 +24,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--work", type=Path, required=True)
     parser.add_argument("--asset", type=Path, required=True)
-    parser.add_argument("--exe", type=Path, default=Path("build-release-dyn-clang64/deren.exe"))
+    parser.add_argument("--exe", type=Path, default=Path("build/deren.exe"))
     parser.add_argument("--frames", type=int, default=130)
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()

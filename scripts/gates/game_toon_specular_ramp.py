@@ -19,7 +19,7 @@ from PIL import Image
 
 def main():
     root = Path(__file__).resolve().parents[2]
-    build = root / "build-release-dyn-clang64"
+    build = root / "build"
     model = root / "asset/laevatain/laevatain_game_toon_preview.glb"
     rows = [row.split("\t") for row in Path(str(model) + ".toon.tsv").read_text().splitlines()]
     name = next(row[3] for row in rows if len(row) == 4 and

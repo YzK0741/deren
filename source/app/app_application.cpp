@@ -1166,7 +1166,7 @@ namespace deren::app {
             // (see `scripts/gates/capture.ps1`'s launch), so `current_path()` resolved to
             // `...\deren-ab\laevat\deren-ab\gooblender\images\...` and EVERY step-5 frame was rendered with no LUT
             // uploaded at all - the log said so (`goo FGD LUT: NOT uploaded`) and the three FGD terms read zero.
-            // The executable's own directory is `build-release-clang64/`, which is where `deren-ab/` and the
+            // The executable's own directory is `build/`, which is where `deren-ab/` and the
             // reference's assets live, so the path is right whatever the process's working directory is.
             std::filesystem::path const fgd_path = deren::utility::executable_directory() / "deren-ab" / "gooblender" / "images" / "PreIntegratedFGD_GGXDisneyDiffuse.png";
             if (!fgd_path.empty()) {

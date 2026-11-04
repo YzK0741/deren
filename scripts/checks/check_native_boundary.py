@@ -14,7 +14,7 @@ including the shared render layout, is checked without source exemptions.
 USAGE
   python scripts/checks/check_native_boundary.py                       # report (exit 0)
   python scripts/checks/check_native_boundary.py --require-zero        # fail while anything is left
-  python scripts/checks/check_native_boundary.py --build-dir build-release-dyn-clang64
+  python scripts/checks/check_native_boundary.py --build-dir build
 """
 
 from __future__ import annotations
@@ -197,7 +197,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="native-handle boundary gate")
     parser.add_argument("--require-zero", action="store_true", help="exit 1 while any check is non-empty")
     parser.add_argument("--verbose", action="store_true", help="print every hit, not just the counts")
-    parser.add_argument("--build-dir", default="build-release-dyn-clang64", help="where the engine target's objects live")
+    parser.add_argument("--build-dir", default="build", help="where the engine target's objects live")
     parser.add_argument("--exe", default=None, help="the executable whose import table is checked (default: <build-dir>/deren.exe)")
     args = parser.parse_args()
 

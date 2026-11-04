@@ -33,8 +33,8 @@ THE PASS CRITERIA (any failure exits non-zero):
 
 Usage:
   python scripts/measure/hzb_verify.py --depth D --pyramid P --header H --meta M
-  python scripts/measure/hzb_verify.py --prefix build-release-dyn-clang64/bistro-probe/hzb-far \
-      --depth build-release-dyn-clang64/bistro-probe/probe-depth-far.bin
+  python scripts/measure/hzb_verify.py --prefix build/bistro-probe/hzb-far \
+      --depth build/bistro-probe/probe-depth-far.bin
   (--depth may also be derived from --prefix's sibling names; explicit paths always win.)
 
 Exit status: 0 = PASS, 1 = a mismatch (printed), 2 = a missing/malformed input or a usage error.

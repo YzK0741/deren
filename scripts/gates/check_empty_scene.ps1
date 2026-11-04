@@ -1,7 +1,7 @@
 # Manual GPU regression: render with zero mesh primitives and zero Gaussian particles.
 # The generated empty PLY avoids the application's interactive model picker.
 param(
-    [string]$BuildDir = 'build-release-dyn-clang64',
+    [string]$BuildDir = 'build',
     [string]$WorkDir = '',
     [ValidateRange(1, 4)][int]$ShadowCascades = 3
 )

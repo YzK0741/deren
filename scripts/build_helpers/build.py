@@ -8,8 +8,8 @@ Usage:
     python scripts/build_helpers/build.py --dry-run Debug
     python scripts/build_helpers/build.py --build-dir build-local Release
 
-The default builds Debug and Release in the historical directories
-(build-<config>-clang64 on Windows, build-<config> elsewhere).  The legacy
+The default builds Release into ``build/`` and Debug into ``build-debug/``.
+The legacy
 -Type/-Clean spellings are still accepted for callers migrating from the old
 platform wrappers.
 """

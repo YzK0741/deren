@@ -73,9 +73,9 @@ Run from the repository root:
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-local-ci.ps1 -Mode Full
 ```
 
-The build tree is auto-detected the same way the build helper names it
-(`build-release-clang64` on Windows, `build-release` on POSIX), falling back to this
-checkout's hand-made `build-release-dyn-clang64`; pass `-BuildDir <path>` to override.
+The build tree is auto-detected as the canonical Release tree, `build/`, falling back to
+the historical `build-release-clang64/` / `build-release/` names; pass `-BuildDir <path>`
+to override.
 
 This is a **local gate, not a CI pass**. It is a strict subset of the remote
 workflow that can run on a Windows checkout:

@@ -41,7 +41,7 @@ param(
     [int]$Frames = 180,
     [string]$Camera = "90,0,6.41,0,-18.548,0",
     [string]$Model = "",
-    [string]$BuildDir = "build-release-clang64",
+    [string]$BuildDir = "build",
     [string]$WorkDir = "",
     # Degrees of yaw added per presented frame (`--capture-sweep`). 0 = a fixed camera, which is what every
     # other measurement in this repository is; a non-zero value makes the capture exercise the reprojection

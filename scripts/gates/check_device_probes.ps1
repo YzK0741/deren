@@ -6,7 +6,7 @@
 # path or the Gaussian GPU path. It records check counts and refuses a target below its expected minimum
 # (minimum counts are the 2026-10-25 baseline, update them when a probe legitimately grows).
 param(
-    [string]$BuildDir = "build-release-dyn-clang64",
+    [string]$BuildDir = "build",
     [string]$OutFile = ""
 )
 $ErrorActionPreference = "Stop"

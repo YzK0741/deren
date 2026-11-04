@@ -18,7 +18,7 @@ bug no picture can show:
   - the candidate records are plausible meshlet records and the draw-item model matrices are finite.
 
 USAGE
-    python scripts/measure/hzb_cull_verify.py build-release-dyn-clang64/bistro-probe/hzbcull-far
+    python scripts/measure/hzb_cull_verify.py build/bistro-probe/hzbcull-far
     python scripts/measure/hzb_cull_verify.py <prefix> --quiet
 The prefix is the value DEREN_HZB_CULL_PROBE_CAPTURE was set to; the files are <prefix>.*.bin + <prefix>.json.
 Exit code 0 = every check passed, 1 = a check failed (the failing lines name the item/candidate), 2 = a file/shape

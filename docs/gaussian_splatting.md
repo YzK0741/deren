@@ -131,7 +131,7 @@ Headless tests cover loading, layouts, covariance/SH math, camera/model validati
 Reproduce image and performance checks with the Windows helpers:
 
 ```powershell
-$build = 'build-release-dyn-clang64'
+$build = 'build'
 $scripts = 'scripts/windows'
 & "$scripts/check_gaussian_gpu.ps1" -BuildDir $build
 & "$scripts/benchmark_gaussian_gpu.ps1" -BuildDir $build

@@ -232,7 +232,7 @@ CONFIGURATIONS = {
                        "the backend is a DLL and the executable resolves it by name",
         "baseline": "backend_boundary_baseline.dynamic.{flavor}.json",
         "whitelist": "backend_boundary_whitelist_dynamic.json",
-        "build_dir": "build-release-dyn-clang64",
+        "build_dir": "build",
     },
 }
 
@@ -622,7 +622,7 @@ def main() -> int:
     parser.add_argument("--config", choices=sorted(CONFIGURATIONS), default="dynamic",
                         help="WHICH runtime configuration this measures: since S5 there is ONE (the dynamic "
                              "runtime's C-entry boundary), and it picks the baseline+whitelist pair and the "
-                             "default build dir (build-release-dyn-clang64). Printed on every run, --quiet "
+                             "default build dir (build). Printed on every run, --quiet "
                              "included.")
     parser.add_argument("--build-dir", default=None,
                         help="the build tree holding both archives (default: per --config)")

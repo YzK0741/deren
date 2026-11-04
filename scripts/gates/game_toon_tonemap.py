@@ -22,7 +22,7 @@ def srgb_byte(value):
 
 def main():
     root = Path(__file__).resolve().parents[2]
-    build = root / "build-release-dyn-clang64"
+    build = root / "build"
     work = Path(tempfile.mkdtemp(prefix="game-toon-tonemap-", dir=root / "tmp"))
     shaders = work / "shaders"
     shutil.copytree(build / "shaders", shaders)

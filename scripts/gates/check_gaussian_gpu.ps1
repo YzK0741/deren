@@ -1,6 +1,6 @@
 # Capture identical flower scenes with the CPU and GPU paths, requiring real GPU execution and clean validation.
 param(
-    [string]$BuildDir = 'build-release-dyn-clang64',
+    [string]$BuildDir = 'build',
     [string]$WorkDir = '',
     [int]$Frames = 12,
     [double]$Sweep = 0,

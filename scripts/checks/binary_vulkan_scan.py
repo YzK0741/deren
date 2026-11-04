@@ -26,7 +26,7 @@ PATTERNS = {
 
 
 def main() -> int:
-    path = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else "build-release-dyn-clang64/deren.exe")
+    path = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else "build/deren.exe")
     data = path.read_bytes()
     print(f"{path}: {len(data):,} bytes")
     for label, pattern in PATTERNS.items():

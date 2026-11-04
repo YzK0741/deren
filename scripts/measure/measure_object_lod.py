@@ -125,7 +125,7 @@ lut_size = 128
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--asset', type=Path, default=Path('D:/deren-assets/2026-10-21-object-lod/bistro-object-lod.glb'))
-    p.add_argument('--exe', type=Path, default=Path('build-release-dyn-clang64/deren.exe'))
+    p.add_argument('--exe', type=Path, default=Path('build/deren.exe'))
     p.add_argument('--work', type=Path, default=Path('D:/deren-assets/2026-10-21-object-lod/runtime'))
     p.add_argument('--rounds', type=int, default=3)
     p.add_argument('--smoke', action='store_true', help='one ON run, not an accepted measurement matrix')
