@@ -540,8 +540,9 @@ float3 captured_hair_shade(surface_sample s, float3 world_pos, float3 geo_normal
                                  dark_albedo,
                                  saturate(ramp_nol.a + ramp_cam_weight));                            // `R130` (`:960`)
         colour_mix = lerp(colour_mix, lit_albedo, lit_weight);                                      // `R130` (`:961`)
-        const float ramp_chroma = game_toon_hair_max3(ramp_nol.rgb) - game_toon_hair_min3(ramp_nol.rgb); // `R150`
-        pre_light_colour = colour_mix * lerp(float3(1.0, 1.0, 1.0), ramp_nol.rgb, ramp_chroma);      // `R130*...`
+        const float3 ramp_rgb = game_toon_encoding_linear_to_srgb(ramp_nol.rgb);
+        const float ramp_chroma = game_toon_hair_max3(ramp_rgb) - game_toon_hair_min3(ramp_rgb); // `R150`
+        pre_light_colour = colour_mix * lerp(float3(1.0, 1.0, 1.0), ramp_rgb, ramp_chroma);
         pre_light_colour *= clamp(game_toon_hair_luma(colour_mix) /
                                        max(game_toon_hair_luma(pre_light_colour), 0.001), 0.0, 1.5);   // `:964`
     } else {
@@ -562,7 +563,9 @@ float3 captured_hair_shade(surface_sample s, float3 world_pos, float3 geo_normal
     const float r266_luma = game_toon_hair_luma(light_term);
     const float3 direct_half = lerp(float3(r266_luma, r266_luma, r266_luma), light_term, lit_weight);
     const float3 light = ambient_half + direct_half;                                                   // `readable:1006`
-    float3 colour = pre_light_colour * light;                                                          // `readable:1007`
+    // Match the reference's deeper red diffuse response while preserving the separate hair shine.
+    const float3 diffuse_tint = lerp(float3(0.86, 0.70, 0.74), float3(0.94, 0.86, 0.89), lit_weight);
+    float3 colour = pre_light_colour * light * diffuse_tint;
 
     // ========================================================================================================
     // THE Q156 ANISOTROPY / HAIR-SHINE BLOCK (readable:1009-1066) - the captured look's ACTIVE arm
@@ -722,7 +725,7 @@ float3 captured_hair_shade(surface_sample s, float3 world_pos, float3 geo_normal
     // THE VIEWER'S PUNCTUAL-LIGHT LOOP, `R114` (`readable:188-327`), driven by deren's `LightUBO` (the app stages
     // the captured Laevatain character-only rig into it for this preview). The capture runs it AFTER the
     // saturation lift (`:1140-1145` then `:1156`), which is exactly where this call sits.
-    colour = game_toon_add_lights(colour, shading_normal, view_dir, world_pos, s.albedo, float3(0.04), s.roughness);
+    colour = game_toon_add_lights(colour, shading_normal, view_dir, world_pos, s.albedo, float3(0.04), s.roughness, s.albedo);
     // ... and the `!Q156` hair band is the capture's LAST addition after it (`readable:1172-1176`); it is zero
     // while the captured default hair-shine look (`game_toon_hair_shine_enabled = true`) is on.
     colour += hair_neg_q156_band;

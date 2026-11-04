@@ -52,22 +52,21 @@ repository). Pixels inside the crop are the renderer's own; the crop was re-enco
 (`optimize=True`) and NOT resampled.
 
 
-## GameToon.png
+## GameToon.png and GameToonFace.png
 
-`GameToon.png` (1140x1030) is the current README character shot. It is a HAND-TAKEN desktop
-screenshot of the `game_toon` profile-on path rendering GameToon: captured skin/face, hair, cloth,
-eye and outline shader branches, the captured light rig and the viewer's display transform. It is
-not a deterministic, reproducible capture like the two PBR helmet images above.
+`GameToon.png` is a 960x1080 renderer capture of Laevatain in the default pose, taken at frame 24
+on 2026-11-04. It uses the `game_toon` profile, the captured light rig and display transform,
+TAA, FXAA, shadows and exposure 0.92. The GUI overlay was disabled. `GameToonFace.png` uses the
+same settings with a closer camera, captured at frame 12 and cropped to 544x612 without resampling.
 
 The Laevatain model and its Toon sidecar are checked in under `asset/laevatain/` so the game-toon
-path can be exercised against the same source material; that inclusion is not a license grant and
-does not make this exact pose and frame reproducible. All rights to that asset belong to Hypergryph
+path can be exercised against the same source material. All rights to that asset belong to Hypergryph
 Network Technology Co., Ltd.; the repository grants no license for it, and redistribution or reuse
 is not granted. See `asset/laevatain/LICENSE.md`.
 
-It was cropped from a 2560x1494 desktop screenshot (2026-10-31). The ImGui debug overlay and the
-Windows taskbar are cut away, leaving the render alone. Pixels inside the crop are the renderer's
-own; the crop was re-encoded with Pillow (`optimize=True`) and NOT resampled.
+The half-body camera uses yaw 0, pitch 0, distance 1.17 and target `[0, -0.17, -0.65]`.
+The face camera uses yaw 0, pitch 0, distance 0.65 and target `[0, 0.03, -0.85]`.
+Both PNGs were compressed losslessly.
 
 ## gaussian-viewer.jpg
 

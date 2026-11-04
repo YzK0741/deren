@@ -170,6 +170,30 @@ namespace {
         return value;
     }
 
+    std::optional<glm::vec4> parse_toon_colour(std::string_view fields, int const components) {
+        glm::vec4 colour(1.0f);
+        for (int component = 0; component < components; ++component) {
+            auto const comma = fields.find(',');
+            auto const value = parse_number(fields.substr(0, comma));
+            if (!value || !std::isfinite(*value) || *value < 0.0f ||
+                (component + 1 < components && comma == std::string_view::npos)) {
+                return std::nullopt;
+            }
+            colour[component] = *value;
+            if (comma != std::string_view::npos) {
+                fields.remove_prefix(comma + 1);
+            }
+        }
+        return colour;
+    }
+
+    float toon_srgb_decode(float const value) {
+        if (value <= 0.04045f) {
+            return value / 12.92f;
+        }
+        return value < 1.0f ? std::pow((value + 0.055f) / 1.055f, 2.4f) : std::pow(value, 2.4f);
+    }
+
     capture_options parse_capture_options(int32_t const argc, char** argv, deren::utility::vessel::vector<char*>& filtered) {
         capture_options options = {};
         filtered.push_back(argv[0]);
@@ -1027,6 +1051,56 @@ namespace deren::app {
             } else {
                 asset.sidecar = *sidecar;
                 log_toon_sidecar(*asset.scenes, *asset.sidecar);
+                // Stage captured material inputs before resolving the standard glTF slots.
+                for (auto& material : asset.scenes->materials) {
+                    auto const* row = asset.sidecar->find(material.name);
+                    if (!row) {
+                        continue;
+                    }
+                    if (deren::gltf::overlay_kind_of(material.name) != deren::gltf::overlay_kind::none &&
+                        row->others.contains("_GameToon0")) {
+                        auto const base = row->others.find("_BaseColor");
+                        if (base != row->others.end()) {
+                            if (auto const tint = parse_toon_colour(base->second, 4); tint && tint->a <= 1.0f) {
+                                material.factors.base_color_factor = glm::vec4(
+                                    toon_srgb_decode(tint->r), toon_srgb_decode(tint->g), toon_srgb_decode(tint->b), tint->a * tint->a);
+                            }
+                        }
+                        continue;
+                    }
+                    if (!row->enabled_by_flag("_UseEmission") ||
+                        deren::gltf::toon_family_of(material.name) != deren::gltf::toon_family::cloth ||
+                        material.texture_indices.contains("emissive")) {
+                        continue;
+                    }
+                    auto const profile = row->others.find("_GameToon0");
+                    if (profile == row->others.end()) {
+                        continue;
+                    }
+                    auto const fields = std::string_view(profile->second);
+                    float const captured_cloth = parse_number(fields.substr(0, fields.find(','))).value_or(0.0f);
+                    if (!std::isfinite(captured_cloth) || captured_cloth <= 0.5f) {
+                        continue;
+                    }
+                    auto const map = row->slot("_EmissionMap");
+                    auto const texture = asset.scenes->texture_index_by_name(map);
+                    float const brightness = row->scalar("_EmissionBrightness", 1.0f);
+                    if (!texture || !std::isfinite(brightness) || brightness <= 0.0f) {
+                        continue;
+                    }
+                    glm::vec3 tint(0.0f);
+                    if (auto const colour = row->others.find("_EmissionColor"); colour != row->others.end()) {
+                        auto const value = parse_toon_colour(colour->second, 3);
+                        if (!value) {
+                            continue;
+                        }
+                        tint = glm::vec3(toon_srgb_decode(value->r), toon_srgb_decode(value->g), toon_srgb_decode(value->b));
+                    }
+                    material.texture_indices.emplace("emissive", *texture);
+                    material.factors.emissive_factor = tint * brightness;
+                    deren::utility::log("toon emission: '{}' uses '{}' at brightness {}", material.name,
+                                        map, brightness);
+                }
             }
         }
         // An explicit `pipeline = "game_toon"` object must have its OWN sidecar: falling back to another
@@ -1720,7 +1794,8 @@ namespace deren::app {
                 for (captured_light const& c : captured) {
                     deren::engine::punctual_light light = {};
                     // The captured positions are authored around the character; each copy moves its rig with it.
-                    light.position = glm::vec3(c.p[0], c.p[1], c.p[2]) + glm::vec3(game_toon_copy_offsets[copy], 0.0f, 0.0f);
+                    light.position = glm::vec3(c.p[0], c.p[1], c.p[2]) + scene_assets[0].import_shift +
+                                     glm::vec3(game_toon_copy_offsets[copy], 0.0f, 0.0f);
                     light.spot_direction = glm::vec3(c.f[0], c.f[1], c.f[2]);
                     light.color = glm::vec3(c.c[0], c.c[1], c.c[2]);
                     light.intensity = c.intensity;

@@ -468,12 +468,13 @@ float3 captured_skin_face_shade(surface_sample s, float3 world_pos, float3 geo_n
     }
 
     // ---- 7. THE LIT WEIGHTS (`:805-826`) ----
-    // The captured viewer's Q132 SELF-SHADOW arm is a look toggle whose default is OFF (see the header), so the
-    // else-arm (`:822-826`) is the captured appearance this port implements:
-    //     `R144 = min(base.a, R32.a)` and `R204 = base.a`.
-    // With Q132 ON the viewer would min a shadow sample into R144 and apply a mask-shaped shadow ring in R204;
-    // that formula and its R33 view-term are recorded in the notes as a documented non-port, not guessed here.
-    const float lit_weight = min(base_alpha, ramp_alpha); // `R144`
+    // Use the scene shadow map for body skin, including clothing cast onto the legs.
+    // The face keeps the captured SDF and overlay response.
+    float lit_weight = min(base_alpha, ramp_alpha); // `R144`
+    if (s.toon_family == VR_FAMILY_SKIN && light_at(heap_light_slot).shadow_enabled > 0.5) {
+        const float visibility = calc_shadow_soft(world_pos, normal, toon_rig_at(heap_slots_toon_rig).shadow_softness.x);
+        lit_weight = min(lit_weight, visibility);
+    }
     const float lut_weight = base_alpha; // `R204`
 
     // ---- 8. THE SHADOW SIDE'S COLOUR: USE_SHADOW_LUT (`:827-833`) ----
@@ -514,6 +515,10 @@ float3 captured_skin_face_shade(surface_sample s, float3 world_pos, float3 geo_n
     // `R114` `R283` (the wrap/diffuse colour of mode 0).
     const float3 pre_light_colour = colour;
     colour *= light;
+    if (s.toon_family == VR_FAMILY_FACE) {
+        // A small warm correction on the diffuse face response; highlights are added below.
+        colour *= lerp(float3(0.98, 0.92, 0.88), float3(0.98, 0.95, 0.92), lit_weight);
+    }
 
     // ---- 11. USE_FACE_HIGHLIGHT (`:849-853`) ----
     // `vec2 R278 = vUv + vec2(-dot(V, Q80), 0) * uHighlightMapVector.x;`
@@ -589,5 +594,5 @@ float3 captured_skin_face_shade(surface_sample s, float3 world_pos, float3 geo_n
     // same per-fragment colour step 12 computed. `R114` also receives `R40 = base.rgb*0.96` for its rim-mode
     // luma; deren's `game_toon_add_lights` has one `diffuse` parameter, so `pre_light_colour` serves both (the
     // captured punctual rig does contain rim lights, and this one-lane limitation is recorded in the notes).
-    return game_toon_add_lights(colour, normal, view_dir, world_pos, pre_light_colour, spec_f0, s.roughness) + s.emissive;
+    return game_toon_add_lights(colour, normal, view_dir, world_pos, pre_light_colour, spec_f0, s.roughness, pre_light_colour) + s.emissive;
 }

@@ -2261,6 +2261,7 @@ set(VR_SLANG_SOURCES
     # refuses (E38000). PHASE 1 IS THE PLUMBING MILESTONE: the entry still calls the shared body, so
     # selecting it draws the old chain's pixels while config/pipeline/GUI are proven.
     toon/game_toon.slang:game_toon_frag_main:fragment:game_toon.frag.spv
+    toon/game_toon.slang:game_toon_eye_through_hair:fragment:game_toon_eye_through_hair.frag.spv
     # toon_screen_rim.slang is the toon stage's SECOND rim: a fullscreen additive contour from the depth,
     # gated by the SAME `character_forward` feature, so no capture scenario records it either.
     toon/toon_screen_rim.slang:main:fragment:toon_screen_rim.frag.spv

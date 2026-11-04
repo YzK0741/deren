@@ -499,6 +499,9 @@ namespace deren::app::detail {
     // The declared flag for a toon lane; the `_Use<Slot>` convention for every OTHER slot, which the diagnostic
     // needs because it walks the whole file (`_BaseMap`, `_BumpMap`, the outline and SDF masks and the rest).
     auto const toon_flag_for = [](std::string_view const slot_name) -> deren::utility::vessel::string {
+        if (slot_name == "_HighlightMap") {
+            return "_FaceHighlightMap";
+        }
         for (toon_lane_names const& lane : toon_lane) {
             if (lane.slot == slot_name) {
                 return deren::utility::vessel::string(lane.flag);
@@ -859,11 +862,16 @@ namespace deren::app::detail {
             return out;
         }
         toon_lane_names const& names = toon_lane[static_cast<std::size_t>(lane)];
-        std::string_view const slot_name = names.slot;
+        // Captured face materials reuse the data lane for their painted highlight mask.
+        bool const face_highlight = lane == deren::engine::toon_slot::metallic_gloss &&
+                                    deren::gltf::toon_family_of(material_name) == deren::gltf::toon_family::face &&
+                                    !material->slot("_HighlightMap").empty() &&
+                                    toon_colour_callback(owner, material_name, deren::engine::toon_colour_lane::game_toon_0).x > 0.5f;
+        std::string_view const slot_name = face_highlight ? "_HighlightMap" : names.slot;
         // white fallback - i.e. "do not read" (see material_record::toon_indices). A map that exists while its
         // flag is off must NOT be read: that is the first rule the sidecar module exists to keep. Asked BY NAME
         // rather than by slot, because that is the only spelling that is true for all four lanes.
-        if (!material->enabled_by_flag(names.flag)) {
+        if (!material->enabled_by_flag(face_highlight ? "_FaceHighlightMap" : names.flag)) {
             return out;
         }
         // ---- WHICH LANES READ THE MODEL'S IMAGE AND WHICH READ A NEUTRAL BAKE ----
@@ -1227,6 +1235,18 @@ namespace deren::app::detail {
             // `_OutlineWidth` row gets 0.0, i.e. no outline - the only answer that leaves the frame where it was.
             outline.w = material->scalar("_OutlineWidth", 0.0f);
             return outline;
+        }
+        if (lane == deren::engine::toon_colour_lane::game_toon_15 &&
+            deren::gltf::toon_family_of(material_name) == deren::gltf::toon_family::cloth) {
+            // Warfarin selects its broad cloth lobe only for this set of material features.
+            bool broad = !(material->enabled_by_flag("_UseSpecRampMap") && material->enabled_by_flag("_UseMatcap"));
+            for (auto const feature : {"_Pantyhose", "_UseAnisotropy", "_EnableRealisticLighting", "_UseCharacterErosion",
+                                       "_UsePuppet", "_UsePuppetProceduralDCurve", "_UseCharacterFur",
+                                       "_EnableStylizedFresnel", "_UseUV2Color"}) {
+                broad = broad && material->scalar(feature, 0.0f) == 0.0f;
+            }
+            return glm::vec4(broad ? 1.0f : 0.0f, material->scalar("_SpecRampIridescentMode", 0.0f),
+                             material->scalar("_ClearCoat", 0.0f), 0.0f);
         }
         auto const row = material->others.find(deren::utility::vessel::string(toon_colour_row[lane_index]));
         if (row == material->others.end()) {

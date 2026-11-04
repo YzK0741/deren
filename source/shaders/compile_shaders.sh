@@ -64,6 +64,7 @@ done <<'SLANG_SOURCES'
 scene/unlit.slang:main:fragment:unlit.frag.spv
 toon/character_forward.slang:main:fragment:character_forward.frag.spv
 toon/game_toon.slang:game_toon_frag_main:fragment:game_toon.frag.spv
+toon/game_toon.slang:game_toon_eye_through_hair:fragment:game_toon_eye_through_hair.frag.spv
 toon/toon_screen_rim.slang:main:fragment:toon_screen_rim.frag.spv
 toon/game_toon_depth_rim.slang:main:fragment:game_toon_depth_rim.frag.spv
 toon/overlay.slang:main:fragment:overlay.frag.spv

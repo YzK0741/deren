@@ -32,14 +32,14 @@ static PunctualLight game_toon_load_light(uint index) {
 }
 
 static float3 game_toon_add_lights(float3 colour, float3 N, float3 V, float3 P, float3 diffuse,
-                                  float3 F0, float roughness) {
+                                  float3 F0, float roughness, float3 rim_base) {
     const int count = clamp(int(light_at(heap_light_slot).light_count.x), 0, MAX_PUNCTUAL_LIGHTS);
     const float3 camera_axis = normalize(mul(camera_at(heap_camera_slot).view, float4(0.0, 0.0, 1.0, 0.0)).xyz);
     const float no_v = clamp(dot(N, V), 0.0, 1.0);
     const float a = max(roughness * roughness, 0.0078125);
     const float a2 = a * a;
     const float u = 1.0 - abs(dot(N, V));
-    const float diffuse_luma = dot(diffuse, float3(0.2126, 0.7152, 0.0722));
+    const float rim_luma = dot(rim_base, float3(0.2126, 0.7152, 0.0722));
 
     for (int i = 0; i < count; ++i) {
         const PunctualLight pl = game_toon_load_light(uint(i));
@@ -95,7 +95,7 @@ static float3 game_toon_add_lights(float3 colour, float3 N, float3 V, float3 P, 
             const float band = band_x * band_x * (3.0 - 2.0 * band_x);
             const float visibility = clamp(dot(N, L) + 1.0, 0.0, 1.0);
             colour += attenuation * band * visibility * pl.color.rgb * facing *
-                      (0.5 + npr_y * (diffuse_luma - 0.5));
+                      (0.5 + npr_y * (rim_luma - 0.5));
         } else if (mode > 1.5) { // captured npr:"specular"
             const float3 half_dir = normalize(L + V);
             const float no_h = dot(N, half_dir);

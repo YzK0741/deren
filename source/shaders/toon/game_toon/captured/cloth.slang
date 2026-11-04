@@ -26,8 +26,7 @@
 //                                       `new r3` -> `this.saturationLift = !0`; feature-defines last line)
 //   NOT Q132 (main-light self-shadow)   viewer default `selfShadow: false` and `laevat.volume.mainLightShadow
 //                                       = false`, so the captured lit weight has NO shadow-map term.
-//   NOT Q299 / Q141 (the metallic-gloss cloth NPR path): `w` requires NOT Q243, and every Laevatain cloth has
-//                                       `_UseDiffRampMap = 1`, so Q243 is emitted and Q299/Q141 are not.
+//   The current Warfarin bundle selects Q337 for eligible cloth even when its diffuse ramp is enabled.
 //   NOT Q118 silk, NOT Q100 customize, NOT Q247 extra-alpha, NOT Q11 parallax, NOT Q42/Q142 blend alpha path:
 //                                       `_SilkStockings`, `_AvatarCustomizeEnable`, `_UseUV2Color`,
 //                                       `_UseParallax` are 0.0 on all five cloth materials.
@@ -98,7 +97,7 @@ static const float game_toon_cloth_captured_shadow_saturation = 1.0;  // `_Shado
 // `_SilkStockings` and `_AvatarCustomizeEnable` are real rows in the captured material JSON and both are `0.0` on
 // all five Laevatain cloth materials, which is exactly why `material-feature-defines.js` emits neither Q118 nor
 // Q100 for them. They have NO lane in the final profile packing (its rows 0..15 are fully assigned: 5 =
-// Q347/Q348/Q291/Q301, 12 = Q152/Q238, 13 = Q349, 14 = Q190/Q20, 15 = Q93), so both branches below are
+// Q347/Q348/Q291/Q301, 12 = Q152/Q238, 13 = Q349, 14 = Q190/Q20), so both branches below are
 // transcribed VERBATIM and left at the captured enable value - which is the capture's answer for these
 // materials, not a fallback. Turning either on needs a packing change (the Lead), not a shader constant.
 static const float game_toon_cloth_captured_silk_stockings = 0.0;    // `_SilkStockings`
@@ -200,7 +199,7 @@ float3 captured_cloth_shade(surface_sample s, float3 world_pos, float3 geo_norma
     // is the beside-the-record block (lanes 4..7 = SDF lightmap, METALLIC/GLOSS, SDF mask, emotion). The
     // contract's "x = face SDF, y = metallic/gloss, ..." line describes block 1; this file uses the macro that
     // actually reaches it, `toon_lanes2_at(...).y`.
-    const uint metallic_gloss_lane = toon_lanes2_at(heap_slots_toon_lanes, push.material_index).y;
+    const uint metallic_gloss_lane = toon_lanes_at(heap_slots_toon_lanes, push.material_index).y;
     const bool has_metallic_gloss = metallic_gloss_lane != 0u;
     const bool has_diffuse_ramp = s.toon_indices.x != 0u;
     const bool has_shadow_lut = s.toon_indices.y != 0u;
@@ -300,8 +299,8 @@ float3 captured_cloth_shade(surface_sample s, float3 world_pos, float3 geo_norma
     // ========================================================================================================
     //
     // The captured lane dictionary (readable:913-935, 1158-1171): `.b` = the shadow/lit mask, `.a` = smoothness
-    // (the spec exponent), `.r` = the metallic term of the specular tint. `.g` is read only by the inactive Q299
-    // path. deren's `toon_lanes2_at(...).y` is the lane main.cpp fills from the sidecar's `_MetallicGlossMap` row
+    // (the spec exponent), `.r` = the metallic term of the specular tint, and `.g` scales dielectric reflectance.
+    // deren's `toon_lanes_at(...).y` is the lane filled from the sidecar's `_MetallicGlossMap` row
     // and uploads as `rgba8_unorm` - data, so no colour decode happens on either side.
     float4 metallic_gloss = float4(0.0, 0.0, 1.0, 0.0);
     if (has_metallic_gloss) {
@@ -454,7 +453,31 @@ float3 captured_cloth_shade(surface_sample s, float3 world_pos, float3 geo_norma
     const float main_radiance_luma = game_toon_cloth_luma(main_radiance);
     const float3 light = lerp(shadow_tint, float3(1.0, 1.0, 1.0), lit_weight) * hemi * game_toon_cloth_viewer_light_scale * main_light_colour_scaled +
                          lerp(float3(main_radiance_luma, main_radiance_luma, main_radiance_luma), main_radiance, lit_weight); // readable:1006
+    const float3 pre_light_colour = colour;
     colour *= light; // readable:1007
+
+    const float4 cloth_spec = game_toon_cloth_payload(push.material_index, 15u);
+    const bool broad_specular = cloth_spec.x > 0.5;
+    if (broad_specular && has_metallic_gloss) {
+        const float roughness = 1.0 - metallic_gloss.a;
+        const float a = max(roughness * roughness, 0.007812);
+        const float a2 = a * a;
+        const float3 forward_light = normalize(float3(camera_forward.x, light_dir.y, camera_forward.z));
+        const float3 spec_half = normalize(light_dir + 2.0 * forward_light + 3.0 * view_dir);
+        const float spec_no_h = dot(n, spec_half);
+        const float denom = spec_no_h * spec_no_h * (a2 - 1.0) + 1.0;
+        const float denom2 = denom * denom;
+        const float distribution = denom2 != a2 ? a2 / max(denom2, 1.0e-8) : 1.0;
+        const float spec = clamp(distribution * 0.5 / (2.0 * no_v + a + 0.0001) - 0.000061, 0.0, 20.0);
+        float3 reflectance = lerp(float3(0.04 * metallic_gloss.g), base, metallic_gloss.r);
+        if (has_spec_ramp && cloth_spec.z == 0.0) {
+            const float2 ramp_uv = float2(lerp(distribution * (a2 + 0.0001), no_v * no_v, cloth_spec.y),
+                                          1.0 - roughness * (1.0 - metallic_gloss.r));
+            reflectance *= game_toon_encoding_linear_to_srgb(heap_texel(
+                heap_at<Texture2D<float4>>(scene_texture_base() + s.toon_indices.z), heap_sampler_texture, ramp_uv).rgb);
+        }
+        colour += spec * reflectance * light * (0.5 + 0.5 * lit_weight) * lerp(environment_mul, 1.0, lit_weight);
+    }
 
     // ========================================================================================================
     // 9. SATURATION LIFT (readable:1140-1145; Q178, emitted because the viewer's `saturationLift` defaults on)
@@ -483,17 +506,17 @@ float3 captured_cloth_shade(surface_sample s, float3 world_pos, float3 geo_norma
     }
 
     // ========================================================================================================
-    // 11. THE CLOTH SPECULAR (`Q84`, readable:1158-1171) — the captured cloth branch's ONLY specular lobe
+    // 11. THE NARROW CLOTH SPECULAR (`Q84`, readable:1158-1171)
     // ========================================================================================================
     //
-    // Q141 / Q299 are not emitted for these materials, so this block is the whole specular response; the
-    // generic `R41` lobe and the Q299 environment lobe never run in the capture.
+    // The viewer uses this lobe when its broad Q337 variant is disabled.
     //
     //   R82 = R299.a (smoothness); R181 = pow(NoH, exp2(mix(3,9,R82))) * R82;
     //   R181 = smoothstep(0.35,0.6,R181) * step(0,NoL);
     //   tint = SpecRamp(NoH, 1-R82) [Q38], tint = mix(tint, tint*base*2, R299.r);
     //   colour += R181 * tint * uSpecularStrength * Q22 * uMainLightColourScaled * uMainLightIntensity.
-    if (has_metallic_gloss) {
+    colour = game_toon_add_lights(colour, n, view_dir, world_pos, pre_light_colour, float3(0.04), s.roughness, base * 0.96);
+    if (has_metallic_gloss && !broad_specular) {
         const float smoothness = metallic_gloss.a;                                     // `R82`, readable:1159
         // `uSpecularStrength` = `_Specular` (material JSON, 1.0), carried by deren's colour lane 4 `.x`
         // (`toon_colour_lane::specular_strength`; `.x < 0` = the asset states no row).
@@ -516,19 +539,12 @@ float3 captured_cloth_shade(surface_sample s, float3 world_pos, float3 geo_norma
     }
 
     // WHAT REMAINS OUTSIDE THE CAPTURE'S REACH IN THIS BRANCH (each recorded rather than silently dropped):
-    //  * `R114` (readable:188-327, called at readable:1156): the capture's character-only punctual rig. It IS
-    //    ported now - `game_toon_lights.h`'s `game_toon_add_lights` drives deren's ordinary `LightUBO.punctual_lights`
-    //    and the app injects the captured Laevatain rig into that UBO - with two documented approximations: the
-    //    helper's `diffuse` argument is `s.albedo`, where the capture passes `R283 = R252` (the pre-light colour)
-    //    for the wrap mode and `R40 = R317 = base.rgb*0.96` for the rim mode's luma; and the capture's mode-4 fog
-    //    arm is left to the scene fog.
     //  * `R75 = R200(...)` cutoff/dither (readable:340-348, readable:1177): `_UseCutOff = 0` -> `Q185 = 0` -> zero.
-    //  * Q299 / Q141 environment + generic specular: not emitted for these materials (see the header).
     //  * Q118 silk / Q100 customize: transcribed verbatim above, but the capture states both enables as 0.0
     //    (`_SilkStockings`, `_AvatarCustomizeEnable`) and the final packing carries no lane for either.
     //  * Q247 extra-alpha: needs a second UV set deren does not carry, and `_UseUV2Color = 0` on all five.
     // No tone mapping and no output sRGB encode: this is LINEAR HDR; post pass mode 2 owns the transform.
-    return game_toon_add_lights(colour, normalize(s.normal), view_dir, world_pos, s.albedo, float3(0.04), s.roughness);
+    return colour;
 }
 
 #endif // DEREN_GAME_TOON_GAME_TOON_CLOTH_SLANG

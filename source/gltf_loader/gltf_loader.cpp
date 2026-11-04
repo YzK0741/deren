@@ -1775,7 +1775,7 @@ namespace deren::gltf {
         // the difference could only have been zero. The smaller figures above are the ones measured against a
         // file whose overlays are actually reachable, and the hair-shadow argument does not depend on their size:
         // what makes the quad wrong is being shaded at all, not how much of the frame it covers.
-        if (has("eyeshadow") || has("hairshadow")) {
+        if (has("eyeshadow") || has("eyewhiteshadow") || has("hairshadow")) {
             // ... AND THE SAME NAME IS CLAIMED BY `overlay_kind_of`, which is where the two are actually
             // resolved into the channel the overlay pass draws (see `overlay_kind`). The two functions are one
             // decision read from two sides: this one says "no family shades it", that one says "the overlay pass
@@ -1868,7 +1868,8 @@ namespace deren::gltf {
         if (lowered.find("hairshadow") != deren::utility::vessel::string::npos) {
             return overlay_kind::hair_shadow;
         }
-        if (lowered.find("eyeshadow") != deren::utility::vessel::string::npos) {
+        if (lowered.find("eyeshadow") != deren::utility::vessel::string::npos ||
+            lowered.find("eyewhiteshadow") != deren::utility::vessel::string::npos) {
             return overlay_kind::eye_dark;
         }
         return overlay_kind::none;
