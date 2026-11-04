@@ -26,8 +26,8 @@ source/vstd/
   vstd.cppm      module interface: global-fragment #include <X> lines
                  (pull libc++ definitions) + export module vstd; +
                  one #include "std/X.inc" per used header (editable whitelist)
-  vstd_msvc.cppm MSVC dialect of the same module: `export import std;`, i.e.
-                 the MSVC toolchain's own std module - see "MSVC dialect"
+  vstd_msvc.cppm MSVC dialect: vendored copy of the MSVC STL's modules/std.ixx,
+                 renamed to deren.vstd - see "MSVC dialect"
   std/           the .inc partitions referenced by vstd.cppm (71 today),
                  copied from libc++'s module output - do not hand-edit
   LICENSE        LLVM project license (Apache-2.0 with LLVM exceptions),
@@ -42,36 +42,38 @@ used partitions are kept.
 
 ## MSVC dialect (`vstd_msvc.cppm`)
 
-The MSVC build does **not** compile `vstd.cppm`. It compiles `vstd_msvc.cppm`, whose whole body is
+The MSVC build does **not** compile `vstd.cppm`. It compiles `vstd_msvc.cppm`, which is a vendored
+copy of the MSVC STL's own `modules/std.ixx` from Visual Studio 2022 17.14 / MSVC 14.44.35207. The
+body is upstream's unchanged except for the module name:
 
 ```c++
-export module vstd;
-export import std;
+export module deren.vstd;
 ```
 
-i.e. the MSVC toolchain's own `std` module, re-exported under the project's module name. This is
-not a preference, it is a workaround for a measured compiler bug: with the libc++-derived
+The C headers are included in the global module fragment, then the full C++ library header set is
+included inside the module purview; the `_BUILD_STD_MODULE` define makes those headers export their
+entities from `deren.vstd`. There is no `import std;` declaration, no `CXX_MODULE_STD`, and no
+experimental import-std gate in the build: this is an ordinary source module.
+
+This is not a preference, it is a workaround for a measured compiler bug: with the libc++-derived
 re-export construction, `cl.exe` 19.44 dies with `fatal error C1001` (internal compiler error,
 three different signatures) on every TU that instantiates `std::span`, `std::array` or
 `std::tuple` through the module - 7 of the tree's 326 objects, every one of them an importer of
-`vstd`. The same consumers compile clean against the toolchain's own `std` module. Minimal
-reproductions, a partition-level bisection and the counter-experiments live in
-`build-release-clang64/msvc/lead_lab/ICE_FINDINGS.md`; the switch itself is in `CMakeLists.txt`
-(plus an `if(MSVC)` branch at `vstd_lib` and CMake's experimental `import std;` gate, which has to
-be set before `project()`).
+`vstd`. Using the MSVC STL's own module source avoids that construction. Minimal reproductions, a
+partition-level bisection and the counter-experiments live in
+`build-release-clang64/msvc/lead_lab/ICE_FINDINGS.md`.
 
 What the dialect costs, stated rather than hidden:
 
 - under MSVC the standard library is the **MSVC STL**, not the libc++ that `vstd.cppm` is
   generated from and byte-bound to. The clang64 build - the verified, shipped, benchmarked one -
-  is untouched: with the gate and the branch in place its exe is byte-identical
-  (`sha256 89084B8FD7400DE6A6878AEFCD88C5FA0208552552AE8E2DF943910B14AE10E0`).
+  does not compile this file and its module face is unchanged.
+- the vendored copy exports the **whole** standard library, not the trimmed header whitelist of
+  `vstd.cppm`, and it is bound to the installed MSVC STL version. Refresh the copy when the
+  toolchain is upgraded, retaining Microsoft's copyright and SPDX header.
 - the `VSTD_*` portability macros are not part of the MSVC module's face. Measured safe today:
   no source outside `source/vstd/` names a `VSTD_*` macro, and no consumer writes `vstd::` for a
-  project-local extension - consumers only want standard names, and the MSVC STL is a superset of
-  the libc++ surface for them.
-- there is no prebuilt `std.ifc` in a Visual Studio installation (only `modules/std.ixx`), so
-  CMake builds that module as part of the build (`CXX_MODULE_STD`).
+  project-local extension - consumers only want standard names.
 
 The version banner in `vstd.cppm` is deliberately **not** bumped by this file: it does not change
 the clang64 module's face. If the project ever treats the MSVC dialect as part of `vstd`'s
