@@ -481,8 +481,7 @@ float3 captured_eye_shade(surface_sample s, float3 world_pos, float3 geo_normal,
     // The matcap is indexed by the VIEW-SPACE direction of the CORNEA normal, and the captured code builds it from
     // `R47` - the hemisphere BEFORE the `0.125` scale and the zone clamp, with its xy NEGATED: `R47.xy = -R163*Q32`.
     // In the raw-uv tangent frame that is `(-Q32*centred_uv, hemisphere_z)` (the same double-V-flip derivation as
-    // the warp). deren's `toon_matcap_uv` is the same sphere map - including the V flip the capture writes as
-    // `texture2D(Q1, vec2(R145.x, 1.0-R145.y))` - so only the direction has to be built here.
+    // the warp). Project into the camera's actual view basis, with the texture V flipped.
     // `R138 = ball.rgb * _MatcapColor.a + ball.a * _MatcapColor.rgb`, gated by the iris zone, by
     // `mix(uEnvironmentMultiplier, 1, R144)`, by `(0.5 + 0.5*R144)` and by the composed light.
     if (path_a && frame_valid && s.toon_indices.w != 0u) {
@@ -491,9 +490,12 @@ float3 captured_eye_shade(surface_sample s, float3 world_pos, float3 geo_normal,
                                         hemisphere_z);
         const float3 matcap_normal = normalize(tangent * matcap_ts.x + bitangent * matcap_ts.y +
                                                shading_normal_in * matcap_ts.z);
+        const float3 view_normal = normalize(mul(float4(matcap_normal, 0.0), camera_at(heap_camera_slot).view).xyz);
+        const float2 matcap_uv = float2(view_normal.x, -view_normal.y) * 0.5 + 0.5;
         const float4 ball = heap_texel(heap_at<Texture2D<float4>>(scene_texture_base() + s.toon_indices.w),
-                                      heap_sampler_texture, toon_matcap_uv(matcap_normal, camera_axis));
-        const float3 matcap_brdf = ball.rgb * matcap_colour.a + ball.a * matcap_colour.rgb;
+                                      heap_sampler_texture, matcap_uv);
+        const float3 matcap_tint = game_toon_encoding_srgb_to_linear(matcap_colour.rgb);
+        const float3 matcap_brdf = ball.rgb * matcap_colour.a + ball.a * matcap_tint;
         color += matcap_brdf * eye_zone * lerp(environment_multiplier, 1.0, ramp_coverage) *
                  (0.5 + 0.5 * ramp_coverage) * light;
     }

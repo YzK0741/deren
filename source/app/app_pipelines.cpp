@@ -199,7 +199,9 @@ namespace deren::app {
             if (!game_result) {
                 deren::utility::log("WARNING: the game toon pipeline was not created ({}); [render] game_toon will draw the previous chain", game_result.error());
             }
-            auto const game_eye_result = runtime.make_eye_prepass_pipeline("game_toon_eye_prepass", game_fragment_code, game_mesh_code, game_meshlet_code);
+            deren::utility::vessel::vector<std::uint8_t> game_eye_fragment_code;
+            load_shader(shaders_dir, "game_toon_eye_through_hair.frag.spv", game_eye_fragment_code);
+            auto const game_eye_result = runtime.make_eye_prepass_pipeline("game_toon_eye_prepass", game_eye_fragment_code, game_mesh_code, game_meshlet_code);
             if (!game_eye_result) {
                 deren::utility::log("WARNING: the game toon eye prepass was not created ({}); eyes keep the old depth behavior", game_eye_result.error());
             }

@@ -11,12 +11,14 @@ export namespace deren::engine::render_graph {
         struct inputs {
             texture_ref target;
             texture_ref depth;
+            texture_ref material;
         };
         struct parameters {
             texture_preserve_write target;
             texture_read depth;
+            texture_read material;
             void visit_resources(parameter_visitor& visit) const noexcept {
-                visit(target, depth);
+                visit(target, depth, material);
             }
         };
         struct outputs {
@@ -28,7 +30,8 @@ export namespace deren::engine::render_graph {
                 return std::unexpected(graph_error{.code = error_code::conflicting_import, .pass_name = "character forward", .resource_name = "character forward alias"});
             }
             parameters params{{in.target, {}, {resource_usage::color_attachment, pipeline_stage::color_output}},
-                              {in.depth, {}, {resource_usage::depth_stencil_read, pipeline_stage::depth_stencil}}};
+                              {in.depth, {}, {resource_usage::depth_stencil_read, pipeline_stage::depth_stencil}},
+                              {in.material, {}, {resource_usage::sampled, pipeline_stage::fragment_shader}}};
             auto added = graph.add_pass("character forward", std::move(params));
             if (!added) {
                 return std::unexpected(added.error());

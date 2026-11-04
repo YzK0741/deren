@@ -65,6 +65,31 @@ static float game_smoothstep(float x) {
 #include "toon/game_toon/captured/cloth.slang"
 #include "toon/game_toon/captured/eye.slang"
 
+[shader("fragment")]
+float4 game_toon_eye_through_hair(
+    float4 position : SV_Position,
+    [[vk::location(0)]] float3 v_world_pos : TEXCOORD0,
+    [[vk::location(1)]] float3 v_normal : TEXCOORD1,
+    [[vk::location(2)]] float2 v_uv : TEXCOORD2,
+    bool v_is_front : SV_IsFrontFace) : SV_Target {
+    const int3 pixel = int3(int2(position.xy), 0);
+    const float4 packed = heap_at<Texture2D<float4>>(heap_slots_gbuffer_material + heap_image_index).Load(pixel);
+    const uint foreground_id = uint(round(packed.r * 255.0)) | (uint(round(packed.g * 255.0)) << 8u);
+    const Material foreground = material_at(heap_slots_materials, foreground_id);
+    // The late depth override is only for hair. Face geometry must keep its
+    // depth, particularly where the far iris projects onto the cheek in profile.
+    if (foreground.toon_family != VR_FAMILY_HAIR) {
+        discard;
+    }
+    if (game_toon_profile_enabled(push.material_index) && !game_toon_profile_enabled(foreground_id)) {
+        discard;
+    }
+    const surface_sample s = gather_surface(v_world_pos, v_normal, v_uv, v_is_front);
+    const float3 lit = game_toon_profile_enabled(push.material_index)
+        ? captured_eye_shade(s, v_world_pos, v_normal, v_uv, v_is_front)
+        : game_toon_eye_shade(s, v_world_pos, v_normal, v_uv, v_is_front);
+    return float4(lit, 1.0);
+}
 
 [shader("fragment")]
 float4 game_toon_frag_main(

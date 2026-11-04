@@ -20,15 +20,16 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/GameToon.png" width="40%" alt="GameToon through the game-toon profile-on pipeline" />
+  <img src="docs/screenshots/GameToon.png" width="48%" alt="Laevatain rendered with GameToon, showing eye and lip highlights and leather reflections" />
+  <img src="docs/screenshots/GameToonFace.png" width="48%" alt="Laevatain face close-up showing iris catchlights and the lower-lip highlight" />
 </p>
 
 <sub>The two helmet shots use deferred PBR with Studio Neutral HDR lighting, a solid grey background and
 Khronos PBR Neutral tone mapping, captured at 1080x960 with fixed cameras on 2026-10-29.
 These are material previews with direct sun, shadows, SSAO and temporal/post effects disabled.
-The character shot is GameToon through the game-toon/profile-on path: captured skin, hair, cloth, eye and
-outline branches with the captured light rig and display transform. The debug overlay, the title bar and
-the taskbar were cropped away. See [`docs/screenshots/README.md`](docs/screenshots/README.md) for all three.</sub>
+The Laevatain half-body and face shots use the GameToon profile with the captured light rig and display transform.
+Both were captured directly from the renderer with TAA and FXAA enabled and exposure set to 0.92.
+See [`docs/screenshots/README.md`](docs/screenshots/README.md) for the capture settings.</sub>
 
 ## Build helpers
 

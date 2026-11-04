@@ -518,6 +518,8 @@ void test_the_overlay_matcher_claims_the_two_masks() {
 
     // the two materials `chars\chen_full2.glb` carries, which is the asset this port is measured on
     CHECK(deren::gltf::overlay_kind_of("M_eyeshadow_common_01") == deren::gltf::overlay_kind::eye_dark);
+    CHECK(deren::gltf::overlay_kind_of("M_eyewhiteshadow_common_01") == deren::gltf::overlay_kind::eye_dark);
+    CHECK(deren::gltf::toon_family_of("M_eyewhiteshadow_common_01") == deren::gltf::toon_family::none);
     CHECK(deren::gltf::overlay_kind_of("M_hairshadow_common_01") == deren::gltf::overlay_kind::hair_shadow);
     // ... and the game's own names for the same two, which are the ones the loader meets first in practice
     CHECK(deren::gltf::overlay_kind_of("M_S_actor_zhuangfy_eyeshadow_01_lod0") == deren::gltf::overlay_kind::eye_dark);

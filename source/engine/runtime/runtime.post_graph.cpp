@@ -1528,7 +1528,7 @@ namespace deren::engine {
                     return rhi::error::not_ready;
                 }
                 auto character_added = build.append([&](graph::builder& description) noexcept {
-                    return graph::character_forward::append(description, {scene_target, *depth_ref});
+                    return graph::character_forward::append(description, {scene_target, *depth_ref, lighting_inputs.surface[2]});
                 });
                 if (!character_added) {
                     return post_build_error(character_added.error());

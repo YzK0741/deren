@@ -30,6 +30,9 @@
 
 #include "common/heap_access.slang"
 #include "common/surface.slang"
+static const uint character_toon_colour_lanes = 46u;
+#include "toon/game_toon/game_toon_profile.h"
+#include "toon/game_toon/captured/encoding.h"
 
 /// THE TOON LIGHT RIG, declared here exactly as `character_forward.slang` declares it - the layout must match
 /// `deren::vulkan::toon_rig` (nine `float4`s) and `runtime::set_toon_rig` is the only writer.
@@ -79,6 +82,11 @@ float3 overlay_multiplier(float2 v_uv, uint flags, Material mat)
 {
     const float3 colour = mat.base_color_factor.rgb; // the article's `_Color`, white by default (=> `lerp` to 1)
     const float alpha = mat.base_color_factor.a;     // the article's `_Alpha`
+    if (game_toon_profile_enabled(push.material_index)) {
+        // The captured overlays use the red channel of a linear-data mask for both eye and hair shadows.
+        const float mask = game_toon_encoding_linear_to_srgb_channel(frame_texture_sample(mat.tex_indices.x, v_uv).r);
+        return lerp(float3(1.0), colour, saturate(mask * alpha));
+    }
     if ((flags & kOverlayHairShadow) != 0u) {
         // `MyZmdHairShadowShader`: `color = lerp(1, _Color.rgb, _DayStrength)`.
         //
