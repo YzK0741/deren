@@ -60,7 +60,9 @@ mirrors the module's suffix (`namespace deren::engine::render_resource`), types 
 
     module            deren.engine.render_resource               (doxygen: @defgroup engine_render_resource)
     namespace         deren::engine::render_resource
-    files             source/engine/render_resource/render_resource.cppm  (CMake: FILE_SET, as every module)
+    files             source/engine/render_resource/render_resource.cppm  (facade; CMake: FILE_SET, as every module)
+                      source/engine/render_resource/schema/render_resource.schema.cppm
+                      source/engine/render_resource/passes/render_resource.passes.cppm
 
 | name | kind | what it is | why this name |
 | --- | --- | --- | --- |
@@ -132,7 +134,8 @@ lives in `runtime.cpp`, its declaration lives in a small unit of its own next to
 block - both the unit and that pass are gone now, with the traced-GI chain); when
 that pass is later extracted into `vulkan.gi_probe` (the first extraction in `docs/runtime_split.md`), the
 declaration moves with it and the runtime only passes the `resource_views` in. The resource list itself
-(`resource_id` + `resource_info`) belongs to `deren.engine.render_resource` (`source/engine/render_resource/render_resource.cppm`),
+(`resource_id` + `resource_info`) belongs to `deren.engine.render_resource`
+(`source/engine/render_resource/schema/render_resource.schema.cppm`),
 which is where the complete image list is declared now that the engine creates the render chain's targets.
 
 ## 6. Migration order and the cases that shape the design

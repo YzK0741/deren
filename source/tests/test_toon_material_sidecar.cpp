@@ -410,7 +410,7 @@ namespace {
         // fail, it reads ANOTHER MATERIAL's colour, one material away per lane of drift. The host's number is an
         // enum (`deren::engine::toon_colour_lane::count`) rather than a float, so the check is on the two SPELLINGS, the
         // way the ramp's `0.5` is checked above: the shader's constant and the enum's last line.
-        std::ifstream primitive_file{VR_TEST_SOURCE_DIR "/source/engine/primitive/primitive.cppm"};
+        std::ifstream primitive_file{VR_TEST_SOURCE_DIR "/source/engine/primitive/toon/primitive.toon.cppm"};
         CHECK(primitive_file.good());
         if (primitive_file.good()) {
             deren::utility::vessel::string const primitive{std::istreambuf_iterator<char>{primitive_file}, std::istreambuf_iterator<char>{}};
@@ -535,7 +535,7 @@ namespace {
     /// lookup's fallback in the application.
     void test_the_two_asset_scalar_lanes_hold_on_both_sides() {
         std::ifstream shader_file{VR_TEST_SOURCE_DIR "/source/shaders/toon/character_forward.slang"};
-        std::ifstream primitive_file{VR_TEST_SOURCE_DIR "/source/engine/primitive/primitive.cppm"};
+        std::ifstream primitive_file{VR_TEST_SOURCE_DIR "/source/engine/primitive/toon/primitive.toon.cppm"};
         std::ifstream runtime_file{VR_TEST_SOURCE_DIR "/source/engine/runtime/runtime.constructor.cppm"};
         std::ifstream host_file{VR_TEST_SOURCE_DIR "/source/app/app_toon.cpp"};
         CHECK(shader_file.good());
@@ -682,7 +682,7 @@ namespace {
     void test_the_material_dedup_key_carries_the_colour_lanes() {
         std::ifstream declarations_file{VR_TEST_SOURCE_DIR "/source/engine/runtime/runtime.declarations.cppm"};
         std::ifstream runtime_file{VR_TEST_SOURCE_DIR "/source/engine/runtime/runtime.constructor.cppm"};
-        std::ifstream primitive_file{VR_TEST_SOURCE_DIR "/source/engine/primitive/primitive.cppm"};
+        std::ifstream primitive_file{VR_TEST_SOURCE_DIR "/source/engine/primitive/toon/primitive.toon.cppm"};
         CHECK(declarations_file.good());
         CHECK(runtime_file.good());
         CHECK(primitive_file.good());
@@ -812,7 +812,7 @@ namespace {
     /// name plus a `float _EnableOutlineMask 1.0`, so the flag gate and the name join are what make the lane
     /// non-zero at all.
     void test_the_outline_mask_lane_is_wired_end_to_end() {
-        std::ifstream primitive_file{VR_TEST_SOURCE_DIR "/source/engine/primitive/primitive.cppm"};
+        std::ifstream primitive_file{VR_TEST_SOURCE_DIR "/source/engine/primitive/toon/primitive.toon.cppm"};
         std::ifstream constructor_file{VR_TEST_SOURCE_DIR "/source/engine/runtime/runtime.constructor.cppm"};
         std::ifstream app_file{VR_TEST_SOURCE_DIR "/source/app/app_toon.cpp"};
         std::ifstream outline_file{VR_TEST_SOURCE_DIR "/source/shaders/toon/game_toon/captured/outline.slang"};

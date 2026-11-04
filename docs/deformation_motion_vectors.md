@@ -67,9 +67,8 @@ deformation half address its own past differently from the rigid half, for no ga
 The push budget is why this matters, and it was measured rather than assumed: the scene / G-buffer leaf
 push occupies **108 of `pass::max_push_bytes = 128`** - the 96-byte `material_push_constants`
 (`scene_push_constant_size`, `source/backends/vulkan/core/core.declarations.cppm:87`, held to it by the `static_assert` at
-`source/engine/primitive/primitive.cppm:488`) plus three 4-byte lanes `{frame_slot, image_index, extra_lane}`
-(`runtime.cpp:849`); the limit is at `source/engine/pass/pass.cppm:184` and the validator refuses anything past it
-(`source/engine/render_resource/render_resource.cppm:719-721`). **20 bytes stay free**, and only the morph half
+`source/engine/primitive/primitives/primitive.primitives.cppm:301`) plus three 4-byte lanes `{frame_slot, image_index, extra_lane}`
+(`runtime.cpp:849`); the limit is at `source/engine/pass/pass.cppm:184`. **20 bytes stay free**, and only the morph half
 needs one of them. (THAT COUNT IS PRE-MESH-SHADER ARITHMETIC: since docs/mesh_shaders.md step 1 the same
 block also carries the 32-byte `MeshGeometryLanes`, the declared block is 144 bytes, and the device is
 required to have room for it - so no new lane may be added to it by this design.)

@@ -1,14 +1,15 @@
 // -*- C++ -*-
 // ============================================================================
 // module: deren.promise.rhi
-// module version: 0.1.1  (independent of the app version in CMakeLists project(VERSION))
+// module version: 0.1.2  (independent of the app version in CMakeLists project(VERSION))
 //
 // The RHI boundary's contract: the abstract interfaces the engine and the backend
-// share, and nothing else (RHI plan v4, §3.1 and §4.1). One module, four
-// partitions - `:contract` (the ABI number and the `error` enum), `:core_desc`
+// share, and nothing else (RHI plan v4, §3.1 and §4.1). One module whose public
+// partitions are `:contract` (the ABI number and the `error` enum), `:core_desc`
 // (how the program asks for a context), `:extension` (tier-2: the abilities a
 // backend may or may not have) and `:api_core` (tier-1: the context, its
-// factories and the frame calls).
+// factories and the frame calls). Their definitions live in domain partitions
+// under subdirectories; the public names and the top-level import do not change.
 //
 // WHY THE NAME IS deren.promise.rhi (m03716, corrected by m03931): the contract layer as a whole is
 // `promise` - a family of abstract interfaces any boundary of this project can express in the same
@@ -62,10 +63,10 @@ export import :api_core;
  *
  * | part | what it is |
  * | --- | --- |
- * | `source/promise/rhi/rhi.contract.cppm` | the ABI number, the `error` enum every entry point reports through, and the RHI ownership containers (`unique_object` / `shared_object`) |
+ * | `source/promise/rhi/rhi.contract.cppm` + `contract/` | the ABI number, the `error` enum every entry point reports through, the RHI ownership containers (`unique_object` / `shared_object`), `main_context`, and the structure-chain header |
  * | `source/promise/rhi/rhi.core_desc.cppm` | how the program asks for a context: the structure `deren_make_api_core()` takes |
  * | `source/promise/rhi/rhi.extension.cppm` | tier-2: the abilities a backend may or may not have |
- * | `source/promise/rhi/rhi.api_core.cppm` | tier-1: the context, its factories, the frame calls |
+ * | `source/promise/rhi/rhi.api_core.cppm` + `resource/`, `pipeline/`, `recording/`, `frame/`, `core/` | tier-1: the context, resources, pipeline/command vocabulary, frame calls, and resource factory, grouped by domain |
  * | `source/promise/rhi/backend_entry.hpp` | the `extern "C"` entry point that hands an `api_core` out (same directory, but neither a partition nor imported) |
  *
  * @details
