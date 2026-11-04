@@ -851,6 +851,14 @@ namespace deren::gltf {
     };
     export std::expected<scenes, error_code> load_model(std::string_view file_name, load_options options);
 
+    /** @brief fingerprint named skin joints and their ancestors in canonical rest-matrix order */
+    export std::expected<deren::utility::vessel::string, std::string_view> skeleton_fingerprint(scenes const& model);
+    /** @brief validate and atomically append compatible motion clips, remapping file-local node IDs */
+    export std::expected<std::size_t, std::string_view> bind_motion(scenes& model, scenes const& motion,
+                                                                    std::string_view declared_hash);
+    /** @brief load a skeleton-only motion .gltf with deren_motion metadata and bind its clips */
+    export std::expected<std::size_t, std::string_view> load_motion(scenes& model, std::string_view file_name);
+
     /**
      * @ingroup gltf_loader
      * @brief async twin of load_model(): runs the parse + texture decode on a std::async

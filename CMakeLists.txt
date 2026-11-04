@@ -1402,6 +1402,8 @@ if(VR_BUILD_TESTS)
     add_test(NAME test_deferred_push_layout
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/source/tests/test_deferred_push_layout.py"
                 "${CMAKE_CURRENT_BINARY_DIR}/shaders/deferred.frag.spv")
+    add_test(NAME test_motion_converter
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/source/tests/test_motion_converter.py")
     # test_docs parses the WRITTEN artifacts the manual and CI are built from - Doxyfile's INPUT, the
     # documents themselves, CMakeLists' VR_TEST_TARGETS and the workflow that mirrors it - so it needs
     # the source root and no library at all (see the test's header for the invariants).
