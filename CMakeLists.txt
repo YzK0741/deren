@@ -1,18 +1,5 @@
 cmake_minimum_required(VERSION 4.3)
 
-# CMake gates its `import std;` support - which the MSVC dialect of vstd needs, see
-# source/vstd/vstd_msvc.cppm - behind an experiment id that must be set BEFORE project(). Compiler
-# detection is where CMake decides whether the toolchain can provide the standard library module,
-# and with the gate closed it rejects the CXX_MODULE_STD property outright ("Experimental `import
-# std` support not enabled when detecting toolchain; it must be set before `CXX` is enabled").
-# The id is CMake's own, not invented here: the string `CxxImportStd.f35a9ac6-8463-4d38-8eec-5d6008153e7d`
-# sits in the cmake binary next to the variable name, and CMake keeps gate ids stable across
-# releases. It is set for every toolchain on purpose, because `MSVC` is not defined until after
-# project() - and it is only USED by the MSVC branch at `vstd_lib` below: clang64 builds
-# source/vstd/vstd.cppm exactly as before, and its exe was measured byte-identical with this line in place.
-set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "f35a9ac6-8463-4d38-8eec-5d6008153e7d" CACHE STRING
-    "CMake's gate for the experimental `import std;` support (CMake >= 3.30).")
-
 project(deren VERSION 0.5.0)
 
 # Generate compile_commands.json for clangd and the VS Code C/C++ linter. This is
@@ -201,22 +188,18 @@ include(cmake/deren_asset_dependencies.cmake)
 #
 #   clang64 (the shipped build): source/vstd/vstd.cppm - modified from libc++'s (LLVM) generated
 #     std-module output and trimmed to the headers the project uses (see source/vstd/README.md).
-#   MSVC: source/vstd/vstd_msvc.cppm - `export module deren.vstd; export import std;`, i.e. the MSVC
-#     toolchain's own std module re-exported under the project's module name.
+#   MSVC: source/vstd/vstd_msvc.cppm - the MSVC STL's own modules/std.ixx, vendored from Visual
+#     Studio 2022 17.14 / MSVC 14.44.35207 and renamed to `deren.vstd`. It includes the standard
+#     headers inside the module purview; `_BUILD_STD_MODULE` makes them export their entities.
 #
-# The MSVC dialect exists because of a compiler bug, measured on this tree rather than guessed:
-# the libc++-derived re-export construction (71 `export namespace std { using ... }` partitions)
-# makes cl.exe 19.44 die with `fatal error C1001` on every TU that instantiates std::span /
-# std::array / std::tuple through it - 7 of the 326 objects before this switch, all of them
-# importers of vstd - while the same consumers compile clean against the toolchain's std module.
-# The minimal reproductions and the bisection are in
-# build-release-clang64/msvc/lead_lab/ICE_FINDINGS.md; source/vstd/vstd_msvc.cppm states what the dialect
-# costs (MSVC STL instead of libc++, and no VSTD_* macro face).
-#
-# CXX_MODULE_STD makes CMake build that std module itself and hand it to vstd_lib's compile: a
-# Visual Studio installation ships only modules/std.ixx, there is no prebuilt std.ifc. It relies
-# on the experimental gate set at the top of this file (the gate has to precede project(), which
-# is also why the compiler choice is made with `if(MSVC)` here and not up there).
+# Both are ordinary source modules. The MSVC dialect does NOT `import std;`, and the build does NOT
+# use CMake's CXX_MODULE_STD path or its experimental import-std gate. It must not: the libc++-derived
+# re-export construction (71 `export namespace std { using ... }` partitions) makes cl.exe 19.44 die
+# with `fatal error C1001` on every TU that instantiates std::span / std::array / std::tuple through
+# it - 7 of the 326 objects before this switch, all of them importers of vstd. The minimal
+# reproductions and the bisection are in build-release-clang64/msvc/lead_lab/ICE_FINDINGS.md;
+# source/vstd/vstd_msvc.cppm states what the vendored dialect costs (MSVC STL instead of libc++,
+# the full header set instead of the trimmed whitelist, and no VSTD_* macro face).
 # =============================================================================================
 # THE UTILITY TOOLKIT IS TWO TARGETS (batch ④, the dynamic-backend flip's prerequisite).
 #

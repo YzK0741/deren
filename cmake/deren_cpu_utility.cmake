@@ -2,10 +2,6 @@
 include_guard(GLOBAL)
 get_filename_component(DEREN_REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 
-if(MSVC)
-    set(CMAKE_CXX_MODULE_STD ON)
-endif()
-
 add_library(vstd_lib STATIC)
 
 if(MSVC)
