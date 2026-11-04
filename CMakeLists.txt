@@ -1002,7 +1002,7 @@ target_include_directories(deren_engine
 
 # THE APPLICATION (the runtime switch and the S1-S3 gate that used to wrap this are retired: see the
 # comment above `deren_engine`).
-add_executable(deren source/app/main.cpp source/app/app_application.cpp source/app/startup_splash.cpp)
+add_executable(deren source/app/main.cpp source/app/startup_splash.cpp)
 if(WIN32)
     enable_language(RC)
     target_sources(deren PRIVATE source/app/resources/deren.rc)
@@ -1042,7 +1042,7 @@ target_link_libraries(static_utility PUBLIC
 # backend, from where, with which search rules, or what a failure means - and the renderer owned a
 # policy that is not its job. The module now sits between them:
 #
-#     auto core = deren::vulkan::load_api_core(core_options);   // source/app/main.cpp (the app decides)
+#     auto core = deren::vulkan::load_api_core(core_options);   // deren.app.application (the app decides)
 #     deren::vulkan::runtime runtime{core, core_options};       // the renderer (given a root)
 #
 # NOT IN static_utility, deliberately: that half is the pure-CPU toolkit with no loading semantics,
@@ -1097,6 +1097,7 @@ target_sources(app_support
         source/app/app_animation.cppm
         source/app/app_instancing.cppm
         source/app/app_toon.cppm
+        source/app/app_application.cppm
     PRIVATE
         source/app/app_config.cpp
         source/app/app_pipelines.cpp
@@ -1105,6 +1106,7 @@ target_sources(app_support
         source/app/app_animation.cpp
         source/app/app_instancing.cpp
         source/app/app_toon.cpp
+        source/app/app_application.cpp
 )
 target_link_libraries(app_support
         app_config
@@ -1113,10 +1115,10 @@ target_link_libraries(app_support
         deren_engine
         static_utility
         vstd_lib
+        backend_loader   # deren.app.application calls load_api_core(): the app owns the acquisition (batch ⑥)
 )
 
 target_link_libraries(${PROJECT_NAME}
-        backend_loader   # source/app/main.cpp calls load_api_core(): the app owns the acquisition (batch ⑥)
         static_utility
         deren_engine
         app_support
@@ -2002,9 +2004,10 @@ target_compile_definitions(deren_vulkan PRIVATE
 
 # -- version: single source of truth is project(VERSION) above. Injected into the C++ targets
 #    that surface it: the Vulkan app_info (source/backends/vulkan/core/core.cpp, applicationVersion /
-#    engineVersion), the --version flag and the startup log banner (source/app/main.cpp). Bump the number
-#    in project(VERSION) and keep README/docs' "current version" lines in sync.
-foreach(version_target IN ITEMS deren_engine ${VR_APP_EXE} deren_vulkan)
+#    engineVersion), the app lifecycle module (--version flag and the startup log banner in
+#    source/app/app_application.cpp), and deren_vulkan. Bump the number in project(VERSION) and keep
+#    README/docs' "current version" lines in sync.
+foreach(version_target IN ITEMS deren_engine app_support ${VR_APP_EXE} deren_vulkan)
     target_compile_definitions(${version_target} PRIVATE
             DEREN_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
             DEREN_VERSION_MINOR=${PROJECT_VERSION_MINOR}
