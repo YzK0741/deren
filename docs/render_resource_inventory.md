@@ -125,7 +125,9 @@ above describe future access/ordering work, not outstanding production allocatio
 
 ## Source anchors
 
-- `source/engine/render_resource/render_resource.cppm`: resource schema, binding access, pass I/O.
+- `source/engine/render_resource/render_resource.cppm`: facade re-exporting the partitions.
+- `source/engine/render_resource/schema/render_resource.schema.cppm`: resource schema, binding access, pass I/O types and validation.
+- `source/engine/render_resource/passes/render_resource.passes.cppm`: per-pass I/O tables.
 - `source/shaders/common/heap_access.slang` and `heap_slot_constants.slang`: typed fetches/index domains.
 - `source/shaders/geometry/mesh_geometry.slang`, `compute_skin.slang`, `mask_bake.slang`: device-address paths.
 - `source/shaders/lighting/rt_shadow.slang`: the mapped-TLAS traversal binding method (the MegaLights trace that

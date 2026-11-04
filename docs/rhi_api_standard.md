@@ -11,9 +11,10 @@ RFC 2119 sense.
 
 ## 1. Scope and source of truth
 
-- The contract is the exported modules under `source/promise/rhi/`: `rhi.contract.cppm` (version, enums, value
-  types, object handles), `rhi.api_core.cppm` (interfaces and virtuals), `rhi.extension.cppm` (optional
-  extensions), `rhi.core_desc.cppm` (creation parameters).
+- The contract is the exported modules under `source/promise/rhi/`: `rhi.contract.cppm` and `contract/` (version,
+  enums, value types, object handles, `main_context`), `rhi.api_core.cppm` and its domain partitions under
+  `resource/`, `pipeline/`, `recording/`, `frame/`, and `core/` (interfaces and virtuals),
+  `rhi.extension.cppm` (optional extensions), `rhi.core_desc.cppm` (creation parameters).
 - Every interface method listed in sections 7-8 is a virtual function that a backend implements. Default
   implementations return `error::unsupported` (or perform the documented trivial operation); a backend MUST NOT
   claim an ability it does not implement.
@@ -407,7 +408,8 @@ resources and handles (section 1), recording (section 2), and the
 factories/contexts/root (section 3). Optional tier-2 extensions are out of scope
 here.
 
-Source of truth: `source/promise/rhi/rhi.api_core.cppm` (the contract), with
+Source of truth: `source/promise/rhi/rhi.api_core.cppm` and its domain partitions under
+`source/promise/rhi/{resource,pipeline,recording,frame,core}/` (the contract), with
 `docs/dynamic_runtime.md` and `docs/resource_groups.md` where they state
 contract-level rules. Where a behaviour is stated only by one backend, the
 bullet says so and treats it as evidence, never as the rule.

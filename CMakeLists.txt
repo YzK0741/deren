@@ -332,10 +332,18 @@ target_sources(promise
         FILES
         source/promise/rhi/rhi.cppm
         source/promise/rhi/rhi.contract.cppm
+        source/promise/rhi/contract/rhi.error.cppm
+        source/promise/rhi/contract/rhi.object.cppm
+        source/promise/rhi/contract/rhi.interop.cppm
         # The creation parameters, as a contract type: the program fills it, the backend builds its
         # context from it, and the factory that takes it (S2) needs no backend-specific structure.
         source/promise/rhi/rhi.core_desc.cppm
         source/promise/rhi/rhi.extension.cppm
+        source/promise/rhi/resource/rhi.resource.cppm
+        source/promise/rhi/pipeline/rhi.pipeline.cppm
+        source/promise/rhi/recording/rhi.recording.cppm
+        source/promise/rhi/frame/rhi.frame.cppm
+        source/promise/rhi/core/rhi.core.cppm
         source/promise/rhi/rhi.api_core.cppm
         source/promise/rhi/render_operations.cppm
         source/promise/gui/gui.cppm
@@ -657,6 +665,8 @@ target_sources(deren_engine
         ${VR_RUNTIME_MODULES}
         source/engine/pipelines/pipelines.cppm
         source/engine/render_resource/render_resource.cppm
+        source/engine/render_resource/schema/render_resource.schema.cppm
+        source/engine/render_resource/passes/render_resource.passes.cppm
         source/engine/render_resource/shared.cppm
         source/engine/render_resource/instances.cppm
         source/engine/frame_constants/frame_constants.cppm
@@ -708,8 +718,15 @@ target_sources(deren_engine
         source/engine/visibility/visibility.cppm
         source/engine/visibility/texture_residency.cppm
         source/engine/visibility/visibility_software.cppm
+        source/engine/visibility/classification/visibility_software.classification.cppm
+        source/engine/visibility/tiling/visibility_software.tiling.cppm
+        source/engine/visibility/merge/visibility_software.merge.cppm
+        source/engine/visibility/reference/visibility_software.reference.cppm
         source/engine/visibility/hzb.cppm
         source/engine/primitive/primitive.cppm
+        source/engine/primitive/records/primitive.records.cppm
+        source/engine/primitive/toon/primitive.toon.cppm
+        source/engine/primitive/primitives/primitive.primitives.cppm
         source/engine/render_environment/render_environment.cppm
         # (the GUI module MOVED to deren_gui_vulkan - see that target's comment) and the loader the
         # engine uses instead: it resolves deren_gui_<api>.dll by name through the boundary header.

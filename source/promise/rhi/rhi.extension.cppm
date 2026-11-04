@@ -23,7 +23,7 @@
 //      BACKEND PRODUCES: `query_extension(kind)` must answer, and every operation the ability
 //      declares must be performable on something the backend can hand out. A device-level fact
 //      ("this device is 1.2, so bufferDeviceAddress exists") is not an ability until there is a
-//      `buffer` to ask about - the strict form of "置位 ⇒ 取得到 且 用得上".
+//      `buffer` to ask about - the strict form of "set => obtainable => usable".
 //   2. Every ability derives from `extension`, whose only virtual is `kind()`.
 //      Adding a sixth ability therefore cannot disturb the vtable of the other
 //      five, and `query_extension()` stays a one-line lookup in the backend.
@@ -31,8 +31,9 @@
 //      `deren::utility::vessel::string`, no exception across the boundary (§4.2). The engine and the
 //      backend each compile this partition; neither exports a module symbol for it.
 //
-// 能力入口只有 query_extension；这些虚接口沿用同工具链的 C++ ABI。
-// 不再增加一套 deren_ext_* C 函数表；该边界不承诺供非 C++ 宿主使用。
+// The only ability entry point is query_extension; these virtual interfaces use the C++ ABI of the
+// same toolchain. There is no separate deren_ext_* C function table: this boundary does not promise
+// support for non-C++ hosts.
 // ============================================================================
 module;
 
@@ -429,8 +430,9 @@ export namespace deren::promise::rhi {
                                          std::uint32_t group_count, std::span<std::uint8_t> out) const noexcept = 0;
     };
 
-    /// 可选的bindless heap服务；使用通用资源/地址/命令语义。原生参数只能显式放在next中。
-    /// 不承诺所有后端支持；广播此能力必须提供可用实现，不能用空操作冒充。
+    /// Optional bindless heap service using the generic resource/address/command vocabulary. Native
+    /// parameters can only be passed explicitly through `next`. Not every backend promises support;
+    /// advertising this ability requires a working implementation - a no-op is not acceptable.
     struct descriptor_heap : extension {
 
         static constexpr extension_kind extension_id = extension_kind::descriptor_heap;
@@ -603,7 +605,8 @@ export namespace deren::promise::rhi {
         }
     };
 
-    /// ABI9: heap 查询只返回值，不暴露后端 heap_limits 类型或引用。
+    /// ABI 9: the heap query returns values only; it does not expose the backend's heap_limits type
+    /// or a reference to it.
     struct descriptor_heap_properties {
         std::uint64_t resource_size = 0;
         std::uint64_t max_resource_size = 0;
@@ -630,7 +633,7 @@ export namespace deren::promise::rhi {
         heap_binding sampler;
     };
 
-    // 请求只含可移植语义。THE `next` CHAIN IS REFUSED (abi 34): the native view/command-buffer parameters the
+    // The request carries portable semantics only. THE `next` CHAIN IS REFUSED (abi 34): the native view/command-buffer parameters the
     // transition carried are DELETED, so a request that still chains a tag is answered `unsupported` instead
     // of having the chain walked - the portable fields below are the whole request.
     enum class descriptor_type : std::uint32_t {

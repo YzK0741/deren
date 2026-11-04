@@ -156,7 +156,7 @@ gaussian            splat            Gaussian snapshot (no mesh leaf)
 
 ### 5.1 Primitive
 
-Add to `source/engine/primitive/primitive.cppm`:
+Add to `source/engine/primitive/records/primitive.records.cppm`:
 
 ```cpp
 enum class shading_path : std::uint8_t {
@@ -223,7 +223,7 @@ nothing.
 The cap is raised to the scene-object limit:
 
 ```cpp
-// source/engine/primitive/primitive.cppm:270
+// source/engine/primitive/records/primitive.records.cppm:242
 export constexpr std::uint32_t max_game_toon_characters = 16;
 ```
 
@@ -465,7 +465,7 @@ Required automated checks:
 
 Phase A and Phase B modified:
 
-- `source/engine/primitive/primitive.cppm`
+- `source/engine/primitive/` (facade and partitions)
 - `source/engine/runtime/runtime.declarations.cppm`
 - `source/engine/runtime/runtime.frames.cppm`
 - `source/engine/runtime/runtime.cpp`
