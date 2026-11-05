@@ -2,7 +2,9 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Message,
     [string[]]$Paths,
-    [switch]$DryRun
+    [switch]$DryRun,
+    [ValidateSet("Incremental", "Full")]
+    [string]$GateMode = "Incremental"
 )
 
 $ErrorActionPreference = "Stop"
@@ -40,8 +42,8 @@ try {
 
     if ($DryRun) {
         Write-Host ""
-        Write-Host "DRY RUN: running the local gate against HEAD without creating a commit." -ForegroundColor Yellow
-        & pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-local-ci.ps1") -Mode Full -NoMarker
+        Write-Host "DRY RUN: running the $GateMode local gate against HEAD without creating a commit." -ForegroundColor Yellow
+        & pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-local-ci.ps1") -Mode $GateMode -NoMarker
         if ($LASTEXITCODE -ne 0) { throw "local gate failed" }
         return
     }
@@ -64,8 +66,8 @@ try {
 
     try {
         Write-Host ""
-        Write-Host "Running the local gate against the new commit (local subset of CI)..." -ForegroundColor Cyan
-        & pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-local-ci.ps1") -Mode Full
+        Write-Host "Running the $GateMode local gate against the new commit (local subset of CI)..." -ForegroundColor Cyan
+        & pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-local-ci.ps1") -Mode $GateMode
         if ($LASTEXITCODE -ne 0) { throw "local gate failed" }
     }
     catch {

@@ -12,9 +12,25 @@ $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
 Push-Location $repo
 try {
+    function Get-TextSha256([string]$Text) {
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            $bytes = [System.Text.Encoding]::UTF8.GetBytes($Text)
+            return ([System.BitConverter]::ToString($sha.ComputeHash($bytes)) -replace '-', '').ToLowerInvariant()
+        }
+        finally {
+            $sha.Dispose()
+        }
+    }
+
+    function Get-ChangedScopeHash([string[]]$Files) {
+        if ($Files.Count -eq 0) { return Get-TextSha256 "" }
+        return Get-TextSha256 ((($Files | Sort-Object) -join "`n") + "`n")
+    }
+
     $markerPath = Join-Path $repo "tmp/local-gate-pass.json"
     if (-not (Test-Path $markerPath)) {
-        throw "no local gate marker at tmp/local-gate-pass.json; run scripts/commit.ps1 or scripts/run-local-ci.ps1 -Mode Full on a clean HEAD"
+        throw "no local gate marker at tmp/local-gate-pass.json; run scripts/commit.ps1 or scripts/run-local-ci.ps1 -Mode Incremental on a clean HEAD"
     }
 
     $marker = Get-Content $markerPath -Raw | ConvertFrom-Json
@@ -29,14 +45,49 @@ try {
     if ($marker.tree -ne $tree) {
         throw "local gate marker tree does not match HEAD's tree; the commit changed after the gate"
     }
-    if ($marker.mode -ne "Full") {
-        throw "local gate marker mode is '$($marker.mode)', not Full"
+    if ($marker.mode -notin @("Full", "Incremental")) {
+        throw "local gate marker mode is '$($marker.mode)', not Full or Incremental"
+    }
+    if ($marker.mode -eq "Full") {
+        if ($marker.local_scope -ne "full" -or $marker.tidy_scope -ne "full") {
+            throw "local gate marker is Full but does not record a full tidy scope; re-run the Full gate"
+        }
+    }
+    else {
+        if ($marker.local_scope -ne "incremental" -or $marker.tidy_scope -ne "changed") {
+            throw "local gate marker is Incremental but does not record a changed-file tidy scope; re-run the gate"
+        }
+        if (-not $marker.incremental_base) {
+            throw "local gate marker does not name the incremental base commit; re-run the gate"
+        }
+        $baseCommit = ""
+        $resolvedBase = @(& git rev-parse --verify "$($marker.incremental_base)^{commit}" 2>$null)
+        if ($LASTEXITCODE -eq 0 -and $resolvedBase.Count -gt 0) { $baseCommit = ($resolvedBase[0]).Trim() }
+        if (-not $baseCommit) {
+            throw "the incremental base named by the marker is not a commit; re-run the gate"
+        }
+        & git merge-base --is-ancestor $baseCommit $head 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            throw "the incremental base named by the marker is not an ancestor of HEAD; re-run the gate"
+        }
+        $changedFiles = @(& git diff --name-only --diff-filter=ACDMR "$baseCommit...$head" --)
+        if ($LASTEXITCODE -ne 0) {
+            throw "could not recompute the incremental changed-file scope"
+        }
+        $changedFiles = @($changedFiles |
+            ForEach-Object { ($_ -replace '\\', '/').Trim() } |
+            Where-Object { $_ } |
+            Sort-Object -Unique)
+        $expectedHash = Get-ChangedScopeHash $changedFiles
+        if ($marker.changed_files_sha256 -ne $expectedHash) {
+            throw "the incremental changed-file scope no longer matches the marker; re-run the gate"
+        }
     }
     if (-not $marker.working_tree_clean) {
         throw "local gate marker was written on a dirty worktree"
     }
     if (-not $marker.untracked_checked) {
-        throw "local gate marker predates the untracked-file check; re-run scripts/run-local-ci.ps1 -Mode Full"
+        throw "local gate marker predates the untracked-file check; re-run scripts/run-local-ci.ps1 -Mode Incremental"
     }
     $recordedGates = @($marker.gates)
     foreach ($required in @("release-build", "backend-boundary", "ctest", "clang-format-check", "clang-tidy")) {
@@ -49,7 +100,7 @@ try {
     # match a log the gate produced, gate header by gate header. Deliberate fraud is not the threat
     # model (the same user can write both files) - an accidental or forgotten marker is.
     if (-not $marker.log_file -or -not $marker.log_sha256) {
-        throw "local gate marker carries no gate log (it predates the log); re-run scripts/run-local-ci.ps1 -Mode Full on this commit"
+        throw "local gate marker carries no gate log (it predates the log); re-run scripts/run-local-ci.ps1 -Mode Incremental on this commit"
     }
     $logPath = if ([System.IO.Path]::IsPathRooted($marker.log_file)) { $marker.log_file } else { Join-Path $repo $marker.log_file }
     if (-not (Test-Path -LiteralPath $logPath)) {

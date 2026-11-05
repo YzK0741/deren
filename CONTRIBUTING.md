@@ -70,7 +70,7 @@ that came before it.
 Run from the repository root:
 
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-local-ci.ps1 -Mode Full
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-local-ci.ps1 -Mode Incremental
 ```
 
 The build tree is auto-detected as the canonical Release tree, `build/`, falling back to
@@ -80,24 +80,29 @@ to override.
 This is a **local gate, not a CI pass**. It is a strict subset of the remote
 workflow that can run on a Windows checkout:
 
-| Runs locally (`-Mode Full`) | Remote CI only |
+| Runs locally (`-Mode Incremental`) | Remote CI only |
 | --- | --- |
 | `git diff --cached --check` | Debug build (assert-enabled compile gate) |
-| Release build | ASan + UBSan over the headless tests |
+| Release build (incremental) | ASan + UBSan over the headless tests |
 | backend-boundary ratchet (`check-backend-boundary`) | POSIX stacktrace probe (Ubuntu job) |
 | full CTest with a workspace-local `TEMP`/`TMP` | |
 | `clang-format-check` | |
-| the CI `TIDY_FILES` list through `scripts/tools/run_clang_tidy.py` | |
+| the CI `TIDY_FILES` subset changed since `origin/master` | |
 
-`-Mode Fast` runs the same build, backend-boundary, CTest and clang-format steps
-but skips clang-tidy, and it writes no marker. Only `-Mode Full` produces
-`tmp/local-gate-pass.json`.
+`Incremental` changes only the clang-tidy scope: the build, backend-boundary,
+CTest and clang-format steps are the same as `Full`. The comparison base defaults
+to `origin/master` (the whole feature branch) and can be overridden with
+`-Base <commit>`; the changed-file scope is recorded in the marker and re-checked
+before push. `-Mode Full` runs the entire `TIDY_FILES` list and is available when
+a change is broad or about to be released. `-Mode Fast` runs the same build,
+backend-boundary, CTest and clang-format steps but skips clang-tidy, and it writes
+no marker. Only `Incremental` and `Full` produce `tmp/local-gate-pass.json`.
 
-The marker attests to the local subset above, not to remote CI. PR CI remains the
-merge authority. Before opening a PR, also run the sanitizer build if the change
-touches engine or shader code. The exact CI commands are in
-`.github/workflows/ci.yml`; when CI gains a gate that is cheap to run locally, add
-it to the script rather than widening the claim in this document.
+The marker attests to the local subset and the recorded tidy scope above, not to
+remote CI. PR CI remains the merge authority. Before opening a PR, also run the
+sanitizer build if the change touches engine or shader code. The exact CI commands
+are in `.github/workflows/ci.yml`; when CI gains a gate that is cheap to run
+locally, add it to the script rather than widening the claim in this document.
 
 ## Committing
 
@@ -108,12 +113,13 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\commit.ps1 -Message "too
 ```
 
 It stages the given paths, prints the staged diff, asks the three questions, creates
-the commit, then runs the local gate **against that commit**. On success the gate
+the commit, then runs the local gate **against that commit**. The default gate mode
+is `Incremental`; pass `-GateMode Full` for a full tidy run. On success the gate
 writes `tmp/local-gate-pass.json` with the commit SHA, tree SHA, commit time, mode,
-the gates that actually ran, the gates that did not, a timestamp, and the SHA-256 of
-`tmp/local-gate.log` (the transcript every step's output was tee'd into). If the gate
-fails, the commit is rolled back with `git reset --soft` and the staged changes stay
-in place.
+the tidy scope and base, the gates that actually ran, the gates that did not, a
+timestamp, and the SHA-256 of `tmp/local-gate.log` (the transcript every step's
+output was tee'd into). If the gate fails, the commit is rolled back with
+`git reset --soft` and the staged changes stay in place.
 
 The `pre-commit` hook refuses `git commit` unless `commit.ps1` set its checklist
 variable. That is a guard against forgetting the checklist, not a lock: `git commit

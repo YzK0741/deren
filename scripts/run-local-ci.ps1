@@ -1,6 +1,10 @@
 param(
-    [ValidateSet("Fast", "Full")]
+    [ValidateSet("Fast", "Incremental", "Full")]
     [string]$Mode = "Full",
+    # Incremental mode compares this commit with HEAD. The default covers the
+    # whole feature branch, not just the last commit, so every pushed change is
+    # inside the scope the marker names.
+    [string]$Base = "origin/master",
     # Empty = "the Release tree scripts/build_helpers/build.py produced" (resolved below);
     # pass a path to override.
     [string]$BuildDir = "",
@@ -9,11 +13,13 @@ param(
 
 # THIS IS A LOCAL GATE, NOT A CI PASS. It is a strict subset of
 # .github/workflows/ci.yml that can run on this Windows checkout: the Release
-# build, the backend-boundary ratchet, ctest, clang-format-check, and (in Full
-# mode) the same clang-tidy list CI uses. It does NOT run the Debug compile gate,
-# the ASan/UBSan job, or the POSIX stacktrace job. The marker it writes therefore
-# attests to that subset only; the pre-push hook and scripts/push.ps1 treat it as
-# a local prerequisite, and PR CI remains the merge authority (CONTRIBUTING.md).
+# build, the backend-boundary ratchet, ctest, clang-format-check, and (in
+# Incremental/Full mode) clang-tidy. Incremental keeps the same gates but runs
+# clang-tidy only on TIDY_FILES changed since -Base; Full runs the whole list.
+# It does NOT run the Debug compile gate, the ASan/UBSan job, or the POSIX
+# stacktrace job. The marker it writes therefore attests to that subset only;
+# the pre-push hook and scripts/push.ps1 treat it as a local prerequisite, and
+# PR CI remains the merge authority (CONTRIBUTING.md).
 
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
@@ -43,6 +49,15 @@ try {
     $gateLog = Join-Path $repo "tmp/local-gate.log"
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $gateLog) | Out-Null
     Set-Content -LiteralPath $gateLog -Value "" -Encoding utf8
+
+    # A failed gate must not leave the previous run's marker behind. The marker
+    # records the commit and tree, so an old one cannot validate a new HEAD, but
+    # it can still validate this HEAD after a later run fails - exactly the case
+    # where a stale "pass" is most dangerous. Remove it before any gate step.
+    $markerPath = Join-Path $repo "tmp/local-gate-pass.json"
+    if (-not $NoMarker -and (Test-Path -LiteralPath $markerPath)) {
+        Remove-Item -LiteralPath $markerPath -Force
+    }
 
     # THE FIRST ARGUMENT IS THE MARKER'S GATE ID, not the display name: check-ci-marker.ps1 requires
     # every gate id it reads from tmp/local-gate-pass.json to appear as a `== id ==` header in this log,
@@ -86,7 +101,83 @@ try {
         return @($unexpected)
     }
 
-    Write-Host "Local gate ($Mode): Release build, backend-boundary ratchet, ctest, clang-format$(if ($Mode -eq 'Full') { ', clang-tidy' })" -ForegroundColor DarkGray
+    function Get-TextSha256([string]$Text) {
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            $bytes = [System.Text.Encoding]::UTF8.GetBytes($Text)
+            return ([System.BitConverter]::ToString($sha.ComputeHash($bytes)) -replace '-', '').ToLowerInvariant()
+        }
+        finally {
+            $sha.Dispose()
+        }
+    }
+
+    function Get-ChangedScopeHash([string[]]$Files) {
+        if ($Files.Count -eq 0) { return Get-TextSha256 "" }
+        return Get-TextSha256 ((($Files | Sort-Object) -join "`n") + "`n")
+    }
+
+    # Incremental mode keeps every gate but narrows clang-tidy to the CI list
+    # intersected with files changed since -Base. The marker records that scope,
+    # so a push cannot claim a full tidy run it did not perform.
+    $incremental = $Mode -eq "Incremental"
+    $baseCommit = $null
+    $changedFiles = @()
+    $tidyFiles = @()
+
+    if ($incremental) {
+        $resolvedBase = @(& git rev-parse --verify "$Base^{commit}" 2>$null)
+        if ($LASTEXITCODE -ne 0 -or $resolvedBase.Count -eq 0) {
+            throw "incremental base '$Base' is not a commit; pass -Base <commit> or use -Mode Full"
+        }
+        $baseCommit = ($resolvedBase[0]).Trim()
+        & git merge-base --is-ancestor $baseCommit HEAD 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            throw "incremental base $baseCommit is not an ancestor of HEAD; rebase or pass a valid -Base"
+        }
+        $changedFiles = @(& git diff --name-only --diff-filter=ACDMR "$baseCommit...HEAD" --)
+        if ($LASTEXITCODE -ne 0) {
+            throw "could not list files changed since $baseCommit"
+        }
+        $changedFiles = @($changedFiles |
+            ForEach-Object { ($_ -replace '\\', '/').Trim() } |
+            Where-Object { $_ } |
+            Sort-Object -Unique)
+    }
+
+    if ($Mode -ne "Fast") {
+        # Parse the same list the CI job uses instead of maintaining a second one.
+        $ci = Get-Content (Join-Path $repo ".github/workflows/ci.yml") -Raw
+        $match = [regex]::Match($ci, 'TIDY_FILES="([\s\S]*?)"')
+        if (-not $match.Success) {
+            throw "could not find TIDY_FILES in .github/workflows/ci.yml"
+        }
+        $allTidyFiles = @((($match.Groups[1].Value -replace '\\\r?\n', ' ').Trim() -split '\s+') |
+            Where-Object { $_ } |
+            ForEach-Object { $_ -replace '\\', '/' })
+        if ($allTidyFiles.Count -eq 0) {
+            throw "TIDY_FILES list is empty"
+        }
+        if ($incremental) {
+            $changedSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            foreach ($file in $changedFiles) { [void]$changedSet.Add($file) }
+            $tidyFiles = @($allTidyFiles | Where-Object {
+                $changedSet.Contains($_) -and (Test-Path -LiteralPath (Join-Path $repo $_))
+            })
+        }
+        else {
+            $tidyFiles = $allTidyFiles
+        }
+    }
+
+    Write-Host "Local gate ($Mode): Release build, backend-boundary ratchet, ctest, clang-format$(if ($Mode -ne 'Fast') { ', clang-tidy' })" -ForegroundColor DarkGray
+    if ($incremental) {
+        Write-Host "Incremental base: $Base ($baseCommit); changed files: $($changedFiles.Count); tidy files: $($tidyFiles.Count)" -ForegroundColor DarkGray
+        Add-Content -LiteralPath $gateLog -Value "incremental base: $baseCommit" -Encoding utf8
+        Add-Content -LiteralPath $gateLog -Value "changed files: $($changedFiles.Count)" -Encoding utf8
+        Add-Content -LiteralPath $gateLog -Value "changed scope sha256: $(Get-ChangedScopeHash $changedFiles)" -Encoding utf8
+        Add-Content -LiteralPath $gateLog -Value "tidy files: $($tidyFiles.Count)" -Encoding utf8
+    }
     Write-Host "Not covered here: Debug compile gate, ASan/UBSan, POSIX stacktrace (remote CI only)" -ForegroundColor DarkGray
 
     Invoke-Step "git-diff-check" "git diff --cached --check" { git diff --cached --check }
@@ -115,28 +206,24 @@ try {
 
     Invoke-Step "clang-format-check" "clang-format-check" { cmake --build $BuildDir --target clang-format-check }
 
-    if ($Mode -eq "Full") {
-        # Parse the same list the CI job uses instead of maintaining a second one.
-        $ci = Get-Content (Join-Path $repo ".github/workflows/ci.yml") -Raw
-        $match = [regex]::Match($ci, 'TIDY_FILES="([\s\S]*?)"')
-        if (-not $match.Success) {
-            throw "could not find TIDY_FILES in .github/workflows/ci.yml"
-        }
-        $tidyFiles = ($match.Groups[1].Value -replace '\\\r?\n', ' ').Trim() -split '\s+'
-        if ($tidyFiles.Count -eq 0) {
-            throw "TIDY_FILES list is empty"
-        }
+    if ($Mode -ne "Fast") {
         Invoke-Step "clang-tidy" "clang-tidy ($($tidyFiles.Count) files)" {
-            & python scripts/tools/run_clang_tidy.py --build-dir $BuildDir @tidyFiles
+            if ($tidyFiles.Count -eq 0) {
+                Write-Output "incremental: no changed files are in the CI TIDY_FILES list; clang-tidy skipped"
+                $global:LASTEXITCODE = 0
+            }
+            else {
+                & python scripts/tools/run_clang_tidy.py --build-dir $BuildDir @tidyFiles
+            }
         }
     }
 
-    if (-not $NoMarker -and $Mode -ne "Full") {
+    if (-not $NoMarker -and $Mode -eq "Fast") {
         Write-Host ""
-        Write-Host "Fast mode writes no marker: the marker is reserved for the Full gate." -ForegroundColor DarkGray
+        Write-Host "Fast mode writes no marker: the marker is reserved for the Incremental and Full gates." -ForegroundColor DarkGray
     }
 
-    if (-not $NoMarker -and $Mode -eq "Full") {
+    if (-not $NoMarker -and $Mode -ne "Fast") {
         # The marker is intentionally outside the repository: CI cannot commit a
         # file after it runs without creating a second unverified commit, and a
         # committed marker would only assert itself. This file is a local
@@ -158,7 +245,7 @@ try {
         # checkout moves (and so the validator can re-apply the same allowlist).
         $buildId = ([System.IO.Path]::GetRelativePath($repo, (Resolve-Path -LiteralPath $BuildDir).Path) -replace '\\', '/')
         $gates = @("release-build", "backend-boundary", "ctest", "clang-format-check")
-        if ($Mode -eq "Full") { $gates += "clang-tidy" }
+        if ($Mode -ne "Fast") { $gates += "clang-tidy" }
         # The transcript is the evidence behind the claim: the marker names the file and its hash, and
         # check-ci-marker.ps1 re-hashes it and requires each gate's header to be in it.
         $logHash = (Get-FileHash -LiteralPath $gateLog -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -169,6 +256,12 @@ try {
             commit_time = $commitTime
             generated_at = [DateTimeOffset]::Now.ToString("o")
             mode = $Mode
+            local_scope = $(if ($incremental) { "incremental" } else { "full" })
+            incremental_base = $(if ($incremental) { $baseCommit } else { $null })
+            changed_files = $(if ($incremental) { @($changedFiles) } else { @() })
+            changed_files_sha256 = $(if ($incremental) { Get-ChangedScopeHash $changedFiles } else { $null })
+            tidy_scope = $(if ($incremental) { "changed" } else { "full" })
+            tidy_files = @($tidyFiles)
             build_dir = $buildId
             gates = $gates
             not_covered = @("debug-compile", "asan-ubsan", "posix-stacktrace")
@@ -180,7 +273,7 @@ try {
         }
         $markerPath = Join-Path $repo "tmp/local-gate-pass.json"
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $markerPath) | Out-Null
-        $marker | ConvertTo-Json -Depth 4 | Set-Content -Path $markerPath -Encoding utf8
+        $marker | ConvertTo-Json -Depth 6 | Set-Content -Path $markerPath -Encoding utf8
         Write-Host "Local gate marker written: $markerPath" -ForegroundColor DarkGray
         Write-Host "Evidence log: $gateLog (sha256 $logHash)" -ForegroundColor DarkGray
     }
