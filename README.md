@@ -118,7 +118,7 @@ annotation; the main reusable sets are `deren.utility` 3.0.1 (with `deren.utilit
 `deren.vulkan.core` and `deren.engine.runtime` embed), `deren.vulkan.core` 0.24.1,
 `deren.engine.runtime` 1.1.1, `deren.engine.profiling` 1.0.1, `deren.engine.pipelines` 1.0.1,
 `deren.engine.shadow_fit` 1.0.1, `deren.engine.acceleration_structure` 2.0.1,
-`deren.engine.scene_tree` 1.0.1, `deren.engine.primitive` 1.1.1, `deren.engine.animation` 1.0.1,
+`deren.engine.scene_tree` 1.0.1, `deren.engine.primitive` 1.1.2, `deren.engine.animation` 1.0.1,
 `deren.vulkan.graphical_user_interface` 1.0.1 and `deren.app.renderer` 0.2.1. The pass-level
 modules and the render-resource/backend helpers carry the same annotation; their unit headers
 are authoritative.

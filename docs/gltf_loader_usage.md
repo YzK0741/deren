@@ -220,7 +220,7 @@ if (prim.material_index < model.materials.size()) {
 
 The engine's draw path is index-width agnostic, so `prim.index` needs NO conversion before upload: a
 primitive's geometry lanes carry `index_width` - bytes per index, 2 or 4 - in
-`source/engine/primitive/primitive.cppm` (`mesh_geometry_lanes`), and the geometry fetch
+`source/engine/primitive/primitives/primitive.primitives.cppm` (`mesh_geometry_lanes`), and the geometry fetch
 `source/shaders/geometry/mesh_geometry.slang` reads 16- and 32-bit indices the same way. The loader already
 normalizes the one width the GPU has no form for: u8 indices are widened to u16, while 2-byte and 4-byte
 data are kept as they were found, and a non-indexed primitive gets a synthesized uint32 index buffer
