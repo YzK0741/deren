@@ -41,6 +41,10 @@ namespace vis = deren::engine::visibility;
 namespace layout = deren::engine::render_layout;
 namespace {
     struct pipeline final : rhi::pipeline {
+        static constexpr std::string_view tag = "subtilis frame probe";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         pipeline()
             : rhi::pipeline("subtilis frame probe") {
         }

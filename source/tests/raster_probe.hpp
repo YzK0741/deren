@@ -6,6 +6,10 @@ namespace rhi = deren::promise::rhi;
 namespace raster_test {
     using namespace deren::promise::rhi;
     struct raster_probe_buffer : rhi::buffer {
+        static constexpr std::string_view tag = "gaussian_raster_probe_buffer";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         unsigned index;
         int& releases;
         std::uint64_t capacity;
@@ -29,6 +33,10 @@ namespace raster_test {
         }
     };
     struct raster_probe_address : rhi::device_address {
+        static constexpr std::string_view tag = "gaussian_raster_probe_address";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         unsigned zero_at = 0, unaligned_at = 0;
         raster_probe_address()
             : device_address("gaussian_raster_probe_address") {
@@ -39,6 +47,10 @@ namespace raster_test {
         }
     };
     struct raster_probe_pipeline : rhi::pipeline {
+        static constexpr std::string_view tag = "raster_probe_pipeline";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         int* releases;
         explicit raster_probe_pipeline(int& count)
             : pipeline("raster_probe_pipeline")
@@ -51,6 +63,10 @@ namespace raster_test {
     };
 
     struct raster_probe_core : rhi::api_core, rhi::resource_factory, rhi::command_context, rhi::frame_context {
+        static constexpr std::string_view tag = "gaussian_raster_probe_core";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         void release() noexcept override {
         }
         [[nodiscard]] rhi::stage_time_map get_time_profiling() const override {
@@ -180,6 +196,10 @@ namespace raster_test {
         }
     };
     struct raster_probe_commands : rhi::command_buffer {
+        static constexpr std::string_view tag = "gaussian_raster_probe_commands";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         void reset() {
             draws = vertices = instances = barriers = begins = ends = binds = fail_barrier = 0;
             fail_bind = fail_begin = false;

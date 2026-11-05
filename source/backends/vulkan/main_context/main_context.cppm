@@ -43,6 +43,10 @@ export namespace deren::vulkan {
     /// THE MAIN-THREAD CONTEXT, as this backend hands it out: everything the GUI plugin's Vulkan init needs,
     /// plus the RHI core the overlay keeps for the API-version handshake.
     struct main_context final : deren::promise::rhi::main_context {
+        static constexpr std::string_view tag = main_context_name;
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         explicit main_context() noexcept
             : deren::promise::rhi::main_context(main_context_name) {
         }

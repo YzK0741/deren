@@ -45,6 +45,10 @@ namespace {
         }
     };
     struct sorter : rhi::radix_sorter {
+        static constexpr std::string_view tag = "fake_sorter";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         int& releases;
         explicit sorter(int& count)
             : radix_sorter("fake_sorter")
@@ -64,6 +68,10 @@ namespace {
         }
     };
     struct sorting : rhi::gpu_sorting {
+        static constexpr std::string_view tag = "fake_sorting";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         int& releases;
         explicit sorting(int& count)
             : gpu_sorting("fake_sorting")

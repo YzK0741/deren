@@ -148,6 +148,9 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context const& 
         write.slot = fixed.base - 1u;
         CHECK(space->write_buffer(write) == rhi::error::invalid_argument);
         struct foreign_buffer : rhi::buffer {
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return "deren_buffer_vulkan";
+            }
             foreign_buffer()
                 : buffer("deren_buffer_vulkan") {
             }
@@ -183,6 +186,9 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context const& 
         CHECK(space->write_buffer(write) == rhi::error::unsupported);
         CHECK(space->write_acceleration_structure({.slot = fixed.base}) == rhi::error::invalid_argument);
         struct foreign_structure : rhi::acceleration_structure {
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return "deren_acceleration_structure_vulkan";
+            }
             foreign_structure()
                 : acceleration_structure("deren_acceleration_structure_vulkan") {
             }
@@ -287,6 +293,9 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context const& 
             CHECK(commands->load_texture_group(group_a) == rhi::error::ok);
         if (i == 0) {
             struct foreign_group : rhi::texture_group {
+                [[nodiscard]] std::string_view get_tag() const noexcept override {
+                    return "deren_texture_group_vulkan";
+                }
                 foreign_group()
                     : texture_group("deren_texture_group_vulkan") {
                 }

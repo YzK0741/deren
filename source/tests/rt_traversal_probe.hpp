@@ -89,6 +89,7 @@ static void check_rt_traversal(deren::promise::rhi::api_core& core,
     CHECK(group_access->read(*pipeline, 0, 3, std::span<std::uint8_t>{handles}.first(handles.size() - 1)) == rhi::error::invalid_argument);
     CHECK(group_access->read(*pipeline, 0xFFFFFFFFu, 2, handles) == rhi::error::invalid_argument);
     struct foreign_pipeline final : rhi::pipeline {
+        [[nodiscard]] std::string_view get_tag() const noexcept override { return "foreign_pipeline"; }
         foreign_pipeline() noexcept : rhi::pipeline("foreign_pipeline") {}
         void release() noexcept override {}
     } foreign;

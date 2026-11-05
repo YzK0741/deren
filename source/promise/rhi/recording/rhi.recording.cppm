@@ -456,6 +456,7 @@ export namespace deren::promise::rhi {
     /// `depth` requests the backend's chosen depth format, `unknown` means no depth.
     /// Borrowed only until begin_recording returns. Appending a tagged POD changes no vtable.
     struct command_buffer_inheritance_info {
+        static constexpr std::string_view tag = "deren.rhi.structure.command_buffer_inheritance";
         structure_header header{structure_type::command_buffer_inheritance, sizeof(command_buffer_inheritance_info), nullptr};
         std::uint32_t color_format_count = 0;
         image_format const* color_formats = nullptr;

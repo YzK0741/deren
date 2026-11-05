@@ -648,6 +648,7 @@ export namespace deren::promise::rhi {
     };
 
     struct heap_image_write_info {
+        static constexpr std::string_view tag = "deren.rhi.structure.heap_image_write";
         structure_header header{structure_type::heap_image_write, sizeof(heap_image_write_info), nullptr};
         std::uint64_t offset = 0;
         image const* resource = nullptr;
@@ -655,6 +656,7 @@ export namespace deren::promise::rhi {
         descriptor_type type = descriptor_type::sampled_image;
     };
     struct heap_buffer_write_info {
+        static constexpr std::string_view tag = "deren.rhi.structure.heap_buffer_write";
         structure_header header{structure_type::heap_buffer_write, sizeof(heap_buffer_write_info), nullptr};
         std::uint64_t offset = 0;
         std::uint64_t address = 0;
@@ -662,6 +664,7 @@ export namespace deren::promise::rhi {
         descriptor_type type = descriptor_type::storage_buffer;
     };
     struct heap_bind_info {
+        static constexpr std::string_view tag = "deren.rhi.structure.heap_bind";
         structure_header header{structure_type::heap_bind, sizeof(heap_bind_info), nullptr};
         command_recorder* commands = nullptr;
     };
@@ -700,6 +703,7 @@ export namespace deren::promise::rhi {
     /// The write is HOST-SIDE and must happen before the position is consumed by recorded work; the
     /// position's generation has to still be live (`invalid_argument` otherwise).
     struct descriptor_write {
+        static constexpr std::string_view tag = "deren.rhi.structure.descriptor_write";
         structure_header header{structure_type::descriptor_write, sizeof(descriptor_write), nullptr};
         descriptor_position where{};
         std::uint32_t index = 0;
@@ -717,6 +721,7 @@ export namespace deren::promise::rhi {
     /// Host updates borrow resources; callers synchronize replacement and retain GPU operands.
     /// Fixed slots last for the core lifetime and cannot address dynamic texture-group positions.
     struct descriptor_image_write {
+        static constexpr std::string_view tag = "deren.rhi.structure.descriptor_image_write";
         structure_header header{structure_type::descriptor_image_write, sizeof(descriptor_image_write), nullptr};
         std::uint32_t space = 0, slot = 0;
         image const* resource = nullptr;
@@ -724,6 +729,7 @@ export namespace deren::promise::rhi {
         descriptor_type type = descriptor_type::sampled_image;
     };
     struct descriptor_buffer_write {
+        static constexpr std::string_view tag = "deren.rhi.structure.descriptor_buffer_write";
         structure_header header{structure_type::descriptor_buffer_write, sizeof(descriptor_buffer_write), nullptr};
         std::uint32_t space = 0, slot = 0;
         buffer const* resource = nullptr;
@@ -731,11 +737,13 @@ export namespace deren::promise::rhi {
         descriptor_type type = descriptor_type::storage_buffer;
     };
     struct descriptor_acceleration_structure_write {
+        static constexpr std::string_view tag = "deren.rhi.structure.descriptor_acceleration_structure_write";
         structure_header header{structure_type::descriptor_acceleration_structure_write, sizeof(descriptor_acceleration_structure_write), nullptr};
         std::uint32_t space = 0, slot = 0;
         acceleration_structure const* resource = nullptr;
     };
     struct descriptor_bind_info {
+        static constexpr std::string_view tag = "deren.rhi.structure.descriptor_bind";
         structure_header header{structure_type::descriptor_bind, sizeof(descriptor_bind_info), nullptr};
         command_recorder* commands = nullptr;
     };

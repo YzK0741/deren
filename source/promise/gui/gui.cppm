@@ -15,7 +15,7 @@ export import deren.promise.rhi;
 export namespace deren::gui {
     /// The boundary's own version: an INCOMPATIBLE change to the interface or to `create_info` moves it, and
     /// the entry refuses a caller that hands over another number (the backend's abi handshake, one level up).
-    inline constexpr std::uint32_t gui_abi_version = 5u;
+    inline constexpr std::uint32_t gui_abi_version = 6u;
 
     /// WHICH GRAPHICS API THE HOST IS ASKING THIS GUI DLL TO SERVE. It is the host's hint AND the plugin's
     /// check: `deren_gui_vulkan.dll` serves `vulkan` and refuses anything else by name.

@@ -19,7 +19,7 @@ export namespace deren::promise::rhi {
     /// and handing it ONE opaque context is the alternative to growing `vulkan_escape` with one virtual per
     /// handle.
     ///
-    /// IT IS OPAQUE HERE ON PURPOSE. The contract carries only the concrete-identity tag (`object::type`),
+    /// IT IS OPAQUE HERE ON PURPOSE. The contract carries only the concrete-identity tag (`object::get_tag()`),
     /// no native vocabulary and no handle members: an API-specific consumer checks the tag with
     /// `is_concrete()` and casts the handle to the concrete layout ITS API's backend and plugin share (for
     /// Vulkan: `deren::vulkan::main_context` in `denen.vulkan.main_context`, versioned with that

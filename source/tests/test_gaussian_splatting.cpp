@@ -261,6 +261,10 @@ void test_sorting() {
 namespace rhi = deren::promise::rhi;
 struct upload_probe;
 struct probe_buffer : rhi::buffer {
+    static constexpr std::string_view tag = "gaussian_probe_buffer";
+    [[nodiscard]] std::string_view get_tag() const noexcept override {
+        return tag;
+    }
     unsigned index;
     int& releases;
     std::uint64_t capacity;
@@ -282,6 +286,10 @@ struct probe_buffer : rhi::buffer {
     }
 };
 struct probe_address : rhi::device_address {
+    static constexpr std::string_view tag = "gaussian_probe_address";
+    [[nodiscard]] std::string_view get_tag() const noexcept override {
+        return tag;
+    }
     unsigned zero_at = 0, unaligned_at = 0;
     probe_address()
         : device_address("gaussian_probe_address") {
@@ -292,6 +300,10 @@ struct probe_address : rhi::device_address {
     }
 };
 struct upload_probe : rhi::api_core, rhi::resource_factory, rhi::command_context, rhi::frame_context {
+    static constexpr std::string_view tag = "gaussian_upload_probe";
+    [[nodiscard]] std::string_view get_tag() const noexcept override {
+        return tag;
+    }
     void release() noexcept override {
     }
     [[nodiscard]] rhi::stage_time_map get_time_profiling() const override {

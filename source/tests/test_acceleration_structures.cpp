@@ -105,6 +105,10 @@ import deren.engine.render_environment;
 namespace {
 
     struct managed_structure final : rhi::acceleration_structure {
+        static constexpr std::string_view tag = "managed_structure_probe";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
 
         int& releases;
 
@@ -143,6 +147,10 @@ namespace {
     };
 
     struct managed_micromap : rhi::micromap {
+        static constexpr std::string_view tag = "managed_micromap_probe";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
 
         managed_micromap()
 
@@ -174,6 +182,10 @@ namespace {
     }
 
     struct managed_view : rhi::image_view {
+        static constexpr std::string_view tag = "managed_view";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
 
         managed_view()
 
@@ -187,6 +199,10 @@ namespace {
     };
 
     struct managed_image : rhi::image {
+        static constexpr std::string_view tag = "managed_image";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
 
         rhi::image_desc description;
 
@@ -226,6 +242,10 @@ namespace {
     };
 
     struct managed_sampler : rhi::sampler {
+        static constexpr std::string_view tag = "managed_sampler";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
 
         managed_sampler()
 
@@ -1079,7 +1099,7 @@ int main(int const argc, char** const argv) {
 
     // handshake number moved with it.
 
-    CHECK(rhi::abi_version == 59u);
+    CHECK(rhi::abi_version == 60u);
 
     if (!wants_device(argc, argv)) {
 

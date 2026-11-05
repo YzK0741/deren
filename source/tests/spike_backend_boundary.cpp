@@ -130,8 +130,15 @@ namespace {
      * because "not handed out by the backend" is what this side knows and the DLL cannot.
      */
     struct foreign_command_buffer final : rhi::command_buffer {
-        explicit foreign_command_buffer(std::string_view tag = "foreign_command_buffer") noexcept
-            : rhi::command_buffer(tag) {
+        std::string_view identity_marker;
+
+        explicit foreign_command_buffer(std::string_view identity = "foreign_command_buffer") noexcept
+            : rhi::command_buffer(identity)
+            , identity_marker(identity) {
+        }
+
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return identity_marker;
         }
         // the owner-side lifecycle, in the same everything-refused shape: this stand-in is "not
         // handed out by the backend" for BOTH questions the contract asks (submit's list and
@@ -608,7 +615,7 @@ namespace {
             CHECK(!core->commands->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::secondary}));
             CHECK(!core->commands->create_command_buffer(rhi::command_buffer_desc{.kind = static_cast<rhi::command_buffer_kind>(99u)}));
             if (primary && secondary != nullptr) {
-                CHECK(primary->type == "deren_command_buffer_vulkan");
+                CHECK(primary->get_tag() == "deren_command_buffer_vulkan");
                 // THE BORROWED RECORDING VIEW IS GONE WITH `command_list` (its `recording()` and the
                 // view it returned): the owned buffer IS the recording face now, so the distinction
                 // this line used to draw - the view is NOT the frame's list - is drawn against the

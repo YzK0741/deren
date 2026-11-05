@@ -359,6 +359,10 @@ int main(int const argc, char** const argv) {
         // is the contract's, and a mismatch is the caller's invariant being broken - so it terminates with a
         // diagnostic instead of returning a value. The parent below reads that diagnostic.
         struct concrete_name_probe final : rhi::object {
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return "deren_contract_do_concrete_probe";
+            }
+
             concrete_name_probe() noexcept
                 : rhi::object("deren_contract_do_concrete_probe") {
             }

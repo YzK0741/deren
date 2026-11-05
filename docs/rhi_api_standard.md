@@ -1016,10 +1016,11 @@ Two rules frame every clause below.
    documented absence path for that one extension) rather than silently taking a slower route. A backend that
    answers an object, or sets the bit, and then no-ops its verbs is non-conformant.
 
-An ability object is a labelled subview the CORE owns: it is constructed with a concrete implementation name
-(its `object::type` tag), it has no `release()` verb, and a caller MUST NOT delete it or free it. The pointer
-returned by `query_extension` is borrowed: it is valid for the core's lifetime and dies with the core, so
-holding one past `api_core::release()` is a contract violation of the same kind as holding any other handle.
+An ability object is a labelled subview the CORE owns: it carries a concrete implementation name (reported by
+`get_tag()` from the concrete type's static `tag`), it has no `release()` verb, and a caller MUST NOT delete it
+or free it. The pointer returned by `query_extension` is borrowed: it is valid for the core's lifetime and dies
+with the core, so holding one past `api_core::release()` is a contract violation of the same kind as holding
+any other handle.
 
 Bit values are ABI and never move: `to_bits(device_address) == 0x1`, `all_abilities() == 0x7FD3`, and
 `all_extension_kinds()` enumerates twelve active kinds. `mesh_shader` (1<<2), `ray_tracing` (1<<3) and `vulkan_escape` (1<<5)
@@ -1059,10 +1060,11 @@ fact, decides that, and the caller's move is the tier-1 texture-group path or a 
 The common root of the tier-2 abilities, not an ability itself: `kind()` is the only virtual every ability
 shares, which is what lets the backend add an ability without moving another one's vtable. No bit announces
 `extension`, and `query_extension` never hands out a bare `extension` -- a caller that wants a specific kind
-asks for that kind. The object is constructed by each derived interface with its concrete implementation name
-(the `object::type` tag) and is owned by the core: there is no `release()` on this interface, so a caller has
-no drop path and MUST NOT invent one (`delete` on an ability pointer is a contract violation and a panic on
-the backend side at teardown). Availability is the derived interface's, never this one's.
+asks for that kind. The object is constructed by each derived interface with a concrete implementation name
+(reported by `get_tag()` from the concrete type's static `tag`) and is owned by the core: there is no
+`release()` on this interface, so a caller has no drop path and MUST NOT invent one (`delete` on an ability
+pointer is a contract violation and a panic on the backend side at teardown). Availability is the derived
+interface's, never this one's.
 
 - `virtual ~extension() noexcept = default;` -- **Requirement:** destruction has to be virtual (the derived
   interfaces are destroyed through the core's own teardown) and no caller may drive it, because the ability

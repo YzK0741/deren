@@ -15,7 +15,7 @@ import deren.utility.dynamic_link;
 #include "../backends/vulkan/gui/panel_adapter_storage.hpp"
 #include "../promise/gui/gui_entry.hpp"
 
-static_assert(deren::gui::gui_abi_version == 5u, "GUI ABI5 gives the overlay its own recording targets");
+static_assert(deren::gui::gui_abi_version == 6u, "GUI ABI6 follows the RHI object tag refactor that changed main_context's vtable");
 
 // Exercise the overlay's actual storage without needing a graphics device. Hosts
 // retain panel references, so deleting a different panel must preserve its address.
