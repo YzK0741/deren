@@ -125,6 +125,10 @@ namespace {
     }
 
     struct foreign_image_view final : rhi::image_view {
+        static constexpr std::string_view tag = "foreign_image_view";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
 
         foreign_image_view() noexcept
 
@@ -178,7 +182,7 @@ int main(int const argc, char** const argv) {
 
     // handshake number moved with it.
 
-    CHECK(rhi::abi_version == 59u);
+    CHECK(rhi::abi_version == 60u);
 
     if (!wants_device(argc, argv)) {
 
@@ -258,7 +262,7 @@ int main(int const argc, char** const argv) {
 
             if (main != nullptr) {
 
-                CHECK(main->type == "deren_main_context_vulkan");
+                CHECK(main->get_tag() == "deren_main_context_vulkan");
 
                 CHECK(dynamic.rhi_face().main_context() == main); // one backend-owned object, answered again
             }
@@ -302,7 +306,7 @@ int main(int const argc, char** const argv) {
             }
         }
 
-        CHECK(face.type == "deren_api_core_vulkan");
+        CHECK(face.get_tag() == "deren_api_core_vulkan");
 
         auto commands = face.commands->make_command_buffer({});
 
@@ -310,7 +314,7 @@ int main(int const argc, char** const argv) {
 
         if (commands) {
 
-            CHECK(commands->type == "deren_command_buffer_vulkan");
+            CHECK(commands->get_tag() == "deren_command_buffer_vulkan");
 
             CHECK(commands->begin_recording({}) == rhi::error::ok);
 
@@ -343,7 +347,7 @@ int main(int const argc, char** const argv) {
 
         CHECK(empty_group && group_error == rhi::error::ok);
 
-        CHECK(empty_group && empty_group->type == "deren_texture_group_vulkan");
+        CHECK(empty_group && empty_group->get_tag() == "deren_texture_group_vulkan");
 
         empty_info.textures[15] = nullptr;
 
@@ -515,7 +519,7 @@ int main(int const argc, char** const argv) {
                 CHECK(lifetime.expired());
             }
 
-            CHECK(original->type == "deren_image_vulkan");
+            CHECK(original->get_tag() == "deren_image_vulkan");
 
             auto* const identity = original.get();
 
@@ -537,7 +541,7 @@ int main(int const argc, char** const argv) {
 
             if (view) {
 
-                CHECK(view->type == "deren_image_view_vulkan");
+                CHECK(view->get_tag() == "deren_image_view_vulkan");
 
                 auto parent = view->get_image();
 
@@ -685,7 +689,7 @@ int main(int const argc, char** const argv) {
 
             CHECK(group_error == rhi::error::invalid_argument);
 
-            CHECK(borrowed_image->type == "deren_frame_image_vulkan");
+            CHECK(borrowed_image->get_tag() == "deren_frame_image_vulkan");
 
             CHECK(!borrowed_image->share());
 

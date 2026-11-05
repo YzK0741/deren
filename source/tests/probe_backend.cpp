@@ -97,6 +97,10 @@ namespace {
 
     /// The probe's buffer: a real object, statically allocated (see the banner).
     struct probe_buffer final : rhi::buffer {
+        static constexpr std::string_view tag = "deren_buffer_probe";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         probe_buffer() noexcept
             : rhi::buffer("deren_buffer_probe") {
         }
@@ -131,6 +135,10 @@ namespace {
     /// it: the image's own `release()` is the borrowed no-op, the view's is observable, and a range outside
     /// the single-layer/single-mip shape is refused by name (nullptr), never clamped.
     struct probe_image_view final : rhi::image_view {
+        static constexpr std::string_view tag = "deren_image_view_probe";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         probe_image_view() noexcept
             : rhi::image_view("deren_image_view_probe") {
         }
@@ -142,6 +150,10 @@ namespace {
     };
 
     struct probe_frame_image final : rhi::image {
+        static constexpr std::string_view tag = "deren_frame_image_probe";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         probe_frame_image() noexcept
             : rhi::image("deren_frame_image_probe") {
         }
@@ -188,6 +200,10 @@ namespace {
     /// the value the caller spelled. `release()` is observable for the same reason `probe_buffer`'s is: the
     /// object is statically allocated, so the call has to ARRIVE.
     struct probe_sampler final : rhi::sampler {
+        static constexpr std::string_view tag = "deren_sampler_probe";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         probe_sampler() noexcept
             : rhi::sampler("deren_sampler_probe") {
         }
@@ -207,6 +223,10 @@ namespace {
     /// IT HAS ONE METHOD (buffer addresses) since abi 5: the acceleration-structure half moved to
     /// `ray_tracing`, which is the only ability that can hand out that operand.
     struct probe_device_address final : rhi::device_address {
+        static constexpr std::string_view tag = "deren_device_address_probe";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         probe_device_address() noexcept
             : rhi::device_address("deren_device_address_probe") {
         }
@@ -271,6 +291,10 @@ namespace {
     };
 
     struct probe_command_buffer final : rhi::command_buffer {
+        static constexpr std::string_view tag = "deren_command_buffer_probe";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         probe_command_buffer() noexcept
             : rhi::command_buffer("deren_command_buffer_probe") {
         }
@@ -678,6 +702,10 @@ namespace {
     /// handle must come from this probe, none may still be recording/released/already submitted, and the same
     /// segment may not appear twice.
     struct probe_mergeable_command_buffer final : rhi::mergeable_command_buffer {
+        static constexpr std::string_view tag = "deren_mergeable_command_buffer_probe";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         probe_mergeable_command_buffer() noexcept
             : rhi::mergeable_command_buffer("deren_mergeable_command_buffer_probe") {
         }
@@ -800,6 +828,10 @@ namespace {
     /// is the contract's rule for a not-yet-sized window. The bodies live below `impl` (they reach its
     /// echo through the owner pointer, which the constructor sets).
     struct probe_swapchain final : rhi::swapchain {
+        static constexpr std::string_view tag = "deren_swapchain_probe";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         probe_swapchain() noexcept
             : rhi::swapchain("deren_swapchain_probe") {
         }
@@ -832,6 +864,10 @@ namespace {
         return static_cast<std::uint32_t>(value);
     }
     struct cpu_buffer final : rhi::buffer {
+        static constexpr std::string_view tag = "deren_buffer_cpu_probe";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         std::shared_ptr<cpu_resource_registry> registry;
         std::uint32_t usage_mask = 0;
         std::uint64_t bytes = 0;
@@ -904,6 +940,10 @@ namespace {
         }
     };
     struct cpu_image_view final : rhi::image_view {
+        static constexpr std::string_view tag = "deren_image_view_cpu_probe";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         rhi::shared_object<rhi::image> parent;
         cpu_image_view() noexcept
             : rhi::image_view("deren_image_view_cpu_probe") {
@@ -915,6 +955,10 @@ namespace {
     // A snapshot is a different object from the mutable borrowed frame view. The core keeps only
     // a weak cache, while every retained snapshot (and its views) keeps the core alive.
     struct cpu_frame_snapshot final : rhi::image {
+        static constexpr std::string_view tag = "deren_frame_snapshot_cpu_probe";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         impl* owner = nullptr;
         rhi::shared_object<rhi::api_core> keep_alive;
         rhi::shared_object<cpu_frame_snapshot>::weak self;
@@ -958,6 +1002,10 @@ namespace {
         }
     };
     struct cpu_frame_resources final : rhi::frame_resources {
+        static constexpr std::string_view tag = "deren_frame_resources_cpu_probe";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         impl* owner = nullptr;
         rhi::shared_object<cpu_frame_snapshot>::weak cached;
         cpu_frame_resources() noexcept
@@ -967,6 +1015,10 @@ namespace {
     };
     std::atomic<std::uint64_t> live_cpu_images{0};
     struct cpu_image final : rhi::image {
+        static constexpr std::string_view tag = "deren_image_cpu_probe";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         std::shared_ptr<cpu_resource_registry> registry;
         std::uint32_t usage_mask = 0;
         std::uint64_t canonical_object = 0; // Test-only allocation alias; zero uses this wrapper's identity.
@@ -1024,6 +1076,10 @@ namespace {
         }
     };
     struct cpu_sampler final : rhi::sampler {
+        static constexpr std::string_view tag = "deren_sampler_cpu_probe";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         cpu_sampler() noexcept
             : rhi::sampler("deren_sampler_cpu_probe") {
         }
@@ -1032,6 +1088,10 @@ namespace {
         }
     };
     struct cpu_capabilities final : rhi::device_capabilities {
+        static constexpr std::string_view tag = "deren_device_capabilities_cpu_probe";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         bool graphics_enabled = false;
         cpu_capabilities() noexcept
             : rhi::device_capabilities("deren_device_capabilities_cpu_probe") {
@@ -1059,6 +1119,10 @@ namespace {
         }
     };
     struct cpu_device_address final : rhi::device_address {
+        static constexpr std::string_view tag = "deren_device_address_cpu_probe";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         cpu_device_address() noexcept
             : rhi::device_address("deren_device_address_cpu_probe") {
         }
@@ -1067,6 +1131,10 @@ namespace {
         }
     };
     struct cpu_heap final : rhi::descriptor_heap {
+        static constexpr std::string_view tag = "deren_descriptor_heap_cpu_probe";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         cpu_heap() noexcept
             : rhi::descriptor_heap("deren_descriptor_heap_cpu_probe") {
         }
@@ -1121,6 +1189,10 @@ namespace {
     /// The slots are fake; the RULES are the contract's, which is what `test_dynamic_link` and
     /// `test_runtime_injection` exercise.
     struct cpu_descriptor_space final : rhi::descriptor_space {
+        static constexpr std::string_view tag = "deren_descriptor_space_cpu_probe";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         cpu_descriptor_space() noexcept
             : rhi::descriptor_space("deren_descriptor_space_cpu_probe") {
         }
@@ -1219,6 +1291,10 @@ namespace {
 
     /// The fake group: its release is the one observable event (it is what makes a position stale).
     struct cpu_texture_group final : rhi::texture_group {
+        static constexpr std::string_view tag = "deren_texture_group_cpu_probe";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         cpu_descriptor_space* space = nullptr;
         explicit cpu_texture_group(cpu_descriptor_space* const owner) noexcept
             : rhi::texture_group("deren_texture_group_cpu_probe")
@@ -1232,6 +1308,10 @@ namespace {
     };
 
     struct cpu_async_presentation final : rhi::async_presentation {
+        static constexpr std::string_view tag = "deren_async_presentation_cpu_probe";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         cpu_async_presentation() noexcept
             : rhi::async_presentation("deren_async_presentation_cpu_probe") {
         }
@@ -1241,6 +1321,10 @@ namespace {
         }
     };
     struct cpu_scoped_synchronization final : rhi::scoped_synchronization {
+        static constexpr std::string_view tag = "deren_scoped_sync_cpu_probe";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         impl* owner = nullptr;
         std::shared_ptr<cpu_resource_registry> registry;
         bool enabled = true;
@@ -1360,6 +1444,10 @@ namespace {
         rhi::error record(rhi::command_recorder&, std::span<rhi::scoped_image_barrier const>, std::span<rhi::scoped_buffer_barrier const>) const noexcept override;
     };
     struct impl final : rhi::api_core, rhi::resource_factory, rhi::command_context, rhi::frame_context {
+        static constexpr std::string_view tag = "deren_api_core_probe";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         push_capture pushes;
         /// the probe root's own control block (the entry hands it out as a shared_object)
         rhi::shared_object<rhi::api_core>::weak self_owner;
@@ -1468,6 +1556,9 @@ namespace {
 
         [[nodiscard]] rhi::unique_object<rhi::pipeline> create_pipeline(rhi::pipeline_desc const&) override {
             struct stub_pipeline final : rhi::pipeline {
+                [[nodiscard]] std::string_view get_tag() const noexcept override {
+                    return "CPU graphics probe";
+                }
                 stub_pipeline()
                     : rhi::pipeline("CPU graphics probe") {
                 }

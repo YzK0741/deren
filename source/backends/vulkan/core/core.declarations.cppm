@@ -333,6 +333,10 @@ namespace deren::vulkan {
      * old `enable_shared_from_this`/shared_ptr spelling is gone with that batch.
      */
     export struct core : deren::promise::rhi::api_core, deren::promise::rhi::resource_factory, deren::promise::rhi::command_context, deren::promise::rhi::frame_context, deren::utility::enable_stack_destruct {
+        static constexpr std::string_view tag = concrete::api_core;
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         struct owned_buffer;
         struct owned_image;
         // creation options this core was built with (window size, vsync); the window and the
@@ -386,6 +390,10 @@ namespace deren::vulkan {
         /// it, so a tag-checked `static_cast` on the GUI side is a real base-class cast, and the native handle
         /// is read through `get()`. The backend publishes it through `set_target()`.
         struct frame_commands : deren::vulkan::command_buffer {
+            static constexpr std::string_view tag = concrete::frame_commands;
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return tag;
+            }
             explicit frame_commands(std::string_view const name = concrete::frame_commands) noexcept
                 : deren::vulkan::command_buffer(name) {
             }
@@ -516,6 +524,10 @@ namespace deren::vulkan {
         /// `answer->owner = this` set a field the base never looked at, and the next inherited verb
         /// dereference a null core. The factory sets THIS one.
         struct owned_command_buffer final : frame_commands {
+            static constexpr std::string_view tag = concrete::command_buffer;
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return tag;
+            }
             owned_command_buffer() noexcept
                 : frame_commands(concrete::command_buffer) {
             }
@@ -547,6 +559,10 @@ namespace deren::vulkan {
         /// counters and the one-shot rules are therefore the same machinery a caller-owned primary already
         /// uses, and nothing about the frame path moves.
         struct owned_mergeable_command_buffer final : deren::vulkan::mergeable_command_buffer {
+            static constexpr std::string_view tag = concrete::mergeable_command_buffer;
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return tag;
+            }
             using rhi_error = deren::promise::rhi::error;
             using rhi_begin_info = deren::promise::rhi::command_buffer_begin_info;
             using rhi_image = deren::promise::rhi::image;
@@ -703,6 +719,10 @@ namespace deren::vulkan {
         /// (rhi.api_core.cppm's ownership note): a caller that wrapped a borrowed view in `unique_object`
         /// has a bug, and a lifecycle precondition violation terminates loudly rather than being logged.
         struct frame_image_slot final : deren::promise::rhi::image {
+            static constexpr std::string_view tag = concrete::frame_image;
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return tag;
+            }
             frame_image_slot() noexcept
                 : deren::promise::rhi::image(concrete::frame_image) {
             }
@@ -731,6 +751,10 @@ namespace deren::vulkan {
         // A snapshot keeps the ROOT alive (keep_alive, a shared copy), while the core only caches a weak
         // reference to the snapshot.
         struct frame_snapshot final : deren::promise::rhi::image {
+            static constexpr std::string_view tag = concrete::frame_snapshot;
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return tag;
+            }
             frame_snapshot() noexcept
                 : deren::promise::rhi::image(concrete::frame_snapshot) {
             }
@@ -760,6 +784,10 @@ namespace deren::vulkan {
             void release() noexcept override;
         };
         struct frame_resources_view final : deren::promise::rhi::frame_resources {
+            static constexpr std::string_view tag = concrete::frame_resources;
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return tag;
+            }
             frame_resources_view() noexcept
                 : deren::promise::rhi::frame_resources(concrete::frame_resources) {
             }
@@ -775,6 +803,10 @@ namespace deren::vulkan {
         ///
         /// A borrowed view for exactly the reasons `frame_image_slot` is; see its note.
         struct frame_readback_slot final : deren::promise::rhi::buffer {
+            static constexpr std::string_view tag = concrete::frame_readback_buffer;
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return tag;
+            }
             frame_readback_slot() noexcept
                 : deren::promise::rhi::buffer(concrete::frame_readback_buffer) {
             }
@@ -814,6 +846,10 @@ namespace deren::vulkan {
         /// `extent()` are abi 14's verbs - the rebuild is this object's own behaviour, re-derived
         /// from the window it owns, and the extent answers what presentation shows.
         struct swapchain_view final : deren::promise::rhi::swapchain {
+            static constexpr std::string_view tag = concrete::swapchain;
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return tag;
+            }
             swapchain_view() noexcept
                 : deren::promise::rhi::swapchain(concrete::swapchain) {
             }
@@ -869,6 +905,10 @@ namespace deren::vulkan {
         /// pointer into that map must not be kept, the VALUES read out of it may be. That is the rule
         /// the ownership analysis says every contract query has to follow.
         struct owned_buffer final : deren::promise::rhi::lazy_buffer {
+            static constexpr std::string_view tag = concrete::buffer;
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return tag;
+            }
             owned_buffer() noexcept
                 : deren::promise::rhi::lazy_buffer(concrete::buffer) {
             }
@@ -918,6 +958,10 @@ namespace deren::vulkan {
         /// THE ATTACHMENT THE TRAVERSAL READS carries the index array, so THAT buffer lives here too (one
         /// element per micro-triangle, which is what makes the engine's `micromap_resource` shrink to a handle).
         struct owned_micromap final : deren::promise::rhi::micromap {
+            static constexpr std::string_view tag = concrete::micromap;
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return tag;
+            }
             owned_micromap() noexcept
                 : deren::promise::rhi::micromap(concrete::micromap) {
             }
@@ -954,6 +998,10 @@ namespace deren::vulkan {
         /// lives in (`vkDestroyAccelerationStructureKHR` first, then the buffers are released), because
         /// destroying the buffer under a live structure is a validation error and, on some drivers, worse.
         struct owned_acceleration_structure final : deren::promise::rhi::acceleration_structure {
+            static constexpr std::string_view tag = concrete::acceleration_structure;
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return tag;
+            }
             owned_acceleration_structure() noexcept
                 : deren::promise::rhi::acceleration_structure(concrete::acceleration_structure) {
             }
@@ -1003,6 +1051,10 @@ namespace deren::vulkan {
         /// any view or handle still refers to it. The escape's `native_image()` (deleted in abi 42) was the
         /// last external reader of the allocation's registry key; the backend reads its members directly.
         struct owned_image final : deren::promise::rhi::lazy_image {
+            static constexpr std::string_view tag = concrete::image;
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return tag;
+            }
             owned_image() noexcept
                 : deren::promise::rhi::lazy_image(concrete::image) {
             }
@@ -1061,6 +1113,10 @@ namespace deren::vulkan {
         /// An owned view retains its parent until after destroying the native view.
         /// Views of borrowed swapchain images carry no parent owner.
         struct owned_image_view final : deren::promise::rhi::image_view {
+            static constexpr std::string_view tag = concrete::image_view;
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return tag;
+            }
             owned_image_view() noexcept
                 : deren::promise::rhi::image_view(concrete::image_view) {
             }
@@ -1085,6 +1141,10 @@ namespace deren::vulkan {
 
         /// AN OWNED SAMPLER: what `create_sampler()` hands the caller, the same shape as the view.
         struct owned_sampler final : deren::promise::rhi::sampler {
+            static constexpr std::string_view tag = concrete::sampler;
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return tag;
+            }
             owned_sampler() noexcept
                 : deren::promise::rhi::sampler(concrete::sampler) {
             }
@@ -1104,6 +1164,10 @@ namespace deren::vulkan {
         /// module crosses the contract - the escape's borrow was deleted in abi 42 - and the factory
         /// remains for a caller that wants the module as a contract handle.
         struct owned_shader final : deren::promise::rhi::shader {
+            static constexpr std::string_view tag = concrete::shader;
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return tag;
+            }
             owned_shader() noexcept
                 : deren::promise::rhi::shader(concrete::shader) {
             }
@@ -1119,6 +1183,10 @@ namespace deren::vulkan {
         /// `make_pipeline` result (vertex input derived from the SPIR-V, the dynamic viewport/scissor
         /// state, the heap-native layout-less creation) wrapped in the contract's ownership.
         struct owned_pipeline final : deren::promise::rhi::pipeline {
+            static constexpr std::string_view tag = concrete::pipeline;
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return tag;
+            }
             deren::promise::rhi::texture_group_binding group_binding{};
             deren::utility::vessel::vector<deren::promise::rhi::resource_group_binding> resource_layout;
             owned_pipeline() noexcept
@@ -1150,6 +1218,10 @@ namespace deren::vulkan {
         /// bit is servable in the strict sense: `query_extension(device_address)` answers, and
         /// `buffer_address()` is real.
         struct buffer_address_view final : deren::promise::rhi::device_address {
+            static constexpr std::string_view tag = concrete::device_address;
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return tag;
+            }
             buffer_address_view() noexcept
                 : deren::promise::rhi::device_address(concrete::device_address) {
             }
@@ -1174,6 +1246,10 @@ namespace deren::vulkan {
         /// engine file names a Vulkan entry point the backend resolved. It is the FIRST consumer of an
         /// ability that had been declared in the contract since abi 1 and served by nobody.
         struct frame_host_copy final : deren::promise::rhi::host_image_copy {
+            static constexpr std::string_view tag = concrete::host_image_copy;
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return tag;
+            }
             frame_host_copy() noexcept
                 : deren::promise::rhi::host_image_copy(concrete::host_image_copy) {
             }
@@ -1195,6 +1271,10 @@ namespace deren::vulkan {
         /// device with no mesh shader answers `false`, it is not UNSERVED), so "a set bit is a promise about
         /// service" is kept in the strict sense.
         struct frame_device_capabilities final : deren::promise::rhi::device_capabilities {
+            static constexpr std::string_view tag = concrete::device_capabilities;
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return tag;
+            }
             frame_device_capabilities() noexcept
                 : deren::promise::rhi::device_capabilities(concrete::device_capabilities) {
             }
@@ -1212,6 +1292,10 @@ namespace deren::vulkan {
         };
 
         struct frame_shader_group_access final : deren::promise::rhi::shader_group_access {
+            static constexpr std::string_view tag = concrete::shader_group_access;
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return tag;
+            }
             frame_shader_group_access() noexcept
                 : deren::promise::rhi::shader_group_access(concrete::shader_group_access) {
             }
@@ -1221,6 +1305,10 @@ namespace deren::vulkan {
         };
 
         struct frame_heap final : deren::promise::rhi::descriptor_heap {
+            static constexpr std::string_view tag = concrete::descriptor_heap;
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return tag;
+            }
             frame_heap() noexcept
                 : deren::promise::rhi::descriptor_heap(concrete::descriptor_heap) {
             }
@@ -1240,6 +1328,10 @@ namespace deren::vulkan {
         /// vocabulary (a group and where it is); the group table and sampled-slot pool behind both are the
         /// same backend state (`texture_groups`), which is why one write helper serves both callers.
         struct frame_descriptor_space final : deren::promise::rhi::descriptor_space {
+            static constexpr std::string_view tag = concrete::descriptor_space;
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return tag;
+            }
             frame_descriptor_space() noexcept
                 : deren::promise::rhi::descriptor_space(concrete::descriptor_space) {
             }
@@ -1347,6 +1439,10 @@ namespace deren::vulkan {
         static_assert(sizeof(texture_group_record) == 80);
         static_assert(offsetof(texture_group_record, present_mask) == 64);
         struct owned_resource_group final : deren::promise::rhi::resource_group {
+            static constexpr std::string_view tag = concrete::resource_group;
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return tag;
+            }
             owned_resource_group() noexcept
                 : deren::promise::rhi::resource_group(concrete::resource_group) {
             }
@@ -1378,6 +1474,10 @@ namespace deren::vulkan {
         create_resource_group(deren::promise::rhi::resource_group_desc const&) override;
         [[nodiscard]] deren::promise::rhi::error validate_resource_group_pipeline(deren::promise::rhi::pipeline_desc const&);
         struct owned_texture_group final : deren::promise::rhi::texture_group {
+            static constexpr std::string_view tag = concrete::texture_group;
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return tag;
+            }
             owned_texture_group() noexcept
                 : deren::promise::rhi::texture_group(concrete::texture_group) {
             }
@@ -1408,6 +1508,10 @@ namespace deren::vulkan {
         [[nodiscard]] deren::promise::rhi::error write_group_texture_locked(owned_texture_group& group, std::uint32_t index,
                                                                             deren::promise::rhi::image& texture) noexcept;
         struct command_submission_view final : deren::promise::rhi::command_submission {
+            static constexpr std::string_view tag = "deren_command_submission_vulkan";
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return tag;
+            }
             command_submission_view() noexcept
                 : command_submission("deren_command_submission_vulkan") {
             }
@@ -1418,6 +1522,10 @@ namespace deren::vulkan {
             [[nodiscard]] deren::promise::rhi::error wait(deren::promise::rhi::submission_token, std::uint64_t) noexcept override;
         } completion_view;
         struct frame_checkpoint_view final : deren::promise::rhi::frame_checkpoint {
+            static constexpr std::string_view tag = "deren.vulkan.frame_checkpoint";
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return tag;
+            }
             frame_checkpoint_view() noexcept
                 : deren::promise::rhi::frame_checkpoint("deren.vulkan.frame_checkpoint") {
             }
@@ -1464,6 +1572,10 @@ namespace deren::vulkan {
         deren::utility::vessel::unordered_set<deren::promise::rhi::command_recorder const*> contract_mergeable_buffers;
         /// the tier-2 address object `query_extension(device_address)` answers with
         struct frame_gpu_sorting final : deren::promise::rhi::gpu_sorting {
+            static constexpr std::string_view tag = concrete::gpu_sorting;
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return tag;
+            }
             frame_gpu_sorting() noexcept
                 : deren::promise::rhi::gpu_sorting(concrete::gpu_sorting) {
             }
@@ -1473,6 +1585,10 @@ namespace deren::vulkan {
         bool gpu_sorting_available = false;
         frame_gpu_sorting sorting_view;
         struct frame_async_presentation final : deren::promise::rhi::async_presentation {
+            static constexpr std::string_view tag = concrete::async_presentation;
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return tag;
+            }
             frame_async_presentation() noexcept
                 : deren::promise::rhi::async_presentation(concrete::async_presentation) {
             }
@@ -1487,6 +1603,10 @@ namespace deren::vulkan {
         mutable uint32_t prefetched_slot = UINT32_MAX;
         uint32_t prefetched_image = 0;
         struct scoped_sync_view final : deren::promise::rhi::scoped_synchronization {
+            static constexpr std::string_view tag = concrete::scoped_synchronization;
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return tag;
+            }
             scoped_sync_view() noexcept
                 : deren::promise::rhi::scoped_synchronization(concrete::scoped_synchronization) {
             }

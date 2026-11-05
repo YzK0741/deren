@@ -17,6 +17,10 @@ namespace bloom = rg::bloom;
 namespace rhi = deren::promise::rhi;
 namespace pass = deren::engine::pass;
 struct test_pipeline final : rhi::pipeline {
+    static constexpr std::string_view tag = "bloom test";
+    [[nodiscard]] std::string_view get_tag() const noexcept override {
+        return tag;
+    }
     test_pipeline()
         : rhi::pipeline("bloom test") {
     }

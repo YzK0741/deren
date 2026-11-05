@@ -103,7 +103,7 @@ namespace {
 
     static_assert(rhi::has_ability(rhi::all_abilities(), rhi::extension_kind::gpu_sorting));
 
-    static_assert(std::is_same_v<decltype(rhi::object::type), std::string_view const>);
+    static_assert(std::is_abstract_v<rhi::object>);
 
     // 推送常量的地址与长度都以4字节为单位；越界检查必须避免加法溢出。
 
@@ -197,9 +197,15 @@ namespace {
 
     // implementation's to choose. The probe below is the minimal concrete `rhi::object` a handle is -
 
-    // a static name and nothing else - so both answers of `is_concrete` are pinned here at compile time.
+    // a static tag and nothing else - so both answers of `is_concrete` are pinned here at runtime.
 
     struct concrete_identity_probe final : rhi::object {
+
+        static constexpr std::string_view tag = "deren_contract_identity_probe";
+
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
 
         constexpr concrete_identity_probe() noexcept
 
@@ -209,11 +215,7 @@ namespace {
 
     concrete_identity_probe const contract_identity_probe{};
 
-    static_assert([] {
-        constexpr concrete_identity_probe probe{};
-
-        return rhi::is_concrete(probe, "deren_contract_identity_probe") && !rhi::is_concrete(probe, "deren_image_vulkan");
-    }());
+    static_assert(rhi::tagged<concrete_identity_probe>);
 
     // From CMake ($<TARGET_FILE_NAME:probe_backend>): the DLL suffix is platform-dependent, so the
 
@@ -257,6 +259,10 @@ namespace {
      */
 
     struct foreign_command_buffer final : rhi::command_buffer {
+        static constexpr std::string_view tag = "foreign_command_buffer";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
 
         foreign_command_buffer() noexcept
 
@@ -634,7 +640,7 @@ namespace {
 
         // the frame's command buffer.
 
-        CHECK(rhi::abi_version == 59u);
+        CHECK(rhi::abi_version == 60u);
 
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
 
@@ -735,7 +741,7 @@ namespace {
 
         CHECK(group_error == rhi::error::ok);
 
-        CHECK_MSG(core->type == "deren_api_core_probe", "object.type must identify the concrete implementation across static and DLL boundaries");
+        CHECK_MSG(core->get_tag() == "deren_api_core_probe", "object.get_tag() must identify the concrete implementation across static and DLL boundaries");
 
         // Ownership is real and it came WITH the answer: the control block holds the backend's own
 
@@ -812,7 +818,7 @@ namespace {
 
                     CHECK(ability->kind() == kind);
 
-                    CHECK(!ability->type.empty());
+                    CHECK(!ability->get_tag().empty());
                 }
 
             } else {
@@ -850,6 +856,9 @@ namespace {
             CHECK(descriptor_space->position(*empty_probe_group).count == 0u);
 
             struct foreign_group final : rhi::texture_group {
+                [[nodiscard]] std::string_view get_tag() const noexcept override {
+                    return "deren_foreign_texture_group_probe";
+                }
 
                 foreign_group()
 
@@ -970,7 +979,7 @@ namespace {
 
         if (buffer) {
 
-            CHECK(buffer->type == "deren_buffer_probe");
+            CHECK(buffer->get_tag() == "deren_buffer_probe");
 
             CHECK(buffer->size() == 64u);
 
@@ -1199,7 +1208,7 @@ namespace {
 
         if (recorded) {
 
-            CHECK(recorded->type == "deren_command_buffer_probe");
+            CHECK(recorded->get_tag() == "deren_command_buffer_probe");
 
             // THE FRAME-SCOPED VERBS REFUSE A BUFFER THAT IS NOT THE FRAME'S (the contract's own window
 
@@ -1296,7 +1305,7 @@ namespace {
 
             if (made) {
 
-                CHECK(made->type == "deren_sampler_probe");
+                CHECK(made->get_tag() == "deren_sampler_probe");
             }
 
             // ... and a descriptor spelled with the DEFAULTS is the old behaviour exactly, which is what
@@ -1368,7 +1377,7 @@ namespace {
 
                 if (whole) {
 
-                    CHECK(whole->type == "deren_image_view_probe");
+                    CHECK(whole->get_tag() == "deren_image_view_probe");
                 }
 
                 rhi::image_view_desc outside{};

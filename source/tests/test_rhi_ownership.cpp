@@ -34,7 +34,7 @@ template <class T>
 concept reserved_swapchain_factory = requires { &T::create_swapchain; };
 static_assert(!reserved_query_factory<rhi::resource_factory>);
 static_assert(!reserved_swapchain_factory<rhi::frame_context>);
-static_assert(rhi::abi_version == 59u);
+static_assert(rhi::abi_version == 60u);
 static_assert(!rhi::has_ability(rhi::all_abilities(), rhi::extension_kind::mesh_shader));
 static_assert(rhi::all_extension_kinds().size() == 12);
 namespace {
@@ -70,6 +70,10 @@ namespace {
     static_assert(!merge_receiver<rhi::mergeable_command_buffer>);
     static_assert(std::same_as<decltype(rhi::heap_bind_info::commands), rhi::command_recorder*>);
     struct counted final : rhi::object {
+        static constexpr std::string_view tag = "counted";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         std::atomic<unsigned>& destroyed;
         rhi::shared_object<counted>::weak self;
         explicit counted(std::atomic<unsigned>& count)
@@ -157,6 +161,10 @@ namespace {
         }
     };
     struct member_probe final : rhi::api_core {
+        static constexpr std::string_view tag = "member_context_probe";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         resource_probe factory;
         command_probe command;
         frame_probe frame;

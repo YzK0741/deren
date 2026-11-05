@@ -12,6 +12,10 @@ namespace deren::vulkan {
     namespace {
         class owned_radix_sorter final : public rhi::radix_sorter {
         public:
+            static constexpr std::string_view tag = concrete::radix_sorter;
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return tag;
+            }
             owned_radix_sorter(core& owner, VrdxSorter native) noexcept
                 : rhi::radix_sorter(concrete::radix_sorter)
                 , owner_(&owner)

@@ -20,18 +20,23 @@ import deren.utility.shared;
 
 export namespace deren::promise::rhi {
 
-    /// Concrete implementation identity. Names must have static storage duration.
-    /// A name is not proof of device ownership or object lifetime.
+    /// Concrete implementation identity, reported by `get_tag()` from the concrete type's static `tag`.
+    /// The old constructor name is no longer stored; the constructor keeps it as a source-compatible shim
+    /// while callers migrate to tags. A name is not proof of device ownership or object lifetime.
     class object {
     public:
-        std::string_view const type;
+        [[nodiscard]] virtual std::string_view get_tag() const noexcept = 0;
 
     protected:
-        constexpr explicit object(std::string_view const name) noexcept
-            : type(name) {
+        constexpr explicit object(std::string_view) noexcept {
         }
-        ~object() = default; // Destruction stays on each interface's release path.
+        virtual ~object() = default; // Destruction stays on each interface's release path.
     };
+
+    /// A TYPE that carries its concrete identity as a static tag. The concept constrains the type,
+    /// not a runtime value: `object::get_tag()` supplies the runtime answer for an opaque handle.
+    template <typename candidate>
+    concept tagged = requires { { candidate::tag } -> std::convertible_to<std::string_view>; };
 
     /// WHAT AN RHI HANDLE IS, for the containers below: every template here is constrained to a type
     /// that inherits `object`, so a non-RHI type cannot be wrapped in one (there would be no `release()`
@@ -487,10 +492,10 @@ export namespace deren::promise::rhi {
         detail::shared_object_control* control = nullptr;
     };
 
-    /// THE CONCRETE-IDENTITY MECHANISM, SHARED BY EVERY BACKEND: a handle's `type` is the concrete
-    /// implementation name (ABI 30), the backend OWNS the name constants, and the validate-then-cast
-    /// operation lives HERE so a second backend cannot reinvent it (a D3D12 backend validates its own
-    /// names with the same two calls).
+    /// THE CONCRETE-IDENTITY MECHANISM, SHARED BY EVERY BACKEND: a handle's `get_tag()` is the concrete
+    /// implementation name (ABI 30), the backend OWNS the name constants (and exposes the same value as a
+    /// static `tag` for compile-time code), and the validate-then-cast operation lives HERE so a second
+    /// backend cannot reinvent it (a D3D12 backend validates its own names with the same two calls).
     ///
     /// WHY THE GRANULARITY IS CONCRETE, NOT THE INTERFACE: one interface has several concrete
     /// implementations with different layouts behind it (`buffer` is owned and, separately, the
@@ -503,8 +508,8 @@ export namespace deren::promise::rhi {
     /// provenance has already been established - see its note.
 
     /// @brief whether @p value is the concrete implementation @p name names
-    [[nodiscard]] constexpr bool is_concrete(object const& value, std::string_view const name) noexcept {
-        return value.type == name;
+    [[nodiscard]] bool is_concrete(object const& value, std::string_view const name) noexcept {
+        return value.get_tag() == name;
     }
 
     /// @brief the concrete implementation behind @p value, as its own type
@@ -529,7 +534,7 @@ export namespace deren::promise::rhi {
             deren::utility::panic(deren::utility::vessel::format(
                                       "rhi: do_concrete: a handle named \"{}\" is not the \"{}\" this cast requires - "
                                       "provenance was already established, so the name and the registry disagree",
-                                      value.type, name),
+                                      value.get_tag(), name),
                                   where);
         }
         return static_cast<concrete_t const*>(&value);
@@ -543,7 +548,7 @@ export namespace deren::promise::rhi {
             deren::utility::panic(deren::utility::vessel::format(
                                       "rhi: do_concrete: a handle named \"{}\" is not the \"{}\" this cast requires - "
                                       "provenance was already established, so the name and the registry disagree",
-                                      value.type, name),
+                                      value.get_tag(), name),
                                   where);
         }
         return static_cast<concrete_t*>(&value);

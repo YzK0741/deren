@@ -20,7 +20,7 @@ import deren.utility.shared;
 
 export namespace deren::promise::rhi {
 
-    inline constexpr std::uint32_t abi_version = 59u;
+    inline constexpr std::uint32_t abi_version = 60u;
 
     /// Why a promise entry point could not do what it was asked.
     ///

@@ -58,6 +58,10 @@ namespace {
     /// verb that would need one is a no-op; the two timing verbs answer `unsupported`, the honest
     /// answer for an object that cannot timestamp (the probe backend's own rule).
     struct contract_command_buffer final : deren::promise::rhi::command_buffer {
+        static constexpr std::string_view tag = "contract_command_buffer";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         std::uint32_t rendering_begins = 0;
         std::uint32_t rendering_ends = 0;
         std::uint32_t secondary_executions = 0;
@@ -217,6 +221,10 @@ namespace {
     /// lifecycle test needs one. Only the two lifecycle verbs carry state (the injected failure results); every
     /// recording verb is the no-op this fake's whole stance already is.
     struct contract_mergeable final : deren::promise::rhi::mergeable_command_buffer {
+        static constexpr std::string_view tag = "contract_mergeable";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         deren::promise::rhi::error begin_result = deren::promise::rhi::error::ok;
         deren::promise::rhi::error end_result = deren::promise::rhi::error::ok;
         contract_mergeable() noexcept
@@ -319,6 +327,10 @@ namespace {
     deren::promise::rhi::shared_object<deren::promise::rhi::command_buffer> const fake_cmd = std::make_shared<contract_command_buffer>();
     class contract_sampler final : public deren::promise::rhi::sampler {
     public:
+        static constexpr std::string_view tag = "contract_sampler";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
         contract_sampler() noexcept
             : deren::promise::rhi::sampler("contract_sampler") {
         }
@@ -515,6 +527,9 @@ int32_t main() {
     {
         namespace rhi = deren::promise::rhi;
         struct target final : rhi::image {
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return "overlay test";
+            }
             target()
                 : image("overlay test") {
             }
