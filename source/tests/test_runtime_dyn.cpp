@@ -130,10 +130,7 @@ namespace {
             return tag;
         }
 
-        foreign_image_view() noexcept
-
-            : rhi::image_view("foreign_image_view") {
-        }
+        foreign_image_view() noexcept = default;
 
         void release() noexcept override {
         }
@@ -182,7 +179,7 @@ int main(int const argc, char** const argv) {
 
     // handshake number moved with it.
 
-    CHECK(rhi::abi_version == 60u);
+    CHECK(rhi::abi_version == 61u);
 
     if (!wants_device(argc, argv)) {
 

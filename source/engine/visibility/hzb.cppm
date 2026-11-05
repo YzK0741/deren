@@ -42,17 +42,11 @@
  * `heap_at<...>(heap_slots_hzb_x)` and then indexes `frame_slot * stride + index`, never `+ heap_frame_slot` (§5.3).
  */
 module;
-
-#include <array>
-#include <bit>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <limits>
-#include <optional>
-#include <span>
 
 export module deren.engine.visibility.hzb;
+export import deren.vstd;
 
 export namespace deren::engine::visibility::hzb {
     // ================================================================================================

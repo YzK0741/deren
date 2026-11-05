@@ -23,15 +23,7 @@
 // themselves stay the renderer's for now and are driven through `bake_hooks`.
 // ============================================================================
 module;
-
-#include <chrono>
 #include <cstdint>
-#include <expected>
-#include <memory>
-#include <optional>
-#include <span>
-#include <string>
-#include <vector>
 
 export module deren.engine.ray_tracing;
 export import deren.utility.shared;

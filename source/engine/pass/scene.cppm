@@ -33,16 +33,10 @@
  */
 
 module;
-
-#include <array>
-#include <atomic>
 #include <cstdint>
-#include <functional>
-#include <memory> // std::shared_ptr: a frame's session target is the contract handle (see make_environment)
-#include <span>
-#include <string_view>
 
 export module deren.engine.pass.scene;
+export import deren.vstd;
 export import deren.utility.shared;
 
 import deren.promise.rhi; // the contract command buffer the frame's secondaries are

@@ -24,13 +24,10 @@
 //         PATCH on internal fixes - independently of the rest of the project.
 // ============================================================================
 module;
-
-#include <chrono>
-#include <fstream>
-#include <future>
+#include <cstddef>
+#include <cstdint>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <memory> // std::shared_ptr: the engine's OWN owners (generations, caches); RHI handles use rhi::unique_object/shared_object
 
 // THE GUI PLUGIN'S BOUNDARY (plan X2): the runtime holds a deren::gui::overlay, which lives in a
 // deren_gui_<api>.dll the loader resolves by name. In the GLOBAL MODULE FRAGMENT because the header

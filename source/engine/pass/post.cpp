@@ -7,13 +7,10 @@
 // bloom chain as well.
 
 module;
-
-#include <array>
 #include <cstdint>
 #include <cstring>
-#include <span>
-
 module deren.engine.pass.post;
+import deren.vstd;
 import deren.utility.shared;
 
 import deren.promise.rhi;      // the record series (abi 20): the barriers, the rendering scope, the draw

@@ -3,13 +3,9 @@
  * @brief the visibility raster pass's pipeline and recording (see the header's WHY THIS PASS EXISTS).
  */
 module;
-
-#include <array>
 #include <cstdint>
-#include <span>
-#include <utility>
-
 module deren.engine.pass.visibility_raster;
+import deren.vstd;
 
 import deren.utility.shared;
 import deren.utility; // deren::utility::log

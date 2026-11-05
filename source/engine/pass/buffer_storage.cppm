@@ -3,10 +3,8 @@
  * @brief Resource-only pass for dynamic object requirements prepared by a completed job slot.
  */
 module;
-#include <span>
-#include <string_view>
-#include <vector>
 export module deren.engine.pass.buffer_storage;
+export import deren.vstd;
 export import deren.utility.shared;
 import deren.engine.pass;
 import deren.engine.render_resource;

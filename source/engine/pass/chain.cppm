@@ -35,13 +35,9 @@
 module;
 
 #include <cstdint>
-#include <memory>
-#include <span>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module deren.engine.pass.chain;
+export import deren.vstd;
 export import deren.utility.shared;
 
 import deren.engine.pass;

@@ -3,22 +3,17 @@ module;
 
 #include <GLFW/glfw3.h>
 #include <algorithm> // std::min in the resource publication
-#include <array>
-#include <atomic>
-#include <bit> // std::bit_cast for the caster world-matrix hash
-#include <chrono>
-#include <cmath>
+#include <bit>       // std::bit_cast for the caster world-matrix hash
+#include <cstddef>
+#include <cstdint>
 #include <cstdio> // std::snprintf: the software-raster workload probe's JSON floats (%.9g round-trips float32)
 #include <cstdlib>
-#include <cstring> // std::memcpy, for composing a pass's push block
-#include <fstream>
+#include <cstring>    // std::memcpy, for composing a pass's push block
 #include <functional> // std::function: the per-item planning tasks a worker pool runs
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <iterator> // std::prev: the ordered publication table's predecessor lookup
-#include <limits>
-#include <memory> // std::shared_ptr: the frame's borrowed command buffer (see frame_command_buffer)
-#include <optional>
+#include <iterator>        // std::prev: the ordered publication table's predecessor lookup
+#include <memory>          // std::shared_ptr: the frame's borrowed command buffer (see frame_command_buffer)
 #include <source_location> // the panic sites of the graphics-queue-family derivation
 #include <span>            // the byte spans the contract's buffer descriptors and the push endpoints take
 #include <string>          // the software-raster workload probe's dump path
@@ -32,6 +27,7 @@ module;
 // already has (the trap the plugin's own file records).
 
 module deren.engine.runtime;
+import deren.vstd;
 import deren.utility.shared;
 import deren.engine.subtilis;
 import deren.engine.subtilis.upload;

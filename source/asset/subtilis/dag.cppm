@@ -1,4 +1,5 @@
 export module deren.asset.subtilis.dag;
+export import deren.vstd;
 export import deren.asset.subtilis.codec;
 
 export namespace deren::asset::subtilis {

@@ -10,13 +10,8 @@
 
 module;
 
-#include <array>
 #include <cstdint>
 #include <glm/glm.hpp>
-#include <span>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module deren.engine.primitive:toon;
 

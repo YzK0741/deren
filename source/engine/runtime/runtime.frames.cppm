@@ -11,18 +11,15 @@
 module;
 
 #include <GLFW/glfw3.h>
-#include <algorithm> // std::min in the resource publication
-#include <array>
-#include <bit> // std::bit_cast for the caster world-matrix hash
-#include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring> // std::memcpy, for composing a pass's push block
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <span>   // std::as_bytes for the init_utils calls (the bytes behind a UBO or a zeroed table)
-#include <thread> // std::this_thread::yield in the frame limiter
 
 module deren.engine.runtime:frames;
+import deren.vstd;
 import deren.utility.shared;
 
 import :declarations;

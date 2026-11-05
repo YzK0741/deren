@@ -1,7 +1,6 @@
 module;
 
 // Portable renderer formats, offsets and slot constants shared by the engine and backends.
-#include <array>
 #include <cstdint>
 
 /// THE RENDERER'S SLOT LAYOUT, COMPILED BY BOTH HALVES (③-D/E batch, ruling D).
@@ -20,6 +19,7 @@ module;
 /// source/tests/test_render_resources.cpp holds the two sides equal by parsing BOTH files; that test's path
 /// moved here with the grid.
 export module deren.engine.render_layout;
+export import deren.vstd;
 export import deren.utility.shared;
 
 import deren.promise.rhi;

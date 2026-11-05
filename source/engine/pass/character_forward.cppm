@@ -42,13 +42,10 @@
 
 module;
 
-#include <array>
 #include <cstdint>
-#include <memory> // std::shared_ptr: a session's target is the contract handle (see make_environment)
-#include <span>
-#include <string_view>
 
 export module deren.engine.pass.character_forward;
+export import deren.vstd;
 export import deren.utility.shared;
 
 import deren.promise.rhi; // the contract command buffer a session's target is

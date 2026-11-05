@@ -9,20 +9,7 @@
 // different: they are EXPECTED, so they are counted and passed over.
 
 module;
-
-#include <array>
-#include <charconv>
 #include <cstddef>
-#include <expected>
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <iterator>
-#include <optional>
-#include <string_view>
-#include <system_error>
-#include <utility>
-
 module deren.toon_material_sidecar;
 import deren.utility.shared;
 

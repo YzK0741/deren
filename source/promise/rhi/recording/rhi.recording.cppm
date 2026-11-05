@@ -2,20 +2,11 @@
 // module: deren.promise.rhi:recording
 module;
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
-#include <expected>
-#include <limits>
-#include <map>
-#include <memory>
-#include <optional>
-#include <span>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module deren.promise.rhi:recording;
+export import deren.vstd;
 export import deren.utility.shared;
 
 import :contract;
@@ -361,9 +352,7 @@ export namespace deren::promise::rhi {
     /// Caller publishes writes before record and publishes output reads afterward.
     /// Internal native bindings may be overwritten; logical recorder state is preserved for later RHI consumers.
     struct radix_sorter : object {
-        explicit radix_sorter(std::string_view name) noexcept
-            : object(name) {
-        }
+        radix_sorter() noexcept = default;
         virtual ~radix_sorter() noexcept = default;
         virtual void release() noexcept = 0;
         [[nodiscard]] virtual radix_sort_requirements requirements(std::uint32_t count) const noexcept = 0;
@@ -377,7 +366,7 @@ export namespace deren::promise::rhi {
     // create, keep, begin, end and execute, which is what the engine's per-slot primaries, its
     // per-cascade and per-worker secondaries and the read-back's one-shot buffer need. Since abi 15
     // `command_buffer` IS that resource, in the ownership shape `buffer` / `image` established: the
-    // factory hands out ONE reference, `release()` drops it inside the backend, and
+    // factory hands out ONE reference, `release()` releases it inside the backend, and
     // `rhi::unique_object<T>` is the owner spelling. The frame's own list is still the ONE borrowed
     // instance of the type (`begin_commands()` answers it; its `release()` panics).
     //
@@ -550,9 +539,7 @@ export namespace deren::promise::rhi {
     /// This base carries no individual submission or batch execution permission.
     struct command_recorder : object {
 
-        explicit command_recorder(std::string_view const name) noexcept
-            : object(name) {
-        }
+        command_recorder() noexcept = default;
         virtual ~command_recorder() noexcept = default;
 
         /// RELEASE THE CALLER'S ONE REFERENCE (see `buffer::release()`): the recording session and the
@@ -757,9 +744,7 @@ export namespace deren::promise::rhi {
 
     /// Individually submittable owner and receiver of mergeable batches.
     struct command_buffer : command_recorder {
-        explicit command_buffer(std::string_view name) noexcept
-            : command_recorder(name) {
-        }
+        command_buffer() noexcept = default;
         ~command_buffer() noexcept override = default;
         /// ABI 36. Merge a BATCH of mergeable segments into THIS recording buffer - the recording-time
         /// counterpart of the submission-time batch. The batch rules are the same ones
@@ -774,9 +759,7 @@ export namespace deren::promise::rhi {
     /// Batch-only owner: ordered, self-contained segments retained until completion.
     /// Sibling of command_buffer; cannot receive execute() or be submitted individually.
     struct mergeable_command_buffer : command_recorder {
-        explicit mergeable_command_buffer(std::string_view name) noexcept
-            : command_recorder(name) {
-        }
+        mergeable_command_buffer() noexcept = default;
         ~mergeable_command_buffer() noexcept override = default;
     };
     struct command_context {

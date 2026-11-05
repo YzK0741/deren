@@ -48,6 +48,7 @@ module;
 #include <cstdint>
 
 export module deren.promise.rhi:core_desc;
+export import deren.vstd;
 export import deren.utility.shared;
 
 export namespace deren::promise::rhi {

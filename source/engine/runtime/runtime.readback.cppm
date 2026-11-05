@@ -20,22 +20,13 @@
 module;
 #include "../lighting/radiance_capture.hpp"
 
-#include <algorithm>
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
-#include <cstring>    // std::memcpy of an RGBA frame
-#include <expected>   // std::unexpected for the failure strings
-#include <filesystem> // the capture manifest checks the files it claims are on disk
-#include <fstream>
-#include <span> // the bytes the contract's buffer view hands back
-#include <string>
-#include <system_error> // std::error_code for the manifest file-size probe
-#include <utility>      // std::pair for the manifest entries
-#include <vector>
+#include <cstring> // std::memcpy of an RGBA frame
 
 module deren.engine.runtime:readback;
+import deren.vstd;
 import deren.utility.shared;
 
 import :declarations;

@@ -9,17 +9,9 @@
 // ============================================================================
 
 module;
-
-#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <glm/glm.hpp>
-#include <limits>
-#include <memory>
-#include <span>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 export module deren.engine.primitive:primitives;
 

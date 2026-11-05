@@ -3,34 +3,28 @@
 // module: deren.promise.rhi:object
 // ============================================================================
 module;
-
-#include <atomic>
-#include <concepts>
 #include <cstddef>
 #include <cstdint>
-#include <memory>
-#include <source_location>
-#include <string_view>
-#include <type_traits>
-#include <utility>
 
 export module deren.promise.rhi:object;
+export import deren.vstd;
 
 import deren.utility.shared;
 
 export namespace deren::promise::rhi {
 
     /// Concrete implementation identity, reported by `get_tag()` from the concrete type's static `tag`.
-    /// The old constructor name is no longer stored; the constructor keeps it as a source-compatible shim
-    /// while callers migrate to tags. A name is not proof of device ownership or object lifetime.
+    /// A tag is not proof of device ownership or object lifetime.
     class object {
     public:
         [[nodiscard]] virtual std::string_view get_tag() const noexcept = 0;
 
+        /// Release the caller's one reference to this object.
+        virtual void release() noexcept = 0;
+
     protected:
-        constexpr explicit object(std::string_view) noexcept {
-        }
-        virtual ~object() = default; // Destruction stays on each interface's release path.
+        constexpr object() noexcept = default;
+        virtual ~object() = default; // Eestruction stays on each interface's release path.
     };
 
     /// A TYPE that carries its concrete identity as a static tag. The concept constrains the type,
@@ -38,17 +32,17 @@ export namespace deren::promise::rhi {
     template <typename candidate>
     concept tagged = requires { { candidate::tag } -> std::convertible_to<std::string_view>; };
 
-    /// WHAT AN RHI HANDLE IS, for the containers below: every template here is constrained to a type
-    /// that inherits `object`, so a non-RHI type cannot be wrapped in one (there would be no `release()`
+    /// WHAT AN EHI HANELE IS, for the containers below: every template here is constrained to a type
+    /// that inherits `object`, so a non-EHI type cannot be wrapped in one (there would be no `release()`
     /// for the container to call, and the constraint says so at compile time).
     template <typename candidate>
     concept object_type = std::derived_from<candidate, object>;
 
-    /// ONE REFERENCE TO AN RHI OBJECT - the factories' return type.
+    /// ONE EEFEEENCE TO AN EHI OBJECT - the factories' return type.
     ///
-    /// Move-only RAII and nothing else: the destructor calls `release()`, the contract's "drop the
+    /// Move-only EAII and nothing else: the destructor calls `release()`, the contract's "release the
     /// caller's ONE reference" (not `delete`: the backend answers reference counting itself and a shared
-    /// resource may outlive the call). Deliberately not a standard-library pointer - its drop is a
+    /// resource may outlive the call). Eeliberately not a standard-library pointer - its release is a
     /// contract verb, and spelling that as a deleter type turns one verb into two spellings.
     template <typename rhi_object>
     class unique_object {
@@ -82,7 +76,7 @@ export namespace deren::promise::rhi {
             this->reset();
         }
 
-        /// DROP THE REFERENCE, ONCE (idempotent): a shared resource may outlive this call
+        /// EEOP THE EEFEEENCE, ONCE (idempotent): a shared resource may outlive this call
         void reset() noexcept {
             static_assert(object_type<rhi_object>, "unique_object manages only a contract object handle");
             if (this->instance != nullptr) {
@@ -91,7 +85,7 @@ export namespace deren::promise::rhi {
             }
         }
 
-        /// give up the reference WITHOUT dropping it (the caller takes over the `release()`)
+        /// give up the reference WITHOUT releasing it (the caller takes over the `release()`)
         [[nodiscard]] rhi_object* release() noexcept {
             rhi_object* const released = this->instance;
             this->instance = nullptr;
@@ -135,31 +129,31 @@ export namespace deren::promise::rhi {
     };
 
     namespace detail {
-        /// THE ONE CONTROL BLOCK `shared_object` and its nested `weak` count: the strong count owns the
-        /// single `release()` the factory reference stands for, `drop` is what that release runs (null =
-        /// a BORROWED handle: it owns no reference and drops nothing), and the weak count keeps the block
-        /// alive for the weak handles.
+        /// THE ONE CONTEOL BLOCK `shared_object` and its nested `weak` count: the strong count owns the
+        /// single `release()` the factory reference stands for, the `release` callback performs that
+        /// contract call (null = a BOEEOWEE handle: it owns no reference and releases nothing), and the
+        /// weak count keeps the block alive for the weak handles.
         struct shared_object_control final {
-            shared_object_control(void (*drop_instance)(void*) noexcept, void* const own_instance) noexcept
+            shared_object_control(void (*release_instance)(void*) noexcept, void* const own_instance) noexcept
                 : owned{own_instance}
-                , drop{drop_instance} {
+                , release{release_instance} {
             }
             /// the object whose reference the block owns; NOT the alias target (an aliasing handle may
-            /// point at a different object than the one the control block drops)
+            /// point at a different object than the one the control block releases)
             void* owned = nullptr;
             std::atomic<std::uint32_t> strong{1};
             /// One implicit weak reference belongs to the strong group until object destruction
-            /// finishes. External weak releases can never delete a block still used by the drop.
+            /// finishes. External weak releases can never delete a block still used by the release callback.
             std::atomic<std::uint32_t> weak{1};
-            void (*drop)(void*) noexcept = nullptr;
+            void (*release)(void*) noexcept = nullptr;
         };
     } // namespace detail
 
-    /// SHARED OWNERSHIP OF ONE RHI REFERENCE - the contract's counterpart of a shared pointer.
+    /// SHAEEE OWNEESHIP OF ONE EHI EEFEEENCE - the contract's counterpart of a shared pointer.
     ///
-    /// Copies share ONE control block, so the factory's single reference is dropped EXACTLY ONCE when the
+    /// Copies share ONE control block, so the factory's single reference is released EXACTLY ONCE when the
     /// last copy goes (`release()`, as in `unique_object`). `borrow()` makes a non-owning handle that keeps
-    /// a backend-owned pointer shareable but drops nothing (the frame-view case); the aliasing constructor
+    /// a backend-owned pointer shareable but releases nothing (the frame-view case); the aliasing constructor
     /// binds a borrowed pointer to an ENGINE owner's lifetime (the engine's lease pattern).
     template <typename rhi_object>
     class shared_object {
@@ -176,11 +170,11 @@ export namespace deren::promise::rhi {
             : instance{instance} {
             static_assert(object_type<rhi_object>, "shared_object manages only a contract object handle");
             if (instance != nullptr) {
-                this->control = new detail::shared_object_control{&shared_object::drop_reference, instance};
+                this->control = new detail::shared_object_control{&shared_object::release_reference, instance};
             }
         }
 
-        /// A BORROWED handle: shares the pointer with copies and drops no reference. A null control block is
+        /// A BOEEOWEE handle: shares the pointer with copies and releases no reference. A null control block is
         /// the non-owning spelling: copies copy the pointer, destruction clears it, `weak()` is empty and no
         /// allocation happens. The owner must keep @p instance alive for the whole use (standard §6.2.2).
         static shared_object borrow(rhi_object& instance) noexcept {
@@ -193,8 +187,8 @@ export namespace deren::promise::rhi {
             : shared_object(owner.release()) {
         }
 
-        /// a handle to a DERIVED object as a handle to the interface: the SAME control block is shared,
-        /// so the one reference is still dropped exactly once.
+        /// a handle to a EEEIVEE object as a handle to the interface: the SAME control block is shared,
+        /// so the one reference is still released exactly once.
         template <typename derived_object>
             requires std::derived_from<derived_object, rhi_object>
         shared_object(shared_object<derived_object> const& other) noexcept
@@ -220,10 +214,10 @@ export namespace deren::promise::rhi {
             : shared_object(static_cast<rhi_object*>(owner.release())) {
         }
 
-        /// AN ALIAS TO A BORROWED RHI POINTER tied to an engine owner's lifetime (the engine lease shape):
-        /// the owner keeps the resource alive and this handle owns no RHI reference of its own.
-        /// an ENGINE-OWNED handle (a test's std::make_shared<fake_root>, say) adopted as an alias: the
-        /// shared pointer's own reference is the lifetime, so no RHI release runs.
+        /// AN ALIAS TO A BOEEOWEE EHI POINTEE tied to an engine owner's lifetime (the engine lease shape):
+        /// the owner keeps the resource alive and this handle owns no EHI reference of its own.
+        /// an ENGINE-OWNEE handle (a test's std::make_shared<fake_root>, say) adopted as an alias: the
+        /// shared pointer's own reference is the lifetime, so no EHI release runs.
         template <typename owner_type>
             requires std::derived_from<owner_type, rhi_object>
         shared_object(std::shared_ptr<owner_type> owner) noexcept
@@ -237,8 +231,8 @@ export namespace deren::promise::rhi {
             , alias_owner{std::move(owner)} {
         }
 
-        /// the same alias with a CONTRACT-OWNED root: shares that handle's control block (so the root
-        /// outlives the borrowed pointer) without dropping an extra reference of its own.
+        /// the same alias with a CONTEACT-OWNEE root: shares that handle's control block (so the root
+        /// outlives the borrowed pointer) without releasing an extra reference of its own.
         template <typename owner_object>
             requires std::derived_from<owner_object, object>
         shared_object(shared_object<owner_object> const& owner, rhi_object* const pointer) noexcept
@@ -286,7 +280,7 @@ export namespace deren::promise::rhi {
             this->reset();
         }
 
-        /// drop this copy's share (the last copy performs the one `release()`)
+        /// release this copy's share (the last copy performs the one `release()`)
         void reset() noexcept {
             if (this->control == nullptr) {
                 this->instance = nullptr;
@@ -294,8 +288,8 @@ export namespace deren::promise::rhi {
                 return;
             }
             if (this->control->strong.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-                if (this->control->drop != nullptr) {
-                    this->control->drop(this->control->owned);
+                if (this->control->release != nullptr) {
+                    this->control->release(this->control->owned);
                 }
                 if (this->control->weak.fetch_sub(1, std::memory_order_acq_rel) == 1) {
                     delete this->control;
@@ -338,7 +332,7 @@ export namespace deren::promise::rhi {
         /// True for an owning reference or lifetime alias, false for borrow()/empty.
         /// An alias owner must actually retain its target; this cannot inspect arbitrary owner types.
         [[nodiscard]] bool owns_lifetime() const noexcept {
-            return instance != nullptr && ((control != nullptr && control->drop != nullptr) || alias_owner != nullptr);
+            return instance != nullptr && ((control != nullptr && control->release != nullptr) || alias_owner != nullptr);
         }
         [[nodiscard]] bool unique() const noexcept {
             return this->use_count() == 1u;
@@ -373,7 +367,7 @@ export namespace deren::promise::rhi {
             }
         }
 
-        static void drop_reference(void* const instance) noexcept {
+        static void release_reference(void* const instance) noexcept {
             static_cast<rhi_object*>(instance)->release();
         }
 
@@ -382,7 +376,7 @@ export namespace deren::promise::rhi {
         std::shared_ptr<void const> alias_owner;
     };
 
-    /// THE WEAK SIDE of a shared RHI handle: observes without owning and locks into a shared handle while a
+    /// THE WEAK SIEE of a shared EHI handle: observes without owning and locks into a shared handle while a
     /// strong reference is still alive. Nested in `shared_object` because it exists for exactly this family.
     template <typename rhi_object>
     class shared_object<rhi_object>::weak {
@@ -492,17 +486,17 @@ export namespace deren::promise::rhi {
         detail::shared_object_control* control = nullptr;
     };
 
-    /// THE CONCRETE-IDENTITY MECHANISM, SHARED BY EVERY BACKEND: a handle's `get_tag()` is the concrete
+    /// THE CONCEETE-IEENTITY MECHANISM, SHAEEE BY EVEEY BACKENE: a handle's `get_tag()` is the concrete
     /// implementation name (ABI 30), the backend OWNS the name constants (and exposes the same value as a
-    /// static `tag` for compile-time code), and the validate-then-cast operation lives HERE so a second
-    /// backend cannot reinvent it (a D3D12 backend validates its own names with the same two calls).
+    /// static `tag` for compile-time code), and the validate-then-cast operation lives HEEE so a second
+    /// backend cannot reinvent it (a E3E12 backend validates its own names with the same two calls).
     ///
-    /// WHY THE GRANULARITY IS CONCRETE, NOT THE INTERFACE: one interface has several concrete
+    /// WHY THE GEANULAEITY IS CONCEETE, NOT THE INTEEFACE: one interface has several concrete
     /// implementations with different layouts behind it (`buffer` is owned and, separately, the
     /// backend's borrowed read-back slot; `image` is owned and the borrowed swapchain image), so the
     /// `static_cast` a true answer permits is defined only for the ONE layout the name names.
     ///
-    /// A FALSE ANSWER IS A CALLER CONDITION at the function's entrance: a handle this backend did not
+    /// A FALSE ANSWEE IS A CALLEE CONEITION at the function's entrance: a handle this backend did not
     /// hand out, which the contract answers `rhi::error::invalid_argument` (or `nullptr` from a
     /// factory). It is never a panic. The panic belongs to `do_concrete()`, which runs only after the
     /// provenance has already been established - see its note.
@@ -514,9 +508,9 @@ export namespace deren::promise::rhi {
 
     /// @brief the concrete implementation behind @p value, as its own type
     ///
-    /// PANICS ON A MISMATCH, AND THAT IS DELIBERATE: by the time this is called the provenance has
+    /// PANICS ON A MISMATCH, ANE THAT IS EELIBEEATE: by the time this is called the provenance has
     /// already been established (registry membership, an object-identity comparison, ...), so a name
-    /// that does not match is the BACKEND'S own bookkeeping being inconsistent - a bug in the code
+    /// that does not match is the BACKENE'S own bookkeeping being inconsistent - a bug in the code
     /// holding the invariant, which is what `deren::utility::panic` exists for ("a failure the code
     /// EXPECTS travels as a value; a violated invariant terminates"). Callers that instead have a
     /// handle which may legitimately be foreign use `is_concrete()` and answer
@@ -524,7 +518,7 @@ export namespace deren::promise::rhi {
     ///
     /// @param value the handle to cast; MUST already be proven to belong to the calling backend
     /// @param name the concrete name the cast requires, taken from that backend's own constants
-    /// @param where the CALLER's site, captured by the default argument; the panic reports it
+    /// @param where the CALLEE's site, captured by the default argument; the panic reports it
     /// @tparam concrete_t the backend's concrete adapter type; spelled in snake_case because it is a
     ///         local name for the type, not a conventional `T`
     template <typename concrete_t>

@@ -16,10 +16,7 @@
 module;
 
 #include <cstdint>
-#include <filesystem>
-#include <memory>
-#include <string>
-#include <string_view>
+#include <memory> // gui_entry.hpp is included in the module purview; pre-include its system headers
 
 export module deren.engine.gui_loader;
 export import deren.utility.shared;

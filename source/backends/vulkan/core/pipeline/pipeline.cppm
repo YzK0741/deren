@@ -1,5 +1,6 @@
 module;
 
+#include <cstdint>
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.core.pipeline;

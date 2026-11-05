@@ -10,15 +10,9 @@
 
 module;
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <glm/glm.hpp>
-#include <memory>
-#include <optional>
-#include <span>
-#include <string_view>
-#include <utility>
 
 export module deren.engine.primitive:records;
 

@@ -4,17 +4,11 @@
 // two jobs arrive as `build_inputs` and that the failures are RETURNED rather than logged and swallowed, because
 // what a failure means for a knob is the renderer's decision.
 module;
-
-#include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <expected>
-#include <optional>
-#include <span>
-#include <utility>
-#include <vector>
-
 module deren.engine.ray_tracing;
+import deren.vstd;
 import deren.utility.shared;
 
 import deren.utility;

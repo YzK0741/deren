@@ -3,24 +3,17 @@
 // module: deren.promise.rhi:error
 // ============================================================================
 module;
-
-#include <atomic>
-#include <concepts>
 #include <cstddef>
 #include <cstdint>
-#include <memory>
-#include <source_location>
-#include <string_view>
-#include <type_traits>
-#include <utility>
 
 export module deren.promise.rhi:error;
+export import deren.vstd;
 
 import deren.utility.shared;
 
 export namespace deren::promise::rhi {
 
-    inline constexpr std::uint32_t abi_version = 60u;
+    inline constexpr std::uint32_t abi_version = 61u;
 
     /// Why a promise entry point could not do what it was asked.
     ///

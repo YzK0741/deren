@@ -6,16 +6,11 @@
 // depth this pass writes. Clearing is unconditional for a valid frame, including when no mesh is visible.
 
 module;
-
-#include <algorithm>
-#include <array>
-#include <atomic>
+#include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <memory> // std::shared_ptr: the session's target is the contract buffer the frame borrowed
-#include <span>
-
 module deren.engine.pass.scene;
+import deren.vstd;
 import deren.utility.shared;
 
 import deren.promise.rhi; // the record series (abi 20): the barriers, the rendering scope, the secondary's lifecycle

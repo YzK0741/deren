@@ -116,9 +116,7 @@ namespace {
 
         managed_structure(int& count, std::uint32_t size)
 
-            : acceleration_structure("managed_structure_probe")
-
-            , releases(count)
+            : releases(count)
 
             , capacity(size) {
         }
@@ -154,7 +152,7 @@ namespace {
 
         managed_micromap()
 
-            : micromap("managed_micromap_probe") {
+        {
         }
 
         void release() noexcept override {
@@ -189,7 +187,7 @@ namespace {
 
         managed_view()
 
-            : image_view("managed_view") {
+        {
         }
 
         void release() noexcept override {
@@ -208,9 +206,7 @@ namespace {
 
         explicit managed_image(rhi::image_desc desc)
 
-            : image("managed_image")
-
-            , description(desc) {
+            : description(desc) {
 
             description.initial_bytes = {};
         }
@@ -249,7 +245,7 @@ namespace {
 
         managed_sampler()
 
-            : sampler("managed_sampler") {
+        {
         }
 
         void release() noexcept override {
@@ -1099,7 +1095,7 @@ int main(int const argc, char** const argv) {
 
     // handshake number moved with it.
 
-    CHECK(rhi::abi_version == 60u);
+    CHECK(rhi::abi_version == 61u);
 
     if (!wants_device(argc, argv)) {
 

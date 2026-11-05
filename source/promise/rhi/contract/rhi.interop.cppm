@@ -4,9 +4,8 @@
 // ============================================================================
 module;
 
-#include <string_view>
-
 export module deren.promise.rhi:interop;
+export import deren.vstd;
 
 import :object;
 
@@ -30,9 +29,7 @@ export namespace deren::promise::rhi {
     /// the context's lifetime. There is no `release()` and no reference to keep - the caller must never
     /// delete it.
     struct main_context : object {
-        explicit main_context(std::string_view const name) noexcept
-            : object(name) {
-        }
+        main_context() noexcept = default;
     };
 
 } // namespace deren::promise::rhi

@@ -1,11 +1,8 @@
 module;
-#include <algorithm>
-#include <array>
-#include <cmath>
+#include <cstddef>
 #include <cstdint>
-#include <numeric>
-#include <span>
 module deren.asset.subtilis.builder;
+import deren.vstd;
 namespace deren::asset::subtilis::builder_detail {
     namespace {
         using pair = std::array<std::uint32_t, 2>;

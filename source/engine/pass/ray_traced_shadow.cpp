@@ -13,11 +13,11 @@
 
 module;
 
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <span>
-
 module deren.engine.pass.ray_traced_shadow;
+import deren.vstd;
 import deren.utility.shared;
 
 import deren.promise.rhi; // the record series (abi 20): the two barriers, the push block's endpoint and the traceRays escape

@@ -207,10 +207,10 @@ namespace {
             return tag;
         }
 
-        constexpr concrete_identity_probe() noexcept
-
-            : object("deren_contract_identity_probe") {
+        void release() noexcept override {
         }
+
+        constexpr concrete_identity_probe() noexcept = default;
     };
 
     concrete_identity_probe const contract_identity_probe{};
@@ -264,10 +264,7 @@ namespace {
             return tag;
         }
 
-        foreign_command_buffer() noexcept
-
-            : rhi::command_buffer("foreign_command_buffer") {
-        }
+        foreign_command_buffer() noexcept = default;
 
         // the owner-side lifecycle, in the same everything-refused shape: this stand-in answers BOTH
 
@@ -640,7 +637,7 @@ namespace {
 
         // the frame's command buffer.
 
-        CHECK(rhi::abi_version == 60u);
+        CHECK(rhi::abi_version == 61u);
 
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
 
@@ -860,10 +857,7 @@ namespace {
                     return "deren_foreign_texture_group_probe";
                 }
 
-                foreign_group()
-
-                    : rhi::texture_group("deren_foreign_texture_group_probe") {
-                }
+                foreign_group() noexcept = default;
 
                 void release() noexcept override {
                 }

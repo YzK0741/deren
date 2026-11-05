@@ -4,6 +4,8 @@ module;
 #include "texture_upload_layout.h"
 #include "upload_sequence.h"
 
+#include <cstddef>
+#include <cstdint>
 #include <vulkan/vulkan.h>
 #define VMA_IMPLEMENTATION
 #include <vma/vk_mem_alloc.h>

@@ -1,7 +1,6 @@
 module;
-#include <expected>
-#include <utility>
 export module deren.engine.render_graph.transparent;
+export import deren.vstd;
 export import deren.engine.render_graph;
 export namespace deren::engine::render_graph::transparent {
     /// The alpha-blended geometry, composited over the shaded frame.

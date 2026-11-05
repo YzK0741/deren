@@ -1,8 +1,7 @@
 module;
 #include <cstdint>
-#include <expected>
-#include <variant>
 export module deren.engine.render_graph.rhi;
+export import deren.vstd;
 export import deren.engine.render_graph;
 export import deren.promise.rhi.synchronization;
 namespace deren::engine::render_graph::rhi_bridge::detail {

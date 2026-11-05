@@ -1,9 +1,6 @@
 module;
-#include <array>
-#include <expected>
-#include <span>
-#include <utility>
 export module deren.engine.render_graph.rt_shadow;
+export import deren.vstd;
 export import deren.engine.render_graph;
 export namespace deren::engine::render_graph::rt_shadow {
     /// The ray-traced shadow pass: one ray per pixel against the scene's acceleration structures, writing the

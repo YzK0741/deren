@@ -1,14 +1,11 @@
 module;
 #include "vma/texture_upload_layout.h"
 
-#include <algorithm>
-#include <bit>
-#include <memory>
-#include <mutex>
-#include <new>
-#include <span>
+#include <cstddef>
+#include <cstdint>
 #include <vulkan/vulkan.h>
 module deren.vulkan.core;
+import deren.vstd;
 import deren.utility.shared;
 import :declarations;
 

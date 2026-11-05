@@ -3,17 +3,10 @@
  * @brief the software raster pass's pipeline and tile dispatch (see the header's WHY THIS PASS EXISTS).
  */
 module;
-
-#include <algorithm>
-#include <bit>
-#include <cmath>
 #include <cstdint>
 #include <cstdlib>
-#include <span>
-#include <string_view>
-#include <utility>
-
 module deren.engine.pass.software_visibility;
+import deren.vstd;
 
 import deren.utility.shared;
 import deren.utility; // deren::utility::log

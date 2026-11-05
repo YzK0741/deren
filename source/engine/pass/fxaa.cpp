@@ -9,9 +9,8 @@ module;
 
 #include <cstdint>
 #include <cstring>
-#include <span>
-
 module deren.engine.pass.fxaa;
+import deren.vstd;
 import deren.utility.shared;
 
 // The record series (abi 20): the two barriers, the rendering scope, the cull mode and the draw now

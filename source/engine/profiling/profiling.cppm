@@ -14,15 +14,10 @@
  */
 
 module;
-
-#include <array>
-#include <chrono>
 #include <cstdint>
-#include <format>
-#include <string>
-#include <string_view>
 
 export module deren.engine.profiling;
+export import deren.vstd;
 export import deren.utility.shared;
 
 import deren.utility; // the completed window is logged once per fold

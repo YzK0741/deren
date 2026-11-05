@@ -4,10 +4,9 @@ module;
 
 #include <cstdint>
 #include <glm/glm.hpp>
-#include <string_view>
-#include <vector>
 
 export module deren.app.toon;
+export import deren.vstd;
 
 import deren.utility;
 import deren.engine.primitive;

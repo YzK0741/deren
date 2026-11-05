@@ -11,15 +11,12 @@
 // ============================================================================
 module;
 
-#include <array> // the CLAIMED EXTRAS ROWS table (see `deren::gltf::claimed_extras_floats`)
+#include <cstddef>
 #include <cstdint>
 // `std::optional`: `scenes::texture_index_by_name` returns one, because a name that matches nothing is a
 // state the caller handles rather than an error (see the method's note).
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
-#include <map> // the material's CLAIMED extras rows, by the asset pipeline's own spelling
-#include <optional>
-#include <string_view> // the name it looks up
 
 export module deren.gltf_loader;
 export import deren.utility.shared;

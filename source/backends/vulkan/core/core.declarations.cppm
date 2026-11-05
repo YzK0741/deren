@@ -26,20 +26,12 @@
 //         PATCH on internal fixes - independently of the rest of the project.
 // ============================================================================
 module;
+
 #include "lazy_loading.h"
 
 #include <GLFW/glfw3.h>
-#include <array>
-#include <atomic>
 #include <cstddef>
-#include <future>
-#include <memory>
-#include <mutex>
-#include <span>
-#include <string>
-#include <string_view> // the CONCRETE implementation names are static string_views (ABI 30)
-#include <unordered_map>
-#include <unordered_set>
+#include <cstdint>
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.core:declarations;
@@ -394,9 +386,7 @@ namespace deren::vulkan {
             [[nodiscard]] std::string_view get_tag() const noexcept override {
                 return tag;
             }
-            explicit frame_commands(std::string_view const name = concrete::frame_commands) noexcept
-                : deren::vulkan::command_buffer(name) {
-            }
+            frame_commands() noexcept = default;
             [[nodiscard]] deren::promise::rhi::error push_constants(std::uint32_t, std::span<std::byte const>) noexcept override;
             core* owner = nullptr;
             /// the buffer this list records into: null = the frame's slot buffer, set = an owned one
@@ -528,9 +518,7 @@ namespace deren::vulkan {
             [[nodiscard]] std::string_view get_tag() const noexcept override {
                 return tag;
             }
-            owned_command_buffer() noexcept
-                : frame_commands(concrete::command_buffer) {
-            }
+            owned_command_buffer() noexcept = default;
             /// the buffer and its command pool; the pool dies with this object
             vk_command_buffer buffer;
             deren::promise::rhi::command_buffer_kind kind = deren::promise::rhi::command_buffer_kind::primary;
@@ -585,9 +573,7 @@ namespace deren::vulkan {
             using rhi_subresource_range = deren::promise::rhi::subresource_range;
             using rhi_array4f = deren::utility::vessel::array<float, 4>;
 
-            owned_mergeable_command_buffer() noexcept
-                : deren::vulkan::mergeable_command_buffer(deren::vulkan::mergeable_command_buffer_name) {
-            }
+            owned_mergeable_command_buffer() noexcept = default;
             core* owner = nullptr;
             /// the secondary this mergeable records into (shared, so the batch can retain it)
             std::shared_ptr<owned_command_buffer> inner;
@@ -723,9 +709,7 @@ namespace deren::vulkan {
             [[nodiscard]] std::string_view get_tag() const noexcept override {
                 return tag;
             }
-            frame_image_slot() noexcept
-                : deren::promise::rhi::image(concrete::frame_image) {
-            }
+            frame_image_slot() noexcept = default;
             core* owner = nullptr;
 
             [[nodiscard]] ::deren::promise::rhi::image_extent extent() const noexcept override;
@@ -755,9 +739,7 @@ namespace deren::vulkan {
             [[nodiscard]] std::string_view get_tag() const noexcept override {
                 return tag;
             }
-            frame_snapshot() noexcept
-                : deren::promise::rhi::image(concrete::frame_snapshot) {
-            }
+            frame_snapshot() noexcept = default;
             /// the concrete core (its frame state is what `current()` asks about)...
             core* owner = nullptr;
             /// ...kept alive by the root handle this snapshot was made under
@@ -788,9 +770,7 @@ namespace deren::vulkan {
             [[nodiscard]] std::string_view get_tag() const noexcept override {
                 return tag;
             }
-            frame_resources_view() noexcept
-                : deren::promise::rhi::frame_resources(concrete::frame_resources) {
-            }
+            frame_resources_view() noexcept = default;
             core* owner = nullptr;
             [[nodiscard]] deren::promise::rhi::shared_object<deren::promise::rhi::image> retain_image() noexcept override;
         };
@@ -807,9 +787,7 @@ namespace deren::vulkan {
             [[nodiscard]] std::string_view get_tag() const noexcept override {
                 return tag;
             }
-            frame_readback_slot() noexcept
-                : deren::promise::rhi::buffer(concrete::frame_readback_buffer) {
-            }
+            frame_readback_slot() noexcept = default;
             core* owner = nullptr;
 
             [[nodiscard]] std::uint64_t size() const noexcept override;
@@ -850,9 +828,7 @@ namespace deren::vulkan {
             [[nodiscard]] std::string_view get_tag() const noexcept override {
                 return tag;
             }
-            swapchain_view() noexcept
-                : deren::promise::rhi::swapchain(concrete::swapchain) {
-            }
+            swapchain_view() noexcept = default;
             core* owner = nullptr;
             mutable bool borrowed_release_logged = false;
 
@@ -909,9 +885,7 @@ namespace deren::vulkan {
             [[nodiscard]] std::string_view get_tag() const noexcept override {
                 return tag;
             }
-            owned_buffer() noexcept
-                : deren::promise::rhi::lazy_buffer(concrete::buffer) {
-            }
+            owned_buffer() noexcept = default;
             std::atomic<std::uint32_t> references{1};
             deren::promise::rhi::lazy_data source;
             detail::lazy_loading<deren::promise::rhi::lazy_state, deren::promise::rhi::error> loading;
@@ -962,9 +936,7 @@ namespace deren::vulkan {
             [[nodiscard]] std::string_view get_tag() const noexcept override {
                 return tag;
             }
-            owned_micromap() noexcept
-                : deren::promise::rhi::micromap(concrete::micromap) {
-            }
+            owned_micromap() noexcept = default;
             core* owner = nullptr;
             VkMicromapEXT native = VK_NULL_HANDLE;
             deren::promise::rhi::buffer* storage = nullptr; ///< the micromap's own memory (MICROMAP_STORAGE)
@@ -1002,9 +974,7 @@ namespace deren::vulkan {
             [[nodiscard]] std::string_view get_tag() const noexcept override {
                 return tag;
             }
-            owned_acceleration_structure() noexcept
-                : deren::promise::rhi::acceleration_structure(concrete::acceleration_structure) {
-            }
+            owned_acceleration_structure() noexcept = default;
             core* owner = nullptr;
             VkAccelerationStructureKHR native = VK_NULL_HANDLE;
             /// the memory the structure lives in: the BACKEND's reference, never handed to the caller
@@ -1055,9 +1025,7 @@ namespace deren::vulkan {
             [[nodiscard]] std::string_view get_tag() const noexcept override {
                 return tag;
             }
-            owned_image() noexcept
-                : deren::promise::rhi::lazy_image(concrete::image) {
-            }
+            owned_image() noexcept = default;
             std::atomic<std::uint32_t> references{1}; // factory ownership + shared control blocks
             std::mutex shared_owner_mutex;
             deren::promise::rhi::shared_object<deren::promise::rhi::image>::weak shared_owner;
@@ -1117,9 +1085,7 @@ namespace deren::vulkan {
             [[nodiscard]] std::string_view get_tag() const noexcept override {
                 return tag;
             }
-            owned_image_view() noexcept
-                : deren::promise::rhi::image_view(concrete::image_view) {
-            }
+            owned_image_view() noexcept = default;
             deren::promise::rhi::shared_object<deren::promise::rhi::image> parent_image;
             VkImageView native_view = VK_NULL_HANDLE;
             std::shared_ptr<void> lazy_reference;
@@ -1145,9 +1111,7 @@ namespace deren::vulkan {
             [[nodiscard]] std::string_view get_tag() const noexcept override {
                 return tag;
             }
-            owned_sampler() noexcept
-                : deren::promise::rhi::sampler(concrete::sampler) {
-            }
+            owned_sampler() noexcept = default;
             core* owner = nullptr;
             VkSamplerCreateInfo info{};
             VkSampler native_sampler_handle = VK_NULL_HANDLE;
@@ -1168,9 +1132,7 @@ namespace deren::vulkan {
             [[nodiscard]] std::string_view get_tag() const noexcept override {
                 return tag;
             }
-            owned_shader() noexcept
-                : deren::promise::rhi::shader(concrete::shader) {
-            }
+            owned_shader() noexcept = default;
             /// optional, not a member: the RAII types have no default state (a wrapper IS a live
             /// handle), so the factory emplaces on success
             std::optional<deren::vulkan::vk_shader_module> owned;
@@ -1189,9 +1151,7 @@ namespace deren::vulkan {
             }
             deren::promise::rhi::texture_group_binding group_binding{};
             deren::utility::vessel::vector<deren::promise::rhi::resource_group_binding> resource_layout;
-            owned_pipeline() noexcept
-                : deren::promise::rhi::pipeline(concrete::pipeline) {
-            }
+            owned_pipeline() noexcept = default;
             core* owner = nullptr;
             std::uint32_t group_count = 0;
             /// same optional rule as owned_shader
@@ -1222,9 +1182,7 @@ namespace deren::vulkan {
             [[nodiscard]] std::string_view get_tag() const noexcept override {
                 return tag;
             }
-            buffer_address_view() noexcept
-                : deren::promise::rhi::device_address(concrete::device_address) {
-            }
+            buffer_address_view() noexcept = default;
             core* owner = nullptr;
 
             [[nodiscard]] std::uint64_t buffer_address(deren::promise::rhi::buffer const& resource, std::uint64_t offset) const noexcept override;
@@ -1250,9 +1208,7 @@ namespace deren::vulkan {
             [[nodiscard]] std::string_view get_tag() const noexcept override {
                 return tag;
             }
-            frame_host_copy() noexcept
-                : deren::promise::rhi::host_image_copy(concrete::host_image_copy) {
-            }
+            frame_host_copy() noexcept = default;
             core* owner = nullptr;
 
             [[nodiscard]] deren::promise::rhi::error copy_image_to_memory(deren::promise::rhi::image const& source,
@@ -1275,9 +1231,7 @@ namespace deren::vulkan {
             [[nodiscard]] std::string_view get_tag() const noexcept override {
                 return tag;
             }
-            frame_device_capabilities() noexcept
-                : deren::promise::rhi::device_capabilities(concrete::device_capabilities) {
-            }
+            frame_device_capabilities() noexcept = default;
             core* owner = nullptr;
 
             [[nodiscard]] bool mesh_shader() const noexcept override;
@@ -1296,9 +1250,7 @@ namespace deren::vulkan {
             [[nodiscard]] std::string_view get_tag() const noexcept override {
                 return tag;
             }
-            frame_shader_group_access() noexcept
-                : deren::promise::rhi::shader_group_access(concrete::shader_group_access) {
-            }
+            frame_shader_group_access() noexcept = default;
             core* owner = nullptr;
             [[nodiscard]] deren::promise::rhi::error read(deren::promise::rhi::pipeline const& resource,
                                                           std::uint32_t first_group, std::uint32_t group_count, std::span<std::uint8_t> out) const noexcept override;
@@ -1309,9 +1261,7 @@ namespace deren::vulkan {
             [[nodiscard]] std::string_view get_tag() const noexcept override {
                 return tag;
             }
-            frame_heap() noexcept
-                : deren::promise::rhi::descriptor_heap(concrete::descriptor_heap) {
-            }
+            frame_heap() noexcept = default;
             core* owner = nullptr;
             [[nodiscard]] bool ready() const noexcept override;
             [[nodiscard]] deren::promise::rhi::descriptor_heap_properties properties() const noexcept override;
@@ -1332,9 +1282,7 @@ namespace deren::vulkan {
             [[nodiscard]] std::string_view get_tag() const noexcept override {
                 return tag;
             }
-            frame_descriptor_space() noexcept
-                : deren::promise::rhi::descriptor_space(concrete::descriptor_space) {
-            }
+            frame_descriptor_space() noexcept = default;
             core* owner = nullptr;
             [[nodiscard]] bool ready() const noexcept override;
             [[nodiscard]] deren::promise::rhi::descriptor_space_properties properties() const noexcept override;
@@ -1443,9 +1391,7 @@ namespace deren::vulkan {
             [[nodiscard]] std::string_view get_tag() const noexcept override {
                 return tag;
             }
-            owned_resource_group() noexcept
-                : deren::promise::rhi::resource_group(concrete::resource_group) {
-            }
+            owned_resource_group() noexcept = default;
             core* owner = nullptr;
             std::mutex loading_mutex;
             bool deferred = false;
@@ -1478,9 +1424,7 @@ namespace deren::vulkan {
             [[nodiscard]] std::string_view get_tag() const noexcept override {
                 return tag;
             }
-            owned_texture_group() noexcept
-                : deren::promise::rhi::texture_group(concrete::texture_group) {
-            }
+            owned_texture_group() noexcept = default;
             core* owner = nullptr;
             deren::utility::vessel::array<std::shared_ptr<texture_group_state::sampled_view_lease>, 16> views{};
             detail::lazy_loading<deren::promise::rhi::lazy_state, deren::promise::rhi::error> loading;
@@ -1512,9 +1456,7 @@ namespace deren::vulkan {
             [[nodiscard]] std::string_view get_tag() const noexcept override {
                 return tag;
             }
-            command_submission_view() noexcept
-                : command_submission("deren_command_submission_vulkan") {
-            }
+            command_submission_view() noexcept = default;
             core* owner = nullptr;
             [[nodiscard]] std::expected<deren::promise::rhi::submission_token, deren::promise::rhi::error> submit(deren::promise::rhi::command_buffer&) override;
             [[nodiscard]] std::expected<deren::promise::rhi::submission_token, deren::promise::rhi::error> submit(std::span<deren::promise::rhi::mergeable_command_buffer_ref const>) override;
@@ -1526,9 +1468,7 @@ namespace deren::vulkan {
             [[nodiscard]] std::string_view get_tag() const noexcept override {
                 return tag;
             }
-            frame_checkpoint_view() noexcept
-                : deren::promise::rhi::frame_checkpoint("deren.vulkan.frame_checkpoint") {
-            }
+            frame_checkpoint_view() noexcept = default;
             core* owner = nullptr;
             [[nodiscard]] deren::promise::rhi::error checkpoint_and_wait() override;
         } checkpoint_view;
@@ -1576,9 +1516,7 @@ namespace deren::vulkan {
             [[nodiscard]] std::string_view get_tag() const noexcept override {
                 return tag;
             }
-            frame_gpu_sorting() noexcept
-                : deren::promise::rhi::gpu_sorting(concrete::gpu_sorting) {
-            }
+            frame_gpu_sorting() noexcept = default;
             core* owner = nullptr;
             [[nodiscard]] deren::promise::rhi::radix_sorter* create_radix_sorter() override;
         };
@@ -1589,9 +1527,7 @@ namespace deren::vulkan {
             [[nodiscard]] std::string_view get_tag() const noexcept override {
                 return tag;
             }
-            frame_async_presentation() noexcept
-                : deren::promise::rhi::async_presentation(concrete::async_presentation) {
-            }
+            frame_async_presentation() noexcept = default;
             core* owner = nullptr;
             std::shared_future<deren::promise::rhi::error> begin() override;
         };
@@ -1607,9 +1543,7 @@ namespace deren::vulkan {
             [[nodiscard]] std::string_view get_tag() const noexcept override {
                 return tag;
             }
-            scoped_sync_view() noexcept
-                : deren::promise::rhi::scoped_synchronization(concrete::scoped_synchronization) {
-            }
+            scoped_sync_view() noexcept = default;
             core* owner = nullptr;
             [[nodiscard]] deren::promise::rhi::synchronization::stage supported_stages() const noexcept override;
             [[nodiscard]] deren::promise::rhi::error describe(deren::promise::rhi::image const&, deren::promise::rhi::scoped_image_info&) const noexcept override;

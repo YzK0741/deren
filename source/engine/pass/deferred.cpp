@@ -10,9 +10,8 @@ module;
 #include <cstdint>
 #include <cstring>
 #include <glm/glm.hpp> // the push block's ssao lane and the frame's inverse view-projection
-#include <span>
-
 module deren.engine.pass.deferred;
+import deren.vstd;
 import deren.utility.shared;
 
 import deren.promise.rhi;

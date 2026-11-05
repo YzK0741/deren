@@ -9,16 +9,11 @@
 
 module;
 
-#include <algorithm>
-#include <array>
+#include <cstddef>
 #include <cstdint>
-#include <expected>
-#include <optional>
-#include <span>
-#include <string>
-#include <string_view>
 
 export module deren.engine.render_resource:schema;
+export import deren.vstd;
 
 import deren.utility.shared;
 import deren.engine.visibility.software;

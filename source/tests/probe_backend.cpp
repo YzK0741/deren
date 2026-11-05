@@ -101,9 +101,7 @@ namespace {
         [[nodiscard]] std::string_view get_tag() const noexcept override {
             return tag;
         }
-        probe_buffer() noexcept
-            : rhi::buffer("deren_buffer_probe") {
-        }
+        probe_buffer() noexcept = default;
         /// THE PROBE'S `release()` IS OBSERVABLE ON PURPOSE, which is what makes the owned-handle path
         /// testable at all: the buffer is statically allocated, so there is no reference count to drop,
         /// but the call still has to ARRIVE (the test releases through `unique_object`, then reads
@@ -139,9 +137,7 @@ namespace {
         [[nodiscard]] std::string_view get_tag() const noexcept override {
             return tag;
         }
-        probe_image_view() noexcept
-            : rhi::image_view("deren_image_view_probe") {
-        }
+        probe_image_view() noexcept = default;
         void release() noexcept override {
             this->released = true;
         }
@@ -154,9 +150,7 @@ namespace {
         [[nodiscard]] std::string_view get_tag() const noexcept override {
             return tag;
         }
-        probe_frame_image() noexcept
-            : rhi::image("deren_frame_image_probe") {
-        }
+        probe_frame_image() noexcept = default;
         void release() noexcept override {
             // BORROWED: the real backend logs once and releases nothing (the engine owns no reference to the
             // swapchain image). The probe's observable channel is an echo instead of a log, so a test can tell
@@ -204,9 +198,7 @@ namespace {
         [[nodiscard]] std::string_view get_tag() const noexcept override {
             return tag;
         }
-        probe_sampler() noexcept
-            : rhi::sampler("deren_sampler_probe") {
-        }
+        probe_sampler() noexcept = default;
         void release() noexcept override {
             this->released = true;
             this->seen = {};
@@ -227,9 +219,7 @@ namespace {
         [[nodiscard]] std::string_view get_tag() const noexcept override {
             return tag;
         }
-        probe_device_address() noexcept
-            : rhi::device_address("deren_device_address_probe") {
-        }
+        probe_device_address() noexcept = default;
 
         [[nodiscard]] std::uint64_t buffer_address(rhi::buffer const& resource, std::uint64_t offset) const noexcept override {
             return address_base + resource.size() + offset;
@@ -295,9 +285,7 @@ namespace {
         [[nodiscard]] std::string_view get_tag() const noexcept override {
             return tag;
         }
-        probe_command_buffer() noexcept
-            : rhi::command_buffer("deren_command_buffer_probe") {
-        }
+        probe_command_buffer() noexcept = default;
         [[nodiscard]] rhi::error push_constants(std::uint32_t, std::span<std::byte const>) noexcept override;
         impl* owner = nullptr;
         rhi::command_buffer_kind kind_echo = rhi::command_buffer_kind::primary;
@@ -706,9 +694,7 @@ namespace {
         [[nodiscard]] std::string_view get_tag() const noexcept override {
             return tag;
         }
-        probe_mergeable_command_buffer() noexcept
-            : rhi::mergeable_command_buffer("deren_mergeable_command_buffer_probe") {
-        }
+        probe_mergeable_command_buffer() noexcept = default;
         impl* owner = nullptr;
         probe_command_buffer inner;
         [[nodiscard]] rhi::error apply_operations() noexcept override {
@@ -832,9 +818,7 @@ namespace {
         [[nodiscard]] std::string_view get_tag() const noexcept override {
             return tag;
         }
-        probe_swapchain() noexcept
-            : rhi::swapchain("deren_swapchain_probe") {
-        }
+        probe_swapchain() noexcept = default;
         impl* owner = nullptr;
 
         /// A BORROWED view: this surface is a static member of the probe, so there is no reference to
@@ -874,8 +858,7 @@ namespace {
         deren::utility::vessel::vector<std::byte> content;
         deren::utility::vessel::vector<std::byte> initial_content;
         explicit cpu_buffer(rhi::buffer_desc const& desc, std::shared_ptr<cpu_resource_registry> resources)
-            : rhi::buffer("deren_buffer_cpu_probe")
-            , registry(std::move(resources))
+            : registry(std::move(resources))
             , bytes(desc.size)
             , initial_content(desc.initial_bytes.begin(), desc.initial_bytes.end()) {
             switch (desc.usage) {
@@ -945,9 +928,7 @@ namespace {
             return tag;
         }
         rhi::shared_object<rhi::image> parent;
-        cpu_image_view() noexcept
-            : rhi::image_view("deren_image_view_cpu_probe") {
-        }
+        cpu_image_view() noexcept = default;
         void release() noexcept override {
             delete this;
         }
@@ -968,8 +949,7 @@ namespace {
         rhi::image_format pixel_format;
         cpu_frame_snapshot(std::shared_ptr<cpu_resource_registry> resources,
                            std::uint64_t epoch, rhi::image_extent extent, rhi::image_format format)
-            : rhi::image("deren_frame_snapshot_cpu_probe")
-            , registry(std::move(resources))
+            : registry(std::move(resources))
             , serial(epoch)
             , shape(extent)
             , pixel_format(format) {
@@ -1008,9 +988,7 @@ namespace {
         }
         impl* owner = nullptr;
         rhi::shared_object<cpu_frame_snapshot>::weak cached;
-        cpu_frame_resources() noexcept
-            : rhi::frame_resources("deren_frame_resources_cpu_probe") {
-        }
+        cpu_frame_resources() noexcept = default;
         rhi::shared_object<rhi::image> retain_image() noexcept override;
     };
     std::atomic<std::uint64_t> live_cpu_images{0};
@@ -1026,8 +1004,7 @@ namespace {
         rhi::image_format pixel_format;
         std::uint32_t layers, mips;
         explicit cpu_image(rhi::image_desc const& desc, std::shared_ptr<cpu_resource_registry> resources)
-            : rhi::image("deren_image_cpu_probe")
-            , registry(std::move(resources))
+            : registry(std::move(resources))
             , shape(desc.extent)
             , pixel_format(desc.format)
             , layers(desc.array_layers)
@@ -1080,9 +1057,7 @@ namespace {
         [[nodiscard]] std::string_view get_tag() const noexcept override {
             return tag;
         }
-        cpu_sampler() noexcept
-            : rhi::sampler("deren_sampler_cpu_probe") {
-        }
+        cpu_sampler() noexcept = default;
         void release() noexcept override {
             delete this;
         }
@@ -1093,9 +1068,7 @@ namespace {
             return tag;
         }
         bool graphics_enabled = false;
-        cpu_capabilities() noexcept
-            : rhi::device_capabilities("deren_device_capabilities_cpu_probe") {
-        }
+        cpu_capabilities() noexcept = default;
         bool mesh_shader() const noexcept override {
             return graphics_enabled;
         }
@@ -1123,9 +1096,7 @@ namespace {
         [[nodiscard]] std::string_view get_tag() const noexcept override {
             return tag;
         }
-        cpu_device_address() noexcept
-            : rhi::device_address("deren_device_address_cpu_probe") {
-        }
+        cpu_device_address() noexcept = default;
         std::uint64_t buffer_address(rhi::buffer const& resource, std::uint64_t offset) const noexcept override {
             return reinterpret_cast<std::uintptr_t>(&resource) + offset;
         }
@@ -1135,9 +1106,7 @@ namespace {
         [[nodiscard]] std::string_view get_tag() const noexcept override {
             return tag;
         }
-        cpu_heap() noexcept
-            : rhi::descriptor_heap("deren_descriptor_heap_cpu_probe") {
-        }
+        cpu_heap() noexcept = default;
         std::uint32_t image_writes = 0, buffer_writes = 0;
         std::int32_t image_writes_until_failure = -1;
         bool persistent_image_failure = false;
@@ -1193,9 +1162,7 @@ namespace {
         [[nodiscard]] std::string_view get_tag() const noexcept override {
             return tag;
         }
-        cpu_descriptor_space() noexcept
-            : rhi::descriptor_space("deren_descriptor_space_cpu_probe") {
-        }
+        cpu_descriptor_space() noexcept = default;
         cpu_heap* fixed_heap = nullptr;
         [[nodiscard]] rhi::descriptor_slot_range fixed_slots() const noexcept override {
             return fixed_heap ? rhi::descriptor_slot_range{16384, 3072} : rhi::descriptor_slot_range{};
@@ -1297,8 +1264,7 @@ namespace {
         }
         cpu_descriptor_space* space = nullptr;
         explicit cpu_texture_group(cpu_descriptor_space* const owner) noexcept
-            : rhi::texture_group("deren_texture_group_cpu_probe")
-            , space(owner) {
+            : space(owner) {
         }
         void release() noexcept override {
             if (space != nullptr)
@@ -1312,9 +1278,7 @@ namespace {
         [[nodiscard]] std::string_view get_tag() const noexcept override {
             return tag;
         }
-        cpu_async_presentation() noexcept
-            : rhi::async_presentation("deren_async_presentation_cpu_probe") {
-        }
+        cpu_async_presentation() noexcept = default;
         std::shared_future<rhi::error> completion;
         std::shared_future<rhi::error> begin() override {
             return completion;
@@ -1332,9 +1296,7 @@ namespace {
         mutable std::int32_t validations_until_failure = -1;
         mutable std::uint64_t records = 0;
         mutable std::uint64_t undefined_transitions = 0;
-        cpu_scoped_synchronization() noexcept
-            : rhi::scoped_synchronization("deren_scoped_sync_cpu_probe") {
-        }
+        cpu_scoped_synchronization() noexcept = default;
         rhi_sync::stage supported_stages() const noexcept override {
             return static_cast<rhi_sync::stage>(stage_mask);
         }
@@ -1559,9 +1521,7 @@ namespace {
                 [[nodiscard]] std::string_view get_tag() const noexcept override {
                     return "CPU graphics probe";
                 }
-                stub_pipeline()
-                    : rhi::pipeline("CPU graphics probe") {
-                }
+                stub_pipeline() = default;
                 void release() noexcept override {
                     delete this;
                 }
@@ -1810,8 +1770,7 @@ namespace {
         probe_swapchain swapchain_view{};   // not `swapchain`: a type name, not a member name
         probe_gpu_profiler profiler_view{}; // not `profiler`: the accessor above owns that name
 
-        impl() noexcept
-            : rhi::api_core("deren_api_core_probe") {
+        impl() noexcept {
             descriptor_space.fixed_heap = &heap;
             bind_views(*this, *this, *this);
             // THE OWNER IS SET IN THE CONSTRUCTOR - the same lesson the real backend's constructor

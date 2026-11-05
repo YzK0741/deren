@@ -2,20 +2,11 @@
 // module: deren.promise.rhi:core
 module;
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
-#include <expected>
-#include <limits>
-#include <map>
-#include <memory>
-#include <optional>
-#include <span>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module deren.promise.rhi:core;
+export import deren.vstd;
 export import deren.utility.shared;
 
 import :contract;

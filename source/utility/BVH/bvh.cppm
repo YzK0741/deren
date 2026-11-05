@@ -2,6 +2,7 @@ module;
 
 #include "morton_encoding.hpp"
 
+#include <cstdint>
 #include <glm/glm.hpp>
 
 export module deren.utility:bvh;

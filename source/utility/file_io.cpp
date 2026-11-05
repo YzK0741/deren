@@ -1,7 +1,8 @@
 module;
+#include <cstddef>
 #include <cstdint>
-#include <new>
 module deren.utility;
+import deren.vstd;
 import deren.utility.shared;
 
 namespace deren::utility {

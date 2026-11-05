@@ -12,6 +12,7 @@
 // ============================================================================
 module;
 
+#include <cstdint>
 #include <vulkan/vulkan.h>
 
 // GLFWwindow is used as an opaque pointer in gui_create_info. Include glfw3.h instead of

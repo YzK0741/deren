@@ -151,8 +151,7 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context const& 
             [[nodiscard]] std::string_view get_tag() const noexcept override {
                 return "deren_buffer_vulkan";
             }
-            foreign_buffer()
-                : buffer("deren_buffer_vulkan") {
+            foreign_buffer() {
             }
             void release() noexcept override {
             }
@@ -189,8 +188,7 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context const& 
             [[nodiscard]] std::string_view get_tag() const noexcept override {
                 return "deren_acceleration_structure_vulkan";
             }
-            foreign_structure()
-                : acceleration_structure("deren_acceleration_structure_vulkan") {
+            foreign_structure() {
             }
             void release() noexcept override {
             }
@@ -296,9 +294,7 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context const& 
                 [[nodiscard]] std::string_view get_tag() const noexcept override {
                     return "deren_texture_group_vulkan";
                 }
-                foreign_group()
-                    : texture_group("deren_texture_group_vulkan") {
-                }
+                foreign_group() noexcept = default;
                 void release() noexcept override {
                 }
             } foreign;

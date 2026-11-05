@@ -9,19 +9,11 @@
  * (20,20,107,107) on all four channels, and the file parses to exactly its last byte.
  */
 module;
-#include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <fstream>
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
-#include <iterator>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <vector>
-
 module deren.engine.animation.mmd_motion;
 import deren.utility.shared;
 

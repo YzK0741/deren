@@ -5,11 +5,8 @@
 module;
 
 #include <cstdint>
-#include <span>
-#include <string_view>
-#include <utility>
-
 module deren.engine.pass.software_merge;
+import deren.vstd;
 
 import deren.utility.shared;
 import deren.utility; // deren::utility::log

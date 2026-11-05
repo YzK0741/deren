@@ -25,12 +25,10 @@
  */
 module;
 
-#include <array>
 #include <cstdint>
-#include <optional>
-#include <string_view>
 
 export module deren.engine.pass.software_merge;
+export import deren.vstd;
 export import deren.utility.shared;
 
 import deren.promise.rhi;

@@ -1,8 +1,7 @@
 module;
 
 #include <cstddef> // std::byte: the push block is bytes now (see push_block below)
-#include <memory>  // std::shared_ptr: the session's recording target is the contract handle
-#include <span>    // std::span: what the endpoint takes
+#include <cstdint>
 
 export module deren.engine.render_environment;
 

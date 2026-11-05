@@ -1,6 +1,8 @@
 module;
 
 #include <GLFW/glfw3.h>
+#include <cstddef>
+#include <cstdint>
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.core:init_utils;

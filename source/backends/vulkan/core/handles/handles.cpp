@@ -1,8 +1,10 @@
 module;
 
+#include <cstdint>
 #include <vulkan/vulkan.h>
 
 module deren.vulkan.core.handles;
+import deren.vstd;
 
 import deren.utility;
 import deren.vulkan.constant_init;

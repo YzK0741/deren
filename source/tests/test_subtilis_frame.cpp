@@ -45,9 +45,7 @@ namespace {
         [[nodiscard]] std::string_view get_tag() const noexcept override {
             return tag;
         }
-        pipeline()
-            : rhi::pipeline("subtilis frame probe") {
-        }
+        pipeline() = default;
         void release() noexcept override {
         }
     };

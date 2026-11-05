@@ -2,6 +2,7 @@ module;
 #include <cstddef>
 #include <cstdint>
 module deren.asset.subtilis.codec;
+import deren.vstd;
 namespace deren::asset::subtilis {
     namespace {
         class sha256_stream {

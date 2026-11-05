@@ -1,13 +1,15 @@
 module;
 #include "allocation_failure.hpp"
+
+#include <cstddef>
+#include <cstdint>
 #if defined(DEREN_MEMORY_TESTING)
 #include "memory_test_hooks.hpp"
 #endif
-
-#include <atomic>
 #include <mimalloc.h>
 
 module deren.utility.shared;
+import deren.vstd;
 
 namespace deren::utility::memory {
     namespace {

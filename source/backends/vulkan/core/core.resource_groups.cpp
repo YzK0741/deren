@@ -1,13 +1,11 @@
 // General immutable resource bindings. Descriptor storage and shader handles stay private here.
 module;
-#include <algorithm>
-#include <memory>
-#include <mutex>
-#include <new>
-#include <span>
+#include <cstddef>
+#include <cstdint>
 #include <spirv-reflect/spirv_reflect.h>
 #include <vulkan/vulkan.h>
 module deren.vulkan.core;
+import deren.vstd;
 import deren.utility.shared;
 import :declarations;
 

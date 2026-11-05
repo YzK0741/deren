@@ -34,7 +34,7 @@ template <class T>
 concept reserved_swapchain_factory = requires { &T::create_swapchain; };
 static_assert(!reserved_query_factory<rhi::resource_factory>);
 static_assert(!reserved_swapchain_factory<rhi::frame_context>);
-static_assert(rhi::abi_version == 60u);
+static_assert(rhi::abi_version == 61u);
 static_assert(!rhi::has_ability(rhi::all_abilities(), rhi::extension_kind::mesh_shader));
 static_assert(rhi::all_extension_kinds().size() == 12);
 namespace {
@@ -77,10 +77,9 @@ namespace {
         std::atomic<unsigned>& destroyed;
         rhi::shared_object<counted>::weak self;
         explicit counted(std::atomic<unsigned>& count)
-            : object("counted")
-            , destroyed(count) {
+            : destroyed(count) {
         }
-        void release() noexcept {
+        void release() noexcept override {
             ++destroyed;
             delete this;
         }
@@ -168,8 +167,7 @@ namespace {
         resource_probe factory;
         command_probe command;
         frame_probe frame;
-        member_probe()
-            : api_core("member_context_probe") {
+        member_probe() {
             bind_views(factory, command, frame);
         }
         void release() noexcept override {

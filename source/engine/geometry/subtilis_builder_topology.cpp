@@ -1,11 +1,8 @@
 module;
-#include <algorithm>
-#include <array>
-#include <cmath>
+#include <cstddef>
 #include <cstdint>
-#include <numeric>
-#include <span>
 module deren.engine.subtilis.builder;
+import deren.vstd;
 
 namespace deren::engine::subtilis::builder_detail {
     namespace {

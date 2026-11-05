@@ -1,10 +1,8 @@
 module;
-#include <array>
-#include <charconv>
-#include <optional>
-#include <string_view>
-#include <variant>
+#include <cstddef>
+#include <cstdint>
 module deren.engine.render_graph;
+import deren.vstd;
 namespace deren::engine::render_graph {
     namespace {
         namespace vessel = deren::utility::vessel;

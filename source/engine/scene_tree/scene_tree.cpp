@@ -1,9 +1,12 @@
 module;
 
+#include <cstddef>
+#include <cstdint>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
 module deren.engine.scene_tree;
+import deren.vstd;
 import deren.utility.shared;
 
 namespace deren::engine::scene_tree {

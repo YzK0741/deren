@@ -1,5 +1,6 @@
 module;
 
+#include <cstddef>
 #include <cstdint>
 #include <cstdio> // deren::utility::print(stderr, ...) below needs the stderr macro (not exportable via modules)
 #include <cstring>
@@ -16,6 +17,7 @@ module;
 #include <xxhash.h>
 
 module deren.utility;
+import deren.vstd;
 import deren.utility.shared;
 
 std::optional<uint64_t> deren::utility::enable_handle_distribute::distribute() noexcept {

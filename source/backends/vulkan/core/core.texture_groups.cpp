@@ -1,15 +1,12 @@
 // Immutable texture-group ownership and allocation. GPU publication is separate.
 module;
-#include <algorithm>
-#include <array>
+#include <cstddef>
+#include <cstdint>
 #include <cstring>
-#include <memory>
-#include <mutex>
-#include <new>
-#include <span>
 #include <spirv-reflect/spirv_reflect.h>
 #include <vulkan/vulkan.h>
 module deren.vulkan.core;
+import deren.vstd;
 import deren.utility.shared;
 import :declarations;
 

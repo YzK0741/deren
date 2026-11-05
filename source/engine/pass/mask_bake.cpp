@@ -8,11 +8,8 @@ module;
 
 #include <cstdint>
 #include <glm/glm.hpp>
-#include <span>
-#include <string>
-#include <utility>
-
 module deren.engine.pass.mask_bake;
+import deren.vstd;
 import deren.utility.shared;
 
 import deren.engine.pipelines; // build_mask_bake: the compute pipeline this job owns

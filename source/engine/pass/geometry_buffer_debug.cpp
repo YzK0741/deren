@@ -8,9 +8,8 @@ module;
 
 #include <cstdint>
 #include <cstring>
-#include <span>
-
 module deren.engine.pass.geometry_buffer_debug;
+import deren.vstd;
 import deren.utility.shared;
 
 import deren.promise.rhi;

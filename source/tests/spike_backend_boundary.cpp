@@ -133,8 +133,7 @@ namespace {
         std::string_view identity_marker;
 
         explicit foreign_command_buffer(std::string_view identity = "foreign_command_buffer") noexcept
-            : rhi::command_buffer(identity)
-            , identity_marker(identity) {
+            : identity_marker(identity) {
         }
 
         [[nodiscard]] std::string_view get_tag() const noexcept override {

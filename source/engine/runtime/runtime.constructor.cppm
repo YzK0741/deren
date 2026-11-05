@@ -24,24 +24,15 @@ module;
 #include "../lighting/reflection_probe.hpp"
 
 #include <GLFW/glfw3native.h> // backend's own GLFW image can understand (see to_rhi_create_info)
-#include <algorithm>          // std::min in the resource publication
-#include <array>              // the HZB cull table publication's three-entry table
-#include <bit>                // std::bit_cast for the caster world-matrix hash
-#include <chrono>
-#include <cstddef>    // std::ptrdiff_t in the phase-B table zeroing
-#include <cstdint>    // the HZB table layout constants' arithmetic
-#include <cstdlib>    // std::getenv: the DEREN_HZB_BUILD gate (read once, at construction)
-#include <cstring>    // std::memcpy, for composing a pass's push block
-#include <filesystem> // the backend DLL's path: executable_directory() / "deren_vulkan.dll"
+#include <cstddef>            // std::ptrdiff_t in the phase-B table zeroing
+#include <cstdint>            // the HZB table layout constants' arithmetic
+#include <cstdlib>            // std::getenv: the DEREN_HZB_BUILD gate (read once, at construction)
+#include <cstring>            // std::memcpy, for composing a pass's push block
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <memory>      // std::shared_ptr: the device root this half builds and owns
-#include <span>        // std::as_bytes for the init_utils calls (the bytes behind a UBO or a zeroed table)
-#include <string>      // the panic messages below build their text through std::format
-#include <string_view> // the enabled-extension lookup in runtime_detail (see device_extension_enabled)
-#include <thread>      // std::this_thread::yield in the frame limiter
 
 module deren.engine.runtime:constructor;
+import deren.vstd;
 import deren.utility.shared;
 
 import :declarations;

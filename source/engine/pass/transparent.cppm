@@ -26,11 +26,9 @@
 module;
 
 #include <cstdint>
-#include <memory> // std::shared_ptr: the frame's secondary is the contract handle
-#include <span>
-#include <string_view>
 
 export module deren.engine.pass.transparent;
+export import deren.vstd;
 export import deren.utility.shared;
 
 import deren.promise.rhi; // the contract command buffer the frame's secondary is

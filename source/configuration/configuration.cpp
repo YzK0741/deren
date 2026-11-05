@@ -1,10 +1,10 @@
 module;
-
-#include <cmath>
-#include <limits>
+#include <cstddef>
+#include <cstdint>
 #include <toml++/toml.hpp>
 
 module deren.application_configuration;
+import deren.vstd;
 import deren.utility.shared;
 
 import deren.utility;

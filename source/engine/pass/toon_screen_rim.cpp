@@ -13,9 +13,8 @@ module;
 #include <cstdint>
 #include <new> // ::operator new's aligned overloads must be VISIBLE here: the deferred
                // __libcpp_allocate codegen crashes without them (clang 22, measured this session)
-#include <span>
-
 module deren.engine.pass.toon_screen_rim;
+import deren.vstd;
 import deren.utility.shared;
 
 import deren.promise.rhi;
