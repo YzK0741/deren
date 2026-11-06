@@ -1,10 +1,10 @@
 module;
-#include <algorithm>
 #include <cstdint>
 #include <vulkan/vulkan.h>
 #define VRDX_IMPLEMENTATION
 #include <vrdx/include/vk_radix_sort.h>
 module deren.vulkan.core;
+import deren.vstd;
 import deren.promise.rhi;
 
 namespace deren::vulkan {
@@ -17,8 +17,7 @@ namespace deren::vulkan {
                 return tag;
             }
             owned_radix_sorter(core& owner, VrdxSorter native) noexcept
-                : rhi::radix_sorter(concrete::radix_sorter)
-                , owner_(&owner)
+                : owner_(&owner)
                 , native_(native) {
             }
             ~owned_radix_sorter() noexcept override {

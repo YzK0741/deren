@@ -2,20 +2,11 @@
 // module: deren.promise.rhi:pipeline
 module;
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
-#include <expected>
-#include <limits>
-#include <map>
-#include <memory>
-#include <optional>
-#include <span>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module deren.promise.rhi:pipeline;
+export import deren.vstd;
 export import deren.utility.shared;
 
 import :contract;
@@ -189,9 +180,7 @@ export namespace deren::promise::rhi {
     /// on.
     struct shader : object {
 
-        explicit shader(std::string_view const name) noexcept
-            : object(name) {
-        }
+        shader() noexcept = default;
         virtual ~shader() noexcept = default;
         /// see `buffer::release()`
         virtual void release() noexcept = 0;
@@ -199,9 +188,7 @@ export namespace deren::promise::rhi {
 
     struct pipeline : object {
 
-        explicit pipeline(std::string_view const name) noexcept
-            : object(name) {
-        }
+        pipeline() noexcept = default;
         virtual ~pipeline() noexcept = default;
         /// see `buffer::release()`
         virtual void release() noexcept = 0;

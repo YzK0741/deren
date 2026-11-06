@@ -29,7 +29,7 @@ RFC 2119 sense.
 - Every contract handle derives from `rhi::object` and carries one public `type` tag (a concrete name). A
   caller MUST check/validate the tag before casting; the backend validates it before touching implementation
   state.
-- Handles are reference-counted views on backend-owned objects. `release()` drops the caller's ONE reference;
+- Handles are reference-counted views on backend-owned objects. `release()` releases the caller's ONE reference;
   the object dies with its last reference. A backend MAY keep the underlying object alive for shared/cached
   content (e.g. content-deduplicated images) after the last contract reference dies, but MUST NOT expose a dead
   handle. After `release()` the caller MUST NOT touch the handle. A borrowed view carries no caller-owned
@@ -42,7 +42,7 @@ RFC 2119 sense.
   MUST NOT be used where a retaining owner is required (the group creation/loading paths reject borrowed
   members by name).
 - The backend core and its DLL MUST outlive every handle, group, command buffer, pending submission and
-  completion token it produced. A caller that drops the core while a handle/token is alive violates the
+  completion token it produced. A caller that releases the core while a handle/token is alive violates the
   contract; backends need not defend against it beyond the documented `self_owner`/core lifetime rules.
 - Ownership of GPU work follows the recording/retention rules on each verb. Directly bound pipelines and
   borrowed buffer/image operands MUST be kept alive by the caller through pending CPU recording and GPU
@@ -334,14 +334,14 @@ not add requirements beyond those clauses, but following it keeps lifetime reaso
 | `swapchain` | borrowed frame view | never own/release/delete | Use `frame_swapchain()` within the core/frame protocol. |
 | frame views (`begin_commands()`, `frame_image()`, `frame_readback_buffer()`, `frame_swapchain()`) | **borrow only** | never share or release | Valid only in the frame/acquire window; do not store them past submit/acquire. |
 | extensions (`query_extension<T>()`), `main_context()`, walkers/profilers/surface | **borrow only** | never own/release/delete | Borrowed from the core; keep the core alive. Re-query after a core change rather than caching across a backend rebuild. |
-| `submission_token` | copyable receipt | copy freely; it owns no resource | Dropping/copying a token does not cancel work; the core must outlive its use. |
+| `submission_token` | copyable receipt | copy freely; it owns no resource | Releasing/copying a token does not cancel work; the core must outlive its use. |
 | `retain_image()` (frame resources) | `shared_object` | hand to another frame-scoped owner | One strong reference; valid only within the acquire epoch, empty outside a frame. |
 
 ### 6.2.2 The three handle kinds
 
 - **`unique_object<T>`**: move-only, owns one reference, releases exactly once at destruction. Use it for
   factory products that have one clear owner. Do not copy it, do not call `release()` on the raw handle as well
-  (that would double-drop the reference), and do not construct a second `unique_object` from the same pointer.
+  (that would double-release the reference), and do not construct a second `unique_object` from the same pointer.
 - **`shared_object<T>`**: copyable, owns one reference through a shared control block. Create it only through the
   contract (`share()`, `get_image()`, `make_command_buffer()`, `retain_image()`, `*_ref` factories), or by moving
   a `unique_object` into it to transfer an owned reference. Never wrap another owner's `get()` or a borrowed
@@ -349,14 +349,14 @@ not add requirements beyond those clauses, but following it keeps lifetime reaso
   scope; a `unique_object` is the better default.
 - **`borrow()`**: a non-owning view. Use it only when the owner is provably alive for the whole use, and never
   where the contract requires retention (group membership, pending commands, frame resources). Borrowed
-  wrapper destruction/reset drops no RHI reference. This does not authorize calling `release()` through the
+  wrapper destruction/reset releases no RHI reference. This does not authorize calling `release()` through the
   underlying pointer; that is an ownership precondition violation and may terminate. A borrowed handle is
   allocation-free: it stores only the pointer (no control block), and copies stay non-owning.
 
 ### 6.2.3 Recommended lifetimes
 
 - **Per-frame resources** (pass targets, staging/readback, one-shot command buffers): create as `unique_object`,
-  record/use, then let the container drop after GPU completion. Do not extend a pass by sharing its target unless
+  record/use, then let the container release after GPU completion. Do not extend a pass by sharing its target unless
   a later pass genuinely reads it. Keep the creating owner alive through GPU completion for directly borrowed
   operands; rely on backend retention only where the particular verb explicitly guarantees it.
 - **Cross-frame resources** (cached images, materials, persistent scene buffers, pipelines): store a
@@ -366,7 +366,7 @@ not add requirements beyond those clauses, but following it keeps lifetime reaso
   and let recorded/pending work retain it. Do not reload the group to work around a pipeline switch in ABI 54;
   the backend retains and republishes compatible logical state.
 - **Frame boundaries**: keep the frame's borrowed primary/image/readback inside the frame; submit before
-  reacquiring. A `shared_object` obtained from `retain_image()` must be dropped or used before the next acquire.
+  reacquiring. A `shared_object` obtained from `retain_image()` must be released or used before the next acquire.
 - **Backends**: internal sharing (content-keyed images, cached pipelines, group tables) is allowed, but it is a
   backend implementation detail. It never changes the reference the caller owns or the lifetime rule above.
 
@@ -426,7 +426,7 @@ Coverage: 21 interfaces, 124 virtuals.
 ### 7.1 Resource and handle interfaces
 
 The interfaces of this section are OWNED handles: a factory (or `frame_image()`,
-for the frame's own image) hands out one reference, `release()` drops it inside
+for the frame's own image) hands out one reference, `release()` releases it inside
 the backend, and `rhi::unique_object<T>` / `rhi::shared_object<T>` are the owner
 spellings. Release is not necessarily destruction -- a backend MAY serve the
 same content to several callers -- so an object dies with its LAST reference and
@@ -446,11 +446,11 @@ structure it attaches to; created only through
 attributes, the per-triangle records and the index array the build reads) as
 well as the structure's storage and its alignment, so a caller holding the
 handle cannot get the alignment or the index array wrong. It is never destroyed
-directly: `release()` is the only drop verb.
+directly: `release()` is the only release verb.
 
 - `virtual ~micromap() noexcept = default;` -- **Requirement:** destruction runs inside the backend, through the backend's own `operator delete`; the contract exposes no caller-side `delete` path for a handle. **Returns/errors:** none (destructor, `noexcept`). **Ownership/lifetime:** reached at the LAST reference only; wrapping a handle in a second owner is forbidden by the ownership note, not by the type. **Threading:** contract does not specify destruction timing relative to recorded or pending work that names the micromap; do not assume any.
 
-- `virtual void release() noexcept = 0;` -- **Requirement:** drop the caller's ONE reference; the backend destroys the structure and gives its memory back. **Returns/errors:** none (`void`, `noexcept`); no error is reported for a structure that is already gone. **Ownership/lifetime:** do not touch the handle afterwards; the micromap may outlive the call only if some other reference exists (shared ownership is permitted). **Threading:** contract does not specify; a release concurrent with a recorded build, or with GPU work that traverses the geometry consulting it, is not covered by any stated guarantee.
+- `virtual void release() noexcept = 0;` -- **Requirement:** release the caller's ONE reference; the backend destroys the structure and gives its memory back. **Returns/errors:** none (`void`, `noexcept`); no error is reported for a structure that is already gone. **Ownership/lifetime:** do not touch the handle afterwards; the micromap may outlive the call only if some other reference exists (shared ownership is permitted). **Threading:** contract does not specify; a release concurrent with a recorded build, or with GPU work that traverses the geometry consulting it, is not covered by any stated guarantee.
 
 #### acceleration_structure
 
@@ -462,11 +462,11 @@ not here. The backend owns the structure's storage, the scratch a build needs,
 its alignment and the per-geometry offsets -- a caller that never sees them
 cannot depend on them, which is what lets a backend without explicit
 acceleration structures answer the creation and build verbs however it must. One
-reference, dropped through `release()`.
+reference, released through `release()`.
 
 - `virtual ~acceleration_structure() noexcept = default;` -- **Requirement:** destruction is the backend's, at the last reference; no caller-side `delete` path exists in the contract. **Returns/errors:** none (`noexcept`). **Ownership/lifetime:** a structure still named by a recorded build or an instance record must not die before that GPU work completes; the contract states the ordering obligation, not a fence. **Threading:** contract does not specify.
 
-- `virtual void release() noexcept = 0;` -- **Requirement:** drop the caller's one reference (see `buffer::release()`); the backend frees the structure and its memory. **Returns/errors:** none. **Ownership/lifetime:** the handle is dead to the caller after the call; a structure shared with another holder survives until the last reference. **Threading:** contract does not specify.
+- `virtual void release() noexcept = 0;` -- **Requirement:** release the caller's one reference (see `buffer::release()`); the backend frees the structure and its memory. **Returns/errors:** none. **Ownership/lifetime:** the handle is dead to the caller after the call; a structure shared with another holder survives until the last reference. **Threading:** contract does not specify.
 
 - `[[nodiscard]] virtual std::uint64_t device_address() const noexcept = 0;` -- **Requirement:** answer THE address a shader, or an instance record's `structure_reference`, uses to reach the structure. A backend MUST NOT answer zero for a TOP-LEVEL structure it successfully created, because an address is exactly what an instance stores; zero otherwise means "the backend could not report one". **Returns/errors:** a raw address, no error channel. **Ownership/lifetime:** a plain value; the address is valid while the structure lives and MUST NOT be cached past its release. **Threading:** contract does not specify; the call is `const` but no lock or thread-safety claim is made.
 
@@ -484,7 +484,7 @@ canonical `release()` note, and every other owned handle refers to it.
 
 - `virtual ~buffer() noexcept = default;` -- **Requirement:** destruction happens inside the backend at the last reference; no caller-side `delete` path exists. **Returns/errors:** none (`noexcept`). **Ownership/lifetime:** a buffer still used by recorded or pending GPU work must outlive that work; the caller's own pacing is the ordering. **Threading:** contract does not specify.
 
-- `virtual void release() noexcept = 0;` -- **Requirement:** drop the caller's one reference, inside the backend, whatever the compiler's `delete` would have done -- and it MAY FREE NOTHING, because the resource can be shared or reused. **Returns/errors:** none for an owned reference; calling `release()` on a borrowed frame readback view violates ownership preconditions and MAY terminate. **Ownership/lifetime:** the object dies only with its LAST reference; the caller MUST NOT touch the handle afterwards, and MUST NOT read the call as "the memory is free now". **Threading:** contract does not specify; a release racing GPU work that reads the buffer is not covered by any stated guarantee.
+- `virtual void release() noexcept = 0;` -- **Requirement:** release the caller's one reference, inside the backend, whatever the compiler's `delete` would have done -- and it MAY FREE NOTHING, because the resource can be shared or reused. **Returns/errors:** none for an owned reference; calling `release()` on a borrowed frame readback view violates ownership preconditions and MAY terminate. **Ownership/lifetime:** the object dies only with its LAST reference; the caller MUST NOT touch the handle afterwards, and MUST NOT read the call as "the memory is free now". **Threading:** contract does not specify; a release racing GPU work that reads the buffer is not covered by any stated guarantee.
 
 - `[[nodiscard]] virtual std::uint64_t size() const noexcept = 0;` -- **Requirement:** answer the buffer's size in bytes. **Returns/errors:** a raw byte count, no error channel. **Ownership/lifetime:** a plain value. **Threading:** contract does not specify. NOTE: the contract does not say whether this is the requested size or the backend's allocated size; a caller must not assume the latter.
 
@@ -500,7 +500,7 @@ may leave the object alive for somebody else.
 
 - `virtual ~image() noexcept = default;` -- **Requirement:** destruction is the backend's, at the last reference. **Returns/errors:** none (`noexcept`). **Ownership/lifetime:** an image a view retains, or recorded work names, must not die before that use ends. **Threading:** contract does not specify.
 
-- `virtual void release() noexcept = 0;` -- **Requirement:** drop one reference inside the backend; the object MAY SURVIVE because a backend is allowed to serve identical content from one shared, content-keyed entry. **Returns/errors:** none for an owned reference; calling `release()` on a borrowed frame image violates ownership preconditions and MAY terminate. **Ownership/lifetime:** do not touch the handle afterwards; the last reference is what destroys the content. **Threading:** contract does not specify.
+- `virtual void release() noexcept = 0;` -- **Requirement:** release one reference inside the backend; the object MAY SURVIVE because a backend is allowed to serve identical content from one shared, content-keyed entry. **Returns/errors:** none for an owned reference; calling `release()` on a borrowed frame image violates ownership preconditions and MAY terminate. **Ownership/lifetime:** do not touch the handle afterwards; the last reference is what destroys the content. **Threading:** contract does not specify.
 
 - `[[nodiscard]] virtual image_extent extent() const noexcept = 0;` -- **Requirement:** answer the image's texel extent. **Returns/errors:** an `image_extent` by value; no error channel. **Ownership/lifetime:** a plain value. **Threading:** contract does not specify. NOTE: the contract does not state whether this is the DECLARED extent or the backend's RESOLVED one; for a format role the two can differ in the backend.
 
@@ -515,14 +515,14 @@ may leave the object alive for somebody else.
 #### image_view
 
 The contract's substitute for a native view: the backend makes it, hands out one
-reference, and it is dropped through `release()`. Backends that support shared
+reference, and it is released through `release()`. Backends that support shared
 parent references retain owned images independently of the factory reference;
 views of borrowed frame images retain no parent and must respect the frame's
 lifetime. No native view crosses the contract.
 
-- `virtual ~image_view() noexcept = default;` -- **Requirement:** destruction is the backend's, at the last reference. **Returns/errors:** none (`noexcept`). **Ownership/lifetime:** a view must outlive recorded work that names it as an attachment; the parent retention is dropped by `release()`, not by this destructor's caller. **Threading:** contract does not specify.
+- `virtual ~image_view() noexcept = default;` -- **Requirement:** destruction is the backend's, at the last reference. **Returns/errors:** none (`noexcept`). **Ownership/lifetime:** a view must outlive recorded work that names it as an attachment; the parent retention is released by `release()`, not by this destructor's caller. **Threading:** contract does not specify.
 
-- `virtual void release() noexcept = 0;` -- **Requirement:** drop the view, INCLUDING its retained parent reference, after native view destruction -- so the parent image may die with this call. **Returns/errors:** none. **Ownership/lifetime:** do not use the view afterwards; the borrowed-view case (a view of a frame image) holds no parent and MUST respect the frame lifetime stated at `frame_image()`. **Threading:** contract does not specify.
+- `virtual void release() noexcept = 0;` -- **Requirement:** release the view, INCLUDING its retained parent reference, after native view destruction -- so the parent image may die with this call. **Returns/errors:** none. **Ownership/lifetime:** do not use the view afterwards; the borrowed-view case (a view of a frame image) holds no parent and MUST respect the frame lifetime stated at `frame_image()`. **Threading:** contract does not specify.
 
 - `[[nodiscard]] virtual shared_object<image> get_image() const noexcept {` -- **Requirement:** copy the parent owner; empty for borrowed swapchain images or for backends that do not support shared parent references. **Returns/errors:** a `shared_object<image>`, EMPTY where no parent owner exists -- never a manufactured owner. **Ownership/lifetime:** the copy is a new strong reference; the api_core and backend must outlive it. **Threading:** contract does not specify.
 
@@ -534,7 +534,7 @@ append-only `sampler_desc`; the interface itself carries only ownership.
 
 - `virtual ~sampler() noexcept = default;` -- **Requirement:** destruction is the backend's, at the last reference. **Returns/errors:** none. **Ownership/lifetime:** a sampler a resource group names must outlive the group's recorded use. **Threading:** contract does not specify.
 
-- `virtual void release() noexcept = 0;` -- **Requirement:** drop the caller's one reference (see `buffer::release()`). **Returns/errors:** none. **Ownership/lifetime:** the object dies with the last reference and the caller must not touch the handle afterwards; a sampler the backend deduplicates may survive. **Threading:** contract does not specify.
+- `virtual void release() noexcept = 0;` -- **Requirement:** release the caller's one reference (see `buffer::release()`). **Returns/errors:** none. **Ownership/lifetime:** the object dies with the last reference and the caller must not touch the handle afterwards; a sampler the backend deduplicates may survive. **Threading:** contract does not specify.
 
 #### shader
 
@@ -545,7 +545,7 @@ can only be built if a caller can say "raygen". Created through
 
 - `virtual ~shader() noexcept = default;` -- **Requirement:** destruction is the backend's, at the last reference. **Returns/errors:** none. **Ownership/lifetime:** the contract does not say whether a shader must outlive the pipelines built from it; a caller must treat the descriptor's code as consumed by creation and keep the shader while any pipeline it fed is alive. **Threading:** contract does not specify.
 
-- `virtual void release() noexcept = 0;` -- **Requirement:** drop the caller's one reference (see `buffer::release()`). **Returns/errors:** none. **Ownership/lifetime:** last reference destroys; do not touch the handle afterwards. **Threading:** contract does not specify.
+- `virtual void release() noexcept = 0;` -- **Requirement:** release the caller's one reference (see `buffer::release()`). **Returns/errors:** none. **Ownership/lifetime:** last reference destroys; do not touch the handle afterwards. **Threading:** contract does not specify.
 
 #### pipeline
 
@@ -556,7 +556,7 @@ not here.
 
 - `virtual ~pipeline() noexcept = default;` -- **Requirement:** destruction is the backend's, at the last reference. **Returns/errors:** none. **Ownership/lifetime:** a pipeline bound into a recording is a BORROWED owner: the caller MUST keep it alive through pending recording AND GPU completion -- deferral does not turn a borrowed reference into shared ownership. **Threading:** contract does not specify.
 
-- `virtual void release() noexcept = 0;` -- **Requirement:** drop the caller's one reference (see `buffer::release()`). **Returns/errors:** none. **Ownership/lifetime:** last reference destroys; releasing a pipeline still named by recorded or pending work violates the lifetime rule above. **Threading:** contract does not specify.
+- `virtual void release() noexcept = 0;` -- **Requirement:** release the caller's one reference (see `buffer::release()`). **Returns/errors:** none. **Ownership/lifetime:** last reference destroys; releasing a pipeline still named by recorded or pending work violates the lifetime rule above. **Threading:** contract does not specify.
 
 #### swapchain
 
@@ -570,7 +570,7 @@ while `recreate()` and `present()` answer `unsupported`.
 
 - `virtual ~swapchain() noexcept = default;` -- **Requirement:** destruction is the backend's, at the last reference; a swapchain handed out by `frame_swapchain()` is a BORROWED view and is never destroyed by a caller. **Returns/errors:** none. **Ownership/lifetime:** the frame's borrowed swapchain lives as long as the core. **Threading:** contract does not specify.
 
-- `virtual void release() noexcept = 0;` -- **Requirement:** drop the caller's one reference (see `buffer::release()`); the frame's borrowed swapchain carries no caller-owned reference and MUST NOT be released; callers MUST NOT rely on a no-op response. **Returns/errors:** none. **Ownership/lifetime:** do not use the handle afterwards; the contract does not say whether a rebuild generation invalidates a released handle. **Threading:** contract does not specify.
+- `virtual void release() noexcept = 0;` -- **Requirement:** release the caller's one reference (see `buffer::release()`); the frame's borrowed swapchain carries no caller-owned reference and MUST NOT be released; callers MUST NOT rely on a no-op response. **Returns/errors:** none. **Ownership/lifetime:** do not use the handle afterwards; the contract does not say whether a rebuild generation invalidates a released handle. **Threading:** contract does not specify.
 
 - `[[nodiscard]] virtual error recreate() = 0;` -- **Requirement:** rebuild the chain and its images for the window's CURRENT size, in place. **Returns/errors:** `ok` = a new generation was built; `not_ready` = the window reports a zero extent (minimized or not yet sized), NOTHING was built and the caller retries later -- a deferred recreate is a STATE, not a failure; real build failures are the backend's named startup-style panics (the constructor's build path rule), not error codes; `unsupported` in a windowless core. **Ownership/lifetime:** the swapchain object survives; the images behind it change generation, so per-image state the caller derived (extent, views) must be re-derived. **Threading:** contract does not specify; it is a device-wide operation and no concurrent-use rule is stated.
 
@@ -589,7 +589,7 @@ the same boundary protocol used by other native interop; no manual rebind is req
 
 - `virtual ~radix_sorter() noexcept = default;` -- **Requirement:** destruction is the backend's, at the last reference. **Returns/errors:** none. **Ownership/lifetime:** the interface says nothing else; a sorter must outlive a recorded sort until GPU completion. **Threading:** contract does not specify.
 
-- `virtual void release() noexcept = 0;` -- **Requirement:** drop the caller's one reference. **Returns/errors:** none. **Ownership/lifetime:** one owner is dropped; the last reference destroys the sorter. No use is permitted afterwards. **Threading:** caller-serialized unless documented otherwise.
+- `virtual void release() noexcept = 0;` -- **Requirement:** release the caller's one reference. **Returns/errors:** none. **Ownership/lifetime:** one owner is released; the last reference destroys the sorter. No use is permitted afterwards. **Threading:** caller-serialized unless documented otherwise.
 
 - `[[nodiscard]] virtual radix_sort_requirements requirements(std::uint32_t count) const noexcept = 0;` -- **Requirement:** answer the scratch bytes, the scratch buffer alignment and the required scratch flags for `count` elements; for a NONZERO count, `scratch_bytes == 0` means the backend cannot serve that count. **Returns/errors:** a value record; unsupported counts are expressed as zero scratch bytes, not as an error code. **Ownership/lifetime:** a plain value. **Threading:** contract does not specify. `buffer_alignment` is the required scratch-address alignment; the scratch buffer MUST provide `scratch_flags` and at least `scratch_bytes` at its chosen offset.
 
@@ -607,7 +607,7 @@ all references.
 
 - `virtual ~texture_group() noexcept = default;` -- **Requirement:** destruction is the backend's, at the last reference of the shared handle. **Returns/errors:** none. **Ownership/lifetime:** the group retains its member images; a recorded or pending load keeps the group alive. **Threading:** contract does not specify.
 
-- `virtual void release() noexcept = 0;` -- **Requirement:** drop the caller's one reference. **Returns/errors:** none. **Ownership/lifetime:** one owner is dropped; private descriptor slots return only after the group's last owner dies, including recorded/pending retention. **Threading:** caller-serialized unless documented otherwise.
+- `virtual void release() noexcept = 0;` -- **Requirement:** release the caller's one reference. **Returns/errors:** none. **Ownership/lifetime:** one owner is released; private descriptor slots return only after the group's last owner dies, including recorded/pending retention. **Threading:** caller-serialized unless documented otherwise.
 
 #### resource_group
 
@@ -625,7 +625,7 @@ and the core/backend must outlive every group.
 
 - `virtual ~resource_group() noexcept = default;` -- **Requirement:** destruction is the backend's, at the last reference of the shared handle. **Returns/errors:** none. **Ownership/lifetime:** recorded and pending commands retain the group, so it dies only after their completion; member resources are held by the group. **Threading:** contract does not specify.
 
-- `virtual void release() noexcept = 0;` -- **Requirement:** drop the caller's one reference. **Returns/errors:** none. **Ownership/lifetime:** one owner is dropped; recorded/pending work retains the group and descriptor slots return after the last owner dies. **Threading:** caller-serialized unless documented otherwise.
+- `virtual void release() noexcept = 0;` -- **Requirement:** release the caller's one reference. **Returns/errors:** none. **Ownership/lifetime:** one owner is released; recorded/pending work retains the group and descriptor slots return after the last owner dies. **Threading:** caller-serialized unless documented otherwise.
 
 ---
 
@@ -656,7 +656,7 @@ up only what a safe reset needs, and never publishes the buffer for submission.
 
 - `virtual ~command_recorder() noexcept = default;` -- **Requirement:** destruction is the backend's, at the last reference; the recording session and the allocation behind it die with it. **Returns/errors:** none (`noexcept`). **Ownership/lifetime:** no caller-side `delete` path exists; a borrowed owner (the frame's list) is never destroyed by a caller. **Threading:** contract does not specify.
 
-- `virtual void release() noexcept = 0;` -- **Requirement:** drop the caller's one reference: the recording session and the allocation behind it die with the LAST reference, inside the backend. **Returns/errors:** none for an owned reference; calling `release()` on the frame's borrowed list violates ownership preconditions and MAY terminate. **Ownership/lifetime:** do not record into or submit through the handle afterwards; a pending recording that still names the buffer keeps it alive only if another reference exists. **Threading:** contract does not specify; no concurrent destruction or recording guarantee is added by the contract.
+- `virtual void release() noexcept = 0;` -- **Requirement:** release the caller's one reference: the recording session and the allocation behind it die with the LAST reference, inside the backend. **Returns/errors:** none for an owned reference; calling `release()` on the frame's borrowed list violates ownership preconditions and MAY terminate. **Ownership/lifetime:** do not record into or submit through the handle afterwards; a pending recording that still names the buffer keeps it alive only if another reference exists. **Threading:** contract does not specify; no concurrent destruction or recording guarantee is added by the contract.
 
 - `[[nodiscard]] virtual error begin_recording(command_buffer_begin_info const& info) = 0;` -- **Requirement:** open this buffer's recording session, honouring the usage flags it can serve; a usage bit or a chain entry the backend cannot serve MUST be REFUSED BY NAME, never silently dropped. **Returns/errors:** `ok` = recording; `not_ready` = this handle holds no reference any more, the backend's recording context is not available, or the session is already open; `unsupported` = a usage bit or chain entry not servable; device-level failures (`device_lost`, `out_of_*_memory`) travel as themselves. **Ownership/lifetime:** `info.next` is borrowed only until the call returns; the session stays open until `end_recording()`. **Threading:** contract does not specify; `simultaneous_use` permits overlapping submissions/executions of the recorded buffer where supported. It does not permit concurrent recording, reset or begin/end calls; callers MUST serialize recording access.
 
@@ -803,7 +803,7 @@ borrowed only until the call returns, and every descriptor carries the
 append-only `struct_size` guard: a field whose whole extent is not inside the
 bytes the caller declared keeps this build's default, so an older caller is
 detected instead of mis-read. Products keep their existing ownership rules (one
-reference, dropped through `release()`; a content-keyed backend may share them).
+reference, released through `release()`; a content-keyed backend may share them).
 The interface owns nothing and must not outlive its core; its copy operations are
 deleted.
 
@@ -827,7 +827,7 @@ deleted.
   lazy resources and is safe alongside allocation/free on a live core; racing core destruction is
   forbidden. Allocator totals may require walking allocator metadata, so avoid querying every draw.
 
-- `[[nodiscard]] virtual unique_object<buffer> create_buffer(buffer_desc const& desc) = 0;` -- **Requirement:** create a buffer from its memory intent, extra capabilities, size and optional initial bytes; the initial bytes being part of the DESCRIPTOR is deliberate, because a content-keyed backend can only recognise identical content if creation sees it, and empty initial bytes mean ALLOCATE ONLY (a backend that deduplicates MUST NOT match an allocate-only buffer against another). A descriptor the backend cannot honour (a capability it cannot serve, zero size, nonempty initial bytes whose length differs from the size) is REFUSED rather than silently satisfied. **Returns/errors:** one reference, or an EMPTY product on refusal; no error code. **Ownership/lifetime:** the reference is the caller's, dropped through `release()`; `initial_bytes` is borrowed until the call returns. **Threading:** contract does not specify.
+- `[[nodiscard]] virtual unique_object<buffer> create_buffer(buffer_desc const& desc) = 0;` -- **Requirement:** create a buffer from its memory intent, extra capabilities, size and optional initial bytes; the initial bytes being part of the DESCRIPTOR is deliberate, because a content-keyed backend can only recognise identical content if creation sees it, and empty initial bytes mean ALLOCATE ONLY (a backend that deduplicates MUST NOT match an allocate-only buffer against another). A descriptor the backend cannot honour (a capability it cannot serve, zero size, nonempty initial bytes whose length differs from the size) is REFUSED rather than silently satisfied. **Returns/errors:** one reference, or an EMPTY product on refusal; no error code. **Ownership/lifetime:** the reference is the caller's, released through `release()`; `initial_bytes` is borrowed until the call returns. **Threading:** contract does not specify.
 
 The buffer initialization rule is shared by the reference backend and the portable CPU probe through
 `validate_buffer_initialization(size, initial_size)`:
@@ -846,7 +846,7 @@ acceleration-structure storage and scratch buffers are allocation-only; vertex/i
 both allocation-only and initialized creation. Later initialization is an explicit upload/copy with the required
 buffer flags and synchronization. Passing empty initial bytes MUST NOT cause a staging read from a null pointer.
 
-- `[[nodiscard]] virtual unique_object<image> create_image(image_desc const& desc) = 0;` -- **Requirement:** create an image from its shape, its format (a named byte layout, or the depth ROLE when the caller only needs "a depth attachment"), its required capabilities and its optional initial texels; the same content-at-creation and allocate-only rules as `create_buffer` apply. **Returns/errors:** one reference, or an empty product on refusal (a format/flag pair the backend cannot serve, a shape or initial-bytes mismatch). **Ownership/lifetime:** the caller's reference, dropped through `release()`; a view of the image is a separate owned object. **Threading:** contract does not specify.
+- `[[nodiscard]] virtual unique_object<image> create_image(image_desc const& desc) = 0;` -- **Requirement:** create an image from its shape, its format (a named byte layout, or the depth ROLE when the caller only needs "a depth attachment"), its required capabilities and its optional initial texels; the same content-at-creation and allocate-only rules as `create_buffer` apply. **Returns/errors:** one reference, or an empty product on refusal (a format/flag pair the backend cannot serve, a shape or initial-bytes mismatch). **Ownership/lifetime:** the caller's reference, released through `release()`; a view of the image is a separate owned object. **Threading:** contract does not specify.
 
 - `[[nodiscard]] virtual unique_object<acceleration_structure> create_acceleration_structure(acceleration_structure_desc const& desc) = 0;` -- **Requirement:** create a bottom-level structure from borrowed geometry descriptions, or a top-level one with an instance capacity; the structure's storage, scratch and alignment stay the backend's, so a second backend with no explicit acceleration structures may answer this and the build verb however it must. **Returns/errors:** one reference, or an empty product on refusal. **Ownership/lifetime:** the geometry pointer is borrowed until the call returns (the addresses and counts are part of the structure's identity); a later byte change behind the same addresses is a REFIT, declared by the update flag at creation. **Threading:** contract does not specify.
 
@@ -875,9 +875,9 @@ not outlive its core.
 
 - `virtual ~command_context() noexcept = default;` -- **Requirement:** the view is destroyed only with the core. **Returns/errors:** none. **Ownership/lifetime:** borrowed; no allocation of its own. **Threading:** contract does not specify.
 
-- `[[nodiscard]] virtual unique_object<command_buffer> create_command_buffer(command_buffer_desc const& desc) = 0;` -- **Requirement:** allocate one individually submittable command buffer; PRIMARY is the only kind a caller can create (the secondary kind is retired -- the multithreaded paths use mergeable segments), and the retired value MUST be refused by name rather than silently promoted. **Returns/errors:** one reference, or an empty product on refusal (the retired kind, allocation failure). **Ownership/lifetime:** the caller's reference, dropped through `release()`; the buffer owns its allocation, and no pool or reset verb exists. **Threading:** contract does not specify; calls on one recorder MUST be serialized, including when its begin declared `simultaneous_use`; that flag concerns overlapping execution, not recording threads.
+- `[[nodiscard]] virtual unique_object<command_buffer> create_command_buffer(command_buffer_desc const& desc) = 0;` -- **Requirement:** allocate one individually submittable command buffer; PRIMARY is the only kind a caller can create (the secondary kind is retired -- the multithreaded paths use mergeable segments), and the retired value MUST be refused by name rather than silently promoted. **Returns/errors:** one reference, or an empty product on refusal (the retired kind, allocation failure). **Ownership/lifetime:** the caller's reference, released through `release()`; the buffer owns its allocation, and no pool or reset verb exists. **Threading:** contract does not specify; calls on one recorder MUST be serialized, including when its begin declared `simultaneous_use`; that flag concerns overlapping execution, not recording threads.
 
-- `[[nodiscard]] virtual shared_object<command_buffer> make_command_buffer(command_buffer_desc const& desc) = 0;` -- **Requirement:** the same creation as `create_command_buffer`, handed out as the contract's SHARED handle: the ONE factory reference is the one the last shared copy drops through `release()`, so there is no second lifetime rule. **Returns/errors:** the handle, or an EMPTY one on refusal -- the same answer as an empty `unique_object`, with the reason named where it happened. **Ownership/lifetime:** the api_core and backend must outlive all strong and weak references. **Threading:** contract does not specify.
+- `[[nodiscard]] virtual shared_object<command_buffer> make_command_buffer(command_buffer_desc const& desc) = 0;` -- **Requirement:** the same creation as `create_command_buffer`, handed out as the contract's SHARED handle: the ONE factory reference is the one the last shared copy releases through `release()`, so there is no second lifetime rule. **Returns/errors:** the handle, or an EMPTY one on refusal -- the same answer as an empty `unique_object`, with the reason named where it happened. **Ownership/lifetime:** the api_core and backend must outlive all strong and weak references. **Threading:** contract does not specify.
 
 - `[[nodiscard]] virtual mergeable_command_buffer_ref make_mergeable_command_buffer(command_buffer_desc const& desc) = 0;` -- **Requirement:** allocate one mergeable SEGMENT -- the batch-only recording handle, a sibling of `command_buffer` that cannot be submitted individually and cannot receive `execute()`. **Returns/errors:** the shared segment handle, or an empty one on refusal. **Ownership/lifetime:** segments are retained by the backend until the submission that merged them completes; the batch API takes them by shared reference for exactly that reason. **Threading:** contract does not specify, but these are the handles the engine's multithreaded recording paths use, one per worker.
 
@@ -931,7 +931,7 @@ no camera).
 
 - `virtual ~api_core() noexcept = default;` -- **Requirement:** destruction runs inside the backend, reached through `release()` from the shared handle's last copy. **Returns/errors:** none (`noexcept`). **Ownership/lifetime:** a caller never destroys the root directly; all strong and weak references must be gone first. **Threading:** contract does not specify; destroying a core under live resource references is a lifetime violation, not a race the contract resolves.
 
-- `virtual void release() noexcept = 0;` -- **Requirement:** drop the caller's one reference; for the ROOT that call DESTROYS the core and its device. **Returns/errors:** none (`void`, `noexcept`). **Ownership/lifetime:** the root's `shared_object` control block calls exactly this on its last copy, so the drop is balanced with the reference the entry point handed out; the device, and therefore every resource, borrowed view and group reference, must be gone before it. **Threading:** contract does not specify; releasing the core while another thread uses a subview or a resource handle is not covered.
+- `virtual void release() noexcept = 0;` -- **Requirement:** release the caller's one reference; for the ROOT that call DESTROYS the core and its device. **Returns/errors:** none (`void`, `noexcept`). **Ownership/lifetime:** the root's `shared_object` control block calls exactly this on its last copy, so the release is balanced with the reference the entry point handed out; the device, and therefore every resource, borrowed view and group reference, must be gone before it. **Threading:** contract does not specify; releasing the core while another thread uses a subview or a resource handle is not covered.
 
 - `[[nodiscard]] virtual ability_bits abilities() const noexcept = 0;` -- **Requirement:** answer the tier-2 ability bit set. A backend MUST NOT announce a bit it cannot serve: every announced bit's `query_extension(kind)` has to answer with an object able to carry that ability out, and this backend asserts the agreement at construction and panics when it is broken. The engine asks and keeps compiling when an answer is "no". **Returns/errors:** a bit set; no error channel -- an empty set is the honest answer. **Ownership/lifetime:** a plain value. **Threading:** contract does not specify; the set is fixed for the core's life.
 
@@ -1062,7 +1062,7 @@ shares, which is what lets the backend add an ability without moving another one
 `extension`, and `query_extension` never hands out a bare `extension` -- a caller that wants a specific kind
 asks for that kind. The object is constructed by each derived interface with a concrete implementation name
 (reported by `get_tag()` from the concrete type's static `tag`) and is owned by the core: there is no
-`release()` on this interface, so a caller has no drop path and MUST NOT invent one (`delete` on an ability
+`release()` on this interface, so a caller has no release path and MUST NOT invent one (`delete` on an ability
 pointer is a contract violation and a panic on the backend side at teardown). Availability is the derived
 interface's, never this one's.
 
@@ -1099,7 +1099,7 @@ native image lifetime: a snapshot pins the CORE, not the swapchain generation.
   facade; **Returns/errors:** an EMPTY `shared_object<image>` -- not an error, there is no error channel --
   when no frame is in flight or acquired, when the core's frame image handle is null, or when the backend
   cannot snapshot; **Ownership/lifetime:** the call hands out one strong reference under the `shared_object`
-  rule of section 2 (drop it by its last copy), the snapshot MUST keep the core alive, it MUST reject scoped
+  rule of section 2 (release it by its last copy), the snapshot MUST keep the core alive, it MUST reject scoped
   use once its acquire epoch ends (describe/record answer `invalid_argument` then), it MUST NOT extend the
   native swapchain generation's validity through a resize, and a snapshot image MUST NOT be used with an
   independently owned command buffer; **Threading:** contract does not specify (the reference backend takes
@@ -1201,7 +1201,7 @@ acquired frame, which stays the frame context's job. A backend without it leaves
   requires; the contract itself names no code), `invalid_argument` for a list this backend did not hand out or
   a non-primary kind, `not_ready` for a list still recording, already in flight or with no queue, plus the
   device errors of section 3; **Ownership/lifetime:** the token is a copyable, NON-owning receipt
-  (`device_id`, `sequence`); dropping it neither retains resources nor cancels work, and the backend keeps
+  (`device_id`, `sequence`); releasing it neither retains resources nor cancels work, and the backend keeps
   the submitted work and its retained resources itself; **Threading:** contract does not specify.
 - `[[nodiscard]] virtual std::expected<submission_token, error> submit(std::span<shared_object<mergeable_command_buffer> const>) = 0;` --
   **Requirement:** validate the WHOLE batch and then submit it as one ordered submission (segments in span
@@ -1211,7 +1211,7 @@ acquired frame, which stays the frame context's job. A backend without it leaves
   `invalid_argument` (empty batch, a handle this backend did not hand out, the same segment twice);
   `not_ready` (a segment still recording, not executable, already in flight, or no queue); device errors as
   section 3; **Ownership/lifetime:** the batch's segments are retained through GPU completion (the caller may
-  drop its own references as soon as the call returns `ok`), the token is the same non-owning receipt;
+  release its own references as soon as the call returns `ok`), the token is the same non-owning receipt;
   **Threading:** contract does not specify.
 - `[[nodiscard]] virtual error poll(submission_token token) noexcept = 0;` -- **Requirement:** answer whether
   that submission has completed, without blocking; a backend MUST be able to keep answering for old values
@@ -1240,11 +1240,11 @@ support) answers null, and the caller sorts on the host or refuses rather than e
 - `[[nodiscard]] virtual radix_sorter* create_radix_sorter() = 0;` -- **Requirement:** create a sorter bound
   to THIS core's device and return it with exactly ONE owning reference (the raw-pointer return is the
   contract's spelling here, unlike the factories' `unique_object`), so the object's `release()` is the single
-  drop; the backend MUST NOT share one sorter between cores; **Returns/errors:** the pointer, or NULL on
+  release; the backend MUST NOT share one sorter between cores; **Returns/errors:** the pointer, or NULL on
   unsupported or allocation/creation failure -- null is the only failure spelling, there is no error channel,
   and the caller MUST read it as "no sorter"; **Ownership/lifetime:** one owning reference; the caller MUST
   call `radix_sorter::release()` exactly once (wrapping it in `unique_object`/`shared_object` is the
-  idiomatic drop), and the sorter MUST NOT outlive the core; its recorded operands are borrowed until GPU
+  idiomatic release), and the sorter MUST NOT outlive the core; its recorded operands are borrowed until GPU
   completion under `radix_sorter::record`'s own rules; **Threading:** contract does not specify.
 
 #### device_address

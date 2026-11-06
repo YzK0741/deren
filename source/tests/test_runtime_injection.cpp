@@ -363,9 +363,10 @@ int main(int const argc, char** const argv) {
                 return "deren_contract_do_concrete_probe";
             }
 
-            concrete_name_probe() noexcept
-                : rhi::object("deren_contract_do_concrete_probe") {
+            void release() noexcept override {
             }
+
+            concrete_name_probe() noexcept = default;
         };
         concrete_name_probe probe{};
         auto const* const wrong = rhi::do_concrete<concrete_name_probe>(probe, "deren_contract_do_concrete_other");

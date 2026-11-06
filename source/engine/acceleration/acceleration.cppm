@@ -15,12 +15,7 @@
 module;
 
 #include <cstdint>
-#include <expected>
 #include <glm/glm.hpp>
-#include <memory>
-#include <span>
-#include <string>
-#include <vector>
 
 export module deren.engine.acceleration_structure;
 export import deren.utility.shared;

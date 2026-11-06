@@ -18,14 +18,8 @@
  * file's contract is only that the union of its output is the input.
  */
 module;
-
-#include <algorithm>
-#include <cmath>
 #include <cstdint>
 #include <cstring>
-#include <limits>
-#include <span>
-#include <vector>
 
 export module deren.engine.meshlet;
 export import deren.utility.shared;

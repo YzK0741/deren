@@ -7,9 +7,8 @@ module;
 
 #include <cstdint>
 #include <memory> // std::shared_ptr: the frame's secondary is the contract handle
-#include <span>
-
 module deren.engine.pass.transparent;
+import deren.vstd;
 import deren.utility.shared;
 
 import deren.promise.rhi; // the record series (abi 20): the barriers, the rendering scope, the secondary's lifecycle

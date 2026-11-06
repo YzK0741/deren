@@ -20,10 +20,10 @@
 // ============================================================================
 module;
 
-#include <string_view>
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.command_buffer;
+export import deren.vstd;
 
 export import deren.promise.rhi;
 
@@ -45,9 +45,7 @@ export namespace deren::vulkan {
     /// tag. `get()` is the native handle; `set_target()` is the backend's own way of keeping it current
     /// (a frame slot's buffer while a frame is in flight, an owned buffer's own handle once allocated).
     struct command_buffer : deren::promise::rhi::command_buffer {
-        explicit command_buffer(std::string_view const name) noexcept
-            : deren::promise::rhi::command_buffer(name) {
-        }
+        command_buffer() noexcept = default;
 
         /// @brief the native recording target (VK_NULL_HANDLE = nothing to record into right now)
         [[nodiscard]] VkCommandBuffer get() const noexcept {
@@ -72,9 +70,7 @@ export namespace deren::vulkan {
     /// concrete-tag + shared-layout rule the primary `command_buffer` class follows. The backend keeps the
     /// native handle current (a mergeable's target is the secondary buffer it was allocated with).
     struct mergeable_command_buffer : deren::promise::rhi::mergeable_command_buffer {
-        explicit mergeable_command_buffer(std::string_view const name) noexcept
-            : deren::promise::rhi::mergeable_command_buffer(name) {
-        }
+        mergeable_command_buffer() noexcept = default;
 
         /// @brief the native recording target (VK_NULL_HANDLE = not allocated / released)
         [[nodiscard]] VkCommandBuffer get() const noexcept {

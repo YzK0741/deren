@@ -10,6 +10,7 @@
 // ============================================================================
 module;
 
+#include <cstdint>
 // toml++ is header-only and picks its API from the exception mode it detects in the compiler flags
 // (TOML_EXCEPTIONS): with exceptions OFF, parse_result is a type with operator bool and error(); with
 // them ON it is an alias of toml::table and the parse functions return something else. This project

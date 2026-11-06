@@ -12,9 +12,8 @@
 module;
 
 #include <cstdint>
-#include <span>
-
 module deren.engine.pass.cluster;
+import deren.vstd;
 import deren.utility.shared;
 
 import deren.promise.rhi;      // the record series (abi 20): the dispatch and the two buffer barriers

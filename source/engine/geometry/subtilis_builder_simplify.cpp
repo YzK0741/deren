@@ -1,17 +1,10 @@
 module;
-#include <algorithm>
-#include <array>
 #include <cfenv>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <expected>
-#include <limits>
 #include <meshoptimizer.h>
-#include <mutex>
-#include <span>
-#include <utility>
 module deren.engine.subtilis.builder;
+import deren.vstd;
 namespace deren::engine::subtilis::builder_detail {
     void initialize_meshoptimizer() {
         static std::once_flag once;

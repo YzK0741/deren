@@ -51,8 +51,7 @@ namespace {
         }
         int& releases;
         explicit sorter(int& count)
-            : radix_sorter("fake_sorter")
-            , releases(count) {
+            : releases(count) {
         }
         void release() noexcept override {
             ++releases;
@@ -74,8 +73,7 @@ namespace {
         }
         int& releases;
         explicit sorting(int& count)
-            : gpu_sorting("fake_sorting")
-            , releases(count) {
+            : releases(count) {
         }
         rhi::radix_sorter* create_radix_sorter() override {
             return new sorter{releases};

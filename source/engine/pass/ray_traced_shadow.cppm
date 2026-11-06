@@ -100,17 +100,12 @@
 
 module;
 
-#include <array>
 #include <cstdint>
 #include <cstring>
 #include <glm/glm.hpp>
-#include <optional>
-#include <span>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module deren.engine.pass.ray_traced_shadow;
+export import deren.vstd;
 export import deren.utility.shared;
 import deren.promise.rhi;
 

@@ -61,11 +61,7 @@
 module;
 
 #include <cstdint>
-#include <filesystem>
-#include <memory>
-#include <source_location>
-#include <string>
-#include <string_view>
+#include <memory> // backend_entry.hpp is included in the module purview; pre-include its system headers
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>

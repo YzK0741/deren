@@ -1,7 +1,10 @@
 module;
+#include <cstdint>
+#include <cstddef>
 #include <cstring>
 #include <yyjson.h>
 module deren.asset.subtilis.codec;
+import deren.vstd;
 
 namespace deren::asset::subtilis {
     namespace {

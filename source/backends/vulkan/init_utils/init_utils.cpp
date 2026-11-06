@@ -3,13 +3,10 @@ module;
 #include <algorithm> // std::max/min in the buffer-creation helpers
 #include <cstddef>
 #include <cstdint>
-#include <source_location>
-#include <span>
-#include <string_view>
-#include <utility>
 #include <vulkan/vulkan.h>
 
 module deren.vulkan.init_utils;
+import deren.vstd;
 import deren.utility.shared;
 
 import deren.utility;

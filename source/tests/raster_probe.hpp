@@ -16,8 +16,7 @@ namespace raster_test {
         bool host_enabled = false;
         deren::utility::vessel::vector<std::byte> storage;
         raster_probe_buffer(unsigned i, int& r, std::uint64_t size)
-            : buffer("gaussian_raster_probe_buffer")
-            , index(i)
+            : index(i)
             , releases(r)
             , capacity(size) {
         }
@@ -39,7 +38,7 @@ namespace raster_test {
         }
         unsigned zero_at = 0, unaligned_at = 0;
         raster_probe_address()
-            : device_address("gaussian_raster_probe_address") {
+            {
         }
         std::uint64_t buffer_address(rhi::buffer const& b, std::uint64_t) const noexcept override {
             auto const& buffer = static_cast<raster_probe_buffer const&>(b);
@@ -53,8 +52,7 @@ namespace raster_test {
         }
         int* releases;
         explicit raster_probe_pipeline(int& count)
-            : pipeline("raster_probe_pipeline")
-            , releases(&count) {
+            : releases(&count) {
         }
         void release() noexcept override {
             ++*releases;
@@ -92,8 +90,7 @@ namespace raster_test {
         raster_probe_address address;
         deren::utility::vessel::vector<rhi::buffer_desc> descriptors;
         deren::utility::vessel::vector<deren::utility::vessel::vector<std::byte>> bytes;
-        raster_probe_core()
-            : api_core("gaussian_raster_probe_core") {
+        raster_probe_core() {
             bind_views(*this, *this, *this);
         }
         rhi::ability_bits abilities() const noexcept override {
@@ -215,9 +212,7 @@ namespace raster_test {
         rhi::cull_mode cull = rhi::cull_mode::back;
         rhi::load_op color_load = rhi::load_op::clear, depth_load = rhi::load_op::clear;
         deren::utility::vessel::vector<std::pair<rhi::image_use, rhi::image_use>> transitions;
-        raster_probe_commands()
-            : command_buffer("raster_probe_commands") {
-        }
+        raster_probe_commands() = default;
         void release() noexcept override {
         }
         rhi::error begin_recording(command_buffer_begin_info const& info) override {

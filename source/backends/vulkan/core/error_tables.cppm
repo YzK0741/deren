@@ -39,11 +39,10 @@
 module;
 
 #include <cstdint>
-#include <source_location>
-#include <string_view>
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.error_tables;
+export import deren.vstd;
 
 export import deren.promise.rhi;
 

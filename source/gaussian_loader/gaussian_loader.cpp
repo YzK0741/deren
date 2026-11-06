@@ -1,17 +1,9 @@
 module;
-#include <algorithm>
-#include <bit>
-#include <charconv>
-#include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <expected>
-#include <fstream>
-#include <limits>
-#include <span>
-#include <string>
-#include <string_view>
 module deren.gaussian_loader;
+import deren.vstd;
 import deren.utility.shared;
 namespace deren::gaussian {
     namespace {

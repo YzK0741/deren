@@ -8,9 +8,7 @@ module; // the macro-using Vulkan header must not be imported into a module purv
 // violation inside the FIRST allocation it made until this include was added, with no log line, no validation
 // message and no allocation error: exactly the shape of the ambiguous-operator-new failure, one step further
 // along. Textually including glm merges the two copies. Do not remove this include to "clean up".
-#include <fstream>
 #include <glm/glm.hpp>
-#include <mutex>
 /**
  * @file source/backends/vulkan/core/descriptor_heap/descriptor_heap.cppm
  * @brief VK_EXT_descriptor_heap as this renderer's binding model: descriptors in a buffer the application

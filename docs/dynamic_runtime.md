@@ -265,7 +265,7 @@ Only a successful submission produces a token. All-zero, foreign-device and futu
 `UINT64_MAX` requests an indefinite wait. Native device loss remains `device_lost`, never a successful
 completion. Submission/poll/wait failures can also report memory or other device errors.
 
-Keep the originating core and its backend alive while using its tokens. Copying or dropping a token
+Keep the originating core and its backend alive while using its tokens. Copying or releasing a token
 neither retains resources nor cancels work. The existing command/secondary/group retention contract
 still applies; other referenced resources must remain alive until their GPU use is finished. Tokens
 do not add memory barriers: readback still needs the proper device-write-to-host-read transition.
@@ -317,7 +317,7 @@ function's own note states it. (The raw-handle escape that used to share this ru
   mismatched backend is refused BEFORE an object exists, with the backend's own number in the
   `error_info` it fills.
 * **It returns an owning `rhi::shared_object<api_core>`**, the contract's own shared container, so there
-  is no second destroy entry and no raw-pointer ownership question. The container drops the root through
+  is no second destroy entry and no raw-pointer ownership question. The container releases the root through
   `api_core::release()` (for the root that call destroys it), exactly like every other RHI handle.
 * **The object attests its own number too**: the runtime checks `api_core::api_version()` after the
   handshake, because a host may be handed an `api_core` it did not create.

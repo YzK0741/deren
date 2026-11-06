@@ -23,7 +23,7 @@
 // executable imports libc++.dll and uses the UCRT heap (one C++ runtime, one heap for
 // every image - `cxx deren.exe imports libc++.dll` in scripts/checks/check_backend_boundary.py,
 // which also covers the backend DLL), so a control block allocated inside the backend can
-// be released by whoever drops the last reference. Two of the three entries therefore
+// be released by whoever releases the last reference. Two of the three entries therefore
 // become unnecessary rather than wrong:
 //   - `deren_destroy_api_core` is gone: ownership IS the returned handle's control block
 //     (abi 44 put it on the contract's own `shared_object`, whose last copy calls the
@@ -91,7 +91,7 @@ extern "C" {
 /// version mismatch it returns an EMPTY `shared_object` and fills `error::abi_mismatch`; a caller may not
 /// assume the out-parameter was written on failure, but when it WAS written, it is the whole story.
 ///
-/// OWNERSHIP: the returned `shared_object` carries the contract's drop rule (abi 44) - its last copy
+/// OWNERSHIP: the returned `shared_object` carries the contract's release rule (abi 44) - its last copy
 /// calls `release()`, whose backend implementation destroys the object inside the image that made it -
 /// and the engine holds it as its runtime's device root. An empty return is the contract's "no context
 /// for you" and never a half-built one: an internal failure is the backend's own named panic (its

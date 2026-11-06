@@ -8,12 +8,11 @@
 // that size. If the leaf count ever argues for it, this is the file that changes.
 
 module;
-
-#include <span>
 // NO VULKAN HEADER: every barrier, scope and handle in this file is the contract's now (the boundary
 // sweep names the remaining files that still need one, and why).
 
 module deren.engine.pass.character_forward;
+import deren.vstd;
 import deren.utility.shared;
 
 import deren.promise.rhi; // the record series (abi 20): the barriers and the rendering scope

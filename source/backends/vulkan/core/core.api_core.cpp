@@ -35,21 +35,14 @@
 //     the backend's too.
 // ============================================================================
 module;
-
-#include <algorithm>
-#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
-#include <expected>
-#include <format>
 #include <memory> // std::shared_ptr: the backend's INTERNAL retain of an owned command buffer (the contract hands out shared_object)
-#include <optional>
-#include <span>
-#include <vector>
 #include <vulkan/vulkan.h>
 
 module deren.vulkan.core;
+import deren.vstd;
 import deren.utility.shared;
 
 import deren.promise.rhi;

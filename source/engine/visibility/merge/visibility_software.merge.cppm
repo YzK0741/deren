@@ -7,12 +7,10 @@
 // ============================================================================
 
 module;
-
-#include <bit>
-#include <cmath>
 #include <cstdint>
 
 export module deren.engine.visibility.software:merge;
+export import deren.vstd;
 
 import deren.engine.visibility;
 

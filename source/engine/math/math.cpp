@@ -1,8 +1,11 @@
 module;
 
+#include <cstddef>
+#include <cstdint>
 #include <glm/glm.hpp>
 
 module deren.engine.math;
+import deren.vstd;
 import deren.utility.shared;
 
 namespace deren::engine {

@@ -21,10 +21,6 @@ module;
 #include <cstdint>
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
-#include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module deren.engine.animation.mmd_motion;
 export import deren.utility.shared;

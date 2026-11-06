@@ -1,10 +1,8 @@
 module;
-#include <array>
-#include <expected>
-#include <memory>
-#include <type_traits>
-#include <utility>
+
+#include <cstdint>
 export module deren.engine.render_graph.bloom;
+export import deren.vstd;
 export import deren.engine.render_graph.execute;
 export namespace deren::engine::render_graph::bloom {
     inline constexpr uint32_t level_count = 4;

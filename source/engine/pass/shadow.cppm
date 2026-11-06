@@ -27,16 +27,10 @@
 
 module;
 
-#include <array>
 #include <cstdint>
-#include <functional>
-#include <optional>
-#include <span>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module deren.engine.pass.shadow;
+export import deren.vstd;
 export import deren.utility.shared;
 import deren.promise.rhi;
 

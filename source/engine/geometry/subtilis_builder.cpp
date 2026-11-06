@@ -1,16 +1,11 @@
 module;
-#include <algorithm>
-#include <array>
-#include <bit>
-#include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <limits>
-#include <span>
-#include <utility>
 #define XXH_STATIC_LINKING_ONLY
 #include <xxhash.h>
 module deren.engine.subtilis.builder;
+import deren.vstd;
 
 namespace deren::engine::subtilis {
     namespace bd = builder_detail;

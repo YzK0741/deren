@@ -78,9 +78,7 @@ namespace {
         bool rendering_has_depth = false;
         bool rendering_secondary_contents = true;
 
-        contract_command_buffer() noexcept
-            : deren::promise::rhi::command_buffer("contract_command_buffer") {
-        }
+        contract_command_buffer() noexcept = default;
         void release() noexcept override {
         }
 
@@ -227,9 +225,7 @@ namespace {
         }
         deren::promise::rhi::error begin_result = deren::promise::rhi::error::ok;
         deren::promise::rhi::error end_result = deren::promise::rhi::error::ok;
-        contract_mergeable() noexcept
-            : deren::promise::rhi::mergeable_command_buffer("contract_mergeable") {
-        }
+        contract_mergeable() noexcept = default;
         void release() noexcept override {
         }
         [[nodiscard]] deren::promise::rhi::error begin_recording(deren::promise::rhi::command_buffer_begin_info const&) override {
@@ -331,9 +327,7 @@ namespace {
         [[nodiscard]] std::string_view get_tag() const noexcept override {
             return tag;
         }
-        contract_sampler() noexcept
-            : deren::promise::rhi::sampler("contract_sampler") {
-        }
+        contract_sampler() noexcept = default;
         void release() noexcept override {
         }
     };
@@ -530,8 +524,7 @@ int32_t main() {
             [[nodiscard]] std::string_view get_tag() const noexcept override {
                 return "overlay test";
             }
-            target()
-                : image("overlay test") {
+            target() {
             }
             void release() noexcept override {
             }

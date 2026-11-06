@@ -179,7 +179,7 @@ One contract, and every graphics backend is an implementation of it.
   creation parameters (`create_info`). OWNERSHIP IS THE CONTRACT'S OWN: the `create_*` factories and
   `image::make_view()` return `rhi::unique_object<T>` (one reference, move-only RAII whose destructor
   calls `release()`), while a handle more than one owner may hold is `rhi::shared_object<T>` (one
-  control block whose last copy drops the one factory reference, a nested `weak`, a non-owning
+  control block whose last copy releases the one factory reference, a nested `weak`, a non-owning
   `borrow()`, and an aliasing constructor for an engine owner keeping a borrowed RHI pointer alive) -
   `std::shared_ptr` no longer manages an RHI handle. Both sides of the boundary compile the SAME
   interface unit, so the two compilations cannot drift.

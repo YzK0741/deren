@@ -1,14 +1,10 @@
 module;
-
-#include <array>
-#include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <limits>
-#include <span>
-#include <utility>
-
 module deren.engine.shadow_fit;
+import deren.vstd;
 import deren.utility.shared;
 
 import deren.utility;

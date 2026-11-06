@@ -324,6 +324,7 @@ add_library(rhi_sync_contract STATIC)
 target_sources(rhi_sync_contract PUBLIC FILE_SET CXX_MODULES FILES
     source/promise/rhi/rhi.synchronization.cppm)
 target_link_libraries(promise PUBLIC shared_utility)
+target_link_libraries(rhi_sync_contract PUBLIC vstd_lib)
 target_link_libraries(promise PUBLIC rhi_sync_contract)
 
 target_sources(promise

@@ -7,16 +7,9 @@
 // ============================================================================
 
 module;
-#include <algorithm>
-#include <array>
-#include <bit>
-#include <cmath>
 #include <cstdint>
-#include <expected>
-#include <limits>
-#include <span>
-#include <vector>
 export module deren.engine.visibility.software:classification;
+export import deren.vstd;
 
 import deren.engine.visibility;
 import deren.engine.meshlet;

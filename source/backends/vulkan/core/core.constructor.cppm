@@ -40,6 +40,7 @@ module;
 #include <glm/glm.hpp>
 
 module deren.vulkan.core:constructor;
+import deren.vstd;
 
 import :declarations;
 // THE CONTRACT'S CREATION STRUCTURE IS IMPORTED HERE, NOT VIA :declarations: a partition does not see
@@ -148,8 +149,7 @@ namespace deren::vulkan {
     // member initialiser rather than a delegating constructor because the two spellings collapsed
     // into one signature - `core(create_info const&)` is the only constructor left to delegate to.
     core::core(deren::promise::rhi::create_info const& desc)
-        : deren::promise::rhi::api_core(concrete::api_core)
-        , create_options{sanitize_create_info(desc)} {
+        : create_options{sanitize_create_info(desc)} {
         bind_views(*this, *this, *this);
         // THE RENDER SCALE BEFORE ANYTHING IS CREATED: `init_swap_chain` below sets `swap_chain_extent`,
         // which `render_extent()` multiplies, and `create_depth_resources` is created with the result (the

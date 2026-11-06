@@ -3,12 +3,12 @@
  * @brief Passchain-owned shared scene tables and packed mesh command/culling storage.
  */
 module;
-#include <array>
+
+#include <cstddef>
 #include <cstdint>
 #include <glm/glm.hpp>
-#include <string_view>
-#include <vector>
 export module deren.engine.pass.scene_tables;
+export import deren.vstd;
 export import deren.utility.shared;
 import deren.engine.pass;
 import deren.engine.render_resource;

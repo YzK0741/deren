@@ -10,13 +10,10 @@
 
 module;
 
-#include <array>
 #include <cstdint>
-#include <optional>
-#include <string_view>
-#include <utility>
 
 export module deren.engine.render_resource:passes;
+export import deren.vstd;
 
 import deren.utility.shared;
 

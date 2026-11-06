@@ -8,6 +8,7 @@ module;
 #include <cstdint>
 
 export module deren.promise.rhi:contract;
+export import deren.vstd;
 
 export import :error;
 export import :object;

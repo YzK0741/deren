@@ -22,10 +22,10 @@
 module;
 
 #include <cstdint>
-#include <string_view>
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.main_context;
+export import deren.vstd;
 
 export import deren.promise.rhi;
 
@@ -47,9 +47,10 @@ export namespace deren::vulkan {
         [[nodiscard]] std::string_view get_tag() const noexcept override {
             return tag;
         }
-        explicit main_context() noexcept
-            : deren::promise::rhi::main_context(main_context_name) {
+        /// The backend owns this borrowed context; the object contract's release is a no-op.
+        void release() noexcept override {
         }
+        main_context() noexcept = default;
 
         /// borrowed: the backend owns the RHI root and the overlay must keep it alive (it does - the host
         /// owns both for the session, and the overlay is released before the runtime)

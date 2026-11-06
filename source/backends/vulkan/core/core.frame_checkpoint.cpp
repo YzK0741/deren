@@ -1,8 +1,8 @@
 module;
-#include <memory>
-#include <mutex>
+#include <cstdint>
 #include <vulkan/vulkan.h>
 module deren.vulkan.core;
+import deren.vstd;
 import deren.promise.rhi;
 import deren.utility.shared;
 import deren.vulkan.error_tables;

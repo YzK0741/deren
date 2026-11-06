@@ -2,20 +2,11 @@
 // module: deren.promise.rhi:resource
 module;
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
-#include <expected>
-#include <limits>
-#include <map>
-#include <memory>
-#include <optional>
-#include <span>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module deren.promise.rhi:resource;
+export import deren.vstd;
 export import deren.utility.shared;
 
 import :contract;
@@ -270,7 +261,7 @@ export namespace deren::promise::rhi {
     // RELEASE IS NOT NECESSARILY DESTRUCTION, AND THAT IS WHY IT IS NOT CALLED `destroy()`. A backend
     // MAY SERVE THE SAME RESOURCE TO MORE THAN ONE CALLER - this one does it whenever two requests
     // carry identical content, by keeping a content-keyed (XXH3-128) registry and a reference count
-    // behind these handles (source/backends/vulkan/core/vma/vma.cppm's ownership note) - so `release()` drops ONE
+    // behind these handles (source/backends/vulkan/core/vma/vma.cppm's ownership note) - so `release()` releases ONE
     // reference, and the device object dies only when the LAST reference goes. Two consequences a
     // caller has to live with:
     //
@@ -278,7 +269,7 @@ export namespace deren::promise::rhi {
     //     call; the backend's own bookkeeping decides (`vma_allocator::log_statistics()`, and the
     //     registry sweep in its `destroy()`).
     //   - THE HANDLE IS DEAD AFTERWARDS EVEN IF THE OBJECT LIVES. Touching the pointer again is a
-    //     caller bug: the caller no longer holds a reference, so another `release()` would drop
+    //     caller bug: the caller no longer holds a reference, so another `release()` would release
     //     somebody else's.
     //
     // HOW A SECOND REFERENCE IS TAKEN: BY ASKING A FACTORY AGAIN. THE FACTORY IS THE RETAIN - a
@@ -375,9 +366,7 @@ export namespace deren::promise::rhi {
     /// which is exactly what the engine used to do by hand.
     struct micromap : object {
 
-        explicit micromap(std::string_view const name) noexcept
-            : object(name) {
-        }
+        micromap() noexcept = default;
         virtual ~micromap() noexcept = default;
 
         /// Release the caller's one reference (see `buffer::release()`): the backend destroys the structure and
@@ -460,12 +449,10 @@ export namespace deren::promise::rhi {
     /// explicit acceleration structures at all can therefore answer `create_acceleration_structure` and
     /// `build_acceleration_structure` however it must.
     ///
-    /// ONE REFERENCE, dropped through `release()`, like every owned handle in this contract.
+    /// ONE REFERENCE, released through `release()`, like every owned handle in this contract.
     struct acceleration_structure : object {
 
-        explicit acceleration_structure(std::string_view const name) noexcept
-            : object(name) {
-        }
+        acceleration_structure() noexcept = default;
         virtual ~acceleration_structure() noexcept = default;
 
         /// Release the caller's one reference (see `buffer::release()`).
@@ -491,15 +478,13 @@ export namespace deren::promise::rhi {
 
     struct buffer : object {
 
-        explicit buffer(std::string_view const name) noexcept
-            : object(name) {
-        }
+        buffer() noexcept = default;
         virtual ~buffer() noexcept = default;
 
         /// RELEASE THE CALLER'S ONE REFERENCE. Runs inside the backend, whatever the compiler's `delete`
         /// would have done, and **may free nothing**: the resource can be shared/reused, so the object
         /// dies only with its last reference (see the ownership note above). Do not touch the handle
-        /// afterwards. A borrowed frame view carries no reference to drop: callers MUST NOT invoke
+        /// afterwards. A borrowed frame view carries no reference to release: callers MUST NOT invoke
         /// release() on it, and the backend MAY terminate on that ownership precondition violation.
         virtual void release() noexcept = 0;
 
@@ -539,12 +524,10 @@ export namespace deren::promise::rhi {
     /// An image, owned by the backend and released by the caller through `release()`.
     struct image : object {
 
-        explicit image(std::string_view const name) noexcept
-            : object(name) {
-        }
+        image() noexcept = default;
         virtual ~image() noexcept = default;
 
-        /// see `buffer::release()`: drops one reference inside the backend; the object may survive
+        /// see `buffer::release()`: releases one reference inside the backend; the object may survive
         /// because a backend is allowed to serve identical content from one shared, content-keyed entry.
         virtual void release() noexcept = 0;
 
@@ -600,11 +583,9 @@ export namespace deren::promise::rhi {
     /// No native view crosses the contract (the escape's `native_image_view` was deleted in abi 42).
     struct image_view : object {
 
-        explicit image_view(std::string_view const name) noexcept
-            : object(name) {
-        }
+        image_view() noexcept = default;
         virtual ~image_view() noexcept = default;
-        /// Drop the view, including its retained parent reference after native view destruction.
+        /// Release the view, including its retained parent reference after native view destruction.
         virtual void release() noexcept = 0;
         /// Copy the parent owner; empty for borrowed swapchain images or unsupported backends.
         [[nodiscard]] virtual shared_object<image> get_image() const noexcept {
@@ -756,9 +737,7 @@ export namespace deren::promise::rhi {
     }
     struct sampler : object {
 
-        explicit sampler(std::string_view const name) noexcept
-            : object(name) {
-        }
+        sampler() noexcept = default;
         virtual ~sampler() noexcept = default;
         /// see `buffer::release()`
         virtual void release() noexcept = 0;
@@ -773,9 +752,7 @@ export namespace deren::promise::rhi {
     };
     /// Immutable sampled 2D slots. The device and backend must outlive all references.
     struct texture_group : object {
-        explicit texture_group(std::string_view name) noexcept
-            : object(name) {
-        }
+        texture_group() noexcept = default;
         virtual ~texture_group() noexcept = default;
         virtual void release() noexcept = 0;
     };
@@ -799,9 +776,7 @@ export namespace deren::promise::rhi {
     /// Group owns member references; recorded/pending commands retain the group. Core/backend must
     /// outlive every group. Immutability covers bindings, not resource content or synchronization.
     struct resource_group : object {
-        explicit resource_group(std::string_view name) noexcept
-            : object(name) {
-        }
+        resource_group() noexcept = default;
         virtual ~resource_group() noexcept = default;
         virtual void release() noexcept = 0;
     };

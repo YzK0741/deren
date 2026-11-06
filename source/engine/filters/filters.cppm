@@ -41,9 +41,6 @@
 module;
 
 #include <cstdint>
-#include <memory>
-#include <utility>
-#include <vector>
 
 export module deren.engine.filters;
 export import deren.utility.shared;

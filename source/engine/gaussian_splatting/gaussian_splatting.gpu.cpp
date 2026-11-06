@@ -1,15 +1,8 @@
 module;
-#include <algorithm>
-#include <array>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <expected>
-#include <limits>
-#include <memory>
-#include <span>
-#include <utility>
 module deren.engine.gaussian_splatting;
+import deren.vstd;
 import deren.utility.shared;
 import deren.utility;
 namespace deren::engine::gaussian_splatting {

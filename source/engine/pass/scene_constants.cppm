@@ -5,9 +5,8 @@
  * them only after slot completion. Every shading pass reads the existing shared heap descriptors.
  */
 module;
-#include <string_view>
-#include <vector>
 export module deren.engine.pass.scene_constants;
+export import deren.vstd;
 export import deren.utility.shared;
 import deren.engine.pass;
 import deren.engine.render_resource;

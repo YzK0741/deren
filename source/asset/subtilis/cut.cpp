@@ -4,6 +4,7 @@ module;
 #include <cstddef>
 #include <cstdint>
 module deren.asset.subtilis.dag;
+import deren.vstd;
 namespace deren::asset::subtilis {
     namespace {
         bool affine(array<float, 16> const& m) {

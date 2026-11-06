@@ -1,5 +1,7 @@
 module;
 
+#include <cstddef>
+#include <cstdint>
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include <vulkan/vulkan.h>
@@ -14,6 +16,7 @@ module;
 // app_pipelines.cpp and source/engine/animation/controller.cpp. Do not remove this include to "clean up".
 #include <glm/glm.hpp>
 module deren.vulkan.core;
+import deren.vstd;
 import deren.utility.shared;
 import deren.vulkan.core.pipeline;
 import :init_utils;

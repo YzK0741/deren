@@ -1,8 +1,10 @@
 module;
 
+#include <cstdint>
 #include <vulkan/vulkan.h>
 
 module deren.vulkan.core.pipeline;
+import deren.vstd;
 import deren.utility.shared;
 import :spirv_parser;
 import deren.vulkan.constant_init;

@@ -1,7 +1,6 @@
 module;
-#include <expected>
-#include <utility>
 export module deren.engine.render_graph.character;
+export import deren.vstd;
 export import deren.engine.render_graph;
 export namespace deren::engine::render_graph {
     /// The character-forward pass: the character's own leaves, its outline group and its overlay masks, drawn

@@ -269,8 +269,7 @@ struct probe_buffer : rhi::buffer {
     int& releases;
     std::uint64_t capacity;
     probe_buffer(unsigned i, int& r, std::uint64_t size)
-        : buffer("gaussian_probe_buffer")
-        , index(i)
+        : index(i)
         , releases(r)
         , capacity(size) {
     }
@@ -291,8 +290,7 @@ struct probe_address : rhi::device_address {
         return tag;
     }
     unsigned zero_at = 0, unaligned_at = 0;
-    probe_address()
-        : device_address("gaussian_probe_address") {
+    probe_address() {
     }
     std::uint64_t buffer_address(rhi::buffer const& b, std::uint64_t) const noexcept override {
         auto const& buffer = static_cast<probe_buffer const&>(b);
@@ -320,8 +318,7 @@ struct upload_probe : rhi::api_core, rhi::resource_factory, rhi::command_context
     probe_address address;
     deren::utility::vessel::vector<rhi::buffer_desc> descriptors;
     deren::utility::vessel::vector<deren::utility::vessel::vector<std::byte>> bytes;
-    upload_probe()
-        : api_core("gaussian_upload_probe") {
+    upload_probe() {
         bind_views(*this, *this, *this);
     }
     rhi::ability_bits abilities() const noexcept override {

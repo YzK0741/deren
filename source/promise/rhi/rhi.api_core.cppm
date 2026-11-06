@@ -15,7 +15,7 @@
 //     common object root carries a static concrete implementation name (ABI30). No owning
 //     data or non-inline definition crosses this interface: the vtable is the boundary,
 //     and destruction has to reach the backend's own `operator delete`;
-//   - an OWNED handle carries ONE REFERENCE, dropped by `release()`, once, inside the
+//   - an OWNED handle carries ONE REFERENCE, released by `release()`, once, inside the
 //     backend; `unique_object<T>` is the owner spelling of that call (RAII, move-only).
 //     RELEASE IS NOT NECESSARILY DESTRUCTION: the backend may serve the same resource to
 //     several callers (a content-keyed registry + a reference count sit behind these
@@ -24,7 +24,7 @@
 //   - a BORROWED view (`frame_image()`, `frame_readback_buffer()`, `begin_commands()`)
 //     holds no reference at all and must never be managed;
 //   - the backend hands the ROOT out as the contract's own `shared_object<api_core>` (abi 44),
-//     whose control block's last copy calls the root's `release()` - the drop runs inside the
+//     whose control block's last copy calls the root's `release()` - the release runs inside the
 //     backend, so no call site and no host ever names a deleter: the entry point returns the handle,
 //     and nothing in the engine's ownership path frees DLL memory with the executable's allocator;
 //   - `abilities()` is the tier-2 bit set (source/promise/rhi/rhi.extension.cppm) and
@@ -40,22 +40,11 @@
 // part of the ABI, and the `struct_size` guards let callers omit trailing descriptor fields safely.
 // ============================================================================
 module;
-
-#include <algorithm>
-#include <array>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <expected> // std::expected: `image::get_content()` answers the bytes OR the named reason
-#include <limits>
-#include <map>
-#include <optional>
-#include <span> // std::span: buffer::mapped() hands the caller the bytes of a host-visible buffer
-#include <string>
-#include <string_view> // std::string_view: gpu_profiler's stage names ride the boundary as views
-#include <vector>      // deren::utility::vessel::vector: the CONTENT `image::get_content()` returns
 
 export module deren.promise.rhi:api_core;
+export import deren.vstd;
 export import deren.utility.shared;
 
 import :contract;
@@ -88,10 +77,10 @@ export namespace deren::promise::rhi {
     // These are normative for every backend and complement the per-method comments. They clarify behavior
     // that was previously only in the reference backend or in docs, without changing the ABI 53 vtable.
     //
-    // OWNERSHIP. Every handle derives from `object`; `release()` drops the caller's ONE reference and the
+    // OWNERSHIP. Every handle derives from `object`; `release()` releases the caller's ONE reference and the
     // object dies with the last reference. A borrowed view carries no caller-owned reference: callers MUST
     // NOT invoke its underlying release(), and the backend MAY terminate on that ownership violation. A
-    // borrow() wrapper's destruction/reset drops no reference. A backend MAY keep the underlying resource
+    // borrow() wrapper's destruction/reset releases no reference. A backend MAY keep the underlying resource
     // alive for shared/content-keyed reuse, but MUST NOT expose a dead handle. Directly bound pipelines and
     // borrowed buffer/image operands remain caller-owned through pending CPU recording and GPU completion;
     // only verbs with explicit retention guarantees transfer that lifetime responsibility to the backend.
@@ -209,9 +198,7 @@ export namespace deren::promise::rhi {
         context_view<resource_factory> resources;
         context_view<command_context> commands;
         context_view<frame_context> frames;
-        explicit api_core(std::string_view name) noexcept
-            : object(name) {
-        }
+        api_core() noexcept = default;
         virtual ~api_core() noexcept = default;
         virtual void release() noexcept = 0;
         [[nodiscard]] virtual ability_bits abilities() const noexcept = 0;

@@ -37,17 +37,11 @@
 // ============================================================================
 module;
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
-#include <expected>
-#include <future>
-#include <memory>
-#include <span>
-#include <string_view>
-#include <type_traits>
 
 export module deren.promise.rhi:extension;
+export import deren.vstd;
 export import deren.utility.shared;
 export import deren.promise.rhi.synchronization;
 
@@ -257,12 +251,13 @@ export namespace deren::promise::rhi {
     /// specific kind, so it already knows the type (plan §3.3).
     struct extension : object {
     protected:
-        explicit extension(std::string_view const name) noexcept
-            : object(name) {
-        }
+        extension() noexcept = default;
 
     public:
         virtual ~extension() noexcept = default;
+        /// Extensions are owned by their core or frame; the object contract's release is a no-op.
+        void release() noexcept override {
+        }
         [[nodiscard]] virtual extension_kind kind() const noexcept = 0;
     };
 
@@ -270,9 +265,7 @@ export namespace deren::promise::rhi {
     /// Scoped describe/record rejects a snapshot once its acquire epoch ends; retain_image is empty outside a frame.
     struct frame_resources : extension {
         static constexpr extension_kind extension_id = extension_kind::frame_resources;
-        explicit frame_resources(std::string_view name) noexcept
-            : extension(name) {
-        }
+        frame_resources() noexcept = default;
         extension_kind kind() const noexcept final {
             return extension_id;
         }
@@ -300,9 +293,7 @@ export namespace deren::promise::rhi {
     /// A new optional interface; existing command-buffer vtables and role-pair PODs do not change.
     struct scoped_synchronization : extension {
         static constexpr extension_kind extension_id = extension_kind::scoped_synchronization;
-        explicit scoped_synchronization(std::string_view name) noexcept
-            : extension(name) {
-        }
+        scoped_synchronization() noexcept = default;
         extension_kind kind() const noexcept final {
             return extension_id;
         }
@@ -333,9 +324,7 @@ export namespace deren::promise::rhi {
     /// Completion means the host call returned, not that the GPU or display is idle.
     struct async_presentation : extension {
         static constexpr extension_kind extension_id = extension_kind::async_presentation;
-        explicit async_presentation(std::string_view type) noexcept
-            : extension(type) {
-        }
+        async_presentation() noexcept = default;
         extension_kind kind() const noexcept override {
             return extension_kind::async_presentation;
         }
@@ -343,7 +332,7 @@ export namespace deren::promise::rhi {
     };
 
     /// Copyable, non-owning receipt for one successful submission. Not persistent across processes.
-    /// Keep the originating core alive while using it; dropping a token does not cancel GPU work.
+    /// Keep the originating core alive while using it; releasing a token does not cancel GPU work.
     /// Treat its fields as an opaque issued pair: do not synthesize values or use it across cores.
     struct submission_token {
         std::uint64_t device_id = 0;
@@ -354,9 +343,7 @@ export namespace deren::promise::rhi {
     /// Complete a recording prefix of the acquired frame without presenting it.
     struct frame_checkpoint : extension {
         static constexpr extension_kind extension_id = extension_kind::frame_checkpoint;
-        explicit frame_checkpoint(std::string_view name) noexcept
-            : extension(name) {
-        }
+        frame_checkpoint() noexcept = default;
         extension_kind kind() const noexcept final {
             return extension_id;
         }
@@ -369,9 +356,7 @@ export namespace deren::promise::rhi {
     /// Independent graphics work only; does not submit/present an acquired frame.
     struct command_submission : extension {
         static constexpr extension_kind extension_id = extension_kind::command_submission;
-        explicit command_submission(std::string_view name) noexcept
-            : extension(name) {
-        }
+        command_submission() noexcept = default;
         extension_kind kind() const noexcept final {
             return extension_id;
         }
@@ -390,9 +375,7 @@ export namespace deren::promise::rhi {
 
     struct gpu_sorting : extension {
         static constexpr extension_kind extension_id = extension_kind::gpu_sorting;
-        explicit gpu_sorting(std::string_view name) noexcept
-            : extension(name) {
-        }
+        gpu_sorting() noexcept = default;
         [[nodiscard]] extension_kind kind() const noexcept final {
             return extension_id;
         }
@@ -403,9 +386,7 @@ export namespace deren::promise::rhi {
     struct device_address : extension {
 
         static constexpr extension_kind extension_id = extension_kind::device_address;
-        explicit device_address(std::string_view const name) noexcept
-            : extension(name) {
-        }
+        device_address() noexcept = default;
         [[nodiscard]] extension_kind kind() const noexcept final {
             return extension_id;
         }
@@ -420,9 +401,7 @@ export namespace deren::promise::rhi {
     struct shader_group_access : extension {
 
         static constexpr extension_kind extension_id = extension_kind::shader_group_access;
-        explicit shader_group_access(std::string_view const name) noexcept
-            : extension(name) {
-        }
+        shader_group_access() noexcept = default;
         [[nodiscard]] extension_kind kind() const noexcept final {
             return extension_id;
         }
@@ -436,9 +415,7 @@ export namespace deren::promise::rhi {
     struct descriptor_heap : extension {
 
         static constexpr extension_kind extension_id = extension_kind::descriptor_heap;
-        explicit descriptor_heap(std::string_view const name) noexcept
-            : extension(name) {
-        }
+        descriptor_heap() noexcept = default;
         [[nodiscard]] extension_kind kind() const noexcept final {
             return extension_id;
         }
@@ -524,9 +501,7 @@ export namespace deren::promise::rhi {
     struct host_image_copy : extension {
 
         static constexpr extension_kind extension_id = extension_kind::host_image_copy;
-        explicit host_image_copy(std::string_view const name) noexcept
-            : extension(name) {
-        }
+        host_image_copy() noexcept = default;
         [[nodiscard]] extension_kind kind() const noexcept final {
             return extension_id;
         }
@@ -558,9 +533,7 @@ export namespace deren::promise::rhi {
     struct device_capabilities : extension {
 
         static constexpr extension_kind extension_id = extension_kind::device_capabilities;
-        explicit device_capabilities(std::string_view const name) noexcept
-            : extension(name) {
-        }
+        device_capabilities() noexcept = default;
         [[nodiscard]] extension_kind kind() const noexcept final {
             return extension_id;
         }
@@ -762,9 +735,7 @@ export namespace deren::promise::rhi {
     /// texture group answers null here rather than announcing a shape it cannot fill.
     struct descriptor_space : extension {
         static constexpr extension_kind extension_id = extension_kind::descriptor_space;
-        explicit descriptor_space(std::string_view const name) noexcept
-            : extension(name) {
-        }
+        descriptor_space() noexcept = default;
         [[nodiscard]] extension_kind kind() const noexcept final {
             return extension_id;
         }

@@ -1,5 +1,7 @@
 module;
 
+#include <cstdint>
+#include <cstddef>
 #include <toml++/toml.hpp>
 
 module deren.asset_library;

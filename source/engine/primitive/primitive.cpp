@@ -3,13 +3,13 @@ module;
 #include <algorithm> // std::clamp / std::max in orbit_camera_pan_delta
 #include <cmath>     // std::sin / std::cos in the orbit camera maths
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <span>
-
 module deren.engine.primitive;
+import deren.vstd;
 import deren.utility.shared;
 
 import deren.utility; // DIAGNOSTIC only (see normal_draw_primitive::draw): this app is a GUI-subsystem binary, so

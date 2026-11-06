@@ -1,10 +1,10 @@
 module;
+
 #include "subtilis_dag_cut_closure.hpp"
 
-#include <algorithm>
-#include <cmath>
-#include <expected>
+#include <cstdint>
 export module deren.engine.subtilis.dag_lod;
+export import deren.vstd;
 export import deren.engine.subtilis.dag_asset;
 export import deren.engine.subtilis.lod;
 export namespace deren::engine::subtilis {

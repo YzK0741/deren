@@ -1,9 +1,7 @@
 module;
-#include <array>
 #include <cstdint>
-#include <expected>
-#include <span>
 export module deren.engine.texture_residency;
+export import deren.vstd;
 export import deren.utility.shared;
 import deren.engine.visibility;
 

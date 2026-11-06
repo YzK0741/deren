@@ -1,11 +1,10 @@
 module;
 
-#include <algorithm>
-#include <array>
-#include <format>
-#include <string>
+#include <cstddef>
+#include <cstdint>
 
 export module deren.utility:data_block;
+export import deren.vstd;
 export import deren.utility.shared;
 namespace deren::utility {
     /**

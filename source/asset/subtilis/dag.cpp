@@ -2,6 +2,7 @@ module;
 #include <cstddef>
 #include <cstdint>
 module deren.asset.subtilis.dag;
+import deren.vstd;
 namespace deren::asset::subtilis {
     namespace {
         auto fail(char const* message, std::optional<uint32_t> group = {}) {

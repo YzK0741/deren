@@ -1,6 +1,10 @@
 module;
 #include "stacktrace_native.hpp"
+
+#include <cstddef>
+#include <cstdint>
 module deren.utility.shared;
+import deren.vstd;
 
 #if defined(_MSC_VER)
 #define TRACE_NOINLINE __declspec(noinline)

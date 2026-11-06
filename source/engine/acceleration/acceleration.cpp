@@ -1,16 +1,10 @@
 module;
-
-#include <algorithm>
-#include <array>
-#include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <expected>
 #include <glm/glm.hpp>
-#include <string>
-#include <utility>
-
 module deren.engine.acceleration_structure;
+import deren.vstd;
 import deren.utility.shared;
 
 import deren.utility;

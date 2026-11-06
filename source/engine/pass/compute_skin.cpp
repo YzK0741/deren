@@ -8,11 +8,8 @@ module;
 
 #include <cstdint>
 #include <glm/glm.hpp>
-#include <span>
-#include <string>
-#include <utility>
-
 module deren.engine.pass.compute_skin;
+import deren.vstd;
 import deren.utility.shared;
 
 import deren.engine.pipelines; // build_compute_skin: the compute pipeline this job owns

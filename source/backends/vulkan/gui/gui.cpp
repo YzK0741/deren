@@ -1,11 +1,14 @@
 module;
 
 #include <GLFW/glfw3.h>
+#include <cstddef>
+#include <cstdint>
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_vulkan.h>
 
 module deren.vulkan.graphical_user_interface;
+import deren.vstd;
 import deren.utility.shared;
 
 import deren.utility;

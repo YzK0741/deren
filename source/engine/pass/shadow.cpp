@@ -8,11 +8,10 @@
 
 module;
 
+#include <cstddef>
 #include <cstdint>
-#include <span>
-#include <vector>
-
 module deren.engine.pass.shadow;
+import deren.vstd;
 import deren.utility.shared;
 
 import deren.promise.rhi;

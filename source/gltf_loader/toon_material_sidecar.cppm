@@ -46,12 +46,6 @@
 module;
 
 #include <cstddef>
-#include <expected>
-#include <filesystem>
-#include <map>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module deren.toon_material_sidecar;
 export import deren.utility.shared;

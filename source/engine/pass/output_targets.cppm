@@ -9,12 +9,11 @@
  * (rt_shadow_visibility is 13 now).
  */
 module;
-#include <algorithm>
-#include <array>
+
+#include <cstddef>
 #include <cstdint>
-#include <string_view>
-#include <vector>
 export module deren.engine.pass.output_targets;
+export import deren.vstd;
 export import deren.utility.shared;
 import deren.engine.pass;
 import deren.engine.render_resource;

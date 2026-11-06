@@ -22,8 +22,8 @@
 module;
 
 #include <cstddef>
+#include <cstdint>
 #include <glm/glm.hpp>
-#include <limits>
 
 export module deren.engine.scene_tree;
 export import deren.utility.shared;

@@ -5,6 +5,8 @@
  */
 module;
 
+#include <cstddef>
+#include <cstdint>
 // NO GLOBAL-MODULE-FRAGMENT INCLUDE, deliberately: every type this unit names comes from the
 // imported modules below (deren.vstd re-exports the STL), and the vendored std module plus
 // deren.utility already give the allocator's instantiations here - measured with -fsyntax-only

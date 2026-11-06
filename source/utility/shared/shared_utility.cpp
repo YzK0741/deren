@@ -12,6 +12,7 @@ module;
 #include "log_rotation_claim.hpp"
 
 module deren.utility.shared;
+import deren.vstd;
 
 // ============================================================================
 // THE PROCESS-WIDE STATE, AND NOTHING ELSE (see shared_utility.cppm for the whole rationale).

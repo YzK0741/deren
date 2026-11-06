@@ -1,13 +1,7 @@
 module;
-#include <concepts>
-#include <expected>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <string_view>
-#include <type_traits>
-#include <utility>
+#include <cstdint>
 export module deren.engine.render_graph.compose;
+export import deren.vstd;
 export import deren.engine.render_graph.execute;
 export namespace deren::engine::render_graph::execution {
     template <class T>

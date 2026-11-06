@@ -2,20 +2,11 @@
 // module: deren.promise.rhi:frame
 module;
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
-#include <expected>
-#include <limits>
-#include <map>
-#include <memory>
-#include <optional>
-#include <span>
-#include <string>
-#include <string_view>
-#include <vector>
 
 export module deren.promise.rhi:frame;
+export import deren.vstd;
 export import deren.utility.shared;
 
 import :contract;
@@ -26,9 +17,7 @@ export namespace deren::promise::rhi {
 
     struct swapchain : object {
 
-        explicit swapchain(std::string_view const name) noexcept
-            : object(name) {
-        }
+        swapchain() noexcept = default;
         virtual ~swapchain() noexcept = default;
         /// see `buffer::release()`
         virtual void release() noexcept = 0;

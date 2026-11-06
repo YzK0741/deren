@@ -1,5 +1,7 @@
 module;
 
+#include <cstddef>
+#include <cstdint>
 #define GLFW_INCLUDE_NONE // glfw3.h must not pull <GL/gl.h>: we link no OpenGL, and this states it instead of relying on the environment
 #include "../engine/lighting/environment_controls.hpp"
 #include "../engine/lighting/radiance_capture.hpp"

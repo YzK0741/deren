@@ -21,9 +21,7 @@ struct test_pipeline final : rhi::pipeline {
     [[nodiscard]] std::string_view get_tag() const noexcept override {
         return tag;
     }
-    test_pipeline()
-        : rhi::pipeline("bloom test") {
-    }
+    test_pipeline() = default;
     void release() noexcept override {
     }
 };

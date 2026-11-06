@@ -32,15 +32,11 @@
 
 module;
 
-#include <algorithm> // std::max in the extent rule
 #include <cstddef>
 #include <cstdint>
-#include <memory>
-#include <span>
-#include <string_view>
-#include <vector>
 
 export module deren.engine.pass;
+export import deren.vstd;
 export import deren.utility.shared;
 
 import deren.promise.rhi;

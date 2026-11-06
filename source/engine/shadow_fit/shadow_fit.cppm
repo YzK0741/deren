@@ -20,10 +20,9 @@
 // ============================================================================
 module;
 
+#include <cstdint>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <span>
-#include <vector>
 
 export module deren.engine.shadow_fit;
 export import deren.utility.shared;
