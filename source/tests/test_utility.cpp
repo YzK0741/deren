@@ -861,6 +861,76 @@ namespace {
         deren::utility::ensure(true);
         deren::utility::ensure(true, "trivially true");
     }
+    void test_log_format() {
+        deren::utility::wait_log_all();
+        deren::utility::log("format probe {}", 42);
+        deren::utility::error("format probe {}", "error");
+        deren::utility::log("WARNING: format probe warning");
+        deren::utility::log("[VERBOSE] format probe verbose");
+        deren::utility::wait_log_all();
+
+        std::ifstream log("deren-debug.log");
+        deren::utility::vessel::string const text{std::istreambuf_iterator<char>(log),
+                                                  std::istreambuf_iterator<char>()};
+        auto const line_for = [&](std::string_view const marker) {
+            auto const at = text.find(marker);
+            CHECK(at != decltype(text)::npos);
+            if (at == decltype(text)::npos) {
+                return deren::utility::vessel::string{};
+            }
+            auto const previous_newline = text.rfind('\n', at);
+            auto const start = previous_newline == decltype(text)::npos ? 0 : previous_newline + 1;
+            auto const end = text.find('\n', at);
+            return text.substr(start, end == decltype(text)::npos ? text.size() - start : end - start);
+        };
+        // The body is the second line of an entry; the metadata is the line immediately before it.
+        auto const prefix_for = [&](std::string_view const marker) {
+            auto const at = text.find(marker);
+            CHECK(at != decltype(text)::npos);
+            if (at == decltype(text)::npos) {
+                return deren::utility::vessel::string{};
+            }
+            auto const body_newline = text.rfind('\n', at);
+            CHECK(body_newline != decltype(text)::npos);
+            if (body_newline == decltype(text)::npos) {
+                return deren::utility::vessel::string{};
+            }
+            auto const previous_newline =
+                body_newline == 0 ? decltype(text)::npos : text.rfind('\n', body_newline - 1);
+            auto const start = previous_newline == decltype(text)::npos ? 0 : previous_newline + 1;
+            return text.substr(start, body_newline - start);
+        };
+
+        auto const info_prefix = prefix_for("format probe 42");
+        CHECK(info_prefix.find("[INFO]    [tid ") != decltype(info_prefix)::npos);
+        CHECK(info_prefix.find("[INFO   ]") == decltype(info_prefix)::npos);
+        CHECK(info_prefix.find("test_log_format") != decltype(info_prefix)::npos);
+
+        auto const error_prefix = prefix_for("format probe error");
+        CHECK(error_prefix.find("[ERROR]   [tid ") != decltype(error_prefix)::npos);
+        CHECK(error_prefix.find("[ERROR  ]") == decltype(error_prefix)::npos);
+
+        auto const warning_prefix = prefix_for("format probe warning");
+        CHECK(warning_prefix.find("[WARNING] [tid ") != decltype(warning_prefix)::npos);
+        CHECK(warning_prefix.find("WARNING:") == decltype(warning_prefix)::npos);
+
+        auto const verbose_prefix = prefix_for("format probe verbose");
+        CHECK(verbose_prefix.find("[VERBOSE] [tid ") != decltype(verbose_prefix)::npos);
+        CHECK(verbose_prefix.find("[INFO") == decltype(verbose_prefix)::npos);
+
+        // The body starts the next line and is exactly the message, with no repeated prefix/level.
+        auto const info_body = line_for("format probe 42");
+        CHECK(info_body.find("format probe 42") == 0);
+        CHECK(info_body.size() == 15);
+        auto const error_body = line_for("format probe error");
+        CHECK(error_body.find("format probe error") == 0);
+        auto const warning_body = line_for("format probe warning");
+        CHECK(warning_body.find("format probe warning") == 0);
+        CHECK(warning_body.find("WARNING:") == decltype(warning_body)::npos);
+        auto const verbose_body = line_for("format probe verbose");
+        CHECK(verbose_body.find("format probe verbose") == 0);
+    }
+
     void test_log_rotation(char const* executable) {
         std::error_code error;
         std::filesystem::remove_all("rotate-log", error);
@@ -929,6 +999,7 @@ int32_t main(int argc, char** argv) {
     test_thread_pool_rejects_empty_tasks();
     test_thread_pool_shutdown_policies();
     test_log_wait_is_a_flushed_prefix();
+    test_log_format();
     test_log_rotation(argv[0]);
     test_log_sink_wait_all_under_concurrent_writers();
     test_bvh_non_finite_aabb_is_sanitized();

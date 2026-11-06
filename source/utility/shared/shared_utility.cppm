@@ -1,6 +1,6 @@
 // ============================================================================
 // module: deren.utility.shared
-// module version: 1.3.1
+// module version: 1.5.0
 //
 // THE PROCESS-WIDE HALF OF utility (batch ④, the dynamic-backend flip's prerequisite).
 //
@@ -63,8 +63,9 @@ namespace deren::utility {
 
     /**
      * @ingroup utility
-     * @brief THE sink's one door: queue a pre-formatted line for this process's log worker
-     * @param text the line, without its newline (the worker adds the blank-line spacing)
+     * @brief THE sink's one door: queue a pre-formatted body for this process's log worker
+     * @param text the message body, without its newline
+     * @param location the caller's source location; the default captures the CALLER
      * @note
      *     - FORMATTING STAYS IN THE CALLER: `log(fmt, args...)` in `deren.utility` is an inline
      *       template whose instantiation formats into a temporary `std::string` on the caller's
@@ -72,19 +73,46 @@ namespace deren::utility {
      *       allowed across this interface - see the header): it keeps the template in the caller's
      *       instantiation and needs no exported symbol.
      *     - the copy this function queues is made on THIS side of the boundary
+     *     - the worker writes one metadata line (local time, level, caller-thread token and function
+     *       name) and then `text` on the next line. This overload captures the time when it is
+     *       entered; `log(fmt, args...)` uses the timestamp overload below so the time is the log
+     *       call's, not the end of formatting.
      *     - thread safe; a message that arrives while the sink is shutting down is dropped (see
      *       `deren.utility`'s `log()` doc for why that is the correct late-write behaviour)
      */
-    export void log_text(std::string_view text) noexcept;
+    export void log_text(std::string_view text,
+                         std::source_location location = std::source_location::current()) noexcept;
 
     /**
      * @ingroup utility
-     * @brief queue `[ERROR] ...` to deren-debug.log in every build
+     * @brief queue a pre-formatted body stamped with the log-call time and location
+     * @param text the message body, without its newline
+     * @param timestamp the time captured before the caller formats `text`
+     * @param location the caller's source location
+     */
+    export void log_text(std::string_view text, std::chrono::system_clock::time_point timestamp,
+                         std::source_location location) noexcept;
+
+    /**
+     * @ingroup utility
+     * @brief queue an `[ERROR]` body to deren-debug.log in every build
      * @param text the pre-formatted error text
+     * @param location the caller's source location; the default captures the CALLER
      * @note one asynchronous writer owns the ordinary log; failure falls back to deren-crash.log,
      *       never to stdout/stderr. Fatal reports use the independent emergency writer.
      */
-    export void error_text(std::string_view text) noexcept;
+    export void error_text(std::string_view text,
+                           std::source_location location = std::source_location::current()) noexcept;
+
+    /**
+     * @ingroup utility
+     * @brief queue an `[ERROR]` body stamped with the log-call time and location
+     * @param text the pre-formatted error text
+     * @param timestamp the time captured before the caller formats `text`
+     * @param location the caller's source location
+     */
+    export void error_text(std::string_view text, std::chrono::system_clock::time_point timestamp,
+                           std::source_location location) noexcept;
 
     /**
      * @ingroup utility
