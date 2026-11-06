@@ -742,7 +742,12 @@ namespace deren::engine {
             gaussian_finalize_end,
             gaussian_raster_end,
             transparent_end,
-            taa_end,       // after the TAA resolve + its history copy (~0 when TAA is off)
+            toon_surface_end,
+            toon_outline_end,
+            toon_eye_end,
+            character_end, // character overlay masks, after surfaces, hulls and iris-through-hair
+            toon_rim_end,
+            taa_end,       // TAA resolve + history copy only
             main_end,      // after the last scene-side work of the frame (the debug view, when it runs)
                            // those passes are the only compute work in the post chain: without it their
                            // cost was reported as bloom time, which is where a traced GI's price was
@@ -788,6 +793,11 @@ namespace deren::engine {
             {"gaussian finalize", false},
             {"gaussian raster", false},
             {"transparent", false},
+            {"toon surface", false},
+            {"toon outline", false},
+            {"toon eye", false},
+            {"toon overlay", false},
+            {"toon rim", false},
             {"taa", false},
             {"debug", true},
             {"bloom", false},

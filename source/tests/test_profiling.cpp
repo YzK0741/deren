@@ -91,6 +91,10 @@ namespace {
         auto const label = phases.summary();
         auto const label_view = text_of(label);
         CHECK(label_view.find("cpu (60f):") != std::string_view::npos);
+        CHECK(label_view.find("pace/wait") != std::string_view::npos);
+        CHECK(label_view.find("record") != std::string_view::npos);
+        CHECK(label_view.find("submit/present") != std::string_view::npos);
+        CHECK(label_view.find("incl wait") != std::string_view::npos);
         CHECK(label_view.find("total") != std::string_view::npos);
         CHECK(phases.means()[index_of(cpu_phase::pace)] == 0.0);
     }

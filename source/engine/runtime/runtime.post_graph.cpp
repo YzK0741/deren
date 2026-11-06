@@ -698,7 +698,11 @@ namespace deren::engine {
                     return post_build_error(shadow_added.error());
                 }
                 auto shadow_bound = build.bind_pass<graph::shadow::parameters>(
-                    shadow_added->pass, [payload](graph::shadow::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(lane::shadow); });
+                    shadow_added->pass, [this, payload](graph::shadow::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
+                        auto const recorded = payload->record(lane::shadow);
+                        this->gpu_mark(gpu_mark_id::shadow_end);
+                        return recorded;
+                    });
                 if (!shadow_bound) {
                     return post_build_error(shadow_bound.error());
                 }
@@ -1534,7 +1538,12 @@ namespace deren::engine {
                     return post_build_error(character_added.error());
                 }
                 auto character_bound = build.bind_pass<graph::character_forward::parameters>(
-                    character_added->pass, [payload](graph::character_forward::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(lane::character_forward); });
+                    character_added->pass, [this, payload](graph::character_forward::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
+                        this->gpu_mark_through(gpu_mark_id::transparent_end);
+                        auto const recorded = payload->record(lane::character_forward);
+                        this->gpu_mark_through(gpu_mark_id::character_end);
+                        return recorded;
+                    });
                 if (!character_bound) {
                     return post_build_error(character_bound.error());
                 }
@@ -1555,7 +1564,12 @@ namespace deren::engine {
                     return post_build_error(toon_added.error());
                 }
                 auto toon_bound = build.bind_pass<graph::toon_screen_rim::parameters>(
-                    toon_added->pass, [payload](graph::toon_screen_rim::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(lane::toon_screen_rim); });
+                    toon_added->pass, [this, payload](graph::toon_screen_rim::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
+                        this->gpu_mark_through(gpu_mark_id::character_end);
+                        auto const recorded = payload->record(lane::toon_screen_rim);
+                        this->gpu_mark(gpu_mark_id::toon_rim_end);
+                        return recorded;
+                    });
                 if (!toon_bound) {
                     return post_build_error(toon_bound.error());
                 }
@@ -1591,7 +1605,12 @@ namespace deren::engine {
                     return post_build_error(game_rim_added.error());
                 }
                 auto game_rim_bound = build.bind_pass<graph::toon_screen_rim::parameters>(
-                    game_rim_added->pass, [payload](graph::toon_screen_rim::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(lane::game_toon_depth_rim); });
+                    game_rim_added->pass, [this, payload](graph::toon_screen_rim::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
+                        this->gpu_mark_through(gpu_mark_id::character_end);
+                        auto const recorded = payload->record(lane::game_toon_depth_rim);
+                        this->gpu_mark(gpu_mark_id::toon_rim_end);
+                        return recorded;
+                    });
                 if (!game_rim_bound) {
                     return post_build_error(game_rim_bound.error());
                 }
@@ -1621,7 +1640,10 @@ namespace deren::engine {
                     return post_build_error(resolve_added.error());
                 }
                 auto resolve_bound = build.bind_pass<graph::taa::resolve_parameters>(
-                    resolve_added->pass, [payload](graph::taa::resolve_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(lane::taa_resolve); });
+                    resolve_added->pass, [this, payload](graph::taa::resolve_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
+                        this->gpu_mark_through(gpu_mark_id::toon_rim_end);
+                        return payload->record(lane::taa_resolve);
+                    });
                 if (!resolve_bound) {
                     return post_build_error(resolve_bound.error());
                 }

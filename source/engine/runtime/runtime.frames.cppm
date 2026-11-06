@@ -1086,7 +1086,11 @@ namespace deren::engine {
 
         // GPU timing: the shadow pass (and its hand-back barrier) ends here. The pass is optional,
         // so a frame without shadows just writes this mark next to frame_begin and reports ~0 ms.
-        this->gpu_mark(gpu_mark_id::shadow_end);
+        // A graph shadow draw is recorded later by its node, not by this
+        // prologue. Closing the interval here charged its work to HZB culling.
+        if (!this->graph_shadow_frame) {
+            this->gpu_mark(gpu_mark_id::shadow_end);
+        }
 
         // The scene pass: the opaque leaves write the G-buffer, and everything else follows from it
         // in record_scene_tail (lighting, the transparent pass over the shaded image, TAA).
@@ -2272,6 +2276,23 @@ namespace deren::engine {
             // against the camera), failing that a MESH form, and failing that the vertex path - and the session's
             // flags follow the bind, which is what makes a session that mixes the forms correct rather than merely
             // likely.
+            // These pipeline groups are recorded inside the character pass's
+            // primary rendering scope. Mark their boundaries on first bind;
+            // gpu_mark_through is a no-op on subsequent leaves of the group.
+            // The positional guard excludes ordinary scene/transparent binds.
+            if (name == outline_pipeline_name || name == character_forward_eye_prepass_pipeline_name ||
+                name == game_toon_eye_prepass_pipeline_name || name == overlay_pipeline_name) {
+                if (self.gpu_marks_written > static_cast<uint32_t>(gpu_mark_id::transparent_end) &&
+                    self.gpu_marks_written <= static_cast<uint32_t>(gpu_mark_id::character_end)) {
+                    if (name == outline_pipeline_name) {
+                        self.gpu_mark_through(gpu_mark_id::toon_surface_end);
+                    } else if (name == overlay_pipeline_name) {
+                        self.gpu_mark_through(gpu_mark_id::toon_eye_end);
+                    } else {
+                        self.gpu_mark_through(gpu_mark_id::toon_outline_end);
+                    }
+                }
+            }
             if (auto const meshlet = self.meshlet_pipelines.find(name); self.meshlet_table_complete && meshlet != self.meshlet_pipelines.end()) {
                 bind_pipeline_on(session, meshlet->second);
                 env.mesh_stage = true;
