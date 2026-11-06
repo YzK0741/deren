@@ -1,6 +1,6 @@
 // ============================================================================
 // module: utility
-// module version: 3.0.1  (independent of the app version in CMakeLists project(VERSION))
+// module version: 3.1.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // Pure-CPU toolkit: data_block, BVH, thread_pool, frame_clock / frame_stats,
 // content hashing, the platform entry points, and the loader. Standalone - no Vulkan
@@ -598,9 +598,34 @@ namespace deren::utility {
 
     /**
      * @ingroup utility
+     * @brief the format string plus the CALLER's source location, captured at the call site
+     * @tparam Args the format argument types
+     * @note
+     *     - `std::format_string` alone cannot carry a default `source_location` after a parameter
+     *       pack: the pack would consume the location argument. This wrapper keeps the compile-time
+     *       format check (`format` is still a `std::format_string<Args...>`) and lets the constructor
+     *       default argument capture the caller, so `log("{}", value)` needs no extra argument.
+     *     - `std::type_identity_t<Args>...` in `log` makes `Args` deduce from the arguments only, not
+     *       from this wrapper.
+     */
+    export template <typename... Args>
+    struct log_format_string {
+        std::format_string<Args...> format;
+        std::source_location location;
+
+        template <typename S>
+            requires(!std::same_as<std::remove_cvref_t<S>, log_format_string>)
+        consteval log_format_string(S&& text, std::source_location const at = std::source_location::current())
+            : format(std::forward<S>(text))
+            , location(at) {
+        }
+    };
+
+    /**
+     * @ingroup utility
      * @brief asynchronous log: formats the message like std::format and pushes it to the log singleton
      * @tparam Args argument types
-     * @param fmt the format string (compile-time checked)
+     * @param fmt the format string and the caller's source location (captured automatically)
      * @param args arguments to format
      * @note output goes to the asynchronous deren-debug.log file in every build; there is no console fallback
      * @note THE FORMATTING HAPPENS HERE, IN THE CALLER'S INSTANTIATION: the formatted line is a
@@ -608,44 +633,52 @@ namespace deren::utility {
      *       the sink copies. A design choice rather than a restriction (STL is allowed across the
      *       seam - see the header): it keeps the template in the caller's instantiation and needs no
      *       exported symbol.
+     * @note the sink prefixes the line with local time, level, caller thread and the compiler-provided
+     *       function name; the time is captured BEFORE formatting so it identifies when the log call
+     *       happened.
      */
     export template <typename... Args>
-    void log(std::format_string<Args...> fmt, Args&&... args) {
-        log_text(deren::utility::vessel::format(fmt, std::forward<Args>(args)...));
+    void log(log_format_string<std::type_identity_t<Args>...> fmt, Args&&... args) {
+        auto const timestamp = std::chrono::system_clock::now();
+        log_text(deren::utility::vessel::format(fmt.format, std::forward<Args>(args)...), timestamp, fmt.location);
     }
 
     /**
      * @ingroup utility
      * @brief asynchronous log: writes a single pre-formatted string as-is
      * @param message the message (string literal, const char*, deren::utility::vessel::string or std::string_view)
+     * @param location the caller's source location (captured automatically)
      * @note
      *      - for runtime strings, which cannot construct the consteval std::format_string
      *      - for format-string usage prefer the template overload
      */
-    export void log(std::string_view message) {
-        log_text(message);
+    export void log(std::string_view message, std::source_location const location = std::source_location::current()) {
+        log_text(message, location);
     }
 
     /**
      * @ingroup utility
      * @brief error log: queues the message with an [ERROR] prefix to deren-debug.log in every build
      * @tparam Args argument types
-     * @param fmt the format string (compile-time checked)
+     * @param fmt the format string and the caller's source location (captured automatically)
      * @param args arguments to format
      * @note the formatting and its lifetime rule are `log`'s above; `error_text` is the shared core
+     * @note the sink adds the `[ERROR]` level; the body is formatted once, not wrapped a second time
      */
     export template <typename... Args>
-    void error(std::format_string<Args...> fmt, Args&&... args) {
-        error_text(deren::utility::vessel::format(fmt, std::forward<Args>(args)...));
+    void error(log_format_string<std::type_identity_t<Args>...> fmt, Args&&... args) {
+        auto const timestamp = std::chrono::system_clock::now();
+        error_text(deren::utility::vessel::format(fmt.format, std::forward<Args>(args)...), timestamp, fmt.location);
     }
 
     /**
      * @ingroup utility
      * @brief error log: queues the message with an [ERROR] prefix to deren-debug.log in every build
      * @param message the message (string literal, const char*, deren::utility::vessel::string or std::string_view)
+     * @param location the caller's source location (captured automatically)
      */
-    export void error(std::string_view message) {
-        error_text(message);
+    export void error(std::string_view message, std::source_location const location = std::source_location::current()) {
+        error_text(message, location);
     }
 
     // wait_log_all() is NOT declared here: it is deren.utility.shared's (re-exported above), since

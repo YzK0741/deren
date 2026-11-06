@@ -12,8 +12,22 @@ only door, and `scripts/checks/check_backend_boundary.py` is the gate that keeps
 ## Log and fatal-report files
 
 All build types write normal logs and `[ERROR]` messages asynchronously to `deren-debug.log` in the
-working directory; startup rotation uses `deren-debug.log.old`. No logging route falls back to a
-console. If the ordinary file fails, the worker attempts the emergency file instead.
+working directory; startup rotation uses `deren-debug.log.old`. Each entry is two lines: a metadata
+line with the local time captured at the `log`/`error` call, its level (`INFO`, `WARNING`, `ERROR` or
+`VERBOSE`), a token for the calling thread and the compiler-provided caller function name, followed by
+the message body on the next line, for example
+
+```text
+[2026-11-06 15:30:29.123][INFO]    [tid 0000000000001a2b] deren::app::tick()
+the message body
+```
+
+The brackets are not stretched: padding spaces sit outside the level bracket, and the level field is
+seven characters wide plus one separator, so `[tid ...]` starts in the same column for every level
+(`[INFO]` gets four spaces, `[WARNING]`/`[VERBOSE]` one, `[ERROR]` three). Manual `[ERROR]`,
+`[WARNING]`, `[INFO]`, `[VERBOSE]` and `WARNING:` markers at the start of a message are folded into
+that level instead of being repeated. No logging route falls back to a console. If the ordinary file
+fails, the worker attempts the emergency file instead.
 
 `panic` first writes its bounded message and source location directly to `deren-crash.log`, then raw
 stack records and best-effort readable symbols. It never initializes or locks the async sink; an
@@ -29,7 +43,7 @@ Explicit generic printing APIs and command-line diagnostic tools retain their no
 
 ## Utility and engine error policy
 
-`deren.utility` (module interface 3.0.0) and `deren.utility.shared` have no RHI dependency.
+`deren.utility` (module interface 3.1.0) and `deren.utility.shared` have no RHI dependency.
 Generic assertions, logging, allocation and panic remain in utility. RHI failure types
 (`deren::promise::rhi::error`, `error_info`) belong to the contract; engine code that names them
 imports `deren.promise.rhi` explicitly, so a utility-only consumer never needs the renderer contract.
