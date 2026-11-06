@@ -765,8 +765,8 @@ export namespace deren::promise::rhi {
     struct command_context {
         command_context() noexcept = default;
         virtual ~command_context() noexcept = default;
-        command_context(command_context const&) = delete;
-        command_context& operator=(command_context const&) = delete;
+        command_context(command_context const&) = delete ("command_context is a borrowed interface; use the reference supplied by the runtime");
+        command_context& operator=(command_context const&) = delete ("command_context is a borrowed interface; use the reference supplied by the runtime");
         [[nodiscard]] virtual unique_object<command_buffer> create_command_buffer(command_buffer_desc const& desc) = 0;
         [[nodiscard]] virtual shared_object<command_buffer> make_command_buffer(command_buffer_desc const& desc) = 0;
         [[nodiscard]] virtual mergeable_command_buffer_ref make_mergeable_command_buffer(command_buffer_desc const& desc) = 0;

@@ -94,10 +94,10 @@ export namespace deren::engine {
             : core(std::move(device))
             , label(name) {
         }
-        resource_cluster(resource_cluster const&) = delete;
-        resource_cluster& operator=(resource_cluster const&) = delete;
-        resource_cluster(resource_cluster&&) = delete;
-        resource_cluster& operator=(resource_cluster&&) = delete;
+        resource_cluster(resource_cluster const&) = delete ("resource_cluster is non-copyable: construct it in place and keep its identity");
+        resource_cluster& operator=(resource_cluster const&) = delete ("resource_cluster is non-copyable: configure it through its owning API");
+        resource_cluster(resource_cluster&&) = delete ("resource_cluster is non-movable: its resources are tied to the current address");
+        resource_cluster& operator=(resource_cluster&&) = delete ("resource_cluster is non-movable: its resources are tied to the current address");
         ~resource_cluster() {
             while (!members.empty()) {
                 members.pop_back();

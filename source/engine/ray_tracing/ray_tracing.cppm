@@ -163,8 +163,8 @@ export namespace deren::engine::ray_tracing {
     class structure_set {
     public:
         explicit structure_set(rhi::api_core& face, rhi::shared_object<rhi::api_core> lease = {}) noexcept;
-        structure_set(structure_set const&) = delete;
-        structure_set& operator=(structure_set const&) = delete;
+        structure_set(structure_set const&) = delete ("structure_set is non-copyable: pass it by reference or construct a new instance");
+        structure_set& operator=(structure_set const&) = delete ("structure_set is non-copyable: modify the existing instance instead");
 
         /**
          * @brief build the bottom levels, once, from @p inputs (the frame that first wants the structures)

@@ -81,7 +81,7 @@ export namespace deren::engine::pass {
             managed_resources.drain();
         }
         pass_chain(pass_chain&&) = default;
-        pass_chain& operator=(pass_chain&&) = delete;
+        pass_chain& operator=(pass_chain&&) = delete ("pass_chain cannot be move-assigned: its registered references must stay stable");
         render_resource::instances::resource_registry& resources() noexcept {
             return managed_resources;
         }

@@ -177,8 +177,8 @@ export namespace deren::promise::rhi {
     struct frame_context {
         frame_context() noexcept = default;
         virtual ~frame_context() noexcept = default;
-        frame_context(frame_context const&) = delete;
-        frame_context& operator=(frame_context const&) = delete;
+        frame_context(frame_context const&) = delete ("frame_context is a borrowed interface; use the reference supplied by the runtime");
+        frame_context& operator=(frame_context const&) = delete ("frame_context is a borrowed interface; use the reference supplied by the runtime");
         /// Current frame's primary, or null outside recording. Borrowed until frame submission.
         [[nodiscard]] virtual command_buffer* begin_commands() = 0;
         /// Last acquired image; null before first acquire, valid through submit until the next acquire.

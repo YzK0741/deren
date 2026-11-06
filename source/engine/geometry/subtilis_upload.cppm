@@ -60,8 +60,8 @@ export namespace deren::engine::subtilis {
             , indices_(std::move(indices)) {
         }
 
-        uploaded_geometry(uploaded_geometry const&) = delete;
-        uploaded_geometry& operator=(uploaded_geometry const&) = delete;
+        uploaded_geometry(uploaded_geometry const&) = delete ("uploaded_geometry is non-copyable: pass it by reference or construct a new instance");
+        uploaded_geometry& operator=(uploaded_geometry const&) = delete ("uploaded_geometry is non-copyable: modify the existing instance instead");
         [[nodiscard]] double triangle_edge(meshlet const& record) const noexcept;
         [[nodiscard]] built_geometry const& source() const noexcept {
             return *source_;

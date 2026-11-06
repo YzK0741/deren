@@ -8,8 +8,8 @@ namespace deren::app {
       public:
         explicit startup_splash(bool enabled) noexcept;
         ~startup_splash();
-        startup_splash(startup_splash const&) = delete;
-        startup_splash& operator=(startup_splash const&) = delete;
+        startup_splash(startup_splash const&) = delete("startup_splash is non-copyable: pass it by reference or construct a new instance");
+        startup_splash& operator=(startup_splash const&) = delete("startup_splash is non-copyable: modify the existing instance instead");
 
         void attach_owner(GLFWwindow* window) noexcept;
         void close() noexcept;

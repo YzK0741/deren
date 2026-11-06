@@ -144,8 +144,8 @@ namespace deren::utility {
         ~log_sink();
         void worker_loop() noexcept;
 
-        log_sink(log_sink const&) = delete;
-        log_sink& operator=(log_sink const&) = delete;
+        log_sink(log_sink const&) = delete ("log_sink is non-copyable: pass it by reference or construct a new instance");
+        log_sink& operator=(log_sink const&) = delete ("log_sink is non-copyable: modify the existing instance instead");
 
         /// Queue one line. TAKES A VIEW, and the copy the queue stores is made on THIS side - which
         /// is what lets a caller hand over its own temporary string without either side owning the

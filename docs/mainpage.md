@@ -148,6 +148,7 @@ finally the migration history.
 | 18 | \subpage md_docs_2compiler__tolerance "Compiler tolerance" | What the build needs from a toolchain, what a second one (GCC) measured, and what still stops it. |
 | 19 | \subpage md_docs_2unified__image__layouts "Unified image layouts" | One layout vocabulary for render targets, uploads and read-back. |
 | 20 | \subpage md_docs_2host__image__copy "Host image copy" | The VK_EXT_host_image_copy path: a texture uploaded without a staging buffer. |
+| 21 | \subpage md_docs_2cpp26__features "C++26 features in use" | A register of the C++26 language and library features first-party code actually adopts. |
 
 Seven further pages sit in the manual's `INPUT` ahead of this one and are not part of the numbered
 reading path: the passchain resource pages (\ref managed_resources "Passchain-managed resources",

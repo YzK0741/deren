@@ -175,10 +175,10 @@ namespace deren::engine::profiling {
             this->phases->end(this->phase, this->start);
         }
 
-        cpu_phase_timer(cpu_phase_timer const&) = delete;
-        cpu_phase_timer& operator=(cpu_phase_timer const&) = delete;
-        cpu_phase_timer(cpu_phase_timer&&) = delete;
-        cpu_phase_timer& operator=(cpu_phase_timer&&) = delete;
+        cpu_phase_timer(cpu_phase_timer const&) = delete ("cpu_phase_timer is non-copyable: construct it in place and keep its identity");
+        cpu_phase_timer& operator=(cpu_phase_timer const&) = delete ("cpu_phase_timer is non-copyable: configure it through its owning API");
+        cpu_phase_timer(cpu_phase_timer&&) = delete ("cpu_phase_timer is non-movable: its resources are tied to the current address");
+        cpu_phase_timer& operator=(cpu_phase_timer&&) = delete ("cpu_phase_timer is non-movable: its resources are tied to the current address");
 
     private:
         cpu_phases* phases = nullptr;

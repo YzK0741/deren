@@ -33,8 +33,8 @@ export namespace deren::engine::subtilis {
     /// One immutable source/payload/hierarchy generation. Not a disk format or GPU ABI.
     class built_geometry {
     public:
-        built_geometry(built_geometry const&) = delete;
-        built_geometry& operator=(built_geometry const&) = delete;
+        built_geometry(built_geometry const&) = delete ("built_geometry is non-copyable: pass it by reference or construct a new instance");
+        built_geometry& operator=(built_geometry const&) = delete ("built_geometry is non-copyable: modify the existing instance instead");
         built_geometry(built_geometry&& other) noexcept
             : vertices_(std::move(other.vertices_))
             , indices_(std::move(other.indices_))

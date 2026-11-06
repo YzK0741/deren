@@ -118,8 +118,8 @@ namespace deren::engine::scene_tree {
         // unique_ptr makes the node non-copyable; define an explicit clone for subtree copies
         scene_node(scene_node&&) noexcept = default;
         scene_node& operator=(scene_node&&) noexcept = default;
-        scene_node(scene_node const&) = delete;
-        scene_node& operator=(scene_node const&) = delete;
+        scene_node(scene_node const&) = delete ("scene_node is non-copyable: pass it by reference or construct a new instance");
+        scene_node& operator=(scene_node const&) = delete ("scene_node is non-copyable: modify the existing instance instead");
 
         /** @brief deep-copy this subtree (children and all) */
         [[nodiscard]] scene_node clone() const;

@@ -35,8 +35,8 @@ export namespace deren::promise::rhi {
     struct resource_factory {
         resource_factory() noexcept = default;
         virtual ~resource_factory() noexcept = default;
-        resource_factory(resource_factory const&) = delete;
-        resource_factory& operator=(resource_factory const&) = delete;
+        resource_factory(resource_factory const&) = delete ("resource_factory is non-copyable: pass it by reference or construct a new instance");
+        resource_factory& operator=(resource_factory const&) = delete ("resource_factory is non-copyable: modify the existing instance instead");
         [[nodiscard]] virtual resource_memory_statistics memory_statistics() const noexcept {
             return {};
         }

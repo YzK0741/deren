@@ -90,10 +90,10 @@ export namespace deren::engine::pass {
         mask_bake_job() = default;
         ~mask_bake_job();
 
-        mask_bake_job(mask_bake_job const&) = delete;
-        mask_bake_job& operator=(mask_bake_job const&) = delete;
+        mask_bake_job(mask_bake_job const&) = delete ("mask_bake_job is non-copyable: pass it by reference or construct a new instance");
+        mask_bake_job& operator=(mask_bake_job const&) = delete ("mask_bake_job is non-copyable: modify the existing instance instead");
         mask_bake_job(mask_bake_job&&) = default;
-        mask_bake_job& operator=(mask_bake_job&&) = delete;
+        mask_bake_job& operator=(mask_bake_job&&) = delete ("mask_bake_job cannot be move-assigned: its registered references must stay stable");
 
         /// @brief build the pipeline; an error message says what was missing
         [[nodiscard]] std::expected<void, deren::utility::vessel::string> create(pass_context const& context);

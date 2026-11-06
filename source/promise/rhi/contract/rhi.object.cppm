@@ -69,8 +69,8 @@ export namespace deren::promise::rhi {
             return *this;
         }
 
-        unique_object(unique_object const&) = delete;
-        unique_object& operator=(unique_object const&) = delete;
+        unique_object(unique_object const&) = delete ("unique_object is move-only: transfer ownership with std::move");
+        unique_object& operator=(unique_object const&) = delete ("unique_object is move-only: assign from an rvalue, not a copy");
 
         ~unique_object() noexcept {
             this->reset();

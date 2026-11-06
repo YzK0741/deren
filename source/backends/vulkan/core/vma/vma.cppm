@@ -69,9 +69,9 @@ namespace deren::vulkan {
             other.buffer = VK_NULL_HANDLE;
             other.allocation = VK_NULL_HANDLE;
         }
-        buffer_detail(buffer_detail const&) = delete;
-        buffer_detail& operator=(buffer_detail const&) = delete;
-        buffer_detail& operator=(buffer_detail&&) = delete;
+        buffer_detail(buffer_detail const&) = delete ("buffer_detail carries an atomic use_count; only its custom move constructor transfers it");
+        buffer_detail& operator=(buffer_detail const&) = delete ("assign the owning vma_allocator resource instead");
+        buffer_detail& operator=(buffer_detail&&) = delete ("move-construct the detail; move-assign would discard its allocation");
     };
 
     /**
@@ -174,9 +174,9 @@ namespace deren::vulkan {
             other.image = VK_NULL_HANDLE;
             other.allocation = VK_NULL_HANDLE;
         }
-        image_detail(image_detail const&) = delete;
-        image_detail& operator=(image_detail const&) = delete;
-        image_detail& operator=(image_detail&&) = delete;
+        image_detail(image_detail const&) = delete ("image_detail carries an atomic use_count; only its custom move constructor transfers it");
+        image_detail& operator=(image_detail const&) = delete ("assign the owning vma_allocator resource instead");
+        image_detail& operator=(image_detail&&) = delete ("move-construct the detail; move-assign would discard its allocation");
     };
 
     /**

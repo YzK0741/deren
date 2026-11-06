@@ -106,8 +106,8 @@ namespace {
         }
         // one owner: the pointer is handed to the engine as a BORROWED handle, so a second owner of the
         // same window (a copy) would destroy it twice
-        glfw_window_host(glfw_window_host const&) = delete;
-        glfw_window_host& operator=(glfw_window_host const&) = delete;
+        glfw_window_host(glfw_window_host const&) = delete ("glfw_window_host is non-copyable: pass it by reference or construct a new instance");
+        glfw_window_host& operator=(glfw_window_host const&) = delete ("glfw_window_host is non-copyable: modify the existing instance instead");
         ~glfw_window_host() {
             if (this->window != nullptr) {
                 glfwDestroyWindow(this->window);

@@ -26,10 +26,10 @@ export namespace deren::engine::render_graph {
 
     public:
         builder();
-        builder(builder const&) = delete;
-        builder& operator=(builder const&) = delete;
-        builder(builder&&) = delete;
-        builder& operator=(builder&&) = delete;
+        builder(builder const&) = delete ("builder is non-copyable: pass it by reference or construct a new instance");
+        builder& operator=(builder const&) = delete ("builder is non-copyable: modify the existing instance instead");
+        builder(builder&&) = delete ("builder is non-movable: construct it in place and keep its address stable");
+        builder& operator=(builder&&) = delete ("builder cannot be move-assigned: keep its references and address stable");
         [[nodiscard]] bool contains(pass_ref ref) const noexcept {
             return ref.incarnation_ == incarnation && ref.index_ < passes.size();
         }

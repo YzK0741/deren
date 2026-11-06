@@ -28,9 +28,9 @@ export namespace std {
 #if VSTD_HAS_WIDE_CHARACTERS
   using std::wformat_string;
 #endif
-#if VSTD_STD_VER >= 26
+#if VSTD_STD_VER >= 26 && defined(__cpp_lib_runtime_format)
   using std::runtime_format;
-#endif // VSTD_STD_VER >= 26
+#endif // VSTD_STD_VER >= 26 && defined(__cpp_lib_runtime_format)
 
   // [format.functions], formatting functions
   using std::format;

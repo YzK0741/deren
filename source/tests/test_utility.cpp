@@ -37,6 +37,22 @@ namespace {
     static_assert(deren::utility::data_block<4>().hash64() == 5558979605539197941ull); // default = zeroed
     static_assert(deren::utility::data_block<4>(golden_bytes) == deren::utility::data_block<4>(golden_bytes));
 
+    // C++26: a structured binding declaration can be the condition itself.
+    struct condition_probe {
+        int value;
+        int extra;
+        constexpr explicit operator bool() const noexcept {
+            return value != 0;
+        }
+    };
+    constexpr bool condition_binding_works() {
+        if (auto [value, extra] = condition_probe{1, 2}) {
+            return value == 1 && extra == 2;
+        }
+        return false;
+    }
+    static_assert(condition_binding_works());
+
     // deren::utility::write_png is pure CPU, so the dependency-free PNG encoder is testable headlessly:
     // the test walks the chunk list and re-checks every CRC32 (a wrong encoder would not survive
     // a real decoder, but structure + checksums already catch the usual mistakes).
