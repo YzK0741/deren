@@ -3,6 +3,8 @@ module;
 #include "stacktrace_native.hpp"
 
 #include <cstdint>
+#include <cstdio> // std::snprintf: format the log prefix without allocating on the worker
+#include <ctime>  // std::tm, localtime_s / localtime_r
 #if defined(DEREN_LOG_TESTING)
 #include "log_test_hooks.hpp"
 #endif
@@ -34,6 +36,102 @@ namespace deren::utility {
     }
 
     namespace {
+        enum class log_level : std::uint8_t { info,
+                                              warning,
+                                              error,
+                                              verbose };
+
+        constexpr char const* log_level_name(log_level const level) noexcept {
+            switch (level) {
+            case log_level::warning:
+                return "WARNING";
+            case log_level::error:
+                return "ERROR";
+            case log_level::verbose:
+                return "VERBOSE";
+            case log_level::info:
+            default:
+                return "INFO";
+            }
+        }
+
+        struct log_entry {
+            std::chrono::system_clock::time_point timestamp = {};
+            std::uint64_t thread = 0;
+            log_level level = log_level::info;
+            std::string_view function = {};
+            deren::utility::vessel::string text = {};
+        };
+
+        // Local time, because a log is read by the person sitting at the machine. localtime_s and
+        // localtime_r are the thread-safe spellings; gmtime is the fallback for an out-of-range time.
+        void format_timestamp(char* const buffer, std::size_t const size,
+                              std::chrono::system_clock::time_point const timestamp) noexcept {
+            auto const whole = std::chrono::floor<std::chrono::seconds>(timestamp);
+            auto const millis =
+                std::chrono::duration_cast<std::chrono::milliseconds>(timestamp - whole).count();
+            std::time_t const raw = std::chrono::system_clock::to_time_t(whole);
+            std::tm tm = {};
+            bool have_time = false;
+#if defined(_WIN32)
+            have_time = ::localtime_s(&tm, &raw) == 0;
+            if (!have_time) {
+                have_time = ::gmtime_s(&tm, &raw) == 0;
+            }
+#else
+            have_time = ::localtime_r(&raw, &tm) != nullptr;
+            if (!have_time) {
+                have_time = ::gmtime_r(&raw, &tm) != nullptr;
+            }
+#endif
+            if (!have_time) {
+                std::snprintf(buffer, size, "0000-00-00 00:00:00.000");
+                return;
+            }
+            std::snprintf(buffer, size, "%04d-%02d-%02d %02d:%02d:%02d.%03lld", tm.tm_year + 1900,
+                          tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec,
+                          static_cast<long long>(millis));
+        }
+
+        void format_log_prefix(char* const buffer, std::size_t const size, log_entry const& entry) noexcept {
+            char timestamp[32];
+            format_timestamp(timestamp, sizeof timestamp, entry.timestamp);
+            // Padding sits OUTSIDE the level's brackets: the bracket itself is never stretched, so
+            // "[INFO]", "[WARNING]" and "[ERROR]" keep their written form while "[tid ...]" starts in
+            // the same column. Width 7 is the widest level name; the extra space is the separator.
+            auto const* const level = log_level_name(entry.level);
+            int const padding = 7 - static_cast<int>(std::string_view(level).size()) + 1;
+            std::snprintf(buffer, size, "[%s][%s]%*s[tid %016llx]", timestamp, level, padding, "",
+                          static_cast<unsigned long long>(entry.thread));
+        }
+
+        // Some call sites wrote their level into the message before the sink owned one. Absorb those
+        // markers so the line carries one level, not two; the payload after the marker is unchanged.
+        void apply_manual_level(std::string_view& text, log_level& level) noexcept {
+            struct marker {
+                std::string_view prefix;
+                log_level level;
+            };
+            constexpr marker markers[] = {
+                {"[ERROR] ", log_level::error},
+                {"[WARNING] ", log_level::warning},
+                {"[INFO] ", log_level::info},
+                {"[VERBOSE] ", log_level::verbose},
+                {"WARNING: ", log_level::warning},
+            };
+            for (auto const& marker : markers) {
+                if (text.starts_with(marker.prefix)) {
+                    level = marker.level;
+                    text.remove_prefix(marker.prefix.size());
+                    return;
+                }
+            }
+        }
+
+        std::uint64_t current_thread_token() noexcept {
+            return static_cast<std::uint64_t>(std::hash<std::thread::id>{}(std::this_thread::get_id()));
+        }
+
         // Startup rotation for the log file: move the previous session's deren-debug.log content aside to
         // deren-debug.log.old (with a session-end timestamp when the content carries none), then truncate
         // deren-debug.log so the new session starts fresh. Runs for every build type.
@@ -79,18 +177,18 @@ namespace deren::utility {
 
             // Timestamp the rotated block so sessions are distinguishable in deren-debug.log.old
             if (!content.contains("===== session")) {
-                old_log << deren::utility::vessel::format("===== session ended at {:%Y-%m-%d %H:%M:%S} =====\n",
-                                                          std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now()));
+                char timestamp[32];
+                format_timestamp(timestamp, sizeof timestamp, std::chrono::system_clock::now());
+                old_log << "===== session ended at " << timestamp << " =====\n";
             }
 
-            // Normalize to one blank line after every log line, matching the worker's deren-debug.log
-            // format (idempotent: already double-spaced content stays unchanged)
+            // Normalize to one newline after every physical line, matching the worker's
+            // deren-debug.log shape (each entry is a metadata line followed immediately by its body).
             deren::utility::vessel::istringstream lines(content);
             deren::utility::vessel::string line;
             while (std::getline(lines, line)) {
                 if (!line.empty()) {
-                    old_log << line << '\n'
-                            << '\n';
+                    old_log << line << '\n';
                 }
             }
             old_log.close();
@@ -125,7 +223,7 @@ namespace deren::utility {
         std::mutex queue_mutex = {};
         std::condition_variable queue_cv = {};
         std::condition_variable drained_cv = {}; // notifies when the queue has been drained
-        deren::utility::vessel::queue<deren::utility::vessel::string> messages = {};
+        deren::utility::vessel::queue<log_entry> messages = {};
         std::atomic<std::uint64_t> submitted{0}, completed{0};
         static_assert(std::atomic<std::uint64_t>::is_always_lock_free);
         std::thread worker = {};
@@ -147,11 +245,15 @@ namespace deren::utility {
         log_sink(log_sink const&) = delete;
         log_sink& operator=(log_sink const&) = delete;
 
-        /// Queue one line. TAKES A VIEW, and the copy the queue stores is made on THIS side - which
+        /// Queue one entry. TAKES A VIEW, and the copy the queue stores is made on THIS side - which
         /// is what lets a caller hand over its own temporary string without either side owning the
         /// other's allocation. That is a design choice rather than a rule (this module's interface
         /// may carry STL: see shared_utility.cppm), and it is the shape the three doors settled on.
-        void write(std::string_view text);
+        /// `timestamp`, the caller's thread and the caller's function name are captured before the
+        /// caller's formatted string reaches this function, so the entry identifies when and where
+        /// the event happened.
+        void write(std::string_view text, std::chrono::system_clock::time_point timestamp, bool error,
+                   std::string_view function);
         void wait_all();
         void wait_prefix_for(std::chrono::milliseconds budget) noexcept;
         /// Drain the queue, stop the worker and close the file. Idempotent; called from the
@@ -225,7 +327,7 @@ namespace deren::utility {
         static_cast<void>(diagnostics::prepare_crash_thread());
         this->worker_id.store(std::this_thread::get_id(), std::memory_order_relaxed);
         while (true) {
-            deren::utility::vessel::string message;
+            log_entry message;
             {
                 std::unique_lock lock(this->queue_mutex);
                 // Keep waiting for messages; drain the queue before exiting
@@ -243,13 +345,26 @@ namespace deren::utility {
 #if defined(DEREN_LOG_TESTING)
             utility_log_test_before_write();
 #endif
+            char prefix[96];
+            format_log_prefix(prefix, sizeof prefix, message);
+            auto const prefix_size = std::string_view(prefix).size();
             if (this->file) {
-                this->file << message << '\n'
-                           << '\n'
+                this->file << prefix;
+                if (!message.function.empty()) {
+                    this->file << ' ' << message.function;
+                }
+                this->file << '\n'
+                           << message.text << '\n'
                            << std::flush;
             }
             if (!this->file) {
-                detail::trace_native::write_text(message.data(), message.size());
+                detail::trace_native::write_text(prefix, prefix_size);
+                if (!message.function.empty()) {
+                    detail::trace_native::write_text(" ", 1);
+                    detail::trace_native::write_text(message.function.data(), message.function.size());
+                }
+                detail::trace_native::write_text("\n", 1);
+                detail::trace_native::write_text(message.text.data(), message.text.size());
                 detail::trace_native::write_text("\n", 1);
             }
             {
@@ -260,8 +375,19 @@ namespace deren::utility {
         }
     }
 
-    void log_sink::write(std::string_view const text) {
-        deren::utility::vessel::string message(text); // the copy the queue owns is made on THIS side of the boundary
+    void log_sink::write(std::string_view text, std::chrono::system_clock::time_point const timestamp,
+                         bool const error, std::string_view const function) {
+        log_level level = error ? log_level::error : log_level::info;
+        if (error) {
+            // Keep exactly one [ERROR] marker even if the caller already wrote one.
+            if (text.starts_with("[ERROR] ")) {
+                text.remove_prefix(8);
+            }
+        } else {
+            apply_manual_level(text, level);
+        }
+        log_entry message{timestamp, current_thread_token(), level, function,
+                          deren::utility::vessel::string(text)}; // the copy the queue owns is made on THIS side
         {
             std::lock_guard lock(this->queue_mutex);
             if (!this->accepting) {
@@ -307,12 +433,22 @@ namespace deren::utility {
         }
     }
 
-    void log_text(std::string_view const text) noexcept {
-        instance().write(text);
+    void log_text(std::string_view const text, std::source_location const location) noexcept {
+        instance().write(text, std::chrono::system_clock::now(), false, location.function_name());
     }
 
-    void error_text(std::string_view const text) noexcept {
-        instance().write(deren::utility::vessel::format("[ERROR] {}", text));
+    void log_text(std::string_view const text, std::chrono::system_clock::time_point const timestamp,
+                  std::source_location const location) noexcept {
+        instance().write(text, timestamp, false, location.function_name());
+    }
+
+    void error_text(std::string_view const text, std::source_location const location) noexcept {
+        instance().write(text, std::chrono::system_clock::now(), true, location.function_name());
+    }
+
+    void error_text(std::string_view const text, std::chrono::system_clock::time_point const timestamp,
+                    std::source_location const location) noexcept {
+        instance().write(text, timestamp, true, location.function_name());
     }
 
     void wait_log_all() noexcept {
