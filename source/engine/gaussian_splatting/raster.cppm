@@ -52,10 +52,10 @@ export namespace deren::engine::gaussian_splatting {
     };
     class raster_asset {
     public:
-        raster_asset(raster_asset const&) = delete;
-        raster_asset& operator=(raster_asset const&) = delete;
-        raster_asset(raster_asset&&) = delete;
-        raster_asset& operator=(raster_asset&&) = delete;
+        raster_asset(raster_asset const&) = delete ("raster_asset is non-copyable: construct it in place and keep its identity");
+        raster_asset& operator=(raster_asset const&) = delete ("raster_asset is non-copyable: configure it through its owning API");
+        raster_asset(raster_asset&&) = delete ("raster_asset is non-movable: its resources are tied to the current address");
+        raster_asset& operator=(raster_asset&&) = delete ("raster_asset is non-movable: its resources are tied to the current address");
         [[nodiscard]] deren::gaussian::asset const& source() const noexcept {
             return *cpu_asset;
         }
@@ -75,10 +75,10 @@ export namespace deren::engine::gaussian_splatting {
     };
     class raster_frame {
     public:
-        raster_frame(raster_frame const&) = delete;
-        raster_frame& operator=(raster_frame const&) = delete;
-        raster_frame(raster_frame&&) = delete;
-        raster_frame& operator=(raster_frame&&) = delete;
+        raster_frame(raster_frame const&) = delete ("raster_frame is non-copyable: construct it in place and keep its identity");
+        raster_frame& operator=(raster_frame const&) = delete ("raster_frame is non-copyable: configure it through its owning API");
+        raster_frame(raster_frame&&) = delete ("raster_frame is non-movable: its resources are tied to the current address");
+        raster_frame& operator=(raster_frame&&) = delete ("raster_frame is non-movable: its resources are tied to the current address");
         [[nodiscard]] raster_push const& params() const noexcept {
             return push;
         }

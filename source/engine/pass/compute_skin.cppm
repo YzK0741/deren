@@ -75,10 +75,10 @@ export namespace deren::engine::pass {
         compute_skin_job() = default;
         ~compute_skin_job();
 
-        compute_skin_job(compute_skin_job const&) = delete;
-        compute_skin_job& operator=(compute_skin_job const&) = delete;
+        compute_skin_job(compute_skin_job const&) = delete ("compute_skin_job is non-copyable: pass it by reference or construct a new instance");
+        compute_skin_job& operator=(compute_skin_job const&) = delete ("compute_skin_job is non-copyable: modify the existing instance instead");
         compute_skin_job(compute_skin_job&&) = default;
-        compute_skin_job& operator=(compute_skin_job&&) = delete;
+        compute_skin_job& operator=(compute_skin_job&&) = delete ("compute_skin_job cannot be move-assigned: its registered references must stay stable");
 
         /**
          * @brief build the pipeline

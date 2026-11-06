@@ -47,8 +47,8 @@ export namespace deren::engine::gaussian_splatting {
                   offsetof(gpu_prepare_parameters, ranges_address) == 128 && offsetof(gpu_prepare_parameters, candidate_count) == 168);
     class gpu_frame : public std::enable_shared_from_this<gpu_frame> {
     public:
-        gpu_frame(gpu_frame const&) = delete;
-        gpu_frame& operator=(gpu_frame const&) = delete;
+        gpu_frame(gpu_frame const&) = delete ("gpu_frame is non-copyable: pass it by reference or construct a new instance");
+        gpu_frame& operator=(gpu_frame const&) = delete ("gpu_frame is non-copyable: modify the existing instance instead");
         [[nodiscard]] std::uint32_t candidate_count() const noexcept {
             return push.visible_count;
         }

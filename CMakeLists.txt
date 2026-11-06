@@ -15,9 +15,9 @@ if(MINGW AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
 endif()
 
 
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_SCAN_FOR_MODULES ON)
-# NOTE: do NOT add "-std=c++23" to CMAKE_CXX_FLAGS here - CMAKE_CXX_STANDARD already injects it,
+# NOTE: do NOT add "-std=c++26" to CMAKE_CXX_FLAGS here - CMAKE_CXX_STANDARD already injects it,
 # and doing both duplicates the flag on every TU (same for -O3 / -g, which the default per-config
 # flags already provide - see COMPILE_OPTIONS below).
 set(CMAKE_CXX_EXTENSIONS OFF)

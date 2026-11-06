@@ -140,8 +140,8 @@ export namespace deren::promise::rhi {
         }
 
     public:
-        context_view(context_view const&) = delete;
-        context_view& operator=(context_view const&) = delete;
+        context_view(context_view const&) = delete ("context_view is bound once to its owning api_core and cannot be copied");
+        context_view& operator=(context_view const&) = delete ("context_view is bound once to its owning api_core and cannot be reassigned");
         [[nodiscard]] T* operator->() const noexcept {
             return target;
         }

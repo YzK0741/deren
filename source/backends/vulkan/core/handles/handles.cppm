@@ -45,9 +45,9 @@ namespace deren::vulkan {
         explicit vk_command_buffer(VkCommandBuffer command_buffer, VkDevice device, VkCommandPool pool, bool owns_pool) noexcept;
         ~vk_command_buffer() noexcept;
 
-        explicit vk_command_buffer(vk_command_buffer& command_buffer) = delete;
+        explicit vk_command_buffer(vk_command_buffer& command_buffer) = delete ("vk_command_buffer owns a Vulkan handle; construct a distinct handle or move it with std::move");
         vk_command_buffer(vk_command_buffer&& other) noexcept;
-        vk_command_buffer& operator=(vk_command_buffer& other) = delete;
+        vk_command_buffer& operator=(vk_command_buffer& other) = delete ("vk_command_buffer owns a Vulkan handle; move-assign it with std::move");
         vk_command_buffer& operator=(vk_command_buffer&& other) noexcept;
     };
 
@@ -79,9 +79,9 @@ namespace deren::vulkan {
         explicit vk_shader_module(VkShaderModule shader_module, VkDevice device) noexcept;
         ~vk_shader_module() noexcept;
 
-        explicit vk_shader_module(vk_shader_module& shader_module) = delete;
+        explicit vk_shader_module(vk_shader_module& shader_module) = delete ("vk_shader_module owns a Vulkan handle; construct a distinct handle or move it with std::move");
         vk_shader_module(vk_shader_module&& other) noexcept;
-        vk_shader_module& operator=(vk_shader_module& other) = delete;
+        vk_shader_module& operator=(vk_shader_module& other) = delete ("vk_shader_module owns a Vulkan handle; move-assign it with std::move");
         vk_shader_module& operator=(vk_shader_module&& other) noexcept;
     };
 
@@ -125,9 +125,9 @@ namespace deren::vulkan {
          */
         void begin_pipeline(VkCommandBuffer command_buffer) const;
 
-        vk_pipeline(vk_pipeline&) = delete;
+        vk_pipeline(vk_pipeline&) = delete ("vk_pipeline owns a Vulkan handle; construct a distinct handle or move it with std::move");
         vk_pipeline(vk_pipeline&& other) noexcept;
-        vk_pipeline& operator=(vk_pipeline& other) = delete;
+        vk_pipeline& operator=(vk_pipeline& other) = delete ("vk_pipeline owns a Vulkan handle; move-assign it with std::move");
         vk_pipeline& operator=(vk_pipeline&& other) noexcept;
         void release() noexcept;
     };
@@ -151,9 +151,9 @@ namespace deren::vulkan {
         explicit vk_image_view(VkImageView image_view, VkDevice device) noexcept;
         ~vk_image_view() noexcept;
 
-        explicit vk_image_view(vk_image_view&) = delete;
+        explicit vk_image_view(vk_image_view&) = delete ("vk_image_view owns a Vulkan handle; construct a distinct handle or move it with std::move");
         vk_image_view(vk_image_view&& other) noexcept;
-        vk_image_view& operator=(vk_image_view&) = delete;
+        vk_image_view& operator=(vk_image_view&) = delete ("vk_image_view owns a Vulkan handle; move-assign it with std::move");
         vk_image_view& operator=(vk_image_view&& other) noexcept;
     };
 
@@ -176,9 +176,9 @@ namespace deren::vulkan {
         explicit vk_sampler(VkSampler sampler, VkDevice device) noexcept;
         ~vk_sampler() noexcept;
 
-        explicit vk_sampler(vk_sampler&) = delete;
+        explicit vk_sampler(vk_sampler&) = delete ("vk_sampler owns a Vulkan handle; construct a distinct handle or move it with std::move");
         vk_sampler(vk_sampler&& other) noexcept;
-        vk_sampler& operator=(vk_sampler&) = delete;
+        vk_sampler& operator=(vk_sampler&) = delete ("vk_sampler owns a Vulkan handle; move-assign it with std::move");
         vk_sampler& operator=(vk_sampler&& other) noexcept;
     };
 } // namespace deren::vulkan

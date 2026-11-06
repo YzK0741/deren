@@ -152,8 +152,8 @@ namespace deren::utility {
         // is a better teacher than a comment. bvh<T>::add() builds leaves in place so no copy is
         // needed anywhere. The pool owns destruction, so the node itself has no destructor that
         // walks its children.
-        bvh_node(bvh_node const&) = delete;
-        bvh_node& operator=(bvh_node const&) = delete;
+        bvh_node(bvh_node const&) = delete ("bvh_node is non-copyable: pass it by reference or construct a new instance");
+        bvh_node& operator=(bvh_node const&) = delete ("bvh_node is non-copyable: modify the existing instance instead");
         bvh_node(bvh_node&&) = default;
         bvh_node& operator=(bvh_node&&) = default;
         bvh_node() = default;

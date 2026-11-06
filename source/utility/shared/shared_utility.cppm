@@ -193,7 +193,7 @@ export namespace deren::utility::memory {
             }
             return static_cast<T*>(memory::allocate(count * sizeof(T), alignof(T)));
         }
-        void deallocate(T* pointer, [[maybe_unused]] std::size_t count) noexcept {
+        void deallocate(T* pointer, std::size_t _) noexcept {
             memory::deallocate(pointer);
         }
         template <typename U>

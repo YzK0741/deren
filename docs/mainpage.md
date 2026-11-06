@@ -1,10 +1,10 @@
 # deren
 
-**deren** is a real-time renderer in modern C++23 (C++20 modules / `.cppm`), built with CMake 4.3 +
-Ninja on MSYS2 clang64. The renderer reaches the graphics API through a contract and never through
-Vulkan types: the backend is a DLL the executable resolves **by name** at run time, so a second
-backend (D3D12, null, ...) is a second DLL implementing the same contract - see
-[The dynamic API](#the-dynamic-api) below.
+**deren** is a real-time renderer that chases the newest C++ and graphics API features. The current
+baseline is C++26 (C++20 modules / `.cppm`), built with CMake 4.3 + Ninja on MSYS2 clang64. The
+renderer reaches the graphics API through a contract and never through Vulkan types: the backend is
+a DLL the executable resolves **by name** at run time, so a second backend (D3D12, null, ...) is a
+second DLL implementing the same contract - see [The dynamic API](#the-dynamic-api) below.
 
 Current version: **0.5.0** - single source is `project(VERSION)` in `CMakeLists.txt`
 (surfaced by `--version`, the startup log banner and the instance's `app_info`); bump it there
@@ -148,6 +148,7 @@ finally the migration history.
 | 18 | \subpage md_docs_2compiler__tolerance "Compiler tolerance" | What the build needs from a toolchain, what a second one (GCC) measured, and what still stops it. |
 | 19 | \subpage md_docs_2unified__image__layouts "Unified image layouts" | One layout vocabulary for render targets, uploads and read-back. |
 | 20 | \subpage md_docs_2host__image__copy "Host image copy" | The VK_EXT_host_image_copy path: a texture uploaded without a staging buffer. |
+| 21 | \subpage md_docs_2cpp26__features "C++26 features in use" | A register of the C++26 language and library features first-party code actually adopts. |
 
 Seven further pages sit in the manual's `INPUT` ahead of this one and are not part of the numbered
 reading path: the passchain resource pages (\ref managed_resources "Passchain-managed resources",

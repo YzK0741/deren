@@ -203,10 +203,10 @@ namespace deren::engine::acceleration_structure {
 
     public:
         explicit bottom_level_structures(rhi::api_core& face, rhi::shared_object<rhi::api_core> lease = {});
-        bottom_level_structures(bottom_level_structures const&) = delete;
-        bottom_level_structures& operator=(bottom_level_structures const&) = delete;
-        bottom_level_structures(bottom_level_structures&&) = delete;
-        bottom_level_structures& operator=(bottom_level_structures&&) = delete;
+        bottom_level_structures(bottom_level_structures const&) = delete ("bottom_level_structures is non-copyable: construct it in place and keep its identity");
+        bottom_level_structures& operator=(bottom_level_structures const&) = delete ("bottom_level_structures is non-copyable: configure it through its owning API");
+        bottom_level_structures(bottom_level_structures&&) = delete ("bottom_level_structures is non-movable: its resources are tied to the current address");
+        bottom_level_structures& operator=(bottom_level_structures&&) = delete ("bottom_level_structures is non-movable: its resources are tied to the current address");
         ~bottom_level_structures();
 
         /**
@@ -328,10 +328,10 @@ namespace deren::engine::acceleration_structure {
          * @param frame_slot_count how many per-frame slots to allocate (the runtime's frame count)
          */
         explicit top_level_structure(rhi::api_core& face, uint32_t frame_slot_count, rhi::shared_object<rhi::api_core> lease = {});
-        top_level_structure(top_level_structure const&) = delete;
-        top_level_structure& operator=(top_level_structure const&) = delete;
-        top_level_structure(top_level_structure&&) = delete;
-        top_level_structure& operator=(top_level_structure&&) = delete;
+        top_level_structure(top_level_structure const&) = delete ("top_level_structure is non-copyable: construct it in place and keep its identity");
+        top_level_structure& operator=(top_level_structure const&) = delete ("top_level_structure is non-copyable: configure it through its owning API");
+        top_level_structure(top_level_structure&&) = delete ("top_level_structure is non-movable: its resources are tied to the current address");
+        top_level_structure& operator=(top_level_structure&&) = delete ("top_level_structure is non-movable: its resources are tied to the current address");
         ~top_level_structure();
         [[nodiscard]] render_resource::instances::resource_snapshot resources(uint32_t slot) const noexcept {
             return slot < slots.size() ? slots[slot].storage_view : render_resource::instances::resource_snapshot{};

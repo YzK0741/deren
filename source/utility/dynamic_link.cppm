@@ -127,8 +127,8 @@ export namespace deren::utility::dynamic_link {
             : handle(opened) {
         }
 
-        library(library const&) = delete;
-        library& operator=(library const&) = delete;
+        library(library const&) = delete ("library is non-copyable: pass it by reference or construct a new instance");
+        library& operator=(library const&) = delete ("library is non-copyable: modify the existing instance instead");
 
         library(library&& other) noexcept
             : handle(other.handle) {

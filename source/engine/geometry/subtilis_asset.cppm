@@ -57,8 +57,8 @@ export namespace deren::engine::subtilis {
             }
             return *this;
         }
-        asset(asset const&) = delete;
-        asset& operator=(asset const&) = delete;
+        asset(asset const&) = delete ("asset is non-copyable: pass it by reference or construct a new instance");
+        asset& operator=(asset const&) = delete ("asset is non-copyable: modify the existing instance instead");
         [[nodiscard]] std::span<meshlet const> clusters() const noexcept {
             return clusters_;
         }

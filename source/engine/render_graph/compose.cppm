@@ -171,8 +171,8 @@ export namespace deren::engine::render_graph::execution {
         explicit builder(rhi::shared_object<rhi::api_core> core)
             : core_(std::move(core)) {
         }
-        builder(builder const&) = delete;
-        builder& operator=(builder const&) = delete;
+        builder(builder const&) = delete ("builder is non-copyable: pass it by reference or construct a new instance");
+        builder& operator=(builder const&) = delete ("builder is non-copyable: modify the existing instance instead");
         auto import_texture(resource_lease<rhi::image> lease, import_state state, std::string_view name) {
             return import_resource(std::move(lease), state, name);
         }

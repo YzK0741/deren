@@ -117,8 +117,8 @@ namespace deren::utility::detail::trace_native {
                     std::free(this->block);
                 }
             }
-            filtered_environment(filtered_environment const&) = delete;
-            filtered_environment& operator=(filtered_environment const&) = delete;
+            filtered_environment(filtered_environment const&) = delete ("filtered_environment is non-copyable: pass it by reference or construct a new instance");
+            filtered_environment& operator=(filtered_environment const&) = delete ("filtered_environment is non-copyable: modify the existing instance instead");
             [[nodiscard]] wchar_t* get() noexcept {
                 return this->block;
             }

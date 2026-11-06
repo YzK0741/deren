@@ -85,8 +85,8 @@ namespace deren::vulkan::gui {
     public:
         widget() = default;
         virtual ~widget() = default;
-        widget(widget const&) = delete;
-        widget& operator=(widget const&) = delete;
+        widget(widget const&) = delete ("widget is non-copyable: pass it by reference or construct a new instance");
+        widget& operator=(widget const&) = delete ("widget is non-copyable: modify the existing instance instead");
         widget(widget&&) noexcept = default;
         widget& operator=(widget&&) noexcept = default;
 
@@ -265,8 +265,8 @@ namespace deren::vulkan::gui {
     public:
         gui_content() noexcept = default;
         ~gui_content(); // shuts the overlay down (see gui.cpp); safe on a default-constructed object
-        gui_content(gui_content const&) = delete;
-        gui_content& operator=(gui_content const&) = delete;
+        gui_content(gui_content const&) = delete ("gui_content is non-copyable: pass it by reference or construct a new instance");
+        gui_content& operator=(gui_content const&) = delete ("gui_content is non-copyable: modify the existing instance instead");
 
         /**
          * @ingroup vulkan_gui

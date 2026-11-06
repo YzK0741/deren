@@ -28,8 +28,8 @@ namespace deren::engine {
 
     public:
         geometry_buffer() = default;
-        geometry_buffer(geometry_buffer const&) = delete;
-        geometry_buffer& operator=(geometry_buffer const&) = delete;
+        geometry_buffer(geometry_buffer const&) = delete ("geometry_buffer is non-copyable: pass it by reference or construct a new instance");
+        geometry_buffer& operator=(geometry_buffer const&) = delete ("geometry_buffer is non-copyable: modify the existing instance instead");
         geometry_buffer(geometry_buffer&& other) noexcept
             : view(std::exchange(other.view, nullptr))
             , owner(std::move(other.owner)) {

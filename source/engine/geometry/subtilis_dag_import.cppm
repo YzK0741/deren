@@ -57,8 +57,8 @@ export namespace deren::engine::subtilis {
         friend std::expected<imported_asset, import_failure> import_payload(import_input const&);
 
     public:
-        imported_asset(imported_asset const&) = delete;
-        imported_asset& operator=(imported_asset const&) = delete;
+        imported_asset(imported_asset const&) = delete ("imported_asset is non-copyable: pass it by reference or construct a new instance");
+        imported_asset& operator=(imported_asset const&) = delete ("imported_asset is non-copyable: modify the existing instance instead");
         imported_asset(imported_asset&&) = default;
         imported_asset& operator=(imported_asset&&) = default;
         dag_asset const& hierarchy() const noexcept {

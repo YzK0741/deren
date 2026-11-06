@@ -87,10 +87,10 @@ namespace deren::vulkan {
     export class descriptor_heap {
     public:
         descriptor_heap() = default;
-        descriptor_heap(descriptor_heap const&) = delete;
-        descriptor_heap& operator=(descriptor_heap const&) = delete;
-        descriptor_heap(descriptor_heap&&) = delete;
-        descriptor_heap& operator=(descriptor_heap&&) = delete;
+        descriptor_heap(descriptor_heap const&) = delete ("descriptor_heap is non-copyable: construct it in place and keep its identity");
+        descriptor_heap& operator=(descriptor_heap const&) = delete ("descriptor_heap is non-copyable: configure it through its owning API");
+        descriptor_heap(descriptor_heap&&) = delete ("descriptor_heap is non-movable: its resources are tied to the current address");
+        descriptor_heap& operator=(descriptor_heap&&) = delete ("descriptor_heap is non-movable: its resources are tied to the current address");
         ~descriptor_heap();
 
         /**

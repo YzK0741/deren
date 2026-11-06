@@ -44,8 +44,8 @@ export namespace deren::engine::subtilis {
         dag_asset() = default;
 
     public:
-        dag_asset(dag_asset const&) = delete;
-        dag_asset& operator=(dag_asset const&) = delete;
+        dag_asset(dag_asset const&) = delete ("dag_asset is non-copyable: pass it by reference or construct a new instance");
+        dag_asset& operator=(dag_asset const&) = delete ("dag_asset is non-copyable: modify the existing instance instead");
         dag_asset(dag_asset&&) = default;
         dag_asset& operator=(dag_asset&&) = default;
         std::span<dag_cluster const> clusters() const noexcept {

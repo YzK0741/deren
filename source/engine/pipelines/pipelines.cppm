@@ -76,8 +76,8 @@ namespace deren::engine::pipelines {
         pipeline_handle(rhi::pipeline* owned) noexcept;
         pipeline_handle(pipeline_handle&& other) noexcept;
         pipeline_handle& operator=(pipeline_handle&& other) noexcept;
-        pipeline_handle(pipeline_handle const&) = delete;
-        pipeline_handle& operator=(pipeline_handle const&) = delete;
+        pipeline_handle(pipeline_handle const&) = delete ("pipeline_handle is non-copyable: pass it by reference or construct a new instance");
+        pipeline_handle& operator=(pipeline_handle const&) = delete ("pipeline_handle is non-copyable: modify the existing instance instead");
         ~pipeline_handle() noexcept;
         /// bind + re-emit the stored dynamic state, through the record series: the three verbs the raw shape
         /// spelled, and the reason a caller no longer needs the pipeline's native handle.

@@ -133,8 +133,8 @@ export namespace deren::engine {
         }
 
     public:
-        buffer_transfer_batch(buffer_transfer_batch const&) = delete;
-        buffer_transfer_batch& operator=(buffer_transfer_batch const&) = delete;
+        buffer_transfer_batch(buffer_transfer_batch const&) = delete ("buffer_transfer_batch is non-copyable: pass it by reference or construct a new instance");
+        buffer_transfer_batch& operator=(buffer_transfer_batch const&) = delete ("buffer_transfer_batch is non-copyable: modify the existing instance instead");
         buffer_transfer_batch(buffer_transfer_batch&&) noexcept = default;
         buffer_transfer_batch& operator=(buffer_transfer_batch&&) noexcept = default;
         [[nodiscard]] transfer_rhi::error upload(resource_lease<transfer_rhi::buffer> destination, std::uint64_t offset,
@@ -157,8 +157,8 @@ export namespace deren::engine {
         explicit buffer_transfer_service(transfer_rhi::shared_object<transfer_rhi::api_core> device)
             : core(std::move(device)) {
         }
-        buffer_transfer_service(buffer_transfer_service const&) = delete;
-        buffer_transfer_service& operator=(buffer_transfer_service const&) = delete;
+        buffer_transfer_service(buffer_transfer_service const&) = delete ("buffer_transfer_service is non-copyable: pass it by reference or construct a new instance");
+        buffer_transfer_service& operator=(buffer_transfer_service const&) = delete ("buffer_transfer_service is non-copyable: modify the existing instance instead");
         ~buffer_transfer_service() noexcept {
             if (drain(UINT64_MAX) != transfer_rhi::error::ok)
                 deren::utility::fast_panic("environment: buffer transfer final drain failed");

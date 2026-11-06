@@ -6,7 +6,7 @@
   </picture>
 </p>
 
-**deren** is a real-time renderer written in modern C++23 modules. Its portable engine uses RHI and GUI contracts to load graphics implementations as DLLs.
+**deren** is a real-time renderer that chases the newest C++ and graphics API features. Its portable engine uses RHI and GUI contracts to load graphics implementations as DLLs. The current baseline combines C++26 modules, PBR, anime-style toon shading, Gaussian splatting, Slang shaders, and a backend-independent RHI with a Vulkan backend.
 
 > The project was renamed from `vulkan_render` to `deren` on 2026-10-02. Portable modules now use `deren.engine.*` and `deren::engine`; native Vulkan implementations retain `deren.vulkan.*` and `deren::vulkan`.
 
@@ -254,7 +254,7 @@ Related source docs (tracked in the repo):
 ├── source/app/main.cpp      # Demo entry point: start async loads -> runtime init -> scene import
 │                            #   -> animation/camera/gui setup -> granular frame-phase render loop
 ├── source/app/app_*.cppm/.cpp # deren.app.config, .pipelines, .renderer, .ui, .animation, .instancing
-├── CMakeLists.txt           # CMake 4.3, C++23 modules build
+├── CMakeLists.txt           # CMake 4.3+, C++26 modules build
 ├── config.example.toml      # Annotated startup-config reference (copy to config.toml)
 ├── Doxyfile                 # Doxygen config (PROJECT_NAME: "deren")
 ├── source/configuration/  # deren.application_configuration (TOML startup config + argv merge)
@@ -296,7 +296,7 @@ Related source docs (tracked in the repo):
 
 ### Requirements
 
-- CMake ≥ 4.3 and a compiler with C++23 / C++20 modules support (this project builds with MSYS2 clang64's clang + libc++, the toolchain `source/vstd/vstd.cppm` and `.github/workflows/ci.yml` are both tied to)
+- CMake ≥ 4.3 and a compiler with C++26 / C++20 modules support (this project builds with MSYS2 clang64's clang + libc++, the toolchain `source/vstd/vstd.cppm` and `.github/workflows/ci.yml` are both tied to)
 - [Vulkan SDK](https://vulkan.lunarg.com/sdk/home): what `find_package(Vulkan REQUIRED)` resolves against, and one of the places `slangc` can come from (`Bin/slangc.exe`; MSYS2 ships no Slang package). VMA is **not** taken from its `Include/`: `deren.vulkan.core:vma` includes the vendored `source/third_party/vma/vk_mem_alloc.h`, preferred because distro Vulkan packages do not ship that header
 - System packages: `glfw3`, `glm`, `tomlplusplus` (header-only; MSYS2 `mingw-w64-clang-x86_64-{glfw,glm,tomlplusplus}`)
 - Everything else is vendored under `source/third_party/`: `spirv-reflect`, Dear ImGui (GLFW/Vulkan backends), xxHash, **fastgltf + simdjson** (the glTF parser and its JSON backend, compiled from source into a `fastgltf_vendored` target), **stb_image** (texture decode), **mimalloc** (the allocator behind `deren::utility::memory` and therefore every `vessel` container, compiled into a `mimalloc_vendored` static target), **Boost.Graph** (the render-graph core's adjacency backend, vendored as headers) and **VRDX** (the GPU radix sort the Gaussian path uses, vendored as a single-header library). No system fastgltf/simdjson/mimalloc package and no network fetch is needed — the build is self-contained on both Windows/MSYS2 and Linux. `glfw3`, `mimalloc`, `xxHash` and the other vendored libraries are still linked statically, but the **Windows Release** executable is a dynamic-C++-runtime build: it imports `libc++.dll` and needs four first-party images beside it — `deren_assets.dll` (the asset-loading stack, linked through its import library so the loader brings it in before `main`), `deren_vulkan.dll` and `deren_gui_vulkan.dll` (the two graphics plugins, each exporting one `deren_*` entry and each resolved BY NAME at run time) and `shared_utility.dll` (the process-wide log sink) — plus the build's compiled `source/shaders/` directory. `build/deren.exe` is therefore no longer a single portable file, and the CI artifact uploads exactly this package. Debug builds are dynamic for the same reason.
@@ -321,15 +321,15 @@ The version column gives **the minimum the build actually enforces** where there
 
 | | version | why it is required |
 |---|---|---|
-| **CMake** | **≥ 4.3** (`cmake_minimum_required` in `CMakeLists.txt`); 4.4.3 measured | |
-| **Clang + libc++ + lld** | MSYS2 **clang64**, clang **22.1.8** measured | C++23 with **C++20 modules** (`.cppm`). `source/vstd/vstd.cppm` is a trimmed fork of libc++'s generated `std` module, so the STL half of the build is tied to *libc++ from clang64* rather than to "a C++23 compiler" in the abstract — that is the toolchain `.github/workflows/ci.yml` installs and the one this tree's module/`import` semantics are tested on. |
+| **CMake** | **≥ 4.3** (`cmake_minimum_required` in `CMakeLists.txt`); 4.4.5 measured | |
+| **Clang + libc++ + lld** | MSYS2 **clang64**, clang **23.1.4** measured | C++26 with **C++20 modules** (`.cppm`). `source/vstd/vstd.cppm` is a trimmed fork of libc++'s generated `std` module, so the STL half of the build is tied to *libc++ from clang64* rather than to "a C++26 compiler" in the abstract — that is the toolchain `.github/workflows/ci.yml` installs and the one this tree's module/`import` semantics are tested on. |
 | **Ninja** | 1.13.2 measured | the generator every script and CI job uses |
 | **slangc** | **required**, pinned upstream release **2026.18.2** (`sha256 747602ae…`, the checksum CI verifies) | **Every shader stage is built from a `.slang` source and CMake refuses to configure without `slangc`** (`find_program` + `FATAL_ERROR`; the GLSL fallback and GLSL stage sources were both removed). MSYS2 ships no Slang package, so it comes from the upstream release zip or the Vulkan SDK's `Bin/`. Pass `-DVR_SLANGC_EXECUTABLE=<path>` or put it on `PATH`. |
 | **Python** | **≥ 3.8** for the scripts (3.14.7 measured) | `scripts/config/make_config.py`, `scripts/config/make_default_config.py`, and the boundary gate |
 | **PowerShell** | **7** (`pwsh`) | `scripts/gates/*`, including the render regression check |
 | **`llvm-nm`** | clang-tools-extra (`llvm-nm-18`/`-17` or GNU `nm` also work) | reads the static archives for `scripts/checks/check_backend_boundary.py` (the backend-boundary ratchet). Build-time optional; the gate needs one of them. |
 
-**Compiler dialect** (not a preference — the tree depends on it): C++23, `-fno-rtti`, `-fno-exceptions`, `-Werror`, and `-march=native` for local Release builds (CI sets `-DVR_NATIVE_ARCH=OFF` because it uploads the binary).
+**Compiler dialect** (not a preference — the tree depends on it): C++26, `-fno-rtti`, `-fno-exceptions`, `-Werror`, and `-march=native` for local Release builds (CI sets `-DVR_NATIVE_ARCH=OFF` because it uploads the binary).
 
 #### Hardware (the Vulkan device)
 
@@ -363,7 +363,7 @@ Measured reference device (this repository's development machine, and the hardwa
 ### Manual build
 
 The scripts above are thin wrappers over the same two commands — configure
-once with Ninja + a C++23-module compiler, then build:
+once with Ninja + a C++26-module compiler, then build:
 
 ```bash
 cmake -S . -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release

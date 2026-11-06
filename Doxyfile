@@ -81,7 +81,7 @@ PROJECT_NUMBER         =
 # than naming the graphics backend: the backend is being separated out behind an RHI of its own
 # (docs/runtime_split.md), so the backend's name is a moving part and not the project's name.
 
-PROJECT_BRIEF          = A C++23 modules renderer whose graphics backend is being separated behind an RHI
+PROJECT_BRIEF          = A real-time renderer that chases the newest C++ and graphics API features
 
 # With the PROJECT_LOGO tag one can specify a logo or an icon that is included
 # in the documentation. The maximum height of the logo should not exceed 55
@@ -1116,7 +1116,8 @@ INPUT                  = ./docs/managed_resources.md \
 				./docs/compiler_tolerance.md \
 				./docs/unified_image_layouts.md \
 				./docs/host_image_copy.md \
-				./docs/error_handling.md
+				./docs/error_handling.md \
+				./docs/cpp26_features.md
 
 # This tag can be used to specify the character encoding of the source files
 # that Doxygen parses. Internally Doxygen uses the UTF-8 encoding. Doxygen uses

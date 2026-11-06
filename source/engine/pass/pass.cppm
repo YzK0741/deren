@@ -753,8 +753,8 @@ export namespace deren::engine::pass {
     class frame_pass {
     public:
         frame_pass() = default;
-        frame_pass(frame_pass const&) = delete;
-        frame_pass& operator=(frame_pass const&) = delete;
+        frame_pass(frame_pass const&) = delete ("frame_pass is non-copyable: pass it by reference or construct a new instance");
+        frame_pass& operator=(frame_pass const&) = delete ("frame_pass is non-copyable: modify the existing instance instead");
         virtual ~frame_pass() = default;
         virtual void describe_resources(render_resource::instances::resource_context const&, deren::utility::vessel::vector<render_resource::instances::request>&) const {
         }
