@@ -16,7 +16,8 @@ It requires both `command_submission` and `scoped_synchronization`; an unavailab
 - `ticket.poll()` never waits for GPU completion. `ticket.wait(timeout_ns)` uses the receipt's existing
   timeout rules. `ticket.readback(index)` polls and returns a read-only span only after completion.
 
-A lease must own a resource on the service's core; `resource_lease::from_shared` rejects `borrow()`.
+A lease must own a resource on the service's core; `resource_lease::from_shared` rejects a non-owning
+or empty handle.
 Backend `describe()` additionally verifies actual provenance, byte size and declared transfer capability;
 a lease's caller-supplied core is not trusted as evidence of provenance. Offset/size validation avoids
 addition overflow and happens before appending. Invalid input leaves previously accepted operations intact.

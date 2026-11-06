@@ -19,7 +19,6 @@ int main() {
         auto owner = deren::vk_test::probe_make_core({}, rhi::abi_version, true);
         auto raw = owner->resources->create_buffer({.size = 4});
         CHECK(raw);
-        CHECK(!deren::engine::resource_lease<rhi::buffer>::from_shared(owner, rhi::shared_object<rhi::buffer>::borrow(*raw)));
         auto owned = deren::engine::resource_lease<rhi::buffer>::from_shared(owner, rhi::shared_object<rhi::buffer>(std::move(raw)));
         CHECK(owned);
         deren::engine::buffer_transfer_service transfers(owner);

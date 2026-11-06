@@ -343,9 +343,6 @@ int main(int argc, char** argv) {
     bad[6].size = UINT64_MAX;
     CHECK(!core->resources->create_resource_group({.entries = bad}));
     bad = entries;
-    bad[6].resource = rhi::shared_object<rhi::buffer>::borrow(*input);
-    CHECK(!core->resources->create_resource_group({.entries = bad}));
-    bad = entries;
     bad[2].resource = sampler;
     CHECK(!core->resources->create_resource_group({.entries = bad}));
     auto other = deren::engine::load_api_core(creation);
@@ -525,7 +522,6 @@ int main(int argc, char** argv) {
     CHECK(commands->load_resource_group(group) == rhi::error::not_ready);
     CHECK(commands->barrier(rhi::image_barrier{.resource = storage.get(), .from = rhi::image_use::shader_write, .to = rhi::image_use::shader_read_write}) == rhi::error::ok);
     CHECK(commands->bind_pipeline(*pipeline) == rhi::error::ok);
-    CHECK(commands->load_resource_group(rhi::resource_group_ref::borrow(*group)) == rhi::error::invalid_argument);
     CHECK(commands->load_resource_group({}) == rhi::error::invalid_argument);
     bad = entries;
     bad[6].binding = 11;

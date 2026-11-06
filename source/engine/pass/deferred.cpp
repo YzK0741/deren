@@ -119,7 +119,7 @@ namespace deren::engine::pass {
 
     rhi::error deferred_pass::record_content(resolved_io const& io) noexcept {
         if (!this->pass_pipeline || io.targets.empty() || io.pipelines.empty() || !io.pipelines[0] ||
-            !io.list || !io.cmd || io.cmd.get() != io.list || !io.targets[0].image_handle || !io.targets[0].view_handle ||
+            !io.list || !io.cmd || io.cmd != io.list || !io.targets[0].image_handle || !io.targets[0].view_handle ||
             !io.extent.width || !io.extent.height) {
             return rhi::error::invalid_argument;
         }

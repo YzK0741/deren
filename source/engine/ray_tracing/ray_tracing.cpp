@@ -47,7 +47,10 @@ namespace deren::engine::ray_tracing {
             request.life = managed::lifetime::scene;
             request.buffer = {.size = bytes, .usage = rhi::buffer_usage::storage_gpu_only, .flags = build_input_flags};
             provider.configure(std::span{&request, 1});
-            auto root = lease ? lease : rhi::shared_object<rhi::api_core>::borrow(*&core);
+            if (!lease) {
+                return nullptr;
+            }
+            auto root = lease;
             auto const admit = [&](managed::resource_snapshot const& snapshot) {
                 auto generation = snapshot.find(id);
                 auto* buffer = generation && generation->objects.size() == 1 ? generation->objects[0].buffer.get() : nullptr;
@@ -150,7 +153,7 @@ namespace deren::engine::ray_tracing {
      * the packing) and the one the spec documents byte for byte: 4-byte offset, then 2-byte level, then 2-byte
      * format.
      *
-     * @param vk the device (and its allocator)
+     * @param lease the owning device lease; null refuses the storage
      * @param triangle_count the caster's triangles; 0 makes this a no-op that returns nothing
      * @return the resource, or nullopt when the device does not publish the entry points or an allocation fails
      */
@@ -162,7 +165,7 @@ namespace deren::engine::ray_tracing {
     // alignment, the three setup buffers and their mappings, the size queries, the storage and the scratch.
     // The backend owns all of it, so a caller cannot get the alignment wrong and a second backend can lay the
     // whole thing out differently.
-    std::optional<structure_set::micromap_resource> make_micromap(rhi::api_core& vk, rhi::shared_object<rhi::api_core> const& lease, uint32_t const triangle_count) {
+    std::optional<structure_set::micromap_resource> make_micromap(rhi::shared_object<rhi::api_core> const& lease, uint32_t const triangle_count) {
         if (triangle_count == 0 || triangle_count > UINT32_MAX / 4u) {
             return std::nullopt;
         }
@@ -200,7 +203,10 @@ namespace deren::engine::ray_tracing {
         out.resources = std::make_shared<pass::pass_chain>();
         auto& provider = out.resources->emplace<pass::resource_storage_pass>();
         provider.configure(std::span{&request, 1});
-        auto root = lease ? lease : rhi::shared_object<rhi::api_core>::borrow(*&vk);
+        if (!lease) {
+            return std::nullopt;
+        }
+        auto root = lease;
         if (out.resources->prepare_resources(root, {}) != rhi::error::ok) {
             return std::nullopt;
         }
@@ -261,6 +267,9 @@ namespace deren::engine::ray_tracing {
     std::expected<void, failure> structure_set::build(rhi::command_buffer& commands, build_inputs const& inputs) {
         if (!this->contract) {
             return std::unexpected(failure{.message = "Ray tracing device lease belongs to another core"});
+        }
+        if (!this->device_lease) {
+            return std::unexpected(failure{.message = "Ray tracing requires an owning device lease"});
         }
         // BUILT ONCE, SUCCESS OR FAILURE: a device that refused the build is not asked again, and no log repeats.
         if (this->build_attempted) {
@@ -363,7 +372,7 @@ namespace deren::engine::ray_tracing {
                 uint32_t const material_index = caster->push.material_index.value;
                 material_record const* const material = material_index < inputs.materials.size() ? &inputs.materials[material_index] : nullptr;
                 if (material != nullptr && (material->flags & 16u) != 0u) {
-                    if (auto resource = make_micromap(vk, this->device_lease, caster->draw_index_count / 3u); resource.has_value()) {
+                    if (auto resource = make_micromap(this->device_lease, caster->draw_index_count / 3u); resource.has_value()) {
                         dependencies.push_back(resource->resources->resources().snapshot().find(render_resource::resource_id::rt_opacity_micromap));
                         micromap_triangles += resource->triangle_count;
                         micromap_index = static_cast<uint32_t>(this->micromap_resources.size());

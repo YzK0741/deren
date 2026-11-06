@@ -1696,7 +1696,7 @@ namespace {
             if (raw == nullptr) {
                 return {};
             }
-            return rhi::shared_object<rhi::command_buffer>::borrow(*raw);
+            return rhi::shared_object<rhi::command_buffer>{raw};
         }
 
         [[nodiscard]] rhi::unique_object<rhi::command_buffer> create_command_buffer(rhi::command_buffer_desc const& desc) override {

@@ -103,7 +103,7 @@ int main() {
         pass::post_bloom_pass stage(level);
         pass::resolved_io io{};
         std::array<pass::resolved_binding, 1> target{{{.image_handle = levels[level].get(), .view_handle = views[level].get()}}};
-        io.cmd = command_owner;
+        io.cmd = command_owner.get();
         io.list = commands;
         io.targets = target;
         io.pipelines = pipelines;

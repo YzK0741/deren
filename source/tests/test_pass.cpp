@@ -650,9 +650,8 @@ int32_t main() {
                 first.end_result = rhi::error::operation_failed;
             if (failure == 3)
                 commands.execute_result = rhi::error::operation_failed;
-            rhi::mergeable_command_buffer_ref const first_ref = rhi::shared_object<rhi::mergeable_command_buffer>::borrow(first);
-            rhi::mergeable_command_buffer_ref const second_ref = rhi::shared_object<rhi::mergeable_command_buffer>::borrow(second);
-            std::array<segment_buffer, 2> segments{{{first_ref}, {second_ref}}};
+            std::array<segment_buffer, 2> segments{{{.buffer = deren::promise::rhi::mergeable_command_buffer_ref{&first}},
+                                                    {.buffer = deren::promise::rhi::mergeable_command_buffer_ref{&second}}}};
             scene_frame frame{.leaves = parallel ? std::span<deren::engine::primitive const* const>(leaves) : std::span<deren::engine::primitive const* const>(leaves).first(1),
                               .segments = parallel ? std::span<segment_buffer const>(segments) : std::span<segment_buffer const>(segments).first(1),
                               .make_environment = [](void*, deren::engine::recording_target, bool) { return deren::engine::render_environment{}; },
@@ -921,7 +920,7 @@ int32_t main() {
         vp::resolve_context const context = {
             .resources = &owner.table,
             .frame = frame,
-            .cmd = fake_cmd,
+            .cmd = fake_cmd.get(),
             .extent_of = [](void* o, rr::resource_id, uint32_t) { return static_cast<resolver_owner*>(o)->resource_extent; },
             .pipeline =
                 [](void* o, std::string_view const name) -> vp::owned_pipeline {
@@ -969,7 +968,7 @@ int32_t main() {
         deren::promise::rhi::image_view* const hdr_view = reinterpret_cast<deren::promise::rhi::image_view*>(0xAA);
         owner.table.publish(rr::resource_id::hdr, 0, frame.image_index, {.image_handle = reinterpret_cast<deren::promise::rhi::image*>(0xBB), .view_handle = hdr_view});
         CHECK(pass.resolve(context, io));
-        CHECK(io.cmd == fake_cmd);
+        CHECK(io.cmd == fake_cmd.get());
         CHECK(io.frame.image_index == frame.image_index);
         CHECK(io.own.size() == 4); // the four own bindings, in their own binding order
         CHECK(io.own[0].image_handle == reinterpret_cast<deren::promise::rhi::image*>(0x9000 + static_cast<uint64_t>(rr::resource_id::scene_color) + frame.image_index));

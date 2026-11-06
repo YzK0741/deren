@@ -359,16 +359,24 @@ namespace {
             CHECK_MSG(false, "CPU raster uploads must be owned by a passchain snapshot");
         }
     }
+    template <typename core_type>
+    rhi::shared_object<rhi::api_core> test_lease(core_type& core) {
+        return rhi::shared_object<rhi::api_core>{std::shared_ptr<core_type>(&core, [](core_type*) {})};
+    }
     void test_frame_upload() {
         raster_probe_core probe;
-        auto asset = gs::make_raster_asset(probe, raster_source());
+        auto lease = test_lease(probe);
+        auto asset = gs::make_raster_asset(probe, raster_source(), {}, lease);
         CHECK(asset);
         if (!asset) {
             return;
         }
+        auto prepare = [&](auto const& items, auto const& camera_value, gs::foundation_limits limits = {}, gs::raster_frame* reuse = nullptr) {
+            return gs::prepare_raster_frame(probe, items, camera_value, limits, reuse, lease);
+        };
         CHECK(probe.calls == 2);
         deren::utility::vessel::array<gs::raster_instance, 2> items = {gs::raster_instance{*asset, glm::mat4{1}, 20}, gs::raster_instance{*asset, glm::translate(glm::mat4{1}, glm::vec3{0, 0, -1}), 10}};
-        auto frame = gs::prepare_raster_frame(probe, items, camera());
+        auto frame = prepare(items, camera());
         CHECK(frame);
         if (!frame) {
             return;
@@ -383,37 +391,37 @@ namespace {
         CHECK(probe.descriptors[2].usage == rhi::buffer_usage::storage_coherent);
         CHECK(rhi::has_flag(probe.descriptors[2].flags, rhi::buffer_flag::device_address));
         unsigned const calls = probe.calls;
-        auto reused = gs::prepare_raster_frame(probe, items, camera(), {}, const_cast<gs::raster_frame*>(frame->get()));
+        auto reused = prepare(items, camera(), {}, const_cast<gs::raster_frame*>(frame->get()));
         CHECK(reused && reused->get() == frame->get() && probe.calls == calls && probe.idle_calls == 0);
-        auto limited = gs::prepare_raster_frame(probe, items, camera(), {8, 359});
+        auto limited = prepare(items, camera(), {8, 359});
         CHECK(!limited && limited.error().code == gs::error_code::limit_exceeded);
         CHECK(probe.calls == calls);
         auto bad_camera = camera();
         bad_camera.extent.height = 0;
-        CHECK(!gs::prepare_raster_frame(probe, items, bad_camera));
+        CHECK(!prepare(items, bad_camera));
         CHECK(probe.calls == calls);
         items[1].stable_id = 20;
-        CHECK(!gs::prepare_raster_frame(probe, items, camera()));
+        CHECK(!prepare(items, camera()));
         CHECK(probe.calls == calls);
         items[1].stable_id = 10;
         items[1].model = glm::scale(glm::mat4{1}, glm::vec3{1, 2, 1});
-        CHECK(!gs::prepare_raster_frame(probe, items, camera()));
+        CHECK(!prepare(items, camera()));
         CHECK(probe.calls == calls);
         items[1].model = glm::mat4{1};
         probe.fail_at = probe.calls + 2;
         int const before = probe.releases;
-        CHECK(!gs::prepare_raster_frame(probe, items, camera()));
+        CHECK(!prepare(items, camera()));
         CHECK(probe.releases == before + 1);
         probe.fail_at = 0;
         probe.address.unaligned_at = probe.calls + 1;
-        CHECK(!gs::prepare_raster_frame(probe, items, camera()));
+        CHECK(!prepare(items, camera()));
         probe.address.unaligned_at = 0;
         probe.address.zero_at = probe.calls + 2;
-        auto invalid_address = gs::prepare_raster_frame(probe, items, camera());
+        auto invalid_address = prepare(items, camera());
         CHECK(!invalid_address && invalid_address.error().code == gs::error_code::invalid_address);
         probe.address.zero_at = 0;
         probe.undersized_at = probe.calls + 2;
-        auto short_upload = gs::prepare_raster_frame(probe, items, camera());
+        auto short_upload = prepare(items, camera());
         CHECK(!short_upload && short_upload.error().code == gs::error_code::allocation_failure);
         probe.undersized_at = 0;
         std::weak_ptr<gs::raster_asset const> weak = *asset;
@@ -426,14 +434,14 @@ namespace {
         CHECK(weak.expired());
         raster_probe_core empty_probe;
         empty_probe.supported = false;
-        auto empty = gs::prepare_raster_frame(empty_probe, {}, camera());
+        auto empty = gs::prepare_raster_frame(empty_probe, {}, camera(), {}, nullptr, test_lease(empty_probe));
         CHECK(empty && (*empty)->params().visible_count == 0);
         CHECK(empty_probe.calls == 0);
     }
     void test_managed_frame_replacement() {
         auto leased = std::make_shared<raster_probe_core>();
         std::weak_ptr<raster_probe_core> root = leased;
-        auto asset = gs::make_raster_asset(*leased, raster_source());
+        auto asset = gs::make_raster_asset(*leased, raster_source(), {}, leased);
         deren::utility::vessel::array<gs::raster_instance, 1> one{gs::raster_instance{*asset, glm::mat4{1}, 1}};
         auto frame = gs::prepare_raster_frame(*leased, one, camera(), {}, nullptr, rhi::shared_object<rhi::api_core>{leased});
         CHECK(frame);
@@ -470,31 +478,32 @@ namespace {
     }
     void test_raster_lease_contract() {
         auto leased = std::make_shared<raster_probe_core>();
-        auto asset = gs::make_raster_asset(*leased, raster_source());
+        auto asset = gs::make_raster_asset(*leased, raster_source(), {}, leased);
         deren::utility::vessel::array<gs::raster_instance, 1> one{gs::raster_instance{*asset, glm::mat4{1}, 1}};
-        auto frame = gs::prepare_raster_frame(*leased, one, camera());
+        auto frame = gs::prepare_raster_frame(*leased, one, camera(), {}, nullptr, leased);
         CHECK(frame);
         if (!frame)
             return;
         auto* reuse = const_cast<gs::raster_frame*>(frame->get());
         auto old = reuse->resources();
         auto promoted = gs::prepare_raster_frame(*leased, one, camera(), {}, reuse, rhi::shared_object<rhi::api_core>{leased});
-        CHECK(!promoted && promoted.error().code == gs::error_code::invalid_argument && reuse->resources().same(old));
+        CHECK(promoted && promoted->get() == reuse && reuse->resources().same(old));
         raster_probe_core other;
         auto foreign = gs::prepare_raster_frame(other, one, camera(), {}, reuse);
         CHECK(!foreign && foreign.error().code == gs::error_code::invalid_argument && other.calls == 0);
         auto count = leased->calls;
         for (int i = 0; i < 4; ++i) {
-            auto updated = gs::prepare_raster_frame(*leased, one, camera(), {}, reuse);
+            auto updated = gs::prepare_raster_frame(*leased, one, camera(), {}, reuse, leased);
             CHECK(updated && updated->get() == reuse && reuse->resources().same(old));
         }
         CHECK(leased->calls == count && leased->idle_calls == 0);
-        auto cleared = gs::prepare_raster_frame(*leased, {}, camera(), {}, reuse);
+        auto cleared = gs::prepare_raster_frame(*leased, {}, camera(), {}, reuse, leased);
         CHECK(cleared && reuse->params().visible_count == 0 && reuse->references().empty());
         CHECK(reuse->resources().same(old) && leased->calls == count);
     }
     void test_view_dependent_sh_overflow() {
         raster_probe_core core;
+        auto lease = test_lease(core);
         auto source = raster_source();
         source.sh_degree = 2;
         source.particles.resize(1);
@@ -502,14 +511,14 @@ namespace {
         source.particles[0].sh[0] = std::numeric_limits<float>::max();
         source.particles[0].sh[6] = -std::numeric_limits<float>::max();
         source.particles[0].sh[18] = std::numeric_limits<float>::max();
-        auto asset = gs::make_raster_asset(core, std::move(source));
+        auto asset = gs::make_raster_asset(core, std::move(source), {}, lease);
         CHECK(asset);
         if (!asset) {
             return;
         }
         unsigned const before = core.calls;
         deren::utility::vessel::array<gs::raster_instance, 1> const items = {gs::raster_instance{*asset, glm::mat4{1}, 1}};
-        auto frame = gs::prepare_raster_frame(core, items, camera());
+        auto frame = gs::prepare_raster_frame(core, items, camera(), {}, nullptr, lease);
         CHECK(!frame && frame.error().code == gs::error_code::invalid_argument);
         CHECK(core.calls == before);
     }
@@ -525,6 +534,7 @@ namespace {
     void test_raster_pass() {
         namespace pass = deren::engine::pass;
         raster_probe_core core;
+        auto lease = test_lease(core);
         pass::gaussian_splatting_pass p;
         deren::utility::vessel::array<std::uint8_t, 4> shader = {3, 2, 35, 7};
         pass::pass_context context{.face = &core, .shader = [](void* owner, std::string_view) { return std::span<std::uint8_t const>{*static_cast<deren::utility::vessel::array<std::uint8_t, 4>*>(owner)}; }, .depth_format = rhi::image_format::depth, .owner = &shader};
@@ -534,13 +544,13 @@ namespace {
         CHECK(core.depth_test);
         CHECK(core.blends.size() == 1 && core.blends[0] == rhi::blend_mode::alpha);
         CHECK(p.io().name == "gaussian");
-        auto asset = gs::make_raster_asset(core, raster_source());
+        auto asset = gs::make_raster_asset(core, raster_source(), {}, lease);
         CHECK(asset);
         if (!asset) {
             return;
         }
         deren::utility::vessel::array<gs::raster_instance, 1> items = {gs::raster_instance{*asset, glm::mat4{1}, 1}};
-        auto frame = gs::prepare_raster_frame(core, items, camera());
+        auto frame = gs::prepare_raster_frame(core, items, camera(), {}, nullptr, lease);
         CHECK(frame);
         if (!frame) {
             return;
@@ -594,6 +604,7 @@ int main() {
     test_raster_lease_contract();
     {
         raster_probe_core core;
+        auto lease = test_lease(core);
         auto empty = gs::prepare_gpu_frame(core, {}, camera());
         CHECK(empty && (*empty)->candidate_count() == 0u && core.calls == 0u);
         deren::utility::vessel::array<gs::raster_instance, 1> const invalid = {gs::raster_instance{}};
@@ -602,7 +613,7 @@ int main() {
         auto bad_camera = camera();
         bad_camera.extent.width = 0u;
         CHECK(!gs::prepare_gpu_frame(core, {}, bad_camera));
-        auto asset = gs::make_raster_asset(core, raster_source());
+        auto asset = gs::make_raster_asset(core, raster_source(), {}, lease);
         CHECK(asset);
         deren::utility::vessel::array<gs::raster_instance, 1> const items = {gs::raster_instance{*asset, glm::mat4{1}, 1}};
         auto unsupported = gs::prepare_gpu_frame(core, items, camera());

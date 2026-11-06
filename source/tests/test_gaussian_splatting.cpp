@@ -412,6 +412,13 @@ struct upload_probe : rhi::api_core, rhi::resource_factory, rhi::command_context
         return rhi::abi_version;
     }
 };
+/// The upload path requires an owning device lease. The probe's release is a no-op, so the
+/// stack probe can serve as its own owner for these tests.
+template <typename asset_type>
+auto upload_with_lease(upload_probe& probe, asset_type&& asset, gs::foundation_limits limits = {}) {
+    return gs::upload_asset(probe, std::forward<asset_type>(asset), limits, rhi::shared_object<rhi::api_core>{&probe});
+}
+
 template <typename Asset>
 void check_asset_storage(Asset const& asset) {
     if constexpr (requires { asset.resources(); }) {
@@ -426,7 +433,7 @@ void test_upload() {
     if (!packed)
         return;
     upload_probe probe;
-    auto result = gs::upload_asset(probe, *packed);
+    auto result = upload_with_lease(probe, *packed);
     CHECK(result && *result);
     if (result && *result) {
         check_asset_storage(**result);
@@ -456,41 +463,41 @@ void test_upload() {
     }
     upload_probe absent;
     absent.supported = false;
-    auto failed = gs::upload_asset(absent, *packed);
+    auto failed = upload_with_lease(absent, *packed);
     CHECK(!failed && failed.error().code == gs::error_code::unsupported);
     CHECK(absent.calls == 0);
     for (unsigned i = 1; i <= 2; ++i) {
         upload_probe failing;
         failing.fail_at = i;
-        failed = gs::upload_asset(failing, *packed);
+        failed = upload_with_lease(failing, *packed);
         CHECK(!failed && failed.error().code == gs::error_code::allocation_failure);
         CHECK(failing.releases == static_cast<int>(i) - 1);
     }
     for (unsigned i = 1; i <= 2; ++i) {
         upload_probe zero;
         zero.address.zero_at = i;
-        failed = gs::upload_asset(zero, *packed);
+        failed = upload_with_lease(zero, *packed);
         CHECK(!failed && failed.error().code == gs::error_code::invalid_address);
         CHECK(zero.releases == 2); // Admission rejects the complete unused candidate set.
     }
     for (unsigned i = 1; i <= 2; ++i) {
         upload_probe short_buffer;
         short_buffer.undersized_at = i;
-        failed = gs::upload_asset(short_buffer, *packed);
+        failed = upload_with_lease(short_buffer, *packed);
         CHECK(!failed && failed.error().code == gs::error_code::allocation_failure);
         CHECK(short_buffer.releases == 2);
     }
     for (unsigned i = 1; i <= 2; ++i) {
         upload_probe unaligned;
         unaligned.address.unaligned_at = i;
-        failed = gs::upload_asset(unaligned, *packed);
+        failed = upload_with_lease(unaligned, *packed);
         CHECK(!failed && failed.error().code == gs::error_code::invalid_address);
         CHECK(unaligned.releases == 2);
     }
     upload_probe empty;
     empty.supported = false;
     auto nothing = gs::pack_asset(deren::gaussian::asset{});
-    result = gs::upload_asset(empty, *nothing);
+    result = upload_with_lease(empty, *nothing);
     CHECK(result && *result);
     if (result && *result) {
         CHECK((*result)->particle_count() == 0);
@@ -498,7 +505,8 @@ void test_upload() {
         CHECK((*result)->sh_address() == 0);
     }
     CHECK(empty.calls == 0);
-    auto bad = [&](auto mutate) {auto p=*packed;mutate(p);upload_probe check;auto invalid=gs::upload_asset(check,p);CHECK(!invalid && invalid.error().code==gs::error_code::invalid_argument);CHECK(check.calls==0); };
+    result->reset(); // The empty asset's lease points at `empty`, so release it while that probe is alive.
+    auto bad = [&](auto mutate) {auto p=*packed;mutate(p);upload_probe check;auto invalid=upload_with_lease(check,p);CHECK(!invalid && invalid.error().code==gs::error_code::invalid_argument);CHECK(check.calls==0); };
     bad([](auto& p) { p.sh.clear(); });
     bad([](auto& p) { p.sh_degree = 4; });
     bad([](auto& p) { p.geometry[0].center_opacity[3] = 2; });
@@ -514,7 +522,7 @@ void test_upload() {
     auto manual = *packed;
     manual.bounds_min = {1, 2, 3};
     manual.bounds_max = {1, 2, 3};
-    auto rebuilt = gs::upload_asset(narrow, manual);
+    auto rebuilt = upload_with_lease(narrow, manual);
     CHECK(rebuilt && *rebuilt);
     if (rebuilt && *rebuilt) {
         CHECK((*rebuilt)->bounds_min() == packed->bounds_min);
@@ -522,7 +530,7 @@ void test_upload() {
     }
     bad([](auto& p) { p.geometry[0].covariance_x = {1,0,0,0}; p.geometry[0].covariance_yz = {1e-6f,9e-4f,1e-6f,0}; });
     upload_probe limited;
-    failed = gs::upload_asset(limited, *packed, {1, 239});
+    failed = upload_with_lease(limited, *packed, {1, 239});
     CHECK(!failed && failed.error().code == gs::error_code::limit_exceeded);
     CHECK(limited.calls == 0);
 }
@@ -552,7 +560,7 @@ void test_covariance_tolerance() {
         asset.geometry[0].covariance_x = x;
         asset.geometry[0].covariance_yz = yz;
         upload_probe probe;
-        auto result = gs::upload_asset(probe, asset);
+        auto result = upload_with_lease(probe, asset);
         CHECK(result && *result);
     };
     good({1, 2, 3, 0}, {4, 6, 9, 0});                          // rank one: v v^T, v=(1,2,3)
@@ -564,7 +572,7 @@ void test_covariance_tolerance() {
         asset.geometry[0].covariance_x = x;
         asset.geometry[0].covariance_yz = yz;
         upload_probe probe;
-        auto result = gs::upload_asset(probe, asset);
+        auto result = upload_with_lease(probe, asset);
         CHECK(!result && result.error().code == gs::error_code::invalid_argument);
         CHECK(probe.calls == 0);
     };
@@ -580,7 +588,7 @@ void test_covariance_tolerance() {
         if (!converted)
             continue;
         upload_probe probe;
-        auto result = gs::upload_asset(probe, *converted);
+        auto result = upload_with_lease(probe, *converted);
         CHECK(result && *result);
     }
 }
@@ -614,7 +622,7 @@ void test_owned_upload() {
     auto input = std::make_shared<gs::packed_asset const>(*gs::pack_asset(sample()));
     auto refused = gs::upload_asset(other, input, {}, rhi::shared_object<rhi::api_core>{unrelated});
     CHECK(!refused && refused.error().code == gs::error_code::invalid_argument && other.calls == 0);
-    auto missing = gs::upload_asset(other, std::shared_ptr<gs::packed_asset const>{});
+    auto missing = upload_with_lease(other, std::shared_ptr<gs::packed_asset const>{});
     CHECK(!missing && missing.error().code == gs::error_code::invalid_argument && other.calls == 0);
 }
 int main() {

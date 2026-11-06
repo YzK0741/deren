@@ -162,7 +162,7 @@ namespace deren::engine {
             } else if (entry.image->state() == rhi::lazy_state::unloaded)
                 uploaded_bytes += entry.bytes;
         }
-        auto result = descriptors->bind({.commands = frame_command_buffer().get()});
+        auto result = descriptors->bind({.commands = frame_command_buffer()});
         if (result != rhi::error::ok)
             return result;
         for (auto const& entry : streamed_textures)

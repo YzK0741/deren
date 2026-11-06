@@ -208,9 +208,9 @@ export namespace deren::engine::pass {
 
     struct resolved_io {
         frame_identity frame = {};
-        /// THE command buffer is handed out per frame, at recording time, and never stored: a pass records
+        /// THE command buffer, handed out per frame, at recording time, and never stored: a pass records
         /// into what it is given, which is why it holds no device state between frames.
-        deren::promise::rhi::shared_object<deren::promise::rhi::command_buffer> cmd = {};
+        deren::promise::rhi::command_buffer* cmd = nullptr;
         /// THE RECORDING VIEW (abi 20): the contract list the record series rides (`barrier`,
         /// `begin_rendering`, `draw`, ...), the same object `begin_commands()` answers this frame. The raw
         /// owner above supplies lifetime; the borrowed list records both rendering and push_constants.
@@ -408,7 +408,7 @@ export namespace deren::engine::pass {
         frame_identity frame = {};
         /// THE command buffer, handed out here for the same reason `resolved_io::cmd` exists: a pass records
         /// into what it is given and stores no device state between frames
-        deren::promise::rhi::shared_object<deren::promise::rhi::command_buffer> cmd = {};
+        deren::promise::rhi::command_buffer* cmd = nullptr;
         /// THE RECORDING VIEW (abi 20): the contract list the record series rides - the same frame list
         /// `begin_commands()` answers, beside the raw handle above (which the third-party overlay's
         /// recording and the heap push endpoint still take)

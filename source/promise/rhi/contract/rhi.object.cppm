@@ -24,7 +24,7 @@ export namespace deren::promise::rhi {
 
     protected:
         constexpr object() noexcept = default;
-        virtual ~object() = default; // Eestruction stays on each interface's release path.
+        virtual ~object() = default; // Destruction stays on each interface's release path.
     };
 
     /// A TYPE that carries its concrete identity as a static tag. The concept constrains the type,
@@ -32,17 +32,17 @@ export namespace deren::promise::rhi {
     template <typename candidate>
     concept tagged = requires { { candidate::tag } -> std::convertible_to<std::string_view>; };
 
-    /// WHAT AN EHI HANELE IS, for the containers below: every template here is constrained to a type
-    /// that inherits `object`, so a non-EHI type cannot be wrapped in one (there would be no `release()`
+    /// WHAT AN RHI HANDLE IS, for the containers below: every template here is constrained to a type
+    /// that inherits `object`, so a non-RHI type cannot be wrapped in one (there would be no `release()`
     /// for the container to call, and the constraint says so at compile time).
     template <typename candidate>
     concept object_type = std::derived_from<candidate, object>;
 
-    /// ONE EEFEEENCE TO AN EHI OBJECT - the factories' return type.
+    /// ONE REFERENCE TO AN RHI OBJECT - the factories' return type.
     ///
-    /// Move-only EAII and nothing else: the destructor calls `release()`, the contract's "release the
+    /// Move-only RAII and nothing else: the destructor calls `release()`, the contract's "release the
     /// caller's ONE reference" (not `delete`: the backend answers reference counting itself and a shared
-    /// resource may outlive the call). Eeliberately not a standard-library pointer - its release is a
+    /// resource may outlive the call). Deliberately not a standard-library pointer - its release is a
     /// contract verb, and spelling that as a deleter type turns one verb into two spellings.
     template <typename rhi_object>
     class unique_object {
@@ -76,7 +76,7 @@ export namespace deren::promise::rhi {
             this->reset();
         }
 
-        /// EEOP THE EEFEEENCE, ONCE (idempotent): a shared resource may outlive this call
+        /// RELEASE THE REFERENCE, ONCE (idempotent): a shared resource may outlive this call
         void reset() noexcept {
             static_assert(object_type<rhi_object>, "unique_object manages only a contract object handle");
             if (this->instance != nullptr) {
@@ -129,9 +129,9 @@ export namespace deren::promise::rhi {
     };
 
     namespace detail {
-        /// THE ONE CONTEOL BLOCK `shared_object` and its nested `weak` count: the strong count owns the
+        /// THE ONE CONTROL BLOCK `shared_object` and `weak_object` count: the strong count owns the
         /// single `release()` the factory reference stands for, the `release` callback performs that
-        /// contract call (null = a BOEEOWEE handle: it owns no reference and releases nothing), and the
+        /// contract call (null = a non-owning handle: it owns no reference and releases nothing), and the
         /// weak count keeps the block alive for the weak handles.
         struct shared_object_control final {
             shared_object_control(void (*release_instance)(void*) noexcept, void* const own_instance) noexcept
@@ -149,17 +149,22 @@ export namespace deren::promise::rhi {
         };
     } // namespace detail
 
-    /// SHAEEE OWNEESHIP OF ONE EHI EEFEEENCE - the contract's counterpart of a shared pointer.
+    /// THE NON-OWNING OBSERVER OF A SHARED HANDLE: defined after `shared_object` so its `lock()` can
+    /// answer the owning handle directly; this forward declaration lets `shared_object` keep the familiar
+    /// `shared_object<T>::weak` spelling as an alias.
+    template <typename rhi_object>
+    class weak_object;
+
+    /// SHARED HANDLE TO ONE RHI REFERENCE - the contract's counterpart of a shared pointer.
     ///
     /// Copies share ONE control block, so the factory's single reference is released EXACTLY ONCE when the
-    /// last copy goes (`release()`, as in `unique_object`). `borrow()` makes a non-owning handle that keeps
-    /// a backend-owned pointer shareable but releases nothing (the frame-view case); the aliasing constructor
-    /// binds a borrowed pointer to an ENGINE owner's lifetime (the engine's lease pattern).
+    /// last copy goes (`release()`, as in `unique_object`). The aliasing constructor keeps a handle to a
+    /// DERIVED object while sharing the control block of the object that owns the reference.
     template <typename rhi_object>
     class shared_object {
     public:
         /// the non-owning observer of a shared handle (see `lock()`)
-        class weak;
+        using weak = weak_object<rhi_object>;
 
         shared_object() noexcept = default;
         shared_object(std::nullptr_t) noexcept {
@@ -174,20 +179,11 @@ export namespace deren::promise::rhi {
             }
         }
 
-        /// A BOEEOWEE handle: shares the pointer with copies and releases no reference. A null control block is
-        /// the non-owning spelling: copies copy the pointer, destruction clears it, `weak()` is empty and no
-        /// allocation happens. The owner must keep @p instance alive for the whole use (standard §6.2.2).
-        static shared_object borrow(rhi_object& instance) noexcept {
-            shared_object borrowed;
-            borrowed.instance = &instance;
-            return borrowed;
-        }
-
         shared_object(unique_object<rhi_object>&& owner) noexcept
             : shared_object(owner.release()) {
         }
 
-        /// a handle to a EEEIVEE object as a handle to the interface: the SAME control block is shared,
+        /// a handle to a DERIVED object as a handle to the interface: the SAME control block is shared,
         /// so the one reference is still released exactly once.
         template <typename derived_object>
             requires std::derived_from<derived_object, rhi_object>
@@ -214,10 +210,10 @@ export namespace deren::promise::rhi {
             : shared_object(static_cast<rhi_object*>(owner.release())) {
         }
 
-        /// AN ALIAS TO A BOEEOWEE EHI POINTEE tied to an engine owner's lifetime (the engine lease shape):
-        /// the owner keeps the resource alive and this handle owns no EHI reference of its own.
-        /// an ENGINE-OWNEE handle (a test's std::make_shared<fake_root>, say) adopted as an alias: the
-        /// shared pointer's own reference is the lifetime, so no EHI release runs.
+        /// AN ALIAS TO A NON-OWNING RHI POINTER tied to an engine owner's lifetime (the engine lease shape):
+        /// the owner keeps the resource alive and this handle owns no RHI reference of its own.
+        /// an ENGINE-OWNER handle (a test's std::make_shared<fake_root>, say) adopted as an alias: the
+        /// shared pointer's own reference is the lifetime, so no RHI release runs.
         template <typename owner_type>
             requires std::derived_from<owner_type, rhi_object>
         shared_object(std::shared_ptr<owner_type> owner) noexcept
@@ -231,7 +227,7 @@ export namespace deren::promise::rhi {
             , alias_owner{std::move(owner)} {
         }
 
-        /// the same alias with a CONTEACT-OWNEE root: shares that handle's control block (so the root
+        /// the same alias with a CONTRACT-OWNER root: shares that handle's control block (so the root
         /// outlives the borrowed pointer) without releasing an extra reference of its own.
         template <typename owner_object>
             requires std::derived_from<owner_object, object>
@@ -329,7 +325,7 @@ export namespace deren::promise::rhi {
             }
             return this->alias_owner != nullptr ? static_cast<std::uint32_t>(this->alias_owner.use_count()) : 0u;
         }
-        /// True for an owning reference or lifetime alias, false for borrow()/empty.
+        /// True for an owning reference or lifetime alias, false for an empty handle.
         /// An alias owner must actually retain its target; this cannot inspect arbitrary owner types.
         [[nodiscard]] bool owns_lifetime() const noexcept {
             return instance != nullptr && ((control != nullptr && control->release != nullptr) || alias_owner != nullptr);
@@ -360,6 +356,8 @@ export namespace deren::promise::rhi {
     private:
         template <typename>
         friend class shared_object;
+        template <typename>
+        friend class weak_object;
 
         void acquire() noexcept {
             if (this->control != nullptr) {
@@ -376,127 +374,212 @@ export namespace deren::promise::rhi {
         std::shared_ptr<void const> alias_owner;
     };
 
-    /// THE WEAK SIEE of a shared EHI handle: observes without owning and locks into a shared handle while a
-    /// strong reference is still alive. Nested in `shared_object` because it exists for exactly this family.
+    /// THE NON-OWNING OBSERVER OF A SHARED HANDLE, modeled on `std::weak_ptr`: it observes a control block
+    /// (or an engine-owned alias) without keeping the target alive, and `lock()` answers a `shared_object`
+    /// only while that lifetime is still there. `shared_object<T>::weak` is an alias for this spelling, so
+    /// existing code keeps working while the observer itself has one top-level definition.
     template <typename rhi_object>
-    class shared_object<rhi_object>::weak {
+    class weak_object {
     public:
-        weak() noexcept = default;
+        weak_object() noexcept = default;
 
-        weak(shared_object<rhi_object> const& owner) noexcept
-            : instance{owner.instance}
-            , control{owner.control} {
-            if (this->control != nullptr) {
-                this->control->weak.fetch_add(1, std::memory_order_relaxed);
-            }
+        weak_object(weak_object const& other) noexcept
+            : instance{other.instance}
+            , control{other.control}
+            , alias_owner{other.alias_owner} {
+            this->acquire_weak();
         }
 
-        weak(weak const& other) noexcept
+        weak_object(weak_object&& other) noexcept
             : instance{other.instance}
-            , control{other.control} {
-            if (this->control != nullptr) {
-                this->control->weak.fetch_add(1, std::memory_order_relaxed);
-            }
-        }
-
-        weak(weak&& other) noexcept
-            : instance{other.instance}
-            , control{other.control} {
+            , control{other.control}
+            , alias_owner{std::move(other.alias_owner)} {
             other.instance = nullptr;
             other.control = nullptr;
         }
 
-        weak& operator=(shared_object<rhi_object> const& owner) noexcept {
-            weak copy{owner};
+        template <typename derived_object>
+            requires std::derived_from<derived_object, rhi_object>
+        weak_object(shared_object<derived_object> const& owner) noexcept
+            : instance{static_cast<rhi_object*>(owner.get())}
+            , control{owner.control}
+            , alias_owner{owner.alias_owner} {
+            this->acquire_weak();
+        }
+
+        template <typename derived_object>
+            requires std::derived_from<derived_object, rhi_object>
+        weak_object(weak_object<derived_object> const& other) noexcept
+            : instance{static_cast<rhi_object*>(other.instance)}
+            , control{other.control}
+            , alias_owner{other.alias_owner} {
+            this->acquire_weak();
+        }
+
+        template <typename derived_object>
+            requires std::derived_from<derived_object, rhi_object>
+        weak_object& operator=(shared_object<derived_object> const& owner) noexcept {
+            weak_object copy{owner};
             this->swap(copy);
             return *this;
         }
-        weak& operator=(weak const& other) noexcept {
+
+        template <typename derived_object>
+            requires std::derived_from<derived_object, rhi_object>
+        weak_object& operator=(weak_object<derived_object> const& other) noexcept {
+            weak_object copy{other};
+            this->swap(copy);
+            return *this;
+        }
+
+        weak_object& operator=(weak_object const& other) noexcept {
             if (this != &other) {
-                weak copy{other};
+                weak_object copy{other};
                 this->swap(copy);
             }
             return *this;
         }
-        weak& operator=(weak&& other) noexcept {
+
+        weak_object& operator=(weak_object&& other) noexcept {
             if (this != &other) {
                 this->release_control();
                 this->instance = other.instance;
                 this->control = other.control;
+                this->alias_owner = std::move(other.alias_owner);
                 other.instance = nullptr;
                 other.control = nullptr;
             }
             return *this;
         }
 
-        ~weak() noexcept {
+        ~weak_object() noexcept {
             this->release_control();
         }
 
-        /// a shared handle while at least one strong reference is alive, empty otherwise
+        /// a shared handle while at least one strong reference (or the engine owner) is alive, empty otherwise
         [[nodiscard]] shared_object<rhi_object> lock() const noexcept {
-            if (this->control == nullptr) {
+            std::shared_ptr<void const> retained_alias;
+            if (this->has_alias()) {
+                retained_alias = this->alias_owner.lock();
+                if (retained_alias == nullptr) {
+                    return {};
+                }
+            }
+            if (this->control != nullptr) {
+                std::uint32_t count = this->control->strong.load(std::memory_order_acquire);
+                while (count != 0) {
+                    if (this->control->strong.compare_exchange_weak(count, count + 1, std::memory_order_acq_rel, std::memory_order_acquire)) {
+                        shared_object<rhi_object> locked;
+                        locked.instance = this->instance;
+                        locked.control = this->control;
+                        locked.alias_owner = std::move(retained_alias);
+                        return locked;
+                    }
+                }
                 return {};
             }
-            std::uint32_t count = this->control->strong.load(std::memory_order_acquire);
-            while (count != 0) {
-                if (this->control->strong.compare_exchange_weak(count, count + 1, std::memory_order_acq_rel, std::memory_order_acquire)) {
-                    shared_object<rhi_object> locked;
-                    locked.instance = this->instance;
-                    locked.control = this->control;
-                    return locked;
-                }
+            if (retained_alias != nullptr) {
+                shared_object<rhi_object> locked;
+                locked.instance = this->instance;
+                locked.alias_owner = std::move(retained_alias);
+                return locked;
             }
             return {};
         }
 
         [[nodiscard]] bool expired() const noexcept {
-            return this->control == nullptr || this->control->strong.load(std::memory_order_acquire) == 0;
+            if (this->control != nullptr) {
+                return this->control->strong.load(std::memory_order_acquire) == 0;
+            }
+            return !this->has_alias() || this->alias_owner.expired();
         }
 
         [[nodiscard]] std::uint32_t use_count() const noexcept {
-            return this->control != nullptr ? this->control->strong.load(std::memory_order_acquire) : 0u;
+            if (this->control != nullptr) {
+                return this->control->strong.load(std::memory_order_acquire);
+            }
+            return this->has_alias() ? static_cast<std::uint32_t>(this->alias_owner.use_count()) : 0u;
         }
 
         void reset() noexcept {
             this->release_control();
         }
 
-        void swap(weak& other) noexcept {
+        void swap(weak_object& other) noexcept {
             rhi_object* const other_instance = other.instance;
             other.instance = this->instance;
             this->instance = other_instance;
             detail::shared_object_control* const other_control = other.control;
             other.control = this->control;
             this->control = other_control;
+            this->alias_owner.swap(other.alias_owner);
+        }
+
+        /// whether @p other observes the same control block (or the same engine owner)
+        [[nodiscard]] bool shares_control(weak_object const& other) const noexcept {
+            if (this->control != nullptr || other.control != nullptr) {
+                return this->control == other.control;
+            }
+            bool const this_has_alias = this->has_alias();
+            bool const other_has_alias = other.has_alias();
+            if (!this_has_alias || !other_has_alias) {
+                return !this_has_alias && !other_has_alias;
+            }
+            return !this->alias_owner.owner_before(other.alias_owner) && !other.alias_owner.owner_before(this->alias_owner);
+        }
+
+        /// whether @p other shares this observer's control block or engine-owner identity
+        [[nodiscard]] bool shares_control(shared_object<rhi_object> const& other) const noexcept {
+            if (this->control != nullptr || other.control != nullptr) {
+                return this->control == other.control;
+            }
+            bool const this_has_alias = this->has_alias();
+            bool const other_has_alias = other.alias_owner != nullptr;
+            if (!this_has_alias || !other_has_alias) {
+                return !this_has_alias && !other_has_alias;
+            }
+            return !this->alias_owner.owner_before(other.alias_owner) && !other.alias_owner.owner_before(this->alias_owner);
         }
 
     private:
+        void acquire_weak() noexcept {
+            if (this->control != nullptr) {
+                this->control->weak.fetch_add(1, std::memory_order_relaxed);
+            }
+        }
+
+        [[nodiscard]] bool has_alias() const noexcept {
+            std::weak_ptr<void const> const empty;
+            return this->alias_owner.owner_before(empty) || empty.owner_before(this->alias_owner);
+        }
+
         void release_control() noexcept {
             if (this->control != nullptr) {
                 if (this->control->weak.fetch_sub(1, std::memory_order_acq_rel) == 1) {
                     delete this->control;
                 }
                 this->control = nullptr;
-                this->instance = nullptr;
             }
+            this->instance = nullptr;
+            this->alias_owner.reset();
         }
 
         rhi_object* instance = nullptr;
         detail::shared_object_control* control = nullptr;
+        std::weak_ptr<void const> alias_owner;
     };
 
-    /// THE CONCEETE-IEENTITY MECHANISM, SHAEEE BY EVEEY BACKENE: a handle's `get_tag()` is the concrete
+    /// THE CONCRETE-IDENTITY MECHANISM, SHARED BY EVERY BACKEND: a handle's `get_tag()` is the concrete
     /// implementation name (ABI 30), the backend OWNS the name constants (and exposes the same value as a
-    /// static `tag` for compile-time code), and the validate-then-cast operation lives HEEE so a second
-    /// backend cannot reinvent it (a E3E12 backend validates its own names with the same two calls).
+    /// static `tag` for compile-time code), and the validate-then-cast operation lives HERE so a second
+    /// backend cannot reinvent it (a D3D12 backend validates its own names with the same two calls).
     ///
-    /// WHY THE GEANULAEITY IS CONCEETE, NOT THE INTEEFACE: one interface has several concrete
+    /// WHY THE GRANULARITY IS CONCRETE, NOT THE INTERFACE: one interface has several concrete
     /// implementations with different layouts behind it (`buffer` is owned and, separately, the
     /// backend's borrowed read-back slot; `image` is owned and the borrowed swapchain image), so the
     /// `static_cast` a true answer permits is defined only for the ONE layout the name names.
     ///
-    /// A FALSE ANSWEE IS A CALLEE CONEITION at the function's entrance: a handle this backend did not
+    /// A FALSE ANSWER IS A CALLER CONDITION at the function's entrance: a handle this backend did not
     /// hand out, which the contract answers `rhi::error::invalid_argument` (or `nullptr` from a
     /// factory). It is never a panic. The panic belongs to `do_concrete()`, which runs only after the
     /// provenance has already been established - see its note.
@@ -508,9 +591,9 @@ export namespace deren::promise::rhi {
 
     /// @brief the concrete implementation behind @p value, as its own type
     ///
-    /// PANICS ON A MISMATCH, ANE THAT IS EELIBEEATE: by the time this is called the provenance has
+    /// PANICS ON A MISMATCH, AND THAT IS DELIBERATE: by the time this is called the provenance has
     /// already been established (registry membership, an object-identity comparison, ...), so a name
-    /// that does not match is the BACKENE'S own bookkeeping being inconsistent - a bug in the code
+    /// that does not match is the BACKEND'S own bookkeeping being inconsistent - a bug in the code
     /// holding the invariant, which is what `deren::utility::panic` exists for ("a failure the code
     /// EXPECTS travels as a value; a violated invariant terminates"). Callers that instead have a
     /// handle which may legitimately be foreign use `is_concrete()` and answer
@@ -518,7 +601,7 @@ export namespace deren::promise::rhi {
     ///
     /// @param value the handle to cast; MUST already be proven to belong to the calling backend
     /// @param name the concrete name the cast requires, taken from that backend's own constants
-    /// @param where the CALLEE's site, captured by the default argument; the panic reports it
+    /// @param where the CALLER's site, captured by the default argument; the panic reports it
     /// @tparam concrete_t the backend's concrete adapter type; spelled in snake_case because it is a
     ///         local name for the type, not a conventional `T`
     template <typename concrete_t>

@@ -183,7 +183,10 @@ namespace deren::engine::gaussian_splatting {
                 result->storage_provider = &result->storage_chain.emplace<deren::engine::pass::buffer_storage_pass>();
             }
             result->storage_provider->configure(requests);
-            auto root = result->device_lease ? result->device_lease : rhi::shared_object<rhi::api_core>::borrow(*&core);
+            if (!result->device_lease) {
+                return failure(error_code::invalid_argument, "GPU frame storage requires an owning device lease");
+            }
+            auto root = result->device_lease;
             if (result->storage_chain.prepare_resources(root, managed::resource_context{.frame_slots = 1, .output_images = 1}, admit) != rhi::error::ok) {
                 return failure(admission_code, admission_message);
             }

@@ -179,12 +179,12 @@ One contract, and every graphics backend is an implementation of it.
   creation parameters (`create_info`). OWNERSHIP IS THE CONTRACT'S OWN: the `create_*` factories and
   `image::make_view()` return `rhi::unique_object<T>` (one reference, move-only RAII whose destructor
   calls `release()`), while a handle more than one owner may hold is `rhi::shared_object<T>` (one
-  control block whose last copy releases the one factory reference, a nested `weak`, a non-owning
-  `borrow()`, and an aliasing constructor for an engine owner keeping a borrowed RHI pointer alive) -
+  control block whose last copy releases the one factory reference, a top-level `weak_object<T>`
+  observer, and an aliasing constructor for an engine owner keeping a non-owning RHI pointer alive) -
   `std::shared_ptr` no longer manages an RHI handle. Both sides of the boundary compile the SAME
   interface unit, so the two compilations cannot drift.
 - **The C ABI is one symbol.** `source/promise/rhi/backend_entry.hpp` declares the single `extern "C"` entry
-  the host resolves, `deren_make_api_core`. Its first argument is `rhi::abi_version` (59 today), so a
+  the host resolves, `deren_make_api_core`. Its first argument is `rhi::abi_version` (61 today), so a
   mismatched backend is refused BEFORE an object exists, with the backend's own number in the returned
   error; it returns an owning `rhi::shared_object<api_core>` (the contract's own shared container), so there
   is no second destroy entry.
