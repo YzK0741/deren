@@ -112,12 +112,18 @@ namespace deren::engine::profiling {
                 return;
             }
             deren::utility::vessel::string report = deren::utility::vessel::format("cpu frame phases (avg of {} frames):", window_length);
-            deren::utility::vessel::string label = deren::utility::vessel::format("cpu ({}f):", window_length);
+            double const pace_mean = this->sum[static_cast<std::size_t>(cpu_phase::pace)] / static_cast<double>(window_length);
+            double const record_mean = (this->sum[static_cast<std::size_t>(cpu_phase::begin)] +
+                                        this->sum[static_cast<std::size_t>(cpu_phase::scene)] +
+                                        this->sum[static_cast<std::size_t>(cpu_phase::post)]) /
+                                       static_cast<double>(window_length);
+            double const submit_mean = this->sum[static_cast<std::size_t>(cpu_phase::submit)] / static_cast<double>(window_length);
+            deren::utility::vessel::string label = deren::utility::vessel::format(
+                "cpu ({}f): pace/wait {:.2f} ms\nrecord {:.2f} | submit/present {:.2f} ms", window_length, pace_mean, record_mean, submit_mean);
             double total = 0.0;
             for (std::size_t i = 0; i < this->sum.size(); ++i) {
                 double const mean = this->sum[i] / static_cast<double>(window_length);
                 report += deren::utility::vessel::format(" {} {:.2f} ms |", cpu_phase_names[i], mean);
-                label += deren::utility::vessel::format("{} {:>5.2f}", i == 0 ? "" : " |", mean);
                 // Sub-phases (names ending in '*') are measured INSIDE scene: adding them to the total
                 // again would count that time twice.
                 if (cpu_phase_names[i].back() != '*') {
@@ -127,7 +133,7 @@ namespace deren::engine::profiling {
             }
             this->window_frames = 0;
             report += deren::utility::vessel::format(" total {:.2f} ms", total);
-            this->report_label = label + deren::utility::vessel::format("\n     total {:>5.2f} ms", total);
+            this->report_label = label + deren::utility::vessel::format("\ntotal {:.2f} ms (incl wait)", total);
             deren::utility::log("{}", report);
         }
 
