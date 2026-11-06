@@ -439,17 +439,18 @@ namespace deren::engine {
         double total = 0.0;
         deren::utility::vessel::string report = deren::utility::vessel::format(
             "gpu pass timings (avg of {} frames over {:.2f} s):", window_frames, window_seconds);
-        // The OVERLAY line is built here as well, and deliberately not every frame: every value is a
-        // fixed-width field, because a label whose text width changes re-wraps against the panel edge
-        // and the whole overlay appears to twitch (the numbers of a live running mean change in width
-        // frame by frame: 0.25 -> 10.25). Fixed fields + a report that changes once per window make
-        // the panel layout stable between updates.
-        // a FIXED-width label (about one second, every second): the panel must not twitch between windows
-        deren::utility::vessel::string label = "gpu (1s):";
+        // Name the measured stages: positional numbers made a toon interval
+        // look like TAA time. Keep the once-per-window update and fixed-width
+        // values, with two named stages per line. The log retains every stage.
+        deren::utility::vessel::string label = "gpu (1s, ms):";
+        uint32_t visible_intervals = 0;
         for (uint32_t interval = 0; interval < intervals; ++interval) {
             double const mean = this->gpu_timing_sum[interval] / static_cast<double>(window_frames);
             report += deren::utility::vessel::format(" {} {:.2f} ms |", gpu_timing_labels[interval].name, mean);
-            label += deren::utility::vessel::format("{} {:>5.2f}", gpu_timing_labels[interval].new_line ? "\n     " : " |", mean);
+            if (mean >= 0.01) {
+                label += deren::utility::vessel::format("{}{} {:>5.2f}", visible_intervals++ % 2 == 0 ? "\n" : " | ",
+                                                        gpu_timing_labels[interval].name, mean);
+            }
             total += mean; // GPU intervals have no sub-phases: every mark interval counts once
             this->gpu_timing_sum[interval] = 0.0;
         }
