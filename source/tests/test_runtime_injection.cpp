@@ -419,7 +419,7 @@ int main(int const argc, char** const argv) {
         if (fixture_pipeline)
             CHECK(io.list->bind_pipeline(*fixture_pipeline) == rhi::error::ok);
         // Mirror the host's two views of the same frame-owned recording object.
-        io.cmd = rhi::shared_object<rhi::command_buffer>::borrow(*io.list);
+        io.cmd = io.list;
         io.frame.image_count = rhi::max_swapchain_images;
         io.frame.image_index = 0;
         io.extent = {.width = 4, .height = 4, .depth = 1};

@@ -2089,28 +2089,10 @@ namespace deren::engine {
         // borrowed view so the frame steps can hand it to passes, and NO raw-handle bridge exists here any
         // more - the native conversion is the GUI overlay's own path through the shared main context, not
         // an engine helper.
-        /**
-         * @brief THE FRAME'S OWN COMMAND BUFFER, in the contract's OWNERSHIP SPELLING: what
-         *        `resolved_io::cmd` and `resolve_context::cmd` carry.
-         *
-         * THE CONTROL BLOCK IS NON-OWNING, and that is the core's own answer rather than a shortcut here:
-         * `begin_commands()` hands out `&core::commands_view`, a STABLE member the core owns and answers
-         * with every frame, and that view's `release()` (the one drop a control block could perform)
-         * refuses BY NAME - "the core owns it and this view carries no reference to drop". The deleter
-         * below therefore drops nothing, and the shared_ptr exists for the TYPE the recording face now
-         * speaks (abi 21's `make_command_buffer` answer) rather than for a lifetime this layer would
-         * manage: a caller that holds it past the frame holds a borrowed view.
-         *
-         * IT CACHES NOTHING, and it cannot: the frame slot's buffer IS the same object every call - the
-         * core's own `commands_view` - so "the same stable object every frame" is the CORE's property, not
-         * a member kept in step here. An empty shared_ptr is the honest answer when no frame is in flight.
-         *
-         * IT REPLACED `frame_primary_handle()` (raw `VkCommandBuffer`), and that helper is GONE rather than
-         * left beside it: the frame loop records through the contract, so a second accessor answering the
-         * same buffer in the other spelling would be dead code. The native-handle bridges
-         * (`native_frame_commands()` / `native_handle()`) were removed with the escape (abi 42/43).
-         */
-        [[nodiscard]] rhi::shared_object<rhi::command_buffer> frame_command_buffer() const noexcept;
+        /// THE FRAME'S OWN COMMAND BUFFER, as a non-owning pointer: what `resolved_io::cmd` and
+        /// `resolve_context::cmd` carry. `begin_commands()` answers the core's stable `commands_view`; the core
+        /// owns it and no reference is transferred. Null means no frame is in flight.
+        [[nodiscard]] rhi::command_buffer* frame_command_buffer() const noexcept;
         // per-frame state shared by the split frame steps (the frame steps call them in order,
         // so an external caller can interleave its own work between the same steps)
         uint32_t current_image_index = 0; // swapchain image acquired by pace_and_acquire()

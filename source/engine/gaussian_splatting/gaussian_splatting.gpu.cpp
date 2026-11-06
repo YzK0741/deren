@@ -88,7 +88,7 @@ namespace deren::engine::gaussian_splatting {
             return bounds;
         }
     } // namespace
-    std::expected<std::shared_ptr<gpu_asset const>, foundation_error> upload_asset(deren::promise::rhi::api_core& core, packed_asset const& asset, foundation_limits const& limits) {
+    std::expected<std::shared_ptr<gpu_asset const>, foundation_error> upload_asset(deren::promise::rhi::api_core& core, packed_asset const& asset, foundation_limits const& limits, deren::promise::rhi::shared_object<deren::promise::rhi::api_core> device_lease) {
         // Validate before making the legacy interface's owning copy. Production transfers packed storage.
         auto size = packed_byte_size(asset.geometry.size(), limits);
         if (!size) {
@@ -98,7 +98,7 @@ namespace deren::engine::gaussian_splatting {
         if (!bounds) {
             return std::unexpected(bounds.error());
         }
-        return upload_asset(core, std::make_shared<packed_asset const>(asset), limits, {});
+        return upload_asset(core, std::make_shared<packed_asset const>(asset), limits, std::move(device_lease));
     }
     // NOLINTNEXTLINE(performance-unnecessary-value-param): Pin source ownership throughout upload and creation of aliasing payload owners.
     std::expected<std::shared_ptr<gpu_asset const>, foundation_error> upload_asset(deren::promise::rhi::api_core& core, std::shared_ptr<packed_asset const> source, foundation_limits const& limits, deren::promise::rhi::shared_object<deren::promise::rhi::api_core> device_lease) {
@@ -193,7 +193,10 @@ namespace deren::engine::gaussian_splatting {
             }
             return rhi::error::ok;
         };
-        auto root = result->device_lease ? result->device_lease : rhi::shared_object<rhi::api_core>::borrow(*&core);
+        if (!result->device_lease) {
+            return failure(error_code::invalid_argument, "Gaussian upload requires an owning device lease");
+        }
+        auto root = result->device_lease;
         managed::resource_context const context{};
         if (result->storage_chain.prepare_resources(root, context, admit) != rhi::error::ok) {
             return failure(admission_code, admission_message);

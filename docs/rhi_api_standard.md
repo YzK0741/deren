@@ -32,15 +32,15 @@ RFC 2119 sense.
 - Handles are reference-counted views on backend-owned objects. `release()` releases the caller's ONE reference;
   the object dies with its last reference. A backend MAY keep the underlying object alive for shared/cached
   content (e.g. content-deduplicated images) after the last contract reference dies, but MUST NOT expose a dead
-  handle. After `release()` the caller MUST NOT touch the handle. A borrowed view carries no caller-owned
+  handle. After `release()` the caller MUST NOT touch the handle. A non-owning view carries no caller-owned
   reference: calling its underlying `release()` is an ownership precondition violation, and a backend MAY
   terminate on it. Callers MUST NOT rely on a log-only or no-op response.
 - Factory methods return `unique_object<T>` unless documented otherwise; `unique_object` owns one reference and
   releases it. Copies of an owning `shared_object<T>` share its control block; constructing one by moving a
   `unique_object<T>` transfers that factory reference. `share()` and `get_image()` provide owning references
-  for the handle kinds that support them without consuming the source owner. `borrow()` is non-owning and
-  MUST NOT be used where a retaining owner is required (the group creation/loading paths reject borrowed
-  members by name).
+  for the handle kinds that support them without consuming the source owner. Non-owning handles are raw
+  `T*`/`T&`; use them only while the owner is provably alive, and never where a retaining owner is required
+  (the group creation/loading paths reject non-owning members by name).
 - The backend core and its DLL MUST outlive every handle, group, command buffer, pending submission and
   completion token it produced. A caller that releases the core while a handle/token is alive violates the
   contract; backends need not defend against it beyond the documented `self_owner`/core lifetime rules.
@@ -56,7 +56,7 @@ RFC 2119 sense.
 - Fallible verbs use `rhi::error`, `std::expected<T, rhi::error>` or their documented empty-handle channel;
   value-only recording verbs latch failures as specified below. Backends MUST NOT throw, allocate a failure
   path that can throw, use RTTI, or abort on recoverable caller validation errors. Ownership
-  precondition violations (such as releasing a borrowed frame view) are outside that recoverable-error
+  precondition violations (such as releasing a non-owning frame view) are outside that recoverable-error
   guarantee. A fatal device/backend condition is `device_lost`/`out_of_*_memory` as appropriate and MUST NOT
   be reported as success.
 - Validation MUST establish structure coverage before reading omitted fields and establish handle provenance
@@ -328,44 +328,47 @@ not add requirements beyond those clauses, but following it keeps lifetime reaso
 | `image` | `unique_object` for pass-owned targets | multiple passes/frames keep it alive, or it is a cache/streaming resource | `image::share()` copies an owning reference without consuming the factory reference; repeated calls use one control block. Store the shared owner, not a raw pointer. |
 | `image_view` | `unique_object` | a view is handed to another owner that outlives the creating scope | A view retains its parent image; sharing the view is usually the honest unit when the parent must live on. |
 | `sampler`, `shader`, `pipeline` | `unique_object` in the owning registry/cache | a shared renderer state really outlives the registry entry | Pipelines are cheap handles on backend objects but still have a native lifetime; do not copy them as raw values. |
-| `texture_group` / `resource_group` | the `*_ref` (`shared_object`) returned by the factory | always, while recorded/pending commands can use it | These are shared-by-design handles. `borrow()` members are rejected where a retaining owner is required; group members are owned by the group. |
+| `texture_group` / `resource_group` | the `*_ref` (`shared_object`) returned by the factory | always, while recorded/pending commands can use it | These are shared-by-design handles. Non-owning members are rejected where a retaining owner is required; group members are owned by the group. |
 | `command_buffer` (from `create_command_buffer`) | `unique_object` for a one-shot recording | it must be shared with another owner before submission | A submitted buffer is retained by the backend until completion; do not keep a second independent owner to extend the GPU window. |
-| `command_buffer` (from `make_command_buffer`) / `mergeable_command_buffer` | `shared_object` / `*_ref` | while recorded batches are pending | Frame primaries are borrowed views, not factory products. |
-| `swapchain` | borrowed frame view | never own/release/delete | Use `frame_swapchain()` within the core/frame protocol. |
-| frame views (`begin_commands()`, `frame_image()`, `frame_readback_buffer()`, `frame_swapchain()`) | **borrow only** | never share or release | Valid only in the frame/acquire window; do not store them past submit/acquire. |
-| extensions (`query_extension<T>()`), `main_context()`, walkers/profilers/surface | **borrow only** | never own/release/delete | Borrowed from the core; keep the core alive. Re-query after a core change rather than caching across a backend rebuild. |
+| `command_buffer` (from `make_command_buffer`) / `mergeable_command_buffer` | `shared_object` / `*_ref` | while recorded batches are pending | Frame primaries are raw non-owning views, not factory products. |
+| `swapchain` | non-owning frame view | never own/release/delete | Use `frame_swapchain()` within the core/frame protocol. |
+| frame views (`begin_commands()`, `frame_image()`, `frame_readback_buffer()`, `frame_swapchain()`) | **non-owning view only** | never share or release | Valid only in the frame/acquire window; do not store them past submit/acquire. |
+| extensions (`query_extension<T>()`), `main_context()`, walkers/profilers/surface | **non-owning view only** | never own/release/delete | Owned by the core; keep the core alive. Re-query after a core change rather than caching across a backend rebuild. |
 | `submission_token` | copyable receipt | copy freely; it owns no resource | Releasing/copying a token does not cancel work; the core must outlive its use. |
 | `retain_image()` (frame resources) | `shared_object` | hand to another frame-scoped owner | One strong reference; valid only within the acquire epoch, empty outside a frame. |
 
-### 6.2.2 The three handle kinds
+### 6.2.2 The handle kinds
 
 - **`unique_object<T>`**: move-only, owns one reference, releases exactly once at destruction. Use it for
   factory products that have one clear owner. Do not copy it, do not call `release()` on the raw handle as well
   (that would double-release the reference), and do not construct a second `unique_object` from the same pointer.
 - **`shared_object<T>`**: copyable, owns one reference through a shared control block. Create it only through the
   contract (`share()`, `get_image()`, `make_command_buffer()`, `retain_image()`, `*_ref` factories), or by moving
-  a `unique_object` into it to transfer an owned reference. Never wrap another owner's `get()` or a borrowed
+  a `unique_object` into it to transfer an owned reference. Never wrap another owner's `get()` or a non-owning
   pointer in an independent owning control block. Use it when lifetime genuinely crosses the creating
   scope; a `unique_object` is the better default.
-- **`borrow()`**: a non-owning view. Use it only when the owner is provably alive for the whole use, and never
-  where the contract requires retention (group membership, pending commands, frame resources). Borrowed
-  wrapper destruction/reset releases no RHI reference. This does not authorize calling `release()` through the
-  underlying pointer; that is an ownership precondition violation and may terminate. A borrowed handle is
-  allocation-free: it stores only the pointer (no control block), and copies stay non-owning.
+- **`weak_object<T>`**: a non-owning observer modeled on `std::weak_ptr`. `shared_object<T>::weak` is the same
+  type. Construct it from a live shared owner, call `lock()` to obtain an owning `shared_object` while the target
+  is alive, and use `expired()`/`use_count()` to inspect it. It retains a control block or an engine alias, not
+  the resource itself.
+- **raw `T*`/`T&`**: a non-owning view with no control block. Use it only when the owner is provably alive for the
+  whole use, and never where the contract requires retention (group membership, pending commands, frame
+  resources). Destroying the raw pointer releases no RHI reference. This does not authorize calling `release()`
+  through it; that is an ownership precondition violation and may terminate.
 
 ### 6.2.3 Recommended lifetimes
 
 - **Per-frame resources** (pass targets, staging/readback, one-shot command buffers): create as `unique_object`,
   record/use, then let the container release after GPU completion. Do not extend a pass by sharing its target unless
-  a later pass genuinely reads it. Keep the creating owner alive through GPU completion for directly borrowed
-  operands; rely on backend retention only where the particular verb explicitly guarantees it.
+  a later pass genuinely reads it. Keep the creating owner alive through GPU completion for directly bound
+  non-owning operands; rely on backend retention only where the particular verb explicitly guarantees it.
 - **Cross-frame resources** (cached images, materials, persistent scene buffers, pipelines): store a
   `shared_object` (or the owning registry) for the whole cache lifetime. The core/backend must outlive every
   cached handle; release the cache before `api_core::release()`.
 - **Groups**: create once, keep the `*_ref` in shared state, load it before the first consuming draw/dispatch,
   and let recorded/pending work retain it. Do not reload the group to work around a pipeline switch in ABI 54;
   the backend retains and republishes compatible logical state.
-- **Frame boundaries**: keep the frame's borrowed primary/image/readback inside the frame; submit before
+- **Frame boundaries**: keep the frame's non-owning primary/image/readback inside the frame; submit before
   reacquiring. A `shared_object` obtained from `retain_image()` must be released or used before the next acquire.
 - **Backends**: internal sharing (content-keyed images, cached pipelines, group tables) is allowed, but it is a
   backend implementation detail. It never changes the reference the caller owns or the lifetime rule above.
@@ -375,8 +378,8 @@ not add requirements beyond those clauses, but following it keeps lifetime reaso
 - Wrapping a raw `image*`/`buffer*` in a second `shared_object` (two control blocks, double destruction).
 - Calling `release()` on a handle held by `unique_object`/`shared_object`, or `delete` on any contract handle.
 - Storing `begin_commands()`/`frame_image()`/`retain_image()` past the frame/epoch window.
-- Using `borrow()` for group members or for anything that must survive into pending GPU work.
-- Releasing the sole `unique_object` owner of a directly bound pipeline or borrowed resource before GPU
+- Using a raw pointer for group members or for anything that must survive into pending GPU work.
+- Releasing the sole `unique_object` owner of a directly bound pipeline or non-owning resource before GPU
   completion. Keeping that owner alive is sufficient; use shared ownership only when multiple owners need it.
 - Releasing the backend core while a token, group, recorded buffer or shared image owner is alive.
 

@@ -298,7 +298,7 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context const& 
                 void release() noexcept override {
                 }
             } foreign;
-            rhi::texture_group_ref wrong = rhi::shared_object<rhi::texture_group>::borrow(foreign);
+            rhi::texture_group_ref wrong = rhi::shared_object<rhi::texture_group>{&foreign};
             CHECK(commands->load_texture_group(wrong) == rhi::error::invalid_argument);
         }
         if (i == 1)

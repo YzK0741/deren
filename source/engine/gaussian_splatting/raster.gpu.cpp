@@ -314,7 +314,10 @@ namespace deren::engine::gaussian_splatting {
                 target->storage_provider = &target->storage_chain.emplace<deren::engine::pass::buffer_storage_pass>();
             }
             target->storage_provider->configure(requests);
-            auto root = target->device_lease ? target->device_lease : rhi::shared_object<rhi::api_core>::borrow(*&core);
+            if (!target->device_lease) {
+                return failure(error_code::invalid_argument, "Raster frame storage requires an owning device lease");
+            }
+            auto root = target->device_lease;
             if (target->storage_chain.prepare_resources(root, managed::resource_context{.frame_slots = 1, .output_images = 1}, admit) != rhi::error::ok) {
                 return failure(admission_code, admission_message);
             }

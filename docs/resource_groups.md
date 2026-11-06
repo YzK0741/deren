@@ -57,10 +57,10 @@ translation is internal and requires no additional frontend flags.
 
 ## Ownership and execution
 
-Members must carry lifetime ownership. `shared_object::borrow()` does not retain a resource and is
-rejected during creation/loading. Lifetime aliases are accepted, provided their owner actually keeps
-the target alive. Never wrap an already-owned raw pointer with an independent control block. The
-originating core/backend must outlive every group and member reference.
+Members must carry lifetime ownership. An empty or otherwise non-retaining handle is rejected during
+creation/loading; a lifetime alias is accepted only when its owner actually keeps the target alive.
+Never wrap an already-owned raw pointer with an independent control block. The originating core/backend
+must outlive every group and member reference.
 
 Composition fixes member references, kinds, ranges and views. It does not freeze resource contents or
 nested texture-group writes through the existing `descriptor_space::write` interface; those retain

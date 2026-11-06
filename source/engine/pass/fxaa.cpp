@@ -107,7 +107,7 @@ namespace deren::engine::pass {
 
     rhi::error fxaa_pass::record_content(resolved_io const& io) noexcept {
         if (!this->pipeline_ready() || io.targets.empty() || io.pipelines.empty() || !io.pipelines[0] ||
-            !io.cmd || !io.list || io.cmd.get() != io.list || !io.targets[0].image_handle || !io.targets[0].view_handle ||
+            !io.cmd || !io.list || io.cmd != io.list || !io.targets[0].image_handle || !io.targets[0].view_handle ||
             io.extent.width == 0 || io.extent.height == 0) {
             return rhi::error::invalid_argument;
         }

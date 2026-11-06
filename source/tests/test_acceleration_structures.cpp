@@ -373,15 +373,15 @@ namespace {
 
         namespace as = deren::engine::acceleration_structure;
 
-        managed_core device;
+        auto device = std::make_shared<managed_core>();
 
-        as::bottom_level_structures levels{device};
+        as::bottom_level_structures levels{*device, device};
 
         CHECK(levels.add({.vertex_address = 4096, .vertex_stride = 12, .vertex_count = 3}));
 
         check_bottom_storage(levels);
 
-        as::top_level_structure top{device, 2};
+        as::top_level_structure top{*device, 2, device};
 
         CHECK(top.begin(0));
 
@@ -400,7 +400,7 @@ namespace {
 
         auto previous = top.resources(0);
 
-        device.fail_structure_at = device.structure_calls + 1;
+        device->fail_structure_at = device->structure_calls + 1;
 
         instance.record.primitive_index = 257;
 
@@ -408,9 +408,9 @@ namespace {
 
         CHECK(top.resources(0).same(previous) && top.instance_table_buffer(0) == before);
 
-        device.fail_structure_at = 0;
+        device->fail_structure_at = 0;
 
-        device.fail_at = device.calls + 1;
+        device->fail_at = device->calls + 1;
 
         instance.record.primitive_index = 257;
 
@@ -418,7 +418,7 @@ namespace {
 
         CHECK(top.instance_table_buffer(0) == before && top.instance_table_size(0) == 256 * sizeof(as::instance_record));
 
-        device.fail_at = 0;
+        device->fail_at = 0;
 
         CHECK(top.add(levels, instance));
 
@@ -438,13 +438,13 @@ namespace {
 
         CHECK(top.begin(0));
 
-        auto const calls = device.calls;
+        auto const calls = device->calls;
 
-        auto const structure_calls = device.structure_calls;
+        auto const structure_calls = device->structure_calls;
 
         CHECK(top.add(levels, instance));
 
-        CHECK(device.calls == calls && device.structure_calls == structure_calls && device.idle_calls == 0);
+        CHECK(device->calls == calls && device->structure_calls == structure_calls && device->idle_calls == 0);
 
         raster_test::raster_probe_commands commands;
 
@@ -486,7 +486,7 @@ namespace {
 
         std::weak_ptr<managed_core> root = device;
 
-        auto levels = std::make_unique<as::bottom_level_structures>(*device);
+        auto levels = std::make_unique<as::bottom_level_structures>(*device, device);
 
         CHECK(levels->add({.vertex_address = 4096, .vertex_stride = 12, .vertex_count = 3}));
 
@@ -584,6 +584,8 @@ namespace {
 
         managed_core device;
 
+        auto lease = rhi::shared_object<rhi::api_core>{std::shared_ptr<managed_core>(&device, [](managed_core*) {})};
+
         struct probe_caster : deren::engine::primitive {
 
             void draw(deren::engine::render_environment&) const override {
@@ -633,7 +635,7 @@ namespace {
 
         device.fail_structure_at = 1;
 
-        deren::engine::ray_tracing::structure_set phase{device};
+        deren::engine::ray_tracing::structure_set phase{device, lease};
 
         CHECK(!phase.build(commands, inputs));
 
@@ -645,13 +647,13 @@ namespace {
 
         inputs.casters = two;
 
-        deren::engine::ray_tracing::structure_set later{device};
+        deren::engine::ray_tracing::structure_set later{device, lease};
 
         CHECK(!later.build(commands, inputs) && recorded == 0);
 
         device.fail_structure_at = 0;
 
-        deren::engine::ray_tracing::structure_set success{device};
+        deren::engine::ray_tracing::structure_set success{device, lease};
 
         CHECK(success.build(commands, inputs) && success.ready() && recorded == 2);
 
@@ -690,7 +692,7 @@ namespace {
 
         } refused_mm;
 
-        deren::engine::ray_tracing::structure_set failed_mm{device};
+        deren::engine::ray_tracing::structure_set failed_mm{device, lease};
 
         CHECK(!failed_mm.build(refused_mm, inputs) && !failed_mm.ready() && refused_mm.builds == 0);
 
@@ -700,7 +702,7 @@ namespace {
 
         refused_mm.builds = 0;
 
-        deren::engine::ray_tracing::structure_set failed_barrier{device};
+        deren::engine::ray_tracing::structure_set failed_barrier{device, lease};
 
         CHECK(!failed_barrier.build(refused_mm, inputs) && !failed_barrier.ready() && refused_mm.builds == 0);
 
@@ -717,7 +719,7 @@ namespace {
 
         auto released = device.structure_releases;
 
-        deren::engine::ray_tracing::structure_set recording_failure{device};
+        deren::engine::ray_tracing::structure_set recording_failure{device, lease};
 
         CHECK(!recording_failure.build(refused, inputs) && !recording_failure.ready());
 
@@ -735,7 +737,7 @@ namespace {
 
         inputs.hooks.record_skin = [](void*, rhi::command_buffer&, std::span<deren::engine::ray_tracing::caster_level const>) { return true; };
 
-        deren::engine::ray_tracing::structure_set skinned{device};
+        deren::engine::ray_tracing::structure_set skinned{device, lease};
 
         CHECK(skinned.build(commands, inputs) && skinned.ready());
 
@@ -751,7 +753,7 @@ namespace {
 
         CHECK(!failed_update && failed_update.error().disable_skin_bake && skinned.handle(0) == nullptr);
 
-        deren::engine::ray_tracing::structure_set skin_failure{device};
+        deren::engine::ray_tracing::structure_set skin_failure{device, lease};
 
         auto failed_skin = skin_failure.build(commands, inputs);
 
@@ -1448,7 +1450,7 @@ int main(int const argc, char** const argv) {
 
     // Recorded commands borrow their structures and inputs until submission has completed.
 
-    as::bottom_level_structures levels{*core};
+    as::bottom_level_structures levels{*core, core};
 
     rhi::unique_object<rhi::micromap> micromap_owner;
 

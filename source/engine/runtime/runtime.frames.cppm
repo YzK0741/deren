@@ -124,23 +124,11 @@ namespace deren::engine {
         return *this->rhi_face().frames->walk_frames();
     }
 
-    rhi::shared_object<rhi::command_buffer> runtime::frame_command_buffer() const noexcept {
-        // THE BORROWED CONTRACT HANDLE OF THE FRAME'S OWN BUFFER (abi 21): `begin_commands()` answers the
-        // CORE's stable `commands_view` for the slot in flight, which is why the same object comes back
-        // every call - and why the control block below must be NON-OWNING. `frame_commands::release()`
-        // (the one drop a deleter could perform) refuses BY NAME, because the core owns the buffer and this
-        // view never held a reference to drop; a deleter that called it would only draw that log.
-        //
-        // `nullptr` IS THE HONEST ANSWER OUTSIDE A FRAME: nothing is recording, so there is no buffer to
-        // hand out - the state the removed `frame_primary_handle()` answered VK_NULL_HANDLE for, and the
-        // state the frame loop's own begin/end guards already name.
-        rhi::command_buffer* const list = this->rhi_face().frames->begin_commands();
-        if (list == nullptr) {
-            return {};
-        }
-        // NOTHING IS DROPPED, on purpose: the core owns the frame's buffer, so the shared handle is a
-        // BORROWED one - its copies share the pointer and never call `release()`.
-        return rhi::shared_object<rhi::command_buffer>::borrow(*list);
+    rhi::command_buffer* runtime::frame_command_buffer() const noexcept {
+        // THE FRAME'S OWN BUFFER, as a non-owning pointer: `begin_commands()` answers the core's stable
+        // `commands_view` for the slot in flight, so the same object comes back every call and no reference
+        // is transferred. `nullptr` means no frame is open.
+        return this->rhi_face().frames->begin_commands();
     }
 
     frame_status runtime::pace_and_acquire() {
@@ -475,7 +463,7 @@ namespace deren::engine {
         this->publish_frame_resources();
         // Record the frame into this slot's command buffer (inline recording: no inheritance).
         // Open the frame's borrowed recording target through the portable lifecycle.
-        rhi::shared_object<rhi::command_buffer> const recording_commands = this->frame_command_buffer();
+        rhi::command_buffer* const recording_commands = this->frame_command_buffer();
         if (!recording_commands || recording_commands->begin_recording({}) != rhi::error::ok) {
             return frame_status::begin_recording_failed;
         }
@@ -527,7 +515,7 @@ namespace deren::engine {
         // manager's validity - a fixed-size engine handle cannot answer "how many images do I hold", so the
         // vector-length test that stood here has no subject any more.
         if (!this->furnace_cube_ready && static_cast<bool>(this->furnace_cube_image)) {
-            if (rhi::command_buffer* const frame_commands = this->frame_command_buffer().get(); frame_commands != nullptr) {
+            if (rhi::command_buffer* const frame_commands = this->frame_command_buffer(); frame_commands != nullptr) {
                 // THE THREE STEPS RECORD THROUGH THE CONTRACT (undefined -> transfer_destination, the clear over
                 // all six faces, transfer_destination -> shader_read): the layer count is 6 rather than the
                 // recipes' single layer, and the handle is the CONTRACT image the escape used to derive a native
@@ -1081,7 +1069,7 @@ namespace deren::engine {
             // collapsed every layout to GENERAL, which is what the driver expects now). Contents do not
             // matter (the shader returns "fully lit"), hence UNDEFINED as the old layout.
             if (static_cast<bool>(this->shadow_images[static_cast<std::size_t>(frame_slot)])) {
-                if (rhi::command_buffer* const frame_commands = this->frame_command_buffer().get(); frame_commands != nullptr) {
+                if (rhi::command_buffer* const frame_commands = this->frame_command_buffer(); frame_commands != nullptr) {
                     // undefined -> depth_read. Every layer the image OWNS, not just layer 0: the constant's
                     // range is single-layer and the whole array view the descriptor covers must be sampleable.
                     // The count is shadow_allocated_layers - the layer count the image was actually created
@@ -3308,7 +3296,7 @@ namespace deren::engine {
         deren::utility::log("runtime: gbuffer debug pass has no descriptor set - showing a cleared frame");
         // undefined -> color_attachment (the recipe the raw transition copied) and the clear itself: both
         // ride the contract, and the clear replaces the hand-built attachment + begin/end pair.
-        rhi::command_buffer* const frame_commands = this->frame_command_buffer().get();
+        rhi::command_buffer* const frame_commands = this->frame_command_buffer();
         if (frame_commands == nullptr) {
             return; // no frame is in flight: there is no recording buffer to clear through
         }
@@ -3341,7 +3329,7 @@ namespace deren::engine {
                 deren::utility::log("main graph: the frame has no recordable scene (the G-buffer pipeline is missing); presenting the cleared background");
                 this->main_graph_not_ready_reported = true;
             }
-            auto* const commands = this->frame_command_buffer().get();
+            auto* const commands = this->frame_command_buffer();
             auto* const image = this->rhi_face().frames->frame_image();
             rhi::subresource_range const whole{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u};
             if (commands == nullptr || image == nullptr) {

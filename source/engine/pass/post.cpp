@@ -196,7 +196,7 @@ namespace deren::engine::pass {
 
     rhi::error post_composite_pass::record_content(resolved_io const& io) noexcept {
         if (!this->pipeline_ready() || io.targets.empty() || io.pipelines.empty() || !io.pipelines[0] ||
-            !io.cmd || !io.list || io.cmd.get() != io.list || !io.targets[0].image_handle || !io.targets[0].view_handle ||
+            !io.cmd || !io.list || io.cmd != io.list || !io.targets[0].image_handle || !io.targets[0].view_handle ||
             io.extent.width == 0 || io.extent.height == 0 || io.push.size() < sizeof(post_push_constants)) {
             return rhi::error::invalid_argument;
         }
@@ -307,7 +307,7 @@ namespace deren::engine::pass {
     rhi::error post_bloom_pass::record_content(resolved_io const& io) noexcept {
         if (io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == nullptr ||
             io.extent.width == 0 || io.extent.height == 0 || io.list == nullptr || !io.cmd ||
-            io.cmd.get() != io.list || io.targets[0].image_handle == nullptr || io.targets[0].view_handle == nullptr) {
+            io.cmd != io.list || io.targets[0].image_handle == nullptr || io.targets[0].view_handle == nullptr) {
             return rhi::error::invalid_argument;
         }
         // The push block is composed HERE (S3): the frame's three settings (exposure, the bloom weight and the

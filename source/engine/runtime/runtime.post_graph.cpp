@@ -670,7 +670,7 @@ namespace deren::engine {
                 this->prepare_stage(cluster_stage);
                 passes[lane_slot(lane::cluster)] = this->cluster_pass[0];
                 ios[lane_slot(lane::cluster)].push_block = host.push_block;
-                if (!passes[lane_slot(lane::cluster)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::cluster)], ios[lane_slot(lane::cluster)]) || ios[lane_slot(lane::cluster)].list != commands.get()) {
+                if (!passes[lane_slot(lane::cluster)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::cluster)], ios[lane_slot(lane::cluster)]) || ios[lane_slot(lane::cluster)].list != commands) {
                     return rhi::error::not_ready;
                 }
                 auto cluster_bound = build.bind_pass<graph::cluster::parameters>(
@@ -688,7 +688,7 @@ namespace deren::engine {
                 this->prepare_stage(shadow_stage);
                 passes[lane_slot(lane::shadow)] = this->shadow_pass[0];
                 ios[lane_slot(lane::shadow)].push_block = host.push_block;
-                if (!passes[lane_slot(lane::shadow)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::shadow)], ios[lane_slot(lane::shadow)]) || ios[lane_slot(lane::shadow)].list != commands.get() || ios[lane_slot(lane::shadow)].targets.empty()) {
+                if (!passes[lane_slot(lane::shadow)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::shadow)], ios[lane_slot(lane::shadow)]) || ios[lane_slot(lane::shadow)].list != commands || ios[lane_slot(lane::shadow)].targets.empty()) {
                     return rhi::error::not_ready;
                 }
                 auto shadow_added = build.append([&](graph::builder& description) noexcept {
@@ -858,7 +858,7 @@ namespace deren::engine {
                 this->prepare_stage(hzb_cull_stage);
                 passes[lane_slot(lane::hzb_cull)] = this->hzb_cull.get();
                 ios[lane_slot(lane::hzb_cull)].push_block = host.push_block;
-                if (!host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::hzb_cull)], ios[lane_slot(lane::hzb_cull)]) || ios[lane_slot(lane::hzb_cull)].list != commands.get()) {
+                if (!host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::hzb_cull)], ios[lane_slot(lane::hzb_cull)]) || ios[lane_slot(lane::hzb_cull)].list != commands) {
                     return rhi::error::not_ready;
                 }
                 this->hzb_cull->set_frame(hzb_item_count, this->render_extent(), false, this->software_gpu_route_active_frame);
@@ -961,7 +961,7 @@ namespace deren::engine {
                 this->prepare_stage(visibility_stage);
                 passes[lane_slot(lane::visibility_raster)] = this->visibility_pass[0];
                 ios[lane_slot(lane::visibility_raster)].push_block = host.push_block;
-                if (!passes[lane_slot(lane::visibility_raster)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::visibility_raster)], ios[lane_slot(lane::visibility_raster)]) || ios[lane_slot(lane::visibility_raster)].list != commands.get() ||
+                if (!passes[lane_slot(lane::visibility_raster)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::visibility_raster)], ios[lane_slot(lane::visibility_raster)]) || ios[lane_slot(lane::visibility_raster)].list != commands ||
                     ios[lane_slot(lane::visibility_raster)].targets.size() != 2) {
                     return rhi::error::not_ready;
                 }
@@ -1013,7 +1013,7 @@ namespace deren::engine {
                     this->prepare_stage(hzb_stage);
                     passes[lane_slot(lane::hzb_build)] = this->hzb_build.get();
                     ios[lane_slot(lane::hzb_build)].push_block = host.push_block;
-                    if (!host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::hzb_build)], ios[lane_slot(lane::hzb_build)]) || ios[lane_slot(lane::hzb_build)].list != commands.get()) {
+                    if (!host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::hzb_build)], ios[lane_slot(lane::hzb_build)]) || ios[lane_slot(lane::hzb_build)].list != commands) {
                         return rhi::error::not_ready;
                     }
                     // THE BARRIER BUFFER THE PASS RECORDS ITS INTER-LEVEL ORDERING ON: the graph cannot see inside one
@@ -1067,7 +1067,7 @@ namespace deren::engine {
                 this->prepare_stage(recovery_stage);
                 passes[lane_slot(lane::hzb_recovery)] = this->hzb_recovery.get();
                 ios[lane_slot(lane::hzb_recovery)].push_block = host.push_block;
-                if (!host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::hzb_recovery)], ios[lane_slot(lane::hzb_recovery)]) || ios[lane_slot(lane::hzb_recovery)].list != commands.get()) {
+                if (!host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::hzb_recovery)], ios[lane_slot(lane::hzb_recovery)]) || ios[lane_slot(lane::hzb_recovery)].list != commands) {
                     return rhi::error::not_ready;
                 }
                 this->hzb_recovery->set_frame(hzb_item_count, this->render_extent(), true, this->software_gpu_route_active_frame);
@@ -1099,7 +1099,7 @@ namespace deren::engine {
                 this->prepare_stage(load_stage);
                 passes[lane_slot(lane::visibility_recovery)] = this->visibility_recovery.get();
                 ios[lane_slot(lane::visibility_recovery)].push_block = host.push_block;
-                if (!host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::visibility_recovery)], ios[lane_slot(lane::visibility_recovery)]) || ios[lane_slot(lane::visibility_recovery)].list != commands.get() || ios[lane_slot(lane::visibility_recovery)].targets.size() != 2) {
+                if (!host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::visibility_recovery)], ios[lane_slot(lane::visibility_recovery)]) || ios[lane_slot(lane::visibility_recovery)].list != commands || ios[lane_slot(lane::visibility_recovery)].targets.size() != 2) {
                     return rhi::error::not_ready;
                 }
                 this->visibility_recovery->set_frame(this->make_visibility_frame(true));
@@ -1127,7 +1127,7 @@ namespace deren::engine {
                 this->prepare_stage(software_stage);
                 passes[lane_slot(lane::software_visibility)] = this->software_visibility.get();
                 ios[lane_slot(lane::software_visibility)].push_block = {this, &runtime::push_software_block};
-                if (!passes[lane_slot(lane::software_visibility)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::software_visibility)], ios[lane_slot(lane::software_visibility)]) || ios[lane_slot(lane::software_visibility)].list != commands.get()) {
+                if (!passes[lane_slot(lane::software_visibility)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::software_visibility)], ios[lane_slot(lane::software_visibility)]) || ios[lane_slot(lane::software_visibility)].list != commands) {
                     return rhi::error::not_ready;
                 }
                 auto software_added = build.append([&](graph::builder& description) noexcept {
@@ -1233,7 +1233,7 @@ namespace deren::engine {
                 passes[lane_slot(lane::visibility_resolve)] = this->visibility_resolve_stage[0];
                 this->visibility_resolve->set_mip_feedback_slot(residency && progressive_mips ? render_layout::heap_slot_base + 1366 + frame_ring().position() : 0);
                 ios[lane_slot(lane::visibility_resolve)].push_block = host.push_block;
-                if (!passes[lane_slot(lane::visibility_resolve)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::visibility_resolve)], ios[lane_slot(lane::visibility_resolve)]) || ios[lane_slot(lane::visibility_resolve)].list != commands.get()) {
+                if (!passes[lane_slot(lane::visibility_resolve)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::visibility_resolve)], ios[lane_slot(lane::visibility_resolve)]) || ios[lane_slot(lane::visibility_resolve)].list != commands) {
                     return rhi::error::not_ready;
                 }
                 auto resolve_bound = build.bind_pass<graph::visibility::resolve_parameters>(
@@ -1277,7 +1277,7 @@ namespace deren::engine {
                     passes[lane_slot(lane::software_merge)] = this->software_merge.get();
                     ios[lane_slot(lane::software_merge)].push_block = host.push_block;
                     if (!passes[lane_slot(lane::software_merge)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::software_merge)], ios[lane_slot(lane::software_merge)]) ||
-                        ios[lane_slot(lane::software_merge)].list != commands.get() || ios[lane_slot(lane::software_merge)].targets.size() != 1u) {
+                        ios[lane_slot(lane::software_merge)].list != commands || ios[lane_slot(lane::software_merge)].targets.size() != 1u) {
                         return rhi::error::not_ready;
                     }
                     auto merge_bound = build.bind_pass<graph::visibility::software_merge_parameters>(
@@ -1310,7 +1310,7 @@ namespace deren::engine {
                 passes[lane_slot(lane::scene)] = this->scene_pass[0];
                 ios[lane_slot(lane::scene)].push_block = host.push_block;
                 if (!passes[lane_slot(lane::scene)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::scene)], ios[lane_slot(lane::scene)]) ||
-                    ios[lane_slot(lane::scene)].list != commands.get() || ios[lane_slot(lane::scene)].targets.size() != 6) {
+                    ios[lane_slot(lane::scene)].list != commands || ios[lane_slot(lane::scene)].targets.size() != 6) {
                     return rhi::error::not_ready;
                 }
                 std::array expected{this->gbuffer_images[0][index].get(), this->gbuffer_images[1][index].get(), this->gbuffer_images[2][index].get(),
@@ -1351,7 +1351,7 @@ namespace deren::engine {
                 this->prepare_stage(rt_stage);
                 passes[lane_slot(lane::rt_shadow)] = this->rt_shadow_pass[0];
                 ios[lane_slot(lane::rt_shadow)].push_block = host.push_block;
-                if (!passes[lane_slot(lane::rt_shadow)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::rt_shadow)], ios[lane_slot(lane::rt_shadow)]) || ios[lane_slot(lane::rt_shadow)].list != commands.get()) {
+                if (!passes[lane_slot(lane::rt_shadow)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::rt_shadow)], ios[lane_slot(lane::rt_shadow)]) || ios[lane_slot(lane::rt_shadow)].list != commands) {
                     return rhi::error::not_ready;
                 }
                 auto rt_added = build.append([&](graph::builder& description) noexcept {
@@ -1377,7 +1377,7 @@ namespace deren::engine {
                 passes[lane_slot(lane::deferred)] = this->deferred_pass[0];
                 ios[lane_slot(lane::deferred)].push_block = host.push_block;
                 if (!passes[lane_slot(lane::deferred)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::deferred)], ios[lane_slot(lane::deferred)]) ||
-                    ios[lane_slot(lane::deferred)].list != commands.get() || ios[lane_slot(lane::deferred)].targets.size() != 1 || ios[lane_slot(lane::deferred)].targets[0].image_handle != scene_target_image) {
+                    ios[lane_slot(lane::deferred)].list != commands || ios[lane_slot(lane::deferred)].targets.size() != 1 || ios[lane_slot(lane::deferred)].targets[0].image_handle != scene_target_image) {
                     return rhi::error::not_ready;
                 }
                 auto bound = build.bind_pass<graph::lighting::parameters>(lit->pass,
@@ -1402,7 +1402,7 @@ namespace deren::engine {
                 this->prepare_stage(debug_stage);
                 passes[lane_slot(lane::gbuffer_debug)] = this->gbuffer_debug_stage[0];
                 ios[lane_slot(lane::gbuffer_debug)].push_block = host.push_block;
-                if (!passes[lane_slot(lane::gbuffer_debug)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::gbuffer_debug)], ios[lane_slot(lane::gbuffer_debug)]) || ios[lane_slot(lane::gbuffer_debug)].list != commands.get() ||
+                if (!passes[lane_slot(lane::gbuffer_debug)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::gbuffer_debug)], ios[lane_slot(lane::gbuffer_debug)]) || ios[lane_slot(lane::gbuffer_debug)].list != commands ||
                     ios[lane_slot(lane::gbuffer_debug)].targets.size() != 1 || ios[lane_slot(lane::gbuffer_debug)].targets[0].image_handle != scene_target_image) {
                     return rhi::error::not_ready;
                 }
@@ -1464,7 +1464,7 @@ namespace deren::engine {
                 this->prepare_stage(gaussian_stage);
                 passes[lane_slot(lane::gaussian_splats)] = this->gaussian_pass[0];
                 ios[lane_slot(lane::gaussian_splats)].push_block = host.push_block;
-                if (!passes[lane_slot(lane::gaussian_splats)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::gaussian_splats)], ios[lane_slot(lane::gaussian_splats)]) || ios[lane_slot(lane::gaussian_splats)].list != commands.get() ||
+                if (!passes[lane_slot(lane::gaussian_splats)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::gaussian_splats)], ios[lane_slot(lane::gaussian_splats)]) || ios[lane_slot(lane::gaussian_splats)].list != commands ||
                     ios[lane_slot(lane::gaussian_splats)].targets.size() != 2 || ios[lane_slot(lane::gaussian_splats)].targets[0].image_handle != scene_target_image || ios[lane_slot(lane::gaussian_splats)].targets[1].image_handle != depth.get()) {
                     return rhi::error::not_ready;
                 }
@@ -1494,7 +1494,7 @@ namespace deren::engine {
                 this->prepare_stage(transparent_stage);
                 passes[lane_slot(lane::transparent)] = this->transparent_pass[0];
                 ios[lane_slot(lane::transparent)].push_block = host.push_block;
-                if (!passes[lane_slot(lane::transparent)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::transparent)], ios[lane_slot(lane::transparent)]) || ios[lane_slot(lane::transparent)].list != commands.get() ||
+                if (!passes[lane_slot(lane::transparent)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::transparent)], ios[lane_slot(lane::transparent)]) || ios[lane_slot(lane::transparent)].list != commands ||
                     ios[lane_slot(lane::transparent)].targets.size() < 2 || ios[lane_slot(lane::transparent)].targets[0].image_handle != scene_target_image || ios[lane_slot(lane::transparent)].targets[1].image_handle != depth.get()) {
                     return rhi::error::not_ready;
                 }
@@ -1523,7 +1523,7 @@ namespace deren::engine {
                 this->prepare_stage(character_stage);
                 passes[lane_slot(lane::character_forward)] = this->character_forward_pass[0];
                 ios[lane_slot(lane::character_forward)].push_block = host.push_block;
-                if (!passes[lane_slot(lane::character_forward)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::character_forward)], ios[lane_slot(lane::character_forward)]) || ios[lane_slot(lane::character_forward)].list != commands.get() ||
+                if (!passes[lane_slot(lane::character_forward)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::character_forward)], ios[lane_slot(lane::character_forward)]) || ios[lane_slot(lane::character_forward)].list != commands ||
                     ios[lane_slot(lane::character_forward)].targets.size() < 2 || ios[lane_slot(lane::character_forward)].targets[0].image_handle != scene_target_image || ios[lane_slot(lane::character_forward)].targets[1].image_handle != depth.get()) {
                     return rhi::error::not_ready;
                 }
@@ -1544,7 +1544,7 @@ namespace deren::engine {
                 this->prepare_stage(toon_stage);
                 passes[lane_slot(lane::toon_screen_rim)] = this->toon_screen_rim_pass[0];
                 ios[lane_slot(lane::toon_screen_rim)].push_block = host.push_block;
-                if (!passes[lane_slot(lane::toon_screen_rim)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::toon_screen_rim)], ios[lane_slot(lane::toon_screen_rim)]) || ios[lane_slot(lane::toon_screen_rim)].list != commands.get() ||
+                if (!passes[lane_slot(lane::toon_screen_rim)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::toon_screen_rim)], ios[lane_slot(lane::toon_screen_rim)]) || ios[lane_slot(lane::toon_screen_rim)].list != commands ||
                     ios[lane_slot(lane::toon_screen_rim)].targets.size() != 1 || ios[lane_slot(lane::toon_screen_rim)].targets[0].image_handle != scene_target_image) {
                     return rhi::error::not_ready;
                 }
@@ -1580,7 +1580,7 @@ namespace deren::engine {
                 this->prepare_stage(game_rim_stage);
                 passes[lane_slot(lane::game_toon_depth_rim)] = this->game_toon_depth_rim_pass[0];
                 ios[lane_slot(lane::game_toon_depth_rim)].push_block = host.push_block;
-                if (!passes[lane_slot(lane::game_toon_depth_rim)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::game_toon_depth_rim)], ios[lane_slot(lane::game_toon_depth_rim)]) || ios[lane_slot(lane::game_toon_depth_rim)].list != commands.get() ||
+                if (!passes[lane_slot(lane::game_toon_depth_rim)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::game_toon_depth_rim)], ios[lane_slot(lane::game_toon_depth_rim)]) || ios[lane_slot(lane::game_toon_depth_rim)].list != commands ||
                     ios[lane_slot(lane::game_toon_depth_rim)].targets.size() != 1 || ios[lane_slot(lane::game_toon_depth_rim)].targets[0].image_handle != scene_target_image) {
                     return rhi::error::not_ready;
                 }
@@ -1606,12 +1606,12 @@ namespace deren::engine {
                 this->prepare_stage(taa_stage);
                 passes[lane_slot(lane::taa_resolve)] = this->taa_pass[0];
                 ios[lane_slot(lane::taa_resolve)].push_block = host.push_block;
-                if (!passes[lane_slot(lane::taa_resolve)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::taa_resolve)], ios[lane_slot(lane::taa_resolve)]) || ios[lane_slot(lane::taa_resolve)].list != commands.get()) {
+                if (!passes[lane_slot(lane::taa_resolve)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::taa_resolve)], ios[lane_slot(lane::taa_resolve)]) || ios[lane_slot(lane::taa_resolve)].list != commands) {
                     return rhi::error::not_ready;
                 }
                 passes[lane_slot(lane::taa_history)] = this->taa_pass[0];
                 ios[lane_slot(lane::taa_history)].push_block = host.push_block;
-                if (!host.resolve(host.context, *passes[lane_slot(lane::taa_history)], ios[lane_slot(lane::taa_history)]) || ios[lane_slot(lane::taa_history)].list != commands.get()) {
+                if (!host.resolve(host.context, *passes[lane_slot(lane::taa_history)], ios[lane_slot(lane::taa_history)]) || ios[lane_slot(lane::taa_history)].list != commands) {
                     return rhi::error::not_ready;
                 }
                 auto resolve_added = build.append([&](graph::builder& description) noexcept {
@@ -1658,7 +1658,7 @@ namespace deren::engine {
         for (uint32_t i = 0; i < count; ++i) {
             ios[i].push_block = host.push_block;
             if (!passes[i] || !host.resolve || !host.resolve(host.context, *passes[i], ios[i]) ||
-                ios[i].list != commands.get() || ios[i].targets.size() != 1) {
+                ios[i].list != commands || ios[i].targets.size() != 1) {
                 return rhi::error::not_ready;
             }
             auto const expected = [&] {

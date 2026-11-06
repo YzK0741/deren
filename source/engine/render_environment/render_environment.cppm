@@ -64,6 +64,9 @@ namespace deren::engine {
     export struct recording_target {
         deren::promise::rhi::shared_object<deren::promise::rhi::command_buffer> command = {};
         deren::promise::rhi::mergeable_command_buffer_ref mergeable = {};
+        /// A NON-OWNING view for the frame's core-owned buffer (or any caller-owned one): the target records
+        /// through it without taking a reference. Null means the view was not supplied.
+        deren::promise::rhi::command_recorder* view = nullptr;
 
         recording_target() noexcept = default;
         recording_target(deren::promise::rhi::shared_object<deren::promise::rhi::command_buffer> value) noexcept
@@ -72,12 +75,24 @@ namespace deren::engine {
         recording_target(deren::promise::rhi::mergeable_command_buffer_ref value) noexcept
             : mergeable(std::move(value)) {
         }
+        recording_target(deren::promise::rhi::mergeable_command_buffer& value) noexcept
+            : view(static_cast<deren::promise::rhi::command_recorder*>(&value)) {
+        }
+        recording_target(deren::promise::rhi::command_buffer& value) noexcept
+            : view(&value) {
+        }
+        recording_target(deren::promise::rhi::command_buffer* value) noexcept
+            : view(value) {
+        }
 
         [[nodiscard]] explicit operator bool() const noexcept {
-            return this->command != nullptr || this->mergeable != nullptr;
+            return this->view != nullptr || this->command != nullptr || this->mergeable != nullptr;
         }
 
         [[nodiscard]] deren::promise::rhi::command_recorder* get() const noexcept {
+            if (this->view != nullptr) {
+                return this->view;
+            }
             return command != nullptr ? static_cast<deren::promise::rhi::command_recorder*>(command.get()) : mergeable.get();
         }
         [[nodiscard]] deren::promise::rhi::error bind_pipeline(deren::promise::rhi::pipeline const& pipeline) const noexcept {

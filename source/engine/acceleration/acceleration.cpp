@@ -118,7 +118,10 @@ namespace deren::engine::acceleration_structure {
             structure = generation && generation->objects.size() == 1 ? generation->objects[0].structure.get() : nullptr;
             return structure && structure->device_address() && structure->size_bytes() ? rhi::error::ok : rhi::error::unsupported;
         };
-        auto root = device_lease ? device_lease : rhi::shared_object<rhi::api_core>::borrow(*contract);
+        if (!device_lease) {
+            return std::unexpected(deren::utility::vessel::string("acceleration structure: an owning device lease is required to prepare storage"));
+        }
+        auto root = device_lease;
         if (item.storage_chain.prepare_resources(root, {}, admit) != rhi::error::ok) {
             return std::unexpected(deren::utility::vessel::string("acceleration structure: the backend could not create the bottom level structure "
                                                                   "(see its own log line for why)"));
@@ -247,7 +250,10 @@ namespace deren::engine::acceleration_structure {
                 }
                 return rhi::error::ok;
             };
-            auto root = device_lease ? device_lease : rhi::shared_object<rhi::api_core>::borrow(*contract);
+            if (!device_lease) {
+                return std::unexpected(deren::utility::vessel::string("acceleration structures: an owning device lease is required to prepare top-level storage"));
+            }
+            auto root = device_lease;
             if (target.storage_chain.prepare_resources(root, managed::resource_context{.frame_slots = 1, .output_images = 1}, admit) != rhi::error::ok) {
                 return std::unexpected(deren::utility::vessel::string("acceleration structures: top level storage could not be prepared"));
             }

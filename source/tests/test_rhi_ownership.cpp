@@ -5,6 +5,7 @@
 #include <barrier>
 #include <concepts>
 #include <latch>
+#include <memory>
 #include <thread>
 import deren.promise.rhi;
 namespace rhi = deren::promise::rhi;
@@ -205,6 +206,33 @@ int main() {
         CHECK(first.frame.calls == 1 && second.frame.calls == 0);
     }
     std::atomic<unsigned> destroyed{0};
+    static_assert(std::same_as<rhi::shared_object<counted>::weak, rhi::weak_object<counted>>);
+    {
+        rhi::weak_object<counted> empty;
+        CHECK(empty.expired() && empty.use_count() == 0u && !empty.lock());
+    }
+    {
+        auto engine_owner = std::make_shared<counted>(destroyed);
+        rhi::weak_object<counted> observer;
+        {
+            rhi::shared_object<counted> handle{engine_owner};
+            observer = handle;
+            {
+                auto locked = observer.lock();
+                CHECK(locked && locked.get() == engine_owner.get());
+            }
+            CHECK(observer.use_count() == 2u);
+            rhi::weak_object<counted> copy{observer};
+            CHECK(copy.shares_control(observer) && copy.shares_control(handle));
+        }
+        CHECK(!observer.expired());
+        {
+            auto locked = observer.lock();
+            CHECK(locked && locked.get() == engine_owner.get());
+        }
+        engine_owner.reset();
+        CHECK(observer.expired() && !observer.lock());
+    }
     {
         rhi::shared_object<counted> owner{new counted(destroyed)};
         owner->self = owner;
