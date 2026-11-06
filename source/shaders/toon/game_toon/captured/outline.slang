@@ -530,11 +530,18 @@ static void game_toon_outline_expand(inout pbr_vertex_output o, const float2 uv,
 // THE NAME IS NOT `outline_mesh_main`: `scene/pbr.slang` is INCLUDED above and defines that entry already; two
 // mesh entries may not share a name in one translation unit. The host does not name the entry - it loads the
 // compiled module - so the compile rule's `-entry` is the only place this name appears (notes §6).
+// ONE INVOCATION PER OUTPUT VERTEX: the hull's 85-triangle window used to be filled by one lane. `OUTLINE_THREADS`
+// is the tuning point; 32 is the measured optimum and keeps the workgroup small.
+#ifndef OUTLINE_THREADS
+#define OUTLINE_THREADS 32
+#endif
+
 [shader("mesh")]
 [outputtopology("triangle")]
-[numthreads(1, 1, 1)]
+[numthreads(OUTLINE_THREADS, 1, 1)]
 void game_toon_outline_mesh_main(out vertices pbr_vertex_output verts[mesh_vertices_per_workgroup],
-                                out indices uint3 tris[mesh_triangles_per_workgroup], uint3 group_id : SV_GroupID) {
+                                out indices uint3 tris[mesh_triangles_per_workgroup], uint3 group_id : SV_GroupID,
+                                uint3 thread_id : SV_GroupThreadID) {
     const MeshGeometryLanes geometry = push.geometry;
     const uint triangle_count = geometry.index_count / mesh_indices_per_triangle;
     const uint first_triangle = group_id.x * mesh_triangles_per_workgroup;
@@ -542,7 +549,9 @@ void game_toon_outline_mesh_main(out vertices pbr_vertex_output verts[mesh_verti
     const uint emit = min(remaining, mesh_triangles_per_workgroup);
 
     SetMeshOutputCounts(emit * mesh_indices_per_triangle, emit);
-    mesh_stat_add(push.frame_slot, mesh_stat_mesh_workgroups, 1u);
+    if (thread_id.x == 0u) {
+        mesh_stat_add(push.frame_slot, mesh_stat_mesh_workgroups, 1u);
+    }
 
     // ---- THE PER-FRAME / PER-MATERIAL VALUES, hoisted exactly where `outline_mesh_main` hoists its own ----
     //
@@ -565,19 +574,24 @@ void game_toon_outline_mesh_main(out vertices pbr_vertex_output verts[mesh_verti
     // `R255` (vert:51, perspective arm): the half-FOV, taken on the magnitude of the engine's Y-flipped proj11.
     const float R255 = atan(1.0 / abs(camera_at(heap_camera_slot).proj[1][1]));
 
-    for (uint t = 0u; t < emit; ++t) {
-        for (uint corner = 0u; corner < mesh_indices_per_triangle; ++corner) {
-            const uint raw_index = mesh_index_at(geometry, geometry.first_index + (first_triangle + t) * mesh_indices_per_triangle + corner);
-            const uint vertex_index = uint(int(raw_index) + geometry.base_vertex);
-            const MeshVertex v = mesh_vertex_at(geometry, vertex_index);
-            pbr_vertex_output o = pbr_shade_vertex(v, vertex_index, group_id.y);
-            // The width gate mirrors `outline_mesh_main`'s (`> 0`): a material with no outline emits its vertices
-            // unexpanded, which the frame's own filter already keeps out of this group in practice.
-            if (Q195 > 0.0) {
-                game_toon_outline_expand(o, o.uv, Q76, Q195, Q206, R255, Q121);
-            }
-            verts[t * mesh_indices_per_triangle + corner] = o;
+    // The lanes split the output window: lane i writes vertices i, i + OUTLINE_THREADS, ... and the triangle
+    // indices separately. Every output slot has exactly one writer, so no output slot needs a cross-lane merge.
+    const uint vertex_count = emit * mesh_indices_per_triangle;
+    for (uint i = thread_id.x; i < vertex_count; i += OUTLINE_THREADS) {
+        const uint t = i / mesh_indices_per_triangle;
+        const uint corner = i % mesh_indices_per_triangle;
+        const uint raw_index = mesh_index_at(geometry, geometry.first_index + (first_triangle + t) * mesh_indices_per_triangle + corner);
+        const uint vertex_index = uint(int(raw_index) + geometry.base_vertex);
+        const MeshVertex v = mesh_vertex_at(geometry, vertex_index);
+        pbr_vertex_output o = pbr_shade_vertex(v, vertex_index, group_id.y);
+        // The width gate mirrors `outline_mesh_main`'s (`> 0`): a material with no outline emits its vertices
+        // unexpanded, which the frame's own filter already keeps out of this group in practice.
+        if (Q195 > 0.0) {
+            game_toon_outline_expand(o, o.uv, Q76, Q195, Q206, R255, Q121);
         }
+        verts[i] = o;
+    }
+    for (uint t = thread_id.x; t < emit; t += OUTLINE_THREADS) {
         tris[t] = uint3(t * mesh_indices_per_triangle + 0u, t * mesh_indices_per_triangle + 1u, t * mesh_indices_per_triangle + 2u);
     }
 }

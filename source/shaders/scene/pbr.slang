@@ -444,10 +444,17 @@ void outline_mesh_main(out vertices pbr_vertex_output verts[mesh_vertices_per_wo
 // The projection body is `pbr_shade_vertex`, shared with the vertex and mesh entries, so a kept meshlet lands
 // where the other two forms would have put it - which is what lets the capture gate accept this path.
 // =============================================================================================================
+// ONE INVOCATION PER OUTPUT VERTEX: a meshlet's 85-triangle window has up to 255 vertices, and one lane filling
+// that window serially is the geometry bottleneck this entry was measured to be. `MESHLET_THREADS` is the tuning
+// point; 32 is the measured optimum (64/128 add occupancy cost without a shorter frame).
+#ifndef MESHLET_THREADS
+#define MESHLET_THREADS 32
+#endif
+
 [shader("mesh")]
 [outputtopology("triangle")]
-[numthreads(1, 1, 1)]
-void meshlet_main(out vertices pbr_vertex_output verts[mesh_vertices_per_workgroup], out indices uint3 tris[mesh_triangles_per_workgroup], uint3 group_id : SV_GroupID)
+[numthreads(MESHLET_THREADS, 1, 1)]
+void meshlet_main(out vertices pbr_vertex_output verts[mesh_vertices_per_workgroup], out indices uint3 tris[mesh_triangles_per_workgroup], uint3 group_id : SV_GroupID, uint3 thread_id : SV_GroupThreadID)
 {
     const MeshGeometryLanes geometry = push.geometry;
     // THE LANE'S base_vertex IS THE "THIS RUN WAS HOST-CULLED" FLAG in a meshlet session (the field is otherwise
@@ -462,8 +469,12 @@ void meshlet_main(out vertices pbr_vertex_output verts[mesh_vertices_per_workgro
     const bool backface_legal = (geometry.base_vertex & 2u) != 0u;
     const MeshletRecord meshlet = host_culled ? culled_meshlet_at(push.frame_slot, geometry.first_index + group_id.x) : meshlet_at(geometry.first_index + group_id.x);
     // ONE ATOMIC PER WORKGROUP, counting what the culling below decided (docs/mesh_shaders.md step 3's measurement:
-    // a rejected meshlet and a meshlet nobody dispatched are the same pixels, so the numbers are the only witness)
-    mesh_stat_add(push.frame_slot, mesh_stat_workgroups, 1u);
+    // a rejected meshlet and a meshlet nobody dispatched are the same pixels, so the numbers are the only witness).
+    // Lane 0 owns the workgroup's accounting so a wider workgroup does not multiply every counter.
+    if (thread_id.x == 0u)
+    {
+        mesh_stat_add(push.frame_slot, mesh_stat_workgroups, 1u);
+    }
 
     // PER-MESHLET CULLING against the camera's clip volume: object -> world (the push's model matrix, or the
     // instance table for an instanced draw) -> clip, with the radius scaled by an upper bound on both matrices'
@@ -482,7 +493,10 @@ void meshlet_main(out vertices pbr_vertex_output verts[mesh_vertices_per_workgro
     const float radius = meshlet.radius * matrix_max_axis_scale(world) * matrix_max_axis_scale(view_proj);
     if (!deforming && !clip_sphere_visible(clip, radius))
     {
-        mesh_stat_add(push.frame_slot, mesh_stat_culled, 1u);
+        if (thread_id.x == 0u)
+        {
+            mesh_stat_add(push.frame_slot, mesh_stat_culled, 1u);
+        }
         SetMeshOutputCounts(0u, 0u);
         return;
     }
@@ -498,18 +512,26 @@ void meshlet_main(out vertices pbr_vertex_output verts[mesh_vertices_per_workgro
 
     const uint triangle_count = min(meshlet.index_count, mesh_triangles_per_workgroup * mesh_indices_per_triangle) / mesh_indices_per_triangle;
     SetMeshOutputCounts(triangle_count * mesh_indices_per_triangle, triangle_count);
-    mesh_stat_add(push.frame_slot, mesh_stat_emitted, 1u);
-    mesh_stat_add(push.frame_slot, mesh_stat_triangles, triangle_count);
-
-    for (uint t = 0u; t < triangle_count; ++t)
+    if (thread_id.x == 0u)
     {
-        for (uint corner = 0u; corner < mesh_indices_per_triangle; ++corner)
-        {
-            const uint raw_index = mesh_index_at(geometry, meshlet.first_index + t * mesh_indices_per_triangle + corner);
-            const uint vertex_index = uint(int(raw_index) + meshlet.base_vertex);
-            const MeshVertex v = mesh_vertex_at(geometry, vertex_index);
-            verts[t * mesh_indices_per_triangle + corner] = pbr_shade_vertex(v, vertex_index, group_id.y);
-        }
+        mesh_stat_add(push.frame_slot, mesh_stat_emitted, 1u);
+        mesh_stat_add(push.frame_slot, mesh_stat_triangles, triangle_count);
+    }
+
+    // The lanes split the output window: lane i writes vertices i, i + MESHLET_THREADS, ... and the triangle
+    // indices separately. Every output slot has exactly one writer, so no output slot needs a cross-lane merge.
+    const uint vertex_count = triangle_count * mesh_indices_per_triangle;
+    for (uint i = thread_id.x; i < vertex_count; i += MESHLET_THREADS)
+    {
+        const uint t = i / mesh_indices_per_triangle;
+        const uint corner = i % mesh_indices_per_triangle;
+        const uint raw_index = mesh_index_at(geometry, meshlet.first_index + t * mesh_indices_per_triangle + corner);
+        const uint vertex_index = uint(int(raw_index) + meshlet.base_vertex);
+        const MeshVertex v = mesh_vertex_at(geometry, vertex_index);
+        verts[i] = pbr_shade_vertex(v, vertex_index, group_id.y);
+    }
+    for (uint t = thread_id.x; t < triangle_count; t += MESHLET_THREADS)
+    {
         tris[t] = uint3(t * mesh_indices_per_triangle + 0u, t * mesh_indices_per_triangle + 1u, t * mesh_indices_per_triangle + 2u);
     }
 }
