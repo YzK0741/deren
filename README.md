@@ -6,7 +6,7 @@
   </picture>
 </p>
 
-**deren** is a real-time renderer that chases the newest C++ and graphics API features. Its portable engine uses RHI and GUI contracts to load graphics implementations as DLLs; the current baseline is C++26 modules with a Vulkan 1.3 backend.
+**deren** is a real-time renderer that chases the newest C++ and graphics API features. Its portable engine uses RHI and GUI contracts to load graphics implementations as DLLs. The current baseline combines C++26 modules, PBR, anime-style toon shading, Gaussian splatting, Slang shaders, and a backend-independent RHI with a Vulkan backend.
 
 > The project was renamed from `vulkan_render` to `deren` on 2026-10-02. Portable modules now use `deren.engine.*` and `deren::engine`; native Vulkan implementations retain `deren.vulkan.*` and `deren::vulkan`.
 
