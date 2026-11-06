@@ -1,10 +1,10 @@
 # deren
 
-**deren** is a real-time renderer in modern C++23 (C++20 modules / `.cppm`), built with CMake 4.3 +
-Ninja on MSYS2 clang64. The renderer reaches the graphics API through a contract and never through
-Vulkan types: the backend is a DLL the executable resolves **by name** at run time, so a second
-backend (D3D12, null, ...) is a second DLL implementing the same contract - see
-[The dynamic API](#the-dynamic-api) below.
+**deren** is a real-time renderer that chases the newest C++ and graphics API features. The current
+baseline is C++26 (C++20 modules / `.cppm`), built with CMake 4.3 + Ninja on MSYS2 clang64. The
+renderer reaches the graphics API through a contract and never through Vulkan types: the backend is
+a DLL the executable resolves **by name** at run time, so a second backend (D3D12, null, ...) is a
+second DLL implementing the same contract - see [The dynamic API](#the-dynamic-api) below.
 
 Current version: **0.5.0** - single source is `project(VERSION)` in `CMakeLists.txt`
 (surfaced by `--version`, the startup log banner and the instance's `app_info`); bump it there
