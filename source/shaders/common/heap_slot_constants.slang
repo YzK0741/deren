@@ -142,6 +142,38 @@ static const uint heap_slots_brdf_lut = heap_slot_base + 1046u;
 // without a per-leaf draw or a named pipeline.
 static const uint heap_slots_custom_env_cube = heap_slot_base + 1365u;
 static const uint heap_slots_custom_irradiance_cube = heap_slot_base + 1369u;
+// the ray-traced reflection target: RGB radiance + A hit distance, per frame slot; the tracing pass writes the
+// STORAGE twin below and deferred lighting samples this one
+static const uint heap_slots_rt_reflection = heap_slot_base + 1372u;
+static const uint heap_slots_rt_reflection_storage = heap_slot_base + 1380u;
+// THE REFLECTION DENOISER'S PER-FRAME-SLOT IMAGES, each sampled and storage. The pairs are appended after the
+// reflection target for the same reason every other late family is: moving an existing slot renumbers it.
+static const uint heap_slots_rt_reflection_denoised = heap_slot_base + 1388u;
+static const uint heap_slots_rt_reflection_denoised_storage = heap_slot_base + 1396u;
+static const uint heap_slots_rt_reflection_reprojected = heap_slot_base + 1404u;
+static const uint heap_slots_rt_reflection_reprojected_storage = heap_slot_base + 1412u;
+static const uint heap_slots_rt_reflection_average = heap_slot_base + 1420u;
+static const uint heap_slots_rt_reflection_average_storage = heap_slot_base + 1428u;
+static const uint heap_slots_rt_reflection_average_history = heap_slot_base + 1516u;
+static const uint heap_slots_rt_reflection_average_history_storage = heap_slot_base + 1524u;
+static const uint heap_slots_rt_reflection_moments = heap_slot_base + 1436u;
+static const uint heap_slots_rt_reflection_moments_storage = heap_slot_base + 1444u;
+static const uint heap_slots_rt_reflection_moments_prefiltered = heap_slot_base + 1452u;
+static const uint heap_slots_rt_reflection_moments_prefiltered_storage = heap_slot_base + 1460u;
+static const uint heap_slots_rt_reflection_moments_history = heap_slot_base + 1468u;
+static const uint heap_slots_rt_reflection_moments_history_storage = heap_slot_base + 1476u;
+static const uint heap_slots_rt_reflection_surface_history = heap_slot_base + 1484u;
+static const uint heap_slots_rt_reflection_surface_history_storage = heap_slot_base + 1492u;
+static const uint heap_slots_rt_reflection_depth_history = heap_slot_base + 1500u;
+static const uint heap_slots_rt_reflection_depth_history_storage = heap_slot_base + 1508u;
+static const uint heap_slots_rt_reflection_prefiltered = heap_slot_base + 1532u;
+static const uint heap_slots_rt_reflection_prefiltered_storage = heap_slot_base + 1540u;
+static const uint heap_slots_rt_reflection_denoised_history = heap_slot_base + 1548u;
+static const uint heap_slots_rt_reflection_denoised_history_storage = heap_slot_base + 1556u;
+static const uint heap_slots_rt_reflection_surface_current = heap_slot_base + 1564u;
+static const uint heap_slots_rt_reflection_surface_current_storage = heap_slot_base + 1572u;
+static const uint heap_slots_rt_reflection_depth_current = heap_slot_base + 1580u;
+static const uint heap_slots_rt_reflection_depth_current_storage = heap_slot_base + 1588u;
 static const uint heap_environment_capacity = 4u;
 // per swapchain image: the shadow map, the ray-traced visibility, and every G-buffer/post image
 static const uint heap_slots_shadow_map = heap_slot_base + 1047u;
@@ -282,6 +314,34 @@ static const uint heap_sampler_shadow = heap_sampler_base + 5u;         // depth
 #define heap_shadow_slot (heap_slots_shadow_map + heap_frame_slot)
 #define heap_rt_visibility_slot (heap_slots_rt_visibility + heap_frame_slot)
 #define heap_rt_visibility_storage_slot (heap_slots_rt_visibility_storage + heap_frame_slot)
+#define heap_rt_reflection_slot (heap_slots_rt_reflection + heap_frame_slot)
+#define heap_rt_reflection_storage_slot (heap_slots_rt_reflection_storage + heap_frame_slot)
+#define heap_rt_reflection_denoised_slot (heap_slots_rt_reflection_denoised + heap_frame_slot)
+#define heap_rt_reflection_denoised_storage_slot (heap_slots_rt_reflection_denoised_storage + heap_frame_slot)
+#define heap_rt_reflection_reprojected_slot (heap_slots_rt_reflection_reprojected + heap_frame_slot)
+#define heap_rt_reflection_reprojected_storage_slot (heap_slots_rt_reflection_reprojected_storage + heap_frame_slot)
+#define heap_rt_reflection_average_slot (heap_slots_rt_reflection_average + heap_frame_slot)
+#define heap_rt_reflection_average_storage_slot (heap_slots_rt_reflection_average_storage + heap_frame_slot)
+#define heap_rt_reflection_average_history_slot (heap_slots_rt_reflection_average_history + heap_frame_slot)
+#define heap_rt_reflection_average_history_storage_slot (heap_slots_rt_reflection_average_history_storage + heap_frame_slot)
+#define heap_rt_reflection_moments_slot (heap_slots_rt_reflection_moments + heap_frame_slot)
+#define heap_rt_reflection_moments_storage_slot (heap_slots_rt_reflection_moments_storage + heap_frame_slot)
+#define heap_rt_reflection_moments_prefiltered_slot (heap_slots_rt_reflection_moments_prefiltered + heap_frame_slot)
+#define heap_rt_reflection_moments_prefiltered_storage_slot (heap_slots_rt_reflection_moments_prefiltered_storage + heap_frame_slot)
+#define heap_rt_reflection_moments_history_slot (heap_slots_rt_reflection_moments_history + heap_frame_slot)
+#define heap_rt_reflection_moments_history_storage_slot (heap_slots_rt_reflection_moments_history_storage + heap_frame_slot)
+#define heap_rt_reflection_surface_history_slot (heap_slots_rt_reflection_surface_history + heap_frame_slot)
+#define heap_rt_reflection_surface_history_storage_slot (heap_slots_rt_reflection_surface_history_storage + heap_frame_slot)
+#define heap_rt_reflection_depth_history_slot (heap_slots_rt_reflection_depth_history + heap_frame_slot)
+#define heap_rt_reflection_depth_history_storage_slot (heap_slots_rt_reflection_depth_history_storage + heap_frame_slot)
+#define heap_rt_reflection_prefiltered_slot (heap_slots_rt_reflection_prefiltered + heap_frame_slot)
+#define heap_rt_reflection_prefiltered_storage_slot (heap_slots_rt_reflection_prefiltered_storage + heap_frame_slot)
+#define heap_rt_reflection_denoised_history_slot (heap_slots_rt_reflection_denoised_history + heap_frame_slot)
+#define heap_rt_reflection_denoised_history_storage_slot (heap_slots_rt_reflection_denoised_history_storage + heap_frame_slot)
+#define heap_rt_reflection_surface_current_slot (heap_slots_rt_reflection_surface_current + heap_frame_slot)
+#define heap_rt_reflection_surface_current_storage_slot (heap_slots_rt_reflection_surface_current_storage + heap_frame_slot)
+#define heap_rt_reflection_depth_current_slot (heap_slots_rt_reflection_depth_current + heap_frame_slot)
+#define heap_rt_reflection_depth_current_storage_slot (heap_slots_rt_reflection_depth_current_storage + heap_frame_slot)
 #define heap_tlas_slot (heap_slots_tlas + heap_frame_slot)
 #define heap_mask_instance_slot (heap_slots_mask_instances + heap_frame_slot)
 #define heap_env_slot (heap_slots_env_cube)

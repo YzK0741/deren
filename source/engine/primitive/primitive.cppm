@@ -3,7 +3,7 @@
 //         GPU primitives that live in the scene-tree leaves, plus the GPU
 //         material / camera / light UBO records of the scene block; versioned in
 //         lock-step with deren.engine.runtime, see that module's banner)
-// module version: 1.1.2  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.2.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // GPU scene contents (namespace deren::engine):
 //   - deren::engine::primitive (owns geometry buffers + material push constants,

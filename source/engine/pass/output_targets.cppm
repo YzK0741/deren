@@ -23,12 +23,15 @@ import deren.promise.rhi;
 export namespace deren::engine::pass {
     class output_targets_pass final : public frame_pass {
     public:
-        static constexpr size_t resource_count = 17;
+        static constexpr size_t resource_count = 31;
 
     private:
         deren::utility::vessel::array<bool, resource_count> required = [] {
             deren::utility::vessel::array<bool, resource_count> values{};
             for (size_t i = 0; i < 15; ++i)
+                values[i] = true;
+            // the reflection target and its denoiser images are always allocated; the feature only gates their writers
+            for (size_t i = 17; i < resource_count; ++i)
                 values[i] = true;
             return values;
         }();
@@ -44,7 +47,15 @@ export namespace deren::engine::pass {
             render_resource::resource_id::bloom_level0, render_resource::resource_id::bloom_level1,
             render_resource::resource_id::bloom_level2, render_resource::resource_id::bloom_level3,
             render_resource::resource_id::rt_shadow_visibility, render_resource::resource_id::visibility_buffer,
-            render_resource::resource_id::software_depth, render_resource::resource_id::software_id};
+            render_resource::resource_id::software_depth, render_resource::resource_id::software_id,
+            render_resource::resource_id::rt_reflection,
+            render_resource::resource_id::rt_reflection_denoised, render_resource::resource_id::rt_reflection_reprojected,
+            render_resource::resource_id::rt_reflection_average, render_resource::resource_id::rt_reflection_moments,
+            render_resource::resource_id::rt_reflection_moments_prefiltered, render_resource::resource_id::rt_reflection_moments_history,
+            render_resource::resource_id::rt_reflection_surface_history, render_resource::resource_id::rt_reflection_depth_history,
+            render_resource::resource_id::rt_reflection_average_history, render_resource::resource_id::rt_reflection_prefiltered,
+            render_resource::resource_id::rt_reflection_denoised_history, render_resource::resource_id::rt_reflection_surface_current,
+            render_resource::resource_id::rt_reflection_depth_current};
         static constexpr deren::utility::vessel::array heap_slots{
             render_layout::heap_slots::post_color, render_layout::heap_slots::gbuffer_albedo,
             render_layout::heap_slots::gbuffer_normal, render_layout::heap_slots::gbuffer_material,
@@ -55,12 +66,34 @@ export namespace deren::engine::pass {
             render_layout::heap_slots::bloom_l0 + 2u * render_layout::heap_image_capacity,
             render_layout::heap_slots::bloom_l0 + 3u * render_layout::heap_image_capacity,
             render_layout::heap_slots::rt_visibility, render_layout::heap_slots::visibility,
-            render_layout::heap_slots::software_depth, render_layout::heap_slots::software_id};
+            render_layout::heap_slots::software_depth, render_layout::heap_slots::software_id,
+            render_layout::heap_slots::rt_reflection,
+            render_layout::heap_slots::rt_reflection_denoised, render_layout::heap_slots::rt_reflection_reprojected,
+            render_layout::heap_slots::rt_reflection_average, render_layout::heap_slots::rt_reflection_moments,
+            render_layout::heap_slots::rt_reflection_moments_prefiltered, render_layout::heap_slots::rt_reflection_moments_history,
+            render_layout::heap_slots::rt_reflection_surface_history, render_layout::heap_slots::rt_reflection_depth_history,
+            render_layout::heap_slots::rt_reflection_average_history, render_layout::heap_slots::rt_reflection_prefiltered,
+            render_layout::heap_slots::rt_reflection_denoised_history, render_layout::heap_slots::rt_reflection_surface_current,
+            render_layout::heap_slots::rt_reflection_depth_current};
         static constexpr deren::utility::vessel::array<uint32_t, resource_count> storage_slots = [] {
             deren::utility::vessel::array<uint32_t, resource_count> slots{};
             slots[13] = render_layout::heap_slots::rt_visibility_storage;
             slots[15] = render_layout::heap_slots::software_depth_storage;
             slots[16] = render_layout::heap_slots::software_id_storage;
+            slots[17] = render_layout::heap_slots::rt_reflection_storage;
+            slots[18] = render_layout::heap_slots::rt_reflection_denoised_storage;
+            slots[19] = render_layout::heap_slots::rt_reflection_reprojected_storage;
+            slots[20] = render_layout::heap_slots::rt_reflection_average_storage;
+            slots[21] = render_layout::heap_slots::rt_reflection_moments_storage;
+            slots[22] = render_layout::heap_slots::rt_reflection_moments_prefiltered_storage;
+            slots[23] = render_layout::heap_slots::rt_reflection_moments_history_storage;
+            slots[24] = render_layout::heap_slots::rt_reflection_surface_history_storage;
+            slots[25] = render_layout::heap_slots::rt_reflection_depth_history_storage;
+            slots[26] = render_layout::heap_slots::rt_reflection_average_history_storage;
+            slots[27] = render_layout::heap_slots::rt_reflection_prefiltered_storage;
+            slots[28] = render_layout::heap_slots::rt_reflection_denoised_history_storage;
+            slots[29] = render_layout::heap_slots::rt_reflection_surface_current_storage;
+            slots[30] = render_layout::heap_slots::rt_reflection_depth_current_storage;
             return slots;
         }();
         static deren::utility::vessel::array<render_resource::instances::request, resource_count> descriptions(render_resource::instances::resource_context const& context) {
@@ -73,16 +106,28 @@ export namespace deren::engine::pass {
                                                             render_layout::hdr_format, render_layout::hdr_format, render_layout::hdr_format,
                                                             render_layout::hdr_format, render_layout::hdr_format, render_layout::hdr_format,
                                                             rhi::image_format::r16_sfloat, render_layout::visibility_format,
-                                                            rhi::image_format::r32_uint, rhi::image_format::r32_uint};
+                                                            rhi::image_format::r32_uint, rhi::image_format::r32_uint,
+                                                            render_layout::hdr_format,
+                                                            render_layout::hdr_format, render_layout::hdr_format, render_layout::hdr_format,
+                                                            rhi::image_format::r16g16_sfloat, rhi::image_format::r16g16_sfloat,
+                                                            rhi::image_format::r16g16_sfloat, render_layout::hdr_format,
+                                                            rhi::image_format::r32_uint, render_layout::hdr_format,
+                                                            render_layout::hdr_format, render_layout::hdr_format,
+                                                            render_layout::hdr_format, rhi::image_format::r32_uint};
             for (size_t i = 0; i < values.size(); ++i) {
                 auto& value = values[i];
                 value.id = ids[i];
                 value.life = i == 7 ? managed::lifetime::history : managed::lifetime::output_size;
-                value.scope = i == 13 ? render_resource::resource_scope::per_frame_slot : render_resource::resource_scope::per_swapchain_image;
+                value.scope = (i == 13 || i >= 17) ? render_resource::resource_scope::per_frame_slot : render_resource::resource_scope::per_swapchain_image;
                 value.image.extent = context.render_extent;
                 if (i >= 9 && i <= 12) {
                     value.image.extent.width = std::max(1u, context.render_extent.width >> (i - 8));
                     value.image.extent.height = std::max(1u, context.render_extent.height >> (i - 8));
+                }
+                if (i == 20 || i == 26) {
+                    // the denoiser's average radiance is a 1/8-resolution image, sampled bilinearly by the stages
+                    value.image.extent.width = std::max(1u, (context.render_extent.width + 7u) >> 3);
+                    value.image.extent.height = std::max(1u, (context.render_extent.height + 7u) >> 3);
                 }
                 value.image.format = formats[i];
                 value.image.flags = rhi::to_bits(rhi::image_flag::sampled) |
@@ -100,10 +145,10 @@ export namespace deren::engine::pass {
                 if (i == 7) {
                     value.image.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::transfer_destination);
                 }
-                if (i == 13) {
+                if (i == 13 || i >= 17) {
                     value.image.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::storage);
                 }
-                if (i >= 15) {
+                if (i >= 15 && i <= 16) {
                     value.image.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::storage) |
                                         rhi::to_bits(rhi::image_flag::transfer_source);
                 }
@@ -217,6 +262,8 @@ export namespace deren::engine::pass {
         }
         void select_resources(deren::utility::vessel::array<bool, resource_count> selection) noexcept {
             required = selection;
+            for (size_t i = 17; i < resource_count; ++i)
+                required[i] = true; // the reflection lane and its denoiser images are always allocated
             software_resources_selected = selection[15] || selection[16];
         }
         void select_software_resources(bool const enabled) noexcept {

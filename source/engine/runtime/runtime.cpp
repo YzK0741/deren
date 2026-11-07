@@ -19,6 +19,7 @@ module;
 #include <string>          // the software-raster workload probe's dump path
 #include <string_view>     // the phase-B gate's closed-reason vocabulary (the once-per-session log line)
 #include <thread>          // std::this_thread::yield in the frame limiter
+#include <utility>         // std::move for the whitelist's name list
 #include <vector>          // the queue-family list the graphics-queue derivation walks
 
 // THE GUI PLUGIN'S BOUNDARY (plan X2): `create_info`, `api_type` and `overlay` live in a header the plugin
@@ -781,56 +782,6 @@ namespace deren::engine {
         return {};
     }
 
-    std::expected<void, deren::utility::vessel::string> runtime::make_eye_prepass_pipeline(std::string_view const pipeline_name,
-                                                                                           std::span<uint8_t const> const fragment_shader_code,
-                                                                                           std::span<uint8_t const> const mesh_vertex_shader_code,
-                                                                                           std::span<uint8_t const> const meshlet_shader_code) {
-        using fail = std::unexpected<deren::utility::vessel::string>;
-        if (fragment_shader_code.empty()) {
-            return fail(deren::utility::vessel::string("eye prepass pipeline '") + deren::utility::vessel::string(pipeline_name) + "': no fragment stage was given");
-        }
-        bool const want_mesh = !mesh_vertex_shader_code.empty() && this->evaluate_mesh_shaders(nullptr);
-        {
-            std::unique_lock const lock(this->access_mutex);
-            if (this->mesh_pipelines.contains(pipeline_name) || this->meshlet_pipelines.contains(pipeline_name)) {
-                return fail(deren::utility::vessel::string("pipeline '") + deren::utility::vessel::string(pipeline_name) + "' already exists");
-            }
-        }
-        if (!want_mesh) {
-            return fail(deren::utility::vessel::string("eye prepass pipeline '") + deren::utility::vessel::string(pipeline_name) + "' has no mesh stage");
-        }
-        std::optional<pipelines::pipeline_handle> mesh_result = std::nullopt;
-        {
-            auto built = this->build_toon_family_pipeline(mesh_vertex_shader_code, fragment_shader_code,
-                                                          rhi::blend_mode::opaque, rhi::depth_compare::greater,
-                                                          "eye prepass pipeline");
-            if (!built) {
-                return fail("eye prepass pipeline '" + deren::utility::vessel::string(pipeline_name) + "': the mesh stage was refused (" + deren::utility::vessel::string(built.error()) + ")");
-            }
-            mesh_result = std::move(*built);
-        }
-        std::optional<pipelines::pipeline_handle> meshlet_result = std::nullopt;
-        if (!meshlet_shader_code.empty()) {
-            auto built = this->build_toon_family_pipeline(meshlet_shader_code, fragment_shader_code,
-                                                          rhi::blend_mode::opaque, rhi::depth_compare::greater,
-                                                          "eye prepass meshlet pipeline");
-            if (built) {
-                meshlet_result = std::move(*built);
-            } else {
-                deren::utility::log("eye prepass pipeline '{}': no meshlet form ({}), so its leaves stay on the mesh pipeline", pipeline_name, built.error());
-            }
-        }
-        {
-            std::unique_lock const lock(this->access_mutex);
-            this->mesh_pipelines.emplace(pipeline_name, std::move(*mesh_result));
-            deren::utility::log("SUCCESS: eye prepass pipeline '{}' created (one HDR target, opaque blend, depth compare GREATER, depth write per draw)", pipeline_name);
-            if (meshlet_result.has_value()) {
-                this->meshlet_pipelines.emplace(pipeline_name, std::move(*meshlet_result));
-            }
-        }
-        return {};
-    }
-
     std::expected<void, deren::utility::vessel::string> runtime::make_overlay_pipeline(std::string_view const pipeline_name,
                                                                                        std::span<uint8_t const> const fragment_shader_code,
                                                                                        std::span<uint8_t const> const mesh_vertex_shader_code,
@@ -995,6 +946,7 @@ namespace deren::engine {
             .gbuffer_pass = this->gbuffer_pass_active(),
             .deferred_lit = this->deferred_lit_active(),
             .rt_shadow = this->rt_shadows_active(),
+            .rt_reflection = this->rt_reflections_active(),
             .fxaa = this->post_fxaa_active(),
             // THE RESOLVE'S OWN ATOM (see `post_upscale_active`): below render_scale 1.0 and with its pipeline
             // built, this pass is the frame's last writer - and that is also what makes `post_fxaa_active` false
@@ -1039,6 +991,7 @@ namespace deren::engine {
         f.gbuffer_debug = ask("gbuffer-debug");
         f.shadow = ask("shadow");
         f.rt_shadow = ask("rt_shadow");
+        f.rt_reflection = ask("rt_reflection");
         f.clustered = ask("clustered");
         f.taa = ask("taa");
         f.ssao = ask("ssao");
@@ -1443,6 +1396,67 @@ namespace deren::engine {
         this->light_state.rt_shadows = (enabled && this->pass_ready("rt_shadow") && runtime_detail::ray_query_available_of(this->rhi_face())) ? 1.0f : 0.0f;
     }
 
+    void runtime::set_rt_reflections(bool const enabled) noexcept {
+        this->rt_reflections = enabled;
+        // A fresh enable starts with undefined history: the first denoised frame must not read the previous
+        // enable's images (and a resize already recreated them with undefined contents).
+        this->reflection_denoise_history_valid.fill(false);
+        if (this->deferred_pass[0] != nullptr) {
+            this->deferred_pass[0]->set_rt_reflections(enabled && this->rt_reflections_active());
+            this->deferred_pass[0]->set_rt_reflection_strength(this->rt_reflection_strength);
+        }
+    }
+
+    void runtime::set_rt_reflection_whitelist(bool const cloth, float const strength, deren::utility::vessel::string materials) {
+        this->rt_reflection_cloth = cloth;
+        this->rt_reflection_strength = strength < 0.0f ? 0.0f : (strength > 1.0f ? 1.0f : strength);
+        this->rt_reflection_materials = std::move(materials);
+        if (this->deferred_pass[0] != nullptr) {
+            this->deferred_pass[0]->set_rt_reflection_strength(this->rt_reflection_strength);
+        }
+    }
+
+    bool runtime::rt_reflection_material_matches(std::string_view const material_name, uint32_t const toon_family) const noexcept {
+        if (this->rt_reflection_cloth && toon_family == 6u) {
+            return true; // the loader's `cloth` family: dresses, coats, trousers, shoes, gloves
+        }
+        std::string_view const list(this->rt_reflection_materials.data(), this->rt_reflection_materials.size());
+        auto const lower = [](char const c) {
+            return (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
+        };
+        // Comma-separated case-insensitive substrings. Kept simple on purpose: this is an art-directed
+        // whitelist, not a pattern language, and a name the list does not match is simply not reflective.
+        for (std::size_t begin = 0; begin < list.size();) {
+            std::size_t end = list.find(',', begin);
+            if (end == std::string_view::npos) {
+                end = list.size();
+            }
+            std::string_view pattern = list.substr(begin, end - begin);
+            while (!pattern.empty() && (pattern.front() == ' ' || pattern.front() == '\t')) {
+                pattern.remove_prefix(1);
+            }
+            while (!pattern.empty() && (pattern.back() == ' ' || pattern.back() == '\t')) {
+                pattern.remove_suffix(1);
+            }
+            if (!pattern.empty() && pattern.size() <= material_name.size()) {
+                for (std::size_t at = 0; at + pattern.size() <= material_name.size(); ++at) {
+                    bool same = true;
+                    for (std::size_t i = 0; i < pattern.size(); ++i) {
+                        if (lower(material_name[at + i]) != lower(pattern[i])) {
+                            same = false;
+                            break;
+                        }
+                    }
+                    if (same) {
+                        return true;
+                    }
+                }
+            }
+            begin = end + 1;
+        }
+        return false;
+    }
+
     void runtime::set_rt_mask_bake(bool const enabled) noexcept {
         // Read once, when the structures are built (see ray_tracing::structure_set::build): the bake is startup
         // work and the structures are built once, so this can only be settled before the first traced frame.
@@ -1496,13 +1510,17 @@ namespace deren::engine {
     }
 
     bool runtime::rt_structures_wanted() const noexcept {
-        // The ray-traced sun is the only reason a frame needs a top level structure: the binding is written
-        // whenever it is wanted, whether or not the traced branch runs.
-        return runtime_detail::ray_query_available_of(this->rhi_face()) && this->rt_shadows;
+        // The traced sun and the reflection pass are the two consumers of a top level structure: the binding is
+        // written whenever either is wanted, whether or not the traced branch runs.
+        return runtime_detail::ray_query_available_of(this->rhi_face()) && (this->rt_shadows || this->rt_reflections);
     }
 
     bool runtime::rt_shadows_active() const noexcept {
         return this->rt_shadows && runtime_detail::ray_query_available_of(this->rhi_face());
+    }
+
+    bool runtime::rt_reflections_active() const noexcept {
+        return this->rt_reflections && runtime_detail::ray_query_available_of(this->rhi_face());
     }
 
     // =============================================================================================
@@ -1511,13 +1529,14 @@ namespace deren::engine {
     // =============================================================================================
 
     ray_tracing::build_inputs runtime::make_structure_inputs() const noexcept {
-        // THE FIVE THINGS THE PHASE CANNOT GET ITSELF, and nothing else: the casters this frame's culling
-        // produced (the SHADOW caster set, because a caster can sit off screen and still throw a shadow into the
-        // view), the material table the alphaMode MASK rule reads - as a span, so an out-of-range index is a size
-        // check rather than arithmetic on a mapped pointer - the two knobs, and the two jobs.
+        // THE FIVE THINGS THE PHASE CANNOT GET ITSELF, and nothing else: the geometry the BLAS/TLAS may
+        // contain (ALL mesh leaves, not the shadow caster subset: the per-instance mask decides RT shadow vs
+        // reflection per frame), the material table the alphaMode MASK rule reads - as a span, so an
+        // out-of-range index is a size check rather than arithmetic on a mapped pointer - the two knobs, and
+        // the two jobs.
         auto const* const materials = static_cast<material_record const*>(this->material_mapped);
         return ray_tracing::build_inputs{
-            .casters = this->shadow_casters,
+            .casters = this->rt_casters,
             .materials = materials != nullptr ? std::span<material_record const>(materials, this->material_count) : std::span<material_record const>{},
             .mask_bake = this->rt_mask_bake,
             .skin_bake = this->rt_skin_bake,
@@ -1579,6 +1598,14 @@ namespace deren::engine {
                                          ? deren::engine::render_layout::heap_slots::post_color + self->current_image_index
                                          : deren::engine::render_layout::heap_slots::bloom_l0 + (extra_lane - 1u) * deren::engine::render_layout::heap_image_capacity + self->current_image_index;
         return push_with_lanes(self->frame_ring().position(), self->current_image_index, target, bytes, source_slot, 3u);
+    }
+
+    bool runtime::push_scene_stage_block(void* const owner, recording_target const& target, std::span<std::byte const> const bytes, uint32_t const extra_lane) {
+        // THE THIRD LANE CROSSES VERBATIM HERE, unlike push_stage_block's post-chain slot. A scene stage declares
+        // frame_slot, image_index and its own spare lane; that lane is not a heap index and must not be resolved
+        // against the bloom levels. The shadow session still uses push_stage_block: its shader ignores the lane.
+        runtime* const self = static_cast<runtime*>(owner);
+        return push_with_lanes(self->frame_ring().position(), self->current_image_index, target, bytes, extra_lane, 3u);
     }
 
     bool runtime::push_index_block(void* const owner, rhi::command_buffer& command_buffer, std::span<std::byte const> const bytes, uint32_t const extra_lane) {

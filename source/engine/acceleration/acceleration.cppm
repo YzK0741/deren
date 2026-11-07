@@ -1,6 +1,6 @@
 // ============================================================================
 // module: deren.engine.acceleration_structure
-// module version: 2.0.1  (independent of the app version in CMakeLists project(VERSION))
+// module version: 2.1.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // Ray-tracing acceleration structures: the bottom level structures of the
 // scene's shadow casters, built from the geometry buffers the raster passes
@@ -165,6 +165,9 @@ namespace deren::engine::acceleration_structure {
         glm::mat4 transform = glm::mat4(1.0f); // the world matrix the raster passes draw this instance with
         uint32_t blas_index = 0;               // index into the bottom_level_structures it was added to
         instance_record record = {};           // what the shader sees through instanceCustomIndex
+        // Instance mask tested by TraceRay before any hit. 0xFF preserves "visible to every ray"; the scene
+        // sets bit0 for RT shadows and bit1 for RT reflections (see runtime::rt_casters).
+        uint32_t mask = 0xFFu;
     };
 
     /**

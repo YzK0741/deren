@@ -1271,6 +1271,9 @@ namespace deren::engine {
         // ensure_velocity_sampled).
         this->rt_binding_written.assign(image_count, nullptr);
         this->taa_history_initialized.assign(image_count, false);
+        // The reflection denoiser's history images are per-frame-slot targets: a new generation destroyed them,
+        // so every slot must run with `history_valid = 0` until its own copy pass has written the new image.
+        this->reflection_denoise_history_valid.fill(false);
         this->inactive_descriptor_images_seeded = false;
         // a generation has nothing to blend with, and it is reset HERE rather than only on the off -> on
         // vector reads as "no history" for every frame, which silently turns the temporal resolve into a
@@ -1426,7 +1429,7 @@ namespace deren::engine {
         }
         deren::utility::vessel::array<bool, pass::output_targets_pass::resource_count> missing_output;
         for (size_t i = 0; i < missing_output.size(); ++i) {
-            missing_output[i] = (i < 15u || software_resources_wanted) && !primary.find(pass::output_targets_pass::ids[i]);
+            missing_output[i] = ((i != 15u && i != 16u) || software_resources_wanted) && !primary.find(pass::output_targets_pass::ids[i]);
         }
         if (std::any_of(missing_output.begin(), missing_output.end(), [](bool missing) { return missing; })) {
             if (this->fallback_output_provider == nullptr) {
@@ -1522,7 +1525,7 @@ namespace deren::engine {
         auto const required_outputs = pass::output_targets_pass::descriptions(context);
         bool outputs_changed = false;
         for (size_t i = 0; i < outputs.size(); ++i) {
-            if (i >= 15u && !software_resources_wanted) {
+            if ((i == 15u || i == 16u) && !software_resources_wanted) {
                 continue;
             }
             auto const& expected = required_outputs[i];
@@ -1720,6 +1723,20 @@ namespace deren::engine {
                 adopt(9 + level, this->bloom_images[level], this->bloom_image_views[level]);
             }
             adopt(13, this->rt_shadow_images, this->rt_shadow_image_views);
+            adopt(17, this->rt_reflection_images, this->rt_reflection_image_views);
+            adopt(18, this->rt_reflection_denoised_images, this->rt_reflection_denoised_image_views);
+            adopt(19, this->rt_reflection_reprojected_images, this->rt_reflection_reprojected_image_views);
+            adopt(20, this->rt_reflection_average_images, this->rt_reflection_average_image_views);
+            adopt(21, this->rt_reflection_moments_images, this->rt_reflection_moments_image_views);
+            adopt(22, this->rt_reflection_moments_prefiltered_images, this->rt_reflection_moments_prefiltered_image_views);
+            adopt(23, this->rt_reflection_moments_history_images, this->rt_reflection_moments_history_image_views);
+            adopt(24, this->rt_reflection_surface_history_images, this->rt_reflection_surface_history_image_views);
+            adopt(25, this->rt_reflection_depth_history_images, this->rt_reflection_depth_history_image_views);
+            adopt(26, this->rt_reflection_average_history_images, this->rt_reflection_average_history_image_views);
+            adopt(27, this->rt_reflection_prefiltered_images, this->rt_reflection_prefiltered_image_views);
+            adopt(28, this->rt_reflection_denoised_history_images, this->rt_reflection_denoised_history_image_views);
+            adopt(29, this->rt_reflection_surface_current_images, this->rt_reflection_surface_current_image_views);
+            adopt(30, this->rt_reflection_depth_current_images, this->rt_reflection_depth_current_image_views);
             adopt(14, this->visibility_images, this->visibility_image_views);
             if (software_resources_wanted) {
                 adopt(15, this->software_depth_images, this->software_depth_image_views);
@@ -2913,6 +2930,12 @@ namespace deren::engine {
         // fourth uint lane, which the std430 layout had already reserved as padding - see material_record.
         record.toon_family = info.toon_family;
         record.flags = 0;
+        // bit12: this material opted into the traced-reflection whitelist at import. The gate itself lives
+        // where the name still exists (see `runtime::rt_reflection_material_matches`); the record only carries
+        // the answer to the per-pixel stages.
+        if (info.rt_reflection) {
+            record.flags |= 4096u;
+        }
         if (info.normal.valid) {
             record.flags |= 1u;
         }

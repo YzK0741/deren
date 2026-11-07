@@ -18,6 +18,7 @@ import deren.vstd;
 import deren.utility;
 import deren.engine.pass.visibility_raster;  // the visibility buffer's raster pass
 import deren.engine.pass.visibility_resolve; // ... and its consumer, the compute resolve
+import deren.engine.pass.reflection_denoise; // AMD's reflection denoiser stages
 
 namespace deren::app {
 
@@ -65,6 +66,11 @@ namespace deren::app {
         // a frame neither records, where it does not.
         this->chain.emplace<pass::taa_pass>();
         this->chain.emplace<pass::rt_shadow_pass>();
+        this->chain.emplace<pass::rt_reflection_pass>();
+        this->chain.emplace<pass::reflection_denoise_pass>(pass::reflection_denoise_stage::reproject);
+        this->chain.emplace<pass::reflection_denoise_pass>(pass::reflection_denoise_stage::prefilter);
+        this->chain.emplace<pass::reflection_denoise_pass>(pass::reflection_denoise_stage::resolve);
+        this->chain.emplace<pass::reflection_denoise_pass>(pass::reflection_denoise_stage::copy_history);
         this->chain.emplace<pass::cluster_pass>();
         this->chain.emplace<pass::deferred_pass>();
         this->chain.emplace<pass::post_composite_pass>();
@@ -94,6 +100,7 @@ namespace deren::app {
         this->toon_screen_rim = this->find<pass::toon_screen_rim_pass>("toon_screen_rim");
         this->game_toon_depth_rim = this->find<pass::game_toon_depth_rim_pass>("game_toon_depth_rim");
         this->rt_shadow = this->find<pass::rt_shadow_pass>("rt_shadow");
+        this->rt_reflection = this->find<pass::rt_reflection_pass>("rt_reflection");
         this->deferred = this->find<pass::deferred_pass>("deferred");
         this->taa = this->find<pass::taa_pass>("taa");
         this->gbuffer_debug_pass = this->find<pass::gbuffer_debug_pass>("gbuffer-debug");
@@ -109,12 +116,13 @@ namespace deren::app {
         found += this->gaussian != nullptr ? 1u : 0u;
         found += this->character_forward != nullptr ? 1u : 0u;
         found += this->rt_shadow != nullptr ? 1u : 0u;
+        found += this->rt_reflection != nullptr ? 1u : 0u;
         found += this->deferred != nullptr ? 1u : 0u;
         found += this->taa != nullptr ? 1u : 0u;
         found += this->gbuffer_debug_pass != nullptr ? 1u : 0u;
         found += this->composite != nullptr ? 1u : 0u;
         found += this->fxaa != nullptr ? 1u : 0u;
-        if (found != 16) {
+        if (found != 17) {
             // NOT a fatal error: this demo is one application's chain, and a build of it that lacks a pass (a
             // shader that did not compile is the usual reason - that pass's own create step says why) renders
             // without it. Saying so once at startup is what keeps "the pass did not run" from looking like a
@@ -376,6 +384,11 @@ namespace deren::app {
             // slot". The second half is a FACT rather than a resource-table entry because an acceleration structure
             // is not a `resolved_binding` - it has a device address and no view, buffer or image.
             return facts.rt_shadow && self.rt_shadow != nullptr && self.rt_shadow->ready() && facts.structures_ready;
+        }
+        if (name == "rt_reflection") {
+            // The reflection pass shares the shadow's structure gate: a reflection ray has nothing to hit until
+            // this frame's acceleration structure for the slot exists, and the pass's own pipeline must exist.
+            return facts.rt_reflection && self.rt_reflection != nullptr && self.rt_reflection->ready() && facts.structures_ready;
         }
         if (name == "clustered") {
             // Same argument as the shadow's: flat shading reads no light list, and with no active punctual light

@@ -157,6 +157,14 @@ namespace deren::engine {
         void* push_owner = nullptr;
         bool (*push_block)(void* owner, recording_target const& target, std::span<std::byte const> bytes, uint32_t extra_lane) = nullptr;
         /**
+         * THE ONE LANE A PASS MAY ADD TO ITS PUSH BLOCK (see `surface.slang`'s `PushConstants::spare_lane`).
+         *
+         * The toon character stage uses it for the traced-reflection strength, encoded as 0..255. It is a
+         * session field rather than a per-draw one because the value is per pass, and the default 0 keeps every
+         * other pass's block exactly as it was.
+         */
+        uint32_t extra_push_lane = 0;
+        /**
          * MESH RECORDING, in the three pieces a draw without an input assembler needs (docs/mesh_shaders.md
          * step 1). A mesh pipeline replaces the vertex stage AND the input assembler, so `vkCmdDrawIndexed`
          * - which names a vertex binding, an index buffer and a first index - has no mesh equivalent: the

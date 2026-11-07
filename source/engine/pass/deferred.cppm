@@ -54,7 +54,8 @@ export namespace deren::engine::pass {
             glm::mat4 inv_view_proj = glm::mat4(1.0f);           // clip -> world, reconstructed per pixel
             glm::vec4 ssao = glm::vec4(0.5f, 0.0f, 8.0f, 0.02f); // radius, intensity (0 = off), samples, bias
             float unlit = 0.0f;                                  // 1.0 = write the stored albedo, unshaded
-            float punctual = 0.0f;                               // reserved lane kept in the 88-byte push block
+            float rt_reflection = 0.0f;                          // 1.0 = composite the traced reflection image
+            float reflection_denoised = 0.0f;                    // 1.0 = sample the denoised reflection instead of the raw trace
         };
 
         deferred_pass() = default;
@@ -64,6 +65,10 @@ export namespace deren::engine::pass {
         [[nodiscard]] deren::engine::pass::behaviour const& behaviour() const noexcept override;
         [[nodiscard]] std::string_view feature() const noexcept override;
         /// @brief WIP: keep the requested radiance capture state on the pass
+        /// @brief whether the reflection heap slot holds the denoiser's output rather than the raw trace
+        void set_reflection_denoised(bool enabled) noexcept override {
+            this->reflection_denoised = enabled;
+        }
         void set_radiance_capture(bool enabled) noexcept {
             this->radiance_capture = enabled;
         }
@@ -100,6 +105,17 @@ export namespace deren::engine::pass {
         void set_unlit(bool unlit) noexcept;
         /// @brief whether the flat render mode is on (the renderer's other features gate on it: shadow, clustered, bloom)
         [[nodiscard]] bool unlit() const noexcept;
+
+        /// @brief switch the traced-reflection composite on for the frames this pass records
+        void set_rt_reflections(bool enabled) noexcept override {
+            this->rt_reflections_on = enabled;
+        }
+        void set_rt_reflection_strength(float strength) noexcept override {
+            this->rt_reflection_strength = strength < 0.0f ? 0.0f : (strength > 1.0f ? 1.0f : strength);
+        }
+        [[nodiscard]] bool rt_reflections() const noexcept {
+            return this->rt_reflections_on;
+        }
 
         /// @brief build this pass's frame from the published facts (see frame_pass::prepare_frame)
         void prepare_frame(frame_facts const& facts) noexcept override;
@@ -139,6 +155,12 @@ export namespace deren::engine::pass {
         // MSVC /W4 reports C4458 (an error under /WX).
         /// the flat render mode (see set_unlit)
         bool unlit_shading = false;
+        /// the traced-reflection composite switch (see set_rt_reflections)
+        bool rt_reflections_on = false;
+        /// the composite's multiplier; the push lane carries it so 0 also means "off" (see set_rt_reflection_strength)
+        float rt_reflection_strength = 0.35f;
+        /// whether the reflection heap slot holds the denoiser's output (see set_reflection_denoised)
+        bool reflection_denoised = false;
         // called pass_frame, not frame: set_frame()'s frame parameter in deferred.cpp would hide a member of that name
         // and MSVC /W4 reports C4458 (an error under /WX).
         deferred_frame pass_frame = {};
@@ -150,7 +172,8 @@ export namespace deren::engine::pass {
     static_assert(offsetof(deferred_pass::push_constants, inv_view_proj) == 0);
     static_assert(offsetof(deferred_pass::push_constants, ssao) == 64);
     static_assert(offsetof(deferred_pass::push_constants, unlit) == 80);
-    static_assert(offsetof(deferred_pass::push_constants, punctual) == 84);
-    static_assert(sizeof(deferred_pass::push_constants) == 88, "deferred heap indices must follow the 88-byte host payload");
+    static_assert(offsetof(deferred_pass::push_constants, rt_reflection) == 84);
+    static_assert(offsetof(deferred_pass::push_constants, reflection_denoised) == 88);
+    static_assert(sizeof(deferred_pass::push_constants) == 92, "deferred heap indices must follow the 92-byte host payload");
 
 } // namespace deren::engine::pass

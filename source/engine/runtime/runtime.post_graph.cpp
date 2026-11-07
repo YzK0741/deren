@@ -24,6 +24,8 @@ import deren.engine.render_graph.gbuffer_debug;
 import deren.engine.render_graph.transparent;
 import deren.engine.render_graph.character;
 import deren.engine.render_graph.rt_shadow;
+import deren.engine.render_graph.rt_reflection;
+import deren.engine.render_graph.reflection_denoise;
 import deren.engine.render_graph.gaussian;
 import deren.engine.render_graph.visibility;
 import deren.engine.pass.transparent;
@@ -76,6 +78,11 @@ namespace deren::engine {
             goo_rim, // reserved: the table listed it, no pass installs it today
             gaussian_splats,
             rt_shadow,
+            rt_reflection,
+            reflection_reproject,
+            reflection_prefilter,
+            reflection_resolve,
+            reflection_history_copy,
             visibility_raster,
             visibility_resolve,
             hzb_cull,
@@ -189,6 +196,9 @@ namespace deren::engine {
             this->software_visibility->disable_gpu_route();
         this->hzb_recovery_active_frame = false;
         this->hzb_cull_recorded_this_frame = false;
+        // Set once the denoiser chain is actually part of the recorded graph. The history-valid bit is advanced only
+        // after that record succeeds, so a failed preparation/record cannot make the next frame read stale history.
+        bool reflection_denoise_recorded = false;
         auto commands = this->frame_command_buffer();
         if (!commands || !this->cluster_retention_open) {
             return rhi::error::not_ready;
@@ -641,6 +651,101 @@ namespace deren::engine {
                 }
                 rt_visibility = *rt_ref;
             }
+            // THE RAY-TRACED REFLECTION IMAGE, the same per-frame-slot publication shape as the visibility image.
+            // It starts UNDEFINED (no generation seed ever touched it) and the graph's first storage write is its
+            // first transition, so the import carries the empty state and the pass's own barrier declaration stays
+            // for the legacy path.
+            std::optional<graph::texture_ref> rt_reflection{};
+            if (this->graph_rt_reflection_frame) {
+                auto const reflection_slot = this->frame_ring().position();
+                auto reflection_generation = this->output_resource_views[17].find(pass::output_targets_pass::ids[17]);
+                if (!reflection_generation || reflection_generation->device.get() != this->core_owner.get() || reflection_slot >= reflection_generation->objects.size()) {
+                    return rhi::error::not_ready;
+                }
+                auto* reflection_image = reflection_generation->objects[reflection_slot].image.get();
+                if (!reflection_image || !this->rt_reflection_image_views[reflection_slot] || reflection_image != this->rt_reflection_images[reflection_slot].get()) {
+                    return rhi::error::not_ready;
+                }
+                auto reflection_lease = lease::from_shared(this->core_owner, rhi::shared_object<rhi::image>{std::move(reflection_generation), reflection_image});
+                if (!reflection_lease) {
+                    return rhi::error::not_ready;
+                }
+                graph::execution::import_state const reflection_import{
+                    graph::initial_contents::undefined,
+                    graph::resource_state{graph::resource_layout::undefined, graph::pipeline_stage::none, graph::memory_access::none}};
+                auto reflection_ref = build.import_texture(reflection_lease, reflection_import, "RT reflection");
+                if (!reflection_ref) {
+                    return post_build_error(reflection_ref.error());
+                }
+                rt_reflection = *reflection_ref;
+            }
+            // THE REFLECTION DENOISER'S IMAGES (indices 18..30 of the managed target table). They are per-frame-slot
+            // publications like the raw reflection target. The current-frame images are imported with UNDEFINED
+            // contents because this frame's chain produces them. The history images are imported DEFINED in the
+            // sampled layout: the first frame runs with `history_valid = 0` and never reads them, and the history-copy
+            // stage defines them before the next frame reads them - but the graph still needs a state for the reads
+            // its plan declares.
+            std::optional<graph::texture_ref> rt_reflection_denoised{};
+            std::optional<graph::texture_ref> rt_reflection_reprojected{};
+            std::optional<graph::texture_ref> rt_reflection_average{};
+            std::optional<graph::texture_ref> rt_reflection_moments{};
+            std::optional<graph::texture_ref> rt_reflection_moments_prefiltered{};
+            std::optional<graph::texture_ref> rt_reflection_moments_history{};
+            std::optional<graph::texture_ref> rt_reflection_surface_history{};
+            std::optional<graph::texture_ref> rt_reflection_depth_history{};
+            std::optional<graph::texture_ref> rt_reflection_average_history{};
+            std::optional<graph::texture_ref> rt_reflection_prefiltered{};
+            std::optional<graph::texture_ref> rt_reflection_denoised_history{};
+            std::optional<graph::texture_ref> rt_reflection_surface_current{};
+            std::optional<graph::texture_ref> rt_reflection_depth_current{};
+            bool const reflection_denoise_ready = this->graph_rt_reflection_frame && rt_reflection &&
+                                                  this->reflection_denoise_pass[0] != nullptr && this->reflection_denoise_pass[1] != nullptr &&
+                                                  this->reflection_denoise_pass[2] != nullptr && this->reflection_denoise_pass[3] != nullptr;
+            if (reflection_denoise_ready) {
+                auto const reflection_slot = this->frame_ring().position();
+                auto const import_target = [&](std::uint32_t const index, auto const& images, auto const& views, std::string_view const name,
+                                               bool const history = false) -> std::optional<graph::texture_ref> {
+                    auto generation = this->output_resource_views[index].find(pass::output_targets_pass::ids[index]);
+                    if (!generation || generation->device.get() != this->core_owner.get() || reflection_slot >= generation->objects.size()) {
+                        return std::nullopt;
+                    }
+                    auto* image = generation->objects[reflection_slot].image.get();
+                    if (!image || !views[reflection_slot] || image != images[reflection_slot].get()) {
+                        return std::nullopt;
+                    }
+                    auto lease = lease::from_shared(this->core_owner, rhi::shared_object<rhi::image>{std::move(generation), image});
+                    if (!lease) {
+                        return std::nullopt;
+                    }
+                    graph::execution::import_state const state{
+                        history ? graph::initial_contents::defined : graph::initial_contents::undefined,
+                        history ? graph::resource_state{graph::resource_layout::shader_read_only, graph::pipeline_stage::compute_shader, graph::memory_access::read}
+                                : graph::resource_state{graph::resource_layout::undefined, graph::pipeline_stage::none, graph::memory_access::none}};
+                    auto imported = build.import_texture(lease, state, name);
+                    if (!imported) {
+                        return std::nullopt;
+                    }
+                    return *imported;
+                };
+                rt_reflection_denoised = import_target(18, this->rt_reflection_denoised_images, this->rt_reflection_denoised_image_views, "RT reflection denoised");
+                rt_reflection_reprojected = import_target(19, this->rt_reflection_reprojected_images, this->rt_reflection_reprojected_image_views, "RT reflection reprojected");
+                rt_reflection_average = import_target(20, this->rt_reflection_average_images, this->rt_reflection_average_image_views, "RT reflection average");
+                rt_reflection_moments = import_target(21, this->rt_reflection_moments_images, this->rt_reflection_moments_image_views, "RT reflection moments");
+                rt_reflection_moments_prefiltered = import_target(22, this->rt_reflection_moments_prefiltered_images, this->rt_reflection_moments_prefiltered_image_views, "RT reflection moments prefiltered");
+                rt_reflection_moments_history = import_target(23, this->rt_reflection_moments_history_images, this->rt_reflection_moments_history_image_views, "RT reflection moments history", true);
+                rt_reflection_surface_history = import_target(24, this->rt_reflection_surface_history_images, this->rt_reflection_surface_history_image_views, "RT reflection surface history", true);
+                rt_reflection_depth_history = import_target(25, this->rt_reflection_depth_history_images, this->rt_reflection_depth_history_image_views, "RT reflection depth history", true);
+                rt_reflection_average_history = import_target(26, this->rt_reflection_average_history_images, this->rt_reflection_average_history_image_views, "RT reflection average history", true);
+                rt_reflection_prefiltered = import_target(27, this->rt_reflection_prefiltered_images, this->rt_reflection_prefiltered_image_views, "RT reflection prefiltered");
+                rt_reflection_denoised_history = import_target(28, this->rt_reflection_denoised_history_images, this->rt_reflection_denoised_history_image_views, "RT reflection denoised history", true);
+                rt_reflection_surface_current = import_target(29, this->rt_reflection_surface_current_images, this->rt_reflection_surface_current_image_views, "RT reflection surface current");
+                rt_reflection_depth_current = import_target(30, this->rt_reflection_depth_current_images, this->rt_reflection_depth_current_image_views, "RT reflection depth current");
+                if (!rt_reflection_denoised || !rt_reflection_reprojected || !rt_reflection_average || !rt_reflection_moments || !rt_reflection_moments_prefiltered ||
+                    !rt_reflection_moments_history || !rt_reflection_surface_history || !rt_reflection_depth_history || !rt_reflection_average_history ||
+                    !rt_reflection_prefiltered || !rt_reflection_denoised_history || !rt_reflection_surface_current || !rt_reflection_depth_current) {
+                    return rhi::error::not_ready;
+                }
+            }
             graph::lighting::shared_inputs lighting_shared{shared_refs[0], shared_refs[7]};
             if (ibl_environment && ibl_irradiance && ibl_lut) {
                 lighting_shared.ibl = graph::lighting::ibl_inputs{*ibl_environment, *ibl_irradiance, *ibl_lut};
@@ -653,6 +758,11 @@ namespace deren::engine {
             }
             if (rt_visibility) {
                 lighting_shared.rt_visibility = *rt_visibility;
+            }
+            if (rt_reflection_denoised) {
+                lighting_shared.rt_reflection = *rt_reflection_denoised;
+            } else if (rt_reflection) {
+                lighting_shared.rt_reflection = *rt_reflection;
             }
             lighting_inputs.shared = lighting_shared;
             // THE CLUSTERED-LIGHT SORT AS A GRAPH PASS (adoption stage 2G): its two per-slot buffers are imported
@@ -1370,6 +1480,69 @@ namespace deren::engine {
                     return post_build_error(rt_bound.error());
                 }
             }
+            // THE RAY-TRACED REFLECTION LANE: the same producer -> consumer shape as the shadow lane, but the
+            // consumer is the lighting stage's composite rather than its direct-light test.
+            if (this->graph_rt_reflection_frame && rt_reflection) {
+                pass::stage reflection_stage{.name = "rt_reflection", .passes = this->rt_reflection_pass};
+                this->prepare_stage(reflection_stage);
+                passes[lane_slot(lane::rt_reflection)] = this->rt_reflection_pass[0];
+                ios[lane_slot(lane::rt_reflection)].push_block = host.push_block;
+                if (!passes[lane_slot(lane::rt_reflection)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::rt_reflection)], ios[lane_slot(lane::rt_reflection)]) || ios[lane_slot(lane::rt_reflection)].list != commands) {
+                    return rhi::error::not_ready;
+                }
+                auto reflection_added = build.append([&](graph::builder& description) noexcept {
+                    return graph::rt_reflection::append(description, {*rt_reflection, lighting_inputs.surface, *depth_ref});
+                });
+                if (!reflection_added) {
+                    return post_build_error(reflection_added.error());
+                }
+                auto reflection_bound = build.bind_pass<graph::rt_reflection::parameters>(
+                    reflection_added->pass, [payload](graph::rt_reflection::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(lane::rt_reflection); });
+                if (!reflection_bound) {
+                    return post_build_error(reflection_bound.error());
+                }
+            }
+            // THE REFLECTION DENOISER LANE: reproject -> prefilter -> resolve -> copy history. The history images are
+            // read-only here and written by the trailing copy, which is what keeps the cross-thread reads of last
+            // frame's radiance safe. The first frame after the target is (re)created runs with `history_valid = 0`;
+            // every pass after it sees a defined history.
+            if (reflection_denoise_ready) {
+                std::size_t const history_slot = static_cast<std::size_t>(this->current_image_index);
+                bool const history_valid = history_slot < this->reflection_denoise_history_valid.size() && this->reflection_denoise_history_valid[history_slot];
+                for (pass::reflection_denoise_pass* const denoise : this->reflection_denoise_pass) {
+                    denoise->set_history_valid(history_valid);
+                }
+                auto denoise_added = build.append([&](graph::builder& description) noexcept {
+                    return graph::reflection_denoise::append(
+                        description, {*rt_reflection, *depth_ref, lighting_inputs.surface[1], *velocity_ref, *rt_reflection_denoised, *rt_reflection_denoised_history,
+                                      *rt_reflection_reprojected, *rt_reflection_prefiltered, *rt_reflection_average, *rt_reflection_average_history, *rt_reflection_moments,
+                                      *rt_reflection_moments_prefiltered, *rt_reflection_moments_history, *rt_reflection_surface_history, *rt_reflection_surface_current,
+                                      *rt_reflection_depth_history, *rt_reflection_depth_current});
+                });
+                if (!denoise_added) {
+                    return post_build_error(denoise_added.error());
+                }
+                constexpr std::array<lane, 4> denoise_lanes{lane::reflection_reproject, lane::reflection_prefilter, lane::reflection_resolve, lane::reflection_history_copy};
+                std::array<pass::frame_pass*, 4> denoise_passes{this->reflection_denoise_pass[0], this->reflection_denoise_pass[1], this->reflection_denoise_pass[2],
+                                                                this->reflection_denoise_pass[3]};
+                pass::stage denoise_stage{.name = "reflection_denoise", .passes = denoise_passes};
+                this->prepare_stage(denoise_stage);
+                for (std::size_t index = 0; index < denoise_lanes.size(); ++index) {
+                    auto const slot = lane_slot(denoise_lanes[index]);
+                    passes[slot] = this->reflection_denoise_pass[index];
+                    ios[slot].push_block = host.push_block;
+                    if (passes[slot] == nullptr || !host.resolve || !host.resolve(host.context, *passes[slot], ios[slot]) || ios[slot].list != commands) {
+                        return rhi::error::not_ready;
+                    }
+                    auto bound = build.bind_pass<graph::reflection_denoise::stage_parameters>(
+                        denoise_added->passes[index],
+                        [payload, target_lane = denoise_lanes[index]](graph::reflection_denoise::stage_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(target_lane); });
+                    if (!bound) {
+                        return post_build_error(bound.error());
+                    }
+                }
+                reflection_denoise_recorded = true;
+            }
             if (!this->graph_debug_frame) {
                 auto appended = build.append([&](graph::builder& description) noexcept { return graph::lighting::append(description, lighting_inputs); });
                 if (!appended) {
@@ -1379,6 +1552,10 @@ namespace deren::engine {
                 pass::stage stage{.name = "deferred", .passes = this->deferred_pass};
                 this->prepare_stage(stage);
                 passes[lane_slot(lane::deferred)] = this->deferred_pass[0];
+                if (passes[lane_slot(lane::deferred)] != nullptr) {
+                    passes[lane_slot(lane::deferred)]->set_rt_reflections(this->graph_rt_reflection_frame);
+                    passes[lane_slot(lane::deferred)]->set_reflection_denoised(reflection_denoise_ready);
+                }
                 ios[lane_slot(lane::deferred)].push_block = host.push_block;
                 if (!passes[lane_slot(lane::deferred)] || !host.resolve || !host.resolve(host.context, *passes[lane_slot(lane::deferred)], ios[lane_slot(lane::deferred)]) ||
                     ios[lane_slot(lane::deferred)].list != commands || ios[lane_slot(lane::deferred)].targets.size() != 1 || ios[lane_slot(lane::deferred)].targets[0].image_handle != scene_target_image) {
@@ -1764,6 +1941,12 @@ namespace deren::engine {
         }
         if (error != rhi::error::ok) {
             return error;
+        }
+        if (reflection_denoise_recorded) {
+            std::size_t const history_slot = static_cast<std::size_t>(this->current_image_index);
+            if (history_slot < this->reflection_denoise_history_valid.size()) {
+                this->reflection_denoise_history_valid[history_slot] = true;
+            }
         }
         // THE TAA HISTORY'S HAND-BACK (adoption stage 2I): the graph's copy leaves the history image in
         // transfer-destination, and the invariant every frame's import relies on is "the history is sampled outside

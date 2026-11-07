@@ -42,6 +42,10 @@ export namespace deren::engine::render_graph::lighting {
         /// read has to be declared here or the two passes would be independent in the plan and could be scheduled
         /// in either order. Absent on a frame whose ray-traced shadow pass did not run.
         std::optional<texture_ref> rt_visibility = {};
+        /// THE RAY-TRACED REFLECTION IMAGE: the deferred stage samples the radiance target the reflection lane
+        /// produced. Declaring the read pairs it with that lane's storage write, so the graph orders trace ->
+        /// lighting and owns the image's transition to sampled.
+        std::optional<texture_ref> rt_reflection = {};
     };
     struct shared_parameters {
         buffer_read camera, light;
@@ -49,8 +53,9 @@ export namespace deren::engine::render_graph::lighting {
         std::optional<cluster_parameters> cluster = {};
         std::optional<texture_read> shadow_cascades = {};
         std::optional<texture_read> rt_visibility = {};
+        std::optional<texture_read> rt_reflection = {};
         void visit_resources(parameter_visitor& visit) const noexcept {
-            visit(camera, light, ibl, cluster, shadow_cascades, rt_visibility);
+            visit(camera, light, ibl, cluster, shadow_cascades, rt_visibility, rt_reflection);
         }
     };
     struct inputs {
@@ -107,6 +112,9 @@ export namespace deren::engine::render_graph::lighting {
             }
             if (in.shared->rt_visibility) {
                 params.shared->rt_visibility = texture_read{*in.shared->rt_visibility, {}, sampled};
+            }
+            if (in.shared->rt_reflection) {
+                params.shared->rt_reflection = texture_read{*in.shared->rt_reflection, {}, sampled};
             }
         }
         auto added = graph.add_pass("deferred lighting", std::move(params));

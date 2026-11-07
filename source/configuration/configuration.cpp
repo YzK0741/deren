@@ -1,7 +1,11 @@
 module;
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <string_view>
 #include <toml++/toml.hpp>
+#include <utility>
 
 module deren.application_configuration;
 import deren.vstd;
@@ -138,6 +142,39 @@ namespace deren::app_config {
             if (toml::node const* node = render->get("rt_shadows")) {
                 if (std::optional<bool> const value = node->value<bool>()) {
                     settings.render.rt_shadows = *value;
+                }
+            }
+            if (toml::node const* node = render->get("rt_reflections")) {
+                if (std::optional<bool> const value = node->value<bool>()) {
+                    settings.render.rt_reflections = *value;
+                }
+            }
+            if (toml::node const* node = render->get("rt_reflection_cloth")) {
+                if (std::optional<bool> const value = node->value<bool>()) {
+                    settings.render.rt_reflection_cloth = *value;
+                }
+            }
+            if (toml::node const* node = render->get("rt_reflection_strength")) {
+                if (std::optional<double> const value = node->value<double>()) {
+                    // clamp cannot reject a NaN (both comparisons are false), and a NaN would reach the
+                    // push-lane quantization as an undefined float-to-uint conversion: keep the default.
+                    if (std::isfinite(*value)) {
+                        settings.render.rt_reflection_strength = static_cast<float>(std::clamp(*value, 0.0, 1.0));
+                    }
+                }
+            }
+            if (toml::node const* node = render->get("rt_reflection_materials")) {
+                if (toml::array const* names = node->as_array()) {
+                    deren::utility::vessel::string joined;
+                    for (toml::node const& name : *names) {
+                        if (std::optional<std::string_view> const value = name.value<std::string_view>()) {
+                            if (!joined.empty()) {
+                                joined.push_back(',');
+                            }
+                            joined.append(value->data(), value->size());
+                        }
+                    }
+                    settings.render.rt_reflection_materials = std::move(joined);
                 }
             }
             if (toml::node const* node = render->get("rt_mask_bake")) {
@@ -656,6 +693,21 @@ namespace deren::app_config {
                             object.cast_shadow = *value;
                         }
                     }
+                    // Backward compatibility: an object that opted out of the shadow map was also absent from
+                    // the RT structures before the two flags existed. Follow `cast_shadow` unless a key says
+                    // otherwise, so an old config keeps its old RT presence while the keys can decouple them.
+                    object.ray_tracing_shadow = object.cast_shadow;
+                    object.ray_tracing_reflection = object.cast_shadow;
+                    if (toml::node const* node = source->get("ray_tracing_shadow")) {
+                        if (std::optional<bool> const value = node->value<bool>()) {
+                            object.ray_tracing_shadow = *value;
+                        }
+                    }
+                    if (toml::node const* node = source->get("ray_tracing_reflection")) {
+                        if (std::optional<bool> const value = node->value<bool>()) {
+                            object.ray_tracing_reflection = *value;
+                        }
+                    }
                     if (toml::node const* node = source->get("pipeline")) {
                         if (std::optional<std::string_view> const value = node->value<std::string_view>()) {
                             if (*value == "default") {
@@ -770,12 +822,13 @@ namespace deren::app_config {
                     if (sanitised) {
                         deren::utility::log("app_config: [[scene.objects]] entry {} had non-finite/out-of-range transform components, sanitised", settings.scene.objects.size());
                     }
-                    deren::utility::log("app_config: scene object {} '{}' model '{}' asset '{}' position [{:.3f}, {:.3f}, {:.3f}], rotation [{:.1f}, {:.1f}, {:.1f}] deg, scale [{:.3f}, {:.3f}, {:.3f}], visible {}, cast_shadow {}, pipeline {}, environment '{}', material_override {}, animation {}, speed {:.2f}, playing {}",
+                    deren::utility::log("app_config: scene object {} '{}' model '{}' asset '{}' position [{:.3f}, {:.3f}, {:.3f}], rotation [{:.1f}, {:.1f}, {:.1f}] deg, scale [{:.3f}, {:.3f}, {:.3f}], visible {}, cast_shadow {}, ray_tracing_shadow {}, ray_tracing_reflection {}, pipeline {}, environment '{}', material_override {}, animation {}, speed {:.2f}, playing {}",
                                         settings.scene.objects.size(), object.name, object.model, object.asset,
                                         object.position[0], object.position[1], object.position[2],
                                         object.rotation[0], object.rotation[1], object.rotation[2],
                                         object.scale[0], object.scale[1], object.scale[2],
-                                        object.visible, object.cast_shadow, object.pipeline, object.environment, object.material_override,
+                                        object.visible, object.cast_shadow, object.ray_tracing_shadow, object.ray_tracing_reflection,
+                                        object.pipeline, object.environment, object.material_override,
                                         object.animation, object.animation_speed, object.animation_playing);
                     settings.scene.objects.push_back(object);
                 }

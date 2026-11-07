@@ -634,6 +634,12 @@ namespace deren::app {
         // The furnace verification mode: an analytic reference rather than another estimator of ours.
         runtime.set_furnace(settings.render.furnace);
         runtime.set_rt_shadows(settings.render.rt_shadows);
+        runtime.set_rt_reflections(settings.render.rt_reflections);
+        // The traced reflection is a subtle cloth-only term on a cel-shaded character; resolve the whitelist
+        // BEFORE the scene import below, because the answer is baked into each material record as bit12.
+        runtime.set_rt_reflection_whitelist(settings.render.rt_reflection_cloth,
+                                            settings.render.rt_reflection_strength,
+                                            settings.render.rt_reflection_materials);
         // ... and the alphaMode MASK bake, which is what keeps a masked surface from being SOLID to those rays:
         // a compute pass collapses the triangles the material's alpha cuts out, before the structures are built.
         runtime.set_rt_mask_bake(settings.render.rt_mask_bake);
@@ -1593,6 +1599,8 @@ namespace deren::app {
                     leaf.pipeline_name = {};
                     leaf.path = character_object ? deren::engine::shading_path::character : deren::engine::shading_path::deferred;
                     leaf.casts_shadow = object.cast_shadow;
+                    leaf.ray_tracing_shadow = object.ray_tracing_shadow;
+                    leaf.ray_tracing_reflection = object.ray_tracing_reflection;
                     if (!override_material) {
                         // Turning the override off restores the imported material; the clone stays allocated
                         // for a later re-enable rather than churning a table row per toggle.

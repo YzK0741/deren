@@ -117,6 +117,35 @@ export namespace deren::engine::render_resource {
         software_id,
         /// the CSR tile-list buffer: header + counts + offsets + entries, host-written per frame lane
         software_tiles,
+        /// the ray-traced reflection target: RGB radiance and hit distance, one per frame slot
+        rt_reflection,
+        /// the denoised reflection radiance: the deferred stage's specular input
+        rt_reflection_denoised,
+        /// the previous frame's denoised radiance; read by reprojection and the temporal resolve, and replaced by
+        /// the history-copy pass after the resolve has consumed it
+        rt_reflection_denoised_history,
+        /// reprojection output consumed by the temporal resolve
+        rt_reflection_reprojected,
+        /// the prefilter's output, read by the temporal resolve (kept separate so the history radiance survives)
+        rt_reflection_prefiltered,
+        /// the reprojection's 1/8-resolution average radiance
+        rt_reflection_average,
+        /// the previous frame's 1/8-resolution average radiance, read by reprojection's luminance weighting
+        rt_reflection_average_history,
+        /// current variance (.x) and sample count (.y) from reprojection
+        rt_reflection_moments,
+        /// prefiltered variance (.x) and the copied sample count (.y)
+        rt_reflection_moments_prefiltered,
+        /// the resolved variance (.x) and sample count (.y), read by the next frame's reprojection
+        rt_reflection_moments_history,
+        /// the resolved world normal (.xyz) and roughness (.w), read by the next frame's reprojection
+        rt_reflection_surface_history,
+        /// the resolve's current-frame surface, copied into @ref rt_reflection_surface_history after it is consumed
+        rt_reflection_surface_current,
+        /// the resolved linear view depth, read by the next frame's reprojection
+        rt_reflection_depth_history,
+        /// the resolve's current-frame depth, copied into @ref rt_reflection_depth_history after it is consumed
+        rt_reflection_depth_current,
         /// the number of enumerators, so the schema's completeness can be checked by ITERATING rather than
         /// against a hand-kept list: `validate_schema()` requires exactly one entry per id in [1, count)
         local_probe,
@@ -208,6 +237,23 @@ export namespace deren::engine::render_resource {
         // FOUR LAYERS, not one: the runtime creates the shadow map as ONE layered image (`max_shadow_cascades` layers, one per cascade, plus the spare layers a shrank count leaves behind - see create_shadow_resources), and the shadow pass renders into them one at a time. The count was 1 (the default) until that pass was declared, which made `element = cascade` illegal for every cascade but the first - the same correction the bloom family needed, and the validator`s element check is what says so.
         {.id = resource_id::shadow_map, .name = "shadow_map", .kind = resource_kind::image2d, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame, .count = 4},
         {.id = resource_id::rt_shadow_visibility, .name = "rt_shadow_visibility", .kind = resource_kind::image2d, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::rt_reflection, .name = "rt_reflection", .kind = resource_kind::image2d, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
+        // The reflection denoiser's working set (AMD Reproject -> Prefilter -> ResolveTemporal + the history copy).
+        // Every one is per-frame-slot and per-frame: the history images hold the previous recorded frame's
+        // resolved radiance/surface, and the current images hold this frame's before the copy overwrites history.
+        {.id = resource_id::rt_reflection_denoised, .name = "rt_reflection_denoised", .kind = resource_kind::image2d, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::rt_reflection_denoised_history, .name = "rt_reflection_denoised_history", .kind = resource_kind::image2d, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::rt_reflection_reprojected, .name = "rt_reflection_reprojected", .kind = resource_kind::image2d, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::rt_reflection_prefiltered, .name = "rt_reflection_prefiltered", .kind = resource_kind::image2d, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::rt_reflection_average, .name = "rt_reflection_average", .kind = resource_kind::image2d, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::rt_reflection_average_history, .name = "rt_reflection_average_history", .kind = resource_kind::image2d, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::rt_reflection_moments, .name = "rt_reflection_moments", .kind = resource_kind::image2d, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::rt_reflection_moments_prefiltered, .name = "rt_reflection_moments_prefiltered", .kind = resource_kind::image2d, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::rt_reflection_moments_history, .name = "rt_reflection_moments_history", .kind = resource_kind::image2d, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::rt_reflection_surface_history, .name = "rt_reflection_surface_history", .kind = resource_kind::image2d, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::rt_reflection_surface_current, .name = "rt_reflection_surface_current", .kind = resource_kind::image2d, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::rt_reflection_depth_history, .name = "rt_reflection_depth_history", .kind = resource_kind::image2d, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
+        {.id = resource_id::rt_reflection_depth_current, .name = "rt_reflection_depth_current", .kind = resource_kind::image2d, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
         {.id = resource_id::camera_ubo, .name = "camera_ubo", .kind = resource_kind::buffer, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
         {.id = resource_id::light_ubo, .name = "light_ubo", .kind = resource_kind::buffer, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
         {.id = resource_id::head_ubo, .name = "head_ubo", .kind = resource_kind::buffer, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},

@@ -45,6 +45,7 @@ import deren.engine.pass.fxaa;
 import deren.engine.pass.geometry_buffer_debug;
 import deren.engine.pass.post;
 import deren.engine.pass.ray_traced_shadow;
+import deren.engine.pass.ray_traced_reflection;
 import deren.engine.pass.scene;
 import deren.engine.pass.shadow;
 import deren.engine.pass.taa;
@@ -198,6 +199,10 @@ export namespace deren::app {
         /// `runtime::game_toon_active()`, so it records only while the game-shader chain is the one drawing.
         pass::game_toon_depth_rim_pass* game_toon_depth_rim = nullptr;
         pass::rt_shadow_pass* rt_shadow = nullptr;
+        /// THE RAY-TRACED REFLECTION STAGE: one reflection ray per pixel into a per-frame-slot target that the
+        /// deferred lighting stage samples. It is its own chain entry rather than a second pass in the shadow
+        /// stage because it writes a different target and runs at its own point in the frame.
+        pass::rt_reflection_pass* rt_reflection = nullptr;
         pass::deferred_pass* deferred = nullptr;
         pass::taa_pass* taa = nullptr;
         /// named `gbuffer_debug_pass` rather than `gbuffer_debug`: `feature_active` keeps a local

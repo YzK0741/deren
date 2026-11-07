@@ -3695,12 +3695,47 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     return toon_colour;
 }
 
+// ---- THE TRACED-REFLECTION COMPOSITE THAT EVERY TOON ENTRY SHARES ----
+//
+// The whole-frame reflection is a deferred term, and the character-forward stages REPLACE deferred shading on
+// their pixels. A whitelisted cloth material would therefore lose the term unless both this stage and the
+// game-shader stage composite it too. It is deliberately narrow: only bit12 of the material record (resolved at
+// import from the cloth family / the configured name list), and only while the pass pushes a non-zero strength
+// in the spare lane. `rt_reflections = false` pushes 0, so the condition is false and every byte of the output is
+// what it was before this term existed.
+//
+// The reflection is the denoiser's output, not the raw trace: the same image the deferred stage reads. The
+// weight follows the same roughness-aware specular response the deferred path uses: Schlick Fresnel with the
+// material's F0, multiplied by (1 - roughness). There is deliberately NO artistic gloss floor. A floor was
+// tried first and it turned the rough black cloth into a flat grey sheet: for roughness 0.8 the floor
+// contributed more than the physical term. UE makes the same call by fading traced reflections out at
+// `MaxRoughnessToTrace` and letting the prefiltered environment represent the wide lobe; a rough surface is
+// supposed to receive a low, broad specular response, not a constant lift.
+// `pixel_xy` is SV_Position.xy; the light UBO's cluster_depth.zw is the render target size the runtime writes.
+static float3 toon_rt_reflection_composite(const surface_sample s, float3 world_pos, float3 lit, const float2 pixel_xy) {
+    if ((s.flags & 4096u) == 0u || push.spare_lane == 0u) {
+        return lit;
+    }
+    const float2 screen = max(light_at(heap_light_slot).cluster_depth.zw, float2(1.0, 1.0));
+    const float2 screen_uv = saturate(pixel_xy / screen);
+    const float3 reflection = heap_texel(heap_at<Texture2D<float4>>(heap_slots_rt_reflection_denoised + heap_frame_slot), heap_sampler_texture, screen_uv).rgb;
+    const float3 view_dir = normalize(camera_at(heap_camera_slot).camera_pos - world_pos);
+    const float n_dot_v = saturate(dot(normalize(s.normal), view_dir));
+    const float roughness = saturate(s.roughness);
+    const float3 f0 = lerp(float3(0.08, 0.08, 0.08), s.albedo, s.metallic);
+    const float3 fresnel = f0 + (float3(1.0, 1.0, 1.0) - f0) * pow(1.0 - n_dot_v, 5.0);
+    const float gloss = 1.0 - roughness;
+    const float strength = float(push.spare_lane) * (1.0 / 255.0);
+    return lit + reflection * fresnel * gloss * strength;
+}
+
 [shader("fragment")]
 float4 main(
     [[vk::location(0)]] float3 v_world_pos : TEXCOORD0,
     [[vk::location(1)]] float3 v_normal : TEXCOORD1,
     [[vk::location(2)]] float2 v_uv : TEXCOORD2,
-    bool v_is_front : SV_IsFrontFace) : SV_Target
+    bool v_is_front : SV_IsFrontFace,
+    float4 sv_position : SV_Position) : SV_Target
 {
     // The same surface the G-buffer pass wrote, gathered by the same function: a normal-map fetch, the
     // double-sided flip and the material's factors cannot disagree with the G-buffer if there is one
@@ -3756,7 +3791,13 @@ float4 main(
     // `saturation = 0` is grey. The value is `goo_desaturation_neutral` (the identity) for every material the
     // step-6 arm does not take, so a FACE, a HAIR, an EYE or a `goo_toon = false` frame passes through this line
     // unchanged - which is the byte-identity the `goo_toon = false` anchors check.
-    const float3 lit_final = goo_hsv_desaturate(lit, desaturation);
+    float3 lit_final = goo_hsv_desaturate(lit, desaturation);
+
+    // ---- OPTIONAL TRACED REFLECTION ON THE WHITELISTED CLOTH ----
+    //
+    // After the toon grading, so the sheen sits on top of the final colour rather than being re-graded.
+    // The helper carries the whitelist gate and the roughness weight.
+    lit_final = toon_rt_reflection_composite(s, v_world_pos, lit_final, sv_position.xy);
 
     // the BLEND rule, copied from unlit.slang: an alphaMode BLEND material carries its own coverage, and
     // every other material is fully opaque regardless of what its base colour's alpha says

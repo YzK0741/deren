@@ -157,7 +157,7 @@ void rgen_main()
              // GLSL's `gl_RayFlagsTerminateOnFirstHitEXT` is Slang's RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH
              // (the DXR name for the same flag - the GLSL spelling does not exist here, which cost one build).
              RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH,
-             0xFF, // every instance can occlude
+             0x1, // RT-shadow instances only; bit1 marks reflection-only geometry
              0,    // sbtRecordOffset: one hit group, so every instance maps to it
              0,    // sbtRecordStride
              0,    // missIndex
