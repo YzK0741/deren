@@ -289,7 +289,7 @@ namespace deren::engine::gaussian_splatting {
         }
     } // namespace
     std::expected<raster_probe_report, foundation_error> run_raster_probe(rhi::api_core& core, std::span<std::uint8_t const> vertex, std::span<std::uint8_t const> fragment,
-                                                                          deren::utility::vessel::array<std::span<std::uint8_t const>, 3> compute, bool gpu) {
+                                                                          deren::utility::vessel::array<std::span<std::uint8_t const>, 3> compute, bool gpu, rhi::shared_object<rhi::api_core> device_lease) {
         if (vertex.empty() || fragment.empty() || vertex.size() % 4 != 0 || fragment.size() % 4 != 0) {
             return failure("Gaussian probe requires both SPIR-V stages");
         }
@@ -329,10 +329,17 @@ namespace deren::engine::gaussian_splatting {
         if (gpu && !raster.gpu_ready()) {
             return failure("Gaussian GPU preparation pipelines unavailable", error_code::unsupported);
         }
+        // The probe's cases prepare real assets and frames, and every one of those retains the device root: an
+        // empty lease is the probe asking to be run without one, which the upload paths would refuse deeper.
+        if (!device_lease) {
+            return failure("Gaussian probe requires an owning device lease", error_code::invalid_argument);
+        }
+        foundation_limits const default_limits{};
+        std::span<raster_instance const> const empty_inputs{};
         raster_probe_report report;
         std::shared_ptr<gpu_frame> completed_probe_slot;
         auto check = [&](std::span<raster_instance const> inputs, raster_camera const& camera, float depth, char const* name, bool known_center = false, bool known_edge = false) -> std::expected<void, foundation_error> {
-            auto frame = prepare_raster_frame(core, inputs, camera);
+            auto frame = prepare_raster_frame(core, inputs, camera, default_limits, nullptr, device_lease);
             if (!frame) {
                 return std::unexpected(frame.error());
             }
@@ -343,7 +350,7 @@ namespace deren::engine::gaussian_splatting {
             std::shared_ptr<gpu_frame> gpu_snapshot;
             if (gpu) {
                 foundation_limits const limits{};
-                auto prepared = prepare_gpu_frame(core, inputs, camera, limits, completed_probe_slot.get());
+                auto prepared = prepare_gpu_frame(core, inputs, camera, limits, completed_probe_slot.get(), device_lease);
                 if (!prepared) {
                     return std::unexpected(prepared.error());
                 }
@@ -399,7 +406,7 @@ namespace deren::engine::gaussian_splatting {
         };
         deren::gaussian::asset overlap;
         overlap.particles = {particle({0, 0, -3}, {0, 0, 1}, {0.12f, 0.12f, 0.06f}), particle({0, 0, -2}, {1, 0, 0}, {0.12f, 0.05f, 0.03f})};
-        auto overlap_asset = make_raster_asset(core, std::move(overlap));
+        auto overlap_asset = make_raster_asset(core, std::move(overlap), default_limits, device_lease);
         if (!overlap_asset) {
             return std::unexpected(overlap_asset.error());
         }
@@ -416,7 +423,7 @@ namespace deren::engine::gaussian_splatting {
         auto sign = particle({0, 0, -2}, {0.5f, 0.5f, 0.5f}, {0.09f, 0.09f, 0.09f});
         sign.sh[6] = 1;
         harmonics.particles.push_back(sign);
-        auto sh_asset = make_raster_asset(core, std::move(harmonics));
+        auto sh_asset = make_raster_asset(core, std::move(harmonics), default_limits, device_lease);
         if (!sh_asset) {
             return std::unexpected(sh_asset.error());
         }
@@ -432,7 +439,7 @@ namespace deren::engine::gaussian_splatting {
             p.sh[i] = static_cast<float>(static_cast<int32_t>(i % 7) - 3) * 0.025f;
         }
         transformed.particles = {particle({40, 0, 0}, {1, 0, 0}, {0.1f, 0.1f, 0.1f}), p};
-        auto transformed_asset = make_raster_asset(core, std::move(transformed));
+        auto transformed_asset = make_raster_asset(core, std::move(transformed), default_limits, device_lease);
         if (!transformed_asset) {
             return std::unexpected(transformed_asset.error());
         }
@@ -453,7 +460,7 @@ namespace deren::engine::gaussian_splatting {
         camera = simple_camera();
         deren::gaussian::asset edge_source;
         edge_source.particles = {particle({2.0f + 2.0f / 33.0f, 0, -2}, {0, 1, 0}, {1e-6f, 1e-6f, 1e-6f})};
-        auto edge_asset = make_raster_asset(core, std::move(edge_source));
+        auto edge_asset = make_raster_asset(core, std::move(edge_source), default_limits, device_lease);
         if (!edge_asset) {
             return std::unexpected(edge_asset.error());
         }
@@ -465,7 +472,7 @@ namespace deren::engine::gaussian_splatting {
             auto degree2 = (*sh_asset)->source();
             degree2.sh_degree = 2u;
             degree2.particles.front().sh[12] = .25f;
-            auto degree2_asset = make_raster_asset(core, std::move(degree2));
+            auto degree2_asset = make_raster_asset(core, std::move(degree2), default_limits, device_lease);
             if (!degree2_asset) {
                 return std::unexpected(degree2_asset.error());
             }
@@ -487,7 +494,7 @@ namespace deren::engine::gaussian_splatting {
             }
             deren::gaussian::asset near_source;
             near_source.particles = {particle({0, 0, -.11f}, {1, 0, 0}, {.02f, .02f, .02f})};
-            auto near_asset = make_raster_asset(core, std::move(near_source));
+            auto near_asset = make_raster_asset(core, std::move(near_source), default_limits, device_lease);
             if (!near_asset) {
                 return std::unexpected(near_asset.error());
             }
@@ -497,8 +504,8 @@ namespace deren::engine::gaussian_splatting {
             }
             // CPU projection rejects this overflow. GPU must count the error and skip the entire draw.
             deren::utility::vessel::array<raster_instance, 1> const overflow = {raster_instance{*overlap_asset, glm::scale(glm::mat4{1}, glm::vec3{3e20f}), 1}};
-            auto failed_frame = prepare_gpu_frame(core, overflow, camera);
-            auto empty = prepare_raster_frame(core, {}, camera);
+            auto failed_frame = prepare_gpu_frame(core, overflow, camera, default_limits, nullptr, device_lease);
+            auto empty = prepare_raster_frame(core, empty_inputs, camera, default_limits, nullptr, device_lease);
             if (!failed_frame || !empty) {
                 return failure("overflow probe frame setup failed");
             }

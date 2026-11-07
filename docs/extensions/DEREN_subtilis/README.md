@@ -116,7 +116,10 @@ Malformed, unsupported, source-mismatched or LOD0-only payloads retain ordinary
 glTF geometry with typed fallback counts. Admission preserves 4096 visible items,
 4096 selected records per item and the 65536-record shared table. A legal cut may
 need more records than its leaf reservation; it falls back as a whole, never a
-prefix. The existing visibility admission can refuse an entire frame.
+prefix. The existing visibility admission can refuse an entire frame. Payload
+import also refuses decoded cluster, group or reference tables above 32768 records
+(eight times the visible item budget) as a capacity failure before structural
+validation, keeping a crafted payload's tables proportional to its leaves.
 
 The default 1px target is configurable with `subtilis_error_px`; optional
 `subtilis_hysteresis=false` keeps reference selection deterministic by default.

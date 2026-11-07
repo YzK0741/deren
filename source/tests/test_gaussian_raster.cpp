@@ -363,6 +363,39 @@ namespace {
     rhi::shared_object<rhi::api_core> test_lease(core_type& core) {
         return rhi::shared_object<rhi::api_core>{std::shared_ptr<core_type>(&core, [](core_type*) {})};
     }
+    /// the descriptor heap run_raster_probe asks for before it runs any case.
+    struct probe_heap final : rhi::descriptor_heap {
+        static constexpr std::string_view tag = "gaussian_raster_probe_heap";
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return tag;
+        }
+        [[nodiscard]] bool ready() const noexcept override {
+            return true;
+        }
+        [[nodiscard]] rhi::descriptor_heap_properties properties() const noexcept override {
+            return {};
+        }
+        [[nodiscard]] rhi::heap_bindings bindings() const noexcept override {
+            return {};
+        }
+        [[nodiscard]] rhi::error write_image(rhi::heap_image_write_info const&) noexcept override {
+            return rhi::error::ok;
+        }
+        [[nodiscard]] rhi::error write_buffer(rhi::heap_buffer_write_info const&) noexcept override {
+            return rhi::error::ok;
+        }
+        [[nodiscard]] rhi::error bind(rhi::heap_bind_info const&) const noexcept override {
+            return rhi::error::ok;
+        }
+    };
+    /// the fixture PLUS the descriptor heap the probe requires: together with a lease this is what lets a probe
+    /// run reach its first real case instead of stopping at the setup checks.
+    struct heap_probe_core : raster_probe_core {
+        probe_heap heap;
+        [[nodiscard]] rhi::extension* query_extension(rhi::extension_kind kind) noexcept override {
+            return kind == rhi::extension_kind::descriptor_heap ? &heap : raster_probe_core::query_extension(kind);
+        }
+    };
     void test_frame_upload() {
         raster_probe_core probe;
         auto lease = test_lease(probe);
@@ -430,6 +463,7 @@ namespace {
             item.asset.reset();
         }
         CHECK(!weak.expired());
+        reused->reset(); // the reuse result owns the same frame now, so it is one reference to drop
         (*frame).reset();
         CHECK(weak.expired());
         raster_probe_core empty_probe;
@@ -468,7 +502,7 @@ namespace {
         one = {};
         growth = {};
         asset->reset();
-        grown->reset(); // nonowning reuse view
+        grown->reset(); // owning reuse handle
         leased.reset();
         frame->reset();
         CHECK(!root.expired());
@@ -638,5 +672,17 @@ int main() {
     auto unsupported = gs::run_raster_probe(unsupported_probe, dummy_shader, dummy_shader);
     CHECK(!unsupported && unsupported.error().code == gs::error_code::unsupported);
     CHECK(unsupported_probe.calls == 0);
+    // EVEN A FULLY SET UP RUN NEEDS A LEASE: with the descriptor heap in place the probe gets past its setup
+    // checks, and the empty lease is refused before a single case prepares anything.
+    heap_probe_core lease_required_probe;
+    auto missing_lease = gs::run_raster_probe(lease_required_probe, dummy_shader, dummy_shader);
+    CHECK(!missing_lease && missing_lease.error().code == gs::error_code::invalid_argument);
+    CHECK(lease_required_probe.calls == 0);
+    // THE LEASE IS WHAT CARRIES THE PROBE INTO A REAL CASE: the asset and the frame are prepared (the fixture
+    // allocates their buffers) before the target image, which this fixture does not create, refuses the readback.
+    heap_probe_core reachable_probe;
+    auto reachable = gs::run_raster_probe(reachable_probe, dummy_shader, dummy_shader, {}, false, test_lease(reachable_probe));
+    CHECK(!reachable && reachable.error().code == gs::error_code::allocation_failure);
+    CHECK(reachable_probe.calls > 0);
     return deren::vk_test::finish("gaussian_raster");
 }

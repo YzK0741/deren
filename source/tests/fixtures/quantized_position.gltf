@@ -1,0 +1,28 @@
+{
+    "asset": { "version": "2.0" },
+    "extensionsUsed": [ "KHR_mesh_quantization" ],
+    "scene": 0,
+    "scenes": [ { "nodes": [ 0 ] } ],
+    "nodes": [ { "mesh": 0 } ],
+    "meshes": [ { "primitives": [ { "attributes": { "POSITION": 0 }, "mode": 4 } ] } ],
+    "buffers": [
+        {
+            "uri": "data:application/octet-stream;base64,AYABgAAA/38BgAAAAAD/fwAA",
+            "byteLength": 18
+        }
+    ],
+    "bufferViews": [
+        { "buffer": 0, "byteOffset": 0, "byteLength": 18 }
+    ],
+    "accessors": [
+        {
+            "bufferView": 0,
+            "componentType": 5122,
+            "normalized": true,
+            "count": 3,
+            "type": "VEC3",
+            "min": [ -1.0, -1.0, 0.0 ],
+            "max": [ 1.0, 1.0, 0.0 ]
+        }
+    ]
+}

@@ -20,7 +20,12 @@ module;
 // name lookup is a lookup that can miss by design.
 #include <cmath>
 #include <fstream>
+#include <limits>
+#include <mutex>
+#include <new>
 #include <optional>
+#include <stdexcept>
+#include <string_view>
 
 module deren.gltf_loader;
 import deren.utility.shared;
@@ -104,8 +109,33 @@ namespace {
         return static_cast<fastgltf::Options>(flags);
     }
 
+    // THE LARGEST DECODED ACCESSOR THIS LOADER WILL ALLOCATE, IN BYTES (256 MiB). `accessor.count` comes
+    // straight from the file and copy_accessor() multiplies it by the element size before allocating, so
+    // without a ceiling a hostile file asks for an allocation the machine cannot serve - and on the largest
+    // counts the multiplication itself could wrap, turning the request into a small buffer that
+    // copyFromAccessor() then writes at full length. The ceiling is tested by division (never by computing
+    // the product) in the validation pass that runs before any decode, and again in copy_accessor() itself.
+    constexpr std::size_t max_accessor_bytes = std::size_t{256} * 1024 * 1024;
+
+    bool accessor_within_byte_cap(fastgltf::Accessor const& accessor) noexcept {
+        std::size_t const element_size = fastgltf::getElementByteSize(accessor.type, accessor.componentType);
+        if (element_size == 0) {
+            // An unknown type/component pair is an invalid accessor, not an oversized one: fastgltf::validate()
+            // reports it with its own error code, so this ceiling stays out of that verdict.
+            return true;
+        }
+        return accessor.count <= max_accessor_bytes / element_size;
+    }
+
     template <typename T>
     deren::utility::vessel::vector<uint8_t> copy_accessor(Asset const& asset, fastgltf::Accessor const& accessor) {
+        // The cap (see accessor_within_byte_cap) is enforced by the validation pass before any decode; this
+        // repeat guard keeps a template that allocates straight from file numbers from ever multiplying into
+        // a wrapped size. sizeof(T) equals the accessor's element size for every pair get_data_from_accessor
+        // dispatches, so the two checks agree.
+        if (accessor.count > max_accessor_bytes / sizeof(T)) {
+            return {};
+        }
         deren::utility::vessel::vector<uint8_t> data(accessor.count * sizeof(T));
         fastgltf::copyFromAccessor<T>(asset, accessor, data.data());
         return data;
@@ -261,6 +291,56 @@ namespace {
         return result;
     }
 
+    // THE COMPONENT-AWARE FLOAT READ every vertex consumer uses: build_vertices() when it fills the
+    // interleaved buffer, and compute_scene_bounds() when it measures a model without building it. The rules
+    // are the ones glTF and KHR_mesh_quantization define for normalized integer attributes: an unsigned type
+    // divides by its maximum, a signed type divides by its positive maximum and clamps at -1 when the
+    // attribute is normalized. None of them reinterprets the bytes as float, which is what the bounds walk
+    // used to do: an s16/i8 POSITION read that way decodes to NaN or a denormal and the whole AABB follows.
+    bool read_vertex_floats(deren::gltf::vertex_portion const& portion, std::size_t const index, std::size_t const width,
+                            bool const signed_normalized, float* const values) {
+        using deren::gltf::component_type;
+        using deren::gltf::get_component_size;
+        std::size_t const component_bytes = get_component_size(portion.component);
+        if (component_bytes == 0 || portion.data.size() < (index + 1) * width * component_bytes) {
+            return false;
+        }
+        auto const* const bytes = portion.data.data();
+        for (std::size_t c = 0; c < width; ++c) {
+            std::size_t const at = index * width + c;
+            switch (portion.component) {
+            case component_type::float_t:
+                values[c] = reinterpret_cast<float const*>(bytes)[at];
+                break;
+            case component_type::unsigned_byte_t:
+                values[c] = static_cast<float>(bytes[at]) / 255.0f;
+                break;
+            case component_type::byte_t: {
+                float const raw = static_cast<float>(static_cast<std::int8_t>(bytes[at]));
+                values[c] = signed_normalized ? std::max(raw / 127.0f, -1.0f) : raw;
+                break;
+            }
+            case component_type::unsigned_short_t:
+                values[c] = static_cast<float>(reinterpret_cast<std::uint16_t const*>(bytes)[at]) / 65535.0f;
+                break;
+            case component_type::short_t: {
+                float const raw = static_cast<float>(reinterpret_cast<std::int16_t const*>(bytes)[at]);
+                values[c] = signed_normalized ? std::max(raw / 32767.0f, -1.0f) : raw;
+                break;
+            }
+            default:
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // TRUE WHEN [offset, offset + length) FITS INSIDE `size`, decided by subtraction: `offset + length <= size`
+    // overflows for a hostile pair such as {SIZE_MAX, 2} and the wrapped sum would then pass as "small".
+    bool range_within(std::size_t const offset, std::size_t const length, std::size_t const size) noexcept {
+        return offset <= size && length <= size - offset;
+    }
+
     // Extract raw bytes from a fastgltf data source (loaded buffers/images are sources::Array).
     std::span<std::byte const> get_source_bytes(Asset const& asset, fastgltf::DataSource const& source) {
         using namespace fastgltf;
@@ -274,12 +354,143 @@ namespace {
             return byte_view->bytes;
         }
         if (auto const* buffer_view = std::get_if<sources::BufferView>(&source)) {
+            // EVERY NUMBER FROM THE INDEX TO THE ANSWER BELOW COMES FROM THE FILE, and this function is the single
+            // primitive both load_texture() and the buffer-range pass in load_model() reach the bytes through. An
+            // index or an extent past the end therefore has to read as "no bytes" here: `span::subspan` on an
+            // out-of-range pair is undefined behaviour, not a throwing accessor, so no caller can be expected to
+            // notice it instead.
+            if (buffer_view->bufferViewIndex >= asset.bufferViews.size()) {
+                return {};
+            }
             auto const& view = asset.bufferViews[buffer_view->bufferViewIndex];
-            auto const& buffer = asset.buffers[view.bufferIndex];
-            auto bytes = get_source_bytes(asset, buffer.data);
-            return bytes.subspan(view.byteOffset, view.byteLength);
+            if (view.bufferIndex >= asset.buffers.size()) {
+                return {};
+            }
+            auto const bytes = get_source_bytes(asset, asset.buffers[view.bufferIndex].data);
+            if (range_within(view.byteOffset, view.byteLength, bytes.size())) {
+                return bytes.subspan(view.byteOffset, view.byteLength);
+            }
+            return {};
         }
         return {};
+    }
+
+    // THE BYTE RANGE AN ACCESSOR WALKS INSIDE ITS BUFFERVIEW, bounded without trusting the file's arithmetic:
+    // elementSize + stride * (count - 1) bytes starting at accessor.byteOffset, where stride defaults to the
+    // element size for an un-interleaved view (exactly what fastgltf's accessor iterator and copyFromAccessor
+    // do). Count and stride are attacker-chosen, so `stride * (count - 1)` overflows; the product is therefore
+    // bounded by division instead of computed, and "fits" here means every element read lands inside the view.
+    bool accessor_range_within_view(fastgltf::Accessor const& accessor, fastgltf::BufferView const& view) {
+        std::size_t const element_size = fastgltf::getElementByteSize(accessor.type, accessor.componentType);
+        std::size_t const stride = view.byteStride ? *view.byteStride : element_size;
+        if (accessor.byteOffset > view.byteLength) {
+            return false;
+        }
+        std::size_t const available = view.byteLength - accessor.byteOffset;
+        if (element_size > available) {
+            return false;
+        }
+        if (accessor.count <= 1) {
+            return true;
+        }
+        // The remaining elements are `count - 1` steps of `stride`, and they must fit after the first element.
+        std::size_t const steps = accessor.count - 1;
+        std::size_t const budget = available - element_size;
+        return stride != 0 && steps <= budget / stride;
+    }
+
+    // THE BYTE RANGE ONE ELEMENT ARRAY OCCUPIES inside a bufferView: `count` elements of `stride` bytes starting
+    // at `byte_offset`. Same subtraction-based overflow discipline as accessor_range_within_view(): a hostile
+    // stride/count pair must not wrap into "fits". Sparse index and value arrays both use it.
+    bool element_range_within_view(fastgltf::BufferView const& view, std::size_t const byte_offset, std::size_t const stride,
+                                   std::size_t const count) noexcept {
+        if (byte_offset > view.byteLength) {
+            return false;
+        }
+        if (count == 0) {
+            return true;
+        }
+        std::size_t const available = view.byteLength - byte_offset;
+        if (stride > available) {
+            return false;
+        }
+        return count - 1 <= (available - stride) / stride;
+    }
+
+    // SPARSE ACCESSOR RANGES. fastgltf::validate() DEREFERENCES asset.bufferViews[sparse->indicesBufferView] and
+    // [valuesBufferView] without any bounds check of its own, and it never checks that sparse.count <=
+    // accessor.count, so both file-supplied numbers have to be held here. This function must therefore run
+    // before fastgltf::validate() in load_model(): validate() would read out of bounds on the very index it is
+    // being asked to judge. The spec constrains the sparse count to the accessor count (the substitution table
+    // replaces at most that many elements), and the index component type to an unsigned one.
+    bool sparse_accessor_valid(fastgltf::Accessor const& accessor, Asset const& asset) {
+        if (!accessor.sparse) {
+            return true;
+        }
+        fastgltf::SparseAccessor const& sparse = *accessor.sparse;
+        if (sparse.indicesBufferView >= asset.bufferViews.size() || sparse.valuesBufferView >= asset.bufferViews.size()) {
+            return false;
+        }
+        if (sparse.count > accessor.count) {
+            return false;
+        }
+        if (sparse.indexComponentType != fastgltf::ComponentType::UnsignedByte &&
+            sparse.indexComponentType != fastgltf::ComponentType::UnsignedShort &&
+            sparse.indexComponentType != fastgltf::ComponentType::UnsignedInt) {
+            return false;
+        }
+        std::size_t const index_stride = fastgltf::getElementByteSize(fastgltf::AccessorType::Scalar, sparse.indexComponentType);
+        std::size_t const value_stride = fastgltf::getElementByteSize(accessor.type, accessor.componentType);
+        if (index_stride == 0 || value_stride == 0) {
+            return false;
+        }
+        return element_range_within_view(asset.bufferViews[sparse.indicesBufferView], sparse.indicesByteOffset, index_stride, sparse.count) &&
+               element_range_within_view(asset.bufferViews[sparse.valuesBufferView], sparse.valuesByteOffset, value_stride, sparse.count);
+    }
+
+    // fastgltf::validate() checks indices and cross-references but NOT ANY OF THE RANGES BELOW: it never
+    // compares a bufferView's byteOffset/byteLength with the bytes its buffer actually carries, nor an accessor's
+    // (byteOffset, count, stride) with its bufferView's extent, nor a sparse array's extent with its view, nor an
+    // accessor's decoded size with the loader's allocation ceiling. All of those come straight from the file and
+    // are consumed by unchecked arithmetic downstream - get_source_bytes() subspans the buffer,
+    // copyFromAccessor()/IterableAccessor walk the view from accessor.byteOffset, and copy_accessor() allocates
+    // count * element_size - so this pass is what keeps a file whose numbers sit past the end (or inside the
+    // arithmetic) from driving an out-of-bounds read, an out-of-bounds allocation, or an out-of-bounds sparse
+    // lookup. One O(n) pass over the parsed asset.
+    bool buffer_ranges_valid(Asset const& asset) {
+        for (fastgltf::BufferView const& view : asset.bufferViews) {
+            // fastgltf::validate() rejects an out-of-range bufferIndex, but this function answers for itself: it is
+            // the last thing between the file and the subspan that reads the view.
+            if (view.bufferIndex >= asset.buffers.size()) {
+                return false;
+            }
+            auto const buffer_bytes = get_source_bytes(asset, asset.buffers[view.bufferIndex].data);
+            if (!range_within(view.byteOffset, view.byteLength, buffer_bytes.size())) {
+                return false;
+            }
+        }
+        for (fastgltf::Accessor const& accessor : asset.accessors) {
+            // THE DECODE SIZE IS BROUGHT UNDER THE CEILING BEFORE ANYONE DECODES: copy_accessor() allocates
+            // count * element_size from file numbers and would otherwise ask for a size the file gets to choose
+            // (or wrap the product into a small buffer). A sparse accessor without a bufferView is still decoded
+            // in full, so this check and the sparse check run before the bufferView early-out.
+            if (!accessor_within_byte_cap(accessor)) {
+                return false;
+            }
+            if (!sparse_accessor_valid(accessor, asset)) {
+                return false;
+            }
+            if (!accessor.bufferViewIndex) {
+                continue; // no bufferView to walk: the accessor is zero-filled or purely sparse
+            }
+            if (*accessor.bufferViewIndex >= asset.bufferViews.size()) {
+                return false;
+            }
+            if (!accessor_range_within_view(accessor, asset.bufferViews[*accessor.bufferViewIndex])) {
+                return false;
+            }
+        }
+        return true;
     }
 
     deren::gltf::texture_data load_texture(Asset const& asset, std::size_t const texture_index) {
@@ -322,6 +533,9 @@ namespace {
     }
 
     deren::utility::vessel::map<deren::utility::vessel::string, uint16_t> get_texture_indices(fastgltf::Material const& material) {
+        // THE uint16_t CASTS BELOW ARE LOSSLESS FOR EVERY ASSET THAT LOADS: load_model() rejects a texture array
+        // larger than 65536 before any material is built, because material::texture_indices exposes uint16_t
+        // (a breaking change to widen) and a truncated index would alias the wrong image.
         deren::utility::vessel::map<deren::utility::vessel::string, uint16_t> texture_indices;
         if (material.pbrData.baseColorTexture) {
             texture_indices["albedo"] = static_cast<uint16_t>(material.pbrData.baseColorTexture->textureIndex);
@@ -427,9 +641,24 @@ namespace {
         // consumers can read the data as float deltas without a per-portion component check.
         deren::utility::vessel::vector<deren::gltf::morph_target> targets;
         targets.reserve(primitive.targets.size());
+        bool target_index_reported = false;
         for (auto const& target_attributes : primitive.targets) {
             deren::gltf::morph_target target;
             for (auto const& attribute : target_attributes) {
+                // THE INDEX IS THE FILE'S AND NOTHING EARLIER CHECKS IT: fastgltf::validate() walks
+                // primitive.attributes but not primitive.targets, so an accessorIndex past the end indexes
+                // asset.accessors out of bounds below. Drop just that one delta and keep the target, so the target
+                // list stays aligned with node.weights (and with the other targets) and only the unreadable
+                // attribute goes missing. Logged once per primitive: a target list can be long and one bad index
+                // is one diagnosis, not a burst.
+                if (attribute.accessorIndex >= asset.accessors.size()) {
+                    if (!target_index_reported) {
+                        deren::utility::error("gltf morph target accessor index {} out of range ({} accessors): attribute dropped",
+                                              attribute.accessorIndex, asset.accessors.size());
+                        target_index_reported = true;
+                    }
+                    continue;
+                }
                 auto data = get_data_from_accessor(asset, asset.accessors[attribute.accessorIndex]);
                 if (data.component_type != deren::gltf::component_type::float_t) {
                     continue; // non-conforming morph delta: drop (consumers blend float deltas)
@@ -1214,7 +1443,22 @@ namespace {
         return result;
     }
 
-    // Convert stb-decoded texture data to RGBA (3 channels get alpha, 1 channel is gray-scaled)
+    // ONE LINE PER IMAGE NAME, NOT ONE PER CONVERSION. to_rgba() runs again every time a material is
+    // resolved (resolve_materials() is called repeatedly by the runtime), so an unsupported image would
+    // otherwise repeat the same line indefinitely. The set is keyed by the image name because that is the
+    // only identity a texture_data carries.
+    void log_unsupported_image_once(deren::gltf::texture_data const& texture) {
+        static std::mutex mutex;
+        static deren::utility::vessel::set<deren::utility::vessel::string> reported;
+        std::lock_guard<std::mutex> const lock(mutex);
+        if (reported.insert(texture.name).second) {
+            deren::utility::log("gltf: image '{}' cannot be converted to RGBA ({} channel(s)): texture dropped",
+                                std::string_view(texture.name), static_cast<int>(texture.component));
+        }
+    }
+
+    // Convert stb-decoded texture data to RGBA (3 channels get alpha, 2 channels are gray + alpha, 1 channel
+    // is gray-scaled)
     deren::utility::vessel::vector<uint8_t> to_rgba(deren::gltf::texture_data const& texture) {
         size_t const pixel_count = static_cast<size_t>(texture.width) * texture.height;
         deren::utility::vessel::vector<uint8_t> rgba(pixel_count * 4, 255);
@@ -1229,6 +1473,16 @@ namespace {
                 rgba[i * 4 + 2] = texture.data[i * 3 + 2];
             }
             break;
+        case 2:
+            // GRAY + ALPHA (PNG color type 4, which stb reports as 2 channels): the gray byte feeds RGB and
+            // the second byte is copied verbatim as alpha, so an LA image keeps the coverage its author drew.
+            for (size_t i = 0; i < pixel_count; ++i) {
+                rgba[i * 4 + 0] = texture.data[i * 2 + 0];
+                rgba[i * 4 + 1] = texture.data[i * 2 + 0];
+                rgba[i * 4 + 2] = texture.data[i * 2 + 0];
+                rgba[i * 4 + 3] = texture.data[i * 2 + 1];
+            }
+            break;
         case 1:
             for (size_t i = 0; i < pixel_count; ++i) {
                 rgba[i * 4 + 0] = texture.data[i];
@@ -1237,6 +1491,7 @@ namespace {
             }
             break;
         default:
+            log_unsupported_image_once(texture);
             rgba.clear();
             break;
         }
@@ -1495,41 +1750,7 @@ namespace deren::gltf {
         }
 
         // ---- component-type aware attribute readers: the same conversion rules `build_mesh` applies above ----
-        auto const read_floats = [](vertex_portion const& portion, std::size_t const index, std::size_t const width,
-                                    bool const signed_normalized, float* const values) -> bool {
-            std::size_t const component_bytes = get_component_size(portion.component);
-            if (component_bytes == 0 || portion.data.size() < (index + 1) * width * component_bytes) {
-                return false;
-            }
-            auto const* const bytes = portion.data.data();
-            for (std::size_t c = 0; c < width; ++c) {
-                std::size_t const at = index * width + c;
-                switch (portion.component) {
-                case component_type::float_t:
-                    values[c] = reinterpret_cast<float const*>(bytes)[at];
-                    break;
-                case component_type::unsigned_byte_t:
-                    values[c] = static_cast<float>(bytes[at]) / 255.0f;
-                    break;
-                case component_type::byte_t: {
-                    float const raw = static_cast<float>(static_cast<std::int8_t>(bytes[at]));
-                    values[c] = signed_normalized ? std::max(raw / 127.0f, -1.0f) : raw;
-                    break;
-                }
-                case component_type::unsigned_short_t:
-                    values[c] = static_cast<float>(reinterpret_cast<std::uint16_t const*>(bytes)[at]) / 65535.0f;
-                    break;
-                case component_type::short_t: {
-                    float const raw = static_cast<float>(reinterpret_cast<std::int16_t const*>(bytes)[at]);
-                    values[c] = signed_normalized ? std::max(raw / 32767.0f, -1.0f) : raw;
-                    break;
-                }
-                default:
-                    return false;
-                }
-            }
-            return true;
-        };
+        // The float reader is the file-scope read_vertex_floats() above: the bounds walk reads POSITION with it too.
         auto const read_joint_indices = [](vertex_portion const& portion, std::size_t const index,
                                            std::uint32_t* const values) -> bool {
             std::size_t const component_bytes = get_component_size(portion.component);
@@ -1598,7 +1819,7 @@ namespace deren::gltf {
                     if (weights_usable) {
                         std::uint32_t joint_index[4] = {};
                         float weight[4] = {};
-                        if (!read_joint_indices(*joints, v, joint_index) || !read_floats(*weights, v, 4, false, weight)) {
+                        if (!read_joint_indices(*joints, v, joint_index) || !read_vertex_floats(*weights, v, 4, false, weight)) {
                             weights_usable = false;
                         } else {
                             for (std::size_t c = 0; c < 4; ++c) {
@@ -1611,8 +1832,8 @@ namespace deren::gltf {
                     float position_value[3] = {};
                     float normal_value[3] = {};
                     float uv_value[2] = {};
-                    if (!read_floats(*position, v, 3, true, position_value) || !read_floats(*normal, v, 3, true, normal_value) ||
-                        !read_floats(*uv, v, 2, false, uv_value)) {
+                    if (!read_vertex_floats(*position, v, 3, true, position_value) || !read_vertex_floats(*normal, v, 3, true, normal_value) ||
+                        !read_vertex_floats(*uv, v, 2, false, uv_value)) {
                         continue;
                     }
                     float const u = uv_value[0];
@@ -1881,7 +2102,7 @@ namespace deren::gltf {
         }
         for (std::size_t i = 0; i < this->textures.size(); ++i) {
             if (this->textures[i].name == name) {
-                return static_cast<uint16_t>(i);
+                return static_cast<uint16_t>(i); // lossless: load_model() rejects more than 65536 textures
             }
         }
         return std::nullopt;
@@ -1902,7 +2123,7 @@ namespace deren::gltf {
     std::expected<scenes, error_code> load_model(std::string_view file_name) {
         return load_model(file_name, {});
     }
-    std::expected<scenes, error_code> load_model(std::string_view file_name, load_options options) {
+    static std::expected<scenes, error_code> load_model_impl(std::string_view file_name, load_options options) {
         std::filesystem::path const path(file_name);
         if (!std::filesystem::is_regular_file(path)) {
             return std::unexpected(error_code::file_not_found);
@@ -1934,6 +2155,18 @@ namespace deren::gltf {
 
         Asset asset = std::move(asset_exp.get());
 
+        // THE RANGES fastgltf::validate() DOES NOT CHECK: a bufferView's extent inside the bytes its buffer actually
+        // carries, an accessor's extent inside its bufferView, the sparse index/value ranges, and the decoded size
+        // against the loader's allocation ceiling (see buffer_ranges_valid above). Same cost class as the pass below
+        // - one O(n) scan - and it runs BEFORE fastgltf::validate(), because validate() dereferences a sparse
+        // accessor's bufferView indices without bounds checks of its own: a file pointing them past the table must
+        // be rejected here rather than read by the validator. This pass only reads asset.buffers/bufferViews and
+        // guards every index it takes from the file.
+        if (!buffer_ranges_valid(asset)) {
+            deren::utility::error("gltf validate err [buffer ranges]: bufferView or accessor range past the end of its buffer");
+            return std::unexpected(error_code::file_type_error);
+        }
+
         // Strict structural validation (node/mesh/skin/camera/accessor index bounds, extension
         // consistency, sampler rules). Parser::loadGltf does NOT run this itself - without it a
         // malformed file could drive out-of-bounds reads in the index-based loaders below
@@ -1942,6 +2175,18 @@ namespace deren::gltf {
         if (fastgltf::Error const validation_error = fastgltf::validate(asset); validation_error != fastgltf::Error::None) {
             deren::utility::error("gltf validate err [validate]: {}", fastgltf::getErrorMessage(validation_error));
             return std::unexpected(to_error_code(validation_error));
+        }
+
+        // TEXTURE INDICES MUST FIT THE PUBLIC TYPE. material::texture_indices and
+        // scenes::texture_index_by_name expose uint16_t (unchanged by this fix: widening them is a breaking
+        // interface change), and get_texture_indices() casts every textureIndex to it, so a file with more
+        // textures than a uint16_t can address would silently alias material slots onto the wrong image. Such a
+        // file is rejected here, before any material is built, instead of being mis-rendered.
+        constexpr std::size_t max_addressable_textures = static_cast<std::size_t>(std::numeric_limits<uint16_t>::max()) + 1;
+        if (asset.textures.size() > max_addressable_textures) {
+            deren::utility::error("gltf validate err [texture count]: {} textures exceed the {} a uint16_t texture index can address",
+                                  asset.textures.size(), max_addressable_textures);
+            return std::unexpected(error_code::file_type_error);
         }
 
         scenes result;
@@ -1994,6 +2239,31 @@ namespace deren::gltf {
         }
 
         return result;
+    }
+
+    std::expected<scenes, error_code> load_model(std::string_view const file_name, load_options const options) {
+        // ALLOCATION FAILURES DECODING A FILE MUST NOT ESCAPE AS EXCEPTIONS. Every individual count is bounded
+        // above (see max_accessor_bytes), but the total across buffers, textures and their mip chains still
+        // comes from the file, and the machine can still run out while serving it. Only the two allocation
+        // exceptions are translated here: any other exception (a real programming or runtime error) keeps
+        // propagating exactly as it did before, so this catch does not swallow the errors that matter.
+        //
+        // THE GUARD EXISTS BECAUSE THIS TREE ALSO BUILDS WITH -fno-exceptions (the GNU/Clang branch): there is no
+        // throw to catch there, allocation failure aborts by design, and the size caps above are the only guard
+        // that can fire. The MSVC branch builds with /EHsc, so the translation applies where it can.
+#if defined(__cpp_exceptions) || defined(_CPPUNWIND)
+        try {
+            return load_model_impl(file_name, options);
+        } catch (std::bad_alloc const&) {
+            deren::utility::error("gltf load err [allocation]: out of memory decoding '{}'", file_name);
+            return std::unexpected(error_code::file_load_failed);
+        } catch (std::length_error const&) {
+            deren::utility::error("gltf load err [allocation]: accessor size overflows the allocator in '{}'", file_name);
+            return std::unexpected(error_code::file_load_failed);
+        }
+#else
+        return load_model_impl(file_name, options);
+#endif
     }
 
     // ---- deren::gltf::scenes iteration: flatten scene -> node -> mesh -> primitive ----
@@ -2557,29 +2827,55 @@ namespace deren::gltf {
             if (it == drawable.primitive->vertex.end()) {
                 continue; // no positions: nothing to bound
             }
-            ++result.primitive_count;
+            deren::gltf::vertex_portion const& position = it->second;
+            // THE ELEMENT SIZE COMES FROM THE ACCESSOR'S COMPONENT TYPE, not from a fixed sizeof(glm::vec3):
+            // reading a quantized (s16/i8) or non-finite POSITION as raw floats is exactly how this walk used
+            // to produce a non-finite AABB for a perfectly loadable mesh.
+            std::size_t const component_bytes = deren::gltf::get_component_size(position.component);
+            if (component_bytes == 0) {
+                continue;
+            }
+            std::size_t const vertex_count = position.data.size() / (3 * component_bytes);
             glm::vec3 local_min(std::numeric_limits<float>::infinity());
             glm::vec3 local_max(-std::numeric_limits<float>::infinity());
-            std::size_t const vertex_count = it->second.data.size() / sizeof(glm::vec3);
+            std::size_t bounded = 0;
             for (std::size_t i = 0; i < vertex_count; ++i) {
-                glm::vec3 const p = reinterpret_cast<glm::vec3 const*>(it->second.data.data())[i];
-                local_min = glm::min(local_min, p);
-                local_max = glm::max(local_max, p);
+                float p[3] = {};
+                if (!read_vertex_floats(position, i, 3, true, p)) {
+                    break; // truncated payload: stop at the last whole vertex
+                }
+                if (!std::isfinite(p[0]) || !std::isfinite(p[1]) || !std::isfinite(p[2])) {
+                    continue; // an infinite/NaN vertex would poison the whole AABB
+                }
+                glm::vec3 const point(p[0], p[1], p[2]);
+                local_min = glm::min(local_min, point);
+                local_max = glm::max(local_max, point);
+                ++bounded;
             }
+            if (bounded == 0) {
+                continue; // undecodable or entirely non-finite: not a bounded primitive
+            }
+            ++result.primitive_count;
             // TRS transforms map an AABB to an AABB, so transforming the 8 corners is exact
             for (int32_t x = 0; x < 2; ++x) {
                 for (int32_t y = 0; y < 2; ++y) {
                     for (int32_t z = 0; z < 2; ++z) {
                         glm::vec3 const corner(x ? local_max.x : local_min.x, y ? local_max.y : local_min.y, z ? local_max.z : local_min.z);
                         glm::vec4 const world = drawable.transform_matrix * glm::vec4(corner, 1.0f);
-                        scene_min = glm::min(scene_min, glm::vec3(world));
-                        scene_max = glm::max(scene_max, glm::vec3(world));
+                        glm::vec3 const world_xyz(world);
+                        if (!std::isfinite(world_xyz.x) || !std::isfinite(world_xyz.y) || !std::isfinite(world_xyz.z)) {
+                            continue; // a non-finite transform must not turn a finite mesh into a NaN AABB
+                        }
+                        scene_min = glm::min(scene_min, world_xyz);
+                        scene_max = glm::max(scene_max, world_xyz);
                     }
                 }
             }
         }
-        if (result.primitive_count == 0) {
-            return result; // valid == false
+        if (result.primitive_count == 0 || !std::isfinite(scene_min.x) || !std::isfinite(scene_min.y) ||
+            !std::isfinite(scene_min.z) || !std::isfinite(scene_max.x) || !std::isfinite(scene_max.y) ||
+            !std::isfinite(scene_max.z)) {
+            return result; // valid == false: a non-finite AABB is never handed out
         }
         result.valid = true;
         result.min = scene_min;

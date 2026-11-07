@@ -17,6 +17,11 @@ export namespace deren::engine::subtilis {
                                 capacity_item,
                                 capacity_table,
                                 count };
+    /// The payload format only bounds each section by `limits::max_records` (16M records), which a
+    /// crafted payload can reach before the leaf admission budget rejects it. Every legal hierarchy's
+    /// cluster, group and reference tables stay proportional to its leaves, so import caps them at
+    /// eight times `visible_meshlet_capacity` and refuses anything larger as `capacity_item`.
+    inline constexpr uint64_t import_record_limit = 8 * uint64_t(visible_meshlet_capacity);
     struct import_input {
         std::span<uint8_t const> payload_bytes;
         uint32_t version = 1;
@@ -102,6 +107,11 @@ export namespace deren::engine::subtilis {
         auto decoded = wire::decode(bytes, limits);
         if (!decoded)
             return std::unexpected(import_failure::invalid_payload);
+        // Bound the decoded hierarchy tables from the leaf budget before structural validation and
+        // make() build their per-cluster copies: a legal payload's tables are proportional to its
+        // leaves, so a larger table is a capacity failure rather than a slow rejection.
+        if (decoded->clusters.size() > import_record_limit || decoded->groups.size() > import_record_limit || decoded->references.size() > import_record_limit)
+            return std::unexpected(import_failure::capacity_item);
         auto structure = wire::validate_structure(*decoded, limits);
         if (!structure)
             return std::unexpected(import_failure::invalid_dag);

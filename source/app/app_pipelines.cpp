@@ -496,7 +496,7 @@ namespace deren::app {
                 }
             }
             if (auto const* enabled = std::getenv("DEREN_GAUSSIAN_PROBE"); enabled != nullptr && std::string_view{enabled} == "1") {
-                auto report = deren::engine::gaussian_splatting::run_raster_probe(runtime.rhi_face(), gaussian_vertex_code, gaussian_fragment_code);
+                auto report = deren::engine::gaussian_splatting::run_raster_probe(runtime.rhi_face(), gaussian_vertex_code, gaussian_fragment_code, {}, false, runtime.device_root());
                 if (report) {
                     deren::utility::log("Gaussian raster probe: PASS {} cases / {} pixels, maximum RGB error {}", report->cases, report->pixels, report->maximum_error);
                 } else {
@@ -505,7 +505,7 @@ namespace deren::app {
             }
             if (auto const* enabled = std::getenv("DEREN_GAUSSIAN_GPU_PROBE"); enabled != nullptr && std::string_view{enabled} == "1") {
                 deren::utility::vessel::array<std::span<std::uint8_t const>, 3> const compute = {gaussian_compute_code[0], gaussian_compute_code[1], gaussian_compute_code[2]};
-                auto report = deren::engine::gaussian_splatting::run_raster_probe(runtime.rhi_face(), gaussian_vertex_code, gaussian_fragment_code, compute, true);
+                auto report = deren::engine::gaussian_splatting::run_raster_probe(runtime.rhi_face(), gaussian_vertex_code, gaussian_fragment_code, compute, true, runtime.device_root());
                 if (report) {
                     deren::utility::log("Gaussian GPU raster probe: PASS {} cases / {} pixels, maximum RGB error {}, depth max {} ULP, double-order differences {}", report->cases, report->pixels, report->maximum_error, report->maximum_depth_ulp, report->depth_order_differences);
                 } else {

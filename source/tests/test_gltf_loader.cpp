@@ -821,6 +821,172 @@ void test_standalone_motion_file() {
     CHECK(!ec);
 }
 
+// THE TWO BYTE RANGES fastgltf::validate() LEAVES UNCHECKED, pinned with files whose numbers point past the end.
+//
+// WHY THESE ARE TESTED AT ALL: neither is a decode bug. The JSON is legal, every index resolves, and fastgltf's
+// own validation accepts both files - what is wrong is only their EXTENT. The first file's second bufferView runs
+// 8 bytes past the end of a 12-byte buffer; the second file's morph target names accessor 7 of a table holding
+// one. Before the loader compared those ranges itself, the first fed span::subspan an out-of-range pair
+// (undefined behaviour, already inside get_source_bytes) and the second indexed asset.accessors past the end, so
+// these files either crashed or loaded whatever happened to sit in memory - and no assertion could tell "rejected"
+// from "read garbage". The two tests below pin the rejection and the drop respectively.
+void test_a_buffer_view_past_the_buffer_end_is_rejected() {
+    auto const result = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/source/tests/fixtures/invalid_buffer_view_range.gltf");
+    CHECK(!result.has_value());
+    if (!result.has_value()) {
+        // THE SAME CLASS AS EVERY OTHER STRUCTURAL ERROR, so a caller's "this file is malformed" branch catches a
+        // range that is past the end just as it catches an index that is: neither is a transient read failure.
+        CHECK(result.error() == deren::gltf::error_code::file_type_error);
+    }
+}
+
+// THE ACCESSOR INDEX IN A MORPH TARGET IS UNVALIDATED BY fastgltf (validate walks primitive.attributes, not
+// primitive.targets), so this file used to index asset.accessors out of bounds. The loader now drops the one
+// attribute whose index is past the end and keeps the target it belonged to: node.weights and mesh.weights are
+// indexed by target, so dropping the whole target would rotate every later weight onto the wrong delta.
+void test_a_morph_target_past_the_accessor_table_drops_its_attribute() {
+    auto const result = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/source/tests/fixtures/invalid_morph_target_accessor.gltf");
+    CHECK(result.has_value());
+    if (!result.has_value()) {
+        return;
+    }
+    deren::gltf::scenes const& scenes = *result;
+    CHECK(scenes.scene.size() == 1);
+    if (scenes.scene.size() != 1 || scenes.scene[0].nodes.size() != 1) {
+        return;
+    }
+    deren::gltf::node const& node = scenes.scene[0].nodes[0];
+    CHECK(node.meshes.size() == 1);
+    if (node.meshes.size() != 1 || node.meshes[0].primitives.size() != 1) {
+        return;
+    }
+    deren::gltf::primitive const& primitive = node.meshes[0].primitives[0];
+    CHECK(primitive.targets.size() == 1);
+    if (primitive.targets.size() != 1) {
+        return;
+    }
+    // the bad delta is gone, the target it belonged to is not
+    CHECK(primitive.targets[0].attributes.empty());
+    // ... AND THE BASE VERTEX DATA IS UNTOUCHED, which is what distinguishes "one delta dropped" from "the whole
+    // primitive failed to decode".
+    CHECK(primitive.vertex.count("POSITION") == 1);
+}
+
+// A QUANTIZED POSITION IS 6 BYTES PER VERTEX, NOT 12. The bounds walk used to divide the payload by
+// sizeof(glm::vec3) and reinterpret the bytes as float, so a legal s16-normalized POSITION (KHR_mesh_quantization)
+// decoded into NaN/denormal vertices and the whole model's AABB came out non-finite even though the mesh loads
+// and renders. The three vertices below are (-1,-1,0), (1,-1,0), (0,1,0) after the normalized conversion, so a
+// finite, exact AABB is the only passing result.
+void test_a_quantized_position_yields_a_finite_scene_bounds() {
+    auto const result = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/source/tests/fixtures/quantized_position.gltf");
+    CHECK(result.has_value());
+    if (!result.has_value()) {
+        return;
+    }
+    deren::gltf::scene_bounds const bounds = deren::gltf::compute_scene_bounds(*result);
+    CHECK(bounds.valid);
+    CHECK(bounds.primitive_count == 1);
+    if (!bounds.valid) {
+        return;
+    }
+    CHECK(std::isfinite(bounds.min.x) && std::isfinite(bounds.min.y) && std::isfinite(bounds.min.z));
+    CHECK(std::isfinite(bounds.max.x) && std::isfinite(bounds.max.y) && std::isfinite(bounds.max.z));
+    CHECK(std::abs(bounds.min.x - -1.0f) < 1e-6f);
+    CHECK(std::abs(bounds.min.y - -1.0f) < 1e-6f);
+    CHECK(std::abs(bounds.min.z) < 1e-6f);
+    CHECK(std::abs(bounds.max.x - 1.0f) < 1e-6f);
+    CHECK(std::abs(bounds.max.y - 1.0f) < 1e-6f);
+    CHECK(std::abs(bounds.max.z) < 1e-6f);
+}
+
+// A 2x2 GRAY + ALPHA PNG (color type 4). stb reports two channels, and the converter used to fall through to
+// `default`, clearing the buffer: load_model() still succeeded, so nothing upstream could tell the image had been
+// dropped - only the resolved material's albedo slot was invalid. The four (gray, alpha) pairs are distinct per
+// channel, so a conversion that fed alpha into RGB or gray into alpha cannot pass.
+void test_a_two_channel_image_converts_to_rgba() {
+    auto const result = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/source/tests/fixtures/gray_alpha_texture.gltf");
+    CHECK(result.has_value());
+    if (!result.has_value()) {
+        return;
+    }
+    deren::gltf::scenes const& scenes = *result;
+    CHECK(scenes.textures.size() == 1);
+    if (scenes.textures.size() != 1) {
+        return;
+    }
+    CHECK(scenes.textures[0].component == 2);
+    CHECK(scenes.textures[0].width == 2 && scenes.textures[0].height == 2);
+    auto const materials = deren::gltf::resolve_materials(scenes);
+    CHECK(materials.size() == 1);
+    if (materials.size() != 1) {
+        return;
+    }
+    deren::gltf::image_view const& albedo = materials[0].slots[0];
+    CHECK(albedo.valid);
+    CHECK(albedo.width == 2 && albedo.height == 2);
+    CHECK(albedo.mip_levels == 2); // 2x2 then 1x1
+    std::uint8_t const expected[] = {
+        16,
+        16,
+        16,
+        0,
+        128,
+        128,
+        128,
+        64,
+        255,
+        255,
+        255,
+        128,
+        192,
+        192,
+        192,
+        255,
+    };
+    CHECK(albedo.data.size() >= sizeof(expected));
+    if (albedo.data.size() >= sizeof(expected)) {
+        bool matches = true;
+        for (std::size_t i = 0; i < sizeof(expected); ++i) {
+            matches = matches && albedo.data[i] == expected[i];
+        }
+        CHECK(matches);
+    }
+}
+
+// count * sizeof(float[3]) is 12 GiB for this accessor: the loader used to hand that straight to a vector
+// allocation, so the failure surfaced as std::bad_alloc thrown out of load_model() (or, where size_t is 32-bit,
+// as a silently wrapped small allocation that copyFromAccessor then wrote past). The documented 256 MiB ceiling
+// rejects it at validation time and reports the same structural error as every other un-loadable file.
+void test_an_accessor_past_the_allocation_ceiling_is_rejected() {
+    auto const result = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/source/tests/fixtures/oversized_accessor.gltf");
+    CHECK(!result.has_value());
+    if (!result.has_value()) {
+        CHECK(result.error() == deren::gltf::error_code::file_type_error);
+    }
+}
+
+// sparse.count MUST be <= accessor.count (the substitution table cannot replace more elements than the accessor
+// has). fastgltf::validate() never checked it and copyFromAccessor() silently stopped at accessor.count, so a
+// sparse block larger than the accessor it patches used to load without a word.
+void test_a_sparse_count_past_the_accessor_count_is_rejected() {
+    auto const result = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/source/tests/fixtures/invalid_sparse_count.gltf");
+    CHECK(!result.has_value());
+    if (!result.has_value()) {
+        CHECK(result.error() == deren::gltf::error_code::file_type_error);
+    }
+}
+
+// fastgltf::validate() dereferences asset.bufferViews[sparse.indicesBufferView] itself, with no bounds check, so a
+// file pointing that index past the table used to crash the validator before any loader code could object. The
+// range pass now runs FIRST and rejects the file as a structural error instead.
+void test_a_sparse_buffer_view_past_the_table_is_rejected() {
+    auto const result = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/source/tests/fixtures/invalid_sparse_buffer_view.gltf");
+    CHECK(!result.has_value());
+    if (!result.has_value()) {
+        CHECK(result.error() == deren::gltf::error_code::file_type_error);
+    }
+}
+
 int32_t main() {
     test_standalone_motion_binding();
     test_standalone_motion_file();
@@ -832,6 +998,13 @@ int32_t main() {
     test_async_load_matches_sync();
     test_missing_file_reports_file_not_found();
     test_khr_lights_punctual_minimal();
+    test_a_buffer_view_past_the_buffer_end_is_rejected();
+    test_a_morph_target_past_the_accessor_table_drops_its_attribute();
+    test_a_quantized_position_yields_a_finite_scene_bounds();
+    test_a_two_channel_image_converts_to_rgba();
+    test_an_accessor_past_the_allocation_ceiling_is_rejected();
+    test_a_sparse_count_past_the_accessor_count_is_rejected();
+    test_a_sparse_buffer_view_past_the_table_is_rejected();
     test_one_skin_used_by_two_nodes();
     test_quantized_attributes();
     test_the_head_frame_matcher_rejects_lookalikes();

@@ -31,7 +31,10 @@ int main() {
     if (asset) {
         CHECK(asset->clusters().size() == 10 && asset->groups().size() == 4);
         CHECK(asset->lod0_clusters().size() == 4 && asset->lod0_index_count() == 72);
-        CHECK(asset->maximum_selected_bound() >= 4);
+        // The bound sums the group DAG bottom-up: g0 and g1 each refine to their two LOD0
+        // leaves, g2 and g3 each refine through one coarse cluster of both, and the two
+        // roots add their refined subtrees, so eight records is the true upper bound.
+        CHECK(asset->maximum_selected_bound() == 8);
         CHECK(asset->clusters()[4].consumer == 2 && asset->clusters()[5].consumer == 3);
         clusters[0].record.radius = 8;
         CHECK(asset->clusters()[0].record.radius == 2);
@@ -137,5 +140,30 @@ int main() {
     }
     auto large = sub::dag_asset::make(many, {}, {}, ids, ids, 4097 * 3, 4097 * 3);
     CHECK(large && large->lod0_clusters().size() == 4097 && large->maximum_selected_bound() == 4097);
+    // A producer shared by several fine clusters is counted once per dependency, so the
+    // bound follows the DAG instead of the LOD0 table size: g0 refines to three clusters,
+    // g1 refines through one coarse cluster of g0 twice, and its single root carries six
+    // records over the three LOD0 leaves of this hierarchy.
+    std::array<sub::dag_cluster, 6> tiered{};
+    for (uint32_t i = 0; i < 6; ++i) {
+        auto& c = tiered[i];
+        c.record.first_index = i * 3;
+        c.record.index_count = 3;
+        c.record.center_x = 1;
+        c.record.center_y = 1;
+        c.record.radius = 2;
+        c.producer = i < 3 ? sub::dag_none : i < 5 ? 0
+                                                   : 1;
+        c.consumer = i < 3 ? 0 : i < 5 ? 1
+                                       : sub::dag_none;
+    }
+    std::array<sub::dag_group, 2> tiers{{{{0, 3}, {3, 2}, {1, 1, 0, 4}, .1f}, {{5, 2}, {7, 1}, {1, 1, 0, 4}, .2f}}};
+    std::array<uint32_t, 8> layers{0, 1, 2, 3, 4, 3, 4, 5};
+    std::array<uint32_t, 3> lowered{0, 1, 2};
+    std::array<uint32_t, 1> summit{5};
+    auto tiered_asset = sub::dag_asset::make(tiered, tiers, layers, lowered, summit, 9, 18);
+    CHECK(tiered_asset);
+    if (tiered_asset)
+        CHECK(tiered_asset->maximum_selected_bound() == 6);
     return deren::vk_test::finish("subtilis_dag_asset");
 }

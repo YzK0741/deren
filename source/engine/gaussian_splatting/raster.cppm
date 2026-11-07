@@ -2,6 +2,7 @@ module;
 #include <cstddef>
 #include <cstdint>
 #include <glm/glm.hpp>
+#include <memory>
 export module deren.engine.gaussian_splatting.raster;
 export import deren.vstd;
 export import deren.utility.shared;
@@ -73,7 +74,7 @@ export namespace deren::engine::gaussian_splatting {
         std::shared_ptr<gpu_asset const> gpu_owner;
         deren::utility::vessel::vector<geometry_record> geometry;
     };
-    class raster_frame {
+    class raster_frame : public std::enable_shared_from_this<raster_frame> {
     public:
         raster_frame(raster_frame const&) = delete ("raster_frame is non-copyable: construct it in place and keep its identity");
         raster_frame& operator=(raster_frame const&) = delete ("raster_frame is non-copyable: configure it through its owning API");
@@ -125,9 +126,9 @@ export namespace deren::engine::gaussian_splatting {
     };
     // NOLINTNEXTLINE(readability-trailing-comma): Clang 23 mislocates commas around empty module default arguments.
     [[nodiscard]] std::expected<std::shared_ptr<raster_asset const>, foundation_error> make_raster_asset(deren::promise::rhi::api_core&, deren::gaussian::asset, foundation_limits const& = {}, deren::promise::rhi::shared_object<deren::promise::rhi::api_core> = {});
-    /// @param reuse an optional frame to REFILL (the caller keeps it alive; the returned pointer is a non-owning
-    ///        view of it when it is given), which is how a steady-state frame allocates nothing. @see raster_frame's
-    ///        retained buffer capacities and the plan's Task 8.
+    /// @param reuse an optional frame to REFILL (the caller may keep it alive; the returned handle owns the frame
+    ///        when it is given, exactly like a freshly prepared one), which is how a steady-state frame allocates
+    ///        nothing. @see raster_frame's retained buffer capacities and the plan's Task 8.
     /// A reference-only caller retains the core. Production supplies an owning lease initially;
     /// an allocated legacy frame cannot gain an owning lease by reuse. Reuse must be a completed slot.
     // NOLINTNEXTLINE(readability-trailing-comma): Clang 23 mislocates commas around empty module default arguments.
