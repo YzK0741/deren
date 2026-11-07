@@ -6,6 +6,7 @@
 
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -226,6 +227,22 @@ namespace {
             CHECK(std::isfinite(strength));
             CHECK(strength == expected);
             std::filesystem::remove("rt-reflection-strength.toml");
+        }
+    }
+
+    void test_rt_reflection_samples_parses_rounds_and_clamps() {
+        // The key is an integer count but TOML authors write it as 2.0 as often as 2. Accept both, round to
+        // the nearest ray, and clamp to the shader's 1..4 loop bound. A non-finite float keeps the default.
+        for (auto const [value, expected] : {std::pair<std::string_view, std::uint32_t>{"2", 2u},
+                                             {"2.0", 2u},
+                                             {"2.6", 3u},
+                                             {"9", 4u},
+                                             {"0", 1u},
+                                             {"nan", 1u}}) {
+            std::ofstream("rt-reflection-samples.toml") << "[render]\nrt_reflection_samples=" << value << '\n';
+            auto const samples = deren::app_config::load_settings("rt-reflection-samples.toml").render.rt_reflection_samples;
+            CHECK(samples == expected);
+            std::filesystem::remove("rt-reflection-samples.toml");
         }
     }
 
@@ -727,6 +744,7 @@ int32_t main() {
     test_load_settings_applies_toml();
     test_example_config_matches_documentation();
     test_rt_reflection_whitelist_parses_and_clamps();
+    test_rt_reflection_samples_parses_rounds_and_clamps();
     test_software_raster_threshold_rejects_nonpositive_and_nonfinite();
     test_load_settings_missing_file_keeps_defaults();
     test_lighting_sizes_are_clamped();
