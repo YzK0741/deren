@@ -1,4 +1,3 @@
-#include "../backends/vulkan/core/lazy_loading.h"
 #include "vk_test.h"
 
 #include <array>
@@ -13,6 +12,7 @@
 #include <vector>
 #include <vulkan/vulkan.h>
 import deren.utility.shared;
+import deren.vulkan.core_support;
 import deren.promise.rhi;
 import deren.engine.backend_loader;
 import deren.vulkan.main_context;
@@ -152,7 +152,7 @@ int main(int argc, char** argv) {
             rhi::buffer_barrier barrier{.resource = value->get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::shader_read};
             CHECK(retained->barrier({.buffers = std::span(&barrier, 1)}) == rhi::error::ok);
             CHECK(retained->end_recording() == rhi::error::ok);
-            auto& context = static_cast<deren::vulkan::main_context&>(*core->main_context());
+            auto& context = static_cast<deren::vulkan::main_context_view&>(*core->main_context());
             queue_gate gate(context.device, context.graphics_queue);
             auto token = completion->submit(*retained);
             CHECK(token);
@@ -540,7 +540,7 @@ int main(int argc, char** argv) {
     // Raw native interop deliberately overwrites the index. finish_native must restore the copied
     // logical push/group state before the next RHI consumer, including across a compatible pipeline switch.
     auto& interop = static_cast<deren::vulkan::command_buffer&>(*commands);
-    auto const& context = static_cast<deren::vulkan::main_context const&>(*core->main_context());
+    auto const& context = static_cast<deren::vulkan::main_context_view const&>(*core->main_context());
     auto native_push = reinterpret_cast<PFN_vkCmdPushDataEXT>(vkGetDeviceProcAddr(context.device, "vkCmdPushDataEXT"));
     CHECK(native_push != nullptr);
     CHECK(interop.prepare_native() == rhi::error::ok);
@@ -573,7 +573,7 @@ int main(int argc, char** argv) {
     sampler.reset();
     texture_group.reset();
     CHECK(!observer.expired() && !input_observer.expired());
-    auto& native = static_cast<deren::vulkan::main_context&>(*core->main_context());
+    auto& native = static_cast<deren::vulkan::main_context_view&>(*core->main_context());
     queue_gate gate(native.device, native.graphics_queue);
     auto token = completion->submit(*commands);
     CHECK(token);

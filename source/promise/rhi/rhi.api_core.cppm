@@ -205,7 +205,7 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual extension* query_extension(extension_kind kind) noexcept = 0;
         virtual void wait_idle() = 0;
         [[nodiscard]] virtual std::uint32_t api_version() const noexcept = 0;
-        [[nodiscard]] virtual main_context* main_context() noexcept {
+        [[nodiscard]] virtual main_context_view* main_context() noexcept {
             return nullptr;
         }
 

@@ -83,12 +83,12 @@ namespace {
     namespace rhi = deren::promise::rhi;
 
     /// abi 40: the backend's native handles, through the same cast the GUI plugin uses.
-    [[nodiscard]] deren::vulkan::main_context const* vulkan_main(rhi::api_core& core) noexcept {
-        rhi::main_context* const context = core.main_context();
+    [[nodiscard]] deren::vulkan::main_context_view const* vulkan_main(rhi::api_core& core) noexcept {
+        rhi::main_context_view* const context = core.main_context();
         if (context == nullptr || !deren::vulkan::is_main_context(*context)) {
             return nullptr;
         }
-        return rhi::do_concrete<deren::vulkan::main_context>(*context, deren::vulkan::main_context_name);
+        return rhi::do_concrete<deren::vulkan::main_context_view>(*context, deren::vulkan::main_context_name);
     }
 
     /// A MARK ON STDERR, UNBUFFERED AND FLUSHED, so a hang can be located.

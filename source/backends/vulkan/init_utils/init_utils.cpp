@@ -23,11 +23,11 @@ namespace deren::vulkan::init_utils {
                             VkBufferUsageFlags const extra_usage) {
         // The raw pointer overload, not the span template: the template wants a non-const span (it
         // reinterpret_casts the data to `uint8_t*`), and every caller here has const bytes.
-        buffer = device.vma.create_buffer(reinterpret_cast<uint8_t const*>(initial.data()), initial.size_bytes(), type, extra_usage);
+        buffer = device.device.vma.create_buffer(reinterpret_cast<uint8_t const*>(initial.data()), initial.size_bytes(), type, extra_usage);
         if (!buffer.valid()) {
             deren::utility::panic(std::source_location::current(), "failed to create {}", what);
         }
-        auto const* detail = device.vma.get_buffer_detail(buffer.handle());
+        auto const* detail = device.device.vma.get_buffer_detail(buffer.handle());
         if (detail == nullptr) {
             deren::utility::panic(std::source_location::current(), "failed to get {} detail", what);
         }
@@ -64,11 +64,11 @@ namespace deren::vulkan::init_utils {
         texture_2d texture = {};
         // the SPAN overload: it takes span<T const> and does the byte cast itself, which also means this
         // call site is the one that keeps that overload instantiated (see its comment in vma.cppm)
-        texture.image = device.vma.create_image(pixels, info, image_type::texture_2d);
+        texture.image = device.device.vma.create_image(pixels, info, image_type::texture_2d);
         if (!texture.image.valid()) {
             deren::utility::panic(std::source_location::current(), "failed to create {}", what);
         }
-        auto const* detail = device.vma.get_image_detail(texture.image.handle());
+        auto const* detail = device.device.vma.get_image_detail(texture.image.handle());
         if (detail == nullptr) {
             deren::utility::panic(std::source_location::current(), "failed to get {} detail", what);
         }

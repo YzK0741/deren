@@ -29,15 +29,15 @@ namespace deren::vulkan {
             rhi::radix_sort_requirements requirements(std::uint32_t count) const noexcept override {
                 // Upstream RoundUp adds PARTITION_SIZE - 1 in uint32. Validate before entering it.
                 std::uint64_t const partitions = (static_cast<std::uint64_t>(count) + 4095u) / 4096u;
-                if (count > UINT32_MAX - 4095u || partitions > owner_->device_properties.limits.maxComputeWorkGroupCount[0]) {
+                if (count > UINT32_MAX - 4095u || partitions > owner_->device.device_properties.limits.maxComputeWorkGroupCount[0]) {
                     return {};
                 }
                 VrdxSorterStorageRequirements req{};
                 vrdxGetSorterStorageRequirements(native_, count, VRDX_SORT_MODE_KEY_VALUE, &req);
-                if (req.size > owner_->device_properties.limits.maxStorageBufferRange) {
+                if (req.size > owner_->device.device_properties.limits.maxStorageBufferRange) {
                     return {};
                 }
-                return {.scratch_bytes = req.size, .buffer_alignment = std::max<std::uint64_t>(4u, owner_->device_properties.limits.minStorageBufferOffsetAlignment), .scratch_flags = rhi::to_bits(rhi::buffer_flag::storage) | rhi::to_bits(rhi::buffer_flag::transfer_destination)};
+                return {.scratch_bytes = req.size, .buffer_alignment = std::max<std::uint64_t>(4u, owner_->device.device_properties.limits.minStorageBufferOffsetAlignment), .scratch_flags = rhi::to_bits(rhi::buffer_flag::storage) | rhi::to_bits(rhi::buffer_flag::transfer_destination)};
             }
             rhi::error record(rhi::command_recorder& commands, rhi::radix_sort_info const& info) override {
                 rhi::error resolved{};
@@ -61,7 +61,7 @@ namespace deren::vulkan {
                     }
                     auto* owned = static_cast<core::owned_buffer*>(buffer);
                     if (owned->owner != owner_ || offset % req.buffer_alignment != 0u || offset > owned->size_bytes || bytes > owned->size_bytes - offset ||
-                        (owned->declared_flags & flags) != flags || bytes > owner_->device_properties.limits.maxStorageBufferRange) {
+                        (owned->declared_flags & flags) != flags || bytes > owner_->device.device_properties.limits.maxStorageBufferRange) {
                         return nullptr;
                     }
                     return owned;
@@ -115,8 +115,8 @@ namespace deren::vulkan {
                 vkCmdPipelineBarrier2(list->native(), &dependency);
                 // VRDX uses traditional push descriptors, which invalidate descriptor-heap bindings.
                 // Restore this device's heaps for subsequent native heap pipelines (including post-processing).
-                if (owner_->descriptor_heaps.ready()) {
-                    owner_->descriptor_heaps.record_bind(list->native());
+                if (owner_->resource.descriptor_heaps.ready()) {
+                    owner_->resource.descriptor_heaps.record_bind(list->native());
                 }
                 list->finish_native();
                 return rhi::error::ok;
@@ -128,11 +128,11 @@ namespace deren::vulkan {
         };
     } // namespace
     rhi::radix_sorter* core::frame_gpu_sorting::create_radix_sorter() {
-        if (!owner || !owner->gpu_sorting_available) {
+        if (!owner || !owner->resource.gpu_sorting_available) {
             return nullptr;
         }
         VrdxSorter native = VK_NULL_HANDLE;
-        VrdxSorterCreateInfo info{.physicalDevice = owner->physical_device, .device = owner->logical_device, .pipelineCache = VK_NULL_HANDLE};
+        VrdxSorterCreateInfo info{.physicalDevice = owner->device.physical_device, .device = owner->device.logical_device, .pipelineCache = VK_NULL_HANDLE};
         if (vrdxCreateSorter(&info, &native) != VK_SUCCESS || native == VK_NULL_HANDLE) {
             return nullptr;
         }

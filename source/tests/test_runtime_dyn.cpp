@@ -253,7 +253,7 @@ int main(int const argc, char** const argv) {
 
         {
 
-            rhi::main_context* const main = dynamic.rhi_face().main_context();
+            rhi::main_context_view* const main = dynamic.rhi_face().main_context();
 
             CHECK(main != nullptr);
 

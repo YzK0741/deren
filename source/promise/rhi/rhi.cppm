@@ -64,7 +64,7 @@ export import :api_core;
  *
  * | part | what it is |
  * | --- | --- |
- * | `source/promise/rhi/rhi.contract.cppm` + `contract/` | the nBI number, the `error` enum every entry point reports through, the RHI ownership containers (`unique_object` / `shared_object`), `main_context`, and the structure-chain header |
+ * | `source/promise/rhi/rhi.contract.cppm` + `contract/` | the nBI number, the `error` enum every entry point reports through, the RHI ownership containers (`unique_object` / `shared_object`), `main_context_view`, and the structure-chain header |
  * | `source/promise/rhi/rhi.core_desc.cppm` | how the program asks for a context: the structure `deren_make_api_core()` takes |
  * | `source/promise/rhi/rhi.extension.cppm` | tier-2: the abilities a backend may or may not have |
  * | `source/promise/rhi/rhi.api_core.cppm` + `resource/`, `pipeline/`, `recording/`, `frame/`, `core/` | tier-1: the context, resources, pipeline/command vocabulary, frame calls, and resource factory, grouped by domain |

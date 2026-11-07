@@ -55,14 +55,14 @@ namespace deren::vulkan {
     rhi::error core::check_completion(rhi::submission_token token, bool wait, std::uint64_t timeout_ns) noexcept {
         VkSemaphore timeline;
         {
-            std::lock_guard lock(submissions_mutex);
-            if (token.device_id != completion_device_id || token.sequence == 0 || token.sequence > completion_sequence) {
+            std::lock_guard lock(command.submissions_mutex);
+            if (token.device_id != command.completion_device_id || token.sequence == 0 || token.sequence > command.completion_sequence) {
                 return rhi::error::invalid_argument;
             }
-            if (completion_failure != rhi::error::ok) {
-                return completion_failure;
+            if (command.completion_failure != rhi::error::ok) {
+                return command.completion_failure;
             }
-            timeline = completion_timeline;
+            timeline = command.completion_timeline;
         }
         // The core owns this semaphore until teardown; callers keep the core alive.
         // Never block while holding queue/submission locks: another host thread can submit or signal.
@@ -74,10 +74,10 @@ namespace deren::vulkan {
                                      .semaphoreCount = 1,
                                      .pSemaphores = &timeline,
                                      .pValues = &token.sequence};
-            status = vkWaitSemaphores(logical_device, &info, timeout_ns);
+            status = vkWaitSemaphores(this->device.logical_device, &info, timeout_ns);
         } else {
             std::uint64_t reached = 0;
-            status = vkGetSemaphoreCounterValue(logical_device, timeline, &reached);
+            status = vkGetSemaphoreCounterValue(this->device.logical_device, timeline, &reached);
             if (status == VK_SUCCESS && reached < token.sequence) {
                 return rhi::error::not_ready;
             }
@@ -90,9 +90,9 @@ namespace deren::vulkan {
             return rhi::error::timeout;
         }
         if (status == VK_ERROR_DEVICE_LOST) {
-            std::lock_guard lock(submissions_mutex);
-            completion_failure = rhi::error::device_lost;
-            return completion_failure;
+            std::lock_guard lock(command.submissions_mutex);
+            command.completion_failure = rhi::error::device_lost;
+            return command.completion_failure;
         }
         if (status == VK_ERROR_OUT_OF_HOST_MEMORY) {
             return rhi::error::out_of_host_memory;
@@ -113,28 +113,28 @@ namespace deren::vulkan {
             primary->pending.fetch_sub(1, std::memory_order_acq_rel);
         }
         if (fence != VK_NULL_HANDLE) {
-            vkDestroyFence(owner->logical_device, fence, nullptr);
+            vkDestroyFence(owner->device.logical_device, fence, nullptr);
         }
     }
 
     void core::poll_submissions(bool all) const noexcept {
         deren::utility::vessel::vector<std::unique_ptr<pending_submission>> completed;
         {
-            std::lock_guard lock(submissions_mutex);
-            for (auto i = pending_submissions.begin(); i != pending_submissions.end();) {
+            std::lock_guard lock(command.submissions_mutex);
+            for (auto i = command.pending_submissions.begin(); i != command.pending_submissions.end();) {
                 auto const& submission = **i;
                 bool done = all;
                 if (!done && submission.fence != VK_NULL_HANDLE) {
-                    done = vkGetFenceStatus(logical_device, submission.fence) == VK_SUCCESS;
+                    done = vkGetFenceStatus(this->device.logical_device, submission.fence) == VK_SUCCESS;
                 }
                 if (!done && submission.timeline != VK_NULL_HANDLE) {
                     std::uint64_t reached = 0;
-                    done = vkGetSemaphoreCounterValue(logical_device, submission.timeline, &reached) == VK_SUCCESS &&
+                    done = vkGetSemaphoreCounterValue(this->device.logical_device, submission.timeline, &reached) == VK_SUCCESS &&
                            reached >= submission.value;
                 }
                 if (done) {
                     completed.push_back(std::move(*i));
-                    i = pending_submissions.erase(i);
+                    i = command.pending_submissions.erase(i);
                 } else {
                     ++i;
                 }

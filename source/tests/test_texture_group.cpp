@@ -22,12 +22,12 @@ namespace {
     /// abi 40: a TEST gets a native device/queue the same way the GUI plugin does - the contract's opaque
     /// `main_context` cast to the Vulkan layout the backend and GUI plugin share. nullptr when the context is
     /// absent or is not this backend's (the tests below use a real backend, so it never is).
-    [[nodiscard]] deren::vulkan::main_context const* vulkan_main(rhi::api_core& core) noexcept {
-        rhi::main_context* const context = core.main_context();
+    [[nodiscard]] deren::vulkan::main_context_view const* vulkan_main(rhi::api_core& core) noexcept {
+        rhi::main_context_view* const context = core.main_context();
         if (context == nullptr || !deren::vulkan::is_main_context(*context)) {
             return nullptr;
         }
-        return rhi::do_concrete<deren::vulkan::main_context>(*context, deren::vulkan::main_context_name);
+        return rhi::do_concrete<deren::vulkan::main_context_view>(*context, deren::vulkan::main_context_name);
     }
 } // namespace
 
@@ -83,7 +83,7 @@ struct queue_gate {
     }
 };
 
-void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context const& main_context) {
+void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context_view const& main_context) {
     std::ifstream input(VR_TEXTURE_GROUP_SHADER_PATH, std::ios::binary | std::ios::ate);
     CHECK(input.good());
     if (!input.good())
@@ -434,7 +434,7 @@ int main(int argc, char** argv) {
     CHECK(core);
     if (!core)
         return deren::vk_test::finish("test_texture_group");
-    deren::vulkan::main_context const* const main_context = vulkan_main(*core);
+    deren::vulkan::main_context_view const* const main_context = vulkan_main(*core);
     CHECK(main_context != nullptr);
     if (main_context == nullptr)
         return deren::vk_test::finish("test_texture_group");

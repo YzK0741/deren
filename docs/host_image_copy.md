@@ -27,7 +27,7 @@ extension, without its `hostImageCopy` feature, whose entry points do not resolv
 more `VkImageToMemoryCopyEXT` regions, each with a host pointer, a subresource and an extent. The implementation
 performs the copy; the app records nothing, submits nothing and owns no staging memory. It is an EXTENSION command,
 so it is resolved with `vkGetDeviceProcAddr` and cached on `core` (`copy_image_to_memory`), the same way the mesh
-dispatch commands are (`source/backends/vulkan/core/core.declarations.cppm`, `source/backends/vulkan/core/core.constructor.cppm`).
+dispatch commands are (`source/backends/vulkan/core/declarations/core.declarations.cppm`, `source/backends/vulkan/core/core.constructor.cppm`).
 
 Two things it does NOT remove:
 

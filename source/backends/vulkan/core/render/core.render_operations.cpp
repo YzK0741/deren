@@ -1,11 +1,10 @@
 module;
-#include "push_range_validation.h"
-
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <vulkan/vulkan.h>
 module deren.vulkan.core;
+import deren.vulkan.core_support;
 import deren.vstd;
 import deren.promise.rhi;
 import deren.promise.render_operations;
@@ -99,13 +98,13 @@ namespace deren::vulkan {
         auto fail = [&](rhi::error error) noexcept { recording_error = error; executable = false; return error; };
 
         auto valid_pipeline = [&](owned_pipeline const* pipeline, std::uint64_t identity) {
-            std::lock_guard lock(owner->contract_pipelines_mutex);
-            return pipeline && owner->contract_pipelines.contains(pipeline) && pipeline->identity == identity;
+            std::lock_guard lock(owner->resource.contract_pipelines_mutex);
+            return pipeline && owner->resource.contract_pipelines.contains(pipeline) && pipeline->identity == identity;
         };
         auto valid_buffer = [&](rec::words const& data) {
             auto* buffer = reinterpret_cast<owned_buffer const*>(data[0]);
-            std::lock_guard lock(owner->contract_buffers_mutex);
-            return buffer && owner->contract_buffers.contains(buffer) && buffer->identity == data[1];
+            std::lock_guard lock(owner->resource.contract_buffers_mutex);
+            return buffer && owner->resource.contract_buffers.contains(buffer) && buffer->identity == data[1];
         };
         auto compatible_resources = [](owned_pipeline const* pipeline, rhi::resource_group_ref const& resources) {
             if (!resources || !pipeline)
@@ -217,14 +216,14 @@ namespace deren::vulkan {
         auto const command = native();
         auto push = [&](std::uint32_t offset, std::span<std::byte const> bytes) {
             ++owner->emitted_setters;
-            return owner->descriptor_heaps.push_data(command, offset, bytes);
+            return owner->resource.descriptor_heaps.push_data(command, offset, bytes);
         };
         auto publish_groups = [&]() {
             if (!emitted_pipeline)
                 return true;
             if (!emitted_pipeline->resource_layout.empty() && current_resources && compatible_resources(emitted_pipeline, current_resources)) {
                 auto const& group = *static_cast<owned_resource_group const*>(current_resources.get());
-                owner->descriptor_heaps.record_bind(command);
+                owner->resource.descriptor_heaps.record_bind(command);
                 ++owner->emitted_setters;
                 for (std::size_t i = 0; i < emitted_pipeline->resource_layout.size(); ++i)
                     if (!push(emitted_pipeline->resource_layout[i].push_byte_offset, std::as_bytes(std::span(&group.values[i], 1))))
@@ -235,13 +234,13 @@ namespace deren::vulkan {
             if (emitted_pipeline->group_binding.enabled) {
                 std::uint32_t token = 0;
                 if (current_textures) {
-                    std::lock_guard lock(owner->texture_groups.mutex);
-                    auto found = owner->texture_groups.tokens_by_group.find(current_textures.get());
-                    if (found == owner->texture_groups.tokens_by_group.end())
+                    std::lock_guard lock(owner->resource.texture_groups.mutex);
+                    auto found = owner->resource.texture_groups.tokens_by_group.find(current_textures.get());
+                    if (found == owner->resource.texture_groups.tokens_by_group.end())
                         return false;
                     token = found->second;
                 }
-                owner->descriptor_heaps.record_bind(command);
+                owner->resource.descriptor_heaps.record_bind(command);
                 ++owner->emitted_setters;
                 if (!push(emitted_pipeline->group_binding.push_byte_offset, std::as_bytes(std::span(&token, 1))))
                     return false;
@@ -275,7 +274,7 @@ namespace deren::vulkan {
                     ++owner->emitted_setters;
                 }
                 if (!emitted_pipeline->resource_layout.empty()) {
-                    owner->descriptor_heaps.record_bind(command);
+                    owner->resource.descriptor_heaps.record_bind(command);
                     ++owner->emitted_setters;
                     std::uint32_t zero = 0;
                     for (auto const& binding : emitted_pipeline->resource_layout)
@@ -358,12 +357,12 @@ namespace deren::vulkan {
                 ++owner->emitted_work;
                 break;
             case kind::mesh:
-                owner->mesh_dispatch(command, d[0], d[1], d[2]);
+                owner->device.mesh_dispatch(command, d[0], d[1], d[2]);
                 ++owner->emitted_work;
                 break;
             case kind::trace: {
                 VkStridedDeviceAddressRegionKHR raygen{d[0], d[1], d[2]}, miss{d[3], d[4], d[5]}, hit{d[6], d[7], d[8]}, callable{d[9], d[10], d[11]};
-                owner->ray_trace_launch(command, &raygen, &miss, &hit, &callable, d[12], d[13], d[14]);
+                owner->device.ray_trace_launch(command, &raygen, &miss, &hit, &callable, d[12], d[13], d[14]);
                 ++owner->emitted_work;
                 break;
             }
@@ -378,7 +377,7 @@ namespace deren::vulkan {
                 ++owner->emitted_work;
                 break;
             case kind::mesh_indirect:
-                owner->mesh_dispatch_indirect(command, reinterpret_cast<owned_buffer const*>(d[0])->native, d[2], d[3], d[4]);
+                owner->device.mesh_dispatch_indirect(command, reinterpret_cast<owned_buffer const*>(d[0])->native, d[2], d[3], d[4]);
                 ++owner->emitted_work;
                 break;
             case kind::count:

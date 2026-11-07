@@ -607,7 +607,7 @@ namespace {
 
         // and removing virtuals from a tier-2 interface is the vtable-shift case the number exists for.
 
-        // ABI39 introduces the MAIN-THREAD CONTEXT: `rhi::main_context` is a new OPAQUE handle type (it carries
+        // ABI39 introduces the MAIN-THREAD CONTEXT: `rhi::main_context_view` is a new OPAQUE handle type (it carries
 
         // only the concrete-identity tag) and `api_core` APPENDS `main_context()` - a vtable append on an
 

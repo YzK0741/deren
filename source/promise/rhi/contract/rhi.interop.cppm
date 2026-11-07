@@ -21,15 +21,15 @@ export namespace deren::promise::rhi {
     /// IT IS OPAQUE HERE ON PURPOSE. The contract carries only the concrete-identity tag (`object::get_tag()`),
     /// no native vocabulary and no handle members: an API-specific consumer checks the tag with
     /// `is_concrete()` and casts the handle to the concrete layout ITS API's backend and plugin share (for
-    /// Vulkan: `deren::vulkan::main_context` in `denen.vulkan.main_context`, versioned with that
+    /// Vulkan: `deren::vulkan::main_context_view` in `deren.vulkan.main_context`, versioned with that
     /// backend/plugin pair rather than with this contract). A contract that named the layout would put the
     /// native vocabulary right back.
     ///
     /// OWNERSHIP: the `api_core` owns it; `api_core::main_context()` answers a BORROWED pointer valid for
     /// the context's lifetime. There is no `release()` and no reference to keep - the caller must never
     /// delete it.
-    struct main_context : object {
-        main_context() noexcept = default;
+    struct main_context_view : object {
+        main_context_view() noexcept = default;
     };
 
 } // namespace deren::promise::rhi

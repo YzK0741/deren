@@ -2,7 +2,7 @@
 // ============================================================================
 // module: deren.vulkan.main_context
 //
-// THE CONCRETE LAYOUT BEHIND `rhi::main_context` FOR THIS BACKEND (abi 39).
+// THE CONCRETE LAYOUT BEHIND `rhi::main_context_view` FOR THIS BACKEND (abi 39).
 //
 // The contract's handle is opaque on purpose, so the layout it names has to live somewhere BOTH halves
 // that touch it compile: `deren_vulkan.dll` creates and fills it, `deren_gui_vulkan.dll` casts it back.
@@ -31,7 +31,7 @@ export import deren.promise.rhi;
 
 /**
  * @file source/backends/vulkan/main_context/main_context.cppm
- * @brief the concrete Vulkan layout of the contract's opaque `rhi::main_context` (abi 39)
+ * @brief the concrete Vulkan layout of the contract's opaque `rhi::main_context_view` (abi 39)
  * @ingroup promise
  */
 
@@ -42,7 +42,7 @@ export namespace deren::vulkan {
 
     /// THE MAIN-THREAD CONTEXT, as this backend hands it out: everything the GUI plugin's Vulkan init needs,
     /// plus the RHI core the overlay keeps for the API-version handshake.
-    struct main_context final : deren::promise::rhi::main_context {
+    struct main_context_view final : deren::promise::rhi::main_context_view {
         static constexpr std::string_view tag = main_context_name;
         [[nodiscard]] std::string_view get_tag() const noexcept override {
             return tag;
@@ -50,7 +50,7 @@ export namespace deren::vulkan {
         /// The backend owns this borrowed context; the object contract's release is a no-op.
         void release() noexcept override {
         }
-        main_context() noexcept = default;
+        main_context_view() noexcept = default;
 
         /// borrowed: the backend owns the RHI root and the overlay must keep it alive (it does - the host
         /// owns both for the session, and the overlay is released before the runtime)
@@ -66,7 +66,7 @@ export namespace deren::vulkan {
     };
 
     /// @brief whether @p context is THIS backend's main context (the contract's provenance question)
-    [[nodiscard]] inline bool is_main_context(deren::promise::rhi::main_context const& context) noexcept {
+    [[nodiscard]] inline bool is_main_context(deren::promise::rhi::main_context_view const& context) noexcept {
         return deren::promise::rhi::is_concrete(context, main_context_name);
     }
 

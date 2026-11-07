@@ -1,4 +1,3 @@
-#include "../backends/vulkan/core/push_range_validation.h"
 #include "../utility/shared/memory_test_hooks.hpp"
 #include "vk_test.h"
 
@@ -8,6 +7,7 @@
 #include <vector>
 import deren.promise.render_operations;
 import deren.utility.shared;
+import deren.vulkan.core_support;
 namespace rec = deren::promise::rhi::recording;
 
 int main() {

@@ -440,7 +440,7 @@ target_sources(vulkan_constant_init PUBLIC FILE_SET CXX_MODULES FILES
 target_link_libraries(vulkan_constant_init PUBLIC Vulkan::Vulkan)
 
 # THE VULKAN MAIN-THREAD CONTEXT (abi 39): the concrete layout behind the contract's opaque
-# `rhi::main_context`, compiled by BOTH halves that touch it - `deren_vulkan` (creates and fills it) and
+# `rhi::main_context_view`, compiled by BOTH halves that touch it - `deren_vulkan` (creates and fills it) and
 # `deren_gui_vulkan` (casts it back). A STATIC library carrying the interface unit, for the same reason
 # `vulkan_constant_init` and `renderer_layout` are: the backend DLL exports exactly one name, so a module
 # attachment cannot be served from it, and both images compile the same unit instead.
@@ -486,11 +486,32 @@ target_sources(vulkan_error_tables
         FILES
         # The translators AND the diagnostic builder, as a module: VkResult -> contract error, once
         # per call-site family.
-        source/backends/vulkan/core/error_tables.cppm
+        source/backends/vulkan/core/support/error_tables.cppm
 )
 # The contract's module is the dependency of the interface unit itself (it re-exports it, so an
 # importer needs no second import just to name an `error`).
 target_link_libraries(vulkan_error_tables PUBLIC promise Vulkan::Vulkan)
+
+# ============================================================================================
+# vulkan_core_support - the backend-detail templates that are tested in isolation.
+#
+# `lazy_loading` and `merge_push_range` are tiny header-sized utilities, but they are part of the
+# module surface now: `lazy_loading` appears in exported core class layouts and `merge_push_range`
+# is used by the recording implementation. Keeping them as core partitions made their unit tests
+# import the backend module (and therefore link the DLL); a standalone module keeps the same
+# definitions without that dependency. The backend re-exports this module, so core importers still
+# see `detail::lazy_loading` through `deren.vulkan.core`.
+# ============================================================================================
+add_library(vulkan_core_support STATIC)
+target_sources(vulkan_core_support
+    PUBLIC
+        FILE_SET CXX_MODULES
+        FILES
+        source/backends/vulkan/core/support/core_support.cppm
+        source/backends/vulkan/core/support/lazy_loading.cppm
+        source/backends/vulkan/core/support/push_range_validation.cppm
+)
+target_link_libraries(vulkan_core_support PUBLIC vstd_lib)
 
 add_library(deren_vulkan SHARED)
 add_library(deren::vulkan ALIAS deren_vulkan)
@@ -527,7 +548,7 @@ target_sources(deren_vulkan
         FILE_SET CXX_MODULES
         FILES
         source/backends/vulkan/core/core.cppm
-        source/backends/vulkan/core/core.declarations.cppm
+        source/backends/vulkan/core/declarations/core.declarations.cppm
         source/backends/vulkan/core/core.constructor.cppm
         source/backends/vulkan/core/vma/vma.cppm
         source/backends/vulkan/core/descriptor_heap/descriptor_heap.cppm
@@ -544,17 +565,20 @@ target_sources(deren_vulkan
         source/backends/vulkan/core/core.cpp
         # The RHI contract's virtuals for this backend (plan §11.4, S1-C): `core` derives from
         # `deren::promise::rhi::api_core`, so this is where abilities() and the frame calls live.
-        source/backends/vulkan/core/core.lazy_resources.cpp
-        source/backends/vulkan/core/core.render_operations.cpp
+        source/backends/vulkan/core/resource/core.lazy_resources.cpp
+        source/backends/vulkan/core/render/core.render_operations.cpp
         source/backends/vulkan/core/core.api_core.cpp
-        source/backends/vulkan/core/core.scoped_synchronization.cpp
-        source/backends/vulkan/core/core.frame_resources.cpp
-        source/backends/vulkan/core/core.frame_checkpoint.cpp
-        source/backends/vulkan/core/radix_sort.cpp
-        source/backends/vulkan/core/core.resource_groups.cpp
-        source/backends/vulkan/core/core.texture_groups.cpp
-        source/backends/vulkan/core/core.descriptor_space.cpp
-        source/backends/vulkan/core/core.submission_lifetimes.cpp
+        source/backends/vulkan/core/facet/core.resource_facet.cpp
+        source/backends/vulkan/core/facet/core.command_facet.cpp
+        source/backends/vulkan/core/facet/core.frame_facet.cpp
+        source/backends/vulkan/core/command/core.scoped_synchronization.cpp
+        source/backends/vulkan/core/frame/core.frame_resources.cpp
+        source/backends/vulkan/core/frame/core.frame_checkpoint.cpp
+        source/backends/vulkan/core/support/radix_sort.cpp
+        source/backends/vulkan/core/resource/core.resource_groups.cpp
+        source/backends/vulkan/core/resource/core.texture_groups.cpp
+        source/backends/vulkan/core/resource/core.descriptor_space.cpp
+        source/backends/vulkan/core/command/core.submission_lifetimes.cpp
         # The ONE C entry point, DEFINED for the real backend (source/promise/rhi/backend_entry.hpp, abi 18).
         # A plain TU rather than a module implementation unit, because the entry has to be reachable BY
         # NAME from an image that imports no module of this target - the same reason
@@ -572,6 +596,7 @@ target_sources(deren_vulkan
 target_link_libraries(deren_vulkan
         vulkan_synchronization
         vulkan_error_tables
+        vulkan_core_support
         vulkan_main_context
         # The backend implements the contract, so the contract's module is a dependency of THIS target
         # and of nothing else in the backend's direction (source/promise/rhi/*.cppm imports nothing back).
@@ -1387,7 +1412,7 @@ if(VR_BUILD_TESTS)
     endforeach()
 
     target_link_libraries(test_morton boost_int128_headers)
-    target_link_libraries(test_rhi_ownership promise)
+    target_link_libraries(test_rhi_ownership promise vulkan_core_support)
     # The injection test's single entry point carries the local objects for every child mode; Debug+ASan
     # builds that frame above the Windows default 1 MiB reserve. Give this test executable room to run.
     if(WIN32)
@@ -1420,7 +1445,7 @@ if(VR_BUILD_TESTS)
     # for the same reason test_gltf_loader does - and it asserts the MISSING-file path too, which is a path
     # that must NOT exist, so the root has to be the real one rather than the build tree.
     target_compile_definitions(test_toon_material_sidecar PRIVATE VR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-    # test_render_resources reads source/shaders/common/heap_slots.slang and source/backends/vulkan/core/core.declarations.cppm to compare the slot grid's two
+    # test_render_resources reads source/shaders/common/heap_slots.slang and source/backends/vulkan/core/declarations/core.declarations.cppm to compare the slot grid's two
     # sources of truth (see the last block of that test): both are text, neither is generated from the other.
     target_compile_definitions(test_render_resources PRIVATE VR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     # test_shader_sources parses the FOUR places a .spv is named (VR_SLANG_SOURCES, the two compile scripts, and
@@ -1763,7 +1788,7 @@ add_dependencies(test_texture_group deren_vulkan)
 
 # Device-only completion token probe; deliberately outside headless CTest.
 add_executable(test_resource_group source/tests/test_resource_group.cpp)
-target_link_libraries(test_resource_group backend_loader promise static_utility vstd_lib vulkan_main_context Vulkan::Vulkan)
+target_link_libraries(test_resource_group backend_loader promise static_utility vstd_lib vulkan_core_support vulkan_main_context Vulkan::Vulkan)
 add_dependencies(test_resource_group deren_vulkan)
 
 add_executable(test_submission_completion source/tests/test_submission_completion.cpp)
@@ -2553,7 +2578,7 @@ add_dependencies(test_texture_group shaders)
 target_compile_definitions(test_texture_group PRIVATE VR_TEXTURE_GROUP_SHADER_PATH="${VR_SHADER_OUT_DIR}/texture_group_probe.comp.spv")
 message(STATUS "slangc: ${VR_SLANGC_EXECUTABLE} - every build compiles source/shaders/*.spv into ${VR_SHADER_OUT_DIR}")
 
-target_link_libraries(test_render_operations promise)
+target_link_libraries(test_render_operations promise vulkan_core_support)
 
 # Buffer transfer service probe; the device lane passes --with-device explicitly.
 add_executable(test_buffer_transfer source/tests/test_buffer_transfer.cpp)

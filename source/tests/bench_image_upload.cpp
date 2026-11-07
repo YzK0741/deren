@@ -66,7 +66,7 @@ namespace {
         return "unknown";
     }
     struct context {
-        deren::vulkan::main_context const& main;
+        deren::vulkan::main_context_view const& main;
         VmaAllocator allocator = VK_NULL_HANDLE;
         VkCommandPool pool = VK_NULL_HANDLE;
         VkCommandBuffer command = VK_NULL_HANDLE;
@@ -74,7 +74,7 @@ namespace {
         PFN_vkCopyMemoryToImageEXT host_copy = nullptr;
         PFN_vkTransitionImageLayoutEXT host_transition = nullptr;
         buffer warm_staging, readback;
-        explicit context(deren::vulkan::main_context const& value)
+        explicit context(deren::vulkan::main_context_view const& value)
             : main(value) {
             VmaAllocatorCreateInfo allocation{};
             allocation.instance = main.instance;
@@ -327,7 +327,7 @@ int main(int argc, char** argv) {
     require(static_cast<bool>(core), "benchmark backend creation");
     auto* opaque = core->main_context();
     require(opaque && deren::vulkan::is_main_context(*opaque), "benchmark Vulkan context");
-    auto* native = rhi::do_concrete<deren::vulkan::main_context>(*opaque, deren::vulkan::main_context_name);
+    auto* native = rhi::do_concrete<deren::vulkan::main_context_view>(*opaque, deren::vulkan::main_context_name);
     core->wait_idle();
     context gpu(*native);
     VkPhysicalDeviceProperties properties{};

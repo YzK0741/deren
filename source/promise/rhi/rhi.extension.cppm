@@ -161,7 +161,7 @@ export namespace deren::promise::rhi {
         ray_tracing = 1u << 3,     ///< RETIRED in abi 26: the acceleration-structure half became TIER-1 (`acceleration_structure` + the recording verbs), and "can this device trace rays" is answered by `device_capabilities`. The BIT stays (never reused).
         host_image_copy = 1u << 4, ///< vkCopyImageToMemoryEXT
         /// RETIRED in abi 43: the escape interface is gone - the GUI overlay receives the backend's opaque
-        /// `rhi::main_context` for its device handles (abi 39) and owns its recording targets as contract
+        /// `rhi::main_context_view` for its device handles (abi 39) and owns its recording targets as contract
         /// `mergeable_command_buffer` handles now (gui abi 5). The BIT stays (bits are never reused).
         vulkan_escape = 1u << 5,
         /// APPENDED (a new BIT; the six before it do not move - see the static_assert below): WHAT THE DEVICE

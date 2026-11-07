@@ -36,7 +36,7 @@ int main(int argc, char** argv) {
     CHECK(context && deren::vulkan::is_main_context(*context));
     if (!submission || !context || !deren::vulkan::is_main_context(*context))
         return deren::vk_test::finish("test_submission_completion");
-    auto& native = static_cast<deren::vulkan::main_context&>(*context);
+    auto& native = static_cast<deren::vulkan::main_context_view&>(*context);
     CHECK(submission->poll({}) == rhi::error::invalid_argument);
     CHECK(submission->wait({}, 0) == rhi::error::invalid_argument);
     auto empty = submission->submit(std::span<rhi::mergeable_command_buffer_ref const>{});

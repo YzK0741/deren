@@ -39,7 +39,7 @@ int main(int argc, char** argv) {
     CHECK(core);
     if (!core)
         return deren::vk_test::finish("test_buffer_transfer");
-    auto& native = static_cast<deren::vulkan::main_context&>(*core->main_context());
+    auto& native = static_cast<deren::vulkan::main_context_view&>(*core->main_context());
     // Full mip-demand payload, two independent snapshots, then repeated zero-reset reuse.
     {
         constexpr std::uint64_t size = 65536;
