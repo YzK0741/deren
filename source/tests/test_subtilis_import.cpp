@@ -232,6 +232,14 @@ int main() {
                 vector<deren::engine::meshlet> records;
                 auto reference = sub::select_cut(info.subtilis_import->hierarchy(), view.selection, 5, records);
                 CHECK(reference && records.size() == 5);
+                // The imported bound is the hierarchy's real worst case, not the LOD0 leaf count: this fixture's
+                // five-cluster cut is the reason the old min(clusters, lod0 triangles) bound under-reported.
+                CHECK(info.subtilis_import->hierarchy().maximum_selected_bound() >= records.size());
+                // select_cut reserves from the same bound, so a capacity equal to it must not
+                // reject the very cut the bound claims is reachable.
+                auto const reachable = info.subtilis_import->hierarchy().maximum_selected_bound();
+                vector<deren::engine::meshlet> bounded;
+                CHECK(sub::select_cut(info.subtilis_import->hierarchy(), view.selection, reachable, bounded) && bounded.size() == records.size());
                 bool wrote = false;
                 auto run = sub::prepare_item(*leaf, {}, view, records, {}, [&](auto, auto) {wrote=true;return true; });
                 CHECK(!wrote && records.empty() && run.source == sub::run_source::shared && run.count == 4 && run.reason == sub::fallback_reason::capacity);
@@ -403,6 +411,17 @@ int main() {
         large.roots.push_back(i);
     }
     replace_payload(tiny, large);
+    reject(tiny.input(), sub::import_failure::capacity_item);
+    // The wire format accepts up to 16M records per section; a hierarchy's decoded tables stay
+    // proportional to its leaves, so import refuses an oversized cluster table as a capacity
+    // failure before structural validation and make() build their per-cluster copies.
+    wire::payload oversized;
+    oversized.build_meta = "{}";
+    oversized.indices = {0, 1, 2};
+    oversized.clusters.assign(static_cast<size_t>(sub::import_record_limit) + 1, wire::cluster_record{0, 3, wire::none, wire::none, {0, 0, 0, 2}});
+    oversized.leaves = {0};
+    oversized.roots = {0};
+    replace_payload(tiny, oversized);
     reject(tiny.input(), sub::import_failure::capacity_item);
     deren::vk_test::write_line("import fallback coverage: invalid_payload/profile/material/source/DAG/LOD0-only/item capacity; table/frame policy follows in runtime tasks");
     return deren::vk_test::finish("subtilis_import");

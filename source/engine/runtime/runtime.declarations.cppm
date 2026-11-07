@@ -406,6 +406,11 @@ namespace deren::engine {
         /// reached the device without naming the backend" can do. Nothing else calls them from outside
         /// the class, and no call site inside loses an access level because of this.
         [[nodiscard]] rhi::api_core& rhi_face() const noexcept;
+        /// THE DEVICE ROOT behind `rhi_face()`, for a caller that prepares device state of its own OUTSIDE the frame
+        /// graph (the Gaussian probe): the returned lease keeps this runtime's device alive underneath it.
+        [[nodiscard]] rhi::shared_object<rhi::api_core> device_root() const noexcept {
+            return this->core_owner;
+        }
         [[nodiscard]] std::shared_ptr<resource_cluster> create_resource_cluster(std::string_view name = {}) const {
             return resource_cluster::create(this->core_owner, name);
         }

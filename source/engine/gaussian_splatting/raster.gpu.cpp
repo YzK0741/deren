@@ -180,7 +180,9 @@ namespace deren::engine::gaussian_splatting {
             reuse->total = result->total;
             reuse->near_omitted = result->near_omitted;
             reuse->outside = result->outside;
-            return {reuse, [](raster_frame const*) {}};
+            // The reuse result is the SAME frame, so hand out the one owner that already exists: a fresh shared_ptr
+            // with its own control block would look owning while keeping nothing alive.
+            return reuse->shared_from_this();
         };
         result->total = static_cast<std::uint32_t>(sorted->size());
         result->push.view_projection = camera.view_projection;
@@ -285,7 +287,7 @@ namespace deren::engine::gaussian_splatting {
             request.buffer.usage = rhi::buffer_usage::storage_coherent;
             request.buffer.flags = rhi::to_bits(rhi::buffer_flag::storage) | rhi::to_bits(rhi::buffer_flag::device_address);
             auto old = target->storage_view.find(ids[i]);
-            rebuild |= !old || old->objects[0].buffer->size() < sizes[i];
+            rebuild |= !old || old->objects.size() != 1 || old->objects[0].buffer->size() < sizes[i];
         }
         deren::utility::vessel::array<rhi::buffer*, 2> buffers{};
         deren::utility::vessel::array<std::uint64_t, 2> addresses{};

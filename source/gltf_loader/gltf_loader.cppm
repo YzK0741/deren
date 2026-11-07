@@ -259,6 +259,11 @@ namespace deren::gltf {
      * @brief a glTF material: factors plus the texture slots it uses
      * @note texture_indices maps slot names ("albedo" / "metallic_roughness" / "normal" /
      *       "occlusion" / "emissive") to indices into scenes::textures
+     * @note THE TYPE IS uint16_t, so the loader rejects any asset whose texture array does not fit
+     *       (load_model() caps it at 65536 textures, the largest count whose indices 0..65535 are all
+     *       representable). The cast in get_texture_indices() is therefore lossless for every model that
+     *       loads successfully; widening this map is a breaking interface change and is left to a versioned
+     *       change.
      */
     export struct material {
         material_factors factors = {};

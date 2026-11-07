@@ -232,13 +232,20 @@ namespace {
 
     void test_rt_reflection_samples_parses_rounds_and_clamps() {
         // The key is an integer count but TOML authors write it as 2.0 as often as 2. Accept both, round to
-        // the nearest ray, and clamp to the shader's 1..4 loop bound. A non-finite float keeps the default.
+        // the nearest ray, and clamp to the shader's 1..4 loop bound. The clamp is applied in DOUBLE space,
+        // before the rounding, so an enormous float cannot overflow `std::lround`'s integer conversion; a
+        // non-finite float keeps the default either way.
         for (auto const [value, expected] : {std::pair<std::string_view, std::uint32_t>{"2", 2u},
                                              {"2.0", 2u},
                                              {"2.6", 3u},
                                              {"9", 4u},
                                              {"0", 1u},
-                                             {"nan", 1u}}) {
+                                             {"1e300", 4u},
+                                             {"-1e300", 1u},
+                                             {"1e-300", 1u},
+                                             {"nan", 1u},
+                                             {"inf", 1u},
+                                             {"-inf", 1u}}) {
             std::ofstream("rt-reflection-samples.toml") << "[render]\nrt_reflection_samples=" << value << '\n';
             auto const samples = deren::app_config::load_settings("rt-reflection-samples.toml").render.rt_reflection_samples;
             CHECK(samples == expected);
@@ -702,6 +709,105 @@ namespace {
         CHECK(capped.scene.objects.back().name == "o15");
         std::filesystem::remove("scene-objects-capped.toml");
     }
+
+    // THE [toon] RIG IS ASSIGNED THROUGH A FINITE CHECK: `day_strength = nan` used to survive
+    // `std::clamp` (both comparisons are false for NaN) and ride the rig's lanes into the shader, and every
+    // other rig number was assigned unchecked, so an `inf` landed in the settings as well. A non-finite key
+    // now keeps the compiled default; the blend weight is clamped in double space, before the narrowing; and
+    // the expression index is held to its documented 0..3.
+    void test_toon_rig_rejects_nonfinite_and_clamps() {
+        std::ofstream("toon-nonfinite.toml")
+            << "[toon]\nday_strength = nan\nhead_light_day0 = inf\nenv_strength = -inf\nemotion_type = nan\n";
+        auto const nonfinite = deren::app_config::load_settings("toon-nonfinite.toml").toon;
+        CHECK(nonfinite.day_strength == 1.0f);
+        CHECK(nonfinite.head_light_day0 == 0.7f);
+        CHECK(nonfinite.env_strength == 1.0f);
+        CHECK(nonfinite.emotion_type == 0.0f);
+        std::filesystem::remove("toon-nonfinite.toml");
+
+        // The clamp happens before the float conversion, so a finite number larger than a float can hold
+        // reads as 1 rather than as the +inf a later clamp would have had to rescue.
+        std::ofstream("toon-day-strength.toml") << "[toon]\nday_strength = 1e300\n";
+        CHECK(deren::app_config::load_settings("toon-day-strength.toml").toon.day_strength == 1.0f);
+        std::ofstream("toon-day-strength.toml") << "[toon]\nday_strength = -3.0\n";
+        CHECK(deren::app_config::load_settings("toon-day-strength.toml").toon.day_strength == 0.0f);
+        std::ofstream("toon-day-strength.toml") << "[toon]\nday_strength = 0.25\n";
+        CHECK(deren::app_config::load_settings("toon-day-strength.toml").toon.day_strength == 0.25f);
+        std::filesystem::remove("toon-day-strength.toml");
+
+        // 0 = no expression, 1..3 = the atlas' other cells. Anything outside that range is clamped, because
+        // the shader's frac/floor mapping would otherwise sample outside the atlas.
+        std::ofstream("toon-emotion.toml") << "[toon]\nemotion_type = 7.0\n";
+        CHECK(deren::app_config::load_settings("toon-emotion.toml").toon.emotion_type == 3.0f);
+        std::ofstream("toon-emotion.toml") << "[toon]\nemotion_type = -2.0\n";
+        CHECK(deren::app_config::load_settings("toon-emotion.toml").toon.emotion_type == 0.0f);
+        std::ofstream("toon-emotion.toml") << "[toon]\nemotion_type = 2.0\n";
+        CHECK(deren::app_config::load_settings("toon-emotion.toml").toon.emotion_type == 2.0f);
+        std::filesystem::remove("toon-emotion.toml");
+    }
+
+    // THREE NUMBERS OR NOTHING: a vector or colour is applied only when all three components parse and are
+    // finite. Committing component by component used to leave this config's first number next to the
+    // default's second - a direction or colour no file asked for, and nothing in the logs to say so.
+    void test_vectors_and_colours_are_three_numbers_or_nothing() {
+        std::ofstream("vec3-partial.toml") << "[toon]\nhead_light_colour = [0.1, \"bad\", 0.3]\nsun_dark_colour = [0.1, 0.2]\n"
+                                              "[lighting]\nsun_direction = [1.0, nan, 0.0]\n";
+        auto const partial = deren::app_config::load_settings("vec3-partial.toml");
+        CHECK(partial.toon.head_light_colour[0] == 0.60f); // the whole colour stays the default
+        CHECK(partial.toon.head_light_colour[1] == 0.65f);
+        CHECK(partial.toon.head_light_colour[2] == 0.80f);
+        CHECK(partial.toon.sun_dark_colour[0] == 0.60f);
+        CHECK(partial.toon.sun_dark_colour[1] == 0.65f);
+        CHECK(partial.toon.sun_dark_colour[2] == 0.80f);
+        CHECK(partial.lighting.sun_direction[0] == 0.3f); // not the 1.0 the file wrote
+        CHECK(partial.lighting.sun_direction[1] == 1.0f);
+        CHECK(partial.lighting.sun_direction[2] == 0.5f);
+        std::filesystem::remove("vec3-partial.toml");
+
+        // All three, and they are taken verbatim.
+        std::ofstream("vec3-full.toml") << "[toon]\nhead_light_colour = [0.1, 0.2, 0.3]\nsun_dark_colour = [0.4, 0.5, 0.6]\n"
+                                           "[lighting]\nsun_direction = [-1.0, 0.5, 0.25]\n";
+        auto const full = deren::app_config::load_settings("vec3-full.toml");
+        CHECK(full.toon.head_light_colour[0] == 0.1f && full.toon.head_light_colour[2] == 0.3f);
+        CHECK(full.toon.sun_dark_colour[1] == 0.5f);
+        CHECK(full.lighting.sun_direction[0] == -1.0f && full.lighting.sun_direction[1] == 0.5f && full.lighting.sun_direction[2] == 0.25f);
+        std::filesystem::remove("vec3-full.toml");
+    }
+
+    // INTEGER OPTIONS ARE VALIDATED IN 64-BIT SPACE, BEFORE THE NARROWING: `static_cast<int32_t>` is a
+    // modulo conversion, so 2^32 + 2 used to arrive at a 1..4 check looking like a valid 2, and 2^32 + 5000
+    // used to become a plausible 5000-pixel window. Out-of-range values now saturate (and are then clamped
+    // or rejected by the rule that owns the range) or keep the default - but they never wrap.
+    void test_integer_options_do_not_wrap_when_narrowed() {
+        std::ofstream("narrowing.toml") << "grid_side = 4294967297\n"
+                                           "[render]\nwindow_width = 4294972296\nwindow_height = 4294967996\n"
+                                           "shadow_cascades = 4294967298\nssao_samples = 4294967298\n";
+        auto const wrapped = deren::app_config::load_settings("narrowing.toml");
+        CHECK(wrapped.grid_side == 90);             // saturated, then capped by analyse_config
+        CHECK(wrapped.render.window_width == 1080); // the default, not the wrapped 5000
+        CHECK(wrapped.render.window_height == 960); // the default, not the wrapped 700
+        CHECK(wrapped.render.shadow_cascades == 3); // the documented fallback, not the wrapped 2
+        CHECK(wrapped.render.ssao_samples == 8);    // the documented fallback, not the wrapped 2
+        std::filesystem::remove("narrowing.toml");
+
+        // A negative 64-bit value wraps to a plausible positive one for the same reason: -(2^32 - 1) is 1 if
+        // the narrowing is allowed to truncate.
+        std::ofstream("narrowing-negative.toml") << "grid_side = -4294967295\n";
+        CHECK(deren::app_config::load_settings("narrowing-negative.toml").grid_side == 0);
+        std::filesystem::remove("narrowing-negative.toml");
+
+        // In-range values still read back unchanged.
+        std::ofstream("narrowing-valid.toml") << "grid_side = 12\n"
+                                                 "[render]\nwindow_width = 800\nwindow_height = 600\n"
+                                                 "shadow_cascades = 4\nssao_samples = 16\n";
+        auto const valid = deren::app_config::load_settings("narrowing-valid.toml");
+        CHECK(valid.grid_side == 12);
+        CHECK(valid.render.window_width == 800);
+        CHECK(valid.render.window_height == 600);
+        CHECK(valid.render.shadow_cascades == 4);
+        CHECK(valid.render.ssao_samples == 16);
+        std::filesystem::remove("narrowing-valid.toml");
+    }
 } // namespace
 
 int32_t main() {
@@ -745,6 +851,9 @@ int32_t main() {
     test_example_config_matches_documentation();
     test_rt_reflection_whitelist_parses_and_clamps();
     test_rt_reflection_samples_parses_rounds_and_clamps();
+    test_toon_rig_rejects_nonfinite_and_clamps();
+    test_vectors_and_colours_are_three_numbers_or_nothing();
+    test_integer_options_do_not_wrap_when_narrowed();
     test_software_raster_threshold_rejects_nonpositive_and_nonfinite();
     test_load_settings_missing_file_keeps_defaults();
     test_lighting_sizes_are_clamped();

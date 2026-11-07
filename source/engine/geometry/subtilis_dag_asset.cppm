@@ -181,9 +181,31 @@ export namespace deren::engine::subtilis {
             result.roots_.assign(roots.begin(), roots.end());
             result.lod0_ = std::move(lod0);
             result.lod0_indices_ = lod0_index_count;
-            // Every accepted group strictly reduces triangles. A complete cut has
-            // at most the LOD0 triangle count, with at least one triangle per cluster.
-            result.selected_bound_ = std::min(static_cast<uint32_t>(clusters.size()), lod0_index_count / 3);
+            // A complete cut keeps, per group, either its coarse clusters or the refined cut of every
+            // fine dependency, and the closure makes coarsening downward closed. Import only requires a
+            // group's coarse triangles to be fewer than its fine range's, so a legal hierarchy can
+            // select more clusters than it has LOD0 leaves or LOD0 triangles: the bound therefore has
+            // to be computed bottom-up over the group DAG instead of from the LOD0 size. A leaf child
+            // contributes one cluster; a child with a producer contributes at most its producer's
+            // bound, which is already final because producers have lower group IDs. Sharing one
+            // producer between several parents counts its subtree once per parent: that over-estimate
+            // stays a valid upper bound and is clamped to the cluster table size.
+            utility::vessel::vector<uint64_t> bound(groups.size(), 0);
+            for (uint32_t id = 0; id < groups.size(); ++id) {
+                auto const& g = groups[id];
+                uint64_t refined = 0;
+                for (auto c : references.subspan(g.fine.first, g.fine.count)) {
+                    auto dependency = clusters[c].producer;
+                    refined = std::min<uint64_t>(clusters.size(), refined + (dependency == dag_none ? 1 : bound[dependency]));
+                }
+                bound[id] = std::min<uint64_t>(clusters.size(), std::max<uint64_t>(g.coarse.count, refined));
+            }
+            uint64_t selected = 0;
+            for (auto id : roots) {
+                auto dependency = clusters[id].producer;
+                selected = std::min<uint64_t>(clusters.size(), selected + (dependency == dag_none ? 1 : bound[dependency]));
+            }
+            result.selected_bound_ = static_cast<uint32_t>(selected);
             return result;
         }
     };

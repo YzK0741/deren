@@ -141,7 +141,7 @@ namespace deren::engine::gaussian_splatting {
                 request.buffer.flags |= rhi::to_bits(rhi::buffer_flag::transfer_source);
             }
             auto previous = result->storage_view.find(ids[i]);
-            rebuild |= !previous || previous->objects[0].buffer->size() < sizes[i] ||
+            rebuild |= !previous || previous->objects.size() != 1 || previous->objects[0].buffer->size() < sizes[i] ||
                        previous->description.buffer.flags != request.buffer.flags || previous->description.buffer.usage != request.buffer.usage;
         }
         deren::utility::vessel::array<rhi::buffer*, gpu_frame::buffer_count> candidates{};

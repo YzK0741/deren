@@ -3,6 +3,7 @@ module;
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <string_view>
 #include <toml++/toml.hpp>
 #include <utility>
@@ -14,6 +15,44 @@ import deren.utility.shared;
 import deren.utility;
 
 namespace deren::app_config {
+    namespace {
+        /// A TOML INTEGER IS 64-BIT and several settings fields are 32. `static_cast<int32_t>` is a modulo
+        /// conversion, so 2^32 + 2 arrives at a later range check looking like a perfectly valid 2 - the value
+        /// was out of range, but nothing downstream could see it. Saturating instead keeps an out-of-range
+        /// integer out of range, where the rule that owns the range (the sanity clamp at the end of
+        /// `load_settings` or its documented fallback) can reject it. Where no later rule owns a bound, validate
+        /// the 64-bit value at the call site instead of saturating into a value nobody asked for (see
+        /// `[render] window_width`).
+        constexpr int32_t saturating_int32(int64_t const value) noexcept {
+            return static_cast<int32_t>(
+                std::clamp<int64_t>(value, std::numeric_limits<int32_t>::min(), std::numeric_limits<int32_t>::max()));
+        }
+
+        /// THREE NUMBERS OR NOTHING: parses a three-component vector or colour into a temporary and commits it
+        /// only when every component is a finite number. Writing component by component would leave a
+        /// half-applied value - this config's first number next to the default's second - which is a light
+        /// direction or a colour nobody asked for, with nothing in the logs to say it happened.
+        void read_finite_vec3(toml::table const& source, char const* key, deren::utility::vessel::array<float, 3>& target) {
+            toml::node const* node = source.get(key);
+            if (node == nullptr) {
+                return;
+            }
+            toml::array const* values = node->as_array();
+            if (values == nullptr || values->size() != target.size()) {
+                return;
+            }
+            deren::utility::vessel::array<float, 3> parsed = {};
+            for (std::size_t i = 0; i < values->size(); ++i) {
+                std::optional<double> const component = (*values)[i].value<double>();
+                if (!component || !std::isfinite(*component) || std::abs(*component) > std::numeric_limits<float>::max()) {
+                    return;
+                }
+                parsed[i] = static_cast<float>(*component);
+            }
+            target = parsed;
+        }
+    } // namespace
+
     app_settings load_settings(std::string_view const path) {
         app_settings settings = {};
 
@@ -51,7 +90,10 @@ namespace deren::app_config {
         }
         if (toml::node const* node = table.get("grid_side")) {
             if (std::optional<int64_t> const value = node->value<int64_t>()) {
-                settings.grid_side = static_cast<int32_t>(*value);
+                // The documented range is 0..90 (the instancing stress test reserves side*side transforms) and
+                // the sanity clamp at the end of this function caps it; saturating here keeps 2^32 + 1 from
+                // narrowing to a plausible 1 before that cap runs.
+                settings.grid_side = saturating_int32(*value);
             }
         }
 
@@ -81,12 +123,18 @@ namespace deren::app_config {
 
         if (toml::table const* render = table.get_as<toml::table>("render")) {
             if (toml::node const* node = render->get("window_width")) {
-                if (std::optional<int64_t> const value = node->value<int64_t>()) {
+                // A SIZE THAT DOES NOT FIT int32 IS "NOT STATED": the field keeps the compiled default, the same
+                // fallback the sanity clamp at the end of this function applies to a non-positive size. Checking
+                // the 64-bit value before the narrowing is what stops 2^32 + 5000 from becoming a plausible 5000.
+                if (std::optional<int64_t> const value = node->value<int64_t>();
+                    value && *value > 0 && *value <= std::numeric_limits<int32_t>::max()) {
                     settings.render.window_width = static_cast<int32_t>(*value);
                 }
             }
             if (toml::node const* node = render->get("window_height")) {
-                if (std::optional<int64_t> const value = node->value<int64_t>()) {
+                // See `window_width`: an oversized height keeps the default rather than panicking at creation.
+                if (std::optional<int64_t> const value = node->value<int64_t>();
+                    value && *value > 0 && *value <= std::numeric_limits<int32_t>::max()) {
                     settings.render.window_height = static_cast<int32_t>(*value);
                 }
             }
@@ -165,16 +213,18 @@ namespace deren::app_config {
             }
             if (toml::node const* node = render->get("rt_reflection_samples")) {
                 // INTEGERS AND FLOATS: TOML authors write `2` and `2.0` for the same knob. Accept both, round
-                // floats to the nearest whole ray, and clamp to the supported 1..4 range. A non-finite float is
-                // ignored rather than converted, for the same reason as the strength lane above.
-                if (std::optional<int64_t> const value = node->value<int64_t>()) {
+                // floats to the nearest whole ray, and clamp to the supported 1..4 range. The float clamp runs
+                // IN DOUBLE SPACE, before `std::lround`, because `std::lround(1e300)` used to be a domain error
+                // (the rounded result is unspecified outside `long long`'s range). A non-finite float is ignored
+                // rather than converted, for the same reason as the strength lane above.
+                if (node->is_floating_point()) {
+                    if (std::optional<double> const value = node->value<double>(); value && std::isfinite(*value)) {
+                        settings.render.rt_reflection_samples =
+                            static_cast<uint32_t>(std::lround(std::clamp(*value, 1.0, 4.0)));
+                    }
+                } else if (std::optional<int64_t> const value = node->value<int64_t>()) {
                     settings.render.rt_reflection_samples =
                         static_cast<uint32_t>(std::clamp<int64_t>(*value, 1, 4));
-                } else if (std::optional<double> const value = node->value<double>()) {
-                    if (std::isfinite(*value)) {
-                        settings.render.rt_reflection_samples = static_cast<uint32_t>(
-                            std::clamp<int64_t>(std::lround(*value), 1, 4));
-                    }
                 }
             }
             if (toml::node const* node = render->get("rt_reflection_materials")) {
@@ -234,7 +284,9 @@ namespace deren::app_config {
             }
             if (toml::node const* node = render->get("shadow_cascades")) {
                 if (std::optional<int64_t> const value = node->value<int64_t>()) {
-                    settings.render.shadow_cascades = static_cast<int32_t>(*value);
+                    // The 1..4 check (and its fallback log line) is at the end of this function; saturating
+                    // keeps a 64-bit value out of range on the way there instead of wrapping it into a valid 2.
+                    settings.render.shadow_cascades = saturating_int32(*value);
                 }
             }
             if (toml::node const* node = render->get("shadow_cascade_blend")) {
@@ -289,7 +341,9 @@ namespace deren::app_config {
             }
             if (toml::node const* node = render->get("ssao_samples")) {
                 if (std::optional<int64_t> const value = node->value<int64_t>()) {
-                    settings.render.ssao_samples = static_cast<int32_t>(*value);
+                    // The 1..16 check (and its fallback log line) is at the end of this function; see
+                    // `shadow_cascades`.
+                    settings.render.ssao_samples = saturating_int32(*value);
                 }
             }
             if (toml::node const* node = render->get("unlit")) {
@@ -436,7 +490,6 @@ namespace deren::app_config {
         // lanes of one block (`deren::vulkan::toon_rig`), and a reader who moves one of them wants to see the others.
         if (toml::table const* toon = table.get_as<toml::table>("toon")) {
             for (auto const& [key, target] : {
-                     std::pair{"day_strength", &settings.toon.day_strength},
                      std::pair{"head_light_day0", &settings.toon.head_light_day0},
                      std::pair{"head_light_day1", &settings.toon.head_light_day1},
                      std::pair{"env_strength", &settings.toon.env_strength},
@@ -447,10 +500,12 @@ namespace deren::app_config {
                      std::pair{"rim_strength", &settings.toon.rim_strength},
                      std::pair{"rim_nolxz_strength", &settings.toon.rim_nolxz_strength},
                      std::pair{"backlight_strength", &settings.toon.backlight_strength},
-                     std::pair{"emotion_type", &settings.toon.emotion_type},
                  }) {
                 if (toml::node const* node = toon->get(key)) {
-                    if (std::optional<double> const value = node->value<double>()) {
+                    // A NON-FINITE NUMBER IS NOT A SCALE, and neither is a finite one too large for float:
+                    // both would ride the rig's lanes into the shader, so the key keeps the compiled default.
+                    if (std::optional<double> const value = node->value<double>();
+                        value && std::isfinite(*value) && std::abs(*value) <= std::numeric_limits<float>::max()) {
                         *target = static_cast<float>(*value);
                     }
                 }
@@ -458,7 +513,13 @@ namespace deren::app_config {
             // THE DAY STRENGTH IS CLAMPED rather than trusted, because it is a blend weight between two whole
             // shading outcomes: a value above 1 would extrapolate past the sun's own state and a negative one
             // past the head light's, and neither is a look anybody asked for. Every other rig number is a scale
-            // whose useful range is the artist's.
+            // whose useful range is the artist's. The clamp runs in double space, BEFORE the narrowing, so a
+            // finite number larger than float can hold arrives as 1 instead of as the +inf a float clamp would
+            // then have to rescue; a non-finite one is not a weight at all and keeps the compiled default.
+            if (std::optional<double> const value = (*toon)["day_strength"].value<double>();
+                value && std::isfinite(*value)) {
+                settings.toon.day_strength = static_cast<float>(std::clamp(*value, 0.0, 1.0));
+            }
             auto shape_control = [&](char const* key, float lo, float hi) {
                 auto value = (*toon)[key].value<double>();
                 return value && std::isfinite(*value) ? float(std::clamp(*value, double(lo), double(hi))) : 0.f;
@@ -468,22 +529,21 @@ namespace deren::app_config {
             settings.toon.hair_highlight_shift = shape_control("hair_highlight_shift", -1, 1);
             settings.toon.hair_masked_highlights = (*toon)["hair_masked_highlights"].is_boolean() && (*toon)["hair_masked_highlights"].value<bool>().value_or(false);
             settings.toon.face_angular_sdf = (*toon)["face_angular_sdf"].is_boolean() && (*toon)["face_angular_sdf"].value<bool>().value_or(false);
-            settings.toon.day_strength = std::clamp(settings.toon.day_strength, 0.0f, 1.0f);
+            // THE EMOTION TYPE IS AN ATLAS CELL INDEX, not a scale: 0 keeps the face's own albedo and 1..3 pick
+            // one of the other three `_EmotionMap` cells. The shader turns the number into a uv cell through
+            // `frac`/`floor`, so a value outside 0..3 would sample outside the atlas instead of reading back as a
+            // bad number; the documented range is enforced here, and a non-finite one keeps the default 0.
+            if (std::optional<double> const value = (*toon)["emotion_type"].value<double>();
+                value && std::isfinite(*value)) {
+                settings.toon.emotion_type = static_cast<float>(std::clamp(*value, 0.0, 3.0));
+            }
             // THREE NUMBERS OR NOTHING, the rule the sun's direction already follows: a partly-specified colour
             // would mix this config's components with the default's, which is a colour nobody asked for.
             for (auto const& [key, target] : {
                      std::pair{"head_light_colour", &settings.toon.head_light_colour},
                      std::pair{"sun_dark_colour", &settings.toon.sun_dark_colour},
                  }) {
-                if (toml::node const* node = toon->get(key)) {
-                    if (toml::array const* values = node->as_array(); values != nullptr && values->size() == target->size()) {
-                        for (std::size_t i = 0; i < values->size(); ++i) {
-                            if (std::optional<double> const component = (*values)[i].value<double>()) {
-                                (*target)[i] = static_cast<float>(*component);
-                            }
-                        }
-                    }
-                }
+                read_finite_vec3(*toon, key, *target);
             }
         }
         if (auto const* probe = table.get_as<toml::table>("reflection_probe")) {
@@ -532,17 +592,9 @@ namespace deren::app_config {
                     settings.lighting.lut_size = static_cast<int32_t>(*value);
                 }
             }
-            if (toml::node const* node = lighting->get("sun_direction")) {
-                if (toml::array const* values = node->as_array(); values != nullptr && values->size() == settings.lighting.sun_direction.size()) {
-                    // Three numbers or nothing: a partly-specified direction would silently mix this config's
-                    // components with the default's, which is a light nobody asked for and no way to see it.
-                    for (std::size_t i = 0; i < values->size(); ++i) {
-                        if (std::optional<double> const component = (*values)[i].value<double>()) {
-                            settings.lighting.sun_direction[i] = static_cast<float>(*component);
-                        }
-                    }
-                }
-            }
+            // Three numbers or nothing (see `read_finite_vec3`): a partly-specified direction would silently mix
+            // this config's components with the default's, which is a light nobody asked for and no way to see it.
+            read_finite_vec3(*lighting, "sun_direction", settings.lighting.sun_direction);
             // The environment image and its multiplier (see the struct's own note). The path is taken
             // VERBATIM and left relative here; the host resolves it against the executable's directory,
             // because that is where the assets live and this module has no business guessing.
