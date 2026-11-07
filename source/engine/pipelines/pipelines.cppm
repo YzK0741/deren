@@ -713,25 +713,28 @@ namespace deren::engine::pipelines {
     /**
      * @brief the ray-traced reflection pipeline: one raygen, one miss and one triangles hit group
      *
-     * The reflection pass has no alpha-mask any-hit stage in this first version, so it is the shadow pipeline
-     * minus the fourth stage. The SBT order is still raygen (0), miss (1), hit group (2).
+     * The hit group carries BOTH the closest-hit and the alpha-mask any-hit stage, in the same shape the
+     * shadow pipeline uses: alphaMode MASK geometry must not reflect as a solid card. The SBT order is still
+     * raygen (0), miss (1), hit group (2), so the pass needs no fourth region.
      */
     export std::expected<ray_tracing_pipeline_owned, deren::utility::vessel::string> build_rt_reflection_ray_tracing(rhi::api_core& face,
                                                                                                                      std::span<uint8_t const> raygen_code,
                                                                                                                      std::span<uint8_t const> closest_hit_code,
+                                                                                                                     std::span<uint8_t const> any_hit_code,
                                                                                                                      std::span<uint8_t const> miss_code) {
         using fail = std::unexpected<deren::utility::vessel::string>;
         ray_tracing_pipeline_owned out;
 
-        deren::utility::vessel::array<rhi::ray_tracing_stage, 3> const stages = {
+        deren::utility::vessel::array<rhi::ray_tracing_stage, 4> const stages = {
             rhi::ray_tracing_stage{.stage = rhi::shader_stage::ray_generation, .code = std::as_bytes(raygen_code), .debug_name = "rt reflection raygen"},
             rhi::ray_tracing_stage{.stage = rhi::shader_stage::miss, .code = std::as_bytes(miss_code), .debug_name = "rt reflection miss"},
             rhi::ray_tracing_stage{.stage = rhi::shader_stage::closest_hit, .code = std::as_bytes(closest_hit_code), .debug_name = "rt reflection closest hit"},
+            rhi::ray_tracing_stage{.stage = rhi::shader_stage::any_hit, .code = std::as_bytes(any_hit_code), .debug_name = "rt reflection any hit"},
         };
         deren::utility::vessel::array<rhi::ray_tracing_group, 3> const groups = {
             rhi::ray_tracing_group{.general = 0},
             rhi::ray_tracing_group{.general = 1},
-            rhi::ray_tracing_group{.closest_hit = 2, .triangles = true},
+            rhi::ray_tracing_group{.closest_hit = 2, .any_hit = 3, .triangles = true},
         };
         rhi::pipeline_desc desc{};
         desc.ray_tracing_stages = stages;

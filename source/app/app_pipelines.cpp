@@ -432,6 +432,11 @@ namespace deren::app {
             deren::utility::vessel::vector<std::uint8_t> rt_reflection_closest_hit_code;
             load_shader(shaders_dir, "rt_reflection.rchit.spv", rt_reflection_closest_hit_code);
             runtime.register_shader("rt_reflection.rchit.spv", rt_reflection_closest_hit_code);
+            // The reflection's alpha-mask any-hit: the second stage of the same hit group, so a masked surface
+            // reflects its cut-out shape instead of its bounding triangles.
+            deren::utility::vessel::vector<std::uint8_t> rt_reflection_any_hit_code;
+            load_shader(shaders_dir, "rt_reflection.rahit.spv", rt_reflection_any_hit_code);
+            runtime.register_shader("rt_reflection.rahit.spv", rt_reflection_any_hit_code);
             deren::utility::vessel::vector<std::uint8_t> rt_reflection_miss_code;
             load_shader(shaders_dir, "rt_reflection.rmiss.spv", rt_reflection_miss_code);
             runtime.register_shader("rt_reflection.rmiss.spv", rt_reflection_miss_code);
