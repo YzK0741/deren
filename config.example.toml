@@ -367,9 +367,9 @@ furnace = false
 # the material's alpha and refuses the intersection below the cutoff (shaders/rt_shadow.rahit). `rt_mask_bake`
 # below is the older, worse substitute for that stage and stays only as an A/B instrument.
 rt_shadows = false
-# rt_reflections: ray-traced reflections. One reflection ray per visible pixel is traced through the same
-# acceleration structures the traced shadows use, and the deferred lighting stage composites the hit radiance
-# with a Fresnel and roughness weight. It is granted only on a device with ray queries; everywhere else the
+# rt_reflections: ray-traced reflections. One to four reflection rays per visible pixel are traced through the
+# same acceleration structures the traced shadows use, and the deferred lighting stage composites the hit
+# radiance with a Fresnel and roughness weight. It is granted only on a device with ray queries; everywhere else the
 # key is ignored and deferred lighting runs without a traced reflection term, so it is safe to leave in a
 # shared config. Enabling it builds the scene's acceleration structures even when `rt_shadows` is off.
 #
@@ -390,10 +390,12 @@ rt_reflections = false
 rt_reflection_cloth = true
 rt_reflection_strength = 0.35
 rt_reflection_materials = []
-# rt_reflection_samples: rays per pixel for the traced reflection (1-4, clamped). One sample keeps the original
-# mirror trace and its roughness fallback. Two to four importance-sample the GGX lobe and average, which trades
-# GPU time for less noise on glossy surfaces above the one-sample roughness cutoff; the existing FidelityFX
-# denoiser runs afterward either way. Default 1 (the original behavior).
+# rt_reflection_samples: rays per pixel for the traced reflection (1-4, clamped; integer or float). One sample
+# keeps the original mirror trace and its 0.55 roughness cutoff. Two to four importance-sample the GGX lobe and
+# average the radiance, trading GPU time for a smoother estimate on glossy surfaces below that cutoff; rough
+# surfaces above 0.55 still take the prefiltered environment. The FidelityFX denoiser runs afterward either
+# way, and its glossy band widens from 0.2 to 0.55 when more than one ray is traced, so the extra samples are
+# filtered rather than left raw. Default 1 (the original behavior).
 rt_reflection_samples = 1
 # rt_mask_bake: bake alphaMode MASK into the acceleration structures, so a masked surface is not SOLID to a
 # ray. THIS IS THE SUBSTITUTE FOR AN ANY-HIT STAGE, and the shipped path does not need it: the ray-tracing

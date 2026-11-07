@@ -2,7 +2,7 @@
 
 /**
  * @file source/engine/pass/ray_traced_reflection.cppm
- * @brief The ray-traced reflection pass: one reflection ray per pixel into a per-frame-slot target.
+ * @brief The ray-traced reflection pass: one to four reflection rays per pixel into a per-frame-slot target.
  *
  * The pass follows the ray-traced shadow's shape: it owns its ray-tracing pipeline (raygen, miss and one
  * triangles hit group carrying closest-hit plus alpha-mask any-hit), its three shader binding table regions,

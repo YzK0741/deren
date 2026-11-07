@@ -1412,6 +1412,15 @@ namespace deren::engine {
         if (this->rt_reflection_pass[0] != nullptr) {
             this->rt_reflection_pass[0]->set_rt_reflection_samples(this->rt_reflection_samples);
         }
+        // THE DENOISER MUST COVER WHAT THE TRACER PRODUCES. AMD's stages filter roughness < 0.2 by default;
+        // with more than one traced ray the tracer reaches 0.55, so widen the band by exactly that much. One
+        // sample keeps 0.2, which is what preserves the pre-sampling output byte for byte.
+        float const denoise_roughness = this->rt_reflection_samples > 1u ? 0.55f : 0.2f;
+        for (pass::reflection_denoise_pass* denoise : this->reflection_denoise_pass) {
+            if (denoise != nullptr) {
+                denoise->set_max_roughness(denoise_roughness);
+            }
+        }
     }
 
     void runtime::set_rt_reflection_whitelist(bool const cloth, float const strength, deren::utility::vessel::string materials) {

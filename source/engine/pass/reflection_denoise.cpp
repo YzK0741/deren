@@ -52,7 +52,8 @@ namespace deren::engine::pass {
                                            .max_samples = this->max_samples,
                                            .history_valid = this->history_valid ? 1u : 0u,
                                            .screen_width = io.extent.width,
-                                           .screen_height = io.extent.height};
+                                           .screen_height = io.extent.height,
+                                           .max_roughness = this->max_roughness};
         if (!io.push_block(*io.list, std::as_bytes(std::span<reflection_denoise_push const>(&push, 1u)))) {
             return rhi::error::invalid_argument;
         }
