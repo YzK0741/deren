@@ -60,9 +60,6 @@
 //   * tone mapping and the color-space encode (readable:1189-1190 `#include <tonemapping_fragment>` /
 //     `<colorspace_fragment>`): the contract puts tone mapping once in deren's post pass, so this function returns
 //     LINEAR HDR. The captured viewer's own tone map is preserved in deren's `post/game_toon_tonemap.h`.
-//   * the punctual-light loop `R114` (readable:188-327): `Q260` (its light count, `viewer-lighting.js`'s
-//     `Q260:{value:0}`) is 0 in the captured frame - the additional-lights UI default is off - and the FAMILY_EYE
-//     branch inside it (`if(mode==3)continue`, readable:238-241) is a shared-loop statement, not an eye term.
 //   * the depth-cut/`Q164` term (readable:1177): `R200` returns 0 when `Q185 < 0.5` (`viewer-lighting.js`
 //     `e3()` default), so it contributes nothing in the capture.
 //   * depth shadow (`Q132`), shadow LUT (`Q273`), metallic/gloss map (`Q13`), emission (`Q158`/`Q242`): not
@@ -366,7 +363,7 @@ float3 captured_eye_shade(surface_sample s, float3 world_pos, float3 geo_normal,
         }
     }
     // `R9`/`R46`/`R196` (readable:730-733) are computed by the capture too, but their only consumers in this
-    // program are the punctual-light loop (`R114`, skipped: no lights) and the specular branch (`Q141`, not defined
+    // program are the punctual-light loop and the specular branch (`Q141`, not defined
     // for this material) - so they are not carried. The eye has NO specular/NoH term of its own: its highlight is
     // the matcap below.
     const float n_dot_l = dot(normal, light_dir);                                                       // R128
@@ -474,6 +471,7 @@ float3 captured_eye_shade(surface_sample s, float3 world_pos, float3 geo_normal,
                                  ambient_weight * game_toon_eye_viewer_light_scale * main_light_scaled;
     const float3 direct_light = lerp(float3(game_toon_eye_luma(light_color_full)), light_color_full, ramp_coverage);
     const float3 light = ambient_light + direct_light;
+    const float3 pre_light_colour = color;
     color *= light;
 
     // ---- PATH A: THE MATCAP CATCHLIGHT (readable:1088-1095) ----
@@ -494,7 +492,9 @@ float3 captured_eye_shade(surface_sample s, float3 world_pos, float3 geo_normal,
         const float2 matcap_uv = float2(view_normal.x, -view_normal.y) * 0.5 + 0.5;
         const float4 ball = heap_texel(heap_at<Texture2D<float4>>(scene_texture_base() + s.toon_indices.w),
                                       heap_sampler_texture, matcap_uv);
-        const float3 matcap_tint = game_toon_encoding_srgb_to_linear(matcap_colour.rgb);
+        // Game PS 37822 cb6[18] is already linear HDR; it matches the raw
+        // material/profile payload and is used directly by the original DXBC.
+        const float3 matcap_tint = matcap_colour.rgb;
         const float3 matcap_brdf = ball.rgb * matcap_colour.a + ball.a * matcap_tint;
         color += matcap_brdf * eye_zone * lerp(environment_multiplier, 1.0, ramp_coverage) *
                  (0.5 + 0.5 * ramp_coverage) * light;
@@ -513,6 +513,8 @@ float3 captured_eye_shade(surface_sample s, float3 world_pos, float3 geo_normal,
 
     // `color *= mix(1.0, base.a, Q20)` (readable:1085) is the captured alpha-premultiply switch: `Q20` is
     // `_AlphaPremultiply` (material JSON 0.0), so the factor is exactly 1 and the line is not ported as a multiply.
-    // Path B's terminal `R114` light loop and `R75*Q164` cut term are no-ops in the capture (see the header).
-    return color;
+    // The viewer capture had no local lights, but the live scene can have them.
+    // Game eyes receive diffuse/fog here; their catchlight remains the MatCap,
+    // with GGX absent and the punctual rim branch explicitly suppressed.
+    return game_toon_add_eye_lights(color, normal, view_dir, world_pos, pre_light_colour);
 }

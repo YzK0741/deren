@@ -2529,7 +2529,12 @@ namespace deren::app {
         // recreation on restore/resize) live inside the runtime's frame phases, which main calls at
         // fine granularity so it can write per-frame data (scene node locals -> culling, skin
         // matrices, morph weights) between pacing and recording.
-        int32_t last_render_mode = 0; // gui render-mode combo (0 = pbr); applied between frames below
+        // Apply startup policy before the first frame freezes its feature set.
+        // Waiting until the post-submit GUI mirror rendered an unwanted PBR/shadow
+        // frame even when the config explicitly requested pure unlit.
+        int32_t last_render_mode = gui.render_mode;
+        runtime.set_default_pipeline(gui.render_mode == 1 ? "unlit" : "pbr");
+        app_renderer.set_unlit(gui.render_mode == 1);
 
         // ---- THE CLOUD'S FRAMING, WHEN THE MODEL PATH NAMED ONE --------------------------------------------
         // The asset itself was read from disk and handed over in 7b (that is also where its bounds and its totals come

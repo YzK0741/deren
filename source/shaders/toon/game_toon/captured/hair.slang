@@ -296,28 +296,6 @@ static bool game_toon_hair_lane_stated(float4 value) {
     return value.x != 0.0 || value.y != 0.0 || value.z != 0.0 || value.w != 0.0;
 }
 
-/// `R72` (`readable:124-138`) - the viewer's anisotropic specular LOBE for the Q156 hair-shine path.
-///
-/// `x = dot(R308, half)`; `s = max(sqrt(max(1-x*x,0)),1e-4)`; `u = clamp(R73.g * s^200, 0, 1)`; `v = x>0 ?
-/// R92^2 : 0`; the specular ramp is read at `(u, 1-v)` and the result is `tint * u * R92`. `R73.g` is the P
-/// map's reflectivity and `R92` is the strand edge fade; both are parameters here so the capture's globals stay
-/// visible at the call site.
-///
-/// The specular-ramp lane is `s.toon_indices.z` (`toon_slot::specular_ramp`). When it is absent the viewer's own
-/// `!USE_SPECULAR_RAMP` arm is used (`tint = vec3(1)`, `readable:134`), so no colour is invented.
-static float3 game_toon_hair_specular_lobe(const float3 lobe_normal, const float3 half_dir, const float p_map_g,
-                                          const float strand_fade, const uint spec_ramp_lane) {
-    const float x = dot(lobe_normal, half_dir);                                                          // readable:125
-    const float s = max(sqrt(max(1.0 - x * x, 0.0)), 1e-4);                                              // readable:126
-    const float u = clamp(p_map_g * exp2(200.0 * log2(s)), 0.0, 1.0);                                    // readable:127
-    const float v = x > 0.0 ? strand_fade * strand_fade : 0.0;                                           // readable:128
-    const float3 tint = (spec_ramp_lane != 0u)
-        ? game_toon_encoding_linear_to_srgb(frame_texture_sample(spec_ramp_lane,                                      // readable:131
-                               clamp(float2(u, 1.0 - v), float2(0.002, 0.002), float2(0.998, 0.998))).rgb)
-        : float3(1.0, 1.0, 1.0);                                                                         // readable:134
-    return tint * u * strand_fade;                                                                       // readable:137
-}
-
 // ============================================================================================================
 // THE SHADE
 // ============================================================================================================
@@ -575,6 +553,9 @@ float3 captured_hair_shade(surface_sample s, float3 world_pos, float3 geo_normal
     // (`readable:1140-1145`): this variable is that placement. It stays zero while the captured default
     // `game_toon_hair_shine_enabled` is true.
     float3 hair_neg_q156_band = float3(0.0, 0.0, 0.0);
+    // Punctual lights reuse the primary strand axis, edge fade and line gain.
+    float4 punctual_hair_direction = float4(0.0);
+    float4 punctual_hair_material = float4(0.0);
     if (game_toon_hair_shine_enabled) {
     //
     // ---- THE ROOT / HAIR FRAME (`Q116`, readable:1016-1019) ----
@@ -657,6 +638,8 @@ float3 captured_hair_shade(surface_sample s, float3 world_pos, float3 geo_normal
     const float broad_shape = max(sqrt(max(1.0 - broad_dot * broad_dot, 0.0)), 1.0e-4);                // `:1053`
     const float broad_lobe = exp2(line_range_exponent * log2(broad_shape));                            // `R43`
     const float line_gain = 1.0 + p_map.g * broad_lobe * (line_weight - 1.0);                          // `R271` (`:1054`)
+    punctual_hair_direction = float4(lobe_normal_primary, strand_fade);
+    punctual_hair_material = float4(p_map.g, anisotropy.z, line_gain, 1.0);
     const float3 line_colour = colour * line_gain;                                                     // `R337` (`:1055`)
     const float line_luma = game_toon_hair_luma(line_colour);                                           // `R56` (`:1056`)
     colour = float3(line_luma, line_luma, line_luma) +
@@ -725,7 +708,15 @@ float3 captured_hair_shade(surface_sample s, float3 world_pos, float3 geo_normal
     // THE VIEWER'S PUNCTUAL-LIGHT LOOP, `R114` (`readable:188-327`), driven by deren's `LightUBO` (the app stages
     // the captured Laevatain character-only rig into it for this preview). The capture runs it AFTER the
     // saturation lift (`:1140-1145` then `:1156`), which is exactly where this call sits.
-    colour = game_toon_add_lights(colour, shading_normal, view_dir, world_pos, s.albedo, float3(0.04), s.roughness, s.albedo);
+    // Game PS 37900: DXBC 1191-1193 scales diffuse by 0.96 and sets
+    // dielectric F0 to 0.04 * P.g. P.r remains a strand mask, not metallic.
+    // The rim branch uses unscaled base colour (DXBC 2019).
+    // PS 37900 DXBC 2042-2069 reuses the primary strand lobe for punctual lights.
+    // P.a controls the secondary main-light lobe, not punctual GGX roughness.
+    const float3 hair_f0 = float3(0.04 * p_map.g);
+    colour = game_toon_add_lights(colour, shading_normal, view_dir, world_pos,
+                                  s.albedo * 0.96, hair_f0, s.roughness, s.albedo,
+                                  punctual_hair_direction, punctual_hair_material, s.toon_indices.z);
     // ... and the `!Q156` hair band is the capture's LAST addition after it (`readable:1172-1176`); it is zero
     // while the captured default hair-shine look (`game_toon_hair_shine_enabled = true`) is on.
     colour += hair_neg_q156_band;

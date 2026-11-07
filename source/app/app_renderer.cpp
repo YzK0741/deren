@@ -298,6 +298,7 @@ namespace deren::app {
         // ASKS it - the same shape the other "ask the pass" answers below use. One copy of each
         // value, and the pass that pushes them is the one that owns them.
         bool const unlit = self.deferred != nullptr && self.deferred->unlit();
+        bool const character_shading = facts.character_forward_pending && self.character_forward != nullptr && self.character_forward->ready();
 
         // THE TWO GATES THAT USED TO BE THE FIRST LINE OF A RESOLVER. Both passes were "always active" before S3,
         // with the renderer's resolver returning false to skip them; the skip is the same, but the question now has
@@ -322,7 +323,7 @@ namespace deren::app {
             // feature_facts::character_forward_pending) AND the pass being ready. This ONE gate answers for the
             // SURFACE pass; the screen-space rim asks under its own name below, because the rewritten toon chain
             // must not wear that contour as well as the Goo rim (see `toon_screen_rim_pass::feature`).
-            return facts.character_forward_pending && self.character_forward != nullptr && self.character_forward->ready();
+            return character_shading;
         }
         if (name == "toon_screen_rim") {
             // THE SAME PREDICATE AS THE STAGE ABOVE PLUS "THE REWRITTEN CHAIN IS NOT THE ONE DRAWING" - and that
@@ -365,9 +366,10 @@ namespace deren::app {
             return facts.upscale;
         }
         if (name == "shadow") {
-            // The shadow map is only read by the shading stages. The flat render mode samples nothing, so recording
-            // the pass would be pure waste - it measured 0.22 ms of a 0.5 ms frame.
-            return facts.shadow && self.shadow != nullptr && self.shadow->ready() && !unlit;
+            // Flat deferred lighting skips shadows, but the character re-shade
+            // still samples them. Keep the producer live while that consumer runs;
+            // otherwise camera refits publish new matrices over stale shadow maps.
+            return facts.shadow && self.shadow != nullptr && self.shadow->ready() && (!unlit || character_shading);
         }
         if (name == "rt_shadow") {
             // THE PASS'S GATE, in full: the knob and the extension PLUS "this frame's structure is built for the

@@ -546,9 +546,9 @@ float3 captured_skin_face_shade(surface_sample s, float3 world_pos, float3 geo_n
     // punctual loop's rim/spec attenuation and are NOT recomputed here.
     //
     // Q153 FOR THE CAPTURED SKIN MATERIALS: both laevat skin materials state NO `_UseMetallicGlossMap`, so the
-    // captured `x3` arm is `vec4(It(_Metallic), _Specular, 1, _Smoothness)`. deren recovers `_Smoothness` as
-    // `1 - roughness` because the preview mapping sets `roughnessFactor = 1 - _Smoothness`
-    // (`tools/game_shader_audit/prepare_game_toon_preview.py:204`), and `_Specular` from its existing
+    // captured `x3` arm is `vec4(It(_Metallic), _Specular, 1, _Smoothness)`. deren reads `_Smoothness` from
+    // the skin-specific profile payload, falling back to `1 - roughness` when absent,
+    // and `_Specular` from its existing
     // `toon_colour_lane::specular_strength` (lane 4.x; `.x < 0` = the asset states nothing, so the family table
     // answers). The face's metallic/gloss LANE carries `_HighlightMap` in the staged preview and therefore must
     // NOT be read as `_UseMetallicGlossMap = 1` here.
@@ -556,7 +556,11 @@ float3 captured_skin_face_shade(surface_sample s, float3 world_pos, float3 geo_n
     const float specular_lane = toon_colour_at(heap_slots_toon_colours, colour_base + 4u).x;
     const float specular_strength = specular_lane >= 0.0 ? specular_lane : family_params.spec_strength;
     const float specular_metallic = game_toon_encoding_srgb_to_linear_channel(saturate(s.metallic)); // `Q153.r = It(_Metallic)`
-    const float smoothness = saturate(1.0 - s.roughness); // `Q153.a = _Smoothness` (preview: roughness = 1 - _Smoothness)
+    // Skin profile lane 15 carries authored smoothness; zero is a valid value.
+    // Legacy glTF previews may still carry a generic roughnessFactor of 0.8.
+    const float4 skin_material = game_toon_profile_lane(push.material_index, 15u);
+    const float smoothness = skin_material.w > 0.5 && skin_material.x >= 0.0
+        ? saturate(skin_material.x) : saturate(1.0 - s.roughness);
     float spec_187 = specular_strength; // `R187 = Q153.g`
     if (use_face_sdf) {
         spec_187 *= face_mask.g; // `:874`
@@ -591,8 +595,10 @@ float3 captured_skin_face_shade(surface_sample s, float3 world_pos, float3 geo_n
     //
     // THE PUNCTUAL LOOP'S ARGUMENTS ARE THE CAPTURED `R114` CALL'S (`:1156`): N is the shading normal, `R283`
     // is `R252` (the PRE-LIGHT composition saved above, not the albedo), and the specular F0 is `R333` - the
-    // same per-fragment colour step 12 computed. `R114` also receives `R40 = base.rgb*0.96` for its rim-mode
-    // luma; deren's `game_toon_add_lights` has one `diffuse` parameter, so `pre_light_colour` serves both (the
-    // captured punctual rig does contain rim lights, and this one-lane limitation is recorded in the notes).
-    return game_toon_add_lights(colour, normal, view_dir, world_pos, pre_light_colour, spec_f0, s.roughness, pre_light_colour) + s.emissive;
+    // same per-fragment colour step 12 computed. Rim luma uses the independent
+    // energy-scaled base, not the ramp/LUT composition. Both lobes use the
+    // authored material roughness (game PS 37820/37858).
+    const float3 rim_base = base_rgb * (0.96 * (1.0 - specular_metallic));
+    return game_toon_add_lights(colour, normal, view_dir, world_pos, pre_light_colour,
+                               spec_f0, one_minus_smoothness, rim_base) + s.emissive;
 }
