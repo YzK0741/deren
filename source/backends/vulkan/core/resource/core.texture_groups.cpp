@@ -14,15 +14,15 @@ namespace deren::vulkan {
     namespace rhi = deren::promise::rhi;
 
     rhi::error core::initialize_texture_groups() {
-        std::lock_guard lock(texture_groups.mutex);
-        if (texture_groups.gpu_ready) {
+        std::lock_guard lock(resource.texture_groups.mutex);
+        if (resource.texture_groups.gpu_ready) {
             return rhi::error::ok;
         }
-        if (!descriptor_heaps.ready()) {
+        if (!resource.descriptor_heaps.ready()) {
             return rhi::error::unsupported;
         }
         auto const base = VkDeviceSize(texture_group_state::table_slot) * 64;
-        if (texture_groups.reserved_offset != base)
+        if (resource.texture_groups.reserved_offset != base)
             return rhi::error::unsupported;
         rhi::unique_object<rhi::buffer> records{create_buffer({.size = static_cast<std::uint64_t>(1025u) * 80u,
                                                                .usage = rhi::buffer_usage::storage_coherent,
@@ -52,27 +52,27 @@ namespace deren::vulkan {
         info.viewType = VK_IMAGE_VIEW_TYPE_2D;
         info.format = image.resolved_format;
         info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        if (!descriptor_heaps.write_image(VkDeviceSize(texture_group_state::texture_base) * 64, info, VK_IMAGE_LAYOUT_GENERAL) ||
-            !descriptor_heaps.write_buffer(base, address_view.buffer_address(*records, 0), records->size(), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
+        if (!resource.descriptor_heaps.write_image(VkDeviceSize(texture_group_state::texture_base) * 64, info, VK_IMAGE_LAYOUT_GENERAL) ||
+            !resource.descriptor_heaps.write_buffer(base, resource.address_view.buffer_address(*records, 0), records->size(), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
             return rhi::error::operation_failed;
         }
-        texture_groups.records = std::move(records);
-        texture_groups.dummy_image = std::move(dummy);
-        texture_groups.dummy_view = std::move(view);
-        texture_groups.gpu_ready = true;
+        resource.texture_groups.records = std::move(records);
+        resource.texture_groups.dummy_image = std::move(dummy);
+        resource.texture_groups.dummy_view = std::move(view);
+        resource.texture_groups.gpu_ready = true;
         return rhi::error::ok;
     }
 
     rhi::error core::validate_texture_group_pipeline(rhi::pipeline_desc const& desc) {
         auto const& binding = desc.texture_group;
-        if (rhi::validate_push_constants_range(binding.push_byte_offset, 4, capabilities_view.max_push_constants_size()) != rhi::error::ok) {
+        if (rhi::validate_push_constants_range(binding.push_byte_offset, 4, this->device.capabilities_view.max_push_constants_size()) != rhi::error::ok) {
             return rhi::error::invalid_argument;
         }
         if (binding.profile != rhi::texture_group_profile::sampled_2d_16 || !desc.ray_tracing_stages.empty()) {
             return rhi::error::unsupported;
         }
         VkPhysicalDeviceProperties properties{};
-        vkGetPhysicalDeviceProperties(physical_device, &properties);
+        vkGetPhysicalDeviceProperties(this->device.physical_device, &properties);
         if ((binding.push_byte_offset & 3u) != 0 || binding.push_byte_offset > properties.limits.maxPushConstantsSize - 4 ||
             binding.shader_stage_bits == 0 || (binding.shader_stage_bits & ~15u)) {
             return rhi::error::invalid_argument;
@@ -132,16 +132,16 @@ namespace deren::vulkan {
             return rhi::error::invalid_argument;
         }
         VkFormatProperties properties{};
-        vkGetPhysicalDeviceFormatProperties(this->physical_device, image.resolved_format, &properties);
+        vkGetPhysicalDeviceFormatProperties(this->device.physical_device, image.resolved_format, &properties);
         return (properties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT) != 0 ? rhi::error::ok
                                                                                              : rhi::error::unsupported;
     }
 
     rhi::error core::write_group_texture_locked(owned_texture_group& group, std::uint32_t const index,
                                                 rhi::image& texture) noexcept {
-        // THE ONE WRITE PATH (registration + descriptor_space::write): the caller holds texture_groups.mutex,
+        // THE ONE WRITE PATH (registration + descriptor_space::write): the caller holds resource.texture_groups.mutex,
         // has established that `texture` is this backend's image, and has checked the group/index.
-        if (group.allocation >= texture_groups.groups.size() || !texture_groups.groups[group.allocation] ||
+        if (group.allocation >= resource.texture_groups.groups.size() || !resource.texture_groups.groups[group.allocation] ||
             index >= rhi::texture_group_capacity) {
             return rhi::error::invalid_argument;
         }
@@ -155,11 +155,11 @@ namespace deren::vulkan {
             group.loading.value.store(rhi::lazy_state::unloaded, std::memory_order_release);
             return rhi::error::ok;
         }
-        auto& cached = texture_groups.cache[&texture];
+        auto& cached = resource.texture_groups.cache[&texture];
         auto lease = cached.lock();
         if (!lease) {
-            auto const free = std::find(texture_groups.views.begin() + 1, texture_groups.views.end(), false);
-            if (free == texture_groups.views.end()) {
+            auto const free = std::find(resource.texture_groups.views.begin() + 1, resource.texture_groups.views.end(), false);
+            if (free == resource.texture_groups.views.end()) {
                 return rhi::error::out_of_device_memory;
             }
             auto fresh = std::shared_ptr<texture_group_state::sampled_view_lease>(
@@ -171,7 +171,7 @@ namespace deren::vulkan {
             if (!fresh->view) {
                 return rhi::error::operation_failed;
             }
-            fresh->slot = static_cast<std::uint32_t>(free - texture_groups.views.begin());
+            fresh->slot = static_cast<std::uint32_t>(free - resource.texture_groups.views.begin());
             auto const& image = static_cast<owned_image const&>(texture);
             VkImageViewCreateInfo view_info{};
             view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -179,12 +179,12 @@ namespace deren::vulkan {
             view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
             view_info.format = image.resolved_format;
             view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, image.mip_levels, 0, 1};
-            if (!descriptor_heaps.write_image((VkDeviceSize(texture_group_state::texture_base) + fresh->slot) * 64,
-                                              view_info, VK_IMAGE_LAYOUT_GENERAL)) {
+            if (!resource.descriptor_heaps.write_image((VkDeviceSize(texture_group_state::texture_base) + fresh->slot) * 64,
+                                                       view_info, VK_IMAGE_LAYOUT_GENERAL)) {
                 return rhi::error::operation_failed;
             }
             *free = true;
-            fresh->state = &texture_groups;
+            fresh->state = &resource.texture_groups;
             cached = fresh;
             lease = std::move(fresh);
         }
@@ -195,10 +195,10 @@ namespace deren::vulkan {
         // THE RECORD IS THE SHADER-FACING HALF of the write: the group table descriptor (slot 32768) points at
         // this buffer, and the pushed token selects the record. Publishing here keeps "one slot written" and
         // "the record that names it" from ever being observed apart.
-        if (group.allocation < 1024 && texture_groups.records) {
+        if (group.allocation < 1024 && resource.texture_groups.records) {
             auto const offset = (group.allocation + 1u) * sizeof(texture_group_record);
-            if (offset + sizeof(texture_group_record) <= texture_groups.records->mapped().size()) {
-                std::memcpy(texture_groups.records->mapped().data() + offset, &group.record, sizeof(group.record));
+            if (offset + sizeof(texture_group_record) <= resource.texture_groups.records->mapped().size()) {
+                std::memcpy(resource.texture_groups.records->mapped().data() + offset, &group.record, sizeof(group.record));
             }
         }
         return rhi::error::ok;
@@ -214,106 +214,19 @@ namespace deren::vulkan {
 
     core::owned_texture_group::~owned_texture_group() noexcept {
         if (owner != nullptr) {
-            std::lock_guard lock(owner->texture_groups.mutex);
+            std::lock_guard lock(owner->resource.texture_groups.mutex);
             if (generation != 0) {
-                owner->texture_groups.groups_by_token.erase(allocation + 1u);
+                owner->resource.texture_groups.groups_by_token.erase(allocation + 1u);
             }
-            owner->texture_groups.tokens_by_group.erase(this);
-            if (allocation < owner->texture_groups.groups.size()) {
-                owner->texture_groups.groups[allocation] = false;
+            owner->resource.texture_groups.tokens_by_group.erase(this);
+            if (allocation < owner->resource.texture_groups.groups.size()) {
+                owner->resource.texture_groups.groups[allocation] = false;
             }
         }
     }
 
     rhi::texture_group_ref core::assign_texture_group(rhi::texture_group_info const& info, rhi::error* result) {
-        poll_submissions();
-        auto fail = [result](rhi::error value) -> rhi::texture_group_ref {
-            if (result != nullptr) {
-                *result = value;
-            }
-            return {};
-        };
-        if (result != nullptr) {
-            *result = rhi::error::invalid_argument;
-        }
-        if (info.struct_size < sizeof(info)) {
-            return {};
-        }
-        if (logical_device == VK_NULL_HANDLE) {
-            return fail(rhi::error::not_ready);
-        }
-
-        deren::utility::vessel::array<rhi::shared_object<rhi::image>, 16> images{};
-        {
-            std::lock_guard lock(contract_images_mutex);
-            // Validate every input before acquiring or allocating any group resources.
-            for (auto const& input : info.textures) {
-                auto* image = input.value_or(nullptr);
-                if (image == nullptr) {
-                    continue;
-                }
-                if (!contract_images.contains(image)) {
-                    return {};
-                }
-                auto const& owned = *static_cast<owned_image const*>(image);
-                auto const valid = validate_texture_group_image(owned);
-                if (valid == rhi::error::unsupported) {
-                    return fail(rhi::error::unsupported);
-                }
-                if (valid != rhi::error::ok) {
-                    return {};
-                }
-            }
-            for (std::size_t i = 0; i < images.size(); ++i) {
-                if (auto* image = info.textures[i].value_or(nullptr)) {
-                    images[i] = image->share();
-                }
-            }
-        }
-        auto initialized = initialize_texture_groups();
-        if (initialized != rhi::error::ok) {
-            return fail(initialized);
-        }
-        auto answer = std::unique_ptr<owned_texture_group>(new (std::nothrow) owned_texture_group);
-        if (!answer) {
-            return fail(rhi::error::out_of_host_memory);
-        }
-        answer->owner = this;
-        rhi::error status = rhi::error::ok;
-        {
-            std::lock_guard lock(texture_groups.mutex);
-            std::erase_if(texture_groups.cache, [](auto const& item) { return item.second.expired(); });
-            if (std::any_of(images.begin(), images.end(), [](auto const& image) { return bool(image); })) {
-                auto free = std::find(texture_groups.groups.begin(), texture_groups.groups.end(), false);
-                if (free == texture_groups.groups.end()) {
-                    status = rhi::error::out_of_device_memory;
-                } else {
-                    answer->allocation = static_cast<std::uint32_t>(free - texture_groups.groups.begin());
-                    *free = true;
-                }
-            }
-            for (std::size_t i = 0; status == rhi::error::ok && i < images.size(); ++i) {
-                if (!images[i]) {
-                    continue;
-                }
-                status = write_group_texture_locked(*answer, static_cast<std::uint32_t>(i), *images[i]);
-            }
-            if (status == rhi::error::ok && answer->allocation < texture_groups.groups.size()) {
-                // THE POSITION BECOMES REFERENCEABLE only after every slot it covers was written: the token
-                // and its generation enter the map together, so `descriptor_space::write` cannot see a
-                // half-filled group.
-                answer->generation = ++texture_groups.next_generation;
-                texture_groups.groups_by_token[answer->allocation + 1u] = answer.get();
-                texture_groups.tokens_by_group[answer.get()] = answer->allocation + 1u;
-            }
-        }
-        if (status != rhi::error::ok) {
-            return fail(status);
-        }
-        if (result != nullptr) {
-            *result = rhi::error::ok;
-        }
-        return rhi::texture_group_ref(answer.release());
+        return this->resource.assign_texture_group(info, result);
     }
 
     rhi::error core::frame_commands::load_texture_group(rhi::texture_group_ref const& group) {
@@ -328,8 +241,8 @@ namespace deren::vulkan {
             return rhi::error::unsupported;
         }
         {
-            std::lock_guard lock(owner->contract_pipelines_mutex);
-            if (!owner->contract_pipelines.contains(bound_pipeline)) {
+            std::lock_guard lock(owner->resource.contract_pipelines_mutex);
+            if (!owner->resource.contract_pipelines.contains(bound_pipeline)) {
                 return rhi::error::invalid_argument;
             }
         }
@@ -338,16 +251,16 @@ namespace deren::vulkan {
         }
         std::uint32_t token = 0;
         if (group) {
-            std::lock_guard lock(owner->texture_groups.mutex);
+            std::lock_guard lock(owner->resource.texture_groups.mutex);
             // THE POINTER IS LOOKED UP, NOT CAST: a foreign `texture_group` implementation is answered
             // the contract's invalid_argument instead of being static_cast into this backend's layout.
-            auto const entry = owner->texture_groups.tokens_by_group.find(group.get());
-            if (entry == owner->texture_groups.tokens_by_group.end()) {
+            auto const entry = owner->resource.texture_groups.tokens_by_group.find(group.get());
+            if (entry == owner->resource.texture_groups.tokens_by_group.end()) {
                 return rhi::error::invalid_argument;
             }
             token = entry->second;
         }
-        if (!owner->descriptor_heaps.ready()) {
+        if (!owner->resource.descriptor_heaps.ready()) {
             return rhi::error::not_ready;
         }
         operations.append<deren::promise::rhi::recording::operation_kind::texture_group>({token}, {}, {}, group);

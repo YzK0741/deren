@@ -42,7 +42,7 @@ absorbs part of the residual; what is left is the ghost.
 Nothing stores the missing half today. `motion_previous` (`source/engine/runtime/runtime.declarations.cppm:243`)
 holds world matrices only, and the only deformation state that exists is the **current** frame's, one
 buffer per frame slot (`skin_buffers` / `morph_buffers`, `MAX_FRAMES_IN_FLIGHT = 2`,
-`source/backends/vulkan/core/core.declarations.cppm:607`). A grep for previous-frame state across `source/engine/runtime/`
+`source/backends/vulkan/core/declarations/core.declarations.cppm:607`). A grep for previous-frame state across `source/engine/runtime/`
 returns `prev_view_proj` and nothing else.
 
 ## 2. The model
@@ -66,7 +66,7 @@ deformation half address its own past differently from the rigid half, for no ga
 
 The push budget is why this matters, and it was measured rather than assumed: the scene / G-buffer leaf
 push occupies **108 of `pass::max_push_bytes = 128`** - the 96-byte `material_push_constants`
-(`scene_push_constant_size`, `source/backends/vulkan/core/core.declarations.cppm:87`, held to it by the `static_assert` at
+(`scene_push_constant_size`, `source/backends/vulkan/core/declarations/core.declarations.cppm:87`, held to it by the `static_assert` at
 `source/engine/primitive/primitives/primitive.primitives.cppm:301`) plus three 4-byte lanes `{frame_slot, image_index, extra_lane}`
 (`runtime.cpp:849`); the limit is at `source/engine/pass/pass.cppm:184`. **20 bytes stay free**, and only the morph half
 needs one of them. (THAT COUNT IS PRE-MESH-SHADER ARITHMETIC: since docs/mesh_shaders.md step 1 the same
@@ -178,9 +178,9 @@ olive"** - and today that is what a deforming mesh reports.
 The half that needs no push-block change, and it covers the assets that skin rather than morph.
 
 * **the heap family**: `heap_slots_skin_matrices_previous`, 2 slots (per-frame families span 2 slots,
-  `MAX_FRAMES_IN_FLIGHT = 2` at `source/backends/vulkan/core/core.declarations.cppm:607`), declared in **both**
+  `MAX_FRAMES_IN_FLIGHT = 2` at `source/backends/vulkan/core/declarations/core.declarations.cppm:607`), declared in **both**
   `source/shaders/common/heap_slots.slang` (beside `:56`) and the `struct heap_slots` in
-  `source/backends/vulkan/core/core.declarations.cppm` (beside `:543`), plus a `heap_skin_previous_slot` macro beside
+  `source/backends/vulkan/core/declarations/core.declarations.cppm` (beside `:543`), plus a `heap_skin_previous_slot` macro beside
   `source/shaders/common/heap_slots.slang:123`. The grid is `heap_slot_base = 16384`, `heap_slot_stride = 64`,
   `heap_slot_count = 1024` (`core.declarations.cppm:496,513-514`; `core.constructor.cppm:97-110` reserves
   it), the used span is 743 slots, so the free tail is 743..1023 - the two new families belong there

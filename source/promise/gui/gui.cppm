@@ -47,7 +47,7 @@ export namespace deren::gui {
     struct create_info {
         std::uint32_t struct_size = sizeof(create_info);
         api_type api = api_type::none;
-        deren::promise::rhi::main_context* main_context = nullptr;
+        deren::promise::rhi::main_context_view* main_context = nullptr;
         GLFWwindow* window = nullptr;
         /// THE OVERLAY'S OWN RECORDING TARGETS (abi 5): two mergeable command buffers the HOST creates through
         /// the contract and hands over - the overlay holds them, records ImGui into one per frame (the frame

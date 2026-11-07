@@ -6,7 +6,7 @@
 // `extern "C"` symbol source/promise/rhi/backend_entry.hpp declares, DEFINED here for
 // deren::vulkan::core - the object that already owns the instance, the device
 // and the swapchain, and that already derives from deren::promise::rhi::api_core
-// (source/backends/vulkan/core/core.declarations.cppm:271). There is no wrapper type: the object the
+// (source/backends/vulkan/core/declarations/core.declarations.cppm:271). There is no wrapper type: the object the
 // engine gets back from deren_make_api_core() IS the core.
 //
 // WHY A PLAIN TU AND NOT A MODULE IMPLEMENTATION: the probe backend's lesson

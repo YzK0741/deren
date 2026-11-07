@@ -32,51 +32,51 @@ namespace deren::vulkan {
     namespace rhi = deren::promise::rhi;
 
     void core::begin_gpu_timing(VkCommandBuffer const command_buffer, uint32_t const slot) noexcept {
-        this->gpu_timing_marks[slot] = 0;
-        if (!this->gpu_timing_supported) {
+        this->frame.gpu_timing_marks[slot] = 0;
+        if (!this->frame.gpu_timing_supported) {
             return;
         }
         // Reset on the GPU timeline: the query range may still be "in use" from the host's point of
         // view, and a recorded reset is ordered against the writes that follow it in the same
         // command buffer - a host-side vkResetQueryPool would need the slot to be idle, which is a
         // constraint the caller would have to remember on every path.
-        vkCmdResetQueryPool(command_buffer, this->timestamp_query_pool, slot * gpu_timing_mark_capacity, gpu_timing_mark_capacity);
+        vkCmdResetQueryPool(command_buffer, this->frame.timestamp_query_pool, slot * gpu_timing_mark_capacity, gpu_timing_mark_capacity);
     }
 
     void core::mark_gpu_timing(VkCommandBuffer const command_buffer, uint32_t const slot, VkPipelineStageFlagBits const stage,
                                std::string_view const stage_name) noexcept {
-        if (!this->gpu_timing_supported || this->gpu_timing_marks[slot] >= gpu_timing_mark_capacity) {
+        if (!this->frame.gpu_timing_supported || this->frame.gpu_timing_marks[slot] >= gpu_timing_mark_capacity) {
             return;
         }
         // The name rides the mark: static text the caller owns, stored as a view and reported
         // verbatim by the profiler's latched snapshot (the `window_title` rule - the characters
         // never move into this class).
-        this->gpu_timing_names[slot][this->gpu_timing_marks[slot]] = stage_name;
-        vkCmdWriteTimestamp(command_buffer, stage, this->timestamp_query_pool, slot * gpu_timing_mark_capacity + this->gpu_timing_marks[slot]);
-        ++this->gpu_timing_marks[slot];
+        this->frame.gpu_timing_names[slot][this->frame.gpu_timing_marks[slot]] = stage_name;
+        vkCmdWriteTimestamp(command_buffer, stage, this->frame.timestamp_query_pool, slot * gpu_timing_mark_capacity + this->frame.gpu_timing_marks[slot]);
+        ++this->frame.gpu_timing_marks[slot];
     }
 
     gpu_timing_result core::read_gpu_timings(uint32_t const slot) {
         gpu_timing_result result = {};
-        if (!this->gpu_timing_supported) {
+        if (!this->frame.gpu_timing_supported) {
             return result;
         }
         // Only read a submitted slot, and only once per submission: the caller paced the slot, so
         // the queries of its last submission are complete, while a slot whose frame failed before
         // recording has nothing new to report.
-        uint64_t const submitted = this->frame_done_values[slot];
-        if (submitted == 0 || submitted <= this->gpu_timing_read_value[slot]) {
+        uint64_t const submitted = this->frame.frame_done_values[slot];
+        if (submitted == 0 || submitted <= this->frame.gpu_timing_read_value[slot]) {
             return result;
         }
-        this->gpu_timing_read_value[slot] = submitted; // this submission is now accounted for
-        uint32_t const marks = this->gpu_timing_marks[slot];
+        this->frame.gpu_timing_read_value[slot] = submitted; // this submission is now accounted for
+        uint32_t const marks = this->frame.gpu_timing_marks[slot];
         if (marks < 2) {
             return result; // a single mark has no interval to report
         }
 
         deren::utility::vessel::array<uint64_t, gpu_timing_mark_capacity> ticks = {};
-        VkResult const status = vkGetQueryPoolResults(this->logical_device,
-                                                      this->timestamp_query_pool,
+        VkResult const status = vkGetQueryPoolResults(this->device.logical_device,
+                                                      this->frame.timestamp_query_pool,
                                                       slot * gpu_timing_mark_capacity,
                                                       marks,
                                                       sizeof(uint64_t) * marks,
@@ -91,7 +91,7 @@ namespace deren::vulkan {
 
         result.mark_count = marks;
         for (uint32_t mark = 0; mark + 1 < marks; ++mark) {
-            result.milliseconds[mark] = deren::utility::timestamp_delta_milliseconds(ticks[mark], ticks[mark + 1], this->timestamp_valid_bits, this->timestamp_period_ns);
+            result.milliseconds[mark] = deren::utility::timestamp_delta_milliseconds(ticks[mark], ticks[mark + 1], this->frame.timestamp_valid_bits, this->frame.timestamp_period_ns);
         }
         return result;
     }
@@ -112,10 +112,10 @@ namespace deren::vulkan {
         if (auto result = apply_operations(); result != rhi::error::ok)
             return result;
         core& owner = *this->owner;
-        if (!owner.gpu_timing_supported) {
+        if (!owner.frame.gpu_timing_supported) {
             return rhi::error::unsupported; // the device cannot timestamp: the report stays honestly empty
         }
-        if (!owner.frame_in_flight) {
+        if (!owner.frame.frame_in_flight) {
             return rhi::error::not_ready; // the same window `use()` refuses in
         }
         if (this->target != VK_NULL_HANDLE) {
@@ -124,7 +124,7 @@ namespace deren::vulkan {
             // has no range to open - the frame-scoped verbs' own `not_ready` window.
             return rhi::error::not_ready;
         }
-        owner.begin_gpu_timing(this->native(), static_cast<uint32_t>(owner.current_frame));
+        owner.begin_gpu_timing(this->native(), static_cast<uint32_t>(owner.frame.current_frame));
         return rhi::error::ok;
     }
 
@@ -133,20 +133,20 @@ namespace deren::vulkan {
         if (auto result = apply_operations(); result != rhi::error::ok)
             return result;
         core& owner = *this->owner;
-        if (!owner.gpu_timing_supported) {
+        if (!owner.frame.gpu_timing_supported) {
             return rhi::error::unsupported;
         }
-        if (!owner.frame_in_flight) {
+        if (!owner.frame.frame_in_flight) {
             return rhi::error::not_ready;
         }
         if (this->target != VK_NULL_HANDLE) {
             return rhi::error::not_ready; // the frame slot's range again (see begin_gpu_timing)
         }
-        uint32_t const slot = static_cast<uint32_t>(owner.current_frame);
+        uint32_t const slot = static_cast<uint32_t>(owner.frame.current_frame);
         // THE MARKS ARE POSITIONAL: an out-of-order index would mislabel every later interval, so it
         // is refused by name instead of being accepted silently (the check gpu_mark used to make by
         // reading this class's count field - the field read leaves the engine with the check).
-        if (owner.gpu_timing_marks[slot] != mark_index) {
+        if (owner.frame.gpu_timing_marks[slot] != mark_index) {
             return rhi::error::invalid_argument;
         }
         // WHICH PIPELINE STAGE the timestamp resolves at is the backend's measurement policy, not a
@@ -162,29 +162,29 @@ namespace deren::vulkan {
         // EACH BUFFER OWNS ITS OWN POOL (handles/handles.cppm): the wrapper creates the pool, allocates
         // the buffer from it and destroys the pool on release - there is no shared pool member left for
         // a caller to keep alive, and no pool shared between recording threads.
-        return ::deren::vulkan::make_command_buffer(this->logical_device, this->graphics_queue_family_index, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+        return ::deren::vulkan::make_command_buffer(this->device.logical_device, this->device.graphics_queue_family_index, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
     }
 
     vk_command_buffer core::make_secondary_command_buffer() const {
-        return ::deren::vulkan::make_command_buffer(this->logical_device, this->graphics_queue_family_index, VK_COMMAND_BUFFER_LEVEL_SECONDARY);
+        return ::deren::vulkan::make_command_buffer(this->device.logical_device, this->device.graphics_queue_family_index, VK_COMMAND_BUFFER_LEVEL_SECONDARY);
     }
 
     vk_image_view core::make_image_view(VkImage const image, VkFormat const format, VkImageViewType const type) const {
         VkImageViewCreateInfo const view_info = make_image_view_info(image, format, type, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
         VkImageView view = VK_NULL_HANDLE;
-        vkCreateImageView(this->logical_device, &view_info, nullptr, &view);
-        return vk_image_view(view, this->logical_device);
+        vkCreateImageView(this->device.logical_device, &view_info, nullptr, &view);
+        return vk_image_view(view, this->device.logical_device);
     }
 
     vk_sampler core::make_sampler(VkSamplerAddressMode const address_mode, float const max_lod) const {
         VkSamplerCreateInfo info = make_texture_sampler_info(address_mode, max_lod);
         VkSampler sampler = VK_NULL_HANDLE;
-        vkCreateSampler(this->logical_device, &info, nullptr, &sampler);
-        return vk_sampler(sampler, this->logical_device);
+        vkCreateSampler(this->device.logical_device, &info, nullptr, &sampler);
+        return vk_sampler(sampler, this->device.logical_device);
     }
 
     std::optional<vk_shader_module> core::make_shader_module(std::span<uint8_t> const shader) const noexcept {
-        return ::deren::vulkan::make_shader_module(shader, this->logical_device);
+        return ::deren::vulkan::make_shader_module(shader, this->device.logical_device);
     }
 
     void core::wait_frame_slot(uint32_t const slot) const {
@@ -196,16 +196,16 @@ namespace deren::vulkan {
     VkResult core::wait_frame_slot_result(uint32_t const slot) const noexcept {
         // Host pacing: wait until this slot's last submission (its timeline value) completed.
         // Value 0 means the slot was never submitted — nothing to wait for, SUCCESS by definition.
-        uint64_t const value = this->frame_done_values[slot];
+        uint64_t const value = this->frame.frame_done_values[slot];
         if (value == 0) {
             return VK_SUCCESS;
         }
         VkSemaphoreWaitInfo wait_info = {};
         wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
         wait_info.semaphoreCount = 1;
-        wait_info.pSemaphores = &this->frame_done_semaphores[slot];
+        wait_info.pSemaphores = &this->frame.frame_done_semaphores[slot];
         wait_info.pValues = &value;
-        auto const result = vkWaitSemaphores(this->logical_device, &wait_info, UINT64_MAX);
+        auto const result = vkWaitSemaphores(this->device.logical_device, &wait_info, UINT64_MAX);
         if (result == VK_SUCCESS) {
             poll_submissions();
         }
@@ -217,9 +217,9 @@ namespace deren::vulkan {
     }
 
     void core::to_next_frame() noexcept {
-        frame_in_flight = false;
-        this->commands_view.set_target(VK_NULL_HANDLE);
-        current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
+        frame.frame_in_flight = false;
+        this->frame.commands_view.set_target(VK_NULL_HANDLE);
+        frame.current_frame = (frame.current_frame + 1) % frame.frames_in_flight;
     }
 
     VkResult core::submit_frame(VkCommandBuffer const command_buffer, uint32_t const image_index) {
@@ -231,14 +231,14 @@ namespace deren::vulkan {
         // semaphore being waited on is binary and its value is ignored. The count is what validation
         // checks, so a zero waitSemaphoreValueCount next to waitSemaphoreCount = 1 is an error on
         // every frame; only the signal side was handled before.
-        uint32_t const slot = static_cast<uint32_t>(this->current_frame);
+        uint32_t const slot = static_cast<uint32_t>(this->frame.current_frame);
         // The value this submission asks the slot's timeline to take. It is recorded only once
         // vkQueueSubmit has accepted the submission (below): wait_frame_slot() waits on the RECORDED
         // value, so recording one that no submission will ever signal would block this slot forever.
-        uint64_t const signal_value = this->frame_done_values[slot] + 1;
+        uint64_t const signal_value = this->frame.frame_done_values[slot] + 1;
 
         constexpr VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        VkSemaphore signal_semaphores[2] = {this->frame_done_semaphores[slot], this->present_ready_semaphores[image_index]};
+        VkSemaphore signal_semaphores[2] = {this->frame.frame_done_semaphores[slot], this->frame.present_ready_semaphores[image_index]};
         uint64_t signal_values[2] = {signal_value, 0};
         // The wait side's value array, for the count rule above: the element is ignored (the semaphore
         // is binary) but the count has to be there.
@@ -254,7 +254,7 @@ namespace deren::vulkan {
         submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         submit_info.pNext = &timeline_info;
         submit_info.waitSemaphoreCount = 1;
-        submit_info.pWaitSemaphores = &this->image_available_semaphores[slot];
+        submit_info.pWaitSemaphores = &this->frame.image_available_semaphores[slot];
         submit_info.pWaitDstStageMask = &wait_stage;
         submit_info.commandBufferCount = 1;
         submit_info.pCommandBuffers = &command_buffer;
@@ -264,25 +264,25 @@ namespace deren::vulkan {
             timeline_info.waitSemaphoreValueCount = submit_info.waitSemaphoreCount = 0;
             timeline_info.signalSemaphoreValueCount = submit_info.signalSemaphoreCount = 1;
         }
-        if (frame_acquire_consumed)
+        if (frame.frame_acquire_consumed)
             timeline_info.waitSemaphoreValueCount = submit_info.waitSemaphoreCount = 0;
         auto submission = std::make_unique<pending_submission>();
         submission->owner = this;
-        submission->timeline = frame_done_semaphores[slot];
+        submission->timeline = frame.frame_done_semaphores[slot];
         submission->value = signal_value;
-        submission->groups = commands_view.group_refs;
-        submission->resources = commands_view.resource_refs;
-        submission->lazy_refs = commands_view.lazy_refs;
-        submission->secondaries = commands_view.secondary_refs;
-        std::lock_guard lock(submissions_mutex);
+        submission->groups = frame.commands_view.group_refs;
+        submission->resources = frame.commands_view.resource_refs;
+        submission->lazy_refs = frame.commands_view.lazy_refs;
+        submission->secondaries = frame.commands_view.secondary_refs;
+        std::lock_guard lock(command.submissions_mutex);
         for (auto const& secondary : submission->secondaries) {
             if (!secondary->executable || (!secondary->simultaneous_use && secondary->pending.load(std::memory_order_acquire))) {
                 return VK_NOT_READY;
             }
         }
-        pending_submissions.reserve(pending_submissions.size() + 1);
-        std::lock_guard queue_lock(this->vma.queue_access());
-        VkResult const result = vkQueueSubmit(this->graphics_queue_handle, 1, &submit_info, VK_NULL_HANDLE);
+        command.pending_submissions.reserve(command.pending_submissions.size() + 1);
+        std::lock_guard queue_lock(this->device.vma.queue_access());
+        VkResult const result = vkQueueSubmit(this->device.graphics_queue_handle, 1, &submit_info, VK_NULL_HANDLE);
         if (result == VK_SUCCESS) {
             submission->submitted = true;
             for (auto const& secondary : submission->secondaries) {
@@ -291,13 +291,13 @@ namespace deren::vulkan {
                     secondary->executable = false;
                 }
             }
-            pending_submissions.push_back(std::move(submission));
-            this->frame_done_values[slot] = signal_value;
+            command.pending_submissions.push_back(std::move(submission));
+            this->frame.frame_done_values[slot] = signal_value;
             // THE FRAME IS HANDED OVER, so there is no frame in flight to record into any more:
             // begin_commands()/frame_image() answer nullptr until the next acquire. This is the other
             // half of acquire_next_image() (core.api_core.cpp), which is what set the flag.
-            this->frame_in_flight = false;
-            this->commands_view.set_target(VK_NULL_HANDLE);
+            this->frame.frame_in_flight = false;
+            this->frame.commands_view.set_target(VK_NULL_HANDLE);
         }
         return result;
     }
@@ -305,37 +305,37 @@ namespace deren::vulkan {
     std::shared_future<deren::promise::rhi::error> core::frame_async_presentation::begin() {
         auto completion = std::make_shared<std::promise<deren::promise::rhi::error>>();
         auto result = completion->get_future().share();
-        if (!owner->frame_acquired || owner->frame_in_flight || owner->async_present_queued) {
+        if (!owner->frame.frame_acquired || owner->frame.frame_in_flight || owner->frame.async_present_queued) {
             completion->set_value(deren::promise::rhi::error::not_ready);
             return result;
         }
-        if (owner->present_pending.valid()) {
-            owner->present_pending.wait();
+        if (owner->frame.present_pending.valid()) {
+            owner->frame.present_pending.wait();
         }
-        if (!owner->present_worker) {
-            owner->present_worker = std::make_unique<deren::utility::thread_pool>(1);
+        if (!owner->frame.present_worker) {
+            owner->frame.present_worker = std::make_unique<deren::utility::thread_pool>(1);
         }
-        VkQueue const queue = owner->present_queue_handle;
-        VkSwapchainKHR const swapchain = owner->swap_chain;
-        uint32_t const image = owner->acquired_image_index;
-        VkSemaphore const ready = owner->present_ready_semaphores[image];
-        uint32_t const next_slot = (static_cast<uint32_t>(owner->current_frame) + 1u) % static_cast<uint32_t>(owner->image_available_semaphores.size());
+        VkQueue const queue = owner->device.present_queue_handle;
+        VkSwapchainKHR const swapchain = owner->frame.swap_chain;
+        uint32_t const image = owner->frame.acquired_image_index;
+        VkSemaphore const ready = owner->frame.present_ready_semaphores[image];
+        uint32_t const next_slot = (static_cast<uint32_t>(owner->frame.current_frame) + 1u) % static_cast<uint32_t>(owner->frame.image_available_semaphores.size());
         uint64_t completed = 0;
-        bool const slot_idle = owner->frame_done_values[next_slot] == 0 ||
-                               (vkGetSemaphoreCounterValue(owner->logical_device, owner->frame_done_semaphores[next_slot], &completed) == VK_SUCCESS && completed >= owner->frame_done_values[next_slot]);
-        if (slot_idle && owner->prefetched_slot == UINT32_MAX) {
+        bool const slot_idle = owner->frame.frame_done_values[next_slot] == 0 ||
+                               (vkGetSemaphoreCounterValue(owner->device.logical_device, owner->frame.frame_done_semaphores[next_slot], &completed) == VK_SUCCESS && completed >= owner->frame.frame_done_values[next_slot]);
+        if (slot_idle && owner->frame.prefetched_slot == UINT32_MAX) {
             uint32_t next_image = 0;
-            VkResult const acquired = vkAcquireNextImageKHR(owner->logical_device, swapchain, 0,
-                                                            owner->image_available_semaphores[next_slot], VK_NULL_HANDLE, &next_image);
+            VkResult const acquired = vkAcquireNextImageKHR(owner->device.logical_device, swapchain, 0,
+                                                            owner->frame.image_available_semaphores[next_slot], VK_NULL_HANDLE, &next_image);
             if (acquired == VK_SUCCESS || acquired == VK_SUBOPTIMAL_KHR) {
-                owner->prefetched_slot = next_slot;
-                owner->prefetched_image = next_image;
+                owner->frame.prefetched_slot = next_slot;
+                owner->frame.prefetched_image = next_image;
             }
         }
         core* const retained = owner;
-        owner->async_present_queued = true;
-        owner->present_pending = result;
-        bool const posted = owner->present_worker->post([retained, completion, queue, swapchain, image, ready] {
+        owner->frame.async_present_queued = true;
+        owner->frame.present_pending = result;
+        bool const posted = owner->frame.present_worker->post([retained, completion, queue, swapchain, image, ready] {
             VkPresentInfoKHR info{};
             info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
             info.waitSemaphoreCount = 1;
@@ -343,7 +343,7 @@ namespace deren::vulkan {
             info.swapchainCount = 1;
             info.pSwapchains = &swapchain;
             info.pImageIndices = &image;
-            std::lock_guard queue_lock(retained->vma.queue_access());
+            std::lock_guard queue_lock(retained->device.vma.queue_access());
             completion->set_value(present_error(vkQueuePresentKHR(queue, &info)));
         });
         if (!posted) {
@@ -361,15 +361,15 @@ namespace deren::vulkan {
         VkPresentInfoKHR present_info = {};
         present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
         present_info.waitSemaphoreCount = 1;
-        present_info.pWaitSemaphores = &this->present_ready_semaphores[image_index];
+        present_info.pWaitSemaphores = &this->frame.present_ready_semaphores[image_index];
         present_info.swapchainCount = 1;
-        present_info.pSwapchains = &this->swap_chain;
+        present_info.pSwapchains = &this->frame.swap_chain;
         present_info.pImageIndices = &image_index;
         // THE TRANSLATION IS THE BACKEND'S, at the present call site: the engine never sees a VkResult
         // (and the engine referencing a translator would JOIN the boundary worklist - the direction
         // the flip measures against).
-        std::lock_guard queue_lock(this->vma.queue_access());
-        return present_error(vkQueuePresentKHR(this->present_queue_handle, &present_info));
+        std::lock_guard queue_lock(this->device.vma.queue_access());
+        return present_error(vkQueuePresentKHR(this->device.present_queue_handle, &present_info));
     }
 
     void core::swapchain_view::release() noexcept {
@@ -396,14 +396,14 @@ namespace deren::vulkan {
     rhi::image_extent core::swapchain_view::extent() const noexcept {
         // What presentation SHOWS; the caller's render scale is the caller's own decision and is
         // deliberately not pre-multiplied here (the contract's note).
-        return {.width = this->owner->swap_chain_extent.width, .height = this->owner->swap_chain_extent.height};
+        return {.width = this->owner->frame.swap_chain_extent.width, .height = this->owner->frame.swap_chain_extent.height};
     }
 
     rhi::image_format core::swapchain_view::format() const noexcept {
         // The four 8-bit shapes a screenshot can be unpacked from; anything else is `unknown`, and the
         // engine's read stage turns that into the one-time "unsupported swapchain format" it already
         // had (runtime.readback.cppm).
-        switch (this->owner->swap_chain_image_format) {
+        switch (this->owner->frame.swap_chain_image_format) {
         case VK_FORMAT_B8G8R8A8_SRGB:
             return rhi::image_format::bgra8_srgb;
         case VK_FORMAT_B8G8R8A8_UNORM:
@@ -436,7 +436,7 @@ namespace deren::vulkan {
         //    to render into anyway. Keep the current generation untouched and let the caller retry:
         //    the frame loop already skips frames whose swapchain extent is zero
         //    (runtime::pace_and_acquire), and a restore / resize produces a sized window shortly.
-        swap_chain_support_details const support = query_swap_chain_support(this->physical_device, this->surface);
+        swap_chain_support_details const support = query_swap_chain_support(this->device.physical_device, this->device.surface);
         if (support.capabilities.currentExtent.width == 0 || support.capabilities.currentExtent.height == 0) {
             if (!this->zero_extent_recreation_logged) {
                 this->zero_extent_recreation_logged = true;
@@ -445,8 +445,8 @@ namespace deren::vulkan {
             return false; // NOTHING was rebuilt: the caller must not invalidate the generation's state
         }
         this->zero_extent_recreation_logged = false;
-        this->frame_in_flight = this->frame_acquired = false;
-        ++this->frame_acquire_epoch;
+        this->frame.frame_in_flight = this->frame.frame_acquired = false;
+        ++this->frame.frame_acquire_epoch;
 
         // 1. Wait for the device to be idle
         this->wait_idle();
@@ -459,31 +459,31 @@ namespace deren::vulkan {
         //    and is rebuilt below is the swapchain itself and the forward path's depth image.
 
         // 3. Destroy depth resources
-        for (auto const& view : depth_image_views) {
-            vkDestroyImageView(logical_device, view, nullptr);
+        for (auto const& view : frame.depth_image_views) {
+            vkDestroyImageView(this->device.logical_device, view, nullptr);
         }
-        depth_image_views.clear();
+        frame.depth_image_views.clear();
 
-        for (auto const& image : depth_images) {
-            vkDestroyImage(logical_device, image, nullptr);
+        for (auto const& image : frame.depth_images) {
+            vkDestroyImage(this->device.logical_device, image, nullptr);
         }
-        depth_images.clear();
+        frame.depth_images.clear();
 
-        for (auto const& memory : depth_image_memories) {
-            vkFreeMemory(logical_device, memory, nullptr);
+        for (auto const& memory : frame.depth_image_memories) {
+            vkFreeMemory(this->device.logical_device, memory, nullptr);
         }
-        depth_image_memories.clear();
+        frame.depth_image_memories.clear();
 
         // 4. Destroy swapchain image views
-        for (auto const& image_view : swap_chain_image_views) {
-            vkDestroyImageView(logical_device, image_view, nullptr);
+        for (auto const& image_view : frame.swap_chain_image_views) {
+            vkDestroyImageView(this->device.logical_device, image_view, nullptr);
         }
-        swap_chain_image_views.clear();
+        frame.swap_chain_image_views.clear();
 
         // 5. Destroy the swapchain itself
-        if (swap_chain != VK_NULL_HANDLE) {
-            vkDestroySwapchainKHR(logical_device, swap_chain, nullptr);
-            swap_chain = VK_NULL_HANDLE;
+        if (frame.swap_chain != VK_NULL_HANDLE) {
+            vkDestroySwapchainKHR(this->device.logical_device, frame.swap_chain, nullptr);
+            frame.swap_chain = VK_NULL_HANDLE;
         }
 
         // 6. Recreate all resources THE BACKEND OWNS
@@ -497,13 +497,13 @@ namespace deren::vulkan {
         // Present-ready semaphores are allocated per image index; destroy and rebuild when the
         // count changes (device is idle here). The per-slot timeline + binary acquire
         // semaphores are independent of the image count and survive untouched.
-        for (auto const& semaphore : present_ready_semaphores) {
-            vkDestroySemaphore(logical_device, semaphore, nullptr);
+        for (auto const& semaphore : frame.present_ready_semaphores) {
+            vkDestroySemaphore(this->device.logical_device, semaphore, nullptr);
         }
-        present_ready_semaphores.resize(swap_chain_images.size());
+        frame.present_ready_semaphores.resize(frame.swap_chain_images.size());
         VkSemaphoreCreateInfo binary_info = make_binary_semaphore_info();
-        for (auto& semaphore : present_ready_semaphores) {
-            if (vkCreateSemaphore(logical_device, &binary_info, nullptr, &semaphore) != VK_SUCCESS) {
+        for (auto& semaphore : frame.present_ready_semaphores) {
+            if (vkCreateSemaphore(this->device.logical_device, &binary_info, nullptr, &semaphore) != VK_SUCCESS) {
                 deren::utility::panic("failed to recreate present-ready semaphore!");
             }
         }
@@ -513,8 +513,8 @@ namespace deren::vulkan {
     vk_image_view core::make_depth_image_view(VkImage const image, VkFormat const format) const {
         VkImageViewCreateInfo const view_info = make_image_view_info(image, format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
         VkImageView view = VK_NULL_HANDLE;
-        vkCreateImageView(this->logical_device, &view_info, nullptr, &view);
-        return vk_image_view(view, this->logical_device);
+        vkCreateImageView(this->device.logical_device, &view_info, nullptr, &view);
+        return vk_image_view(view, this->device.logical_device);
     }
 
     vk_image_view core::make_depth_array_view(VkImage const image, VkFormat const format) const {
@@ -522,8 +522,8 @@ namespace deren::vulkan {
         // for the per-layer views the shadow pass renders into)
         VkImageViewCreateInfo const view_info = make_image_view_info(image, format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_DEPTH_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
         VkImageView view = VK_NULL_HANDLE;
-        vkCreateImageView(this->logical_device, &view_info, nullptr, &view);
-        return vk_image_view(view, this->logical_device);
+        vkCreateImageView(this->device.logical_device, &view_info, nullptr, &view);
+        return vk_image_view(view, this->device.logical_device);
     }
 
     vk_image_view core::make_depth_layer_view(VkImage const image, VkFormat const format, uint32_t const layer) const {
@@ -532,8 +532,8 @@ namespace deren::vulkan {
         VkImageViewCreateInfo view_info = make_image_view_info(image, format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT, VK_REMAINING_MIP_LEVELS, 1);
         view_info.subresourceRange.baseArrayLayer = layer;
         VkImageView view = VK_NULL_HANDLE;
-        vkCreateImageView(this->logical_device, &view_info, nullptr, &view);
-        return vk_image_view(view, this->logical_device);
+        vkCreateImageView(this->device.logical_device, &view_info, nullptr, &view);
+        return vk_image_view(view, this->device.logical_device);
     }
 
     vk_sampler core::make_shadow_sampler() const {
@@ -544,8 +544,8 @@ namespace deren::vulkan {
         // the stored depth (ref <= stored).
         VkSamplerCreateInfo info = make_shadow_sampler_info();
         VkSampler sampler = VK_NULL_HANDLE;
-        vkCreateSampler(this->logical_device, &info, nullptr, &sampler);
-        return vk_sampler(sampler, this->logical_device);
+        vkCreateSampler(this->device.logical_device, &info, nullptr, &sampler);
+        return vk_sampler(sampler, this->device.logical_device);
     }
 
     void core::create_samplers() {
@@ -554,20 +554,20 @@ namespace deren::vulkan {
         // one - while a MEMBER's destructor runs after that body, i.e. after vkDestroyDevice. The first version of
         // this move left the samplers to their destructors and validation named exactly seven leaked objects.
         this->register_cleanup([this] {
-            this->texture_sampler.release();
-            this->gbuffer_sampler.release();
-            this->taa_sampler.release();
-            this->post_sampler.release();
-            this->post_nearest_sampler.release();
-            this->shadow_sampler.release();
+            this->resource.texture_sampler.release();
+            this->resource.gbuffer_sampler.release();
+            this->resource.taa_sampler.release();
+            this->resource.post_sampler.release();
+            this->resource.post_nearest_sampler.release();
+            this->resource.shadow_sampler.release();
         });
         // The seven shared samplers, in one place: each is a device-level object a pass DECLARES by hint, so their
         // creation belongs with the device rather than with whichever subsystem happened to need one first (see
         // core.cppm's block for why, and for the one sampler that deliberately stays out).
-        this->texture_sampler_info = make_texture_sampler_info(VK_SAMPLER_ADDRESS_MODE_REPEAT, 12.0f);
-        this->texture_sampler = this->make_sampler(VK_SAMPLER_ADDRESS_MODE_REPEAT, 12.0f);
-        this->post_sampler = this->make_sampler(VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, 1.0f);
-        this->shadow_sampler = this->make_shadow_sampler();
+        this->resource.texture_sampler_info = make_texture_sampler_info(VK_SAMPLER_ADDRESS_MODE_REPEAT, 12.0f);
+        this->resource.texture_sampler = this->make_sampler(VK_SAMPLER_ADDRESS_MODE_REPEAT, 12.0f);
+        this->resource.post_sampler = this->make_sampler(VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, 1.0f);
+        this->resource.shadow_sampler = this->make_shadow_sampler();
 
         // NEAREST, clamp: the G-buffer's stored surface is read at exact texel centres - an interpolated normal or a
         // filterable material id is a different surface, not a smoother one.
@@ -575,15 +575,15 @@ namespace deren::vulkan {
         gbuffer_info.magFilter = VK_FILTER_NEAREST;
         gbuffer_info.minFilter = VK_FILTER_NEAREST;
         VkSampler gbuffer = VK_NULL_HANDLE;
-        if (vkCreateSampler(this->logical_device, &gbuffer_info, nullptr, &gbuffer) == VK_SUCCESS) {
-            this->gbuffer_sampler = vk_sampler(gbuffer, this->logical_device);
+        if (vkCreateSampler(this->device.logical_device, &gbuffer_info, nullptr, &gbuffer) == VK_SUCCESS) {
+            this->resource.gbuffer_sampler = vk_sampler(gbuffer, this->device.logical_device);
         }
 
         // ... and the same thing for the composite's GI upsample: it taps the depth and the normal at centres, and an
         // averaged depth invents a surface between two samples, which is exactly what an edge-aware test must not see.
         VkSampler nearest = VK_NULL_HANDLE;
-        if (vkCreateSampler(this->logical_device, &gbuffer_info, nullptr, &nearest) == VK_SUCCESS) {
-            this->post_nearest_sampler = vk_sampler(nearest, this->logical_device);
+        if (vkCreateSampler(this->device.logical_device, &gbuffer_info, nullptr, &nearest) == VK_SUCCESS) {
+            this->resource.post_nearest_sampler = vk_sampler(nearest, this->device.logical_device);
         }
 
         // The resolve upsamples the scene colour but must NOT average neighbouring history texels: linear
@@ -592,21 +592,21 @@ namespace deren::vulkan {
         taa_info.magFilter = VK_FILTER_LINEAR;
         taa_info.minFilter = VK_FILTER_NEAREST;
         VkSampler taa = VK_NULL_HANDLE;
-        if (vkCreateSampler(this->logical_device, &taa_info, nullptr, &taa) == VK_SUCCESS) {
-            this->taa_sampler = vk_sampler(taa, this->logical_device);
+        if (vkCreateSampler(this->device.logical_device, &taa_info, nullptr, &taa) == VK_SUCCESS) {
+            this->resource.taa_sampler = vk_sampler(taa, this->device.logical_device);
         }
 
         // THE HEAP'S COPY OF THESE, in the order source/shaders/heap_slots.glsl names them (see core.cppm's
-        // shared_sampler_infos): the heap descriptor for a sampler is the create info, and the heap itself is
+        // resource.shared_sampler_infos): the heap descriptor for a sampler is the create info, and the heap itself is
         // created later in the constructor than this function runs - so the infos are kept here and written onto
         // the sampler grid afterwards. Recomputed rather than stored one by one because two of the six share
         // gbuffer_info (the G-buffer read and the composite's nearest tap are the same sampler twice).
-        this->shared_sampler_infos[0] = this->texture_sampler_info;
-        this->shared_sampler_infos[1] = make_texture_sampler_info(VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, 1.0f);
-        this->shared_sampler_infos[2] = gbuffer_info;
-        this->shared_sampler_infos[3] = gbuffer_info;
-        this->shared_sampler_infos[4] = taa_info;
-        this->shared_sampler_infos[5] = make_shadow_sampler_info();
+        this->resource.shared_sampler_infos[0] = this->resource.texture_sampler_info;
+        this->resource.shared_sampler_infos[1] = make_texture_sampler_info(VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, 1.0f);
+        this->resource.shared_sampler_infos[2] = gbuffer_info;
+        this->resource.shared_sampler_infos[3] = gbuffer_info;
+        this->resource.shared_sampler_infos[4] = taa_info;
+        this->resource.shared_sampler_infos[5] = make_shadow_sampler_info();
     }
     std::expected<vk_pipeline, std::string_view> core::make_gbuffer_pipeline(
         std::span<uint8_t const> const vertex_shader_code,
@@ -631,9 +631,9 @@ namespace deren::vulkan {
             make_color_blend_attachment_opaque(), // emissive belongs to the depth-winning surface
         };
         auto result = deren::vulkan::make_pipeline(
-            this->logical_device,
+            this->device.logical_device,
             std::span<VkFormat const>(formats),
-            this->depth_attachment_format,
+            this->frame.depth_attachment_format,
             vertex_shader_code,
             fragment_shader_code,
             VK_SAMPLE_COUNT_1_BIT, // a G-buffer is never multisampled (see gbuffer_formats)
@@ -683,9 +683,9 @@ namespace deren::vulkan {
         // unaffected (0 px) is in `remaining_port_spec.md`'s "其余部位按参考对齐（续）" item 10.
         deren::utility::vessel::array<VkPipelineColorBlendAttachmentState, 1> const blends = {make_color_blend_attachment()};
         auto result = deren::vulkan::make_pipeline(
-            this->logical_device,
+            this->device.logical_device,
             std::span<VkFormat const>(formats),
-            this->depth_attachment_format,
+            this->frame.depth_attachment_format,
             vertex_shader_code,
             fragment_shader_code,
             VK_SAMPLE_COUNT_1_BIT, // the HDR chain is single-sampled, like the G-buffer it re-shades
@@ -725,9 +725,9 @@ namespace deren::vulkan {
         // two `Trick` shaders overlays rather than surfaces, and the reason the port needs no blend extension.
         deren::utility::vessel::array<VkPipelineColorBlendAttachmentState, 1> const blends = {make_color_blend_attachment_multiply()};
         auto result = deren::vulkan::make_pipeline(
-            this->logical_device,
+            this->device.logical_device,
             std::span<VkFormat const>(formats),
-            this->depth_attachment_format,
+            this->frame.depth_attachment_format,
             vertex_shader_code,
             fragment_shader_code,
             VK_SAMPLE_COUNT_1_BIT, // single-sampled, like the toon stage and the G-buffer it re-shades
@@ -772,9 +772,9 @@ namespace deren::vulkan {
         // (`make_color_blend_attachment_opaque`), not the overlay group's multiply.
         deren::utility::vessel::array<VkPipelineColorBlendAttachmentState, 1> const blends = {make_color_blend_attachment_opaque()};
         auto result = deren::vulkan::make_pipeline(
-            this->logical_device,
+            this->device.logical_device,
             std::span<VkFormat const>(formats),
-            this->depth_attachment_format,
+            this->frame.depth_attachment_format,
             vertex_shader_code,
             fragment_shader_code,
             VK_SAMPLE_COUNT_1_BIT, // the HDR chain is single-sampled, like the G-buffer it re-shades
@@ -819,7 +819,7 @@ namespace deren::vulkan {
         float const depth_bias_slope_factor,
         float const depth_bias_clamp) const {
         auto result = deren::vulkan::make_pipeline(
-            this->logical_device,
+            this->device.logical_device,
             VK_FORMAT_UNDEFINED, // no color attachment
             depth_format,
             vertex_shader_code,
@@ -836,24 +836,24 @@ namespace deren::vulkan {
     }
 
     void core::wait_idle() const noexcept {
-        if (this->present_pending.valid()) {
-            this->present_pending.wait();
+        if (this->frame.present_pending.valid()) {
+            this->frame.present_pending.wait();
         }
         {
-            std::lock_guard queue_lock(this->vma.queue_access());
-            if (this->prefetched_slot != UINT32_MAX) {
+            std::lock_guard queue_lock(this->device.vma.queue_access());
+            if (this->frame.prefetched_slot != UINT32_MAX) {
                 // A rebuild or shutdown may discard the prefetched frame. Consume its binary
                 // acquire signal before the same slot semaphore can be reused after a rebuild.
                 VkPipelineStageFlags const stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
                 VkSubmitInfo drain{};
                 drain.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
                 drain.waitSemaphoreCount = 1;
-                drain.pWaitSemaphores = &this->image_available_semaphores[this->prefetched_slot];
+                drain.pWaitSemaphores = &this->frame.image_available_semaphores[this->frame.prefetched_slot];
                 drain.pWaitDstStageMask = &stage;
-                (void)vkQueueSubmit(this->graphics_queue_handle, 1, &drain, VK_NULL_HANDLE);
-                this->prefetched_slot = UINT32_MAX;
+                (void)vkQueueSubmit(this->device.graphics_queue_handle, 1, &drain, VK_NULL_HANDLE);
+                this->frame.prefetched_slot = UINT32_MAX;
             }
-            vkDeviceWaitIdle(this->logical_device);
+            vkDeviceWaitIdle(this->device.logical_device);
         }
         poll_submissions(true);
     }

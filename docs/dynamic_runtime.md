@@ -394,7 +394,7 @@ A backend is not asked what it is; it is asked what it can do.
   nothing. The device facts (`device_capabilities`), the shader-group access and the descriptor space are
   what the engine itself uses. THE ESCAPE IS GONE (abi 43): its last slot existed only so the GUI overlay's
   Dear ImGui Vulkan backend could get a host command buffer, and the overlay now gets no host recording
-  target at all. The GUI receives the opaque `rhi::main_context` (abi 39) for the device root plus its OWN
+  target at all. The GUI receives the opaque `rhi::main_context_view` (abi 39) for the device root plus its OWN
   two contract `mergeable_command_buffer_ref` targets in `gui::create_info` (gui abi 6); `overlay::record()`
   starts the current target, records ImGui into that segment and returns it, and the host executes the
   segment in a dedicated LOAD + secondary-contents rendering instance AFTER the pass's own instance ends
@@ -402,7 +402,7 @@ A backend is not asked what it is; it is asked what it can do.
   keeps its own draw in the primary). The plugin still names no native type to the contract - it checks the
   target's concrete tag and casts it to the backend's shared `deren.vulkan.mergeable_command_buffer` class
   to `get()` the native handle, the same opaque-handle + concrete-tag + shared-layout rule
-  `rhi::main_context` follows (the device root moved there in abi 39, and abi 40/42 deleted the
+  `rhi::main_context_view` follows (the device root moved there in abi 39, and abi 40/42 deleted the
   resource/channel handles with their last callers). That segment's begin is the abi-45
   `command_buffer_begin_info::inherit_descriptor_heaps` opt-out: it passes false, because the Dear ImGui
   Vulkan backend binds its own classic descriptor sets and inheriting the engine's heap bind made every
@@ -437,7 +437,7 @@ Four guarantees, each measured while the boundary was built:
 
 The GUI is reached the same way: `deren.engine.gui_loader` resolves `deren_gui_<api>.dll`, and the
 overlay crosses as the `deren::gui::overlay` interface plus one C entry.
-The device root crosses as the RHI's OPAQUE `rhi::main_context` (abi 39): the contract carries only the
+The device root crosses as the RHI's OPAQUE `rhi::main_context_view` (abi 39): the contract carries only the
 concrete-identity tag, and the API-specific plugin casts it to the layout it shares with its backend
 (`deren.vulkan.main_context` for the Vulkan plugin) - so no native handle or format number is part of
 the GUI contract.

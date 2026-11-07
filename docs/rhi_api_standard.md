@@ -12,7 +12,7 @@ RFC 2119 sense.
 ## 1. Scope and source of truth
 
 - The contract is the exported modules under `source/promise/rhi/`: `rhi.contract.cppm` and `contract/` (version,
-  enums, value types, object handles, `main_context`), `rhi.api_core.cppm` and its domain partitions under
+  enums, value types, object handles, `main_context_view`), `rhi.api_core.cppm` and its domain partitions under
   `resource/`, `pipeline/`, `recording/`, `frame/`, and `core/` (interfaces and virtuals),
   `rhi.extension.cppm` (optional extensions), `rhi.core_desc.cppm` (creation parameters).
 - Every interface method listed in sections 7-8 is a virtual function that a backend implements. Default
@@ -944,7 +944,7 @@ no camera).
 
 - `[[nodiscard]] virtual std::uint32_t api_version() const noexcept = 0;` -- **Requirement:** answer the ABI number this backend implements; a host may be handed a core it did not create, so the object attests its own number and the runtime checks it after the handshake. **Returns/errors:** a number; a mismatch is refused at the entry point (`abi_mismatch`, with the backend's own number in the error information) before an object exists. **Ownership/lifetime:** a plain value. **Threading:** contract does not specify.
 
-- `[[nodiscard]] virtual main_context* main_context() noexcept {` -- **Requirement:** answer the opaque device root a plugin may need (the GUI plugin's Dear ImGui backend is the measured case); it carries no native type and no verbs in this contract. **Returns/errors:** a borrowed pointer; the DEFAULT BODY answers null, and the contract does not say when a backend must answer one. **Ownership/lifetime:** borrowed; no reference, no release, and it must be used only as the opaque root the receiving plugin validates. **Threading:** contract does not specify.
+- `[[nodiscard]] virtual main_context_view* main_context() noexcept {` -- **Requirement:** answer the opaque device root a plugin may need (the GUI plugin's Dear ImGui backend is the measured case); it carries no native type and no verbs in this contract. **Returns/errors:** a borrowed pointer; the DEFAULT BODY answers null, and the contract does not say when a backend must answer one. **Ownership/lifetime:** borrowed; no reference, no release, and it must be used only as the opaque root the receiving plugin validates. **Threading:** contract does not specify.
 
 ---
 

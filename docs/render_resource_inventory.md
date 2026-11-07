@@ -133,5 +133,5 @@ above describe future access/ordering work, not outstanding production allocatio
 - `source/shaders/lighting/rt_shadow.slang`: the mapped-TLAS traversal binding method (the MegaLights trace that
   was the second one is gone with its chain).
 - `source/shaders/gaussian/gaussian_prepare.slang`, `gaussian_raster.slang`: address-based Gaussian buffers.
-- `source/backends/vulkan/core/radix_sort.cpp`: VRDX push descriptors and restored heap state.
+- `source/backends/vulkan/core/support/radix_sort.cpp`: VRDX push descriptors and restored heap state.
 - `source/engine/pass/taa.cpp`, `post.cpp`: history copies and routed outputs.

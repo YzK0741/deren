@@ -163,7 +163,7 @@ namespace deren::vulkan::gui {
                     deren::utility::log("gui plugin: the create_info carried no main context this Vulkan plugin serves");
                     return false;
                 }
-                auto const* const context = rhi::do_concrete<deren::vulkan::main_context>(*info.main_context, deren::vulkan::main_context_name);
+                auto const* const context = rhi::do_concrete<deren::vulkan::main_context_view>(*info.main_context, deren::vulkan::main_context_name);
                 if (context->core == nullptr || context->core->api_version() != rhi::abi_version) {
                     deren::utility::log("gui plugin: no compatible RHI device root in the main context");
                     return false;

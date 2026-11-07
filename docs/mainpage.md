@@ -205,7 +205,7 @@ One contract, and every graphics backend is an implementation of it.
   unloaded, so a missing DLL is a named diagnosis rather than a loader error.
 - **The GUI plugin has its own number and its own recording targets.** `deren_gui_vulkan.dll` answers
   `deren_make_gui`, whose first argument is `gui::gui_abi_version` (6 today). The device root crosses
-  as the opaque `rhi::main_context` (abi 39), and `gui::create_info` carries two contract
+  as the opaque `rhi::main_context_view` (abi 39), and `gui::create_info` carries two contract
   `mergeable_command_buffer_ref` targets the host created; the overlay records its ImGui segment into
   one of them and returns it, and the host executes that segment in a dedicated LOAD + secondary-contents
   rendering instance after the pass's own instance ends. The GUI never records into the frame's command

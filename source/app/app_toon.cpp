@@ -97,7 +97,7 @@ namespace deren::app::detail {
     /// THE REFERENCE'S SECOND `_RS` SHEET SLOT - the one `RS_Index = 1` selects - AND IT IS NOT A LANE, nor may it
     /// become one. `toon_lane` below is sized by `deren::engine::toon_slot::count`, so a second sheet slot AS A LANE
     /// would cost a vocabulary entry, another lane block (in the SAME heap slot:
-    /// `source/backends/vulkan/core/core.declarations.cppm`'s `heap_slots::toon_lanes`) and another accessor beside
+    /// `source/backends/vulkan/core/declarations/core.declarations.cppm`'s `heap_slots::toon_lanes`) and another accessor beside
     /// the ones that exist (`source/shaders/common/heap_access.slang`'s `toon_lanes_at`/`toon_lanes2_at`/
     /// `toon_lanes3_at`/`toon_lanes4_at`, one `uint4` column each) - a fourth DESCRIPTOR SET is NOT the cost and was
     /// never the proposal (`goo_step15_lane_rs_index_spec.md` §3.5/§9.4: the rejected `Rb`).

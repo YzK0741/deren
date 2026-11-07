@@ -113,7 +113,7 @@ are retired to `source/reference/shaders/glsl.old/` (see `CMakeLists.txt`'s `THE
 stages this build compiles are Slang leaves - `docs/slang_migration.md` and `docs/shaders.md` record them.
 So the table below is a RECORD of what each retired file declared (a reader can still check each row against
 the archived source), not a description of any file's current contents: the host keeps the same resources under
-the same classic binding numbers in `source/backends/vulkan/core/core.declarations.cppm`, and every shader now reads them as
+the same classic binding numbers in `source/backends/vulkan/core/declarations/core.declarations.cppm`, and every shader now reads them as
 `heap_slots_textures`-style array entries instead of declaring a binding at all.
 
 | file (retired) | the bindings it declared | where they live now |

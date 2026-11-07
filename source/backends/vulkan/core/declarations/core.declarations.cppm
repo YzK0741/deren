@@ -27,14 +27,13 @@
 // ============================================================================
 module;
 
-#include "lazy_loading.h"
-
 #include <GLFW/glfw3.h>
 #include <cstddef>
 #include <cstdint>
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.core:declarations;
+export import deren.vulkan.core_support;
 export import deren.utility.shared;
 import deren.utility;
 export import deren.vstd;
@@ -54,7 +53,7 @@ export import :descriptor_heap;
 // back into the engine's contract.
 import deren.promise.rhi;
 import deren.promise.render_operations;
-// THE CONCRETE LAYOUT of the contract's opaque `main_context` (abi 39): the SAME interface unit the GUI
+// THE CONCRETE LAYOUT of the contract's opaque `main_context_view` (abi 39): the SAME interface unit the GUI
 // plugin compiles (vulkan_main_context), so the tag and the layout cannot fork between the two images.
 export import deren.vulkan.main_context;
 import deren.vulkan.command_buffer;
@@ -70,7 +69,7 @@ export import deren.engine.render_layout;
 export import :vma_handles;
 
 /**
- * @file source/backends/vulkan/core/core.declarations.cppm
+ * @file source/backends/vulkan/core/declarations/core.declarations.cppm
  * @brief the interface partition of `deren.vulkan.core`: the core type, its views and its helpers.
  */
 
@@ -324,13 +323,25 @@ namespace deren::vulkan {
      * locking `self_owner`, so a resource that outlives the engine's handle still has a live device. The
      * old `enable_shared_from_this`/shared_ptr spelling is gone with that batch.
      */
-    export struct core : deren::promise::rhi::api_core, deren::promise::rhi::resource_factory, deren::promise::rhi::command_context, deren::promise::rhi::frame_context, deren::utility::enable_stack_destruct {
+    export struct core : deren::promise::rhi::api_core, deren::utility::enable_stack_destruct {
         static constexpr std::string_view tag = concrete::api_core;
         [[nodiscard]] std::string_view get_tag() const noexcept override {
             return tag;
         }
         struct owned_buffer;
         struct owned_image;
+
+        // ---- THE FOUR FACETS ------------------------------------------------------------------------
+        //
+        // The RHI already partitions what a host asks the device for: resource_factory, command_context
+        // and frame_context are the three faces `api_core` publishes. These nested types are the named
+        // implementations behind those views. They hold a non-null reference to the root and own the
+        // Vulkan state for their face; the operations themselves stay on `core` and use that state
+        // through the facet. `device_facet` has no RHI interface: it is the internal owner/producer of
+        // the opaque main-context view, not a fourth public face.
+        //
+        // The reference is called `full_core`, not `owner`: the borrowed views already spell their
+        // non-owning origin `owner`, and these facets neither own the root nor may be null.
         // creation options this core was built with (window size, vsync); the window and the
         // swap chain honor them
         deren::promise::rhi::create_info create_options = {};
@@ -774,10 +785,6 @@ namespace deren::vulkan {
             core* owner = nullptr;
             [[nodiscard]] deren::promise::rhi::shared_object<deren::promise::rhi::image> retain_image() noexcept override;
         };
-        frame_resources_view frame_resources;
-        deren::promise::rhi::shared_object<frame_snapshot>::weak frame_snapshot_cache;
-        deren::utility::vessel::unordered_set<deren::promise::rhi::image const*> frame_snapshots;
-        std::uint64_t frame_acquire_epoch = 0;
 
         /// The backend's host-visible read-back slot, as the contract's `buffer`.
         ///
@@ -1307,25 +1314,6 @@ namespace deren::vulkan {
         // through the device and its pool, and a `vk_buffer` through VMA's allocator - both are gone by
         // the time member destructors run, because do_cleanup() destroys them from the destructor BODY.
         // A cleanup registered last runs first (do_cleanup is LIFO) and empties these two.
-        deren::utility::vessel::vector<vk_command_buffer> frame_command_buffers;
-        /// the recording view `begin_commands()` answers with (one object, reused every frame)
-        frame_commands commands_view;
-        /// the two frame-domain views `frame_image()` / `frame_readback_buffer()` answer with
-        frame_image_slot frame_image_view;
-        frame_readback_slot readback_slot_view;
-        /// the frame face's two views (abi 13): `walk_frames()` / `profiler()` answer with these, the
-        /// same object every call. THE VIEWS' `owner` IS SET IN THE CONSTRUCTOR - a view handed out
-        /// with a null owner is a null-dereference on first call (the `address_view` lesson: the
-        /// spike caught it as 2 FAILs before anyone looked at a frame).
-        frame_walker_view frames_view;
-        gpu_profiler_view profiler_view;
-        /// the presentation surface `frame_swapchain()` answers with (abi 14), a borrowed view
-        swapchain_view presentation_surface;
-        /// abi 39: THE MAIN-THREAD CONTEXT the GUI plugin casts (see deren.vulkan.main_context). Backend-owned
-        /// and borrowed; filled on each `main_context()` call because the handles it names are stable members.
-        deren::vulkan::main_context main_context_view;
-        frame_heap heap_view;
-        frame_descriptor_space descriptor_space_view;
         struct lazy_descriptor {
             bool image = false;
             bool published = false;
@@ -1334,13 +1322,7 @@ namespace deren::vulkan {
             deren::promise::rhi::descriptor_buffer_write buffer_write;
             std::shared_ptr<void> reference;
         };
-        std::mutex lazy_descriptors_mutex;
-        deren::utility::vessel::map<std::uint32_t, lazy_descriptor> lazy_descriptors;
         [[nodiscard]] deren::promise::rhi::error prepare_lazy_descriptors(frame_commands&) noexcept;
-        std::mutex contract_images_mutex;
-        std::mutex contract_structures_mutex;
-        deren::utility::vessel::unordered_set<deren::promise::rhi::acceleration_structure const*> contract_structures;
-        deren::utility::vessel::unordered_set<deren::promise::rhi::image const*> contract_images;
         struct owned_texture_group; // the position map below holds it by pointer; defined after the record
         struct texture_group_state {
             static constexpr std::uint32_t table_slot = 32768;
@@ -1409,15 +1391,8 @@ namespace deren::vulkan {
             }
             ~owned_resource_group() noexcept override;
         };
-        std::mutex resource_groups_mutex;
-        deren::utility::vessel::unordered_set<deren::promise::rhi::resource_group const*> resource_groups;
-        deren::utility::vessel::vector<VkDeviceSize> resource_slots;
-        deren::utility::vessel::vector<VkDeviceSize> sampler_slots;
-        std::uint32_t next_sampler = 0;
-        std::mutex group_members_mutex;
-        deren::utility::vessel::unordered_set<deren::promise::rhi::object const*> group_members;
         [[nodiscard]] std::expected<deren::promise::rhi::resource_group_ref, deren::promise::rhi::error>
-        create_resource_group(deren::promise::rhi::resource_group_desc const&) override;
+        create_resource_group(deren::promise::rhi::resource_group_desc const&);
         [[nodiscard]] deren::promise::rhi::error validate_resource_group_pipeline(deren::promise::rhi::pipeline_desc const&);
         struct owned_texture_group final : deren::promise::rhi::texture_group {
             static constexpr std::string_view tag = concrete::texture_group;
@@ -1440,7 +1415,6 @@ namespace deren::vulkan {
                 delete this;
             }
         };
-        texture_group_state texture_groups;
         [[nodiscard]] deren::promise::rhi::error initialize_texture_groups();
         [[nodiscard]] deren::promise::rhi::error validate_texture_group_pipeline(deren::promise::rhi::pipeline_desc const& desc);
         /// One image is a legal immutable-group source: this backend's, single-layer, colour, sampled.
@@ -1462,7 +1436,7 @@ namespace deren::vulkan {
             [[nodiscard]] std::expected<deren::promise::rhi::submission_token, deren::promise::rhi::error> submit(std::span<deren::promise::rhi::mergeable_command_buffer_ref const>) override;
             [[nodiscard]] deren::promise::rhi::error poll(deren::promise::rhi::submission_token) noexcept override;
             [[nodiscard]] deren::promise::rhi::error wait(deren::promise::rhi::submission_token, std::uint64_t) noexcept override;
-        } completion_view;
+        };
         struct frame_checkpoint_view final : deren::promise::rhi::frame_checkpoint {
             static constexpr std::string_view tag = "deren.vulkan.frame_checkpoint";
             [[nodiscard]] std::string_view get_tag() const noexcept override {
@@ -1471,12 +1445,7 @@ namespace deren::vulkan {
             frame_checkpoint_view() noexcept = default;
             core* owner = nullptr;
             [[nodiscard]] deren::promise::rhi::error checkpoint_and_wait() override;
-        } checkpoint_view;
-        bool frame_acquire_consumed = false;
-        std::uint64_t const completion_device_id = deren::utility::allocate_identity();
-        VkSemaphore completion_timeline = VK_NULL_HANDLE;
-        std::uint64_t completion_sequence = 0;
-        deren::promise::rhi::error completion_failure = deren::promise::rhi::error::ok;
+        };
         [[nodiscard]] deren::promise::rhi::error submit_commands(deren::promise::rhi::command_buffer&, deren::promise::rhi::submission_token*);
         [[nodiscard]] deren::promise::rhi::error submit_batch(std::span<deren::promise::rhi::mergeable_command_buffer_ref const>, deren::promise::rhi::submission_token*);
         [[nodiscard]] deren::promise::rhi::error check_completion(deren::promise::rhi::submission_token, bool wait, std::uint64_t timeout_ns) noexcept;
@@ -1493,8 +1462,6 @@ namespace deren::vulkan {
             bool submitted = false;
             ~pending_submission() noexcept;
         };
-        mutable std::mutex submissions_mutex;
-        mutable deren::utility::vessel::vector<std::unique_ptr<pending_submission>> pending_submissions;
         void poll_submissions(bool all = false) const noexcept;
         [[nodiscard]] std::shared_ptr<owned_command_buffer> retain_command(owned_command_buffer& command, bool recorded_secondary);
         /// THE COMMAND BUFFERS `create_command_buffer()` HANDED OUT (abi 15), the same registry shape
@@ -1503,13 +1470,7 @@ namespace deren::vulkan {
         /// WITHOUT casting the caller's pointer (the cast is only defined once provenance is known). Erased
         /// by `owned_command_buffer::release()`.
         [[nodiscard]] frame_commands* resolve_recorder(deren::promise::rhi::command_recorder* commands, deren::promise::rhi::error& result) noexcept;
-        std::mutex contract_command_buffers_mutex;
-        deren::utility::vessel::unordered_set<deren::promise::rhi::command_recorder const*> contract_command_buffers;
-        /// THE BATCH-ONLY HANDLES `make_mergeable_command_buffer()` HANDED OUT (abi 35): the same provenance
-        /// rule as the command-buffer registry above - the batch submission refuses a pointer this backend
-        /// did not hand out BEFORE it casts anything. Erased by `owned_mergeable_command_buffer::release()`.
-        std::mutex contract_mergeable_buffers_mutex;
-        deren::utility::vessel::unordered_set<deren::promise::rhi::command_recorder const*> contract_mergeable_buffers;
+
         /// the tier-2 address object `query_extension(device_address)` answers with
         struct frame_gpu_sorting final : deren::promise::rhi::gpu_sorting {
             static constexpr std::string_view tag = concrete::gpu_sorting;
@@ -1520,8 +1481,6 @@ namespace deren::vulkan {
             core* owner = nullptr;
             [[nodiscard]] deren::promise::rhi::radix_sorter* create_radix_sorter() override;
         };
-        bool gpu_sorting_available = false;
-        frame_gpu_sorting sorting_view;
         struct frame_async_presentation final : deren::promise::rhi::async_presentation {
             static constexpr std::string_view tag = concrete::async_presentation;
             [[nodiscard]] std::string_view get_tag() const noexcept override {
@@ -1531,13 +1490,6 @@ namespace deren::vulkan {
             core* owner = nullptr;
             std::shared_future<deren::promise::rhi::error> begin() override;
         };
-        frame_async_presentation async_presentation_view;
-        std::unique_ptr<deren::utility::thread_pool> present_worker;
-        std::shared_future<deren::promise::rhi::error> present_pending;
-        bool async_present_queued = false;
-        // Acquired before the worker enters presentation, published only by the next frame open.
-        mutable uint32_t prefetched_slot = UINT32_MAX;
-        uint32_t prefetched_image = 0;
         struct scoped_sync_view final : deren::promise::rhi::scoped_synchronization {
             static constexpr std::string_view tag = concrete::scoped_synchronization;
             [[nodiscard]] std::string_view get_tag() const noexcept override {
@@ -1551,26 +1503,6 @@ namespace deren::vulkan {
             [[nodiscard]] deren::promise::rhi::error validate(std::span<deren::promise::rhi::scoped_image_barrier const>, std::span<deren::promise::rhi::scoped_buffer_barrier const>) const noexcept override;
             [[nodiscard]] deren::promise::rhi::error record(deren::promise::rhi::command_recorder&, std::span<deren::promise::rhi::scoped_image_barrier const>, std::span<deren::promise::rhi::scoped_buffer_barrier const>) const noexcept override;
         };
-        scoped_sync_view scoped_sync;
-        VkQueueFlags synchronization_queue_flags = 0;
-        std::mutex contract_buffers_mutex;
-        deren::utility::vessel::unordered_set<deren::promise::rhi::buffer const*> contract_buffers;
-        buffer_address_view address_view;
-        /// the tier-2 host-copy object `query_extension(host_image_copy)` answers with (③-D/E step 2) -
-        /// the first thing that serves that ability, which the contract had announced from the start
-        frame_host_copy host_copy_view;
-        /// the tier-2 `device_capabilities` object `query_extension(device_capabilities)` answers with, and it
-        /// is announced UNCONDITIONALLY because every method of it is answerable once the device exists
-        frame_device_capabilities capabilities_view;
-        frame_shader_group_access shader_groups_view;
-        std::mutex contract_pipelines_mutex;
-        deren::utility::vessel::unordered_set<deren::promise::rhi::pipeline const*> contract_pipelines;
-        /// the read-back slot's allocation and its cached handle / mapping / capacity: host-visible,
-        /// host-coherent and TRANSFER_DST, grown on demand (see frame_readback_buffer())
-        vk_buffer readback_slot_buffer;
-        VkBuffer readback_slot_handle = VK_NULL_HANDLE;
-        void* readback_slot_mapped = nullptr;
-        VkDeviceSize readback_slot_size = 0;
         /// true between the ACQUIRE of a frame and the SUBMIT that hands it to the queue: it is the window
         /// `begin_commands()`, `use()` and `copy_image_to_buffer()` answer in (nullptr, or
         /// `error::not_ready`, outside it)
@@ -1580,124 +1512,9 @@ namespace deren::vulkan {
         std::uint64_t deferred_retained = 0;
         std::uint64_t emitted_setters = 0;
         std::uint64_t emitted_work = 0;
-        std::atomic<std::uint64_t> resource_identity{1};
-        bool frame_in_flight = false;
-        /// whether an acquire has EVER succeeded. `frame_image()` answers nullptr before the first one:
-        /// `acquired_image_index` defaults to 0, which is a REAL image (the wrong one), so the index alone
-        /// cannot tell "no frame yet" from "frame 0"
-        bool frame_acquired = false;
 
         /// the VkCommandBuffer of the frame slot in flight (VK_NULL_HANDLE when there is none)
         [[nodiscard]] VkCommandBuffer frame_command_buffer() const noexcept;
-
-        VkInstance instance = VK_NULL_HANDLE;
-        // called logical_device, not device: the structured binding of that name in core.constructor.cppm
-        // would hide this member and MSVC /W4 reports C4458 (an error under /WX).
-        VkDevice logical_device = VK_NULL_HANDLE;
-        VkPhysicalDevice physical_device = VK_NULL_HANDLE;
-        // properties of the picked physical device (VkPhysicalDeviceProperties: limits such as
-        // timestampPeriod, bufferImageGranularity, maxPushConstantsSize + the device name).
-        // Filled in init_device_and_queue() from the capabilities query it already runs - no
-        // second vkGetPhysicalDeviceProperties round trip.
-        VkPhysicalDeviceProperties device_properties = {};
-        // Ray tracing is optional and comes from the device, not from a build option: when this is
-        // false the extensions were not enabled (see device_capabilities) and every ray-traced path
-        // skips itself. The properties carry the two limits the AS builder needs - the scratch
-        // buffer's required address alignment and the per-level instance/geometry caps - and are a
-        // plain data holder like device_properties above (assigned from the query, never passed to
-        // Vulkan), so they are zero-initialized rather than carrying a fixed sType.
-        bool ray_query_available = false;
-        /// @brief whether the RT pipeline (traceRaysEXT + a shader binding table) can be used at all:
-        ///        the extension set AND the feature, enabled together at device creation
-        bool ray_tracing_pipeline_available = false;
-        /// @brief whether VK_EXT_opacity_micromap is enabled: the micromap state that makes an
-        ///        alphaMode MASK surface opaque/transparent per microtriangle. Needs the RT pipeline.
-        bool opacity_micromap_available = false;
-        VkPhysicalDeviceAccelerationStructurePropertiesKHR acceleration_structure_properties = {};
-        /// @brief the micromap subdivision levels the device allows (queried with its feature)
-        VkPhysicalDeviceOpacityMicromapPropertiesEXT opacity_micromap_properties = {};
-        /// @brief the SBT numbers (handle size, region base alignment, handle alignment, recursion depth)
-        ///        a ray-tracing pipeline's shader binding table has to be built against
-        VkPhysicalDeviceRayTracingPipelinePropertiesKHR ray_tracing_pipeline_properties = {};
-        /**
-         * @brief VK_EXT_mesh_shader: whether the device runs a MESH pipeline at all, and the dispatch command
-         *        that goes with it (docs/mesh_shaders.md)
-         * @note the command is fetched through `vkGetDeviceProcAddr` because `vkCmdDrawMeshTasksEXT` is an
-         *       EXTENSION command that the loader's import library does not export - calling it directly is a
-         *       link error (`undefined symbol: vkCmdDrawMeshTasksEXT`), which is how this was learned. It is
-         *       resolved once here rather than per use, and it is null on a device without the extension.
-         * @note this is the FEATURE half only (extension + `meshShader`); whether a pass may use it also depends
-         *       on the push budget the stage block needs, and that decision is the RUNTIME's (see
-         *       runtime::mesh_shaders), because a pass is not the only thing that could want it.
-         */
-        bool mesh_shader_available = false;
-        bool buffer_int64_atomics_available = false;
-        bool task_shader_available = false;
-        PFN_vkCmdDrawMeshTasksEXT mesh_dispatch = nullptr;
-        /// ... and the INDIRECT form (`vkCmdDrawMeshTasksIndirectEXT`), resolved the same way and null on the same
-        /// devices: it reads the three group counts out of a BUFFER instead of taking them as arguments, which is
-        /// the seam a COMPUTE culling pass needs - the counts are then decided on the GPU, after culling, rather
-        /// than by the host that recorded the draw (see runtime::draw_mesh_tasks_indirect)
-        PFN_vkCmdDrawMeshTasksIndirectEXT mesh_dispatch_indirect = nullptr;
-        /// `vkCmdTraceRaysKHR`, THE SAME SHAPE AS THE MESH COMMANDS (abi 24): the ray-tracing launch is an
-        /// extension entry point the loader's import library does not export, so it is resolved once here and is
-        /// null on a device without the ray-tracing pipeline extension. `frame_commands::trace_rays` is the
-        /// recording face's verb (a launch is an ordered recording command like `draw`/`dispatch`/
-        /// `draw_mesh_tasks`), and it records NOTHING where this is null - a pass that launches rays is only built
-        /// when its pipeline could be created, which needs that extension.
-        PFN_vkCmdTraceRaysKHR ray_trace_launch = nullptr;
-        /// ---- THE ACCELERATION-STRUCTURE ENTRY POINTS (tier-1 since abi 26) ------------------------------
-        ///
-        /// The same rule as the mesh commands and the launch: the loader's import library does not export them,
-        /// so they are resolved once through `vkGetDeviceProcAddr`, and every one is null on a device without
-        /// `VK_KHR_acceleration_structure`. `create_acceleration_structure` refuses by name while they are
-        /// null, and the two recording verbs answer `unsupported` - a build that cannot be recorded must not
-        /// look like one that was.
-        PFN_vkCreateAccelerationStructureKHR acceleration_structure_create = nullptr;
-        PFN_vkDestroyAccelerationStructureKHR acceleration_structure_destroy = nullptr;
-        PFN_vkGetAccelerationStructureBuildSizesKHR acceleration_structure_build_sizes = nullptr;
-        PFN_vkGetAccelerationStructureDeviceAddressKHR acceleration_structure_address = nullptr;
-        PFN_vkCmdBuildAccelerationStructuresKHR acceleration_structure_build = nullptr;
-        /// ---- THE MICROMAP ENTRY POINTS (tier-1 since abi 27, plan S1's P4): the same rule and the same shape
-        ///      again, resolved once at startup when the device has VK_EXT_opacity_micromap. All four are null
-        ///      otherwise, `create_micromap` refuses by name, and `build_micromap` answers `unsupported`.
-        PFN_vkCreateMicromapEXT micromap_create = nullptr;
-        PFN_vkDestroyMicromapEXT micromap_destroy = nullptr;
-        PFN_vkGetMicromapBuildSizesEXT micromap_build_sizes = nullptr;
-        PFN_vkCmdBuildMicromapsEXT micromap_build = nullptr;
-        /// VK_EXT_host_image_copy (REQUIRED - see host_image_copy_available below): the copy between an
-        /// image and HOST memory that the IMPLEMENTATION performs - no command buffer, no staging buffer,
-        /// no submission. Resolved through vkGetDeviceProcAddr like the mesh commands above, because the
-        /// loader's import library does not export it; the startup check panics when it cannot be resolved.
-        PFN_vkCopyImageToMemoryEXT copy_image_to_memory = nullptr;
-        /// the other direction of the same extension: HOST memory -> image. The image upload path uses it
-        /// (instead of staging buffer + vkCmdCopyBufferToImage); resolved here and checked at startup for
-        /// the same reason as its twin above.
-        PFN_vkCopyMemoryToImageEXT copy_memory_to_image = nullptr;
-        /// whether the host image copy is CONFIRMED USABLE on this device: the extension, its
-        /// hostImageCopy feature, BOTH entry points resolving, and GENERAL present in the device's
-        /// copy-source AND copy-destination layout lists - every one of them checked at construction, and
-        /// a missing one is a NAMED STARTUP FAILURE (core.constructor.cppm), not a downgrade. In a running
-        /// process this member is therefore true: it exists so the paths that use the extension can state
-        /// their precondition, not to choose between implementations.
-        bool host_image_copy_available = false;
-        /// one line for the tier-1 acceleration-structure refusal (see that definition): a caller that reads a
-        /// `nullptr` has to be able to tell "not served yet" from "this device cannot"
-        bool acceleration_structure_refusal_logged = false;
-        /// ... and one for the micromap factory (tier-1 since abi 27), for the same reason
-        bool micromap_refusal_logged = false;
-        // called graphics_queue_family_index, not graphics_family_index: the structured binding of that name
-        // in core.constructor.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
-        uint32_t graphics_queue_family_index = 0;
-        // called present_queue_family_index, not present_family_index: the structured binding of that name
-        // in core.constructor.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
-        uint32_t present_queue_family_index = 0;
-        VkDebugUtilsMessengerEXT debug_messenger = VK_NULL_HANDLE;
-
-        /// THE WINDOW THIS CORE OWNS, and ONLY when it created one: with a caller-provided window this
-        /// stays null, because since the SHARED flip the caller hands over a NATIVE HANDLE (an HWND) rather
-        /// than a `GLFWwindow*` made by another image's GLFW - see init_surface in core.constructor.cppm.
-        GLFWwindow* window = nullptr;
 
         // ---- facade operations (keep raw Vulkan / GLFW calls out of the caller) ----
         void wait_idle() const noexcept; // vkDeviceWaitIdle
@@ -1722,13 +1539,13 @@ namespace deren::vulkan {
         // virtual, so it emits no symbol of its own and the boundary's measured count stays at zero.
         [[nodiscard]] std::uint32_t api_version() const noexcept override;
         [[nodiscard]] deren::promise::rhi::texture_group_ref assign_texture_group(
-            deren::promise::rhi::texture_group_info const& info, deren::promise::rhi::error* result = nullptr) override;
+            deren::promise::rhi::texture_group_info const& info, deren::promise::rhi::error* result = nullptr);
         [[nodiscard]] deren::promise::rhi::ability_bits abilities() const noexcept override;
         [[nodiscard]] deren::promise::rhi::extension* query_extension(deren::promise::rhi::extension_kind kind) noexcept override;
 
-        [[nodiscard]] std::expected<deren::promise::rhi::unique_object<deren::promise::rhi::lazy_buffer>, deren::promise::rhi::error> create_lazy_buffer(deren::promise::rhi::lazy_buffer_desc const&) override;
-        [[nodiscard]] std::expected<deren::promise::rhi::unique_object<deren::promise::rhi::lazy_image>, deren::promise::rhi::error> create_lazy_image(deren::promise::rhi::lazy_image_desc const&) override;
-        [[nodiscard]] deren::promise::rhi::resource_memory_statistics memory_statistics() const noexcept override;
+        [[nodiscard]] std::expected<deren::promise::rhi::unique_object<deren::promise::rhi::lazy_buffer>, deren::promise::rhi::error> create_lazy_buffer(deren::promise::rhi::lazy_buffer_desc const&);
+        [[nodiscard]] std::expected<deren::promise::rhi::unique_object<deren::promise::rhi::lazy_image>, deren::promise::rhi::error> create_lazy_image(deren::promise::rhi::lazy_image_desc const&);
+        [[nodiscard]] deren::promise::rhi::resource_memory_statistics memory_statistics() const noexcept;
         [[nodiscard]] deren::promise::rhi::error materialize(owned_buffer&) noexcept;
         [[nodiscard]] deren::promise::rhi::error materialize(owned_image&) noexcept;
         [[nodiscard]] deren::promise::rhi::error materialize(owned_image_view&) noexcept;
@@ -1738,21 +1555,21 @@ namespace deren::vulkan {
         [[nodiscard]] std::shared_ptr<void> depend_on(owned_image const&);
         [[nodiscard]] VkFormat resolve_format(deren::promise::rhi::image_format) const noexcept;
         [[nodiscard]] std::uint64_t internal_address(owned_buffer const&, std::uint64_t offset = 0) const noexcept;
-        [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::buffer> create_buffer(deren::promise::rhi::buffer_desc const& desc) override;
+        [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::buffer> create_buffer(deren::promise::rhi::buffer_desc const& desc);
         /// THE BACKEND'S OWN SPELLING of `create_buffer`: the factories hand CALLERS an unique_object, but the
         /// backend's storage fields keep the raw handle and release it in their own teardown (it is the owner
         /// either way). Not part of the override surface.
         [[nodiscard]] deren::promise::rhi::buffer* create_buffer_raw(deren::promise::rhi::buffer_desc const& desc);
-        [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::image> create_image(deren::promise::rhi::image_desc const& desc) override;
+        [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::image> create_image(deren::promise::rhi::image_desc const& desc);
         /// TIER-1 SINCE ABI 26 AND REFUSED BY NAME BY THIS BACKEND UNTIL PLAN S1's P1b: the shape exists (see
         /// the definition's note for what landing it takes), so a caller gets a logged `nullptr` - the same
         /// named refusal for an unsupported resource.
-        [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::acceleration_structure> create_acceleration_structure(deren::promise::rhi::acceleration_structure_desc const& desc) override;
+        [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::acceleration_structure> create_acceleration_structure(deren::promise::rhi::acceleration_structure_desc const& desc);
         /// TIER-1 SINCE ABI 27 (plan S1's P4), refused by name on a device without VK_EXT_opacity_micromap
-        [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::micromap> create_micromap(deren::promise::rhi::micromap_desc const& desc) override;
-        [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::sampler> create_sampler(deren::promise::rhi::sampler_desc const& desc) override;
-        [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::shader> create_shader(deren::promise::rhi::shader_desc const& desc) override;
-        [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::pipeline> create_pipeline(deren::promise::rhi::pipeline_desc const& desc) override;
+        [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::micromap> create_micromap(deren::promise::rhi::micromap_desc const& desc);
+        [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::sampler> create_sampler(deren::promise::rhi::sampler_desc const& desc);
+        [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::shader> create_shader(deren::promise::rhi::shader_desc const& desc);
+        [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::pipeline> create_pipeline(deren::promise::rhi::pipeline_desc const& desc);
         /**
          * THE COMPUTE SPELLING OF `create_pipeline` (abi 21), split out because it shares NOTHING with the
          * graphics path but the descriptor: one stage from `compute_code`, a NULL layout with the heap flag,
@@ -1767,36 +1584,36 @@ namespace deren::vulkan {
          * `bind_point` it sets - the ray-tracing one, which is what makes `bind_pipeline` work for it.
          */
         [[nodiscard]] deren::promise::rhi::pipeline* create_ray_tracing_pipeline(deren::promise::rhi::pipeline_desc const& desc, char const* what);
-        [[nodiscard]] deren::promise::rhi::command_buffer* begin_commands() override;
+        [[nodiscard]] deren::promise::rhi::command_buffer* begin_commands();
         // ---- S2 batch 2: the recording surface's frame-domain views --------------------------------
         // `begin_commands()` now hands out a REAL list (the frame's primary command buffer, which this
         // class owns - see command_buffers below), so the tier-2 verbs that take a `command_buffer&`
         // (push_constants / draw_mesh_tasks / build_acceleration_structure) become reachable, and the
         // read-back's copy can be recorded into the frame it belongs to.
-        [[nodiscard]] deren::promise::rhi::image* frame_image() noexcept override;
-        [[nodiscard]] deren::promise::rhi::buffer* frame_readback_buffer() noexcept override;
-        [[nodiscard]] deren::promise::rhi::submit_info frame_begin() override;
-        [[nodiscard]] deren::promise::rhi::error present() override;
+        [[nodiscard]] deren::promise::rhi::image* frame_image() noexcept;
+        [[nodiscard]] deren::promise::rhi::buffer* frame_readback_buffer() noexcept;
+        [[nodiscard]] deren::promise::rhi::submit_info frame_begin();
+        [[nodiscard]] deren::promise::rhi::error present();
         void wait_idle() override;
         // ---- the frame face (abi 13, grown in abi 14): appended, after every virtual the older
         // engines dispatch ----
-        [[nodiscard]] deren::promise::rhi::frame_walker* walk_frames() noexcept override;
-        [[nodiscard]] deren::promise::rhi::gpu_profiler* profiler() noexcept override;
-        [[nodiscard]] deren::promise::rhi::swapchain* frame_swapchain() noexcept override;
-        [[nodiscard]] deren::promise::rhi::error submit() override;
-        [[nodiscard]] deren::promise::rhi::error submit(deren::promise::rhi::command_buffer& commands) override;
+        [[nodiscard]] deren::promise::rhi::frame_walker* walk_frames() noexcept;
+        [[nodiscard]] deren::promise::rhi::gpu_profiler* profiler() noexcept;
+        [[nodiscard]] deren::promise::rhi::swapchain* frame_swapchain() noexcept;
+        [[nodiscard]] deren::promise::rhi::error submit();
+        [[nodiscard]] deren::promise::rhi::error submit(deren::promise::rhi::command_buffer& commands);
         /// abi 39: the OPAQUE main-thread context the GUI plugin casts to its Vulkan layout
         /// (source/backends/vulkan/main_context/main_context.cppm). Borrowed; nullptr only if this core has
         /// nothing to hand out (this backend always does).
-        [[nodiscard]] deren::promise::rhi::main_context* main_context() noexcept override;
+        [[nodiscard]] deren::promise::rhi::main_context_view* main_context() noexcept override;
         /// abi 35: the batch submission (see `mergeable_command_buffer` and `core::submit(span)`).
-        [[nodiscard]] deren::promise::rhi::error submit(std::span<deren::promise::rhi::mergeable_command_buffer_ref const> batch) override;
+        [[nodiscard]] deren::promise::rhi::error submit(std::span<deren::promise::rhi::mergeable_command_buffer_ref const> batch);
         /// abi 35: the batch-only recording handle. The returned handle carries one reference, dropped by
         /// `release()`; the batch submission shares the underlying secondary through the owned registry.
-        [[nodiscard]] deren::promise::rhi::mergeable_command_buffer_ref make_mergeable_command_buffer(deren::promise::rhi::command_buffer_desc const& desc) override;
+        [[nodiscard]] deren::promise::rhi::mergeable_command_buffer_ref make_mergeable_command_buffer(deren::promise::rhi::command_buffer_desc const& desc);
         /// abi 15: the owned recording handle. The result is heap-allocated here and destroyed by the
         /// contract's `release()` (which is also what removes it from the registry below).
-        [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::command_buffer> create_command_buffer(deren::promise::rhi::command_buffer_desc const& desc) override;
+        [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::command_buffer> create_command_buffer(deren::promise::rhi::command_buffer_desc const& desc);
         /// THE OWNED-BUFFER ALLOCATION, without the contract kind: the contract factory only makes a
         /// PRIMARY now (abi 37 retired the secondary kind), and `make_mergeable_command_buffer` calls this
         /// directly to allocate the secondary it executes in its batches. `level` is the API level, not a
@@ -1805,32 +1622,14 @@ namespace deren::vulkan {
         /// abi 21/44: THE SAME OWNED HANDLE, handed over as the contract's `shared_object` - its control
         /// block's last copy calls `release()`, so no call site spells it. Empty = the same refusal
         /// `create_command_buffer()` reports as `nullptr` (logged there, once per call site).
-        [[nodiscard]] deren::promise::rhi::shared_object<deren::promise::rhi::command_buffer> make_command_buffer(deren::promise::rhi::command_buffer_desc const& desc) override;
+        [[nodiscard]] deren::promise::rhi::shared_object<deren::promise::rhi::command_buffer> make_command_buffer(deren::promise::rhi::command_buffer_desc const& desc);
 
-        VkSurfaceKHR surface = VK_NULL_HANDLE;
-
-        // called graphics_queue_handle, not graphics_queue: the structured binding of that name in
-        // core.constructor.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
-        VkQueue graphics_queue_handle = VK_NULL_HANDLE;
-        // called present_queue_handle, not present_queue: the structured binding of that name in
-        // core.constructor.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
-        VkQueue present_queue_handle = VK_NULL_HANDLE;
-        uint32_t graphics_queue_family = VK_QUEUE_FAMILY_IGNORED;
-
-        VkSwapchainKHR swap_chain = {};
-        deren::utility::vessel::vector<VkImage> swap_chain_images = {};
-        VkFormat swap_chain_image_format = {};
-        ::deren::promise::rhi::image_extent swap_chain_extent = {};
-        /// the swapchain image the contract's frame_begin() acquired (vkAcquireNextImageKHR), i.e. what
-        /// the contract's present() hands to the presentation engine. The runtime's own pacing path
-        /// keeps its own `current_image_index` until it migrates onto the contract (S3).
-        uint32_t acquired_image_index = 0;
         /**
-         * @brief the extent the RENDER chain runs at: `swap_chain_extent` scaled by `render_scale`
+         * @brief the extent the RENDER chain runs at: `frame.swap_chain_extent` scaled by `render_scale`
          *
          * This is the ONE definition of "the frame's resolution": `runtime::pass_frame` hands it to every
          * pass (so a `full` or `half` `extent_rule` is relative to it), and every render target this core
-         * creates is created with it. At `render_scale == 1.0` it returns `swap_chain_extent` exactly, so a
+         * creates is created with it. At `render_scale == 1.0` it returns `frame.swap_chain_extent` exactly, so a
          * frame at the default scale is the frame this renderer always produced - which is what makes the
          * decoupling verifiable rather than merely plausible.
          *
@@ -1843,7 +1642,7 @@ namespace deren::vulkan {
                 uint32_t const value = static_cast<uint32_t>(static_cast<float>(axis) * this->render_scale + 0.5f);
                 return value == 0u ? 1u : value; // a zero extent is not a small frame, it is an invalid one
             };
-            return ::deren::promise::rhi::image_extent{scaled(this->swap_chain_extent.width), scaled(this->swap_chain_extent.height)};
+            return ::deren::promise::rhi::image_extent{scaled(this->frame.swap_chain_extent.width), scaled(this->frame.swap_chain_extent.height)};
         }
         /// THE SAME SIZE, IN THE API'S OWN STRUCT (plan X5 B3.2): `VkRect2D`'s extent and the swapchain create
         /// info still take a `VkExtent2D`, so this is the ONE place that conversion lives. The engine's own
@@ -1857,7 +1656,6 @@ namespace deren::vulkan {
         // Whether the swapchain images were created with VK_IMAGE_USAGE_TRANSFER_SRC_BIT (i.e. the
         // surface supports it). The screenshot read-back copies from a swapchain image and is only
         // legal when this is true - see init_swap_chain().
-        bool swapchain_transfer_src_supported = false;
         // NOTE: there is deliberately NO `swapchain_host_transfer_supported` beside it. A swapchain
         // image's usage has to be a subset of the surface's supportedUsageFlags
         // (VUID-VkSwapchainCreateInfoKHR-imageUsage-01276), and the surfaces this renderer runs on do not
@@ -1869,9 +1667,6 @@ namespace deren::vulkan {
         // G-buffer cannot be multisampled without per-sample shading, so the scene has always
         // rendered at 1x, and with no second path there is nothing left for the setting to select.
         // The anti-aliasing story is TAA (and FXAA) on the shaded image instead.
-        deren::utility::vessel::vector<VkImageView> swap_chain_image_views = {};
-
-        VkFormat color_format = VK_FORMAT_UNDEFINED;
         // ---- THE RENDER CHAIN'S TARGETS ARE THE ENGINE'S (③-D/E A1.1-A1.7) ---------------------------
         // Every per-image and per-frame-slot target this backend used to create, own and destroy stood
         // here: the HDR target and the display-referred (LDR) target, the G-buffer cluster (the three
@@ -1885,12 +1680,8 @@ namespace deren::vulkan {
         // (above), the forward path's depth image (below), the samplers, the command buffers, the
         // allocator and the device.
 
-        // called depth_attachment_format, not depth_format: make_depth_pipeline keeps a parameter named
+        // called frame.depth_attachment_format, not depth_format: make_depth_pipeline keeps a parameter named
         // depth_format, which would hide the member of that name and MSVC /W4 reports C4458 (an error under /WX).
-        VkFormat depth_attachment_format = {};
-        deren::utility::vessel::vector<VkImage> depth_images = {};
-        deren::utility::vessel::vector<VkDeviceMemory> depth_image_memories = {};
-        deren::utility::vessel::vector<VkImageView> depth_image_views = {};
 
         // NOTE: there is deliberately no `command_pool` member beside the frame command buffers below.
         // Each `vk_command_buffer` OWNS ITS OWN pool (handles/handles.cppm): the shared pool was the
@@ -1908,50 +1699,6 @@ namespace deren::vulkan {
         // ensure_* functions - the "naming accident" this comment records.
         //
         // `env_sampler` is deliberately NOT here: its max_lod is the app's environment mip count, not a device fact.
-        vk_sampler texture_sampler = {};      // the bindless texture array: REPEAT, and all its mip levels
-        vk_sampler gbuffer_sampler = {};      // the G-buffer's stored surface: NEAREST, clamp (exact texel centres)
-        vk_sampler taa_sampler = {};          // the TAA resolve: LINEAR magnification, NEAREST minification
-        vk_sampler post_sampler = {};         // the post chain and the FXAA filter: LINEAR, clamp
-        vk_sampler post_nearest_sampler = {}; // the composite's GI upsample: NEAREST, clamp (depths are not colours)
-        vk_sampler shadow_sampler = {};       // the cascaded map: depth-compare + LINEAR (hardware PCF), clamp
-        /**
-         * @brief the CREATE INFO of @ref texture_sampler, kept because the descriptor heap needs it as an
-         *        EMBEDDED SAMPLER: a heap binding for a combined image sampler takes its sampler from a
-         *        VkSamplerCreateInfo (the driver creates one), not from a VkSampler, and it has to be the SAME
-         *        sampler the descriptor-set path uses - a different max_lod alone changes which mip is read.
-         * @note filled where the sampler is created (create_samplers), so the two cannot drift.
-         */
-        VkSamplerCreateInfo texture_sampler_info = {};
-        /**
-         * @brief the CREATE INFO of every shared sampler, in the order source/shaders/heap_slots.glsl names them, because
-         *        a heap descriptor for a sampler IS a create info - and the heap is created LATER in the
-         *        constructor than these samplers are (create_samplers runs first), so the infos have to be kept
-         *        here to be written onto the sampler grid once it exists.
-         * @note index 0 texture (linear, repeat mips), 1 post (linear, clamp, one mip), 2 gbuffer (nearest, clamp),
-         *       3 post-nearest (nearest, clamp), 4 taa (linear mag / nearest min, clamp), 5 shadow (depth compare).
-         */
-        deren::utility::vessel::array<VkSamplerCreateInfo, 6> shared_sampler_infos = {};
-
-        vma_allocator vma = {};
-        /// the device-wide descriptor heap (see source/backends/vulkan/core/descriptor_heap): one resource heap and one
-        /// sampler heap, created right after the device so every pass can be written against it
-        descriptor_heap descriptor_heaps = {};
-        /// the heap's limits, copied out of the capability query (see core::init_device_and_queue) because the
-        /// heap itself is created in the constructor, after vma.init() - the capabilities are not in scope there
-        heap_limits descriptor_heap_limits = {};
-        /**
-         * @brief the reserved heap blocks, in bytes, or VK_WHOLE_SIZE when the heap is not in use
-         *
-         * @note THE LAYOUT IS OWNED HERE, and that is not tidiness: the heap's contents are written by the RUNTIME
-         *       (it is what knows the textures and the material table) while the SLOT NUMBERS that point the
-         *       shaders at them are named in `source/shaders/heap_slots.glsl`. Both sides have to use the same number, and
-         *       a mismatch - a write at one offset, a shader reading another - is invisible to validation and shows
-         *       up only as a wrong picture. So the blocks are reserved once, here, and published; the startup log
-         *       prints the whole table, which is how a drift between the two sides is seen.
-         */
-        VkDeviceSize heap_texture_array_offset = VK_WHOLE_SIZE;
-        VkDeviceSize heap_material_table_offset = VK_WHOLE_SIZE;
-
         // ==========================================================================================
         // THE SLOT GRID LIVES IN ITS OWN MODULE (③-D/E batch, ruling D): `deren.engine.render_layout`
         // is compiled by BOTH halves, because the grid is the agreement between the host's writes and
@@ -2002,25 +1749,17 @@ namespace deren::vulkan {
                           deren::engine::render_layout::heap_slot_base + deren::engine::render_layout::heap_slot_count,
                       "the software storage image runs must stay inside the grid");
         static_assert(deren::engine::render_layout::heap_sampler_stride == 32u, "the sampler grid's stride moved");
-        /// @brief the byte offset of slot 0 (see @ref heap_slots), or VK_WHOLE_SIZE when the heap is not in use
-        VkDeviceSize heap_grid_offset = VK_WHOLE_SIZE;
 
         // ---- frame synchronization (timeline semaphores; see create_sync_objects) ----
         // vkAcquireNextImageKHR and vkQueuePresentKHR both require BINARY semaphores:
-        //   - image_available_semaphores: binary, per frame slot (acquire signal)
-        //   - present_ready_semaphores: binary, ONE PER SWAPCHAIN IMAGE — present may run on a
+        //   - frame.image_available_semaphores: binary, per frame slot (acquire signal)
+        //   - frame.present_ready_semaphores: binary, ONE PER SWAPCHAIN IMAGE — present may run on a
         //     separate queue, so a per-slot binary could be re-signaled before the previous
         //     present consumed it; a swapchain image is only re-acquired after its present
         //     finished, which keeps this per-image gate safe across queues
-        //   - frame_done_semaphores / frame_done_values: TIMELINE, per frame slot, counting
+        //   - frame.frame_done_semaphores / frame.frame_done_values: TIMELINE, per frame slot, counting
         //     submissions — submit() signals it (GPU completion), wait_frame_slot() is the host
         //     pacing wait that used to be vkWaitForFences
-        deren::utility::vessel::vector<VkSemaphore> image_available_semaphores = {}; // binary, per frame slot (acquire)
-        deren::utility::vessel::vector<VkSemaphore> present_ready_semaphores = {};   // binary, per swapchain image (present wait)
-        deren::utility::vessel::vector<VkSemaphore> frame_done_semaphores = {};      // timeline, per frame slot
-        deren::utility::vessel::vector<uint64_t> frame_done_values = {};             // last signaled value per slot (host bookkeeping)
-
-        size_t current_frame = 0;
 
         void to_next_frame() noexcept;
         void wait_frame_slot(uint32_t slot) const; // host wait until this slot's last submission completed
@@ -2030,15 +1769,6 @@ namespace deren::vulkan {
         /// used to vanish arrives in `frame_open_info::result`.
         [[nodiscard]] VkResult wait_frame_slot_result(uint32_t slot) const noexcept;
 
-        static constexpr int32_t MAX_FRAMES_IN_FLIGHT = 2;
-        /// THE RING DEPTH IS PINNED TO THE CONTRACT (③-D/E batch): the engine sizes per-slot C++ arrays
-        /// with `rhi::max_frames_in_flight`, so a backend ring of a different depth would overrun them.
-        /// The static_assert makes "the two drifted" a COMPILE ERROR instead of a silent overrun, and
-        /// the engine repeats the check at startup against the runtime truth
-        /// (`frame_walker::slot_count()`) because a backend built from a different revision would have
-        /// compiled against its own copy of the contract.
-        static_assert(MAX_FRAMES_IN_FLIGHT == static_cast<int32_t>(deren::promise::rhi::max_frames_in_flight),
-                      "the backend's frame ring must be the depth rhi::max_frames_in_flight promises");
         /// THE PER-IMAGE ARRAY BOUND, PINNED FROM THE BACKEND'S SIDE (③-D/E item A1): this backend requests
         /// at most 4 swapchain images (3-4 in practice), and `rhi::max_swapchain_images` is the number the
         /// ENGINE sizes its per-image arrays by. `init_swap_chain()`'s refusal is the runtime half of the same
@@ -2054,24 +1784,8 @@ namespace deren::vulkan {
         // and the reader converts consecutive marks into milliseconds after the slot's submission
         // completed (see mark_gpu_timing / read_gpu_timings). Timestamps need no feature bit, but a
         // queue family that cannot write them reports timestampValidBits == 0, and the tick length
-        // comes from the device limits - either missing means gpu_timing_supported stays false and
+        // comes from the device limits - either missing means frame.gpu_timing_supported stays false and
         // every timing call is a no-op, so callers do not have to check the device themselves.
-        VkQueryPool timestamp_query_pool = VK_NULL_HANDLE;
-        float timestamp_period_ns = 0.0f;  // ns per tick (VkPhysicalDeviceLimits::timestampPeriod)
-        uint32_t timestamp_valid_bits = 0; // graphics family counter width (0 = cannot timestamp)
-        bool gpu_timing_supported = false;
-        // marks the CURRENT recording of each slot has written (reset by begin_gpu_timing). Also
-        // read back as "how many queries to fetch" for the submission that just completed, because
-        // a slot is only read after it was paced and before it is recorded again.
-        deren::utility::vessel::array<uint32_t, MAX_FRAMES_IN_FLIGHT> gpu_timing_marks = {};
-        // the static names the engine's marks carry (the frame face's name channel, abi 13): mark i
-        // of slot s stores the caller's text here, and the profiler's latched snapshot reports it
-        // verbatim. THE TEXT MUST OUTLIVE THE FRAME - a literal (the same rule as `window_title`);
-        // the backend only stores the view, never the characters.
-        deren::utility::vessel::array<deren::utility::vessel::array<std::string_view, gpu_timing_mark_capacity>, MAX_FRAMES_IN_FLIGHT> gpu_timing_names = {};
-        // frame_done value each slot's timings were last read for: a slot is read at most once per
-        // submission, so a frame that hits an early return cannot fetch the same results twice
-        deren::utility::vessel::array<uint64_t, MAX_FRAMES_IN_FLIGHT> gpu_timing_read_value = {};
 
         /**
          * @ingroup vulkan_core
@@ -2118,7 +1832,7 @@ namespace deren::vulkan {
 
         /** @brief whether this device can measure GPU pass timings (see begin_gpu_timing) */
         [[nodiscard]] bool gpu_timing_available() const noexcept {
-            return this->gpu_timing_supported;
+            return this->frame.gpu_timing_supported;
         }
 
         core();
@@ -2276,7 +1990,7 @@ namespace deren::vulkan {
          * @return the result of vkQueueSubmit
          *
          * Signals two semaphores. This slot's TIMELINE (GPU completion, and the host pacing that
-         * wait_frame_slot() blocks on) and present_ready_semaphores[image_index]. The second is a
+         * wait_frame_slot() blocks on) and frame.present_ready_semaphores[image_index]. The second is a
          * BINARY semaphore per swapchain IMAGE rather than per frame slot because vkQueuePresentKHR
          * cannot wait a timeline semaphore, and present may run on a separate queue - keying the gate
          * on the image means an image is only re-acquired after its own present finished, which keeps
@@ -2413,6 +2127,264 @@ namespace deren::vulkan {
             std::span<uint8_t const> vertex_shader_code,
             std::span<uint8_t const> fragment_shader_code,
             VkShaderStageFlagBits first_stage = VK_SHADER_STAGE_MESH_BIT_EXT) const;
+
+        // ---- THE COMMAND FACE'S OWN STATE -----------------------------------------------------------
+        //
+        // The submission registry, the timeline the pacer waits on, and the provenance sets for command
+        // and mergeable buffers are command facts. Definition is down here so the nested view types above
+        // are complete before the members are declared.
+        struct command_facet final : deren::promise::rhi::command_context {
+            core& full_core;
+            explicit command_facet(core& owner) noexcept
+                : full_core(owner) {
+            }
+            [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::command_buffer> create_command_buffer(deren::promise::rhi::command_buffer_desc const& desc) override;
+            [[nodiscard]] deren::promise::rhi::shared_object<deren::promise::rhi::command_buffer> make_command_buffer(deren::promise::rhi::command_buffer_desc const& desc) override;
+            [[nodiscard]] deren::promise::rhi::mergeable_command_buffer_ref make_mergeable_command_buffer(deren::promise::rhi::command_buffer_desc const& desc) override;
+            [[nodiscard]] deren::promise::rhi::error submit(deren::promise::rhi::command_buffer& commands) override;
+            [[nodiscard]] deren::promise::rhi::error submit(std::span<deren::promise::rhi::mergeable_command_buffer_ref const> batch) override;
+
+            // ---- SUBMISSION COMPLETION AND THE TIMELINE ----
+            command_submission_view completion_view;
+            frame_checkpoint_view checkpoint_view;
+            std::uint64_t const completion_device_id = deren::utility::allocate_identity();
+            VkSemaphore completion_timeline = VK_NULL_HANDLE;
+            std::uint64_t completion_sequence = 0;
+            deren::promise::rhi::error completion_failure = deren::promise::rhi::error::ok;
+            mutable std::mutex submissions_mutex;
+            mutable deren::utility::vessel::vector<std::unique_ptr<pending_submission>> pending_submissions;
+
+            // ---- COMMAND-BUFFER PROVENANCE ----
+            std::mutex contract_command_buffers_mutex;
+            deren::utility::vessel::unordered_set<deren::promise::rhi::command_recorder const*> contract_command_buffers;
+            std::mutex contract_mergeable_buffers_mutex;
+            deren::utility::vessel::unordered_set<deren::promise::rhi::command_recorder const*> contract_mergeable_buffers;
+
+            // ---- SCOPED SYNCHRONIZATION ----
+            scoped_sync_view scoped_sync;
+            VkQueueFlags synchronization_queue_flags = 0;
+        };
+
+        // ---- THE RESOURCE FACE'S OWN STATE ----------------------------------------------------------
+        //
+        // Definition is down here for the same reason as the frame face: the descriptor views, texture
+        // groups and sampler owners it holds are nested types that only become complete after their
+        // declarations above.
+        struct resource_facet final : deren::promise::rhi::resource_factory {
+            core& full_core;
+            explicit resource_facet(core& owner) noexcept
+                : full_core(owner) {
+            }
+            [[nodiscard]] deren::promise::rhi::resource_memory_statistics memory_statistics() const noexcept override;
+            [[nodiscard]] std::expected<deren::promise::rhi::unique_object<deren::promise::rhi::lazy_buffer>, deren::promise::rhi::error> create_lazy_buffer(deren::promise::rhi::lazy_buffer_desc const& desc) override;
+            [[nodiscard]] std::expected<deren::promise::rhi::unique_object<deren::promise::rhi::lazy_image>, deren::promise::rhi::error> create_lazy_image(deren::promise::rhi::lazy_image_desc const& desc) override;
+            [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::buffer> create_buffer(deren::promise::rhi::buffer_desc const& desc) override;
+            [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::image> create_image(deren::promise::rhi::image_desc const& desc) override;
+            [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::acceleration_structure> create_acceleration_structure(deren::promise::rhi::acceleration_structure_desc const& desc) override;
+            [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::micromap> create_micromap(deren::promise::rhi::micromap_desc const& desc) override;
+            [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::sampler> create_sampler(deren::promise::rhi::sampler_desc const& desc) override;
+            [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::shader> create_shader(deren::promise::rhi::shader_desc const& desc) override;
+            [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::pipeline> create_pipeline(deren::promise::rhi::pipeline_desc const& desc) override;
+            [[nodiscard]] std::expected<deren::promise::rhi::resource_group_ref, deren::promise::rhi::error> create_resource_group(deren::promise::rhi::resource_group_desc const& desc) override;
+            [[nodiscard]] deren::promise::rhi::texture_group_ref assign_texture_group(deren::promise::rhi::texture_group_info const& info, deren::promise::rhi::error* result) override;
+
+            // ---- DESCRIPTORS, SAMPLERS AND THE HEAP ----
+            frame_heap heap_view;
+            frame_descriptor_space descriptor_space_view;
+            std::mutex lazy_descriptors_mutex;
+            deren::utility::vessel::map<std::uint32_t, lazy_descriptor> lazy_descriptors;
+            vk_sampler texture_sampler = {};
+            vk_sampler gbuffer_sampler = {};
+            vk_sampler taa_sampler = {};
+            vk_sampler post_sampler = {};
+            vk_sampler post_nearest_sampler = {};
+            vk_sampler shadow_sampler = {};
+            VkSamplerCreateInfo texture_sampler_info = {};
+            deren::utility::vessel::array<VkSamplerCreateInfo, 6> shared_sampler_infos = {};
+            descriptor_heap descriptor_heaps = {};
+            heap_limits descriptor_heap_limits = {};
+            VkDeviceSize heap_texture_array_offset = VK_WHOLE_SIZE;
+            VkDeviceSize heap_material_table_offset = VK_WHOLE_SIZE;
+            VkDeviceSize heap_grid_offset = VK_WHOLE_SIZE;
+
+            // ---- PROVENANCE AND RESOURCE GROUPS ----
+            std::mutex contract_images_mutex;
+            std::mutex contract_structures_mutex;
+            deren::utility::vessel::unordered_set<deren::promise::rhi::acceleration_structure const*> contract_structures;
+            deren::utility::vessel::unordered_set<deren::promise::rhi::image const*> contract_images;
+            std::mutex resource_groups_mutex;
+            deren::utility::vessel::unordered_set<deren::promise::rhi::resource_group const*> resource_groups;
+            deren::utility::vessel::vector<VkDeviceSize> resource_slots;
+            deren::utility::vessel::vector<VkDeviceSize> sampler_slots;
+            std::uint32_t next_sampler = 0;
+            std::mutex group_members_mutex;
+            deren::utility::vessel::unordered_set<deren::promise::rhi::object const*> group_members;
+            texture_group_state texture_groups;
+
+            // ---- BUFFERS AND PIPELINES ----
+            std::mutex contract_buffers_mutex;
+            deren::utility::vessel::unordered_set<deren::promise::rhi::buffer const*> contract_buffers;
+            std::mutex contract_pipelines_mutex;
+            deren::utility::vessel::unordered_set<deren::promise::rhi::pipeline const*> contract_pipelines;
+
+            // ---- TIER-2 RESOURCE VIEWS AND IDENTITIES ----
+            buffer_address_view address_view;
+            frame_host_copy host_copy_view;
+            frame_shader_group_access shader_groups_view;
+            bool gpu_sorting_available = false;
+            frame_gpu_sorting sorting_view;
+            std::atomic<std::uint64_t> resource_identity{1};
+        };
+        resource_facet resource{*this};
+        command_facet command{*this};
+
+        // ---- THE FRAME FACE'S OWN STATE -------------------------------------------------------------
+        //
+        // Definition is down here, after the borrowed views it owns and answers with are complete:
+        // the frame facet is the only facet whose state includes those nested view types.
+        struct frame_facet final : deren::promise::rhi::frame_context {
+            core& full_core;
+            explicit frame_facet(core& owner) noexcept
+                : full_core(owner) {
+            }
+
+            static constexpr int32_t frames_in_flight = 2;
+            static_assert(frames_in_flight == static_cast<int32_t>(deren::promise::rhi::max_frames_in_flight),
+                          "the frame facet's ring must be the depth rhi::max_frames_in_flight promises");
+
+            // ---- SWAPCHAIN AND DEPTH RESOURCES ----
+            VkSwapchainKHR swap_chain = {};
+            deren::utility::vessel::vector<VkImage> swap_chain_images = {};
+            deren::utility::vessel::vector<VkImageView> swap_chain_image_views = {};
+            VkFormat swap_chain_image_format = {};
+            ::deren::promise::rhi::image_extent swap_chain_extent = {};
+            VkFormat color_format = VK_FORMAT_UNDEFINED;
+            VkFormat depth_attachment_format = {};
+            deren::utility::vessel::vector<VkImage> depth_images = {};
+            deren::utility::vessel::vector<VkDeviceMemory> depth_image_memories = {};
+            deren::utility::vessel::vector<VkImageView> depth_image_views = {};
+            uint32_t acquired_image_index = 0;
+            bool swapchain_transfer_src_supported = false;
+
+            // ---- FRAME RING AND SYNCHRONIZATION ----
+            size_t current_frame = 0;
+            deren::utility::vessel::vector<VkSemaphore> image_available_semaphores = {};
+            deren::utility::vessel::vector<VkSemaphore> present_ready_semaphores = {};
+            deren::utility::vessel::vector<VkSemaphore> frame_done_semaphores = {};
+            deren::utility::vessel::vector<uint64_t> frame_done_values = {};
+            bool frame_in_flight = false;
+            bool frame_acquired = false;
+            bool frame_acquire_consumed = false;
+
+            // ---- THE FRAME'S BORROWED VIEWS ----
+            frame_commands commands_view;
+            frame_image_slot frame_image_view;
+            frame_readback_slot readback_slot_view;
+            frame_walker_view frames_view;
+            gpu_profiler_view profiler_view;
+            swapchain_view presentation_surface;
+            frame_async_presentation async_presentation_view;
+
+            // ---- FRAME COMMAND BUFFERS AND READ-BACK ----
+            deren::utility::vessel::vector<vk_command_buffer> frame_command_buffers;
+            vk_buffer readback_slot_buffer;
+            VkBuffer readback_slot_handle = VK_NULL_HANDLE;
+            void* readback_slot_mapped = nullptr;
+            VkDeviceSize readback_slot_size = 0;
+
+            // ---- ASYNC PRESENTATION AND FRAME SNAPSHOTS ----
+            std::unique_ptr<deren::utility::thread_pool> present_worker;
+            std::shared_future<deren::promise::rhi::error> present_pending;
+            bool async_present_queued = false;
+            mutable uint32_t prefetched_slot = UINT32_MAX;
+            uint32_t prefetched_image = 0;
+            frame_resources_view frame_resources;
+            deren::promise::rhi::shared_object<frame_snapshot>::weak frame_snapshot_cache;
+            deren::utility::vessel::unordered_set<deren::promise::rhi::image const*> frame_snapshots;
+            std::uint64_t frame_acquire_epoch = 0;
+
+            // ---- GPU PASS TIMING ----
+            VkQueryPool timestamp_query_pool = VK_NULL_HANDLE;
+            float timestamp_period_ns = 0.0f;
+            uint32_t timestamp_valid_bits = 0;
+            bool gpu_timing_supported = false;
+            deren::utility::vessel::array<uint32_t, frames_in_flight> gpu_timing_marks = {};
+            deren::utility::vessel::array<deren::utility::vessel::array<std::string_view, gpu_timing_mark_capacity>, frames_in_flight> gpu_timing_names = {};
+            deren::utility::vessel::array<uint64_t, frames_in_flight> gpu_timing_read_value = {};
+
+            [[nodiscard]] deren::promise::rhi::command_buffer* begin_commands() override;
+            [[nodiscard]] deren::promise::rhi::image* frame_image() noexcept override;
+            [[nodiscard]] deren::promise::rhi::buffer* frame_readback_buffer() noexcept override;
+            [[nodiscard]] deren::promise::rhi::submit_info frame_begin() override;
+            [[nodiscard]] deren::promise::rhi::error present() override;
+            [[nodiscard]] deren::promise::rhi::frame_walker* walk_frames() noexcept override;
+            [[nodiscard]] deren::promise::rhi::gpu_profiler* profiler() noexcept override;
+            [[nodiscard]] deren::promise::rhi::swapchain* frame_swapchain() noexcept override;
+            [[nodiscard]] deren::promise::rhi::error submit() override;
+        };
+        frame_facet frame{*this};
+
+        // ---- THE DEVICE'S OWN STATE ------------------------------------------------------------------
+        //
+        // The device facet owns the Vulkan device and everything that only exists because the device
+        // does: its queues, the surface/window pair, VMA, the extension entry points and the tier-2
+        // capabilities object. Definition is down here so `frame_device_capabilities` is complete
+        // before the member is declared.
+        struct device_facet final {
+            core& full_core;
+            main_context_view view;
+            explicit device_facet(core& owner) noexcept
+                : full_core(owner) {
+            }
+            [[nodiscard]] deren::promise::rhi::main_context_view* main_context() noexcept;
+
+            // ---- THE DEVICE AND ITS QUEUES ----
+            VkInstance instance = VK_NULL_HANDLE;
+            VkDevice logical_device = VK_NULL_HANDLE;
+            VkPhysicalDevice physical_device = VK_NULL_HANDLE;
+            VkPhysicalDeviceProperties device_properties = {};
+            VkSurfaceKHR surface = VK_NULL_HANDLE;
+            VkQueue graphics_queue_handle = VK_NULL_HANDLE;
+            VkQueue present_queue_handle = VK_NULL_HANDLE;
+            uint32_t graphics_queue_family_index = 0;
+            uint32_t present_queue_family_index = 0;
+            uint32_t graphics_queue_family = VK_QUEUE_FAMILY_IGNORED;
+            GLFWwindow* window = nullptr;
+            VkDebugUtilsMessengerEXT debug_messenger = VK_NULL_HANDLE;
+            vma_allocator vma = {};
+
+            // ---- DEVICE CAPABILITIES AND EXTENSION ENTRY POINTS ----
+            /// the tier-2 `device_capabilities` object `query_extension(device_capabilities)` answers with, and it
+            /// is announced UNCONDITIONALLY because every method of it is answerable once the device exists
+            frame_device_capabilities capabilities_view;
+            bool ray_query_available = false;
+            bool ray_tracing_pipeline_available = false;
+            bool opacity_micromap_available = false;
+            VkPhysicalDeviceAccelerationStructurePropertiesKHR acceleration_structure_properties = {};
+            VkPhysicalDeviceOpacityMicromapPropertiesEXT opacity_micromap_properties = {};
+            VkPhysicalDeviceRayTracingPipelinePropertiesKHR ray_tracing_pipeline_properties = {};
+            bool mesh_shader_available = false;
+            bool buffer_int64_atomics_available = false;
+            bool task_shader_available = false;
+            PFN_vkCmdDrawMeshTasksEXT mesh_dispatch = nullptr;
+            PFN_vkCmdDrawMeshTasksIndirectEXT mesh_dispatch_indirect = nullptr;
+            PFN_vkCmdTraceRaysKHR ray_trace_launch = nullptr;
+            PFN_vkCreateAccelerationStructureKHR acceleration_structure_create = nullptr;
+            PFN_vkDestroyAccelerationStructureKHR acceleration_structure_destroy = nullptr;
+            PFN_vkGetAccelerationStructureBuildSizesKHR acceleration_structure_build_sizes = nullptr;
+            PFN_vkGetAccelerationStructureDeviceAddressKHR acceleration_structure_address = nullptr;
+            PFN_vkCmdBuildAccelerationStructuresKHR acceleration_structure_build = nullptr;
+            PFN_vkCreateMicromapEXT micromap_create = nullptr;
+            PFN_vkDestroyMicromapEXT micromap_destroy = nullptr;
+            PFN_vkGetMicromapBuildSizesEXT micromap_build_sizes = nullptr;
+            PFN_vkCmdBuildMicromapsEXT micromap_build = nullptr;
+            PFN_vkCopyImageToMemoryEXT copy_image_to_memory = nullptr;
+            PFN_vkCopyMemoryToImageEXT copy_memory_to_image = nullptr;
+            bool host_image_copy_available = false;
+            bool acceleration_structure_refusal_logged = false;
+            bool micromap_refusal_logged = false;
+        };
+        device_facet device{*this};
 
     private:
         // ---- THE INITIALIZATION STEPS, and they are private because the constructor is their only caller:

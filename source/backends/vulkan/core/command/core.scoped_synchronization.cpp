@@ -64,15 +64,15 @@ namespace deren::vulkan {
         if (!owner) {
             return scopes::stage::none;
         }
-        auto flags = owner->synchronization_queue_flags;
+        auto flags = owner->command.synchronization_queue_flags;
         uint32_t result = 0;
         if (flags & VK_QUEUE_GRAPHICS_BIT) {
             result |= 1U | 2U | 8U | 16U | 64U;
         }
-        if ((flags & VK_QUEUE_GRAPHICS_BIT) && owner->mesh_shader_available) {
+        if ((flags & VK_QUEUE_GRAPHICS_BIT) && owner->device.mesh_shader_available) {
             result |= 512U;
         }
-        if ((flags & VK_QUEUE_GRAPHICS_BIT) && owner->task_shader_available) {
+        if ((flags & VK_QUEUE_GRAPHICS_BIT) && owner->device.task_shader_available) {
             result |= 256U;
         }
         if (flags & VK_QUEUE_COMPUTE_BIT) {
@@ -87,7 +87,7 @@ namespace deren::vulkan {
         // RT stage 1: the ray-tracing PIPELINE stages, reported only when the device can run them. A ray query inside
         // a compute shader needs none of this bit (it is a COMPUTE_SHADER site, and 4U already says so); this is the
         // traceRays launch's stage, which the RT shadow pass's visibility write names.
-        if ((owner->ray_query_available || owner->ray_tracing_pipeline_available) && (flags & VK_QUEUE_GRAPHICS_BIT)) {
+        if ((owner->device.ray_query_available || owner->device.ray_tracing_pipeline_available) && (flags & VK_QUEUE_GRAPHICS_BIT)) {
             result |= 1024U;
         }
         return static_cast<scopes::stage>(result);
@@ -97,21 +97,21 @@ namespace deren::vulkan {
         if (!owner) {
             return rhi::error::not_ready;
         }
-        std::lock_guard const lock(owner->contract_images_mutex);
-        if (owner->frame_snapshots.contains(&resource)) {
+        std::lock_guard const lock(owner->resource.contract_images_mutex);
+        if (owner->frame.frame_snapshots.contains(&resource)) {
             auto const& image = static_cast<frame_snapshot const&>(resource);
             if (image.owner != owner || !image.current()) {
                 return rhi::error::invalid_argument;
             }
             uint32_t usage = bit(scopes::usage::color_attachment);
-            if (owner->swapchain_transfer_src_supported) {
+            if (owner->frame.swapchain_transfer_src_supported) {
                 usage |= bit(scopes::usage::transfer_source);
             }
             usage |= bit(owner->create_options.native_window ? scopes::usage::present : scopes::usage::sampled);
             output = {1, 1, scopes::aspect::color, usage, reinterpret_cast<std::uintptr_t>(&image)};
             return rhi::error::ok;
         }
-        if (!owner->contract_images.contains(&resource)) {
+        if (!owner->resource.contract_images.contains(&resource)) {
             return rhi::error::invalid_argument;
         }
         auto const& image = static_cast<owned_image const&>(resource);
@@ -132,7 +132,7 @@ namespace deren::vulkan {
             output = {image.mip_levels, image.array_layers, format_aspects(image.resolved_format), usage, reinterpret_cast<std::uintptr_t>(&image)};
             return rhi::error::ok;
         }
-        auto const* detail = owner->vma.get_image_detail(image.owned.handle());
+        auto const* detail = owner->device.vma.get_image_detail(image.owned.handle());
         if (!detail) {
             return rhi::error::invalid_argument;
         }
@@ -144,8 +144,8 @@ namespace deren::vulkan {
         if (!owner) {
             return rhi::error::not_ready;
         }
-        std::lock_guard const lock(owner->contract_buffers_mutex);
-        if (!owner->contract_buffers.contains(&resource)) {
+        std::lock_guard const lock(owner->resource.contract_buffers_mutex);
+        if (!owner->resource.contract_buffers.contains(&resource)) {
             return rhi::error::invalid_argument;
         }
         auto const& buffer = static_cast<owned_buffer const&>(resource);
@@ -191,7 +191,7 @@ namespace deren::vulkan {
             output = {buffer.size_bytes, usage, reinterpret_cast<std::uintptr_t>(&buffer)};
             return rhi::error::ok;
         }
-        auto const* detail = owner->vma.get_buffer_detail(buffer.owned.handle());
+        auto const* detail = owner->device.vma.get_buffer_detail(buffer.owned.handle());
         if (!detail) {
             return rhi::error::invalid_argument;
         }
@@ -277,10 +277,10 @@ namespace deren::vulkan {
             return error;
         }
         // Frame targets may only be recorded into the acquired frame's primary commands.
-        if (list != &owner->commands_view) {
-            std::lock_guard const lock(owner->contract_images_mutex);
+        if (list != &owner->frame.commands_view) {
+            std::lock_guard const lock(owner->resource.contract_images_mutex);
             for (auto const& one : images) {
-                if (owner->frame_snapshots.contains(one.resource)) {
+                if (owner->frame.frame_snapshots.contains(one.resource)) {
                     return rhi::error::invalid_argument;
                 }
             }
@@ -291,8 +291,8 @@ namespace deren::vulkan {
         for (auto const& one : images) {
             bool registered;
             {
-                std::lock_guard lock(owner->contract_images_mutex);
-                registered = owner->contract_images.contains(one.resource);
+                std::lock_guard lock(owner->resource.contract_images_mutex);
+                registered = owner->resource.contract_images.contains(one.resource);
             }
             if (registered) {
                 auto loaded = list->demand(*one.resource);
@@ -312,8 +312,8 @@ namespace deren::vulkan {
         for (auto const& one : images) {
             auto barrier = *native_sync::map_image(one.transition);
             {
-                std::lock_guard const lock(owner->contract_images_mutex);
-                if (owner->frame_snapshots.contains(one.resource)) {
+                std::lock_guard const lock(owner->resource.contract_images_mutex);
+                if (owner->frame.frame_snapshots.contains(one.resource)) {
                     auto const& snapshot = *static_cast<frame_snapshot const*>(one.resource);
                     if (!snapshot.current()) {
                         return rhi::error::invalid_argument;
@@ -326,7 +326,7 @@ namespace deren::vulkan {
                     if (owner->create_options.native_window && barrier.oldLayout == VK_IMAGE_LAYOUT_UNDEFINED) {
                         barrier.srcStageMask |= VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
                     }
-                } else if (owner->contract_images.contains(one.resource)) {
+                } else if (owner->resource.contract_images.contains(one.resource)) {
                     barrier.image = static_cast<owned_image const*>(one.resource)->native_handle;
                 } else {
                     return rhi::error::invalid_argument;

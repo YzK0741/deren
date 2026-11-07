@@ -1,4 +1,3 @@
-#include "../backends/vulkan/core/lazy_loading.h"
 #include "vk_test.h"
 
 #include <atomic>
@@ -8,6 +7,7 @@
 #include <memory>
 #include <thread>
 import deren.promise.rhi;
+import deren.vulkan.core_support;
 namespace rhi = deren::promise::rhi;
 #include "lazy_loading_contract.hpp"
 static_assert(requires(rhi::resource_factory& resources, rhi::resource_group_desc const& desc) {

@@ -15,7 +15,7 @@ namespace deren::vulkan {
     namespace rhi = deren::promise::rhi;
 
     rhi::descriptor_slot_range core::frame_descriptor_space::fixed_slots() const noexcept {
-        if (!ready() || owner->heap_grid_offset == VK_WHOLE_SIZE)
+        if (!ready() || owner->resource.heap_grid_offset == VK_WHOLE_SIZE)
             return {};
         return {heap_slot_base, heap_slot_count};
     }
@@ -35,8 +35,8 @@ namespace deren::vulkan {
         if (!info.resource || !info.view || info.view->struct_size < sizeof(rhi::image_view_desc))
             return rhi::error::invalid_argument;
         {
-            std::lock_guard lock(owner->contract_images_mutex);
-            if (!owner->contract_images.contains(info.resource))
+            std::lock_guard lock(owner->resource.contract_images_mutex);
+            if (!owner->resource.contract_images.contains(info.resource))
                 return rhi::error::invalid_argument;
         }
         auto& value = const_cast<owned_image&>(static_cast<owned_image const&>(*info.resource));
@@ -58,17 +58,17 @@ namespace deren::vulkan {
             saved.image_write.view = nullptr;
             saved.view = view;
             saved.reference = owner->depend_on(value);
-            std::lock_guard lock(owner->lazy_descriptors_mutex);
-            owner->lazy_descriptors[info.slot] = std::move(saved);
+            std::lock_guard lock(owner->resource.lazy_descriptors_mutex);
+            owner->resource.lazy_descriptors[info.slot] = std::move(saved);
             return rhi::error::ok;
         }
-        auto status = owner->heap_view.write_image({.offset = static_cast<std::uint64_t>(info.slot) * heap_slot_stride,
-                                                    .resource = info.resource,
-                                                    .view = info.view,
-                                                    .type = info.type});
+        auto status = owner->resource.heap_view.write_image({.offset = static_cast<std::uint64_t>(info.slot) * heap_slot_stride,
+                                                             .resource = info.resource,
+                                                             .view = info.view,
+                                                             .type = info.type});
         if (status == rhi::error::ok) {
-            std::lock_guard lock(owner->lazy_descriptors_mutex);
-            owner->lazy_descriptors.erase(info.slot);
+            std::lock_guard lock(owner->resource.lazy_descriptors_mutex);
+            owner->resource.lazy_descriptors.erase(info.slot);
         }
         return status;
     }
@@ -83,8 +83,8 @@ namespace deren::vulkan {
         bool const uniform = info.type == rhi::descriptor_type::uniform_buffer;
         if (!uniform && info.type != rhi::descriptor_type::storage_buffer)
             return rhi::error::unsupported;
-        std::unique_lock lock(owner->contract_buffers_mutex);
-        if (!owner->contract_buffers.contains(info.resource))
+        std::unique_lock lock(owner->resource.contract_buffers_mutex);
+        if (!owner->resource.contract_buffers.contains(info.resource))
             return rhi::error::invalid_argument;
         auto const& buffer = *static_cast<owned_buffer const*>(info.resource);
         bool const uniform_usage = buffer.declared_usage == rhi::buffer_usage::uniform_gpu_only ||
@@ -96,7 +96,7 @@ namespace deren::vulkan {
         if (info.offset >= buffer.size_bytes || info.size > buffer.size_bytes - info.offset)
             return rhi::error::invalid_argument;
         VkPhysicalDeviceProperties properties{};
-        vkGetPhysicalDeviceProperties(owner->physical_device, &properties);
+        vkGetPhysicalDeviceProperties(owner->device.physical_device, &properties);
         auto alignment = uniform ? properties.limits.minUniformBufferOffsetAlignment : properties.limits.minStorageBufferOffsetAlignment;
         auto limit = uniform ? properties.limits.maxUniformBufferRange : properties.limits.maxStorageBufferRange;
         if ((alignment && info.offset % alignment) || info.size > limit)
@@ -107,22 +107,22 @@ namespace deren::vulkan {
             saved.buffer_write = info;
             lock.unlock();
             saved.reference = owner->depend_on(buffer);
-            std::lock_guard descriptors_lock(owner->lazy_descriptors_mutex);
-            owner->lazy_descriptors[info.slot] = std::move(saved);
+            std::lock_guard descriptors_lock(owner->resource.lazy_descriptors_mutex);
+            owner->resource.lazy_descriptors[info.slot] = std::move(saved);
             return rhi::error::ok;
         }
         auto address = owner->internal_address(buffer, info.offset);
         if (!address || (properties.limits.minStorageBufferOffsetAlignment && address % properties.limits.minStorageBufferOffsetAlignment) ||
             info.size > properties.limits.maxStorageBufferRange || info.size > UINT64_MAX - address)
             return rhi::error::invalid_argument;
-        auto status = owner->heap_view.write_buffer({.offset = static_cast<std::uint64_t>(info.slot) * heap_slot_stride,
-                                                     .address = address,
-                                                     .size = info.size,
-                                                     .type = rhi::descriptor_type::storage_buffer});
+        auto status = owner->resource.heap_view.write_buffer({.offset = static_cast<std::uint64_t>(info.slot) * heap_slot_stride,
+                                                              .address = address,
+                                                              .size = info.size,
+                                                              .type = rhi::descriptor_type::storage_buffer});
         lock.unlock();
         if (status == rhi::error::ok) {
-            std::lock_guard descriptors_lock(owner->lazy_descriptors_mutex);
-            owner->lazy_descriptors.erase(info.slot);
+            std::lock_guard descriptors_lock(owner->resource.lazy_descriptors_mutex);
+            owner->resource.lazy_descriptors.erase(info.slot);
         }
         return status;
     }
@@ -134,19 +134,19 @@ namespace deren::vulkan {
             return rhi::error::unsupported;
         if (!fixed_slot(fixed_slots(), info.space, info.slot) || !info.resource)
             return rhi::error::invalid_argument;
-        std::lock_guard lock(owner->contract_structures_mutex);
-        if (!owner->contract_structures.contains(info.resource))
+        std::lock_guard lock(owner->resource.contract_structures_mutex);
+        if (!owner->resource.contract_structures.contains(info.resource))
             return rhi::error::invalid_argument;
         auto const& structure = *static_cast<owned_acceleration_structure const*>(info.resource);
         if (structure.owner != owner || !structure.native)
             return rhi::error::invalid_argument;
-        auto status = owner->heap_view.write_buffer({.offset = static_cast<std::uint64_t>(info.slot) * heap_slot_stride,
-                                                     .address = structure.device_address(),
-                                                     .size = structure.size_bytes(),
-                                                     .type = rhi::descriptor_type::acceleration_structure});
+        auto status = owner->resource.heap_view.write_buffer({.offset = static_cast<std::uint64_t>(info.slot) * heap_slot_stride,
+                                                              .address = structure.device_address(),
+                                                              .size = structure.size_bytes(),
+                                                              .type = rhi::descriptor_type::acceleration_structure});
         if (status == rhi::error::ok) {
-            std::lock_guard descriptors_lock(owner->lazy_descriptors_mutex);
-            owner->lazy_descriptors.erase(info.slot);
+            std::lock_guard descriptors_lock(owner->resource.lazy_descriptors_mutex);
+            owner->resource.lazy_descriptors.erase(info.slot);
         }
         return status;
     }
@@ -156,13 +156,13 @@ namespace deren::vulkan {
             return checked;
         if (!ready())
             return rhi::error::not_ready;
-        return owner->heap_view.bind({.commands = info.commands});
+        return owner->resource.heap_view.bind({.commands = info.commands});
     }
 
     bool core::frame_descriptor_space::ready() const noexcept {
         // THE SAME CONDITION THE ABILITY BIT IS ANNOUNCED UNDER (core::abilities): the space is the heap's
         // slot pool + the group table, so "no heap" is the one state in which nothing can be served.
-        return this->owner != nullptr && this->owner->descriptor_heaps.ready();
+        return this->owner != nullptr && this->owner->resource.descriptor_heaps.ready();
     }
 
     rhi::descriptor_space_properties core::frame_descriptor_space::properties() const noexcept {
@@ -185,13 +185,13 @@ namespace deren::vulkan {
         // map (at most `group_capacity` entries, and the call is a registration/description-time operation,
         // never per draw), so a foreign `texture_group` implementation - or another core's group - is
         // answered with the empty position instead of being static_cast into this backend's layout.
-        std::lock_guard lock(self->texture_groups.mutex);
-        auto const token = self->texture_groups.tokens_by_group.find(&group);
-        if (token == self->texture_groups.tokens_by_group.end()) {
+        std::lock_guard lock(self->resource.texture_groups.mutex);
+        auto const token = self->resource.texture_groups.tokens_by_group.find(&group);
+        if (token == self->resource.texture_groups.tokens_by_group.end()) {
             return {};
         }
-        auto const live = self->texture_groups.groups_by_token.find(token->second);
-        if (live == self->texture_groups.groups_by_token.end()) {
+        auto const live = self->resource.texture_groups.groups_by_token.find(token->second);
+        if (live == self->resource.texture_groups.groups_by_token.end()) {
             return {};
         }
         return {
@@ -241,8 +241,8 @@ namespace deren::vulkan {
         {
             // Provenance first, the same order `assign_texture_group` uses: the image must be one THIS
             // backend handed out, and it must satisfy the immutable-group source rules.
-            std::lock_guard lock(self->contract_images_mutex);
-            if (!self->contract_images.contains(info.resource)) {
+            std::lock_guard lock(self->resource.contract_images_mutex);
+            if (!self->resource.contract_images.contains(info.resource)) {
                 return rhi::error::invalid_argument;
             }
             auto const valid = self->validate_texture_group_image(static_cast<owned_image const&>(*info.resource));
@@ -250,9 +250,9 @@ namespace deren::vulkan {
                 return valid;
             }
         }
-        std::lock_guard lock(self->texture_groups.mutex);
-        auto const entry = self->texture_groups.groups_by_token.find(info.where.base);
-        if (entry == self->texture_groups.groups_by_token.end() || entry->second->generation != info.where.generation) {
+        std::lock_guard lock(self->resource.texture_groups.mutex);
+        auto const entry = self->resource.texture_groups.groups_by_token.find(info.where.base);
+        if (entry == self->resource.texture_groups.groups_by_token.end() || entry->second->generation != info.where.generation) {
             return rhi::error::invalid_argument; // a stale position: the token was reused (or never registered)
         }
         return self->write_group_texture_locked(*entry->second, info.index, *info.resource);

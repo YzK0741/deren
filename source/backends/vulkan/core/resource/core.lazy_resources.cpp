@@ -1,5 +1,5 @@
 module;
-#include "vma/texture_upload_layout.h"
+#include "../vma/texture_upload_layout.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -14,88 +14,12 @@ namespace deren::vulkan {
 
     std::expected<rhi::unique_object<rhi::lazy_buffer>, rhi::error>
     core::create_lazy_buffer(rhi::lazy_buffer_desc const& request) {
-        auto checked = rhi::validate_lazy_buffer(request);
-        if (checked != rhi::error::ok)
-            return std::unexpected(checked);
-        auto const& desc = request.resource;
-        constexpr auto allowed = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::storage);
-        if (desc.flags & ~allowed)
-            return std::unexpected(rhi::error::unsupported);
-        auto value = std::unique_ptr<owned_buffer>(new (std::nothrow) owned_buffer);
-        if (!value)
-            return std::unexpected(rhi::error::out_of_host_memory);
-        value->owner = this;
-        value->source = request.data;
-        value->description = desc;
-
-        value->size_bytes = desc.size;
-        value->declared_usage = desc.usage;
-        value->declared_flags = desc.flags;
-        value->addressable = rhi::has_flag(desc.flags, rhi::buffer_flag::device_address);
-        value->loading.value.store(rhi::lazy_state::unloaded);
-        {
-            std::lock_guard lock(contract_buffers_mutex);
-            value->identity = resource_identity.fetch_add(1, std::memory_order_relaxed);
-            contract_buffers.insert(value.get());
-        }
-        return rhi::unique_object<rhi::lazy_buffer>(value.release());
+        return this->resource.create_lazy_buffer(request);
     }
 
     std::expected<rhi::unique_object<rhi::lazy_image>, rhi::error>
     core::create_lazy_image(rhi::lazy_image_desc const& request) {
-        if (request.struct_size < sizeof(request) || request.resource.struct_size < sizeof(rhi::image_desc) ||
-            !request.data || request.data->empty() || !request.resource.initial_bytes.empty())
-            return std::unexpected(rhi::error::invalid_argument);
-        auto desc = request.resource;
-        auto const format = resolve_format(desc.format);
-        auto const allowed = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::cube_compatible);
-        if (!rhi::has_flag(desc.flags, rhi::image_flag::sampled) || (desc.flags & ~allowed) ||
-            desc.format == rhi::image_format::depth || format == VK_FORMAT_UNDEFINED)
-            return std::unexpected(rhi::error::unsupported);
-        if (!desc.extent.width || !desc.extent.height || desc.extent.depth != 1 || !desc.array_layers ||
-            (rhi::has_flag(desc.flags, rhi::image_flag::cube_compatible) &&
-             (desc.array_layers != 6 || desc.extent.width != desc.extent.height)))
-            return std::unexpected(rhi::error::invalid_argument);
-        auto max_mips = static_cast<std::uint32_t>(std::bit_width(std::max(desc.extent.width, desc.extent.height)));
-        if (!desc.mip_levels)
-            desc.mip_levels = max_mips;
-        if (desc.mip_levels > max_mips)
-            return std::unexpected(rhi::error::invalid_argument);
-        auto packed = detail::packed_image_size(format, desc.extent.width, desc.extent.height, desc.array_layers, desc.mip_levels);
-        if (!packed || *packed != request.data->size())
-            return std::unexpected(rhi::error::invalid_argument);
-        VkImageFormatProperties properties{};
-        auto flags = rhi::has_flag(desc.flags, rhi::image_flag::cube_compatible) ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0u;
-        auto supported = vkGetPhysicalDeviceImageFormatProperties(physical_device, format, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL,
-                                                                  VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT,
-                                                                  flags, &properties);
-        if (supported != VK_SUCCESS)
-            return std::unexpected(rhi::error::unsupported);
-        if (desc.extent.width > properties.maxExtent.width || desc.extent.height > properties.maxExtent.height ||
-            desc.array_layers > properties.maxArrayLayers || desc.mip_levels > properties.maxMipLevels)
-            return std::unexpected(rhi::error::invalid_argument);
-        auto value = std::unique_ptr<owned_image>(new (std::nothrow) owned_image);
-        if (!value)
-            return std::unexpected(rhi::error::out_of_host_memory);
-        value->owner = this;
-        value->source = request.data;
-        value->description = desc;
-        value->debug_name = desc.debug_name ? desc.debug_name : "lazy image";
-        value->description.debug_name = value->debug_name.c_str();
-        value->width = desc.extent.width;
-        value->height = desc.extent.height;
-        value->mip_levels = desc.mip_levels;
-        value->array_layers = desc.array_layers;
-        value->resolved_format = format;
-        value->declared_format = desc.format;
-        value->declared_flags = desc.flags;
-        value->cube_compatible = rhi::has_flag(desc.flags, rhi::image_flag::cube_compatible);
-        value->loading.value.store(rhi::lazy_state::unloaded);
-        {
-            std::lock_guard lock(contract_images_mutex);
-            contract_images.insert(value.get());
-        }
-        return rhi::unique_object<rhi::lazy_image>(value.release());
+        return this->resource.create_lazy_image(request);
     }
 
     rhi::error core::owned_buffer::unload() noexcept {
@@ -200,14 +124,14 @@ namespace deren::vulkan {
                                                                                                                            : VK_IMAGE_VIEW_TYPE_2D_ARRAY;
         info.format = image.resolved_format;
         info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, desc.base_mip, mips, desc.base_layer, layers};
-        return vkCreateImageView(logical_device, &info, nullptr, &value.native_view) == VK_SUCCESS ? rhi::error::ok : rhi::error::operation_failed;
+        return vkCreateImageView(this->device.logical_device, &info, nullptr, &value.native_view) == VK_SUCCESS ? rhi::error::ok : rhi::error::operation_failed;
     }
 
     rhi::error core::materialize(owned_texture_group& group) noexcept {
         return group.loading.run([&]() noexcept {
             decltype(group.deferred_images) images;
             {
-                std::lock_guard lock(texture_groups.mutex);
+                std::lock_guard lock(resource.texture_groups.mutex);
                 images = group.deferred_images;
             }
             for (std::size_t i = 0; i < images.size(); ++i) {
@@ -216,7 +140,7 @@ namespace deren::vulkan {
                 auto loaded = materialize(*static_cast<owned_image*>(images[i].get()));
                 if (loaded != rhi::error::ok)
                     return loaded;
-                std::lock_guard lock(texture_groups.mutex);
+                std::lock_guard lock(resource.texture_groups.mutex);
                 loaded = write_group_texture_locked(group, static_cast<std::uint32_t>(i), *images[i]);
                 if (loaded != rhi::error::ok)
                     return loaded;
@@ -250,27 +174,27 @@ namespace deren::vulkan {
     }
 
     rhi::error core::prepare_lazy_descriptors(frame_commands& recorder) noexcept {
-        std::lock_guard lock(lazy_descriptors_mutex);
-        for (auto& [slot, binding] : lazy_descriptors) {
+        std::lock_guard lock(resource.lazy_descriptors_mutex);
+        for (auto& [slot, binding] : resource.lazy_descriptors) {
             rhi::error status;
             if (binding.image) {
                 status = recorder.demand(*binding.image_write.resource);
                 if (status == rhi::error::ok && !binding.published) {
-                    status = heap_view.write_image_native({.offset = static_cast<std::uint64_t>(slot) * heap_slot_stride,
-                                                           .resource = binding.image_write.resource,
-                                                           .view = &binding.view,
-                                                           .type = binding.image_write.type},
-                                                          true);
+                    status = resource.heap_view.write_image_native({.offset = static_cast<std::uint64_t>(slot) * heap_slot_stride,
+                                                                    .resource = binding.image_write.resource,
+                                                                    .view = &binding.view,
+                                                                    .type = binding.image_write.type},
+                                                                   true);
                 }
             } else {
                 status = recorder.demand(*binding.buffer_write.resource);
                 if (status == rhi::error::ok && !binding.published) {
                     auto const& info = binding.buffer_write;
                     auto address = internal_address(*static_cast<owned_buffer const*>(info.resource), info.offset);
-                    status = address ? heap_view.write_buffer({.offset = static_cast<std::uint64_t>(slot) * heap_slot_stride,
-                                                               .address = address,
-                                                               .size = info.size,
-                                                               .type = rhi::descriptor_type::storage_buffer})
+                    status = address ? resource.heap_view.write_buffer({.offset = static_cast<std::uint64_t>(slot) * heap_slot_stride,
+                                                                        .address = address,
+                                                                        .size = info.size,
+                                                                        .type = rhi::descriptor_type::storage_buffer})
                                      : rhi::error::operation_failed;
                 }
             }
@@ -290,13 +214,13 @@ namespace deren::vulkan {
         VkBufferDeviceAddressInfo info{};
         info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
         info.buffer = buffer.native;
-        return vkGetBufferDeviceAddress(logical_device, &info) + offset;
+        return vkGetBufferDeviceAddress(this->device.logical_device, &info) + offset;
     }
 
     rhi::error core::frame_commands::demand(rhi::buffer const& resource) {
         {
-            std::lock_guard lock(owner->contract_buffers_mutex);
-            if (!owner->contract_buffers.contains(&resource))
+            std::lock_guard lock(owner->resource.contract_buffers_mutex);
+            if (!owner->resource.contract_buffers.contains(&resource))
                 return rhi::error::invalid_argument;
         }
         auto& value = const_cast<owned_buffer&>(static_cast<owned_buffer const&>(resource));
@@ -310,8 +234,8 @@ namespace deren::vulkan {
     }
     rhi::error core::frame_commands::demand(rhi::image const& resource) {
         {
-            std::lock_guard lock(owner->contract_images_mutex);
-            if (!owner->contract_images.contains(&resource))
+            std::lock_guard lock(owner->resource.contract_images_mutex);
+            if (!owner->resource.contract_images.contains(&resource))
                 return rhi::error::invalid_argument;
         }
         auto& value = const_cast<owned_image&>(static_cast<owned_image const&>(resource));
