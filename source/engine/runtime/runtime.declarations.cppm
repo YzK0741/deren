@@ -2248,6 +2248,7 @@ namespace deren::engine {
         // so changing it after a scene is loaded affects the next import rather than the live materials.
         bool rt_reflection_cloth = true;
         float rt_reflection_strength = 0.35f;
+        uint32_t rt_reflection_samples = 1;
         deren::utility::vessel::string rt_reflection_materials = {};
 
         // ---- mesh shaders (see docs/mesh_shaders.md) ----
@@ -3813,6 +3814,14 @@ namespace deren::engine {
          *       does not retroactively affect materials already imported.
          */
         void set_rt_reflection_whitelist(bool cloth, float strength, deren::utility::vessel::string materials);
+
+        /**
+         * @ingroup runtime
+         * @brief set the number of reflection rays per pixel ([render] rt_reflection_samples)
+         * @param samples 1 = mirror trace with the roughness fallback; 2-4 = GGX-distributed samples
+         * @note clamped to [1, 4]. Ignored without ray-traced reflections.
+         */
+        void set_rt_reflection_samples(uint32_t samples) noexcept;
 
         /**
          * @ingroup runtime

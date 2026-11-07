@@ -13,13 +13,15 @@ rt_reflections = true
 rt_reflection_cloth = true
 rt_reflection_strength = 1.0
 rt_reflection_materials = ["Material_MR"]
+rt_reflection_samples = 1
 ```
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `[render] rt_reflections` | `false` | Trace one reflection ray per visible pixel. A device without ray queries ignores the key and continues with the normal deferred lighting result. |
+| `[render] rt_reflections` | `false` | Trace reflection rays for visible pixels. A device without ray queries ignores the key and continues with the normal deferred lighting result. |
 | `[render] rt_reflection_cloth` | `true` | Grant the composite to the loader's `cloth` material family. |
 | `[render] rt_reflection_strength` | `0.35` | Multiplier on the Fresnel/roughness-weighted reflection term; `0` disables it, `1` is the full add. |
+| `[render] rt_reflection_samples` | `1` | Rays per visible pixel, clamped to 1-4. `1` keeps the mirror trace and its roughness fallback; `2`-`4` importance-sample the GGX lobe and average the radiance and hit distance. |
 | `[render] rt_reflection_materials` | `[]` | Extra material names, matched as case-insensitive substrings (for example `"Material_MR"` or `"leather"`). The whitelist is resolved at scene import, so changing it requires a reload. |
 | `[[scene.objects]] ray_tracing_reflection` | `cast_shadow` | Per-object opt-out. `false` keeps that object out of the traced reflection while leaving its raster result unchanged. |
 
@@ -30,10 +32,14 @@ use the name list alone.
 
 ## What is traced
 
-The pass traces a single reflection ray per visible pixel through the same scene acceleration
-structures used by ray-traced shadows. The closest-hit shader shades the hit's base color with
-the sun and a low-mip environment lookup. The deferred lighting stage composites the hit with
-a Fresnel and roughness weight, scaled by `rt_reflection_strength`.
+The pass traces one to four reflection rays per visible pixel through the same scene
+acceleration structures used by ray-traced shadows. With the default one sample it traces the
+mirror direction and falls back to a roughness-selected environment mip above roughness 0.55;
+with two to four samples it importance-samples the GGX lobe, averages radiance and hit distance,
+and uses the same roughness-selected mip only for samples whose ray escapes the scene. The
+closest-hit shader shades the hit's base color with the sun and a low-mip environment lookup. The
+deferred lighting stage composites the result with a Fresnel and roughness weight, scaled by
+`rt_reflection_strength`.
 
 The hit group carries four stages: ray generation, miss, closest hit, and any hit. The any-hit
 stage applies only to materials whose `alphaMode` is `MASK`. It reads the base-color alpha at

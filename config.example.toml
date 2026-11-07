@@ -377,8 +377,8 @@ rt_shadows = false
 # frame, a spatial prefilter, and a temporal resolve that clips history to the local color bounds. Its
 # history is per swapchain image, so a newly enabled or resized frame starts from the current sample rather
 # than blending stale pixels. The closest hit shades the material's base color with the sun plus a low-mip
-# environment lookup; masked geometry has no reflection any-hit stage yet (the traced-shadow any-hit path is
-# separate). Off by default, and off is byte-exact.
+# environment lookup; a shared any-hit predicate cuts alphaMode MASK texels from both reflection and shadow
+# rays. Off by default, and off is byte-exact.
 rt_reflections = false
 # rt_reflection_cloth / rt_reflection_strength / rt_reflection_materials: WHERE the traced reflection is
 # allowed to land. A cel-shaded character is mostly flat, rough shading; a mirror term over the whole frame
@@ -390,6 +390,11 @@ rt_reflections = false
 rt_reflection_cloth = true
 rt_reflection_strength = 0.35
 rt_reflection_materials = []
+# rt_reflection_samples: rays per pixel for the traced reflection (1-4, clamped). One sample keeps the original
+# mirror trace and its roughness fallback. Two to four importance-sample the GGX lobe and average, which trades
+# GPU time for less noise on glossy surfaces above the one-sample roughness cutoff; the existing FidelityFX
+# denoiser runs afterward either way. Default 1 (the original behavior).
+rt_reflection_samples = 1
 # rt_mask_bake: bake alphaMode MASK into the acceleration structures, so a masked surface is not SOLID to a
 # ray. THIS IS THE SUBSTITUTE FOR AN ANY-HIT STAGE, and the shipped path does not need it: the ray-tracing
 # pipeline's any-hit shader answers the same question per HIT rather than per triangle (shaders/rt_shadow.rahit

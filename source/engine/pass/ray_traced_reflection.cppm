@@ -35,8 +35,8 @@ export namespace deren::engine::pass {
         /// @brief the push block shared with `source/shaders/lighting/rt_reflection.slang`
         struct push_constants {
             glm::mat4 inv_view_proj = glm::mat4(1.0f);
-            // x = ray tmin, y = absolute normal-offset floor, z = relative offset scale, w = unused
-            glm::vec4 params = glm::vec4(0.01f, 0.002f, 0.0015f, 0.0f);
+            // x = ray tmin, y = absolute normal-offset floor, z = relative offset scale, w = rays per pixel
+            glm::vec4 params = glm::vec4(0.01f, 0.002f, 0.0015f, 1.0f);
         };
 
         rt_reflection_pass() = default;
@@ -49,6 +49,7 @@ export namespace deren::engine::pass {
         void describe_resources(render_resource::instances::resource_context const&, deren::utility::vessel::vector<render_resource::instances::request>&) const override;
         void bind_resources(render_resource::instances::resource_snapshot const&) override;
         void on_swapchain_recreated(pass_host const& host) override;
+        void set_rt_reflection_samples(uint32_t samples) noexcept override;
 
         deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
 
@@ -88,6 +89,7 @@ export namespace deren::engine::pass {
         deren::promise::rhi::shader_binding_table_region miss_region = {};
         deren::promise::rhi::shader_binding_table_region hit_region = {};
         deren::promise::rhi::shader_binding_table_region callable_region = {};
+        uint32_t sample_count = 1;
         bool logged = false;
     };
 

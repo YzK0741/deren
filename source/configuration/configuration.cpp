@@ -163,6 +163,12 @@ namespace deren::app_config {
                     }
                 }
             }
+            if (toml::node const* node = render->get("rt_reflection_samples")) {
+                if (std::optional<int64_t> const value = node->value<int64_t>()) {
+                    settings.render.rt_reflection_samples =
+                        static_cast<uint32_t>(std::clamp<int64_t>(*value, 1, 4));
+                }
+            }
             if (toml::node const* node = render->get("rt_reflection_materials")) {
                 if (toml::array const* names = node->as_array()) {
                     deren::utility::vessel::string joined;

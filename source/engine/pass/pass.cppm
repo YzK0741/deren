@@ -830,6 +830,9 @@ export namespace deren::engine::pass {
         /// @brief the traced-reflection composite's multiplier (only the lighting stage acts on it)
         virtual void set_rt_reflection_strength([[maybe_unused]] float strength) noexcept {
         }
+        /// @brief the traced-reflection ray count per pixel (only the reflection trace pass acts on it)
+        virtual void set_rt_reflection_samples([[maybe_unused]] uint32_t samples) noexcept {
+        }
         /// @brief select the denoiser's output rather than the raw trace (only the lighting stage acts on it)
         virtual void set_reflection_denoised([[maybe_unused]] bool enabled) noexcept {
         }
