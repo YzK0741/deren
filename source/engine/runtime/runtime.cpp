@@ -1407,6 +1407,13 @@ namespace deren::engine {
         }
     }
 
+    void runtime::set_rt_reflection_samples(uint32_t const samples) noexcept {
+        this->rt_reflection_samples = std::clamp<uint32_t>(samples, 1u, 4u);
+        if (this->rt_reflection_pass[0] != nullptr) {
+            this->rt_reflection_pass[0]->set_rt_reflection_samples(this->rt_reflection_samples);
+        }
+    }
+
     void runtime::set_rt_reflection_whitelist(bool const cloth, float const strength, deren::utility::vessel::string materials) {
         this->rt_reflection_cloth = cloth;
         this->rt_reflection_strength = strength < 0.0f ? 0.0f : (strength > 1.0f ? 1.0f : strength);

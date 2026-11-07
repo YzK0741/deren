@@ -645,6 +645,7 @@ namespace deren::app {
         runtime.set_rt_reflection_whitelist(settings.render.rt_reflection_cloth,
                                             settings.render.rt_reflection_strength,
                                             settings.render.rt_reflection_materials);
+        runtime.set_rt_reflection_samples(settings.render.rt_reflection_samples);
         // ... and the alphaMode MASK bake, which is what keeps a masked surface from being SOLID to those rays:
         // a compute pass collapses the triangles the material's alpha cuts out, before the structures are built.
         runtime.set_rt_mask_bake(settings.render.rt_mask_bake);

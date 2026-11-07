@@ -4,6 +4,7 @@
 
 module;
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -126,11 +127,15 @@ namespace deren::engine::pass {
         this->raygen_region = region(address);
         this->miss_region = region(address + region_size);
         this->hit_region = region(address + static_cast<std::uint64_t>(2u) * region_size);
-        deren::utility::log("SUCCESS: ray-traced reflection pipeline created (raygen + miss + closest hit + alpha any hit, one ray per pixel)");
+        deren::utility::log("SUCCESS: ray-traced reflection pipeline created (raygen + miss + closest hit + alpha any hit)");
     }
 
     void rt_reflection_pass::on_swapchain_recreated(pass_host const&) {
         // No per-generation state: the target is per frame slot and the pipeline does not depend on the surface.
+    }
+
+    void rt_reflection_pass::set_rt_reflection_samples(uint32_t const samples) noexcept {
+        this->sample_count = std::clamp<uint32_t>(samples, 1u, 4u);
     }
 
     bool rt_reflection_pass::record_ready(resolved_io const& io) const noexcept {
@@ -146,11 +151,12 @@ namespace deren::engine::pass {
         }
         push_constants push = {};
         push.inv_view_proj = io.constants.inv_view_proj;
+        push.params.w = static_cast<float>(this->sample_count);
         [[maybe_unused]] bool const pushed = io.push_block(*io.cmd, pass::push_bytes(push));
         io.list->trace_rays(this->raygen_region, this->miss_region, this->hit_region, this->callable_region, io.extent.width, io.extent.height, 1);
         if (!this->logged) {
             this->logged = true;
-            deren::utility::log("ray-traced reflections: tracing {}x{} rays per frame through the ray-tracing pipeline", io.extent.width, io.extent.height);
+            deren::utility::log("ray-traced reflections: tracing {}x{} pixels with {} ray(s) per pixel", io.extent.width, io.extent.height, this->sample_count);
         }
         return rhi::error::ok;
     }

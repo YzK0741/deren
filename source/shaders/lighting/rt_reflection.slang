@@ -1,11 +1,13 @@
 // shaders/lighting/rt_reflection.slang - roughness-gated reflection trace.
 //
-// THE FIRST REFLECTION PASS, deliberately narrow: the ray starts at the G-buffer surface, travels along the
-// reflection of the view direction about the G-buffer normal, and writes the radiance it found plus the hit
-// distance. Surfaces above RT_REFLECTION_TRACE_MAX_ROUGHNESS skip the ray and sample the prefiltered
-// environment at a roughness-selected mip instead, because a single mirror ray is not a useful estimate of a
-// wide lobe. The result is denoised by the reflection_denoise passes; the deferred lighting stage weighs it by
-// Fresnel and (1 - roughness), and the toon stage uses the same roughness-aware weight.
+// THE REFLECTION PASS starts at the G-buffer surface and writes radiance plus hit distance. With one sample it
+// travels along the mirror direction about the G-buffer normal; surfaces above
+// RT_REFLECTION_TRACE_MAX_ROUGHNESS skip the ray and sample the prefiltered environment at a roughness-selected
+// mip instead, because a single mirror ray is not a useful estimate of a wide lobe. With two to four samples
+// the ray directions are GGX-importance-sampled across that lobe and averaged, which is what lets the pass
+// trace the rough surfaces the one-sample path leaves to the environment. The result is denoised by the
+// reflection_denoise passes; the deferred lighting stage weighs it by Fresnel and (1 - roughness), and the toon
+// stage uses the same roughness-aware weight.
 //
 // THE PAYLOAD IS WRITTEN EXACTLY ONCE ON EVERY PATH, and the raygen does NOT initialise it. The ray-traced
 // shadow pass learned this the hard way: a raygen store equal to the miss store is treated as redundant and
@@ -51,7 +53,7 @@ struct LightUBO
 struct RtReflectionPush
 {
     VR_MAT4 inv_view_proj; // clip -> world
-    float4 params;         // x = ray tmin, y = absolute offset floor, z = relative offset scale, w = unused
+    float4 params;         // x = ray tmin, y = absolute offset floor, z = relative offset scale, w = rays per pixel
     uint frame_slot;
     uint image_index;
 };
@@ -68,8 +70,47 @@ float3 reflection_world_position_from_depth(float2 uv, float depth)
     return world.xyz / world.w;
 }
 
+/// @brief a cheap per-sample integer hash; the low bits of the dispatch index are too regular to seed with
+uint reflection_hash(uint value)
+{
+    value ^= value >> 16u;
+    value *= 0x7feb352du;
+    value ^= value >> 15u;
+    value *= 0x846ca68bu;
+    value ^= value >> 16u;
+    return value;
+}
+
+/// @brief uniform [0,1) from a small PCG-style state; one call advances the state
+float reflection_rand(inout uint state)
+{
+    state = state * 747796405u + 2891336453u;
+    const uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return float((word >> 22u) ^ word) / 4294967295.0;
+}
+
+/// @brief importance-sample the GGX half-vector lobe and mirror the view about it
+/// @param normal G-buffer normal, in world space
+/// @param view unit vector from the surface toward the camera
+/// @param roughness linear material roughness, [0,1]
+/// @param u two uniform [0,1) samples
+float3 reflection_ggx_direction(float3 normal, float3 view, float roughness, float2 u)
+{
+    const float alpha = max(roughness * roughness, 1.0e-3);
+    const float alpha_squared = alpha * alpha;
+    const float cos_theta = sqrt((1.0 - u.y) / (1.0 + (alpha_squared - 1.0) * u.y));
+    const float sin_theta = sqrt(max(1.0 - cos_theta * cos_theta, 0.0));
+    const float phi = 6.28318530718 * u.x;
+
+    const float3 up = abs(normal.z) < 0.999 ? float3(0.0, 0.0, 1.0) : float3(1.0, 0.0, 0.0);
+    const float3 tangent = normalize(cross(up, normal));
+    const float3 bitangent = cross(normal, tangent);
+    const float3 half_vector = normalize(tangent * (cos(phi) * sin_theta) + bitangent * (sin(phi) * sin_theta) + normal * cos_theta);
+    return reflect(-view, half_vector);
+}
+
 // =============================================================================================================
-// THE RAYGEN (entry `rgen_main`): one reflection ray per covered pixel.
+// THE RAYGEN (entry `rgen_main`): one or more reflection rays per covered pixel.
 //
 // A sky pixel writes zero radiance and an "infinitely far" distance; the deferred composite only reads this
 // where the G-buffer actually has geometry. The ray direction is `reflect(-view, normal)`, i.e. the mirror
@@ -101,44 +142,70 @@ void rgen_main()
     const float3 normal = normalize(normal_roughness.xyz);
     const float3 world_pos = reflection_world_position_from_depth(uv, depth);
     const float3 view = normalize(camera_at(heap_camera_slot).camera_pos.xyz - world_pos);
-    const float3 direction = reflect(-view, normal);
-
-    // ROUGH SURFACES SKIP THE RAY. The G-buffer's roughness is the material's linear roughness; above the
-    // threshold the true lobe is so wide that the mirror direction is a meaningless single sample of it.
-    // The prefiltered environment already contains the same lighting integrated over exactly that lobe, so
-    // sampling it at a roughness-selected mip is both closer to the correct answer and one texture fetch
-    // instead of a BVH traversal. The distance is left "infinitely far" so the composite still knows this
-    // value did not come from a local hit. Scene-wide IBL only: this pass does not decode the G-buffer's
-    // material id, so a per-object environment slot is a later refinement.
     const float roughness = saturate(normal_roughness.w);
-    if (roughness > RT_REFLECTION_TRACE_MAX_ROUGHNESS)
+    const uint sample_count = clamp(uint(pc.params.w + 0.5), 1u, 4u);
+    const int levels = max(env_cube_levels() - 1, 1);
+
+    // ROUGH SURFACES SKIP THE RAY AT ONE SAMPLE. The G-buffer's roughness is the material's linear roughness;
+    // above the threshold the true lobe is so wide that the mirror direction is a meaningless single sample of
+    // it. The prefiltered environment already contains the same lighting integrated over exactly that lobe, so
+    // sampling it at a roughness-selected mip is both closer to the correct answer and one texture fetch
+    // instead of a BVH traversal. With more than one ray the lobe is sampled directly instead - that is the
+    // whole point of the samples setting - and the distance stays meaningful for the denoiser.
+    if (sample_count == 1u && roughness > RT_REFLECTION_TRACE_MAX_ROUGHNESS)
     {
-        const int levels = max(env_cube_levels() - 1, 1);
         const float lod = roughness * float(levels);
-        reflection[pixel] = float4(env_cube_sample_lod(direction, lod), 1e30);
+        reflection[pixel] = float4(env_cube_sample_lod(reflect(-view, normal), lod), 1e30);
         return;
     }
 
     const float distance = length(world_pos - camera_at(heap_camera_slot).camera_pos.xyz);
     const float3 origin = world_pos + normal * max(pc.params.y, pc.params.z * distance);
 
-    RayDesc ray;
-    ray.Origin = origin;
-    ray.TMin = pc.params.x;
-    ray.Direction = direction;
-    ray.TMax = 1e30;
+    float3 radiance_sum = float3(0.0, 0.0, 0.0);
+    float distance_sum = 0.0;
+    for (uint sample = 0u; sample < sample_count; ++sample)
+    {
+        float3 direction;
+        if (sample_count == 1u)
+        {
+            direction = reflect(-view, normal);
+        }
+        else
+        {
+            uint rng = reflection_hash(uint(pixel.x) + uint(pixel.y) * extent_x + pc.frame_slot * 0x9e3779b9u + sample * 0x85ebca6bu);
+            const float2 u = float2(reflection_rand(rng), reflection_rand(rng));
+            direction = reflection_ggx_direction(normal, view, roughness, u);
+        }
 
-    reflection_payload payload;
-    TraceRay(mapped_tlas[heap_frame_slot],
-             RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH,
-             0x2, // RT-reflection instances only; bit0 marks shadow-only geometry
-             0,
-             0,
-             0,
-             ray,
-             payload);
+        RayDesc ray;
+        ray.Origin = origin;
+        ray.TMin = pc.params.x;
+        ray.Direction = direction;
+        ray.TMax = 1e30;
 
-    reflection[pixel] = float4(payload.radiance, payload.distance);
+        reflection_payload payload;
+        TraceRay(mapped_tlas[heap_frame_slot],
+                 RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH,
+                 0x2, // RT-reflection instances only; bit0 marks shadow-only geometry
+                 0,
+                 0,
+                 0,
+                 ray,
+                 payload);
+
+        // A miss shades the environment through the miss shader's fixed mip. Multi-sample mode knows the
+        // material roughness, so it can pick the mip that matches the sampled lobe instead.
+        if (sample_count > 1u && payload.distance >= 1.0e29)
+        {
+            payload.radiance = env_cube_sample_lod(direction, roughness * float(levels));
+        }
+        radiance_sum += payload.radiance;
+        distance_sum += payload.distance;
+    }
+
+    const float inverse_samples = 1.0 / float(sample_count);
+    reflection[pixel] = float4(radiance_sum * inverse_samples, distance_sum * inverse_samples);
 }
 
 // =============================================================================================================
