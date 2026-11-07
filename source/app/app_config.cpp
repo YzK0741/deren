@@ -21,6 +21,34 @@ import deren.application_configuration;
 import deren.asset_library;
 
 namespace deren::app {
+    namespace {
+        void require_existing_path(std::string_view const path, std::string_view label, bool const directory) {
+            std::filesystem::path const fs_path(path);
+            std::error_code ec;
+            bool const exists = directory ? std::filesystem::is_directory(fs_path, ec) : std::filesystem::is_regular_file(fs_path, ec);
+            if (exists) {
+                return;
+            }
+            std::error_code cwd_error;
+            std::string const cwd = std::filesystem::current_path(cwd_error).string();
+            deren::utility::panic(std::source_location::current(),
+                                  "{} '{}' does not exist (working directory '{}'). Check the config file or pass a valid path.",
+                                  label, path, cwd);
+        }
+
+        void require_existing_file(std::string_view const path, std::string_view label) {
+            if (!path.empty()) {
+                require_existing_path(path, label, false);
+            }
+        }
+
+        void require_existing_directory(std::string_view const path, std::string_view label) {
+            if (!path.empty()) {
+                require_existing_path(path, label, true);
+            }
+        }
+    } // namespace
+
     // Resolve the startup config in one step: merge config file + argv into the app settings,
     // then locate the source/shaders/ dir and pick the model file. Panics when a resource is missing.
     startup_config analyse_config(std::int32_t argc, char** argv) {
@@ -28,8 +56,16 @@ namespace deren::app {
         //    to override) merged with positional argv overrides. argv[1] = model, argv[2] = grid
         //    side (numeric).
         deren::app_config::app_settings const settings = deren::app_config::resolve_from_argv(argc, argv);
+        require_existing_directory(settings.paths.asset_library, "[paths] asset_library");
+        require_existing_directory(settings.paths.model_dir, "[paths] model_dir");
         if (!settings.config_file.empty()) {
             deren::utility::log("app_config: loaded startup settings from '{}'", settings.config_file);
+        } else {
+            std::error_code cwd_error;
+            std::string const cwd = std::filesystem::current_path(cwd_error).string();
+            deren::utility::log("app_config: no config.toml found in '{}'; using defaults. "
+                                "Pass --config <path> to select a config file.",
+                                cwd);
         }
 
         startup_config config = {settings, {}, {}, {}};
@@ -61,12 +97,24 @@ namespace deren::app {
         if (!settings.paths.shaders_dir.empty()) {
             config.shaders_dir = settings.paths.shaders_dir;
             if (!std::filesystem::is_directory(config.shaders_dir)) {
-                deren::utility::panic(std::source_location::current(), "cannot find configured shaders_dir '{}'.", settings.paths.shaders_dir);
+                std::error_code cwd_error;
+                std::string const cwd = std::filesystem::current_path(cwd_error).string();
+                deren::utility::panic(std::source_location::current(),
+                                      "cannot find configured shaders_dir '{}' (working directory '{}'). "
+                                      "Fix [paths] shaders_dir in the config file; after renaming or moving the build "
+                                      "directory, regenerate it with 'python scripts/config/make_config.py <build-dir>'.",
+                                      settings.paths.shaders_dir, cwd);
             }
         } else if (std::optional<std::filesystem::path> const located = locate_shaders_dir()) {
             config.shaders_dir = *located;
         } else {
-            deren::utility::panic("cannot find shaders/ directory. run the program from the project root, pass shaders_dir in config.toml, or use a cmake-build-* directory.");
+            std::error_code cwd_error;
+            std::string const cwd = std::filesystem::current_path(cwd_error).string();
+            deren::utility::panic(std::source_location::current(),
+                                  "cannot find a shaders/ directory from '{}'. Run from the project root, set "
+                                  "[paths] shaders_dir, or pass --config <build-dir>/config.toml; regenerate the build "
+                                  "config with 'python scripts/config/make_config.py <build-dir>'.",
+                                  cwd);
         }
 
         // A scene whose placements all name their own asset does not need a separate default model: the
@@ -162,6 +210,7 @@ namespace deren::app {
             } else {
                 model = config.model_path;
             }
+            require_existing_file(model, "[[scene.objects]] model");
             deren::app_config::model_format const format = deren::app_config::model_format_of(model);
             if (format == deren::app_config::model_format::unsupported) {
                 deren::utility::panic(std::source_location::current(),
@@ -211,6 +260,7 @@ namespace deren::app {
                                 distinct_models.size(), default_is_referenced ? "" : " plus the top-level default");
         }
 
+        require_existing_file(config.model_path, "model");
         return config;
     }
 
