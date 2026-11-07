@@ -170,7 +170,7 @@ validates a complete matching group and retains it for recorded/pending work. Ba
 allocations remain private. See [resource groups](resource_groups.md) for usage, ownership and limits.
 ABI 51 itself recorded immediately; deferred/lazy state recording arrived in ABI 53 (see the ABI 53
 section below). Resource groups originated in ABI 51 and the subview split in ABI 50. The ABI 54
-removal retired the reserved factory-slot surface; current binaries use ABI 59.
+removal retired the reserved factory-slot surface; current binaries use ABI 61.
 
 ## Removal of incomplete interfaces (ABI 54)
 

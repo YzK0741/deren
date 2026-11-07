@@ -1,7 +1,7 @@
 # Independent buffer transfers
 
 The engine module `deren.engine.buffer_transfer` batches buffer uploads and readbacks on the existing
-independent graphics submission path. It adds no RHI virtuals, queues or ABI change (current RHI ABI 59).
+independent graphics submission path. It adds no RHI virtuals, queues or ABI change (current RHI ABI 61).
 It requires both `command_submission` and `scoped_synchronization`; an unavailable mechanism returns
 `unsupported`. Acquired-frame submission and screenshot readback are outside this service.
 
