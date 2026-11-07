@@ -1140,7 +1140,11 @@ namespace deren::app_config {
         if (!config_path.empty() && std::filesystem::is_regular_file(config_path, ec)) {
             settings = load_settings(config_path);
         } else if (!config_path.empty()) {
-            deren::utility::log("app_config: config file '{}' not found, using defaults", config_path);
+            std::error_code cwd_error;
+            std::string const cwd = std::filesystem::current_path(cwd_error).string();
+            deren::utility::log("app_config: config file '{}' not found (working directory '{}'); using defaults. "
+                                "Pass --config <path> or put config.toml in the working directory.",
+                                config_path, cwd);
         }
         // command-line options override the file but not the positional model/grid slots below
         if (asset_library_override) {

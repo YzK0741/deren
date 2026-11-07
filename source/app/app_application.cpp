@@ -434,6 +434,11 @@ namespace deren::app {
                 // relative to the EXECUTABLE's directory, the same rule [render] background_glb follows
                 environment_path = deren::utility::executable_directory() / environment_path;
             }
+            if (!std::filesystem::is_regular_file(environment_path)) {
+                deren::utility::panic(std::source_location::current(),
+                                      "[lighting] environment_hdr '{}' does not exist (resolved to '{}').",
+                                      settings.lighting.environment_hdr, environment_path.string());
+            }
             int32_t channels = 0;
             float* const decoded = stbi_loadf(environment_path.string().c_str(), &environment_width, &environment_height, &channels, 4); // 4 = force RGBA, the layout the bake reads
             if (decoded == nullptr) {
@@ -1695,6 +1700,11 @@ namespace deren::app {
                 // relative to the EXECUTABLE's directory, which is where every other asset of this application
                 // is found (the shaders dir comes from the same place, see deren::app::analyse_config)
                 background_path = deren::utility::executable_directory() / background_path;
+            }
+            if (!std::filesystem::is_regular_file(background_path)) {
+                deren::utility::panic(std::source_location::current(),
+                                      "[render] background_glb '{}' does not exist (resolved to '{}').",
+                                      settings.render.background_glb, background_path.string());
             }
             auto background_load = deren::gltf::load_model_async(background_path.string(), {settings.render.subtilis});
             auto background_scenes = background_load.get();
