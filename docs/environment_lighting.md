@@ -2,7 +2,8 @@
 
 The environment supplies diffuse and specular IBL independently of the displayed background.
 The renderer retains the existing HDR-to-cube, irradiance, GGX prefilter and BRDF LUT pipeline.
-The new controls operate on that pipeline; they do not add scene reflections or atmospheric fog.
+The new controls operate on that pipeline; they do not add atmospheric fog. Scene reflections are a
+separate opt-in pass: see [ray-traced reflections](rt_reflections.md).
 
 ## Quick start
 

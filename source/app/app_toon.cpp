@@ -1243,7 +1243,7 @@ namespace deren::app::detail {
         }
         if (lane == deren::engine::toon_colour_lane::game_toon_15 &&
             deren::gltf::toon_family_of(material_name) == deren::gltf::toon_family::cloth) {
-            // Warfarin selects its broad cloth lobe only for this set of material features.
+            // The captured GameToon viewer selects its broad cloth lobe only for this set of material features.
             bool broad = !(material->enabled_by_flag("_UseSpecRampMap") && material->enabled_by_flag("_UseMatcap"));
             for (auto const feature : {"_Pantyhose", "_UseAnisotropy", "_EnableRealisticLighting", "_UseCharacterErosion",
                                        "_UsePuppet", "_UsePuppetProceduralDCurve", "_UseCharacterFur",

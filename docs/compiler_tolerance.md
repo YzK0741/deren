@@ -1,13 +1,13 @@
 # Compiler tolerance
 
 What this project needs from a toolchain, and what was MEASURED when a second one was tried. The short
-version: the code is C++23 with C++20 modules and was written against **libc++**; three things in it turned out
+version: the code is C++26 with C++20 modules and was written against **libc++**; three things in it turned out
 to be libc++-only and are fixed, and what still stops a second toolchain is the toolchain's own problem and one
 vendored header's.
 
 ## What is supported
 
-The configuration CI builds and the capture gate runs on: MSYS2 **clang64** (clang 22, libc++, UCRT), CMake +
+The configuration CI builds and the capture gate runs on: MSYS2 **clang64** (clang 23.1.4, libc++, UCRT), CMake +
 Ninja, shaders compiled by `slangc`. `-Werror` is on for first-party code in every configuration, so a warning
 this compiler emits but CI's does not is a build failure here rather than a curiosity.
 

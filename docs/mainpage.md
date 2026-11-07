@@ -84,7 +84,12 @@ implementation details, measured results and the limits of each feature.
   subfeatures and measured CPU/memory limits. The current amnis phase closed on 2026-10-28;
   its closeout records the accepted opt-in baseline and deferred work.
 - **Ray-traced shadows.** `deren.engine.pass.ray_traced_shadow` sits beside the cascade path; see
-  the module documentation and `docs/reference/` for the source notes it was built from.
+  the module documentation and `docs/references/` for the source notes it was built from.
+- **Ray-traced reflections.** `[render] rt_reflections` is an opt-in, per-pixel reflection pass for
+  the deferred PBR path and the GameToon cloth path, with a FidelityFX reflection denoiser and a
+  configurable material whitelist. The default is off; a device without ray queries ignores the key.
+  See \ref md_docs_2rt__reflections "ray-traced reflections" for the keys, the traced pipeline and
+  the source layout.
 - **A toon character pipeline.** Per-material families (base / skin / face / hair / eye /
   cloth) select which shader lanes run; sixteen optional sidecar lanes (four in the material
   record - diffuse ramp, shadow LUT, specular ramp, matcap - and twelve more in three toon lane
@@ -168,7 +173,7 @@ Three shorter paths, if you are not reading front to back:
   \ref md_docs_2pass__io__design "Pass I/O design",
   \ref md_docs_2runtime__split "Runtime split",
   \ref md_docs_2shaders "Shaders".
-- **Understand why the code looks like this:** the four migration pages (12-15 above), in
+- **Understand why the code looks like this:** the four migration pages (14-17 above), in
   order.
 
 ## The dynamic API
@@ -199,7 +204,7 @@ One contract, and every graphics backend is an implementation of it.
   name and `deren_gui_vulkan.dll` exports one name. The handle is detached and the image is never
   unloaded, so a missing DLL is a named diagnosis rather than a loader error.
 - **The GUI plugin has its own number and its own recording targets.** `deren_gui_vulkan.dll` answers
-  `deren_make_gui`, whose first argument is `gui::gui_abi_version` (5 today). The device root crosses
+  `deren_make_gui`, whose first argument is `gui::gui_abi_version` (6 today). The device root crosses
   as the opaque `rhi::main_context` (abi 39), and `gui::create_info` carries two contract
   `mergeable_command_buffer_ref` targets the host created; the overlay records its ImGui segment into
   one of them and returns it, and the host executes that segment in a dedicated LOAD + secondary-contents

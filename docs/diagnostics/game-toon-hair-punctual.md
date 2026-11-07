@@ -19,7 +19,7 @@ their existing GGX path. Main-light broad highlights and manual diffuse tint
 are unchanged. This aligns the local lobe, not the game's complete lighting,
 screen-space shadows, or frame composition.
 
-Run `python scripts/gates/game_toon_hair_response.py --build-dir build-release`.
+Run `python scripts/gates/game_toon_hair_response.py --build-dir build`.
 The GPU probe checks material routing, wrap and specular modes, peak and
 off-axis response, zero factors, back-facing light, and the non-hair fallback.
 Its numerical lobe checks use the no-palette white fallback, so they do not

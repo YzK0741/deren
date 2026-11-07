@@ -26,7 +26,7 @@
 //                                       `new r3` -> `this.saturationLift = !0`; feature-defines last line)
 //   NOT Q132 (main-light self-shadow)   viewer default `selfShadow: false` and `laevat.volume.mainLightShadow
 //                                       = false`, so the captured lit weight has NO shadow-map term.
-//   The current Warfarin bundle selects Q337 for eligible cloth even when its diffuse ramp is enabled.
+//   The current captured GameToon bundle selects Q337 for eligible cloth even when its diffuse ramp is enabled.
 //   NOT Q118 silk, NOT Q100 customize, NOT Q247 extra-alpha, NOT Q11 parallax, NOT Q42/Q142 blend alpha path:
 //                                       `_SilkStockings`, `_AvatarCustomizeEnable`, `_UseUV2Color`,
 //                                       `_UseParallax` are 0.0 on all five cloth materials.

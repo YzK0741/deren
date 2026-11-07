@@ -1100,6 +1100,7 @@ INPUT                  = ./docs/managed_resources.md \
 				./docs/shaders.md \
 				./docs/multi_pipeline_objects.md \
                 ./docs/environment_lighting.md \
+				./docs/rt_reflections.md \
 				./docs/pass_io_design.md \
 				./docs/runtime_split.md \
 				./docs/mesh_shaders.md \

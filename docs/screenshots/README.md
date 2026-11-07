@@ -21,11 +21,13 @@ are deliberate presentation choices; these two images are not an A/B material co
 
 The compressed [capture manifest](pbr-captures-2026-10-29.json.gz) retains the 2026-10-29 TOML,
 command, executable and final PNG hashes, resolved camera logs and HDR provenance for the original
-helmet captures; the DamagedHelmet entry predates the RT re-capture above. Its paths are
-repository-relative. To reproduce, extract a model's `config` string, then run the current
-executable with `--config <file> --capture-frames 30` for DamagedHelmet (or `120` for FlightHelmet)
-and the corresponding `--capture-camera=yaw,pitch,distance,target.x,target.y,target.z` above. The
-local originals and logs used for the capture are not distributed with the repository. See
+helmet captures; its DamagedHelmet entry predates the RT re-capture above, so it reproduces the
+pre-RT image. Its paths are repository-relative. To reproduce the published RT image, extract the
+DamagedHelmet `config` string and add `rt_reflections = true`,
+`rt_reflection_strength = 1.0` and `rt_reflection_materials = ["Material_MR"]` under `[render]`,
+then run the current executable with `--config <file> --capture-frames 30` and the camera above.
+FlightHelmet uses the manifest as-is at frame 120. The local originals and logs used for the
+capture are not distributed with the repository. See
 [environment lighting](../environment_lighting.md) for the pinned HDR fetch command.
 
 PNG compression is lossless: decoded bytes were checked against each original renderer PNG.
