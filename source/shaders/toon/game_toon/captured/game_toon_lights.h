@@ -14,6 +14,8 @@
 // Translated from `character.frag.readable.glsl:188-327`; mode 4 (fog) is the captured `mix` arm and
 // is left to the scene fog, exactly as the capture's `Q260` list is character-only.
 #ifndef __cplusplus
+#include "toon/game_toon/captured/encoding.h"
+
 // The current NVIDIA 617.42 descriptor-heap path drops the enclosing 352-byte
 // offset when reading nested light structs. Minimal Slang AND glslang shaders
 // reproduce it; both pass spirv-val, and GPU comparison matches buffer bytes
@@ -31,8 +33,35 @@ static PunctualLight game_toon_load_light(uint index) {
     return light;
 }
 
+/// Shared primary hair lobe: viewer R72 (readable:124-138), game PS 37900 DXBC 2042-2055.
+/// `x = dot(R308, half)`; `s = max(sqrt(max(1-x*x,0)),1e-4)`; `u = clamp(R73.g * s^200, 0, 1)`; `v = x>0 ?
+/// R92^2 : 0`; the specular ramp is read at `(u, 1-v)` and the result is `tint * u * R92`. `R73.g` is the P
+/// map's reflectivity and `R92` is the strand edge fade; both are parameters here so the capture's globals stay
+/// visible at the call site.
+///
+/// The specular-ramp lane is `s.toon_indices.z` (`toon_slot::specular_ramp`). When it is absent the viewer's own
+/// `!USE_SPECULAR_RAMP` arm is used (`tint = vec3(1)`, `readable:134`), so no colour is invented.
+static float3 game_toon_hair_specular_lobe(const float3 lobe_normal, const float3 half_dir, const float p_map_g,
+                                          const float strand_fade, const uint spec_ramp_lane) {
+    const float x = dot(lobe_normal, half_dir);                                                          // readable:125
+    const float s = max(sqrt(max(1.0 - x * x, 0.0)), 1e-4);                                              // readable:126
+    const float u = clamp(p_map_g * exp2(200.0 * log2(s)), 0.0, 1.0);                                    // readable:127
+    const float v = x > 0.0 ? strand_fade * strand_fade : 0.0;                                           // readable:128
+    const float3 tint = (spec_ramp_lane != 0u)
+        ? game_toon_encoding_linear_to_srgb(frame_texture_sample(spec_ramp_lane,                                      // readable:131
+                               clamp(float2(u, 1.0 - v), float2(0.002, 0.002), float2(0.998, 0.998))).rgb)
+        : float3(1.0, 1.0, 1.0);                                                                         // readable:134
+    return tint * u * strand_fade;                                                                       // readable:137
+}
+
+// Optional hair lanes: direction = (primary axis, edge fade),
+// material = (P.g, anisotropy strength, line gain, enabled). Zero defaults keep
+// skin, face, eye and cloth on their existing GGX path.
 static float3 game_toon_add_lights(float3 colour, float3 N, float3 V, float3 P, float3 diffuse,
-                                  float3 F0, float roughness, float3 rim_base) {
+                                  float3 F0, float roughness, float3 rim_base,
+                                  float4 hair_direction = float4(0.0),
+                                  float4 hair_material = float4(0.0), uint hair_ramp_lane = 0u,
+                                  bool eye_diffuse_only = false) {
     const int count = clamp(int(light_at(heap_light_slot).light_count.x), 0, MAX_PUNCTUAL_LIGHTS);
     const float3 camera_axis = normalize(mul(camera_at(heap_camera_slot).view, float4(0.0, 0.0, 1.0, 0.0)).xyz);
     const float no_v = clamp(dot(N, V), 0.0, 1.0);
@@ -44,6 +73,9 @@ static float3 game_toon_add_lights(float3 colour, float3 N, float3 V, float3 P, 
     for (int i = 0; i < count; ++i) {
         const PunctualLight pl = game_toon_load_light(uint(i));
         const float mode = pl.color.w;
+        // Eye PS 37822/37856: no GGX term, and the rim branch's
+        // attenuation is explicitly cleared before accumulation.
+        if (eye_diffuse_only && mode > 1.5 && mode <= 3.5) continue;
         const float npr_x = pl.spot_dir.w;
         const float npr_y = pl.position.w;
         const float npr_z = pl.params.z;
@@ -84,6 +116,16 @@ static float3 game_toon_add_lights(float3 colour, float3 N, float3 V, float3 P, 
             colour = lerp(colour, pl.color.rgb, clamp(fog_k, 0.0, 1.0));
             continue;
         }
+        float3 hair_specular = float3(0.0);
+        if (hair_material.w != 0.0 && mode <= 2.5) {
+            // Game PS 37900 DXBC 2037-2069: strand sine lobe, palette,
+            // edge fade, F0, strength, gain 5, per-light specular scale and N.L.
+            const float3 half_sum = L + V;
+            const float3 half_dir = half_sum * rsqrt(max(dot(half_sum, half_sum), 6.10351563e-5));
+            hair_specular = game_toon_hair_specular_lobe(hair_direction.xyz, half_dir,
+                hair_material.x, hair_direction.w, hair_ramp_lane) * F0 *
+                (hair_material.y * 5.0 * hair_material.z * npr_z * clamp(dot(N, L), 0.0, 1.0));
+        }
         if (mode > 2.5) { // captured npr:"rim"
             const float3 Z = camera_axis;
             const float3 projected = cross(Z, cross(Z, L));
@@ -97,6 +139,10 @@ static float3 game_toon_add_lights(float3 colour, float3 N, float3 V, float3 P, 
             colour += attenuation * band * visibility * pl.color.rgb * facing *
                       (0.5 + npr_y * (rim_luma - 0.5));
         } else if (mode > 1.5) { // captured npr:"specular"
+            if (hair_material.w != 0.0) {
+                colour += attenuation * pl.color.rgb * hair_specular;
+                continue;
+            }
             const float3 half_dir = normalize(L + V);
             const float no_h = dot(N, half_dir);
             const float dd = no_h * no_h * (a2 - 1.0) + 1.0;
@@ -112,6 +158,10 @@ static float3 game_toon_add_lights(float3 colour, float3 N, float3 V, float3 P, 
             const float normalise = (1.0 - npr_y) +
                 npr_y / max(max(light_colour.r, max(light_colour.g, light_colour.b)) * 0.75, 1.0);
             const float wrap = 0.25 * npr_x + (1.0 - 0.25 * npr_x) * clamp(dot(N, L) + 0.5, 0.0, 1.0);
+            if (hair_material.w != 0.0) {
+                colour += light_colour * (normalise * wrap * diffuse + hair_specular);
+                continue;
+            }
             const float lit = clamp(dot(N, L), 0.0, 1.0);
             const float3 half_dir = normalize(L + V);
             const float no_h = dot(N, half_dir);
@@ -124,6 +174,11 @@ static float3 game_toon_add_lights(float3 colour, float3 N, float3 V, float3 P, 
         }
     }
     return colour;
+}
+
+static float3 game_toon_add_eye_lights(float3 colour, float3 N, float3 V, float3 P, float3 diffuse) {
+    return game_toon_add_lights(colour, N, V, P, diffuse, float3(0.0), 1.0, float3(0.0),
+                                float4(0.0), float4(0.0), 0u, true);
 }
 #endif
 

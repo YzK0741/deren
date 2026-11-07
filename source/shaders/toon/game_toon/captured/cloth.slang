@@ -367,12 +367,22 @@ float3 captured_cloth_shade(surface_sample s, float3 world_pos, float3 geo_norma
     // R78 = the ramp coordinate on the light axis; `uRampRangeBias` is the laevat volume's `rangeBias` (0.0 -
     // MISSING PROFILE LANE for the volume value; captured constant used).
     const float ramp_u = clamp(no_l + game_toon_range_bias(push.material_index), -1.0, 1.0) * 0.5 + 0.5; // readable:892
+    // The game capture's PS 37862 attenuates both diffuse arms by (1 - metallic),
+    // while keeping the unattenuated base for F0 and emission. Use the same P-map
+    // response for the main lobe and punctual lights; glTF roughness is a fallback.
+    const float cloth_metallic = has_metallic_gloss ? metallic_gloss.r : 0.0;
+    const float cloth_roughness = has_metallic_gloss ? 1.0 - metallic_gloss.a : s.roughness;
+    const float3 cloth_f0 = has_metallic_gloss
+                               ? lerp(float3(0.04 * metallic_gloss.g), base, cloth_metallic)
+                               : float3(0.04);
+    const float diffuse_scale = 0.96 * (1.0 - cloth_metallic);
+
     // `R152 *= 0.96 * uEnvironmentMultiplier` (readable:920): THE ENVIRONMENT MULTIPLIER'S ONLY ROLE IN THE
     // CLOTH BRANCH. The captured viewer has NO environment/specular-IBL read here (the Q299 path that carries
     // `CharMaxCubemap`-style reflection is inactive); this port therefore does not add deren's
     // `environment_irradiance`/`environment_specular_sample` - that would be a term the capture does not have.
     const float environment_mul = view_features.z > 0.0 ? view_features.z : game_toon_cloth_captured_env_mul;
-    shadow_colour *= 0.96 * environment_mul; // readable:920
+    shadow_colour *= diffuse_scale * environment_mul;
 
     float3 colour;
     float lit_weight = 0.0; // `R144`: the lit/shadow mix weight the light formula and the spec mask consume
@@ -397,7 +407,7 @@ float3 captured_cloth_shade(surface_sample s, float3 world_pos, float3 geo_norma
         // `R130 = mix(R22 + 1.2*(0.65*R281 - R22), R281, clamp(R32.a + R318, 0, 1))` (readable:960)
         float3 dark_mix = float3(shadow_luma, shadow_luma, shadow_luma) + 1.2 * (shadow_65 - float3(shadow_luma, shadow_luma, shadow_luma));
         dark_mix = lerp(dark_mix, shadow_colour, clamp(diffuse_ramp.a + view_masked, 0.0, 1.0));
-        const float3 base_dark = base * 0.96;             // `R334`, readable:950
+        const float3 base_dark = base * diffuse_scale;
         dark_mix = lerp(dark_mix, base_dark, lit_weight); // readable:961
         // `R150` chroma of the ramp, then the ramp's colour tint and the brightness guard (readable:962-964).
         // THE CAPTURE USES ONE VALUE FOR BOTH: `R150 = max(R32.rgb) - min(R32.rgb)` and
@@ -416,7 +426,7 @@ float3 captured_cloth_shade(surface_sample s, float3 world_pos, float3 geo_norma
         // Its `R144` is a local variable in the captured branch, but the later light formula reads the same
         // function-scope name; keep it in the shared `lit_weight`.
         lit_weight = smoothstep(0.48, 0.52, ramp_u); // readable:996
-        colour = lerp(shadow_colour, base, lit_weight); // readable:1002
+        colour = lerp(shadow_colour, base * (1.0 - cloth_metallic), lit_weight);
     }
 
     // ========================================================================================================
@@ -459,8 +469,8 @@ float3 captured_cloth_shade(surface_sample s, float3 world_pos, float3 geo_norma
     const float4 cloth_spec = game_toon_cloth_payload(push.material_index, 15u);
     const bool broad_specular = cloth_spec.x > 0.5;
     if (broad_specular && has_metallic_gloss) {
-        const float roughness = 1.0 - metallic_gloss.a;
-        const float a = max(roughness * roughness, 0.007812);
+        const float roughness = cloth_roughness;
+        const float a = max(roughness * roughness, 0.0078125);
         const float a2 = a * a;
         const float3 forward_light = normalize(float3(camera_forward.x, light_dir.y, camera_forward.z));
         const float3 spec_half = normalize(light_dir + 2.0 * forward_light + 3.0 * view_dir);
@@ -469,7 +479,7 @@ float3 captured_cloth_shade(surface_sample s, float3 world_pos, float3 geo_norma
         const float denom2 = denom * denom;
         const float distribution = denom2 != a2 ? a2 / max(denom2, 1.0e-8) : 1.0;
         const float spec = clamp(distribution * 0.5 / (2.0 * no_v + a + 0.0001) - 0.000061, 0.0, 20.0);
-        float3 reflectance = lerp(float3(0.04 * metallic_gloss.g), base, metallic_gloss.r);
+        float3 reflectance = cloth_f0;
         if (has_spec_ramp && cloth_spec.z == 0.0) {
             const float2 ramp_uv = float2(lerp(distribution * (a2 + 0.0001), no_v * no_v, cloth_spec.y),
                                           1.0 - roughness * (1.0 - metallic_gloss.r));
@@ -515,7 +525,7 @@ float3 captured_cloth_shade(surface_sample s, float3 world_pos, float3 geo_norma
     //   R181 = smoothstep(0.35,0.6,R181) * step(0,NoL);
     //   tint = SpecRamp(NoH, 1-R82) [Q38], tint = mix(tint, tint*base*2, R299.r);
     //   colour += R181 * tint * uSpecularStrength * Q22 * uMainLightColourScaled * uMainLightIntensity.
-    colour = game_toon_add_lights(colour, n, view_dir, world_pos, pre_light_colour, float3(0.04), s.roughness, base * 0.96);
+    colour = game_toon_add_lights(colour, n, view_dir, world_pos, pre_light_colour, cloth_f0, cloth_roughness, base * diffuse_scale);
     if (has_metallic_gloss && !broad_specular) {
         const float smoothness = metallic_gloss.a;                                     // `R82`, readable:1159
         // `uSpecularStrength` = `_Specular` (material JSON, 1.0), carried by deren's colour lane 4 `.x`

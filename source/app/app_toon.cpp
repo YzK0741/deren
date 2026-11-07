@@ -1235,6 +1235,13 @@ namespace deren::app::detail {
             return outline;
         }
         if (lane == deren::engine::toon_colour_lane::game_toon_15 &&
+            (deren::gltf::toon_family_of(material_name) == deren::gltf::toon_family::skin ||
+             deren::gltf::toon_family_of(material_name) == deren::gltf::toon_family::face)) {
+            // Skin's family-specific payload preserves authored zero smoothness.
+            // -1 means absent: the shader then keeps the glTF roughness fallback.
+            return glm::vec4(material->scalar("_Smoothness", -1.0f), 0.0f, 0.0f, 1.0f);
+        }
+        if (lane == deren::engine::toon_colour_lane::game_toon_15 &&
             deren::gltf::toon_family_of(material_name) == deren::gltf::toon_family::cloth) {
             // Warfarin selects its broad cloth lobe only for this set of material features.
             bool broad = !(material->enabled_by_flag("_UseSpecRampMap") && material->enabled_by_flag("_UseMatcap"));
