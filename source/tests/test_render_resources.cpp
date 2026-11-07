@@ -72,10 +72,24 @@ namespace {
         using otp = up::output_targets_pass;
 
         // ---- output families include the software pair, but default selection keeps them off ----
-        CHECK(otp::resource_count == 17u);
+        CHECK(otp::resource_count == 31u);
         CHECK(otp::ids.size() == otp::resource_count);
         CHECK(otp::ids[15] == resource_id::software_depth);
         CHECK(otp::ids[16] == resource_id::software_id);
+        CHECK(otp::ids[17] == resource_id::rt_reflection);
+        CHECK(otp::ids[18] == resource_id::rt_reflection_denoised);
+        CHECK(otp::ids[19] == resource_id::rt_reflection_reprojected);
+        CHECK(otp::ids[20] == resource_id::rt_reflection_average);
+        CHECK(otp::ids[21] == resource_id::rt_reflection_moments);
+        CHECK(otp::ids[22] == resource_id::rt_reflection_moments_prefiltered);
+        CHECK(otp::ids[23] == resource_id::rt_reflection_moments_history);
+        CHECK(otp::ids[24] == resource_id::rt_reflection_surface_history);
+        CHECK(otp::ids[25] == resource_id::rt_reflection_depth_history);
+        CHECK(otp::ids[26] == resource_id::rt_reflection_average_history);
+        CHECK(otp::ids[27] == resource_id::rt_reflection_prefiltered);
+        CHECK(otp::ids[28] == resource_id::rt_reflection_denoised_history);
+        CHECK(otp::ids[29] == resource_id::rt_reflection_surface_current);
+        CHECK(otp::ids[30] == resource_id::rt_reflection_depth_current);
 
         // ---- the declaration: exactly two IMAGE families, in this order, with these heap slots ----
         CHECK(otp::software_resource_count == 2u);
@@ -145,15 +159,16 @@ namespace {
         otp provider;
         deren::utility::vessel::vector<rr::instances::request> selected;
         provider.describe_resources(context, selected);
-        CHECK(selected.size() == 15u); // software targets stay unrequested by default
+        CHECK(selected.size() == 29u); // software targets stay unrequested; the reflection lane + denoiser images are always present
         provider.select_software_resources(true);
         selected.clear();
         provider.describe_resources(context, selected);
-        CHECK(selected.size() == 18u);
+        CHECK(selected.size() == 32u);
         CHECK(selected[15].id == resource_id::software_depth);
         CHECK(selected[16].id == resource_id::software_id);
-        CHECK(selected[17].id == resource_id::software_tiles);
-        CHECK(selected[17].type == rr::instances::kind::buffer);
+        CHECK(selected[17].id == resource_id::rt_reflection);
+        CHECK(selected[31].id == resource_id::software_tiles);
+        CHECK(selected[31].type == rr::instances::kind::buffer);
 
         // ---- THE CSR TILE-LIST BUFFER: one lane per frame slot, sized ONLY from the shared layout ----
         auto const tile_request = otp::software_tiles_description(context);
@@ -184,8 +199,8 @@ int32_t main() {
     // ---- the schema describes itself, completely ----
     auto const schema = rr::validate_schema();
     CHECK_MSG(schema.has_value(), schema.has_value() ? "" : schema.error().c_str());
-    CHECK(rr::resource_schema.size() == 80);                    // 76 + M4 Task 2's three software-raster families
-    CHECK(static_cast<uint32_t>(rr::resource_id::count) == 81); // 80 families plus `none`
+    CHECK(rr::resource_schema.size() == 94);                    // 80 + the ray-traced reflection target + the denoiser set
+    CHECK(static_cast<uint32_t>(rr::resource_id::count) == 95); // 94 families plus `none`
     CHECK(rr::find(rr::resource_id::material_table)->scope == rr::resource_scope::device_wide);
     CHECK(rr::find(rr::resource_id::instance_table)->scope == rr::resource_scope::device_wide);
     CHECK(rr::find(rr::resource_id::skin_matrices_previous)->scope == rr::resource_scope::per_frame_slot);
@@ -520,7 +535,7 @@ int32_t main() {
         CHECK(rr::deferred_io.targets[0].kind == rr::target_kind::color);
         CHECK(rr::deferred_io.barrier_images.empty()); // it moves no image of its own
         CHECK(rr::deferred_io.push.has_value());
-        CHECK(rr::deferred_io.push->size == 88);                         // mat4 + vec4 + two floats
+        CHECK(rr::deferred_io.push->size == 92);                         // mat4 + vec4 + three floats
         CHECK(rr::deferred_io.push->stages == rr::stage_flag::fragment); // the vertex stage pushes nothing
     }
 

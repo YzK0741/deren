@@ -66,32 +66,6 @@ static float game_smoothstep(float x) {
 #include "toon/game_toon/captured/eye.slang"
 
 [shader("fragment")]
-float4 game_toon_eye_through_hair(
-    float4 position : SV_Position,
-    [[vk::location(0)]] float3 v_world_pos : TEXCOORD0,
-    [[vk::location(1)]] float3 v_normal : TEXCOORD1,
-    [[vk::location(2)]] float2 v_uv : TEXCOORD2,
-    bool v_is_front : SV_IsFrontFace) : SV_Target {
-    const int3 pixel = int3(int2(position.xy), 0);
-    const float4 packed = heap_at<Texture2D<float4>>(heap_slots_gbuffer_material + heap_image_index).Load(pixel);
-    const uint foreground_id = uint(round(packed.r * 255.0)) | (uint(round(packed.g * 255.0)) << 8u);
-    const Material foreground = material_at(heap_slots_materials, foreground_id);
-    // The late depth override is only for hair. Face geometry must keep its
-    // depth, particularly where the far iris projects onto the cheek in profile.
-    if (foreground.toon_family != VR_FAMILY_HAIR) {
-        discard;
-    }
-    if (game_toon_profile_enabled(push.material_index) && !game_toon_profile_enabled(foreground_id)) {
-        discard;
-    }
-    const surface_sample s = gather_surface(v_world_pos, v_normal, v_uv, v_is_front);
-    const float3 lit = game_toon_profile_enabled(push.material_index)
-        ? captured_eye_shade(s, v_world_pos, v_normal, v_uv, v_is_front)
-        : game_toon_eye_shade(s, v_world_pos, v_normal, v_uv, v_is_front);
-    return float4(lit, 1.0);
-}
-
-[shader("fragment")]
 float4 game_toon_frag_main(
     [[vk::location(0)]] float3 v_world_pos : TEXCOORD0,
     [[vk::location(1)]] float3 v_normal : TEXCOORD1,
@@ -103,7 +77,8 @@ float4 game_toon_frag_main(
     // "this primitive has no TANGENT attribute" record, and game_toon_hair_shade falls back to the derivative
     // frame for it.
     [[vk::location(4)]] float4 v_tangent : TEXCOORD4,
-    bool v_is_front : SV_IsFrontFace) : SV_Target {
+    bool v_is_front : SV_IsFrontFace,
+    float4 sv_position : SV_Position) : SV_Target {
     // THE SAME SURFACE THE G-BUFFER WROTE, gathered by the same function (normal-map fetch, the
     // double-sided flip and the material's factors cannot disagree with the G-buffer if there is
     // one implementation of them).
@@ -114,7 +89,7 @@ float4 game_toon_frag_main(
         const float3 lit = game_toon_profile_enabled(push.material_index) ? captured_cloth_shade(s, v_world_pos, v_normal, v_uv, v_is_front) : game_toon_cloth_shade(s, v_world_pos, v_normal, v_uv, v_is_front);
         const bool toon_transparent = (s.flags & 256u) != 0u;
         const float out_alpha = ((s.flags & 32u) != 0u || toon_transparent) ? s.alpha : 1.0;
-        return float4(lit, out_alpha);
+        return float4(toon_rt_reflection_composite(s, v_world_pos, lit, sv_position.xy), out_alpha);
     }
 
     // BODY/SKIN: original non-SDF game skin variant (same shader family as face).
@@ -122,7 +97,7 @@ float4 game_toon_frag_main(
         const float3 lit = game_toon_profile_enabled(push.material_index) ? captured_skin_face_shade(s, v_world_pos, v_normal, v_uv, v_is_front) : game_toon_skin_shade(s, v_world_pos, v_normal, v_uv, v_is_front);
         const bool toon_transparent = (s.flags & 256u) != 0u;
         const float out_alpha = ((s.flags & 32u) != 0u || toon_transparent) ? s.alpha : 1.0;
-        return float4(lit, out_alpha);
+        return float4(toon_rt_reflection_composite(s, v_world_pos, lit, sv_position.xy), out_alpha);
     }
 
     // HAIR: the original game hair PS (module 2,252,796), including its two integer-exponent highlight lobes.
@@ -130,7 +105,7 @@ float4 game_toon_frag_main(
         const float3 lit = game_toon_profile_enabled(push.material_index) ? captured_hair_shade(s, v_world_pos, v_normal, v_uv, v_tangent, v_is_front) : game_toon_hair_shade(s, v_world_pos, v_normal, v_uv, v_is_front);
         const bool toon_transparent = (s.flags & 256u) != 0u;
         const float out_alpha = ((s.flags & 32u) != 0u || toon_transparent) ? s.alpha : 1.0;
-        return float4(lit, out_alpha);
+        return float4(toon_rt_reflection_composite(s, v_world_pos, lit, sv_position.xy), out_alpha);
     }
 
     // FACE: the original game face/SDF PS (module 1,758,400).
@@ -138,7 +113,7 @@ float4 game_toon_frag_main(
         const float3 lit = game_toon_profile_enabled(push.material_index) ? captured_skin_face_shade(s, v_world_pos, v_normal, v_uv, v_is_front) : game_toon_face_shade(s, v_world_pos, v_normal, v_uv, v_is_front);
         const bool toon_transparent = (s.flags & 256u) != 0u;
         const float out_alpha = ((s.flags & 32u) != 0u || toon_transparent) ? s.alpha : 1.0;
-        return float4(lit, out_alpha);
+        return float4(toon_rt_reflection_composite(s, v_world_pos, lit, sv_position.xy), out_alpha);
     }
 
     // EYE/IRIS: the original game eye/matcap PS (module 216,204).
@@ -146,7 +121,7 @@ float4 game_toon_frag_main(
         const float3 lit = game_toon_profile_enabled(push.material_index) ? captured_eye_shade(s, v_world_pos, v_normal, v_uv, v_is_front) : game_toon_eye_shade(s, v_world_pos, v_normal, v_uv, v_is_front);
         const bool toon_transparent = (s.flags & 256u) != 0u;
         const float out_alpha = ((s.flags & 32u) != 0u || toon_transparent) ? s.alpha : 1.0;
-        return float4(lit, out_alpha);
+        return float4(toon_rt_reflection_composite(s, v_world_pos, lit, sv_position.xy), out_alpha);
     }
 
     // ---- REMAINING FAMILIES (base/outline surface, and anything without a game port yet) ----
@@ -164,5 +139,5 @@ float4 game_toon_frag_main(
     // material carries its own coverage, every other material is fully opaque.
     const bool toon_transparent = (s.flags & 256u) != 0u;
     const float out_alpha = ((s.flags & 32u) != 0u || toon_transparent) ? s.alpha : 1.0;
-    return float4(lit_final, out_alpha);
+    return float4(toon_rt_reflection_composite(s, v_world_pos, lit_final, sv_position.xy), out_alpha);
 }

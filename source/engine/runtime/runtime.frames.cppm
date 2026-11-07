@@ -790,6 +790,23 @@ namespace deren::engine {
             fill_shadow_casters(this->frame_leaves_buffer);
         }
 
+        // ---- Ray-tracing geometry set (see rt_casters in the class docs) ----
+        // The BLAS/TLAS build set is ALL mesh leaves, independent of raster culling and of the two RT
+        // visibility flags: the flags decide the per-instance mask the TLAS update writes, so a runtime
+        // toggle never needs a structure rebuild. The static surround is excluded because it is not a mesh
+        // caster (the reflection miss samples the environment cube instead), and overlays are quads that
+        // the composition path owns rather than scene geometry.
+        auto const rt_geometry = [](primitive const& leaf) {
+            return !leaf.environment && leaf.overlay_kind == 0 && leaf.vertex_buffer && leaf.index_buffer;
+        };
+        this->rt_casters.clear();
+        this->rt_casters.reserve(frame_leaves.size());
+        for (primitive const* const leaf : frame_leaves) {
+            if (rt_geometry(*leaf)) {
+                this->rt_casters.push_back(leaf);
+            }
+        }
+
         // Split the visible set into OPAQUE leaves (frame_visible: drawn first, depth write on,
         // in the parallel segments) and TRANSPARENT leaves (frame_transparent: alpha-blended,
         // depth write off, drawn last). Transparent leaves are sorted FAR -> NEAR from the
@@ -913,6 +930,7 @@ namespace deren::engine {
         // pair the removed legacy record issued. The pass records only when its feature is on and its pipeline
         // exists.
         this->graph_rt_frame = this->main_graph_frame && this->active_features().rt_shadow && this->rt_shadow_pass[0] != nullptr;
+        this->graph_rt_reflection_frame = this->main_graph_frame && this->active_features().rt_reflection && this->rt_reflection_pass[0] != nullptr;
         // THE GRAPH IS THE ONLY RECORDER NOW (cleanup after the flip): an ineligible frame records NOTHING
         // here - no legacy cluster sort, no legacy shadow pass, no legacy scene - and record_post_process
         // reports the refusal once (see main_graph_candidate's readiness conditions).
@@ -2000,6 +2018,31 @@ namespace deren::engine {
             single(render_resource::resource_id::rt_shadow_visibility, 0, static_cast<uint32_t>(slot),
                    pass::resolved_binding{.image_handle = &*this->rt_shadow_images[slot], .view_handle = &*this->rt_shadow_image_views[slot]});
         }
+        // ... and the reflection lane's per-frame-slot images, published the same way so the passes' barrier
+        // declarations and the graph's imports both resolve. The denoiser's eight images follow the raw target.
+        auto publish_reflection_slot = [&](render_resource::resource_id id, auto const& images, auto const& views) {
+            for (std::size_t slot = 0; slot < rhi::max_frames_in_flight; ++slot) {
+                if (!static_cast<bool>(views[slot]) || !static_cast<bool>(images[slot])) {
+                    continue;
+                }
+                single(id, 0, static_cast<uint32_t>(slot),
+                       pass::resolved_binding{.image_handle = &*images[slot], .view_handle = &*views[slot]});
+            }
+        };
+        publish_reflection_slot(render_resource::resource_id::rt_reflection, this->rt_reflection_images, this->rt_reflection_image_views);
+        publish_reflection_slot(render_resource::resource_id::rt_reflection_denoised, this->rt_reflection_denoised_images, this->rt_reflection_denoised_image_views);
+        publish_reflection_slot(render_resource::resource_id::rt_reflection_reprojected, this->rt_reflection_reprojected_images, this->rt_reflection_reprojected_image_views);
+        publish_reflection_slot(render_resource::resource_id::rt_reflection_average, this->rt_reflection_average_images, this->rt_reflection_average_image_views);
+        publish_reflection_slot(render_resource::resource_id::rt_reflection_moments, this->rt_reflection_moments_images, this->rt_reflection_moments_image_views);
+        publish_reflection_slot(render_resource::resource_id::rt_reflection_moments_prefiltered, this->rt_reflection_moments_prefiltered_images, this->rt_reflection_moments_prefiltered_image_views);
+        publish_reflection_slot(render_resource::resource_id::rt_reflection_moments_history, this->rt_reflection_moments_history_images, this->rt_reflection_moments_history_image_views);
+        publish_reflection_slot(render_resource::resource_id::rt_reflection_surface_history, this->rt_reflection_surface_history_images, this->rt_reflection_surface_history_image_views);
+        publish_reflection_slot(render_resource::resource_id::rt_reflection_depth_history, this->rt_reflection_depth_history_images, this->rt_reflection_depth_history_image_views);
+        publish_reflection_slot(render_resource::resource_id::rt_reflection_average_history, this->rt_reflection_average_history_images, this->rt_reflection_average_history_image_views);
+        publish_reflection_slot(render_resource::resource_id::rt_reflection_prefiltered, this->rt_reflection_prefiltered_images, this->rt_reflection_prefiltered_image_views);
+        publish_reflection_slot(render_resource::resource_id::rt_reflection_denoised_history, this->rt_reflection_denoised_history_images, this->rt_reflection_denoised_history_image_views);
+        publish_reflection_slot(render_resource::resource_id::rt_reflection_surface_current, this->rt_reflection_surface_current_images, this->rt_reflection_surface_current_image_views);
+        publish_reflection_slot(render_resource::resource_id::rt_reflection_depth_current, this->rt_reflection_depth_current_images, this->rt_reflection_depth_current_image_views);
         // The shadow map's family elements are the CASCADES (see render_resource::shadow_io): the image is one
         // layered depth array per slot and the pass renders one layer at a time, so every layer the image
         // currently HAS is published, by cascade index, with the image behind it for the layer's own barrier.
@@ -2280,8 +2323,7 @@ namespace deren::engine {
             // primary rendering scope. Mark their boundaries on first bind;
             // gpu_mark_through is a no-op on subsequent leaves of the group.
             // The positional guard excludes ordinary scene/transparent binds.
-            if (name == outline_pipeline_name || name == character_forward_eye_prepass_pipeline_name ||
-                name == game_toon_eye_prepass_pipeline_name || name == overlay_pipeline_name) {
+            if (name == outline_pipeline_name || name == overlay_pipeline_name) {
                 if (self.gpu_marks_written > static_cast<uint32_t>(gpu_mark_id::transparent_end) &&
                     self.gpu_marks_written <= static_cast<uint32_t>(gpu_mark_id::character_end)) {
                     if (name == outline_pipeline_name) {
@@ -2353,10 +2395,11 @@ namespace deren::engine {
             session.set_cull_mode(mode);
         };
         // THE HEAP PUSH (see render_environment::push_block): every draw in this session sends its block through
-        // the same endpoint a converted pass uses; that endpoint is what appends the two heap indices, which is
-        // why a primitive's own push struct never had to grow a field.
+        // the SCENE endpoint, which appends the two heap indices and leaves the optional third lane verbatim. It
+        // must NOT be push_stage_block: that one resolves the third lane into a post-chain source slot, and a
+        // scene shader's spare lane (the toon reflection strength) is not a heap index.
         env.push_owner = &self;
-        env.push_block = &runtime::push_stage_block;
+        env.push_block = &runtime::push_scene_stage_block;
         // ... and how a session feeds its leaves: a mesh pipeline has no input assembler, so every leaf is dispatched
         // with its geometry window pushed instead of bound (see primitive::mesh_dispatch). The WINDOW itself is
         // pushed by every session - a vertex pipeline's stages declare the same lanes and a heap pipeline requires
@@ -2587,16 +2630,6 @@ namespace deren::engine {
         }
         std::string_view const toon_pipeline_name =
             (this->game_toon_on && game_toon_ready) ? game_toon_pipeline_name : character_forward_pipeline_name;
-        // THE EYE PREPASS FOLLOWS THE SAME CHOICE: the game-toon and character-forward pipelines each have a
-        // matching GREATER-depth prepass built from their own fragment module. It is optional - a missing
-        // prepass is the frame that existed before the eye fix - so name absence is passed through as empty.
-        std::string_view const eye_prepass_name =
-            (this->game_toon_on && game_toon_ready) ? game_toon_eye_prepass_pipeline_name : character_forward_eye_prepass_pipeline_name;
-        bool eye_prepass_ready = false;
-        {
-            std::shared_lock const lock(this->access_mutex);
-            eye_prepass_ready = this->mesh_pipelines.contains(eye_prepass_name) || this->meshlet_pipelines.contains(eye_prepass_name);
-        }
         // DOES THE OUTLINE PIPELINE EXIST? Asked on exactly the same terms as the overlay one above, and for the
         // same reason: an empty name is the pass's documented "draw no outline", whereas a name that resolves to
         // nothing would be reported by the session's bind callback as "unknown pipeline" - a log line per frame
@@ -2663,14 +2696,15 @@ namespace deren::engine {
             // registry: the pass draws whatever it is handed, so this one expression IS the whole of the
             // rewrite's opt-in on the host side.
             .pipeline_name = toon_pipeline_name,
-            // ... and the eye prepass's, empty when it was never built; the pass then keeps the pre-fix frame.
-            .eye_prepass_pipeline_name = eye_prepass_ready ? eye_prepass_name : std::string_view{},
             // ... and the overlay group's, on the same terms - empty when it was never built, which the pass
             // reads as "there is no overlay to draw" (see `overlay_ready` above).
             .overlay_pipeline_name = overlay_ready ? overlay_pipeline_name : std::string_view{},
             // ... and the outline group's pipeline name, on the overlay's terms exactly: empty when it was never
             // built, which the pass reads as "there is no outline to draw" (see `outline_ready` above).
             .outline_pipeline_name = outline_ready ? outline_pipeline_name : std::string_view{},
+            // The cloth reflection's strength, zero whenever the trace is not actually running this frame.
+            // The pass quantizes it into the push block's spare lane (0 == off, so the toon output is unchanged).
+            .rt_reflection_strength = this->rt_reflections_active() ? this->rt_reflection_strength : 0.0f,
             .color_format = deren::engine::render_layout::hdr_format, // one HDR target, and NOT the swapchain format - see the pass
             .depth_format = rhi::image_format::depth,
             .extent = this->render_extent(),
@@ -2781,6 +2815,11 @@ namespace deren::engine {
         this->game_toon_depth_rim_pass = {at("game_toon_depth_rim")};
         this->gbuffer_debug_stage = {at("gbuffer-debug")};
         this->rt_shadow_pass = {at("rt_shadow")};
+        this->rt_reflection_pass = {at("rt_reflection")};
+        this->reflection_denoise_pass = {static_cast<pass::reflection_denoise_pass*>(at("reflection reproject")),
+                                         static_cast<pass::reflection_denoise_pass*>(at("reflection prefilter")),
+                                         static_cast<pass::reflection_denoise_pass*>(at("reflection resolve")),
+                                         static_cast<pass::reflection_denoise_pass*>(at("reflection history copy"))};
         this->deferred_pass = {at("deferred")};
         this->taa_pass = {at("taa")};
         this->post_composite_stage = {at("post_composite")};

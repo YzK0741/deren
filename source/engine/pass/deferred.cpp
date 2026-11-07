@@ -154,6 +154,8 @@ namespace deren::engine::pass {
         push.inv_view_proj = io.constants.inv_view_proj;
         push.ssao = glm::vec4(this->ssao_radius, this->ssao_active ? this->ssao_intensity : 0.0f, static_cast<float>(this->ssao_samples), this->ssao_bias);
         push.unlit = this->unlit_shading ? 1.0f : 0.0f;
+        push.rt_reflection = this->rt_reflections_on ? this->rt_reflection_strength : 0.0f;
+        push.reflection_denoised = this->reflection_denoised ? 1.0f : 0.0f;
 
         if (!io.push_block(*io.cmd, pass::push_bytes(push))) {
             io.list->end_rendering();

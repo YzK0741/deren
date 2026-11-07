@@ -169,13 +169,6 @@ namespace deren::app {
             if (!character_result) {
                 deren::utility::log("WARNING: the character-forward pipeline was not created ({}); the toon character stage will draw nothing", character_result.error());
             }
-            // THE EYE DEPTH PREPASS: same stages, GREATER depth compare and opaque blending (see
-            // runtime::make_eye_prepass_pipeline). Its absence is not fatal - the pass reads an empty name as
-            // "no prepass" and draws the frame that existed before the eye fix.
-            auto const character_eye_result = runtime.make_eye_prepass_pipeline("character_forward_eye_prepass", character_fragment_code, character_mesh_code, character_meshlet_code);
-            if (!character_eye_result) {
-                deren::utility::log("WARNING: the character-forward eye prepass was not created ({}); eyes keep the old depth behavior", character_eye_result.error());
-            }
         }
 
         {
@@ -200,12 +193,6 @@ namespace deren::app {
             auto const game_result = runtime.make_character_forward_pipeline("game_toon", game_fragment_code, game_mesh_code, game_meshlet_code);
             if (!game_result) {
                 deren::utility::log("WARNING: the game toon pipeline was not created ({}); [render] game_toon will draw the previous chain", game_result.error());
-            }
-            deren::utility::vessel::vector<std::uint8_t> game_eye_fragment_code;
-            load_shader(shaders_dir, "game_toon_eye_through_hair.frag.spv", game_eye_fragment_code);
-            auto const game_eye_result = runtime.make_eye_prepass_pipeline("game_toon_eye_prepass", game_eye_fragment_code, game_mesh_code, game_meshlet_code);
-            if (!game_eye_result) {
-                deren::utility::log("WARNING: the game toon eye prepass was not created ({}); eyes keep the old depth behavior", game_eye_result.error());
             }
         }
 
@@ -434,6 +421,29 @@ namespace deren::app {
             deren::utility::vessel::vector<std::uint8_t> rt_shadow_any_hit_code;
             load_shader(shaders_dir, "rt_shadow.rahit.spv", rt_shadow_any_hit_code);
             runtime.register_shader("rt_shadow.rahit.spv", rt_shadow_any_hit_code);
+
+            // Ray-traced reflections: one reflection ray per pixel into the per-frame-slot target the deferred
+            // lighting stage samples. Also a PASS, registered before create_passes() for the same reason, and
+            // optional: on a device without a ray-tracing pipeline the deferred stage adds no traced reflection
+            // term at all.
+            deren::utility::vessel::vector<std::uint8_t> rt_reflection_raygen_code;
+            load_shader(shaders_dir, "rt_reflection.rgen.spv", rt_reflection_raygen_code);
+            runtime.register_shader("rt_reflection.rgen.spv", rt_reflection_raygen_code);
+            deren::utility::vessel::vector<std::uint8_t> rt_reflection_closest_hit_code;
+            load_shader(shaders_dir, "rt_reflection.rchit.spv", rt_reflection_closest_hit_code);
+            runtime.register_shader("rt_reflection.rchit.spv", rt_reflection_closest_hit_code);
+            deren::utility::vessel::vector<std::uint8_t> rt_reflection_miss_code;
+            load_shader(shaders_dir, "rt_reflection.rmiss.spv", rt_reflection_miss_code);
+            runtime.register_shader("rt_reflection.rmiss.spv", rt_reflection_miss_code);
+
+            // The AMD FidelityFX reflection denoiser stages. Registered unconditionally with the other shaders;
+            // the passes only run when [render] rt_reflections is on, and each fails to create - leaving its
+            // pointer null - when the device or the SPIR-V cannot support the chain.
+            for (std::string_view const denoise_name : {"reflection_reproject.comp.spv", "reflection_prefilter.comp.spv", "reflection_resolve.comp.spv", "reflection_copy_history.comp.spv"}) {
+                deren::utility::vessel::vector<std::uint8_t> denoise_code;
+                load_shader(shaders_dir, denoise_name, denoise_code);
+                runtime.register_shader(denoise_name, denoise_code);
+            }
 
             // The alphaMode MASK bake (source/shaders/geometry/mask_bake.slang) and the compute skinning job
             // (source/shaders/geometry/compute_skin.slang) are TWO JOBS rather than frame passes - one runs once inside the

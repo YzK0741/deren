@@ -1,6 +1,6 @@
 // ============================================================================
 // module: deren.engine.ray_tracing
-// module version: 2.0.1  (independent of the app version in CMakeLists project(VERSION))
+// module version: 2.1.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // THE STRUCTURE PHASE: the acceleration structures every traced effect casts rays against, the map that says
 // which caster each one was built from, and the COPIES the hit-shading path reads that geometry through (the
@@ -128,8 +128,9 @@ export namespace deren::engine::ray_tracing {
      * the MASK rule is the only reader and an out-of-range index is then a size check rather than arithmetic.
      */
     struct build_inputs {
-        /// the frame's casters: the set the shadow pass draws, because a caster can sit off screen and still
-        /// throw a shadow into the view (the visible set would be wrong)
+        /// the frame's ray-tracing geometry: every mesh leaf that may enter the BLAS/TLAS, independent of
+        /// raster culling and of `casts_shadow`. The per-instance mask applied during `update` decides which
+        /// traced effect sees each leaf (bit0 RT shadow, bit1 RT reflection).
         std::span<primitive const* const> casters = {};
         /// the material table the alphaMode MASK rule reads (`material_record::flags` bit 4)
         std::span<material_record const> materials = {};

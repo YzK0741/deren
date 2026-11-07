@@ -266,6 +266,20 @@ export namespace deren::engine::render_resource {
         .push = push_block{.offset = 0, .size = 80, .stages = stage_flag::compute},
     };
 
+    /// @brief the one image the ray-traced reflection pass writes, sampled by deferred lighting
+    inline constexpr deren::utility::vessel::array<barrier_image, 1> rt_reflection_barriers = {{
+        {.resource = resource_id::rt_reflection, .element = 0},
+    }};
+
+    /// @brief the ray-traced reflection pass's declaration: full-resolution trace, one storage image output
+    inline constexpr pass_io rt_reflection_io = {
+        .name = "rt_reflection",
+        .bindings = {},
+        .targets = {},
+        .barrier_images = rt_reflection_barriers,
+        .push = push_block{.offset = 0, .size = 80, .stages = stage_flag::compute},
+    };
+
     /**
      * @brief the two buffers the clustered-light sort writes, and the ONLY resources it has to name
      *
@@ -332,7 +346,7 @@ export namespace deren::engine::render_resource {
         .targets = deferred_targets,
         .barrier_images = {},
         .barrier_buffers = {},
-        .push = push_block{.offset = 0, .size = 88, .stages = stage_flag::fragment},
+        .push = push_block{.offset = 0, .size = 92, .stages = stage_flag::fragment},
     };
 
     // =============================================================================================

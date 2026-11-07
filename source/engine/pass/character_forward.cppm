@@ -1,4 +1,4 @@
-// module version: 0.1.1  (independent of the app version in CMakeLists project(VERSION))
+// module version: 0.2.0  (independent of the app version in CMakeLists project(VERSION))
 
 /**
  * @file source/engine/pass/character_forward.cppm
@@ -114,17 +114,6 @@ export namespace deren::engine::pass {
          */
         std::string_view pipeline_name = {};
         /**
-         * The EYE DEPTH PREPASS pipeline (`game_toon_eye_prepass` / `character_forward_eye_prepass`).
-         *
-         * It is drawn BEFORE `leaves`, against the same depth attachment, with depth compare GREATER and
-         * depth write on, and only over eye-family leaves. Its GREATER test writes the eye's depth only where
-         * the eye is behind the surface already recorded - the face plate that hides the lower iris - and
-         * leaves nearer hair/eyelashes untouched. The normal EQUAL pass then draws the iris at that depth.
-         *
-         * EMPTY MEANS NO PREPASS: the frame then behaves exactly as it did before this stage existed.
-         */
-        std::string_view eye_prepass_pipeline_name = {};
-        /**
          * The pipeline the OVERLAY group binds, on the same terms (`overlay_pipeline_name` in the runtime).
          *
          * EMPTY MEANS THE OVERLAY GROUP IS NOT DRAWN, and that is the honest answer rather than a fallback: the
@@ -143,6 +132,14 @@ export namespace deren::engine::pass {
          * could not be built therefore draws no outline, which is what the frame looked like before ① landed.
          */
         std::string_view outline_pipeline_name = {};
+        /**
+         * THE TRACED-REFLECTION STRENGTH for the cloth composite, encoded into the push block's spare lane.
+         *
+         * 0 means the term is off, including every frame where `rt_reflections` is disabled - which is what
+         * keeps the off path byte-identical. The value is quantized to 0..255 by the pass (see
+         * `character_forward_pass::record_content`), because the lane is a `uint`.
+         */
+        float rt_reflection_strength = 0.0f;
         /// the two declared targets' formats and the extent (the pass opens its own instance)
         ::deren::promise::rhi::image_format color_format = ::deren::promise::rhi::image_format::unknown;
         ::deren::promise::rhi::image_format depth_format = ::deren::promise::rhi::image_format::unknown;

@@ -192,6 +192,17 @@ namespace deren::app_config {
         // granted only on a device with ray queries - a device without them keeps running the cascaded
         // maps, which is what makes the key safe to leave in a shared config file.
         bool rt_shadows = false;
+        // Ray-traced reflections ([render] rt_reflections): one reflection ray per pixel against the same
+        // acceleration structures the shadows use, composited by the deferred lighting stage. Off by default
+        // and granted only on a device with ray queries - the same safety argument as `rt_shadows`.
+        bool rt_reflections = false;
+        // Real-time reflections are a subtle, optional enhancement on a cel-shaded character: only the
+        // cloth family (and materials named by rt_reflection_materials) receives the traced reflection.
+        // `rt_reflection_cloth` turns the whole cloth family on, `rt_reflection_materials` adds names
+        // matched case-insensitively as substrings (comma-separated in the TOML array).
+        bool rt_reflection_cloth = true;
+        float rt_reflection_strength = 0.35f;
+        deren::utility::vessel::string rt_reflection_materials = {};
         // Bake alphaMode MASK into the acceleration structures ([render] rt_mask_bake): a compute pass
         // collapses the triangles a material's alpha covers nowhere. This is the SUBSTITUTE for an any-hit
         // stage and the shipped path no longer needs it: the shadow runs on a ray-tracing pipeline whose
@@ -657,6 +668,11 @@ namespace deren::app_config {
         deren::utility::vessel::array<float, 3> scale = {1.0f, 1.0f, 1.0f};
         bool visible = true;
         bool cast_shadow = true;
+        // Per-object ray-tracing visibility. Raster visibility and `cast_shadow` are unchanged: these only
+        // decide whether the leaf is traced by RT shadows (bit0) and RT reflections (bit1). The parser defaults
+        // both to `cast_shadow` for backward compatibility; an explicit key decouples them.
+        bool ray_tracing_shadow = true;
+        bool ray_tracing_reflection = true;
         // 0 = the pass default, 1 = pbr, 2 = unlit, 3 = game_toon, 4 = gaussian. The named pipelines are
         // the ones the demo registers; an object may only choose among them, not name an arbitrary pipeline.
         // `pbr`, `unlit` and `default` stay on the deferred path; `game_toon` is re-shaded by the character

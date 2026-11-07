@@ -647,11 +647,18 @@ namespace deren::engine::ray_tracing {
             }
         }
 
-        // The instance list is the caster set the shadow pass draws, with the world matrix the raster passes use
-        // for each caster - the same matrix shadow_geometry_signature() hashes, which is why an animated or moved
-        // caster is reflected here for free.
+        // The instance list is the ray-tracing geometry set, with the world matrix the raster passes use for each
+        // caster - the same matrix shadow_geometry_signature() hashes, which is why an animated or moved caster is
+        // reflected here for free. The two visibility flags become the instance MASK rather than a build-set
+        // filter: a leaf can be raster-invisible to one effect and present in the other without a BLAS rebuild.
         for (auto const& built : this->caster_list) {
             primitive const* const caster = built.caster;
+            // Bit0 is traced by rt_shadow.slang, bit1 by rt_reflection.slang. Both false = absent from the TLAS.
+            uint32_t const instance_mask = (caster->ray_tracing_shadow ? 0x1u : 0x0u) |
+                                           (caster->ray_tracing_reflection ? 0x2u : 0x0u);
+            if (instance_mask == 0u) {
+                continue;
+            }
             // The addresses a hit-shading path reads the hit triangle from: the same buffers, and the same
             // device addresses, the bottom level build already used for this caster - so the triangle
             // a shader fetches with them IS the triangle the ray hit. They are the buffers' base addresses (the
@@ -681,6 +688,7 @@ namespace deren::engine::ray_tracing {
                            .index_type = static_cast<uint32_t>(caster->index_type),
                            .material_index = caster->push.material_index.value,
                            .primitive_index = built.blas_index},
+                .mask = instance_mask,
             };
             if (auto const added = top.add(levels, instance); !added) {
                 return std::unexpected(failure{.message = added.error()});

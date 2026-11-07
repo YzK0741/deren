@@ -319,7 +319,44 @@ export namespace deren::engine::render_layout {
          */
         static constexpr uint32_t custom_env_cube = heap_slot_base + 1365u;        // slots 1..3 are +0..+2
         static constexpr uint32_t custom_irradiance_cube = heap_slot_base + 1369u; // slots 1..3 are +0..+2
-        static constexpr uint32_t shadow_map = heap_slot_base + 1047u;             // binding 8, per image
+        /// @brief the ray-traced reflection image (RGB radiance, A = hit distance), written by the reflection pass
+        static constexpr uint32_t rt_reflection = heap_slot_base + 1372u; // per frame slot, sampled by deferred
+        /// @brief the same image as a STORAGE descriptor; the tracing pass writes it, deferred samples it
+        static constexpr uint32_t rt_reflection_storage = heap_slot_base + 1380u;
+        /**
+         * @brief the denoiser's per-frame-slot images, each with a sampled and a storage run
+         *
+         * The reproject/prefilter/resolve stages write these through STORAGE descriptors and read them through
+         * SAMPLED ones, the same two-descriptor rule the reflection target and the ray-traced visibility image
+         * follow. The pairs are appended after @ref rt_reflection_storage rather than moving any existing slot.
+         */
+        static constexpr uint32_t rt_reflection_denoised = heap_slot_base + 1388u;
+        static constexpr uint32_t rt_reflection_denoised_storage = heap_slot_base + 1396u;
+        static constexpr uint32_t rt_reflection_reprojected = heap_slot_base + 1404u;
+        static constexpr uint32_t rt_reflection_reprojected_storage = heap_slot_base + 1412u;
+        static constexpr uint32_t rt_reflection_average = heap_slot_base + 1420u;
+        static constexpr uint32_t rt_reflection_average_storage = heap_slot_base + 1428u;
+        static constexpr uint32_t rt_reflection_average_history = heap_slot_base + 1516u;
+        static constexpr uint32_t rt_reflection_average_history_storage = heap_slot_base + 1524u;
+        static constexpr uint32_t rt_reflection_moments = heap_slot_base + 1436u;
+        static constexpr uint32_t rt_reflection_moments_storage = heap_slot_base + 1444u;
+        static constexpr uint32_t rt_reflection_moments_prefiltered = heap_slot_base + 1452u;
+        static constexpr uint32_t rt_reflection_moments_prefiltered_storage = heap_slot_base + 1460u;
+        static constexpr uint32_t rt_reflection_moments_history = heap_slot_base + 1468u;
+        static constexpr uint32_t rt_reflection_moments_history_storage = heap_slot_base + 1476u;
+        static constexpr uint32_t rt_reflection_surface_history = heap_slot_base + 1484u;
+        static constexpr uint32_t rt_reflection_surface_history_storage = heap_slot_base + 1492u;
+        static constexpr uint32_t rt_reflection_depth_history = heap_slot_base + 1500u;
+        static constexpr uint32_t rt_reflection_depth_history_storage = heap_slot_base + 1508u;
+        static constexpr uint32_t rt_reflection_prefiltered = heap_slot_base + 1532u;
+        static constexpr uint32_t rt_reflection_prefiltered_storage = heap_slot_base + 1540u;
+        static constexpr uint32_t rt_reflection_denoised_history = heap_slot_base + 1548u;
+        static constexpr uint32_t rt_reflection_denoised_history_storage = heap_slot_base + 1556u;
+        static constexpr uint32_t rt_reflection_surface_current = heap_slot_base + 1564u;
+        static constexpr uint32_t rt_reflection_surface_current_storage = heap_slot_base + 1572u;
+        static constexpr uint32_t rt_reflection_depth_current = heap_slot_base + 1580u;
+        static constexpr uint32_t rt_reflection_depth_current_storage = heap_slot_base + 1588u;
+        static constexpr uint32_t shadow_map = heap_slot_base + 1047u; // binding 8, per image
         /** @brief the ray-traced visibility image, sampled by the lighting stage */
         static constexpr uint32_t rt_visibility = heap_slot_base + 1055u; // binding 15, per image
         /**
@@ -493,6 +530,10 @@ export namespace deren::engine::render_layout {
                   "the highest used slot must stay inside the grid");
     static_assert(heap_slots::custom_irradiance_cube + (heap_environment_capacity - 2u) <= heap_slot_base + heap_slot_count - 1u,
                   "the custom environment slots must stay inside the grid");
+    static_assert(heap_slots::rt_reflection_storage + heap_image_capacity <= heap_slot_base + heap_slot_count,
+                  "the ray-traced reflection descriptor runs must stay inside the grid");
+    static_assert(heap_slots::rt_reflection_depth_current_storage + heap_image_capacity <= heap_slot_base + heap_slot_count,
+                  "the reflection denoiser descriptor runs must stay inside the grid");
     // THE SOFTWARE FAMILIES' SPACING IS THE GRID'S, and these are the contract. `software_depth` sits in the range
     // the visibility work RESERVED (1239..1246, one per-image run) and `software_id` follows the HZB tables, so the
     // two are NOT adjacent - only the id family and the tile-list lane are. The checks are the run's end (the depth

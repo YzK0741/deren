@@ -680,6 +680,7 @@ target_sources(deren_engine
         source/engine/pass/toon_screen_rim.cppm
         source/engine/pass/game_toon_depth_rim.cppm
         source/engine/pass/ray_traced_shadow.cppm
+        source/engine/pass/ray_traced_reflection.cppm
         source/engine/pass/mask_bake.cppm
         source/engine/pass/compute_skin.cppm
         source/engine/pass/scene_constants.cppm
@@ -700,6 +701,7 @@ target_sources(deren_engine
         source/engine/pass/software_merge.cppm
         source/engine/pass/hzb_build.cppm
         source/engine/pass/hzb_cull.cppm
+        source/engine/pass/reflection_denoise.cppm
         source/engine/pass/chain.cppm
         source/engine/profiling/profiling.cppm
         source/engine/shadow_fit/shadow_fit.cppm
@@ -753,6 +755,7 @@ target_sources(deren_engine
         source/engine/pass/toon_screen_rim.cpp
         source/engine/pass/game_toon_depth_rim.cpp
         source/engine/pass/ray_traced_shadow.cpp
+        source/engine/pass/ray_traced_reflection.cpp
         source/engine/pass/mask_bake.cpp
         source/engine/pass/compute_skin.cpp
         source/engine/pass/cluster.cpp
@@ -770,6 +773,7 @@ target_sources(deren_engine
         source/engine/pass/software_merge.cpp
         source/engine/pass/hzb_build.cpp
         source/engine/pass/hzb_cull.cpp
+        source/engine/pass/reflection_denoise.cpp
         source/engine/shadow_fit/shadow_fit.cpp
         source/engine/acceleration/acceleration.cpp
         source/engine/ray_tracing/ray_tracing.cpp
@@ -1291,8 +1295,14 @@ target_link_libraries(render_graph_gaussian PUBLIC render_graph_core)
 add_library(render_graph_rt_shadow STATIC)
 target_sources(render_graph_rt_shadow PUBLIC FILE_SET CXX_MODULES FILES source/engine/render_graph/rt_shadow.cppm)
 target_link_libraries(render_graph_rt_shadow PUBLIC render_graph_core)
+add_library(render_graph_rt_reflection STATIC)
+target_sources(render_graph_rt_reflection PUBLIC FILE_SET CXX_MODULES FILES source/engine/render_graph/rt_reflection.cppm)
+target_link_libraries(render_graph_rt_reflection PUBLIC render_graph_core)
+add_library(render_graph_reflection_denoise STATIC)
+target_sources(render_graph_reflection_denoise PUBLIC FILE_SET CXX_MODULES FILES source/engine/render_graph/reflection_denoise.cppm)
+target_link_libraries(render_graph_reflection_denoise PUBLIC render_graph_core)
 target_link_libraries(deren_engine PUBLIC render_graph_bloom render_graph_post render_graph_compose render_graph_lighting render_graph_geometry
-                                  render_graph_cluster render_graph_shadow render_graph_taa render_graph_gbuffer_debug render_graph_transparent render_graph_character render_graph_gaussian render_graph_rt_shadow render_graph_visibility)
+                                  render_graph_cluster render_graph_shadow render_graph_taa render_graph_gbuffer_debug render_graph_transparent render_graph_character render_graph_gaussian render_graph_rt_shadow render_graph_rt_reflection render_graph_reflection_denoise render_graph_visibility)
 
 if(VR_BUILD_TESTS)
     enable_testing()
@@ -2158,6 +2168,14 @@ set(VR_SHADER_INCLUDES
     "${VR_SHADER_SRC_DIR}/toon/game_toon/captured/game_toon_lights.h"
     "${VR_SHADER_SRC_DIR}/toon/game_toon/captured/encoding.h"
     "${VR_SHADER_SRC_DIR}/toon/game_toon/captured/outline.slang"
+    # The AMD FidelityFX reflection denoiser port: the five MIT-licensed stage headers plus the wrapper
+    # include that adapts deren's G-buffer/heap conventions to the AMD callbacks.
+    "${VR_SHADER_SRC_DIR}/third_party/ffx_denoiser/ffx_denoiser_reflections_common.h"
+    "${VR_SHADER_SRC_DIR}/third_party/ffx_denoiser/ffx_denoiser_reflections_config.h"
+    "${VR_SHADER_SRC_DIR}/third_party/ffx_denoiser/ffx_denoiser_reflections_reproject.h"
+    "${VR_SHADER_SRC_DIR}/third_party/ffx_denoiser/ffx_denoiser_reflections_prefilter.h"
+    "${VR_SHADER_SRC_DIR}/third_party/ffx_denoiser/ffx_denoiser_reflections_resolve_temporal.h"
+    "${VR_SHADER_SRC_DIR}/lighting/reflection_denoise_common.slang"
     "${VR_SHADER_SRC_DIR}/toon/reference_shape.h"
     "${VR_SHADER_SRC_DIR}/lighting/shading.slang"
     "${VR_SHADER_SRC_DIR}/lighting/sky.slang"
@@ -2279,7 +2297,6 @@ set(VR_SLANG_SOURCES
     # refuses (E38000). PHASE 1 IS THE PLUMBING MILESTONE: the entry still calls the shared body, so
     # selecting it draws the old chain's pixels while config/pipeline/GUI are proven.
     toon/game_toon.slang:game_toon_frag_main:fragment:game_toon.frag.spv
-    toon/game_toon.slang:game_toon_eye_through_hair:fragment:game_toon_eye_through_hair.frag.spv
     # toon_screen_rim.slang is the toon stage's SECOND rim: a fullscreen additive contour from the depth,
     # gated by the SAME `character_forward` feature, so no capture scenario records it either.
     toon/toon_screen_rim.slang:main:fragment:toon_screen_rim.frag.spv
@@ -2426,6 +2443,17 @@ set(VR_SLANG_SOURCES
     lighting/rt_shadow.slang:miss_main:miss:rt_shadow.rmiss.spv
     lighting/rt_shadow.slang:rgen_main:raygeneration:rt_shadow.rgen.spv
     lighting/rt_shadow.slang:ahit_main:anyhit:rt_shadow.rahit.spv
+    # rt_reflection.slang is the ray-traced reflection tracer: no any-hit stage (masked geometry reflects as
+    # solid), radiance in rgb and hit distance in a. Off by default ([render] rt_reflections).
+    lighting/rt_reflection.slang:rgen_main:raygeneration:rt_reflection.rgen.spv
+    lighting/rt_reflection.slang:chit_main:closesthit:rt_reflection.rchit.spv
+    lighting/rt_reflection.slang:miss_main:miss:rt_reflection.rmiss.spv
+    # The AMD reflection denoiser stages: reproject -> prefilter -> resolve -> copy history. Off by default with
+    # [render] rt_reflections.
+    lighting/reflection_reproject.slang:main:compute:reflection_reproject.comp.spv
+    lighting/reflection_prefilter.slang:main:compute:reflection_prefilter.comp.spv
+    lighting/reflection_resolve.slang:main:compute:reflection_resolve.comp.spv
+    lighting/reflection_copy_history.slang:main:compute:reflection_copy_history.comp.spv
 
     # deferred.slang is the deferred path's lighting stage: the shared shading code again (so the forward and
     # the deferred image are comparable rather than merely similar), plus the screen-space AO it owns. It is

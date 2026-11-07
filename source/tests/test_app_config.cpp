@@ -10,6 +10,7 @@
 #include <fstream>
 #include <string>
 #include <string_view>
+#include <utility>
 
 import deren.utility.shared;
 import deren.application_configuration;
@@ -200,6 +201,32 @@ namespace {
         CHECK(settings.lighting.area_light_softness == 0.0f);
         CHECK(settings.scene.objects.empty()); // example documents the block but ships it commented out
         CHECK(settings.gui.show);
+        // The traced-reflection whitelist ships OFF (rt_reflections = false), but its own defaults are
+        // documented: cloth family on, a low strength, and no extra names.
+        CHECK(!settings.render.rt_reflections);
+        CHECK(settings.render.rt_reflection_cloth);
+        CHECK(settings.render.rt_reflection_strength > 0.349f && settings.render.rt_reflection_strength < 0.351f);
+        CHECK(settings.render.rt_reflection_materials.empty());
+    }
+
+    void test_rt_reflection_whitelist_parses_and_clamps() {
+        std::ofstream("rt-reflection-whitelist.toml") << "[render]\nrt_reflection_cloth=false\nrt_reflection_strength=0.1\nrt_reflection_materials=[\"Leather\", \"m_actor_laevat\"]\n";
+        auto s = deren::app_config::load_settings("rt-reflection-whitelist.toml");
+        CHECK(!s.render.rt_reflection_cloth);
+        CHECK(s.render.rt_reflection_strength > 0.099f && s.render.rt_reflection_strength < 0.101f);
+        CHECK(s.render.rt_reflection_materials == "Leather,m_actor_laevat");
+        std::filesystem::remove("rt-reflection-whitelist.toml");
+
+        // A hand-written config can put any number in the key. The strength multiplies a radiance add,
+        // so it is clamped rather than trusted; a non-finite value keeps the compiled default because
+        // clamp cannot reject a NaN and the push lane quantizes it to an integer.
+        for (auto const [value, expected] : {std::pair{"2.0", 1.0f}, std::pair{"-1.0", 0.0f}, std::pair{"nan", 0.35f}}) {
+            std::ofstream("rt-reflection-strength.toml") << "[render]\nrt_reflection_strength=" << value << '\n';
+            auto const strength = deren::app_config::load_settings("rt-reflection-strength.toml").render.rt_reflection_strength;
+            CHECK(std::isfinite(strength));
+            CHECK(strength == expected);
+            std::filesystem::remove("rt-reflection-strength.toml");
+        }
     }
 
     void test_software_raster_threshold_rejects_nonpositive_and_nonfinite() {
@@ -560,6 +587,8 @@ namespace {
         CHECK(parsed.scene.objects[0].scale[0] == 0.75f);
         CHECK(parsed.scene.objects[0].visible);
         CHECK(!parsed.scene.objects[0].cast_shadow);
+        CHECK(!parsed.scene.objects[0].ray_tracing_shadow);
+        CHECK(parsed.scene.objects[0].ray_tracing_reflection);
         CHECK(parsed.scene.objects[0].pipeline == 1);
         CHECK(parsed.scene.objects[0].material_override);
         CHECK(parsed.scene.objects[0].environment == "studio.hdr");
@@ -580,6 +609,8 @@ namespace {
         CHECK(parsed.scene.objects[1].scale[2] == 1.25f);
         CHECK(!parsed.scene.objects[1].visible);
         CHECK(parsed.scene.objects[1].cast_shadow);
+        CHECK(parsed.scene.objects[1].ray_tracing_shadow);
+        CHECK(parsed.scene.objects[1].ray_tracing_reflection);
         CHECK(parsed.scene.objects[1].pipeline == 2);
         CHECK(parsed.scene.objects[2].name == "toon");
         CHECK(parsed.scene.objects[2].pipeline == 3);
@@ -610,6 +641,8 @@ namespace {
                                                        "animation_playing = \"yes\"\n"
                                                        "pipeline = \"bogus\"\n"
                                                        "visible = \"yes\"\n"
+                                                       "ray_tracing_shadow = \"yes\"\n"
+                                                       "ray_tracing_reflection = 3\n"
                                                        "[[scene.objects]]\n"
                                                        "position = [1.0, 2.0]\n"
                                                        "[[scene.objects]]\n"
@@ -634,6 +667,8 @@ namespace {
         CHECK(sanitised.scene.objects[0].animation_playing);
         CHECK(sanitised.scene.objects[0].pipeline == 0);
         CHECK(sanitised.scene.objects[0].visible);
+        CHECK(sanitised.scene.objects[0].ray_tracing_shadow);
+        CHECK(sanitised.scene.objects[0].ray_tracing_reflection);
         CHECK(sanitised.scene.objects[1].position[0] == 0.0f && sanitised.scene.objects[1].position[1] == 0.0f);
         CHECK(sanitised.scene.objects[2].name.empty());
         std::filesystem::remove("scene-objects-invalid.toml");
@@ -691,6 +726,7 @@ int32_t main() {
     }
     test_load_settings_applies_toml();
     test_example_config_matches_documentation();
+    test_rt_reflection_whitelist_parses_and_clamps();
     test_software_raster_threshold_rejects_nonpositive_and_nonfinite();
     test_load_settings_missing_file_keeps_defaults();
     test_lighting_sizes_are_clamped();

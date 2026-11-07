@@ -818,6 +818,22 @@ export namespace deren::engine::pass {
         virtual void prepare_frame([[maybe_unused]] frame_facts const& facts) noexcept {
         }
         /**
+         * @brief switch the traced-reflection composite for the frames this pass records
+         *
+         * THE DEFAULT DOES NOTHING: only the lighting stage composites the reflection image, and the runtime
+         * holds that stage through this interface rather than a concrete type. The hook keeps the runtime's
+         * frame code from down-casting a pass by name (a synthetic lighting stage need not be a
+         * `deferred_pass`), while a pass that has no reflection lane simply ignores the flag.
+         */
+        virtual void set_rt_reflections([[maybe_unused]] bool enabled) noexcept {
+        }
+        /// @brief the traced-reflection composite's multiplier (only the lighting stage acts on it)
+        virtual void set_rt_reflection_strength([[maybe_unused]] float strength) noexcept {
+        }
+        /// @brief select the denoiser's output rather than the raw trace (only the lighting stage acts on it)
+        virtual void set_reflection_denoised([[maybe_unused]] bool enabled) noexcept {
+        }
+        /**
          * @brief the pipeline this pass OWNS, when it built one in `create`; null otherwise
          *
          * THE ONE ACCESSOR, AND IT ANSWERS THE CONTRACT HANDLE (abi 21): the object

@@ -1,33 +1,35 @@
 # README screenshots
 
-## PBR helmets (updated 2026-10-29)
+## PBR helmets (DamagedHelmet updated 2026-11-07)
 
-`DamagedHelmet.png` and `FlightHelmet.png` are actual 1080x960 renderer captures at frame 120,
-using deferred PBR, Studio Neutral HDR IBL, a solid linear grey background [0.26, 0.26, 0.26],
-exposure 1 and Khronos PBR Neutral tone mapping. These are explicit material-preview settings,
-not the default configuration. Sun, shadows, SSAO, TAA, bloom and FXAA are disabled, as is the
-GUI overlay. No removed traced-GI path is used. Both runs exited normally with Vulkan validation
-enabled and no validation errors reported.
+`DamagedHelmet.png` is a 1080x960 RT-reflection capture at frame 30 with `rt_reflections = true`,
+`rt_reflection_strength = 1.0` and `rt_reflection_materials = ["Material_MR"]`. `FlightHelmet.png`
+is the original 1080x960 raster/IBL reference at frame 120. Both use deferred PBR, Studio Neutral
+HDR IBL, a solid linear grey background [0.26, 0.26, 0.26], exposure 1 and Khronos PBR Neutral tone
+mapping. These are explicit material-preview settings, not the default configuration. Sun, shadows,
+SSAO, TAA, bloom and FXAA are disabled, as is the GUI overlay. The DamagedHelmet RT run used Vulkan
+validation layers disabled; the FlightHelmet run used them enabled with no validation errors.
 
-| Image | Camera yaw/pitch/distance/target | Relative environment strength |
-| --- | --- | --- |
-| DamagedHelmet | 0, 12, 3.7, 0, -1.6446, 0 | 0.45 |
-| FlightHelmet | 25, 8, 1.25, 0, -0.443, 0 | 0.9 |
+| Image | Camera yaw/pitch/distance/target | Relative environment strength | Ray tracing |
+| --- | --- | --- | --- |
+| DamagedHelmet | 0, 12, 3.7, 0, -1.6446, 0 | 0.45 | reflections on |
+| FlightHelmet | 25, 8, 1.25, 0, -0.443, 0 | 0.9 | off |
 
 Both use input HDR intensity 1, environment rotation 0 degrees, a 256-pixel cube with nine mips,
 16-pixel irradiance and a 128-pixel BRDF LUT. The different camera and relative strength values
 are deliberate presentation choices; these two images are not an A/B material comparison.
 
-The compressed [capture manifest](pbr-captures-2026-10-29.json.gz) retains the complete TOML,
-command, executable and final PNG hashes, resolved camera logs and HDR provenance for each image.
-Its paths are repository-relative. To reproduce, extract a model's `config` string, then run the
-current executable with `--config <file> --capture-frames 120` and the corresponding
-`--capture-camera=yaw,pitch,distance,target.x,target.y,target.z` above. The local originals and
-logs used for the capture are not distributed with the repository. See
+The compressed [capture manifest](pbr-captures-2026-10-29.json.gz) retains the 2026-10-29 TOML,
+command, executable and final PNG hashes, resolved camera logs and HDR provenance for the original
+helmet captures; the DamagedHelmet entry predates the RT re-capture above. Its paths are
+repository-relative. To reproduce, extract a model's `config` string, then run the current
+executable with `--config <file> --capture-frames 30` for DamagedHelmet (or `120` for FlightHelmet)
+and the corresponding `--capture-camera=yaw,pitch,distance,target.x,target.y,target.z` above. The
+local originals and logs used for the capture are not distributed with the repository. See
 [environment lighting](../environment_lighting.md) for the pinned HDR fetch command.
 
 PNG compression is lossless: decoded bytes were checked against each original renderer PNG.
-No crop, resize, retouching or colour adjustment was applied. Compressed sizes are 456159 bytes
+No crop, resize, retouching or colour adjustment was applied. Compressed sizes are 479322 bytes
 for DamagedHelmet and 319816 bytes for FlightHelmet.
 
 Studio Neutral: Copyright 2020 Amazon, LLC, distributed by Khronos Group, CC-BY-4.0; retained

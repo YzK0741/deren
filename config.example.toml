@@ -56,6 +56,11 @@ grid_side = 0
 #                   Set at most one of model/asset.
 #   visible       - false skips the object's subtree in both the colour and shadow passes
 #   cast_shadow   - false keeps the object lit normally but out of the shadow map
+#   ray_tracing_shadow     - false keeps the object out of ray-traced shadows; raster shadows are unaffected.
+#                            Requires [render] rt_shadows. Defaults to cast_shadow, so existing configs keep
+#                            their old RT presence; set it explicitly to decouple the two.
+#   ray_tracing_reflection - false keeps the object out of ray-traced reflections; raster output is unaffected.
+#                            Requires [render] rt_reflections. Defaults to cast_shadow like the shadow key.
 #   pipeline      - "default", "pbr", "unlit", "game_toon" or "gaussian". The deferred scene path shades every
 #                   opaque leaf through its G-buffer stage, so "default" and "pbr" both mean the
 #                   ordinary lit surface; "unlit" is carried per object as a material flag (bit9) that
@@ -95,6 +100,8 @@ grid_side = 0
 # scale = [1.0, 1.0, 1.0]
 # visible = true
 # cast_shadow = true
+# ray_tracing_shadow = true
+# ray_tracing_reflection = true
 # pipeline = "default"   # default | pbr | unlit | game_toon | gaussian; only game_toon enters the character stage
 # environment = ""   # e.g. "studio.hdr"; empty = the scene-wide [lighting] environment_hdr
 # material_override = false
@@ -355,6 +362,29 @@ furnace = false
 # the material's alpha and refuses the intersection below the cutoff (shaders/rt_shadow.rahit). `rt_mask_bake`
 # below is the older, worse substitute for that stage and stays only as an A/B instrument.
 rt_shadows = false
+# rt_reflections: ray-traced reflections. One reflection ray per visible pixel is traced through the same
+# acceleration structures the traced shadows use, and the deferred lighting stage composites the hit radiance
+# with a Fresnel and roughness weight. It is granted only on a device with ray queries; everywhere else the
+# key is ignored and deferred lighting runs without a traced reflection term, so it is safe to leave in a
+# shared config. Enabling it builds the scene's acceleration structures even when `rt_shadows` is off.
+#
+# The traced radiance then runs the AMD FidelityFX Reflection Denoiser: reproject against the previous
+# frame, a spatial prefilter, and a temporal resolve that clips history to the local color bounds. Its
+# history is per swapchain image, so a newly enabled or resized frame starts from the current sample rather
+# than blending stale pixels. The closest hit shades the material's base color with the sun plus a low-mip
+# environment lookup; masked geometry has no reflection any-hit stage yet (the traced-shadow any-hit path is
+# separate). Off by default, and off is byte-exact.
+rt_reflections = false
+# rt_reflection_cloth / rt_reflection_strength / rt_reflection_materials: WHERE the traced reflection is
+# allowed to land. A cel-shaded character is mostly flat, rough shading; a mirror term over the whole frame
+# fights it. The default therefore grants the reflection only to the loader's `cloth` material family, and
+# to any material whose name contains one of `rt_reflection_materials` (case-insensitive substring, e.g.
+# "leather" or "M_actor_laevat_cloth"). Set `rt_reflection_cloth = false` to rely on the name list alone.
+# The strength multiplies the composite (0 disables it, 1 is the full Fresnel-weighted add); 0.35 is the
+# intended subtle amount. The whitelist is resolved at scene import, so changing it needs a reload/restart.
+rt_reflection_cloth = true
+rt_reflection_strength = 0.35
+rt_reflection_materials = []
 # rt_mask_bake: bake alphaMode MASK into the acceleration structures, so a masked surface is not SOLID to a
 # ray. THIS IS THE SUBSTITUTE FOR AN ANY-HIT STAGE, and the shipped path does not need it: the ray-tracing
 # pipeline's any-hit shader answers the same question per HIT rather than per triangle (shaders/rt_shadow.rahit

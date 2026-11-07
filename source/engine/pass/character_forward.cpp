@@ -8,6 +8,7 @@
 // that size. If the leaf count ever argues for it, this is the file that changes.
 
 module;
+#include <cstdint> // uint32_t: the push block's spare lane is a uint
 // NO VULKAN HEADER: every barrier, scope and handle in this file is the contract's now (the boundary
 // sweep names the remaining files that still need one, and why).
 
@@ -107,6 +108,12 @@ namespace deren::engine::pass {
         env.default_name = this->pass_frame.pipeline_name;
         env.set_depth_write(false);
         env.depth_write_locked = true;
+        // Quantized into the push block's spare lane. 0 == no reflection composite, which is the default
+        // frame and the whole `rt_reflections = false` path.
+        float const reflection_strength = this->pass_frame.rt_reflection_strength < 0.0f   ? 0.0f
+                                          : this->pass_frame.rt_reflection_strength > 1.0f ? 1.0f
+                                                                                           : this->pass_frame.rt_reflection_strength;
+        env.extra_push_lane = static_cast<uint32_t>(reflection_strength * 255.0f + 0.5f);
 
         for (primitive const* const leaf : this->pass_frame.leaves) {
             leaf->draw(env);
@@ -142,22 +149,6 @@ namespace deren::engine::pass {
                 leaf->draw(env);
             }
             env.forced_cull_front = false;
-        }
-
-        // The eye pipeline writes both iris colour and depth where the iris lies behind
-        // the current depth. Draw it after the hulls so replacing the depth cannot let
-        // a hair hull through the depth test and paint a black patch over the iris.
-        if (!this->pass_frame.eye_prepass_pipeline_name.empty()) {
-            env.default_name = this->pass_frame.eye_prepass_pipeline_name;
-            env.depth_write_locked = false;
-            env.set_depth_write(true);
-            for (primitive const* const leaf : this->pass_frame.leaves) {
-                if (leaf->toon_family == 5u) { // deren::gltf::toon_family::eye
-                    leaf->draw(env);
-                }
-            }
-            env.set_depth_write(false);
-            env.depth_write_locked = true;
         }
 
         // ---- AND THE OVERLAY GROUP, AFTER THEM AND WITH ITS OWN PIPELINE ----

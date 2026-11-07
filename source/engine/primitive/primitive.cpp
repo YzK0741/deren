@@ -31,7 +31,7 @@ namespace deren::engine {
         /// merely a rejected call. Hence the guard, once, here.
         void push_stage_block(render_environment const& env, auto const& block) {
             if (env.push_block != nullptr && static_cast<bool>(env.target)) {
-                [[maybe_unused]] bool const pushed = env.push_block(env.push_owner, env.target, std::as_bytes(std::span(&block, 1)), 0u);
+                [[maybe_unused]] bool const pushed = env.push_block(env.push_owner, env.target, std::as_bytes(std::span(&block, 1)), env.extra_push_lane);
             }
         }
     } // namespace

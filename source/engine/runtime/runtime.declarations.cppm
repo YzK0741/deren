@@ -7,7 +7,7 @@
 // ============================================================================
 // ============================================================================
 // module: deren.engine.runtime
-// module version: 1.1.1  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.2.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // The renderer core: per-frame-slot frame facade (pace/record/submit phases,
 // scene resources, parallel secondary-CB recording). It re-exports its peer
@@ -52,6 +52,8 @@ import deren.engine.pass.toon_screen_rim;       // ... and its second rim, a ful
 import deren.engine.pass.game_toon_depth_rim;   // ... and the GAME chain's depth rim, a dedicated fullscreen contour of its own
 import deren.engine.pass.upscale;               // the resolve: the render chain's LDR image -> the presented swapchain
 import deren.engine.pass.ray_traced_shadow;     // the ninth, and the only pass that traces outside the chain: the ray-traced shadow
+import deren.engine.pass.ray_traced_reflection; // ... and the ray-traced reflection, the second tracer and the one whose output the lighting composites
+import deren.engine.pass.reflection_denoise;    // ... and the AMD reflection denoiser's four compute stages
 import deren.engine.pass.mask_bake;             // ... and the one-shot MASK bake, which is a JOB rather than a frame pass
 import deren.engine.pass.compute_skin;          // ... and the compute-skinning job, which is a job for the same reason
 import deren.engine.pass.geometry_buffer_debug; // the fifteenth: the G-buffer debug view
@@ -1024,6 +1026,14 @@ namespace deren::engine {
         // called rt_shadow_pass, not rt_shadow_stage: the local of that name in
         // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
         deren::utility::vessel::array<pass::frame_pass*, 1> rt_shadow_pass = {};
+        // The reflection lane's pass: same shape as the shadow's, a separate stage because it writes its own
+        // target and the lighting stage samples that target's contents.
+        deren::utility::vessel::array<pass::frame_pass*, 1> rt_reflection_pass = {};
+        /// the reflection denoiser's four compute stages, in recording order: reproject, prefilter, resolve, copy
+        deren::utility::vessel::array<pass::reflection_denoise_pass*, 4> reflection_denoise_pass = {};
+        /// false until the denoiser has produced one resolved frame IN THAT FRAME SLOT; history images are
+        /// per-frame-slot targets, so a single flag would let the other slot read an image it never wrote.
+        deren::utility::vessel::array<bool, rhi::max_frames_in_flight> reflection_denoise_history_valid = {};
         /// the deferred lighting stage's own stage: it sits between the ray-traced shadow (whose output its
         /// descriptor samples) and the transparent pass (which composites over the image it shades), which is
         /// where the frame loop records it and the only fact about it the renderer still spells out.
@@ -1707,6 +1717,36 @@ namespace deren::engine {
         // extent it is created at, which is why it is rebuilt in the same function as the per-image groups.
         deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_frames_in_flight> rt_shadow_images = {};
         deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_frames_in_flight> rt_shadow_image_views = {};
+        // ... and the reflection lane's own per-frame-slot pair: HDR radiance in rgb, hit distance in a.
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_frames_in_flight> rt_reflection_images = {};
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_frames_in_flight> rt_reflection_image_views = {};
+        // the reflection denoiser's per-frame-slot images, in the output-target order (18..25)
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_frames_in_flight> rt_reflection_denoised_images = {};
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_frames_in_flight> rt_reflection_denoised_image_views = {};
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_frames_in_flight> rt_reflection_reprojected_images = {};
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_frames_in_flight> rt_reflection_reprojected_image_views = {};
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_frames_in_flight> rt_reflection_average_images = {};
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_frames_in_flight> rt_reflection_average_image_views = {};
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_frames_in_flight> rt_reflection_average_history_images = {};
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_frames_in_flight> rt_reflection_average_history_image_views = {};
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_frames_in_flight> rt_reflection_moments_images = {};
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_frames_in_flight> rt_reflection_moments_image_views = {};
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_frames_in_flight> rt_reflection_moments_prefiltered_images = {};
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_frames_in_flight> rt_reflection_moments_prefiltered_image_views = {};
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_frames_in_flight> rt_reflection_moments_history_images = {};
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_frames_in_flight> rt_reflection_moments_history_image_views = {};
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_frames_in_flight> rt_reflection_surface_history_images = {};
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_frames_in_flight> rt_reflection_surface_history_image_views = {};
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_frames_in_flight> rt_reflection_depth_history_images = {};
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_frames_in_flight> rt_reflection_depth_history_image_views = {};
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_frames_in_flight> rt_reflection_prefiltered_images = {};
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_frames_in_flight> rt_reflection_prefiltered_image_views = {};
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_frames_in_flight> rt_reflection_denoised_history_images = {};
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_frames_in_flight> rt_reflection_denoised_history_image_views = {};
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_frames_in_flight> rt_reflection_surface_current_images = {};
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_frames_in_flight> rt_reflection_surface_current_image_views = {};
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image>, rhi::max_frames_in_flight> rt_reflection_depth_current_images = {};
+        deren::utility::vessel::array<render_resource::instances::borrowed<rhi::image_view>, rhi::max_frames_in_flight> rt_reflection_depth_current_image_views = {};
         /// (re)create the render-chain targets the engine owns: the previous generation is RELEASED first (a
         /// view goes before its image - the borrowed-image view lifetime rule), then each group is created
         /// at the current render extent and its heap descriptor(s) written - one set per swapchain image for
@@ -1783,6 +1823,9 @@ namespace deren::engine {
         // the visibility image's storage write from the ray-tracing stage and the lighting lane declares the sampled
         // read, so the graph owns the write -> hand-off pair the pass's removed legacy record issued.
         bool graph_rt_frame = false;
+        /// the reflection's own graph frame: separate from `graph_rt_frame` because the two ray-traced features
+        /// have independent switches (a frame may trace reflections with the cascaded shadows still running)
+        bool graph_rt_reflection_frame = false;
         // Per swapchain image: whether the TAA history image has been transitioned to sampled at least once (by
         // either path). The graph can only import "defined contents in a KNOWN layout", so its first use of a
         // history image needs the one transition the removed legacy pass issued for itself - and the invariant every frame
@@ -2179,6 +2222,15 @@ namespace deren::engine {
         // drawn as a caster would put the character inside a shadow it casts on itself, and the ground disc
         // has nothing to cast onto that the frame can see. It is filtered where the list is built.
         deren::utility::vessel::vector<primitive const*> shadow_casters = {};
+        /**
+         * THE RAY-TRACING GEOMETRY SET: every mesh leaf the BLAS/TLAS may contain, independent of raster
+         * culling and of `primitive::casts_shadow`. The two RT visibility flags are applied as the TLAS
+         * instance MASK during the per-frame update, so this set must be a superset of the leaves that can
+         * ever be enabled at runtime - hence all mesh leaves rather than a filtered subset. The static
+         * surround and the overlay quads are excluded; the reflection miss samples the environment cube
+         * instead of tracing the backdrop, and an overlay is a composition quad rather than scene geometry.
+         */
+        deren::utility::vessel::vector<primitive const*> rt_casters = {};
         // how far up-light of the camera frustum a caster still matters (its shadow can still
         // reach the view). Scene-scale heuristic: max(1, scene_radius / 8); see enable_shadows.
         float shadow_caster_extent = 1.0f;
@@ -2189,6 +2241,14 @@ namespace deren::engine {
         // ray queries must run the cascaded maps exactly as before, silently, rather than fail or log
         // once per frame.
         bool rt_shadows = false;
+        // The reflection knob ([render] rt_reflections): the same device gate as the shadows, but its own
+        // switch and its own structure request. Off by default.
+        bool rt_reflections = false;
+        // The reflection whitelist's host-side state (see set_rt_reflection_whitelist). Resolved at import,
+        // so changing it after a scene is loaded affects the next import rather than the live materials.
+        bool rt_reflection_cloth = true;
+        float rt_reflection_strength = 0.35f;
+        deren::utility::vessel::string rt_reflection_materials = {};
 
         // ---- mesh shaders (see docs/mesh_shaders.md) ----
         /**
@@ -2495,6 +2555,14 @@ namespace deren::engine {
          *       and the native handle is derived HERE, once, through the escape.
          */
         static bool push_stage_block(void* owner, ::deren::engine::recording_target const& target, std::span<std::byte const> bytes, uint32_t extra_lane);
+        /**
+         * @brief the host's push endpoint for a scene stage, whose third lane is a VALUE the pass supplies
+         * @note unlike push_stage_block, this does NOT read the third lane as a post-chain source index: a mesh
+         *       stage's spare lane is its own (the toon character stage carries the reflection strength there),
+         *       and no scene shader declares `post_source_texture`. Splitting the endpoints keeps the post chain's
+         *       slot resolution out of every scene draw.
+         */
+        static bool push_scene_stage_block(void* owner, ::deren::engine::recording_target const& target, std::span<std::byte const> bytes, uint32_t extra_lane);
         /// the pass-layer endpoint spelling: the resolved_io publisher still hands a contract command buffer.
         static bool push_pass_stage_block(void* owner, rhi::command_buffer& commands, std::span<std::byte const> bytes, uint32_t extra_lane);
         static bool push_software_block(void* owner, rhi::command_buffer& commands, std::span<std::byte const> bytes, uint32_t mode);
@@ -2901,10 +2969,11 @@ namespace deren::engine {
          */
         struct feature_facts {
             /// the runtime's own predicates, each of which the renderer also acts on (see the list above)
-            bool gbuffer_pass = false; // gbuffer_pass_active(): the surface pipeline exists and this frame shades
-            bool deferred_lit = false; // deferred_lit_active(): the lighting stage is this frame's shading path
-            bool rt_shadow = false;    // rt_shadows_active(): the knob and the device
-            bool fxaa = false;         // post_fxaa_active(): the knob and the FXAA pass
+            bool gbuffer_pass = false;  // gbuffer_pass_active(): the surface pipeline exists and this frame shades
+            bool deferred_lit = false;  // deferred_lit_active(): the lighting stage is this frame's shading path
+            bool rt_shadow = false;     // rt_shadows_active(): the knob and the device
+            bool rt_reflection = false; // rt_reflections_active(): the reflection knob and the device
+            bool fxaa = false;          // post_fxaa_active(): the knob and the FXAA pass
             /**
              * post_upscale_active(): the render chain running below the output size AND the upscale pass having
              * built its pipeline. Reported as an atom for the same reason `fxaa` is: the runtime acts on it (it
@@ -3481,28 +3550,6 @@ namespace deren::engine {
 
         /**
          * @ingroup runtime
-         * @brief register the CHARACTER-FORWARD EYE DEPTH PREPASS pipeline under @p pipeline_name
-         *
-         * THE SAME GEOMETRY AND FRAGMENT STAGES AS make_character_forward_pipeline, and exactly TWO states
-         * differ: the blend is OPAQUE (the prepass paints the eye it is about to paint again) and the depth
-         * test is GREATER rather than EQUAL. GREATER is what keeps the prepass from breaking occlusion: it
-         * writes the eye's depth only where the eye is BEHIND the surface already in the buffer (the face
-         * plate that hides the lower iris), and fails where something nearer - a fringe of hair or an
-         * eyelash - is already there. The normal EQUAL pass then draws the iris at the depth the prepass
-         * published, while the face plate fails its own equality test at those pixels.
-         *
-         * The pass draws only leaves whose `toon_family` is 5 (eye). An empty registry entry means "no
-         * prepass", i.e. the frame this renderer produced before the eye fix - which is what the pass reads
-         * from an empty name.
-         */
-        std::expected<void, deren::utility::vessel::string> make_eye_prepass_pipeline(
-            std::string_view pipeline_name,
-            std::span<uint8_t const> fragment_shader_code,
-            std::span<uint8_t const> mesh_vertex_shader_code,
-            std::span<uint8_t const> meshlet_shader_code = {});
-
-        /**
-         * @ingroup runtime
          * @brief register the OVERLAY (multiply) pipeline under @p pipeline_name
          *
          * THE THIRD ENTRY POINT OF THE SAME SHAPE, and the third set of states: `make_pipeline` builds the
@@ -3748,6 +3795,27 @@ namespace deren::engine {
 
         /**
          * @ingroup runtime
+         * @brief ask for ray-traced reflections ([render] rt_reflections)
+         * @param enabled true = the deferred stage composites a traced reflection term
+         * @note granted only on a device with ray queries. The structures are shared with the ray-traced
+         *       shadows, so asking for either feature builds them.
+         */
+        void set_rt_reflections(bool enabled) noexcept;
+
+        /**
+         * @ingroup runtime
+         * @brief restrict ray-traced reflections to an optional material whitelist
+         * @param cloth true = materials in the loader's `cloth` toon family receive the reflection
+         * @param strength composite multiplier in [0, 1]; 0 disables the term, 0.35 is the intended subtle amount
+         * @param materials comma-separated, case-insensitive name substrings; empty = only the cloth family
+         * @note the whitelist is resolved while a scene is imported, so call this before the scene load. It
+         *       is stored as a bit in each material record (`info.rt_reflection`), which is why a later change
+         *       does not retroactively affect materials already imported.
+         */
+        void set_rt_reflection_whitelist(bool cloth, float strength, deren::utility::vessel::string materials);
+
+        /**
+         * @ingroup runtime
          * @brief whether the alphaMode MASK bake runs when the structures are built ([render] rt_mask_bake)
          * @param enabled false = masked geometry is built OPAQUE, i.e. solid to every ray
          * @note a no-op without ray-traced shadows (no structures, no bake), so a frame
@@ -3810,6 +3878,16 @@ namespace deren::engine {
 
         /** @brief whether ray-traced shadows are actually on (asked for AND the device can do it) */
         [[nodiscard]] bool rt_shadows_active() const noexcept;
+
+        /** @brief whether ray-traced reflections are actually on (asked for AND the device can do it) */
+        [[nodiscard]] bool rt_reflections_active() const noexcept;
+
+        /**
+         * @brief the import-time whitelist test: cloth family, or a configured name substring
+         * @param material_name the glTF material name (the last place it exists)
+         * @param toon_family the loader's classification of that name (6 == cloth)
+         */
+        [[nodiscard]] bool rt_reflection_material_matches(std::string_view material_name, uint32_t toon_family) const noexcept;
 
         /**
          * @ingroup runtime
@@ -4101,9 +4179,6 @@ namespace deren::engine {
          */
         static constexpr std::string_view character_forward_pipeline_name = "character_forward";
 
-        /// the eye depth prepass that runs before `character_forward`; see `make_eye_prepass_pipeline`
-        static constexpr std::string_view character_forward_eye_prepass_pipeline_name = "character_forward_eye_prepass";
-
         /**
          * @brief the name the OVERLAY (multiply) pipeline is registered under, which the character-forward
          *        pass binds for its overlay group
@@ -4150,9 +4225,6 @@ namespace deren::engine {
          * `make_character_forward_frame`; the two knobs stay separate so an A/B can move one at a time.
          */
         static constexpr std::string_view game_toon_pipeline_name = "game_toon";
-
-        /// the eye depth prepass that runs before `game_toon`; see `make_eye_prepass_pipeline`
-        static constexpr std::string_view game_toon_eye_prepass_pipeline_name = "game_toon_eye_prepass";
 
         /**
          * @ingroup runtime
@@ -4452,6 +4524,7 @@ namespace deren::engine {
             bool gbuffer_debug = false; // the opaque pass stores the G-buffer for the debug view
             bool shadow = false;        // record the directional shadow pass
             bool rt_shadow = false;     // record the ray-traced shadow pass (the knob, ray queries, its pipeline)
+            bool rt_reflection = false; // record the ray-traced reflection pass (the knob, ray queries, its pipeline)
             bool clustered = false;     // record the cluster compute pass
             bool taa = false;           // resolve TAA
             bool ssao = false;          // the lighting stage applies screen-space AO (shader-side gate)
@@ -4918,6 +4991,10 @@ namespace deren::engine {
                 // THE TOON FAMILY, resolved by the loader from the material's NAME (the last place the name
                 // exists). Copied here like every other per-material fact so the runtime never sees a string.
                 info.toon_family = drawable.get_toon_family();
+                // The traced-reflection whitelist, resolved from the same name and family while both are at
+                // hand. `rt_reflection_cloth` grants the whole cloth family; the configured name substrings
+                // grant anything else (leather, metal trim, a specific dress material, ...).
+                info.rt_reflection = this->rt_reflection_material_matches(drawable.get_material_name(), info.toon_family);
                 // ... AND THE OVERLAY CHANNEL, resolved by the loader from the same name and at the same
                 // moment, so the runtime never sees a string here either. A non-zero value takes this leaf out
                 // of every shading pass and into the overlay one (see `primitive::overlay_kind`).

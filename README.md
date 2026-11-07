@@ -15,7 +15,7 @@
 [Gaussian splatting details and viewer setup](#gaussian-splatting).
 
 <p align="center">
-  <img src="docs/screenshots/DamagedHelmet.png" width="49%" alt="DamagedHelmet with Studio Neutral HDR lighting and PBR Neutral tone mapping" />
+  <img src="docs/screenshots/DamagedHelmet.png" width="49%" alt="DamagedHelmet with Studio Neutral HDR lighting, PBR Neutral tone mapping and ray-traced reflections enabled" />
   <img src="docs/screenshots/FlightHelmet.png" width="49%" alt="FlightHelmet with Studio Neutral HDR lighting and PBR Neutral tone mapping" />
 </p>
 
@@ -25,8 +25,10 @@
 </p>
 
 <sub>The two helmet shots use deferred PBR with Studio Neutral HDR lighting, a solid grey background and
-Khronos PBR Neutral tone mapping, captured at 1080x960 with fixed cameras on 2026-10-29.
-These are material previews with direct sun, shadows, SSAO and temporal/post effects disabled.
+Khronos PBR Neutral tone mapping, captured at 1080x960 with fixed cameras. DamagedHelmet has
+ray-traced reflections enabled (`rt_reflections`, the `Material_MR` material, strength 1.0);
+FlightHelmet is the raster/IBL reference. These are material previews with direct sun, shadows,
+SSAO and temporal/post effects disabled.
 The Laevatain half-body and face shots use the GameToon profile with the captured light rig and display transform.
 Both were captured directly from the renderer with TAA and FXAA enabled and exposure set to 0.92.
 See [`docs/screenshots/README.md`](docs/screenshots/README.md) for the capture settings.</sub>

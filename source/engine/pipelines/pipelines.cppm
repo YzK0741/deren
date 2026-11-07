@@ -182,6 +182,10 @@ namespace deren::engine::pipelines {
     /// pass framework appends) arrive through vkCmdPushDataEXT. It is what makes the max pyramid exist on the GPU
     /// (M3 phase A2: build + readback validation only; nothing culls against it yet).
     export std::expected<compute_pipeline_owned, deren::utility::vessel::string> build_hzb_build(rhi::api_core& face, std::span<uint8_t const> compute_shader_code);
+    /// the AMD FidelityFX reflection denoiser stages (source/shaders/lighting/reflection_{reproject,prefilter,resolve}.slang):
+    /// the same heap-native compute shape as the HZB stages - no layout, no set, all images through the frame's heap,
+    /// and the pass's constants through vkCmdPushDataEXT. `debug_name` distinguishes the three pipelines in a capture.
+    export std::expected<compute_pipeline_owned, deren::utility::vessel::string> build_reflection_denoise(rhi::api_core& face, std::span<uint8_t const> compute_shader_code, char const* debug_name);
     /// the HZB CULL stage (source/shaders/scene/hzb_cull.slang): the same heap-native compute shape as the build
     /// stage - no layout, no set, and its parameters (the item count, the extent the history header must describe,
     /// plus the two heap index lanes the pass framework appends) through vkCmdPushDataEXT. It is the M3 phase-B1
@@ -519,6 +523,25 @@ namespace deren::engine::pipelines {
         return out;
     }
 
+    // The REFLECTION DENOISER (source/shaders/lighting/reflection_{reproject,prefilter,resolve}.slang): the HZB
+    // build's shape again - every image and the camera are heap descriptors, the only constants are the five own
+    // push lanes plus the framework's two index lanes, and no set or layout exists to own. Three calls with
+    // different SPIR-V modules share this builder; `debug_name` keeps them apart in a capture.
+    std::expected<compute_pipeline_owned, deren::utility::vessel::string> build_reflection_denoise(rhi::api_core& face, std::span<uint8_t const> const compute_shader_code, char const* debug_name) {
+        using fail = std::unexpected<deren::utility::vessel::string>;
+        compute_pipeline_owned out;
+        rhi::pipeline_desc desc{};
+        desc.first_stage = rhi::shader_stage::compute;
+        desc.compute_code = std::as_bytes(compute_shader_code);
+        desc.debug_name = debug_name;
+        rhi::unique_object<rhi::pipeline> built = face.resources->create_pipeline(desc);
+        if (!built) {
+            return fail("reflection denoise: the contract's compute pipeline factory refused the descriptor");
+        }
+        out.trace = pipeline_handle(built.release());
+        return out;
+    }
+
     // The HZB CULL (source/shaders/scene/hzb_cull.slang): the build stage's shape once more, for the same reason -
     // every input and output is a heap descriptor (the history pyramid/header, the item/candidate tables, the flags/
     // survivors/counts tables and the draw-item model), its only constants are the three own push lanes plus the
@@ -681,6 +704,54 @@ namespace deren::engine::pipelines {
         rhi::unique_object<rhi::pipeline> built = face.resources->create_pipeline(desc);
         if (!built) {
             return fail("rt shadow: the contract's ray-tracing pipeline factory refused the descriptor");
+        }
+        out.pipeline = pipeline_handle(built.release());
+        out.group_count = static_cast<uint32_t>(groups.size());
+        return out;
+    }
+
+    /**
+     * @brief the ray-traced reflection pipeline: one raygen, one miss and one triangles hit group
+     *
+     * The reflection pass has no alpha-mask any-hit stage in this first version, so it is the shadow pipeline
+     * minus the fourth stage. The SBT order is still raygen (0), miss (1), hit group (2).
+     */
+    export std::expected<ray_tracing_pipeline_owned, deren::utility::vessel::string> build_rt_reflection_ray_tracing(rhi::api_core& face,
+                                                                                                                     std::span<uint8_t const> raygen_code,
+                                                                                                                     std::span<uint8_t const> closest_hit_code,
+                                                                                                                     std::span<uint8_t const> miss_code) {
+        using fail = std::unexpected<deren::utility::vessel::string>;
+        ray_tracing_pipeline_owned out;
+
+        deren::utility::vessel::array<rhi::ray_tracing_stage, 3> const stages = {
+            rhi::ray_tracing_stage{.stage = rhi::shader_stage::ray_generation, .code = std::as_bytes(raygen_code), .debug_name = "rt reflection raygen"},
+            rhi::ray_tracing_stage{.stage = rhi::shader_stage::miss, .code = std::as_bytes(miss_code), .debug_name = "rt reflection miss"},
+            rhi::ray_tracing_stage{.stage = rhi::shader_stage::closest_hit, .code = std::as_bytes(closest_hit_code), .debug_name = "rt reflection closest hit"},
+        };
+        deren::utility::vessel::array<rhi::ray_tracing_group, 3> const groups = {
+            rhi::ray_tracing_group{.general = 0},
+            rhi::ray_tracing_group{.general = 1},
+            rhi::ray_tracing_group{.closest_hit = 2, .triangles = true},
+        };
+        rhi::pipeline_desc desc{};
+        desc.ray_tracing_stages = stages;
+        desc.ray_tracing_groups = groups;
+        desc.max_ray_recursion = 1u;
+        desc.debug_name = "rt reflection";
+        deren::utility::vessel::array<rhi::acceleration_structure_heap_binding, 1> const bindings = {
+            rhi::acceleration_structure_heap_binding{
+                .stage = rhi::shader_stage::ray_generation,
+                .descriptor_set = 0,
+                .binding = 16,
+                .byte_offset = static_cast<uint32_t>(render_layout::heap_slots::tlas * render_layout::heap_slot_stride),
+                .array_stride = static_cast<uint32_t>(render_layout::heap_slot_stride),
+                .array_count = rhi::max_frames_in_flight,
+            },
+        };
+        desc.acceleration_structure_bindings = bindings;
+        rhi::unique_object<rhi::pipeline> built = face.resources->create_pipeline(desc);
+        if (!built) {
+            return fail("rt reflection: the contract's ray-tracing pipeline factory refused the descriptor");
         }
         out.pipeline = pipeline_handle(built.release());
         out.group_count = static_cast<uint32_t>(groups.size());

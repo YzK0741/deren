@@ -65,6 +65,16 @@ namespace deren::engine {
         uint32_t toon_family = 0;
 
         /**
+         * WHETHER THIS MATERIAL MAY RECEIVE A RAY-TRACED REFLECTION (material-record flag bit12).
+         *
+         * Resolved at import from the material NAME plus the toon family, then carried as one bit: the
+         * deferred and character stages are per-pixel and have no material name to match against, so the
+         * answer has to travel in the record. The default false keeps a scene imported by a caller that does
+         * not opt in exactly as it was.
+         */
+        bool rt_reflection = false;
+
+        /**
          * THE OVERLAY CHANNEL (`deren::gltf::overlay_kind`), carried onto the primitive and NOT into the material
          * record - which is the opposite of what the family does, and the difference is what the fact is FOR.
          *
@@ -453,8 +463,8 @@ namespace deren::engine {
         uint32_t overlay_kind = 0;
 
         /// this leaf's material family (`deren::gltf::toon_family`; 0 == none), mirrored from
-        /// `primitive_create_info::toon_family` so the character-forward eye prepass can select family 5
-        /// without a GPU readback.
+        /// `primitive_create_info::toon_family` so CPU-side stage rules can select a family without a GPU
+        /// readback.
         uint32_t toon_family = 0;
 
         /**
@@ -500,6 +510,20 @@ namespace deren::engine {
          * fills the caster list, so a runtime edit needs runtime::scene_changed() like any other leaf change.
          */
         bool casts_shadow = true;
+
+        /**
+         * PER-OBJECT RAY-TRACING VISIBILITY, independent of raster visibility and of `casts_shadow`.
+         *
+         * The frame's ray-tracing geometry set includes every mesh leaf, so these flags select the EFFECTS a
+         * leaf participates in rather than whether a bottom-level structure exists: `ray_tracing_shadow` sets
+         * instance-mask bit0 (traced by `rt_shadow.slang`), `ray_tracing_reflection` bit1 (traced by
+         * `rt_reflection.slang`). Both default true for a leaf created through the primitive API; the scene
+         * config parser defaults them to `cast_shadow` so an existing config keeps its old RT presence.
+         * Both false removes the leaf from the top-level structure without touching the raster path.
+         * A runtime edit needs runtime::scene_changed() like any other leaf change.
+         */
+        bool ray_tracing_shadow = true;
+        bool ray_tracing_reflection = true;
 
         /// which GameToon character owns this leaf; copied into the high bits of `push.flags` at creation. See
         /// `primitive_create_info::character_index`.

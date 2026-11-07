@@ -270,7 +270,7 @@ namespace deren::engine::acceleration_structure {
         rhi::acceleration_structure_instance instance{};
         fill_instance_transform(instance, source.transform);
         instance.instance_custom_index = target.count;    // == the slot in the instance table
-        instance.mask = 0xFFu;                            // visible to every ray: nothing here is ray-type specific
+        instance.mask = source.mask;                      // per-effect bits: 0x1 RT shadow, 0x2 RT reflection
         instance.shader_binding_table_record_offset = 0u; // unused by a ray query (no SBT exists)
         instance.flags = rhi::acceleration_structure_instance_facing_cull_disable;
         instance.structure_reference = blas->device_address();

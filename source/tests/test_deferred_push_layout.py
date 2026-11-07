@@ -1,6 +1,6 @@
 """Check the compiled deferred push ABI, including the host-appended indices.
 
-The host transmits an 88-byte payload followed by frame_slot and image_index.
+The host transmits a 92-byte payload followed by frame_slot and image_index.
 Checking SPIR-V offsets catches missing padding even when the shader compiles.
 The matching host offsets are pinned in engine/pass/deferred.cppm.
 """
@@ -34,7 +34,7 @@ def member_offsets(path):
         if (block, member) in offsets:
             blocks.setdefault(block, {})[name] = offsets[block, member]
     candidates = [members for members in blocks.values()
-                  if {"inv_view_proj", "ssao", "unlit", "frame_slot", "image_index"} <= members.keys()]
+                  if {"inv_view_proj", "ssao", "unlit", "rt_reflection", "reflection_denoised", "frame_slot", "image_index"} <= members.keys()]
     if len(candidates) != 1:
         raise ValueError(f"expected one deferred push block, got {len(candidates)}")
     return candidates[0]
@@ -43,12 +43,13 @@ def member_offsets(path):
 def main():
     actual = member_offsets(sys.argv[1])
     expected = {"inv_view_proj": 0, "ssao": 64, "unlit": 80,
-                "punctual": 84, "frame_slot": 88, "image_index": 92}
+                "rt_reflection": 84, "reflection_denoised": 88,
+                "frame_slot": 92, "image_index": 96}
     errors = [f"{name}: expected offset {offset}, got {actual.get(name, 'missing')}"
               for name, offset in expected.items() if actual.get(name) != offset]
     if errors:
         raise SystemExit("deferred push ABI mismatch:\n" + "\n".join(errors))
-    print("deferred push ABI: host payload 88 bytes, frame_slot 88, image_index 92")
+    print("deferred push ABI: host payload 92 bytes, frame_slot 92, image_index 96")
 
 
 if __name__ == "__main__":

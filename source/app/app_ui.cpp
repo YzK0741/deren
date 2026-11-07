@@ -281,6 +281,8 @@ namespace deren::app {
                 object_panel.add_vec3("  scale", &object.scale[0], 0.01f, mark_dirty).set_visible_when(selected);
                 object_panel.add_checkbox("  visible", &object.visible, [mark_dirty](bool) { mark_dirty(); }).set_visible_when(selected);
                 object_panel.add_checkbox("  cast shadow", &object.cast_shadow, [mark_dirty](bool) { mark_dirty(); }).set_visible_when(selected);
+                object_panel.add_checkbox("  RT shadow", &object.ray_tracing_shadow, [mark_dirty](bool) { mark_dirty(); }).set_visible_when(selected);
+                object_panel.add_checkbox("  RT reflection", &object.ray_tracing_reflection, [mark_dirty](bool) { mark_dirty(); }).set_visible_when(selected);
                 if (i < bindings.object_pipeline_options.size() && i < bindings.object_pipeline_choice.size()) {
                     auto const& options = bindings.object_pipeline_options[i];
                     deren::utility::vessel::vector<deren::utility::vessel::string> labels;

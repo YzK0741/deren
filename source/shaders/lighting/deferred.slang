@@ -39,10 +39,10 @@ struct DeferredPush
     float4 ssao;
     // 1.0 = "unlit" render mode: write the stored albedo, unshaded (see runtime::set_unlit)
     float unlit;
-    // Reserved by deferred_pass::push_constants: the host payload is 88 bytes before it appends
-    // the indices. Omitting this word reads frame_slot as image_index and samples another frame's
-    // G-buffer, producing duplicate silhouettes under motion even with TAA disabled.
-    float punctual;
+    // 1.0 = composite the traced reflection image into the shaded surface
+    float rt_reflection;
+    // 1.0 = the reflection heap slot holds the denoiser's output rather than the raw trace
+    float reflection_denoised;
     // THE HEAP INDICES, LAST on purpose so every field above keeps its offset.
     uint frame_slot;
     uint image_index;
@@ -205,9 +205,28 @@ float4 main([[vk::location(0)]] float2 v_uv : TEXCOORD0, float4 sv_position : SV
     // and it is only ever set when that pass ran and the device has ray queries - so a frame with rt_shadows
     // off samples nothing that does not exist and shades exactly as it did before.
     si.shadow_override = (light_at(heap_light_slot).rt_shadows > 0.5) ? heap_texel(heap_at<Texture2D<float4>>(heap_slots_rt_visibility + heap_frame_slot), heap_sampler_gbuffer, v_uv).r : -1.0;
-    // ... and the punctual lights' own switch: with the stochastic pass having answered this frame, the
 
     float3 color = shade_surface(si);
+
+    // ---- ray-traced reflections ----
+    // The tracer stored radiance in rgb and the hit distance in a. The composite is a Fresnel-weighted
+    // specular add: F0 is the dielectric 0.04 lifted toward the surface albedo by metalness, and the
+    // roughness term keeps a rough surface from gaining a mirror's energy. The gate is the pass's push
+    // lane, which the runtime only raises when the trace actually ran this frame; it also carries the
+    // configured strength (0.35 by default), so the term stays subtle instead of turning a glossy surface
+    // into a mirror. Bit12 of the material record is the ART-DIRECTED WHITELIST: a full-screen reflection
+    // over a cel-shaded character fights the flat shading, so only materials the import resolved as cloth
+    // (or an explicitly configured name) opt in.
+    if (pc.rt_reflection > 0.0 && (surface_material.flags & 4096u) != 0u)
+    {
+        const uint reflection_slot = (pc.reflection_denoised > 0.5) ? heap_slots_rt_reflection_denoised : heap_slots_rt_reflection;
+        const float3 reflection = heap_texel(heap_at<Texture2D<float4>>(reflection_slot + heap_frame_slot), heap_sampler_gbuffer, v_uv).rgb;
+        const float3 view_dir = normalize(camera_at(heap_camera_slot).camera_pos - si.world_pos);
+        const float n_dot_v = saturate(dot(si.normal, view_dir));
+        const float3 f0 = lerp(float3(0.04, 0.04, 0.04), si.albedo, si.metallic);
+        const float3 fresnel = f0 + (float3(1.0, 1.0, 1.0) - f0) * pow(1.0 - n_dot_v, 5.0);
+        color += reflection * fresnel * (1.0 - si.roughness) * pc.rt_reflection;
+    }
 
     // ---- the stochastic punctual lighting ----
     // Added AFTER the surface is shaded, because it is a lighting term rather than a property of the
