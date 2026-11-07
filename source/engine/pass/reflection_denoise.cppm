@@ -62,8 +62,8 @@ export namespace deren::engine::pass {
     }
 
     /**
-     * The push block the three shaders share. The host writes the first five lanes (20 bytes); the pass
-     * framework appends `frame_slot` and `image_index`, for 28 bytes total - see `ReflectionDenoisePush` in
+     * The push block the three shaders share. The host writes the first six lanes (24 bytes); the pass
+     * framework appends `frame_slot` and `image_index`, for 32 bytes total - see `ReflectionDenoisePush` in
      * `source/shaders/lighting/reflection_denoise_common.slang`.
      */
     struct reflection_denoise_push {
@@ -72,8 +72,9 @@ export namespace deren::engine::pass {
         std::uint32_t history_valid = 0u;
         std::uint32_t screen_width = 0u;
         std::uint32_t screen_height = 0u;
+        float max_roughness = 0.2f;
     };
-    static_assert(sizeof(reflection_denoise_push) == 20u);
+    static_assert(sizeof(reflection_denoise_push) == 24u);
 
     class reflection_denoise_pass final : public frame_pass {
     public:
@@ -136,6 +137,11 @@ export namespace deren::engine::pass {
             this->temporal_stability_factor = factor;
         }
 
+        /// @brief the roughness below which the three stages filter; AMD's 0.2 by default
+        void set_max_roughness(float roughness) noexcept {
+            this->max_roughness = roughness;
+        }
+
         [[nodiscard]] rhi::error record_content(resolved_io const& io) noexcept override;
 
     private:
@@ -146,5 +152,6 @@ export namespace deren::engine::pass {
         bool history_valid = false;
         std::uint32_t max_samples = 32u;
         float temporal_stability_factor = 1.0f;
+        float max_roughness = 0.2f;
     };
 } // namespace deren::engine::pass

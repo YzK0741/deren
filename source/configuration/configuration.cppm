@@ -203,8 +203,9 @@ namespace deren::app_config {
         bool rt_reflection_cloth = true;
         float rt_reflection_strength = 0.35f;
         // Number of GGX-distributed reflection rays per pixel, clamped to [1, 4]. One keeps the original
-        // mirror trace and its roughness fallback; two or more importance-sample the material lobe, which is
-        // what lets rough surfaces trace the scene instead of falling back to the prefiltered environment.
+        // mirror trace and its roughness fallback; two or more importance-sample the material lobe below the
+        // 0.55 trace cutoff (rougher surfaces still take the prefiltered environment) and widen the denoiser's
+        // glossy band to match.
         uint32_t rt_reflection_samples = 1;
         deren::utility::vessel::string rt_reflection_materials = {};
         // Bake alphaMode MASK into the acceleration structures ([render] rt_mask_bake): a compute pass

@@ -2822,6 +2822,11 @@ namespace deren::engine {
                                          static_cast<pass::reflection_denoise_pass*>(at("reflection history copy"))};
         this->deferred_pass = {at("deferred")};
         this->taa_pass = {at("taa")};
+        // REPLAY THE SAMPLE COUNT. `set_rt_reflection_samples` may run before the chain exists (the application
+        // reads the config first); the passes it would have configured did not exist yet. Binding is where the
+        // frame learns which passes exist, so re-apply the stored value here - it also widens the denoiser band
+        // for multi-sample tracing.
+        this->set_rt_reflection_samples(this->rt_reflection_samples);
         this->post_composite_stage = {at("post_composite")};
         this->bloom_pass = {at("post_bloom_0"), at("post_bloom_1"), at("post_bloom_2"), at("post_bloom_3")};
         this->fxaa_pass = {at("fxaa")};

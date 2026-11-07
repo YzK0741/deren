@@ -164,9 +164,17 @@ namespace deren::app_config {
                 }
             }
             if (toml::node const* node = render->get("rt_reflection_samples")) {
+                // INTEGERS AND FLOATS: TOML authors write `2` and `2.0` for the same knob. Accept both, round
+                // floats to the nearest whole ray, and clamp to the supported 1..4 range. A non-finite float is
+                // ignored rather than converted, for the same reason as the strength lane above.
                 if (std::optional<int64_t> const value = node->value<int64_t>()) {
                     settings.render.rt_reflection_samples =
                         static_cast<uint32_t>(std::clamp<int64_t>(*value, 1, 4));
+                } else if (std::optional<double> const value = node->value<double>()) {
+                    if (std::isfinite(*value)) {
+                        settings.render.rt_reflection_samples = static_cast<uint32_t>(
+                            std::clamp<int64_t>(std::lround(*value), 1, 4));
+                    }
                 }
             }
             if (toml::node const* node = render->get("rt_reflection_materials")) {

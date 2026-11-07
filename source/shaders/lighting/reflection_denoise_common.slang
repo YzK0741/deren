@@ -31,6 +31,9 @@ struct ReflectionDenoisePush
     uint history_valid;
     uint screen_width;
     uint screen_height;
+    // The roughness below which the AMD stages filter. The one-sample reflection pass keeps AMD's 0.2;
+    // `rt_reflection_samples > 1` raises it to the tracer's 0.55 without changing the one-sample path.
+    float max_roughness;
     uint frame_slot;
     uint image_index;
 };
@@ -97,7 +100,7 @@ float FFX_DNSR_Reflections_GetLinearDepth(float2 uv, float depth)
 
 bool FFX_DNSR_Reflections_IsGlossyReflection(float roughness)
 {
-    return roughness < 0.2;
+    return roughness < push.max_roughness;
 }
 
 bool FFX_DNSR_Reflections_IsMirrorReflection(float roughness)
