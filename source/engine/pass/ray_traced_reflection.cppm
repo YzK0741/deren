@@ -5,7 +5,8 @@
  * @brief The ray-traced reflection pass: one reflection ray per pixel into a per-frame-slot target.
  *
  * The pass follows the ray-traced shadow's shape: it owns its ray-tracing pipeline (raygen, miss and one
- * triangles hit group), its three shader binding table regions, the push block and the full-resolution
+ * triangles hit group carrying closest-hit plus alpha-mask any-hit), its three shader binding table regions,
+ * the push block and the full-resolution
  * `traceRays` launch. It owns no descriptor set: the camera, light UBO, TLAS, G-buffer images and the
  * reflection target are heap slots its shaders name themselves.
  *
@@ -62,6 +63,7 @@ export namespace deren::engine::pass {
         render_resource::instances::resource_snapshot resource_view;
         static constexpr std::string_view raygen_name = "rt_reflection.rgen.spv";
         static constexpr std::string_view closest_hit_name = "rt_reflection.rchit.spv";
+        static constexpr std::string_view any_hit_name = "rt_reflection.rahit.spv";
         static constexpr std::string_view miss_name = "rt_reflection.rmiss.spv";
         static constexpr uint32_t group_size = 8;
         static constexpr uint32_t barrier_reflection = 0;

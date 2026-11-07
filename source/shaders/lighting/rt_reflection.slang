@@ -44,19 +44,9 @@ struct LightUBO
 };
 
 #include "common/material_record.slang"
-
-// One record per instance of the top level structure; the 96-byte std430 layout mirrors the host's
-// acceleration_structure::instance_record. Only model, material_index and the vertex addressing are read here.
-struct MaskInstance
-{
-    uint2 vertex_address;
-    uint2 index_address;
-    VR_MAT4 model;
-    uint vertex_stride;
-    uint index_type;
-    uint material_index;
-    uint primitive_index;
-};
+// THE ANY-HIT PREDICATE IS SHARED WITH THE SHADOW TRACER: the same MASK cut must hide the transparent part of
+// a leaf card from a reflection ray, exactly as it hides it from a shadow ray.
+#include "common/rt_alpha_mask.slang"
 
 struct RtReflectionPush
 {
@@ -152,6 +142,24 @@ void rgen_main()
 }
 
 // =============================================================================================================
+// THE ANY-HIT STAGE (entry `ahit_main`): the alphaMode MASK cut for reflection rays.
+//
+// THE REFLECTION USED TO REFLECT MASKED GEOMETRY AS A SOLID CARD: a ray query has no any-hit stage, and this
+// pipeline's reflection trace had no alpha test either. `IgnoreHit` (GLSL's ignoreIntersectionEXT) refuses the
+// transparent part of the triangle before the closest hit can shade it. The predicate is the SAME function the
+// shadow any-hit calls, so the two tracers cannot drift on which texels are solid.
+// =============================================================================================================
+[shader("anyhit")]
+void ahit_main(inout reflection_payload payload)
+{
+    const RtMaskInstance instance = heap_at<StructuredBuffer<RtMaskInstance>>(heap_mask_instance_slot)[InstanceID()];
+    if (rt_alpha_mask_cut(instance, pc.frame_slot))
+    {
+        IgnoreHit();
+    }
+}
+
+// =============================================================================================================
 // THE CLOSEST-HIT STAGE (entry `chit_main`): a cheap single-bounce shade of the hit surface.
 //
 // This is intentionally not the deferred path's full material evaluation: the reflection is filtered and
@@ -159,21 +167,15 @@ void rgen_main()
 // colour, sun term, environment specular) so a mirror shows the geometry rather than one flat colour.
 // =============================================================================================================
 
-/// @brief the 64-bit device address held in two lanes (little-endian, low half first)
-uint64_t reflection_lane_address(uint2 halves)
-{
-    return (uint64_t(halves.y) << 32u) | uint64_t(halves.x);
-}
-
 [shader("closesthit")]
 void chit_main(inout reflection_payload payload)
 {
-    const MaskInstance instance = heap_at<StructuredBuffer<MaskInstance>>(heap_mask_instance_slot)[InstanceID()];
+    const RtMaskInstance instance = heap_at<StructuredBuffer<RtMaskInstance>>(heap_mask_instance_slot)[InstanceID()];
     const Material material = material_at(heap_slots_materials, instance.material_index);
 
     // The geometric normal, in object space from the hit triangle's vertices and then taken to world space by
     // the instance transform. No attribute fetch is involved: a triangle hit has no interpolated normal here.
-    float* vertices = (float*)reflection_lane_address(instance.vertex_address);
+    float* vertices = (float*)rt_mask_lane_address(instance.vertex_address);
     const uint stride = instance.vertex_stride / 4u;
     const bool indexed = (instance.index_address.x != 0u) || (instance.index_address.y != 0u);
     float3 positions[3];
@@ -183,7 +185,7 @@ void chit_main(inout reflection_payload payload)
         uint vertex = i;
         if (indexed)
         {
-            uint* indices = (uint*)reflection_lane_address(instance.index_address);
+            uint* indices = (uint*)rt_mask_lane_address(instance.index_address);
             if (instance.index_type == 0u)
             {
                 const uint word = indices[i >> 1u];

@@ -94,6 +94,7 @@ $slangSources = @(
     "lighting/rt_shadow.slang:rgen_main:raygeneration:rt_shadow.rgen.spv",
     "lighting/rt_shadow.slang:ahit_main:anyhit:rt_shadow.rahit.spv",
     "lighting/rt_reflection.slang:chit_main:closesthit:rt_reflection.rchit.spv",
+    "lighting/rt_reflection.slang:ahit_main:anyhit:rt_reflection.rahit.spv",
     "lighting/rt_reflection.slang:miss_main:miss:rt_reflection.rmiss.spv",
     "lighting/rt_reflection.slang:rgen_main:raygeneration:rt_reflection.rgen.spv",
     "lighting/reflection_reproject.slang:main:compute:reflection_reproject.comp.spv",

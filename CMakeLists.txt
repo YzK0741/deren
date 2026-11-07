@@ -2151,6 +2151,10 @@ set(VR_SHADER_INCLUDES
     # shared scene push block is 144 bytes, over the 128-byte limit). It is here for the same reason the
     # other bodies are: a field added to it must rebuild every stage that reads the table.
     "${VR_SHADER_SRC_DIR}/common/material_record.slang"
+    # rt_alpha_mask.slang is the MASK cut shared by the shadow and reflection any-hit stages. It is here so
+    # editing the predicate rebuilds both ray-tracing pipelines; a stale stage would disagree with the raster
+    # paths about which texels are solid.
+    "${VR_SHADER_SRC_DIR}/common/rt_alpha_mask.slang"
     # toon_params.slang is the TOON FAMILY TABLE, shared by every stage that shades a character (the
     # character-forward stage and the screen-space rim). It is here for the reason the bodies below are:
     # editing a family's parameters must rebuild every stage that read them, and a stage left on stale SPIR-V
@@ -2443,10 +2447,11 @@ set(VR_SLANG_SOURCES
     lighting/rt_shadow.slang:miss_main:miss:rt_shadow.rmiss.spv
     lighting/rt_shadow.slang:rgen_main:raygeneration:rt_shadow.rgen.spv
     lighting/rt_shadow.slang:ahit_main:anyhit:rt_shadow.rahit.spv
-    # rt_reflection.slang is the ray-traced reflection tracer: no any-hit stage (masked geometry reflects as
-    # solid), radiance in rgb and hit distance in a. Off by default ([render] rt_reflections).
+    # rt_reflection.slang is the ray-traced reflection tracer: radiance in rgb and hit distance in a, plus the
+    # alphaMode MASK any-hit shared with the shadow tracer. Off by default ([render] rt_reflections).
     lighting/rt_reflection.slang:rgen_main:raygeneration:rt_reflection.rgen.spv
     lighting/rt_reflection.slang:chit_main:closesthit:rt_reflection.rchit.spv
+    lighting/rt_reflection.slang:ahit_main:anyhit:rt_reflection.rahit.spv
     lighting/rt_reflection.slang:miss_main:miss:rt_reflection.rmiss.spv
     # The AMD reflection denoiser stages: reproject -> prefilter -> resolve -> copy history. Off by default with
     # [render] rt_reflections.

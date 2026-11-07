@@ -32,9 +32,14 @@ use the name list alone.
 
 The pass traces a single reflection ray per visible pixel through the same scene acceleration
 structures used by ray-traced shadows. The closest-hit shader shades the hit's base color with
-the sun and a low-mip environment lookup; there is no reflection any-hit stage yet, so masked
-geometry is treated as solid to a reflection ray. The deferred lighting stage composites the
-hit with a Fresnel and roughness weight, scaled by `rt_reflection_strength`.
+the sun and a low-mip environment lookup. The deferred lighting stage composites the hit with
+a Fresnel and roughness weight, scaled by `rt_reflection_strength`.
+
+The hit group carries four stages: ray generation, miss, closest hit, and any hit. The any-hit
+stage applies only to materials whose `alphaMode` is `MASK`. It reads the base-color alpha at
+explicit LOD 0 and calls `IgnoreHit()` when `base_color_factor.a * albedo.a < alpha_cutoff`,
+so a reflection ray sees the same cut-out silhouette as a shadow ray. The predicate lives in
+`source/shaders/common/rt_alpha_mask.slang`; editing it invalidates both ray-tracing pipelines.
 
 The traced radiance then runs the AMD FidelityFX Reflection Denoiser: reprojection against the
 previous frame, a spatial prefilter, and a temporal resolve that clips history to the local
@@ -57,8 +62,9 @@ The README material preview uses this configuration with a 1080x960 offscreen ca
   own the recorded passes.
 - `source/engine/render_graph/rt_reflection.cppm` and
   `source/engine/render_graph/reflection_denoise.cppm` own their graph declarations.
-- `source/shaders/lighting/rt_reflection.slang` holds the ray-generation, closest-hit and
-  miss stages; the denoiser stages are `reflection_reproject.slang`,
+- `source/shaders/lighting/rt_reflection.slang` holds the ray-generation, closest-hit, miss
+  and alpha-mask any-hit stages; `source/shaders/common/rt_alpha_mask.slang` holds the predicate
+  shared with ray-traced shadows. The denoiser stages are `reflection_reproject.slang`,
   `reflection_prefilter.slang`, `reflection_resolve.slang` and
   `reflection_copy_history.slang` under the same directory.
 

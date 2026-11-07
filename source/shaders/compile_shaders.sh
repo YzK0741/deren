@@ -118,6 +118,7 @@ lighting/rt_shadow.slang:chit_main:closesthit:rt_shadow.rchit.spv
 lighting/rt_shadow.slang:miss_main:miss:rt_shadow.rmiss.spv
 lighting/rt_shadow.slang:rgen_main:raygeneration:rt_shadow.rgen.spv
 lighting/rt_shadow.slang:ahit_main:anyhit:rt_shadow.rahit.spv
+lighting/rt_reflection.slang:ahit_main:anyhit:rt_reflection.rahit.spv
 lighting/rt_reflection.slang:chit_main:closesthit:rt_reflection.rchit.spv
 lighting/rt_reflection.slang:miss_main:miss:rt_reflection.rmiss.spv
 lighting/rt_reflection.slang:rgen_main:raygeneration:rt_reflection.rgen.spv

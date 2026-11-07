@@ -78,12 +78,13 @@ namespace deren::engine::pass {
         };
         std::span<uint8_t const> const raygen = fetch(raygen_name);
         std::span<uint8_t const> const closest_hit = fetch(closest_hit_name);
+        std::span<uint8_t const> const any_hit = fetch(any_hit_name);
         std::span<uint8_t const> const miss = fetch(miss_name);
-        if (raygen.empty() || closest_hit.empty() || miss.empty()) {
-            deren::utility::log("ray-traced reflections unavailable: the owner has not registered all of {}, {} and {}", raygen_name, closest_hit_name, miss_name);
+        if (raygen.empty() || closest_hit.empty() || any_hit.empty() || miss.empty()) {
+            deren::utility::log("ray-traced reflections unavailable: the owner has not registered all of {}, {}, {} and {}", raygen_name, closest_hit_name, any_hit_name, miss_name);
             return;
         }
-        auto built = pipelines::build_rt_reflection_ray_tracing(*context.face, raygen, closest_hit, miss);
+        auto built = pipelines::build_rt_reflection_ray_tracing(*context.face, raygen, closest_hit, any_hit, miss);
         if (!built) {
             deren::utility::log("ray-traced reflections unavailable: {}", built.error());
             this->release_owned();
@@ -125,7 +126,7 @@ namespace deren::engine::pass {
         this->raygen_region = region(address);
         this->miss_region = region(address + region_size);
         this->hit_region = region(address + static_cast<std::uint64_t>(2u) * region_size);
-        deren::utility::log("SUCCESS: ray-traced reflection pipeline created (raygen + miss + closest hit, one ray per pixel)");
+        deren::utility::log("SUCCESS: ray-traced reflection pipeline created (raygen + miss + closest hit + alpha any hit, one ray per pixel)");
     }
 
     void rt_reflection_pass::on_swapchain_recreated(pass_host const&) {
