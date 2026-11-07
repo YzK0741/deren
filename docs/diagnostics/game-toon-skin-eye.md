@@ -32,7 +32,7 @@ Other families retain their existing lighting policy.
 
 ## Verification
 
-`python scripts/gates/game_toon_skin_eye_response.py --build-dir build-release`
+`python scripts/gates/game_toon_skin_eye_response.py --build-dir build`
 checks authored roughness, zero smoothness, the absent-payload fallback, rim
 input, MatCap colour, local diffuse routing and suppression of eye specular/rim
 lights on the GPU. The preview application must be rebuilt for the host-side

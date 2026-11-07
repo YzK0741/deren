@@ -103,7 +103,9 @@
  * THE OPTIONAL STAGES SLOT INTO THAT LIST IN THIS ORDER, which is the order `runtime.post_graph.cpp` records
  * them in: the cluster sort (`light_cluster.comp`) and then the shadow pass, both before the opaque
  * producer; the ray-traced shadow (`rt_shadow.*`) after the producer and before the lighting stage it
- * feeds; the lighting stage; the Gaussian raster (`gaussian_reset`/`gaussian_prepare`/`gaussian_finalize`
+ * feeds; the ray-traced reflection (`rt_reflection.slang`) and its denoiser (`reflection_reproject`,
+ * `reflection_prefilter`, `reflection_resolve`, `reflection_copy_history`) after the producer and
+ * before the lighting stage that composites the result; the lighting stage; the Gaussian raster (`gaussian_reset`/`gaussian_prepare`/`gaussian_finalize`
  * compute passes then `gaussian_raster.vert`/`.frag`) AFTER lighting and BEFORE the transparent pass; the
  * transparent pass; the character chain (`character_forward`, then `toon_screen_rim`, then
  * `game_toon_depth_rim`, all three composing over the shaded frame); then TAA. The post chain's LAST

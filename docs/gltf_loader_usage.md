@@ -3,7 +3,7 @@
 > CPU-side module for loading glTF / GLB files, with no Vulkan dependency.
 > Backend: [fastgltf](https://github.com/spnda/fastgltf) (vendored under `source/third_party/fastgltf`, compiled from source into a `fastgltf_vendored` static target together with simdjson), textures decoded with stb_image.
 
-- Language standard: C++23 (C++20 module)
+- Language standard: C++26 (C++20 module)
 - Public interface: `source/gltf_loader/gltf_loader.cppm` (`import deren.gltf_loader;`)
 - Built as: the `deren_assets` target - one DLL (`deren_assets.dll`) carrying this module, the
   toon-material sidecar and the vendored fastgltf/simdjson/stb code. A host links the target and the

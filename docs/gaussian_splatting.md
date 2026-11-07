@@ -100,7 +100,7 @@ VRDX 0.6.0 is vendored unchanged in `source/third_party/vrdx`, with its MIT lice
 b0db22b0c65e17a9b803bc4daf20354898b820eb
 ```
 
-The backend wraps VRDX through the optional RHI sorting extension; engine code does not include Vulkan or VRDX headers. RHI ABI is 59 (`deren::promise::rhi::abi_version`, `source/promise/rhi/rhi.contract.cppm`).
+The backend wraps VRDX through the optional RHI sorting extension; engine code does not include Vulkan or VRDX headers. RHI ABI is 61 (`deren::promise::rhi::abi_version`, `source/promise/rhi/contract/rhi.error.cppm`).
 
 The Vulkan 1.3 implementation checks synchronization2, VK_KHR_push_descriptor, subgroup operations, workgroup size and shared-memory limits. Sorting scratch uses the requirements returned by the backend; zero scratch size for a nonzero count means unsupported. Traditional sorting descriptors invalidate heap bindings, so the wrapper restores the core's heaps and subsequent stages rebind their state.
 
@@ -132,7 +132,7 @@ Reproduce image and performance checks with the Windows helpers:
 
 ```powershell
 $build = 'build'
-$scripts = 'scripts/windows'
+$scripts = 'scripts/gates'
 & "$scripts/check_gaussian_gpu.ps1" -BuildDir $build
 & "$scripts/benchmark_gaussian_gpu.ps1" -BuildDir $build
 & "$scripts/check_gaussian_resize.ps1" -BuildDir $build `

@@ -223,7 +223,7 @@ nothing.
 The cap is raised to the scene-object limit:
 
 ```cpp
-// source/engine/primitive/records/primitive.records.cppm:242
+// source/engine/primitive/records/primitive.records.cppm:236
 export constexpr std::uint32_t max_game_toon_characters = 16;
 ```
 
@@ -424,7 +424,7 @@ Phase B captures already taken:
    rendered without loading a default model
    (`tmp/cap-gauss-no-top/screenshot_20261102_221137.png`).
 
-Still required before a commit:
+Still required before Phase C can be called complete:
 
 1. PBR + unlit regression; existing pixels should be unchanged.
 2. A capture with outline and shadow checks across multiple characters.

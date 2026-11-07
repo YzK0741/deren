@@ -1,6 +1,6 @@
 # The deren RHI API standard
 
-Status: **draft v1 for RHI ABI 59 (2026-10-27)**. This document is normative for every backend DLL that
+Status: **draft v1 for RHI ABI 61 (2026-10-27)**. This document is normative for every backend DLL that
 implements `deren::promise::rhi` and for every engine/application consumer of the contract. When this
 document and the contract source disagree, the source is authoritative and this document is the defect;
 updates to the contract require an update here in the same change.
@@ -18,7 +18,7 @@ RFC 2119 sense.
 - Every interface method listed in sections 7-8 is a virtual function that a backend implements. Default
   implementations return `error::unsupported` (or perform the documented trivial operation); a backend MUST NOT
   claim an ability it does not implement.
-- The current ABI is `rhi::abi_version == 59`. A backend is loaded by the application as a DLL through
+- The current ABI is `rhi::abi_version == 61`. A backend is loaded by the application as a DLL through
   `deren_make_api_core(abi_version, create_info, error_info)`; the first argument is the caller's ABI and a
   mismatch is refused by name.
 - The contract carries no Vulkan/API-specific types except through optional escape extensions. Backend modules
@@ -245,7 +245,7 @@ to record/reset an in-flight command buffer or modify its borrowed data concurre
 - Backend and executable/plugins are rebuilt together for an ABI change. The DLL name and entry point are the
   stable loader contract; the application resolves the backend by name and never imports backend symbols.
 - ABI 54 removes the incomplete query/swapchain factory slots and unused mesh extension from ABI 53; all
-  components must be rebuilt together. The standard is written for ABI 54. A future ABI change must add a revision note here and update the affected
+  components must be rebuilt together. The standard is written for ABI 61. A future ABI change must add a revision note here and update the affected
   virtual clauses; the conformance checklist in section 6 must be rerun.
 
 ### 5.1 Supported build compatibility
@@ -994,7 +994,7 @@ borrowed operands. The explicit GUI descriptor-heap bind remains part of that na
 
 ## 8. Optional extension interfaces
 
-Status: **draft v1 for RHI ABI 59**. Section 8 of *The deren RHI API standard*. Sections 1-6 (scope and
+Status: **draft v1 for RHI ABI 61**. Section 8 of *The deren RHI API standard*. Sections 1-6 (scope and
 source of truth, the object/ownership model, errors and validation order, recording/frames/synchronization,
 ABI rules, conformance checklist) are normative as written and are NOT repeated here; where a clause below
 needs one of them it says so. Where this file and `source/promise/rhi/rhi.extension.cppm` disagree, the

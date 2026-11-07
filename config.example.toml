@@ -130,6 +130,11 @@ shaders_dir = ""
 #   DamagedHelmet.gltf inside). Empty = auto-locate "asset/" upward.
 model_dir = ""
 
+# asset_library: root of the folder-backed asset catalogue used by `asset` ids in
+#   [[scene.objects]]. Empty = no catalogue; `--asset-library` overrides this key. The
+#   directory must exist when set.
+asset_library = ""
+
 # screenshot_dir: base directory for F12 screenshots (created on demand).
 #   Empty = the current working directory.
 screenshot_dir = ""
@@ -560,7 +565,7 @@ character_forward = false
 # goo_toon: WHICH SHADING MODEL the character stage above draws with. false = the chain written against the
 # author's article (`shaders/character_forward.slang`); true = the REWRITTEN chain whose authority is XIYAG's
 # Goo node presets (`shaders/goo_toon.slang`, registered as the `goo_toon` pipeline - see
-# deren::vulkan::runtime::goo_toon_pipeline_name and build-release-clang64/deren-ab/goo_toon_plan.md).
+# deren::vulkan::runtime::goo_toon_pipeline_name and build/deren-ab/goo_toon_plan.md).
 #
 # IT IS NOT A SECOND WAY TO TURN THE STAGE ON: with `character_forward` off this selects nothing at all. The two
 # are separate because they answer two questions - whether the stage runs, and which model it runs - and the
@@ -606,7 +611,7 @@ game_toon = false
 #
 # Example (the author's own `endfield-background`, a 34 m matte ground disc + emissive dome, converted to
 # glTF): background_glb = "deren-ab/bg/endfield-background/export/background.glb"
-# NOTE ON THAT ASSET: it is licensed for LOCAL REFERENCE ONLY (attribution to 新杨XIYAG is required and it
+# NOTE ON THAT ASSET: it is licensed for LOCAL REFERENCE ONLY (attribution to Xinyang XIYAG is required and it
 # must be replaced before any release - see its SOURCE_TERMS.txt), so it is a development stand-in and not
 # something to ship. The key itself is asset-agnostic.
 background_glb = ""
@@ -662,7 +667,7 @@ demo_lights = 0
 # their package's manifest names `lighting/studio_01_1k.exr` with `world_strength 0.35`, and that
 # light is what fills the shadows their area light casts (ours come out of the toon rig and the
 # environment, so the character's ambient is otherwise a blue-grey sky band). Converting that EXR to a
-# Radiance .hdr is a one-liner in Blender - see build-release-clang64/deren-ab/bg/_hdr_convert.py, which
+# Radiance .hdr is a one-liner in Blender - see build/deren-ab/bg/_hdr_convert.py, which
 # writes studio_01_1k.hdr next to the EXR - because the runtime reads .hdr and NOT .exr: stb_image
 # decodes Radiance but has no OpenEXR support, and the runtime has no other image decoder.
 #
@@ -687,7 +692,7 @@ environment_hdr = ""
 environment_intensity = 0.35
 
 # area_light_*: the reference package's RECTANGULAR SOFT BOX, which its manifest
-# (build-release-clang64/deren-ab/bg/endfield-background/manifest.json) names as the main light of the shot:
+# (build/deren-ab/bg/endfield-background/manifest.json) names as the main light of the shot:
 #
 #     UsdLuxRectLight, size_m 30, power_w 4000, position_blender_m [-3, -4, 15], aim_at [0, 0, 0]
 #
@@ -754,7 +759,7 @@ area_light_softness   = 0.0  # the penumbra's world radius in metres; 0 = automa
 
 # ---- [toon] the toon character stage's LIGHT RIG ----
 #
-# These are the 终末地 chain's GLOBAL numbers (see deren::vulkan::toon_rig): the ones tuned once for a whole character
+# These are the Endfield chain's GLOBAL numbers (see deren::vulkan::toon_rig): the ones tuned once for a whole character
 # rather than per material. A material FAMILY's numbers live in shaders/toon_params.slang - they are a contract
 # between two shader stages - and a MATERIAL's come from the `.toon.tsv` sidecar beside the model. The defaults
 # below are the article's own values, so saying nothing here renders what this port was measured at.

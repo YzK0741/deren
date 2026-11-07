@@ -1,0 +1,66 @@
+# Ray-traced reflections
+
+Ray-traced reflections are an opt-in, per-frame effect for the deferred PBR path and the
+GameToon cloth path. The default is off; with `rt_reflections = false` the renderer records
+no reflection pass and the deferred lighting result is byte-identical to the pre-feature
+output.
+
+## Enabling it
+
+```toml
+[render]
+rt_reflections = true
+rt_reflection_cloth = true
+rt_reflection_strength = 1.0
+rt_reflection_materials = ["Material_MR"]
+```
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `[render] rt_reflections` | `false` | Trace one reflection ray per visible pixel. A device without ray queries ignores the key and continues with the normal deferred lighting result. |
+| `[render] rt_reflection_cloth` | `true` | Grant the composite to the loader's `cloth` material family. |
+| `[render] rt_reflection_strength` | `0.35` | Multiplier on the Fresnel/roughness-weighted reflection term; `0` disables it, `1` is the full add. |
+| `[render] rt_reflection_materials` | `[]` | Extra material names, matched as case-insensitive substrings (for example `"Material_MR"` or `"leather"`). The whitelist is resolved at scene import, so changing it requires a reload. |
+| `[[scene.objects]] ray_tracing_reflection` | `cast_shadow` | Per-object opt-out. `false` keeps that object out of the traced reflection while leaving its raster result unchanged. |
+
+A cel-shaded character is mostly flat, rough shading, so a mirror term over the whole frame
+fights the intended look. The default therefore restricts the traced reflection to cloth,
+plus any material named in `rt_reflection_materials`. Set `rt_reflection_cloth = false` to
+use the name list alone.
+
+## What is traced
+
+The pass traces a single reflection ray per visible pixel through the same scene acceleration
+structures used by ray-traced shadows. The closest-hit shader shades the hit's base color with
+the sun and a low-mip environment lookup; there is no reflection any-hit stage yet, so masked
+geometry is treated as solid to a reflection ray. The deferred lighting stage composites the
+hit with a Fresnel and roughness weight, scaled by `rt_reflection_strength`.
+
+The traced radiance then runs the AMD FidelityFX Reflection Denoiser: reprojection against the
+previous frame, a spatial prefilter, and a temporal resolve that clips history to the local
+color bounds. History is per swapchain image, so a newly enabled or resized frame starts from
+the current sample instead of blending stale pixels.
+
+## Capture
+
+The README material preview uses this configuration with a 1080x960 offscreen capture at frame
+30; the exact camera, HDR and tone-mapping settings are recorded in
+[the screenshot notes](screenshots/README.md). A minimal run is:
+
+```powershell
+./build/deren --config reflection.toml --capture-frames 30
+```
+
+## Source layout
+
+- `source/engine/pass/ray_traced_reflection.cppm` and `source/engine/pass/reflection_denoise.cppm`
+  own the recorded passes.
+- `source/engine/render_graph/rt_reflection.cppm` and
+  `source/engine/render_graph/reflection_denoise.cppm` own their graph declarations.
+- `source/shaders/lighting/rt_reflection.slang` holds the ray-generation, closest-hit and
+  miss stages; the denoiser stages are `reflection_reproject.slang`,
+  `reflection_prefilter.slang`, `reflection_resolve.slang` and
+  `reflection_copy_history.slang` under the same directory.
+
+See [the configuration example](../config.example.toml) for the surrounding render keys and
+the reasoning behind the defaults.

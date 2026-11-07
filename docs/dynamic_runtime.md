@@ -76,14 +76,14 @@ compilations from drifting.
 | `:core_desc` | `create_info`, the ONE creation structure - the program fills it and the backend builds its context from it |
 | `:extension` | the optional interfaces and the queries that hand them out |
 
-The contract is versioned by `rhi::abi_version` (59 today), and a change to it is one of three kinds:
+The contract is versioned by `rhi::abi_version` (61 today), and a change to it is one of three kinds:
 **appending a slot to an existing interface bumps the number**, and so does **adding a field to a
 by-value structure** - its layout is what both halves pass, even when a `struct_size` guard lets the
 backend keep the old default; abi 45 (the `command_buffer_begin_info::inherit_descriptor_heaps`
 append) is exactly that case. **Adding a new ability or extension does not** bump it - a new capability
 is a new query, and a backend that does not implement it says so - and neither does a NEW type or a free
 helper function (a `constexpr`/`inline`/template declaration), because nothing already crossing the
-boundary changes shape. The GUI plugin boundary versions separately: `gui::gui_abi_version` is 5 today,
+boundary changes shape. The GUI plugin boundary versions separately: `gui::gui_abi_version` is 6 today,
 and the two numbers do not imply each other.
 
 ## Resource memory statistics (ABI 59)
@@ -170,7 +170,7 @@ validates a complete matching group and retains it for recorded/pending work. Ba
 allocations remain private. See [resource groups](resource_groups.md) for usage, ownership and limits.
 ABI 51 itself recorded immediately; deferred/lazy state recording arrived in ABI 53 (see the ABI 53
 section below). Resource groups originated in ABI 51 and the subview split in ABI 50. The ABI 54
-removal retired the reserved factory-slot surface; current binaries use ABI 59.
+removal retired the reserved factory-slot surface; current binaries use ABI 61.
 
 ## Removal of incomplete interfaces (ABI 54)
 
@@ -336,7 +336,7 @@ function's own note states it. (The raw-handle escape that used to share this ru
 * **The object attests its own number too**: the runtime checks `api_core::api_version()` after the
   handshake, because a host may be handed an `api_core` it did not create.
 * **The GUI plugin takes the same shape**: `deren_gui_vulkan.dll` exports one name, `deren_make_gui`,
-  whose FIRST argument is the GUI boundary's own `gui::gui_abi_version` (5 today) - a mismatched caller
+  whose FIRST argument is the GUI boundary's own `gui::gui_abi_version` (6 today) - a mismatched caller
   is refused before an overlay exists, exactly as the RHI entry refuses a mismatched backend.
 
 The keyword that makes a symbol visible across a DLL boundary lives in ONE header,
@@ -395,7 +395,7 @@ A backend is not asked what it is; it is asked what it can do.
   what the engine itself uses. THE ESCAPE IS GONE (abi 43): its last slot existed only so the GUI overlay's
   Dear ImGui Vulkan backend could get a host command buffer, and the overlay now gets no host recording
   target at all. The GUI receives the opaque `rhi::main_context` (abi 39) for the device root plus its OWN
-  two contract `mergeable_command_buffer_ref` targets in `gui::create_info` (gui abi 5); `overlay::record()`
+  two contract `mergeable_command_buffer_ref` targets in `gui::create_info` (gui abi 6); `overlay::record()`
   starts the current target, records ImGui into that segment and returns it, and the host executes the
   segment in a dedicated LOAD + secondary-contents rendering instance AFTER the pass's own instance ends
   (a dynamic-rendering instance flagged for secondary contents may contain no primary draws, and the pass
@@ -442,7 +442,7 @@ concrete-identity tag, and the API-specific plugin casts it to the layout it sha
 (`deren.vulkan.main_context` for the Vulkan plugin) - so no native handle or format number is part of
 the GUI contract.
 
-The overlay's recording crosses the same way (gui abi 5): the host creates the two
+The overlay's recording crosses the same way (gui abi 6): the host creates the two
 `mergeable_command_buffer` recording targets through `command_context::make_mergeable_command_buffer()` and
 hands them over in `gui::create_info`; the plugin holds them, records ImGui into one per frame and
 returns the recorded segment. The host's own command buffer is never handed to the plugin - only the
