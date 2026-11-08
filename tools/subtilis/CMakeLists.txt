@@ -16,6 +16,7 @@ include(${DEREN_REPO_ROOT}/source/third_party/fastgltf.cmake)
 include(${DEREN_REPO_ROOT}/source/third_party/meshoptimizer.cmake)
 include(${DEREN_REPO_ROOT}/source/third_party/xxhash.cmake)
 include(${DEREN_REPO_ROOT}/source/third_party/boost.cmake)
+include(${DEREN_REPO_ROOT}/source/third_party/glm.cmake)
 include(${DEREN_REPO_ROOT}/source/vstd/vstd.cmake)
 include(${DEREN_REPO_ROOT}/source/utility/utility.cmake)
 
