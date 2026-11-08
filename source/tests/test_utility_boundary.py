@@ -15,7 +15,8 @@ class UtilityBoundaryTests(unittest.TestCase):
                     self.assertIsNone(forbidden.search(path.read_text(encoding="utf-8")))
 
     def test_static_utility_has_no_contract_link(self):
-        cmake = re.sub(r"#[^\n]*", "", (ROOT / "CMakeLists.txt").read_text(encoding="utf-8"))
+        cmake_sources = [ROOT / "CMakeLists.txt", *sorted((ROOT / "source").rglob("*.cmake"))]
+        cmake = "\n".join(re.sub(r"#[^\n]*", "", path.read_text(encoding="utf-8")) for path in cmake_sources)
         links = re.findall(r"target_link_libraries\(static_utility\s+(.*?)\)", cmake, re.S)
         self.assertTrue(links)
         for link in links:

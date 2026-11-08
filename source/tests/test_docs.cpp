@@ -24,7 +24,7 @@
 //     shaders' constants. A renamed slot leaves the documents describing a resource that does not
 //     exist, and a heap has no reflection to notice: those constants ARE the source of truth (which is
 //     the same reason test_render_resources compares the two files that hold them).
-//  6. THE CI WORKFLOW'S TEST LIST EQUALS CMakeLists' `VR_TEST_TARGETS`. The workflow says so in a
+//  6. THE CI WORKFLOW'S TEST LIST EQUALS THE CMake SOURCES' `VR_TEST_TARGETS`. The workflow says so in a
 //     comment and the comment is right about why: a target missing from the `--target` list is an
 //     executable ctest cannot find, and the job goes red as "Not Run". MEASURED: it had already
 //     drifted - ten targets in CMake, nine in the ASan job (`test_meshlet` missing) - which is the
@@ -75,6 +75,22 @@ namespace {
         deren::utility::vessel::ostringstream buffer;
         buffer << file.rdbuf();
         return buffer.str();
+    }
+
+    deren::utility::vessel::string read_cmake_sources(std::filesystem::path const& root) {
+        deren::utility::vessel::string text = read_text(root / "CMakeLists.txt");
+        deren::utility::vessel::vector<std::filesystem::path> fragments;
+        for (auto const& entry : std::filesystem::recursive_directory_iterator(root / "source")) {
+            if (entry.is_regular_file() && entry.path().extension() == ".cmake") {
+                fragments.push_back(entry.path());
+            }
+        }
+        std::sort(fragments.begin(), fragments.end());
+        for (auto const& fragment : fragments) {
+            text += "\n";
+            text += read_text(fragment);
+        }
+        return text;
     }
 
     deren::utility::vessel::vector<deren::utility::vessel::string> read_lines(std::filesystem::path const& path) {
@@ -528,7 +544,7 @@ int32_t main() {
 
     // ---- 6. the CI workflow builds every target CMake registers (and nothing CMake does not) ----
     {
-        deren::utility::vessel::set<deren::utility::vessel::string> const registered = vr_test_targets(read_text((root / "CMakeLists.txt").string()));
+        deren::utility::vessel::set<deren::utility::vessel::string> const registered = vr_test_targets(read_cmake_sources(root));
         deren::utility::vessel::set<deren::utility::vessel::string> const built = ci_built_targets(read_text((root / ".github" / "workflows" / "ci.yml").string()));
         CHECK_MSG(registered.size() >= 10u, "VR_TEST_TARGETS parses as the full list of targets");
         CHECK_MSG(!built.empty(), "the CI workflow's --target list parses");
@@ -547,7 +563,7 @@ int32_t main() {
     // failure anywhere. A test executable is now either on the headless list, on the device lane's list, or a
     // named exception - never invisible.
     {
-        deren::utility::vessel::string const cmake_text = read_text((root / "CMakeLists.txt").string());
+        deren::utility::vessel::string const cmake_text = read_cmake_sources(root);
         deren::utility::vessel::set<deren::utility::vessel::string> const device = device_test_targets(cmake_text);
         CHECK_MSG(!device.empty(), "CMakeLists' VR_DEVICE_TEST_TARGETS parses as the device lane's list");
         deren::utility::vessel::set<deren::utility::vessel::string> const literal = literal_test_executables(cmake_text);
