@@ -10,18 +10,18 @@ add_library(imgui STATIC)
 
 target_sources(imgui
     PRIVATE
-        source/third_party/imgui/imgui.cpp
-        source/third_party/imgui/imgui_draw.cpp
-        source/third_party/imgui/imgui_tables.cpp
-        source/third_party/imgui/imgui_widgets.cpp
-        source/third_party/imgui/backends/imgui_impl_glfw.cpp
-        source/third_party/imgui/backends/imgui_impl_vulkan.cpp
+        ${DEREN_REPO_ROOT}/source/third_party/imgui/imgui.cpp
+        ${DEREN_REPO_ROOT}/source/third_party/imgui/imgui_draw.cpp
+        ${DEREN_REPO_ROOT}/source/third_party/imgui/imgui_tables.cpp
+        ${DEREN_REPO_ROOT}/source/third_party/imgui/imgui_widgets.cpp
+        ${DEREN_REPO_ROOT}/source/third_party/imgui/backends/imgui_impl_glfw.cpp
+        ${DEREN_REPO_ROOT}/source/third_party/imgui/backends/imgui_impl_vulkan.cpp
 )
 
 target_include_directories(imgui
     PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/source/third_party/imgui
-        ${CMAKE_CURRENT_SOURCE_DIR}/source/third_party/imgui/backends
+        ${DEREN_REPO_ROOT}/source/third_party/imgui
+        ${DEREN_REPO_ROOT}/source/third_party/imgui/backends
 )
 
 target_link_libraries(imgui

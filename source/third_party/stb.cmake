@@ -7,5 +7,5 @@ add_library(stb_vendored INTERFACE)
 
 target_include_directories(stb_vendored
     INTERFACE
-        ${CMAKE_CURRENT_SOURCE_DIR}/source/third_party
+        ${DEREN_REPO_ROOT}/source/third_party
 )

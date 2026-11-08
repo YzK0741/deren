@@ -125,13 +125,14 @@ add_library(static_utility STATIC)
 target_sources(static_utility
         PUBLIC
         FILE_SET CXX_MODULES
+        BASE_DIRS ${DEREN_REPO_ROOT}
         FILES
-        source/utility/utility.cppm
-        source/utility/data_block.cppm
-        source/utility/BVH/bvh.cppm
-        source/utility/frame_clock/frame_clock.cppm
-        source/utility/frame_stats/frame_stats.cppm
-        source/utility/thread_pool/thread_pool.cppm
+        ${DEREN_REPO_ROOT}/source/utility/utility.cppm
+        ${DEREN_REPO_ROOT}/source/utility/data_block.cppm
+        ${DEREN_REPO_ROOT}/source/utility/BVH/bvh.cppm
+        ${DEREN_REPO_ROOT}/source/utility/frame_clock/frame_clock.cppm
+        ${DEREN_REPO_ROOT}/source/utility/frame_stats/frame_stats.cppm
+        ${DEREN_REPO_ROOT}/source/utility/thread_pool/thread_pool.cppm
         # The loader the RHI boundary is built on: the only place in the tree that
         # asks the platform for a library. It is a module of its own rather than a `utility:` partition
         # because a partition cannot be imported by another target's module without dragging `deren.utility`
@@ -141,10 +142,10 @@ target_sources(static_utility
         # IT STAYS HERE, NOT IN shared_utility: it is the key that loads the backend, so putting it
         # behind the process-wide library would make "load shared_utility" a prerequisite of "load
         # the backend" - a bootstrap chain with nothing to gain.
-        source/utility/dynamic_link.cppm
+        ${DEREN_REPO_ROOT}/source/utility/dynamic_link.cppm
         PRIVATE
-        source/utility/utility.cpp
-        source/utility/file_io.cpp
+        ${DEREN_REPO_ROOT}/source/utility/utility.cpp
+        ${DEREN_REPO_ROOT}/source/utility/file_io.cpp
 )
 
 # static_utility: the per-half toolkit. utility.cpp implements the xxHash-based hash functions

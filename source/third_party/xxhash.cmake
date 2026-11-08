@@ -8,10 +8,10 @@ include_guard(GLOBAL)
 # pure and per-half - they are not process-wide state).
 
 add_library(xxhash STATIC
-        source/third_party/xxhash/xxhash.c
+        ${DEREN_REPO_ROOT}/source/third_party/xxhash/xxhash.c
 )
 
 target_include_directories(xxhash
     PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/source/third_party/xxhash
+        ${DEREN_REPO_ROOT}/source/third_party/xxhash
 )
