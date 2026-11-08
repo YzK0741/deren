@@ -255,6 +255,9 @@ namespace deren::app {
                 }
                 deren::app_config::scene_object_settings const& object = objects[static_cast<std::size_t>(bindings.selected_object)];
                 deren::utility::vessel::string const name = object.name.empty() ? deren::utility::vessel::string("<unnamed>") : object.name;
+                if (bindings.object_transform_only) {
+                    return deren::utility::vessel::format("single model: {}", name);
+                }
                 switch (object.pipeline) {
                 case 3:
                     return deren::utility::vessel::format("{}: {} - game_toon, head slot {}", bindings.selected_object, name, bindings.selected_object);
@@ -284,6 +287,9 @@ namespace deren::app {
                 object_panel.add_checkbox("  cast shadow", &object.cast_shadow, [mark_dirty](bool) { mark_dirty(); }).set_visible_when(selected);
                 object_panel.add_checkbox("  RT shadow", &object.ray_tracing_shadow, [mark_dirty](bool) { mark_dirty(); }).set_visible_when(selected);
                 object_panel.add_checkbox("  RT reflection", &object.ray_tracing_reflection, [mark_dirty](bool) { mark_dirty(); }).set_visible_when(selected);
+                if (bindings.object_transform_only) {
+                    continue;
+                }
                 if (i < bindings.object_pipeline_options.size() && i < bindings.object_pipeline_choice.size()) {
                     auto const& options = bindings.object_pipeline_options[i];
                     deren::utility::vessel::vector<deren::utility::vessel::string> labels;

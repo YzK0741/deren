@@ -971,6 +971,27 @@ namespace deren::app {
         //     in world space. A wrapper would move the rendered head without moving that basis, so the two
         //     features are refused together instead of producing a plausible but wrong frame; the GameToon
         //     X-staging path (`game_toon_copies`) remains separate and unchanged.
+        // THE HISTORIC SINGLE-MODEL PATH gets the same editing surface as a scene object: one
+        // implicit entry, one wrapper around its roots. The import path stays the historic one
+        // (character shading, no per-object pipeline/material choice); the entry exists so picking,
+        // the panel and the live transform have something to address.
+        deren::utility::vessel::vector<deren::app_config::scene_object_settings> single_object_settings;
+        deren::utility::vessel::vector<std::size_t> single_object_asset_slots;
+        bool const default_object_editable = !use_scene_objects && !gaussian_only && game_toon_copies == 1;
+        if (default_object_editable) {
+            deren::app_config::scene_object_settings object;
+            object.name = std::filesystem::path(model_path).stem().string();
+            if (object.name.empty()) {
+                object.name = "model";
+            }
+            object.model = model_path;
+            single_object_settings.push_back(std::move(object));
+            single_object_asset_slots.push_back(0);
+        } else if (!use_scene_objects && !gaussian_only && game_toon_copies > 1) {
+            deren::utility::log("scene: single-object editing is off while game_toon_copies = {} stages more than one copy", game_toon_copies);
+        }
+        auto& editable_objects = use_scene_objects ? settings.scene.objects : single_object_settings;
+        auto& editable_asset_slots = use_scene_objects ? object_asset_slot : single_object_asset_slots;
         deren::utility::vessel::vector<glm::mat4> object_transforms;
         glm::vec3 scene_focus = scene_sink;
         float scene_fit_radius = scene_radius;
@@ -988,10 +1009,10 @@ namespace deren::app {
             transform = glm::translate(transform, -object_anchor);
             return transform;
         };
-        if (use_scene_objects) {
-            object_transforms.reserve(settings.scene.objects.size());
-            for (std::size_t index = 0; index < settings.scene.objects.size(); ++index) {
-                deren::app_config::scene_object_settings const& object = settings.scene.objects[index];
+        if (!editable_objects.empty()) {
+            object_transforms.reserve(editable_objects.size());
+            for (std::size_t index = 0; index < editable_objects.size(); ++index) {
+                deren::app_config::scene_object_settings const& object = editable_objects[index];
                 object_transforms.push_back(make_object_transform(object));
                 deren::utility::log("scene: object {} '{}' position [{:.3f}, {:.3f}, {:.3f}], rotation [{:.1f}, {:.1f}, {:.1f}] deg, scale [{:.3f}, {:.3f}, {:.3f}]",
                                     index, object.name,
@@ -999,7 +1020,8 @@ namespace deren::app {
                                     object.rotation[0], object.rotation[1], object.rotation[2],
                                     object.scale[0], object.scale[1], object.scale[2]);
             }
-
+        }
+        if (use_scene_objects) {
             // Fit the camera and the shadow frustum around ALL placements, not the source asset alone. The
             // transformed AABB is deliberately conservative (eight corners of the source world AABB per
             // placement); it only has to be large enough, and an exact box would not change the framing.
@@ -1542,6 +1564,27 @@ namespace deren::app {
                 object_override_materials.back().resize(leaves.size(), deren::engine::material_id{});
                 deren::utility::log("scene: object {} '{}' imported - {} primitives, {} new materials (import instance {})",
                                     index, wrapper_name, copy_result.primitive_count, copy_result.material_count, copy_result.import_instance);
+            } else if (!single_object_settings.empty() && index == 0) {
+                // The historic model is wrapped too, at the identity placement, so the object panel can
+                // move it without changing how the model was imported or shaded.
+                deren::app_config::scene_object_settings const& object = single_object_settings[0];
+                deren::utility::vessel::string const wrapper_name = object.name.empty() ? deren::utility::vessel::string("model") : object.name;
+                wrap_imported_roots(first_root, wrapper_name, object_transforms[0]);
+                object_root_indices.push_back(scene.roots.size() - 1);
+                object_leaves.emplace_back();
+                object_base_materials.emplace_back();
+                object_override_materials.emplace_back();
+                deren::utility::vessel::vector<deren::engine::primitive*>& leaves = object_leaves.back();
+                deren::engine::scene_tree::visit_primitives(scene.roots.back(), glm::mat4(1.0f), [&leaves](deren::engine::scene_tree::scene_node const& node, glm::mat4 const&) {
+                    leaves.push_back(static_cast<deren::engine::primitive*>(node.primitive_leaf.get()));
+                });
+                object_base_materials.back().reserve(leaves.size());
+                for (deren::engine::primitive const* leaf : leaves) {
+                    object_base_materials.back().push_back(leaf->push.material_index);
+                }
+                object_override_materials.back().resize(leaves.size(), deren::engine::material_id{});
+                deren::utility::log("scene: single model '{}' imported with an editable wrapper ({} primitives, {} new materials)",
+                                    wrapper_name, copy_result.primitive_count, copy_result.material_count);
             } else if (game_toon_copies > 1) {
                 deren::utility::log("game_toon: copy {} (character index {}) imported at X {:.3f} - {} primitives, {} new materials",
                                     index, character_index, game_toon_copy_offsets[index], copy_result.primitive_count, copy_result.material_count);
@@ -1550,7 +1593,7 @@ namespace deren::app {
         // The lookup belongs to the asset whose materials are being registered; the background import below
         // must not inherit the last character asset's sidecar by material name.
         runtime.set_toon_lookup(deren::engine::runtime::toon_lookup{});
-        if (use_scene_objects) {
+        if (use_scene_objects || !single_object_settings.empty()) {
             // The wrappers are structural edits after import_scene() already marked the tree dirty; mark it
             // again so the BVH and any derived scene state see the final hierarchy.
             runtime.scene_changed();
@@ -1559,10 +1602,10 @@ namespace deren::app {
         // (the imported model) are untouched, so materials, skinning and each object's animation keep
         // running exactly as before. main calls this after a widget raised the dirty flag.
         auto const apply_scene_object_settings = [&] {
-            std::size_t const count = std::min({object_root_indices.size(), object_leaves.size(), settings.scene.objects.size()});
+            std::size_t const count = std::min({object_root_indices.size(), object_leaves.size(), editable_objects.size(), editable_asset_slots.size()});
             for (std::size_t index = 0; index < count; ++index) {
-                deren::app_config::scene_object_settings& object = settings.scene.objects[index];
-                scene_asset_entry const& asset = scene_assets[object_asset_slot[index]];
+                deren::app_config::scene_object_settings& object = editable_objects[index];
+                scene_asset_entry const& asset = scene_assets[editable_asset_slots[index]];
                 // A cloud has no mesh pipeline and a mesh asset has no splats. The object panel now offers
                 // only the values the asset supports; this guard remains the last line of defence against a
                 // stale choice and refuses a mismatch rather than silently drawing nothing.
@@ -1578,9 +1621,9 @@ namespace deren::app {
                 // The startup validation rejects a configured game_toon object without a sidecar. The object
                 // panel can still switch one at runtime; refuse that switch rather than shading it with another
                 // asset's lanes.
-                if (object.pipeline == 3 && !scene_assets[object_asset_slot[index]].sidecar.has_value()) {
+                if (object.pipeline == 3 && !asset.sidecar.has_value()) {
                     deren::utility::log("scene object {}: game_toon needs a sidecar for '{}'; keeping the deferred path",
-                                        index, scene_assets[object_asset_slot[index]].path);
+                                        index, asset.path);
                     object.pipeline = 0;
                 }
                 deren::engine::scene_tree::scene_node& wrapper = scene.roots[object_root_indices[index]];
@@ -1593,6 +1636,17 @@ namespace deren::app {
                 deren::utility::vessel::vector<deren::engine::primitive*>& leaves = object_leaves[index];
                 deren::utility::vessel::vector<deren::engine::material_id>& bases = object_base_materials[index];
                 deren::utility::vessel::vector<deren::engine::material_id>& overrides = object_override_materials[index];
+                for (deren::engine::primitive* leaf_ptr : leaves) {
+                    deren::engine::primitive& leaf = *leaf_ptr;
+                    leaf.casts_shadow = object.cast_shadow;
+                    leaf.ray_tracing_shadow = object.ray_tracing_shadow;
+                    leaf.ray_tracing_reflection = object.ray_tracing_reflection;
+                }
+                if (!use_scene_objects) {
+                    // The historic path has no per-object pipeline, environment or material override:
+                    // the wrapper/visibility/shadow rows above are the whole editable surface.
+                    continue;
+                }
                 // THE DEFERRED PATH HAS NO PER-LEAF DRAW, so `pipeline_name` cannot carry this choice: the G-buffer
                 // pass refuses an explicitly named pipeline (it cannot know the stage writes G-buffer targets) and
                 // the frame is skipped. The choice is encoded in the material record instead - bit9 is "unlit" -
@@ -1610,9 +1664,6 @@ namespace deren::app {
                     deren::engine::primitive& leaf = *leaves[leaf_index];
                     leaf.pipeline_name = {};
                     leaf.path = character_object ? deren::engine::shading_path::character : deren::engine::shading_path::deferred;
-                    leaf.casts_shadow = object.cast_shadow;
-                    leaf.ray_tracing_shadow = object.ray_tracing_shadow;
-                    leaf.ray_tracing_reflection = object.ray_tracing_reflection;
                     if (!override_material) {
                         // Turning the override off restores the imported material; the clone stays allocated
                         // for a later re-enable rather than churning a table row per toggle.
@@ -1661,7 +1712,7 @@ namespace deren::app {
                 runtime.add_gaussian_asset(asset.cloud, model, static_cast<std::uint64_t>(index) + 1u);
             }
         };
-        if (use_scene_objects) {
+        if (!editable_objects.empty()) {
             apply_scene_object_settings();
         }
         stage_gaussian_clouds();
@@ -2223,50 +2274,55 @@ namespace deren::app {
         gui.ssao_samples = static_cast<float>(settings.render.ssao_samples);
         gui.anim_playing = animation.is_playing(); // play checkbox initial state
         gui.current_camera = current_camera;       // combo selection (the pose seeded above)
-        // The object editor edits the SAME vector the config produced; the scene object panel is only
-        // built when this pointer is non-null (the historic single-object path leaves it null).
-        if (use_scene_objects) {
-            gui.scene_objects = &settings.scene.objects;
-            gui.object_animations = &object_animations;
-            gui.object_animation_names = std::move(object_animation_names);
-            // PIPELINE CHOICES ARE PER ASSET, not a global five-item list: a cloud has only the splat
-            // stage, a mesh has the three deferred paths, and game_toon is added only when that asset
-            // shipped a sidecar. The combo widget binds an index, so main builds the filtered list and
-            // the initial index here; app_ui maps the chosen index back to the pipeline value.
-            gui.object_pipeline_options.clear();
-            gui.object_pipeline_choice.clear();
-            gui.object_is_gaussian.clear();
-            for (std::size_t index = 0; index < settings.scene.objects.size(); ++index) {
-                deren::app_config::scene_object_settings& object = settings.scene.objects[index];
-                scene_asset_entry const& asset = scene_assets[object_asset_slot[index]];
-                gui.object_pipeline_options.push_back({});
-                deren::utility::vessel::vector<deren::app::gui_bindings::object_pipeline_option>& options = gui.object_pipeline_options.back();
-                if (asset.is_gaussian()) {
-                    options.push_back({deren::app_config::scene_object_pipeline_gaussian, "gaussian"});
-                } else {
-                    options.push_back({0, "default"});
-                    options.push_back({1, "pbr"});
-                    options.push_back({2, "unlit"});
-                    if (asset.sidecar.has_value()) {
-                        options.push_back({3, "game_toon"});
+        // The object editor edits the SAME vector the config produced; on the historic path it edits
+        // the one implicit entry created above instead, so the panel and picking stay identical.
+        if (!editable_objects.empty()) {
+            gui.scene_objects = &editable_objects;
+            gui.object_transform_only = !use_scene_objects;
+            if (use_scene_objects) {
+                gui.object_animations = &object_animations;
+                gui.object_animation_names = std::move(object_animation_names);
+                // PIPELINE CHOICES ARE PER ASSET, not a global five-item list: a cloud has only the splat
+                // stage, a mesh has the three deferred paths, and game_toon is added only when that asset
+                // shipped a sidecar. The combo widget binds an index, so main builds the filtered list and
+                // the initial index here; app_ui maps the chosen index back to the pipeline value.
+                gui.object_pipeline_options.clear();
+                gui.object_pipeline_choice.clear();
+                gui.object_is_gaussian.clear();
+                for (std::size_t index = 0; index < settings.scene.objects.size(); ++index) {
+                    deren::app_config::scene_object_settings& object = settings.scene.objects[index];
+                    scene_asset_entry const& asset = scene_assets[object_asset_slot[index]];
+                    gui.object_pipeline_options.push_back({});
+                    deren::utility::vessel::vector<deren::app::gui_bindings::object_pipeline_option>& options = gui.object_pipeline_options.back();
+                    if (asset.is_gaussian()) {
+                        options.push_back({deren::app_config::scene_object_pipeline_gaussian, "gaussian"});
+                    } else {
+                        options.push_back({0, "default"});
+                        options.push_back({1, "pbr"});
+                        options.push_back({2, "unlit"});
+                        if (asset.sidecar.has_value()) {
+                            options.push_back({3, "game_toon"});
+                        }
                     }
-                }
-                std::int32_t choice = 0;
-                bool found = false;
-                for (std::size_t option = 0; option < options.size(); ++option) {
-                    if (options[option].value == object.pipeline) {
-                        choice = static_cast<std::int32_t>(option);
-                        found = true;
-                        break;
+                    std::int32_t choice = 0;
+                    bool found = false;
+                    for (std::size_t option = 0; option < options.size(); ++option) {
+                        if (options[option].value == object.pipeline) {
+                            choice = static_cast<std::int32_t>(option);
+                            found = true;
+                            break;
+                        }
                     }
+                    if (!found && !options.empty()) {
+                        // The startup sanitisation above normally prevents this; keeping the widget and the
+                        // object in sync here is the last line of defence against an invalid config value.
+                        object.pipeline = options.front().value;
+                    }
+                    gui.object_pipeline_choice.push_back(choice);
+                    gui.object_is_gaussian.push_back(asset.is_gaussian());
                 }
-                if (!found && !options.empty()) {
-                    // The startup sanitisation above normally prevents this; keeping the widget and the
-                    // object in sync here is the last line of defence against an invalid config value.
-                    object.pipeline = options.front().value;
-                }
-                gui.object_pipeline_choice.push_back(choice);
-                gui.object_is_gaussian.push_back(asset.is_gaussian());
+            } else {
+                gui.object_is_gaussian.push_back(false);
             }
         }
 
@@ -2444,11 +2500,12 @@ namespace deren::app {
         // The runtime's orbit camera is the only camera in the interactive path, so the ray is built
         // from the same make_orbit_camera_ubo() the frame uses. The per-object AABB is the source
         // model's box transformed by the CURRENT placement; transforming the ray into that object's
-        // local space avoids rebuilding eight world corners per click. The projection flips Y for
-        // Vulkan (primitive.cpp: proj[1][1] *= -1), so pixel row 0 maps to ndc_y -1 and the bottom
-        // row maps to +1.
+        // local space avoids rebuilding eight world corners per click. The orbit projection already
+        // flips Y for Vulkan (primitive.cpp: proj[1][1] *= -1), so framebuffer row 0 maps to ndc_y
+        // +1 and the bottom row maps to -1; using the GL convention here mirrored every click about
+        // the screen center (upper body unpickable, lower body plus the empty space below pickable).
         auto const pick_scene_object = [&](double const cursor_x, double const cursor_y) -> std::int32_t {
-            if (!use_scene_objects) {
+            if (editable_objects.empty()) {
                 return -1;
             }
             int32_t window_width = 0;
@@ -2468,7 +2525,7 @@ namespace deren::app {
                 runtime.camera.target, scene_fit_radius, aspect);
             glm::mat4 const inverse_view_proj = glm::inverse(camera.proj * camera.view);
             float const ndc_x = 2.0f * pixel_x / static_cast<float>(framebuffer_width) - 1.0f;
-            float const ndc_y = 2.0f * pixel_y / static_cast<float>(framebuffer_height) - 1.0f;
+            float const ndc_y = 1.0f - 2.0f * pixel_y / static_cast<float>(framebuffer_height);
             auto const unproject = [&](float const z) {
                 glm::vec4 const point = inverse_view_proj * glm::vec4(ndc_x, ndc_y, z, 1.0f);
                 return glm::vec3(point) / point.w;
@@ -2503,41 +2560,134 @@ namespace deren::app {
                 hit_t = t_min;
                 return t_max > 0.0f;
             };
+            // Intersect the ray with a box expressed in the box owner's local space, and answer the
+            // WORLD-space distance. Dividing by the transformed direction's length is required: the
+            // local `hit_t` is not comparable between placements with different scales.
+            auto const intersect_world_box = [&](glm::mat4 const& box_to_world, glm::vec3 const& box_min, glm::vec3 const& box_max, float& world_t) -> bool {
+                glm::mat4 const world_to_box = glm::inverse(box_to_world);
+                glm::vec3 const local_origin = glm::vec3(world_to_box * glm::vec4(ray_origin, 1.0f));
+                glm::vec3 const local_direction = glm::vec3(world_to_box * glm::vec4(ray_direction, 0.0f));
+                float const direction_scale = glm::length(local_direction);
+                if (direction_scale <= 1.0e-8f) {
+                    return false;
+                }
+                float hit_t = 0.0f;
+                if (!intersect_box(local_origin, local_direction, box_min, box_max, hit_t)) {
+                    return false;
+                }
+                world_t = hit_t / direction_scale;
+                return true;
+            };
+            // Intersect the same ray with a sphere in its owner's local space. Meshlets carry one
+            // object-space sphere each, which is much tighter than the leaf's AABB: the gap between
+            // a character's body and its outstretched arm is one box but many spheres.
+            auto const intersect_world_sphere = [&](glm::mat4 const& sphere_to_world, glm::vec3 const& center, float const radius, float& world_t) -> bool {
+                glm::mat4 const world_to_sphere = glm::inverse(sphere_to_world);
+                glm::vec3 const local_origin = glm::vec3(world_to_sphere * glm::vec4(ray_origin, 1.0f));
+                glm::vec3 const local_direction = glm::vec3(world_to_sphere * glm::vec4(ray_direction, 0.0f));
+                float const direction_squared = glm::dot(local_direction, local_direction);
+                if (direction_squared <= 1.0e-16f) {
+                    return false;
+                }
+                glm::vec3 const offset = local_origin - center;
+                float const half_b = glm::dot(offset, local_direction);
+                float const c = glm::dot(offset, offset) - radius * radius;
+                float const discriminant = half_b * half_b - direction_squared * c;
+                if (discriminant < 0.0f) {
+                    return false;
+                }
+                float const root = std::sqrt(discriminant);
+                float hit_t = (-half_b - root) / direction_squared;
+                if (hit_t < 0.0f) {
+                    hit_t = (-half_b + root) / direction_squared;
+                }
+                if (hit_t < 0.0f) {
+                    return false;
+                }
+                world_t = hit_t / std::sqrt(direction_squared);
+                return true;
+            };
             std::int32_t best_object = -1;
             float best_t = 1.0e30f;
-            for (std::size_t index = 0; index < settings.scene.objects.size(); ++index) {
-                scene_asset_entry const& asset = scene_assets[object_asset_slot[index]];
-                glm::mat4 const object_to_world = make_object_transform(settings.scene.objects[index]);
-                glm::mat4 const world_to_object = glm::inverse(object_to_world);
-                glm::vec3 const local_origin = glm::vec3(world_to_object * glm::vec4(ray_origin, 1.0f));
-                glm::vec3 const local_direction = glm::vec3(world_to_object * glm::vec4(ray_direction, 0.0f));
-                // Bounds are the ASSET's own, shifted by the asset's import shift; the placement matrix is
-                // inverted above. This also gives a cloud a clickable box, since it has no mesh primitives.
-                // A cloud is drawn through its local flower-face rotation, so bound the ROTATED box.
-                glm::vec3 local_min = asset.bounds.min;
-                glm::vec3 local_max = asset.bounds.max;
-                if (asset.is_gaussian()) {
-                    bool first_corner = true;
-                    for (int32_t corner = 0; corner < 8; ++corner) {
-                        glm::vec3 const source((corner & 1) != 0 ? asset.bounds.max.x : asset.bounds.min.x,
-                                               (corner & 2) != 0 ? asset.bounds.max.y : asset.bounds.min.y,
-                                               (corner & 4) != 0 ? asset.bounds.max.z : asset.bounds.min.z);
-                        glm::vec3 const rotated = glm::vec3(asset.cloud_placement * glm::vec4(source, 1.0f));
-                        if (first_corner) {
-                            local_min = rotated;
-                            local_max = rotated;
-                            first_corner = false;
-                        } else {
-                            local_min = glm::min(local_min, rotated);
-                            local_max = glm::max(local_max, rotated);
+            for (std::size_t index = 0; index < editable_objects.size(); ++index) {
+                if (!editable_objects[index].visible) {
+                    continue;
+                }
+                scene_asset_entry const& asset = scene_assets[editable_asset_slots[index]];
+                // Test the ASSET's whole box only when the object has no usable leaf geometry. A
+                // character is many leaves (body, face, hair, ...); one asset box selects the object
+                // through the empty parts between them, which is what made clicks feel imprecise.
+                float object_t = 1.0e30f;
+                bool has_leaf_geometry = false;
+                if (!asset.is_gaussian() && index < object_leaves.size()) {
+                    for (deren::engine::primitive const* leaf : object_leaves[index]) {
+                        if (!leaf) {
+                            continue;
+                        }
+                        // Deforming leaves would need the current skin/morph pose; their meshlet
+                        // spheres are the bind pose, so fall back to the conservative leaf box rather
+                        // than reporting a hit in the wrong place.
+                        if (!leaf->deforming() && !leaf->meshlets.empty()) {
+                            bool has_sphere = false;
+                            for (deren::engine::meshlet const& meshlet_entry : leaf->meshlets) {
+                                if (meshlet_entry.radius <= 0.0f) {
+                                    continue;
+                                }
+                                has_sphere = true;
+                                has_leaf_geometry = true;
+                                float leaf_t = 0.0f;
+                                glm::vec3 const center(meshlet_entry.center_x, meshlet_entry.center_y, meshlet_entry.center_z);
+                                if (intersect_world_sphere(leaf->push.model, center, meshlet_entry.radius, leaf_t)) {
+                                    object_t = std::min(object_t, leaf_t);
+                                }
+                            }
+                            if (has_sphere) {
+                                continue;
+                            }
+                        }
+                        if (!leaf->has_bounds) {
+                            continue;
+                        }
+                        has_leaf_geometry = true;
+                        float leaf_t = 0.0f;
+                        if (intersect_world_box(leaf->push.model, leaf->local_aabb_min, leaf->local_aabb_max, leaf_t)) {
+                            object_t = std::min(object_t, leaf_t);
                         }
                     }
                 }
-                local_min += asset.import_shift;
-                local_max += asset.import_shift;
-                float hit_t = 0.0f;
-                if (intersect_box(local_origin, local_direction, local_min, local_max, hit_t) && hit_t < best_t) {
-                    best_t = hit_t;
+                if (!has_leaf_geometry) {
+                    // Bounds are the ASSET's own, shifted by the asset's import shift; the placement
+                    // matrix is inverted above. This also gives a cloud a clickable box, since it has
+                    // no mesh primitives. A cloud is drawn through its local flower-face rotation, so
+                    // bound the ROTATED box.
+                    glm::vec3 local_min = asset.bounds.min;
+                    glm::vec3 local_max = asset.bounds.max;
+                    if (asset.is_gaussian()) {
+                        bool first_corner = true;
+                        for (int32_t corner = 0; corner < 8; ++corner) {
+                            glm::vec3 const source((corner & 1) != 0 ? asset.bounds.max.x : asset.bounds.min.x,
+                                                   (corner & 2) != 0 ? asset.bounds.max.y : asset.bounds.min.y,
+                                                   (corner & 4) != 0 ? asset.bounds.max.z : asset.bounds.min.z);
+                            glm::vec3 const rotated = glm::vec3(asset.cloud_placement * glm::vec4(source, 1.0f));
+                            if (first_corner) {
+                                local_min = rotated;
+                                local_max = rotated;
+                                first_corner = false;
+                            } else {
+                                local_min = glm::min(local_min, rotated);
+                                local_max = glm::max(local_max, rotated);
+                            }
+                        }
+                    }
+                    local_min += asset.import_shift;
+                    local_max += asset.import_shift;
+                    float asset_t = 0.0f;
+                    if (intersect_world_box(make_object_transform(editable_objects[index]), local_min, local_max, asset_t)) {
+                        object_t = asset_t;
+                    }
+                }
+                if (object_t < best_t) {
+                    best_t = object_t;
                     best_object = static_cast<std::int32_t>(index);
                 }
             }
@@ -2729,9 +2879,11 @@ namespace deren::app {
             // each object lives under. This runs BEFORE pace_and_acquire(), whose update_world walk
             // publishes the locals into the draw list, and scene_changed() re-dirties the BVH/culling
             // that a moved object invalidates.
-            if (use_scene_objects && (gui.scene_object_transform_dirty || object_environment_changed)) {
+            if (!editable_objects.empty() && (gui.scene_object_transform_dirty || object_environment_changed)) {
                 apply_scene_object_settings();
-                apply_object_animation_settings();
+                if (use_scene_objects) {
+                    apply_object_animation_settings();
+                }
                 gui.scene_object_transform_dirty = false;
             }
             // A cloud's placement is a frame input, not a scene node: restage every frame so a dragged
@@ -2740,7 +2892,7 @@ namespace deren::app {
             // Click picking: select on RELEASE and only when the press-to-release travel is small, so
             // an orbit drag does not change the selection. The overlay owns clicks that start or end
             // over a panel (the same wants_mouse gate the runtime's camera callbacks use).
-            if (use_gui && use_scene_objects) {
+            if (use_gui && !editable_objects.empty()) {
                 bool const mouse_down = glfwGetMouseButton(window.window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
                 double cursor_x = 0.0;
                 double cursor_y = 0.0;
@@ -2762,8 +2914,8 @@ namespace deren::app {
                         }
                         if (hit != gui.selected_object) {
                             gui.selected_object = hit;
-                            if (hit >= 0 && static_cast<std::size_t>(hit) < settings.scene.objects.size()) {
-                                deren::utility::log("scene: selected object {} '{}'", hit, settings.scene.objects[static_cast<std::size_t>(hit)].name);
+                            if (hit >= 0 && static_cast<std::size_t>(hit) < editable_objects.size()) {
+                                deren::utility::log("scene: selected object {} '{}'", hit, editable_objects[static_cast<std::size_t>(hit)].name);
                             } else {
                                 deren::utility::log("scene: object selection cleared");
                             }
