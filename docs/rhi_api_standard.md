@@ -43,7 +43,7 @@ RFC 2119 sense.
   (the group creation/loading paths reject non-owning members by name).
 - The backend core and its DLL MUST outlive every handle, group, command buffer, pending submission and
   completion token it produced. A caller that releases the core while a handle/token is alive violates the
-  contract; backends need not defend against it beyond the documented `self_owner`/core lifetime rules.
+  contract; backends need not defend against it beyond the documented `self`/core lifetime rules.
 - Ownership of GPU work follows the recording/retention rules on each verb. Directly bound pipelines and
   borrowed buffer/image operands MUST be kept alive by the caller through pending CPU recording and GPU
   completion; naming them in a command does not transfer ownership. Resource/texture group loads retain the
@@ -272,7 +272,7 @@ A backend is conformant when:
 1. It exports `deren_make_api_core` and refuses an ABI mismatch without touching device state.
 2. It implements every mandatory interface below and returns `nullptr` for every extension it does not
    implement; all implemented extension methods satisfy their clauses.
-3. It passes the ABI/ownership tests (including `test_rhi_ownership`, `test_dynamic_link`) and the device probes
+3. It passes the ABI/ownership tests (including `test_rhi_retention`, `test_dynamic_link`) and the device probes
    relevant to its implemented features.
 4. It never leaks a failed recording: a validation/flush failure is returned and no partial submission is
    published.

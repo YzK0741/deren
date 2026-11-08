@@ -366,8 +366,8 @@ scenarios against a frozen reference set: the mapping shim, then the classic des
 -3005 lines: the set layouts, pools, pipeline layouts, every pass's `set_layout_`/`pipeline_layout_`/
 family and their per-frame writes), then the last of the mapping machinery that the first commit's
 deletion had exposed. The declaration layer lost its set vocabulary with them: a `pass_binding` names a
-resource and whether it is the pass's own per-image target, not a set it lives in, and `set_owner` is
-`binding_owner` with two values.
+resource and its `binding_scope` (`local` for the pass's private per-image targets, `shared` for
+frame-owned heap bindings), not a set it lives in.
 
 **What is already proven, and therefore not in doubt.** The grid is reserved and covered (every slot the header
 names is written by host code, checked by a test); the heaps are bound by `record_bind`; the native path works

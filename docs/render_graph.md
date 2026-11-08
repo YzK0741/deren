@@ -502,7 +502,7 @@ any commands are recorded. Dead passes need no action. The prepared graph's
 the two action modes cannot be mixed. Any failure stops recording and the caller
 must refuse submission.
 
-Recorders and explicit `retain(shared_owner)` objects join the existing GPU
+Recorders and explicit `retain(shared_object<T>)` objects join the existing GPU
 retention token. Store frame data at a stable address before resolving self-pointing
 spans; copying a span or capturing a raw pointer does not retain its owner. The
 runtime post adapter now uses this mechanism instead of global pass-index dispatch.

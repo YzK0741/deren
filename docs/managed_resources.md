@@ -277,7 +277,7 @@ The legacy const-reference convenience overload temporarily copies its validated
 
 Completed TLAS slots declare a top-level AS and coherent hit-shading instance table in a resource-only
 subchain. Growth validates and copies the current record prefix before committing the pair, preserving
-the old frame on failure. Normal reuse skips reconciliation. Production forwards core_owner; retained
+the old frame on failure. Normal reuse skips reconciliation. Production forwards core_lifetime; retained
 snapshots hold devices, and slot chains drain before releasing allocations. The typed registry AS path
 accepts top-level descriptions and bottom-level descriptions with an owned geometry vector.
 

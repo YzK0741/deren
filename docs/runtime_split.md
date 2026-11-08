@@ -230,10 +230,8 @@ Non-behavioural hazards the gate will catch but that deserve to be known in adva
 
 ## 9. What would make this fail, stated so it can be refused in advance
 
-* A module that still needs `runtime&`. There are two today: `sub_render_task::owner` (`source/engine/runtime/runtime.declarations.cppm:2358` ->
-  `source/engine/runtime/runtime.declarations.cppm:2358`) and the `render_environment` binders that capture `this` (`source/engine/runtime/runtime.cpp:1860-1874`). If an
-  extraction's interface is "a reference to the thing we are splitting", the boundary is wrong and the honest
-  answer is not to extract it yet.
+* A module whose extracted interface still needs `runtime&`. If an extraction's interface is "a reference to
+  the thing we are splitting", the boundary is wrong and the honest answer is not to extract it yet.
 * C1 (the shared G-buffer set) blocking GI, post and shadows at once. Until it is addressed - and addressing it
   means changing shader binding declarations, i.e. a behaviour-visible change with its own gate - those three
   cannot be cleanly separated.

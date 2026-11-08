@@ -99,16 +99,13 @@ The global `api_core` surface stays on `core`: `abilities()`, `query_extension()
 Every facet holds a non-null `core& full_core`. The constructor injects it:
 
 ```cpp
-explicit resource_facet(core& owner) noexcept : full_core(owner) {}
+explicit resource_facet(core& parent) noexcept : full_core(parent) {}
 ```
 
-`full_core` is deliberately not called `owner`:
-
-* `owner` already means "the raw non-owning pointer in a borrowed RHI view";
-* these facets do not own the core and the core does not own them through a pointer;
-* the reference cannot be null, so no branch should be able to test it.
-
-Existing view `.owner` members are unchanged in this refactor.
+`full_core` is the facet's non-null back-reference. It is not an ownership edge: the facets do not own
+the core, and the core does not own them through a pointer. Borrowed RHI views spell their non-owning
+origin `parent`; the facet reference keeps its own name because it cannot be null and no branch may
+test it.
 
 ### 2.4 `main_context_view`
 
