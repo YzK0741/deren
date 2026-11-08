@@ -26,8 +26,6 @@ on:
       - "source/asset/subtilis/**"
       - "source/tests/test_subtilis_*.cpp"
       - "tools/subtilis/**"
-      - "cmake/deren_cpu_utility.cmake"
-      - "cmake/deren_asset_dependencies.cmake"
       - "source/utility/**"
       - "source/vstd/**"
       - "source/third_party/**"
@@ -38,8 +36,6 @@ on:
       - "source/asset/subtilis/**"
       - "source/tests/test_subtilis_*.cpp"
       - "tools/subtilis/**"
-      - "cmake/deren_cpu_utility.cmake"
-      - "cmake/deren_asset_dependencies.cmake"
       - "source/utility/**"
       - "source/vstd/**"
       - "source/third_party/**"
@@ -69,6 +65,7 @@ jobs:
           install: >-
             mingw-w64-clang-x86_64-clang
             mingw-w64-clang-x86_64-lld
+            mingw-w64-clang-x86_64-glm
             mingw-w64-clang-x86_64-libc++
             mingw-w64-clang-x86_64-cmake
             mingw-w64-clang-x86_64-ninja
@@ -133,6 +130,7 @@ jobs:
           install: >-
             mingw-w64-clang-x86_64-clang
             mingw-w64-clang-x86_64-lld
+            mingw-w64-clang-x86_64-glm
             mingw-w64-clang-x86_64-compiler-rt
             mingw-w64-clang-x86_64-libc++
             mingw-w64-clang-x86_64-cmake
