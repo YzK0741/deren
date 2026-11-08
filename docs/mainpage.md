@@ -21,11 +21,21 @@ implementation details, measured results and the limits of each feature.
   imports. A second backend can implement the same contract; Vulkan is the implemented
   graphics backend today. See \ref md_docs_2dynamic__runtime "The dynamic API", and the normative
   [RHI API standard](rhi_api_standard.md) for every interface/virtual clause.
+- **Core facets.** The Vulkan backend's `core` is split into frame, command, resource and device
+  facets; each facet owns its state and implementation unit, while `core` forwards the public RHI
+  entry points. See \ref md_docs_2core__facets "Core facets" for the ownership map and the folder
+  layout.
 - **Gaussian splatting.** Trained PLY clouds retain their anisotropic shape, opacity and
   view-dependent spherical-harmonic color. GPU preparation, VRDX stable sorting, cached
   projection/color and indirect draws accelerate the frame; a CPU reference path supports
   comparison and fallback. See \ref md_docs_2gaussian__splatting "Gaussian splatting" for
   setup, validation and measured costs. These trained colors are separate from mesh PBR lighting.
+- **Per-object rendering paths.** A `[[scene.objects]]` entry selects `default`, `pbr`, `unlit`,
+  `game_toon` or `gaussian`; one frame can mix deferred meshes, GameToon characters and multiple
+  Gaussian clouds within sixteen entries (and at most sixteen GameToon characters). The owning stage
+  still chooses the pipeline, so the frame keeps one G-buffer, one character stage and one splat
+  stage. See \ref md_docs_2multi__pipeline__objects "Multi-pipeline objects" for a complete
+  mixed-scene TOML example and the v1 boundaries.
 - **PBR with image-based lighting.** glTF metallic-roughness materials use Cook-Torrance
   direct lighting (GGX with Smith visibility and Schlick Fresnel by default), directional
   and punctual lights, and split-sum IBL from diffuse irradiance, a prefiltered specular
@@ -88,8 +98,8 @@ implementation details, measured results and the limits of each feature.
 - **Ray-traced reflections.** `[render] rt_reflections` is an opt-in, per-pixel reflection pass for
   the deferred PBR path and the GameToon cloth path, with a FidelityFX reflection denoiser and a
   configurable material whitelist. The default is off; a device without ray queries ignores the key.
-  See \ref md_docs_2rt__reflections "ray-traced reflections" for the keys, the traced pipeline and
-  the source layout.
+  See \ref md_docs_2rt__reflections "ray-traced reflections" for the keys, the traced pipeline, the
+  limitations and the validation record.
 - **A toon character pipeline.** Per-material families (base / skin / face / hair / eye /
   cloth) select which shader lanes run; sixteen optional sidecar lanes (four in the material
   record - diffuse ramp, shadow LUT, specular ramp, matcap - and twelve more in three toon lane
@@ -138,31 +148,37 @@ finally the migration history.
 | 3 | \subpage md_docs_2shaders "Shaders" | How shaders are written and bound: the pass chain, the shared scene set, the slot conventions. |
 | 4 | \subpage md_docs_2pass__io__design "Pass I/O design" | The declared contract a pass states about what it reads and writes, and how it is resolved. |
 | 5 | \subpage md_docs_2runtime__split "Runtime split" | How the runtime, the scene tree and the render environment divide the frame between them. |
-| 6 | \subpage md_docs_2mesh__shaders "Mesh shaders" | The mesh-shader geometry path: what it replaced, what it measured. |
-| 7 | \subpage md_docs_2visibility__buffer "The visibility buffer lane" | An experimental opaque producer: packed id raster plus a compute resolve, its gate and its measured limits. |
-| 8 | \subpage md_docs_2subtilis "subtilis (hierarchical cluster LOD)" | The static opaque cluster-LOD lane: asset builder, explicit upload, CPU screen-error cut, measured gains, fallbacks and open milestones. |
-| 9 | \subpage md_docs_2amnis "amnis texture residency" | The opt-in texture-residency feature: visibility and screen-footprint demand, whole-image/two-tier/progressive streaming, immutable source ownership, and measured CPU/memory limits. |
-| 10 | \subpage md_docs_2deformation__motion__vectors "Deformation motion vectors" | Why a deforming mesh needs more than a camera motion vector, and what was stored. |
-| 11 | \subpage md_docs_2gltf__loader__usage "glTF loader usage" | Loading models, animations, skins, morph targets and punctual lights. |
-| 12 | \subpage md_docs_2gaussian__loader "Gaussian PLY loader" | Trained PLY conventions, validation, limits and loading diagnostics. |
-| 13 | \subpage md_docs_2gaussian__splatting "Gaussian splatting" | Viewer setup, GPU preparation/sorting/cache, rendering rules, measurements and repaired failures. |
-| 14 | \subpage md_docs_2slang__migration "Slang migration" | Moving the shaders to Slang and compiling to SPIR-V. |
-| 15 | \subpage md_docs_2descriptor__heap__migration "Descriptor heap migration" | Replacing descriptor sets with a renderer-managed heap. |
-| 16 | \subpage md_docs_2descriptor__heap__handover "Descriptor heap handover" | How the heap is handed to the passes, and the constraints that imposes. |
-| 17 | \subpage md_docs_2migration__tradeoffs "Migration tradeoffs" | What each of those migrations cost, and what was given up for it. |
-| 18 | \subpage md_docs_2compiler__tolerance "Compiler tolerance" | What the build needs from a toolchain, what a second one (GCC) measured, and what still stops it. |
-| 19 | \subpage md_docs_2unified__image__layouts "Unified image layouts" | One layout vocabulary for render targets, uploads and read-back. |
-| 20 | \subpage md_docs_2host__image__copy "Host image copy" | The VK_EXT_host_image_copy path: a texture uploaded without a staging buffer. |
-| 21 | \subpage md_docs_2cpp26__features "C++26 features in use" | A register of the C++26 language and library features first-party code actually adopts. |
+| 6 | \subpage md_docs_2multi__pipeline__objects "Multi-pipeline objects" | Per-object `pipeline` selection, a complete mixed-scene TOML example, validation rules and the v1 boundaries. |
+| 7 | \subpage md_docs_2environment__lighting "Environment lighting" | HDR presets, live rotation/strength, backgrounds and tone-mapping comparisons. |
+| 8 | \subpage md_docs_2rt__reflections "Ray-traced reflections" | The opt-in reflection pass: keys, traced rays, denoiser, limitations and validation. |
+| 9 | \subpage md_docs_2core__facets "Core facets" | The frame/command/resource/device split behind the Vulkan core, its state ownership and folder layout. |
+| 10 | \subpage md_docs_2mesh__shaders "Mesh shaders" | The mesh-shader geometry path: what it replaced, what it measured. |
+| 11 | \subpage md_docs_2visibility__buffer "The visibility buffer lane" | An experimental opaque producer: packed id raster plus a compute resolve, its gate and its measured limits. |
+| 12 | \subpage md_docs_2subtilis "subtilis (hierarchical cluster LOD)" | The static opaque cluster-LOD lane: asset builder, explicit upload, CPU screen-error cut, measured gains, fallbacks and open milestones. |
+| 13 | \subpage md_docs_2amnis "amnis texture residency" | The opt-in texture-residency feature: visibility and screen-footprint demand, whole-image/two-tier/progressive streaming, immutable source ownership, and measured CPU/memory limits. |
+| 14 | \subpage md_docs_2deformation__motion__vectors "Deformation motion vectors" | Why a deforming mesh needs more than a camera motion vector, and what was stored. |
+| 15 | \subpage md_docs_2gltf__loader__usage "glTF loader usage" | Loading models, animations, skins, morph targets and punctual lights. |
+| 16 | \subpage md_docs_2gaussian__loader "Gaussian PLY loader" | Trained PLY conventions, validation, limits and loading diagnostics. |
+| 17 | \subpage md_docs_2gaussian__splatting "Gaussian splatting" | Viewer setup, GPU preparation/sorting/cache, rendering rules, measurements and repaired failures. |
+| 18 | \subpage md_docs_2slang__migration "Slang migration" | Moving the shaders to Slang and compiling to SPIR-V. |
+| 19 | \subpage md_docs_2descriptor__heap__migration "Descriptor heap migration" | Replacing descriptor sets with a renderer-managed heap. |
+| 20 | \subpage md_docs_2descriptor__heap__handover "Descriptor heap handover" | How the heap is handed to the passes, and the constraints that imposes. |
+| 21 | \subpage md_docs_2migration__tradeoffs "Migration tradeoffs" | What each of those migrations cost, and what was given up for it. |
+| 22 | \subpage md_docs_2compiler__tolerance "Compiler tolerance" | What the build needs from a toolchain, what a second one (GCC) measured, and what still stops it. |
+| 23 | \subpage md_docs_2unified__image__layouts "Unified image layouts" | One layout vocabulary for render targets, uploads and read-back. |
+| 24 | \subpage md_docs_2host__image__copy "Host image copy" | The VK_EXT_host_image_copy path: a texture uploaded without a staging buffer. |
+| 25 | \subpage md_docs_2cpp26__features "C++26 features in use" | A register of the C++26 language and library features first-party code actually adopts. |
 
-Seven further pages sit in the manual's `INPUT` ahead of this one and are not part of the numbered
-reading path: the passchain resource pages (\ref managed_resources "Passchain-managed resources",
+Eight further pages follow this chapter and are not part of the numbered reading path: the passchain
+resource pages (\ref managed_resources "Passchain-managed resources",
+\ref md_docs_2resource__memory__statistics "Resource memory statistics",
 \ref md_docs_2resource__clusters "Resource clusters",
 \ref md_docs_2render__resource__inventory "Current pass resource inventory"), the CPU render graph and
 its RHI mapping audit (\ref md_docs_2render__graph "CPU render graph",
 \ref md_docs_2render__graph__rhi__mapping "Render graph to RHI mapping audit"), and the two
 support libraries (\ref md_docs_2vessel "vessel", \ref md_docs_2stacktrace "Stack diagnostics").
-The `Doxyfile`'s `INPUT` order is the chapter order; the list above is the reading path.
+They sit ahead of this chapter in the `Doxyfile`'s `INPUT`, which is the standalone-page order; the list
+above is the reading path.
 
 Three shorter paths, if you are not reading front to back:
 
@@ -173,7 +189,7 @@ Three shorter paths, if you are not reading front to back:
   \ref md_docs_2pass__io__design "Pass I/O design",
   \ref md_docs_2runtime__split "Runtime split",
   \ref md_docs_2shaders "Shaders".
-- **Understand why the code looks like this:** the four migration pages (14-17 above), in
+- **Understand why the code looks like this:** the four migration pages (18-21 above), in
   order.
 
 ## The dynamic API

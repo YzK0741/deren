@@ -12,9 +12,9 @@ SPIR-V layout; descriptor strides remain 64/32 bytes. Cluster projection inversi
 `GLSL.std.450 MatrixInverse` instruction through native Slang SPIR-V interop, rather than introducing
 a numerically different inverse implementation. See the [Slang interop documentation](https://docs.shader-slang.org/en/stable/external/slang/docs/user-guide/a1-04-interop.html).
 
-Release build and the frozen fourteen-scene render gate pass after this conversion. The sections below
-record the earlier migration experiments and intermediate compatibility stage; descriptions of shared
-GLSL and `VR_SLANG` in those sections are historical.
+Release build and the frozen fourteen-scene render gate pass after this conversion (the gate defines 16
+scenarios today). The sections below record the earlier migration experiments and intermediate
+compatibility stage; descriptions of shared GLSL and `VR_SLANG` in those sections are historical.
 
 ## 1. Why this is possible at all, and why it looked impossible for an afternoon
 
@@ -94,7 +94,7 @@ as a compute stage with **ZERO `DescriptorSet`/`Binding` decorations** and both 
 
 ## 4. Open items, stated before any work starts
 
-1. **Storage-image formats - MEASURED, NOT YET DECIDED.** The project declares `r16f` / `rgba16f` on its
+1. **Storage-image formats - DONE, VIA THE IMPLICIT FEATURE CHAIN.** The project declares `r16f` / `rgba16f` on its
    heap storage images. Two forms were compiled and compared:
 
    | form | emitted image type | descriptor sets |
@@ -105,17 +105,15 @@ as a compute stage with **ZERO `DescriptorSet`/`Binding` decorations** and both 
    So the format and the set-less model are, in this Slang build, mutually exclusive: the attribute
    cannot ride a handle (a type alias carrying it did not compile either), and a *global* resource is a
    shader parameter, which is what brings the descriptor set back.
-   **The engine does not currently enable `shaderStorageImageReadWithoutFormat` /
-   `shaderStorageImageWriteWithoutFormat`** (grep: zero hits in `core.constructor.cppm` /
-   `core.declarations.cppm`), and Slang's format-less output requests exactly those capabilities.
-   THE DECISION TO MAKE, before porting `rt_visibility`, `megalights_trace` and `megalights_temporal`:
-   (a) enable those two device features and keep the set-less model (a small host change, and the
-   `*WithoutFormat` path is what a typed `Unknown` storage image needs), or
-   (b) accept one descriptor set for those three shaders (undoing the property the whole migration is
-   measured against), or
-   (c) find a third construct (a `ParameterBlock`-carried handle with a format, or a custom
-   `getDescriptorFromHandle`). (a) is the one that preserves the model; it must be verified on the
-   device and with validation before the port, not after.
+   **The engine enables `shaderStorageImageReadWithoutFormat` /
+   `shaderStorageImageWriteWithoutFormat` implicitly.** `device_capabilities::query` fills the whole
+   `VkPhysicalDeviceFeatures2` (`source/backends/vulkan/core/init_utils/init_utils.cppm:656`), and
+   `device_capabilities::device_pnext()` hands that struct to `vkCreateDevice`
+   (`init_utils.cppm:783-788`, `source/backends/vulkan/core/core.constructor.cppm:665`), so both bits
+   are enabled on any device that supports them (`vulkaninfo`: true, true). No explicit feature
+   assignment is needed or present. Slang's format-less output therefore needs no host change: the
+   set-less model is the tree's behaviour, and that choice is moot. This was verified on the
+   device and with the validation layer after the port.
 2. **One source of truth for the slot grid - DONE.** `source/shaders/heap_slot_constants.glsl` now holds the grid's
    constants and slot macros, `heap_slots.glsl` includes it (the GLSL heap arrays and the `heap_texel` helper
    stay there, being GLSL syntax), and `source/tests/test_render_resources.cpp` parses the NEW file against
@@ -137,6 +135,10 @@ as a compute stage with **ZERO `DescriptorSet`/`Binding` decorations** and both 
    down with the exact flags.
 
 ## 5. The migration's acceptance, which does not change
+
+> **CURRENT-COUNT NOTE (2026-11-08).** The `10 scenarios` / `ctest 8/8` figures in this section and
+> the `10/10` rows below are the counts at the time of each port. The current gate defines 16
+> scenarios (15 in `-Full`, 30 renders) and CTest has 85 tests, 7 device-labelled (78 run in CI).
 
 Every shader ported keeps the SAME `.spv` name, so the host side is untouched, and is accepted only on:
 the Release capture gate **10 scenarios x 2, 0 changed, 0 flaky** (byte-identical frames - the strongest
@@ -499,17 +501,20 @@ compile time (`E31210: derivative group quad thread count error`). The probe dis
 
 `deferred.slang` is WIRED, so all twenty-four stages are built by slangc and the gate passes again - after an
 EXPLICIT RE-BASELINE whose whole reason is this paragraph. What it costs, measured per scenario against the
-GLSL build's frames: eight of the ten scenarios differ by 1 to 4 pixels, and **every one of those pixels is off
-by exactly one 8-bit step** (maxdiff 1 in all eight; `deferred`, `unlit` and `shadow_single` differ by 1 pixel,
-`sponza` by 2, `transparent_blend`, `metal_rough_glossy` and `glossy_motion` by 3-4, `deferred_taa_fxaa` by 3,
-`deformation` by 53 - the last one through TAA's history, which spreads a single sky pixel over its
-neighbourhood). No geometry moved, no lighting changed, no descriptor is misread.
+GLSL build's frames: nine of the ten scenarios changed. Eight differ by 1 to 4 pixels, and **every one of
+those eight pixels is off by exactly one 8-bit step** (maxdiff 1 in all eight; `deferred`, `unlit` and
+`shadow_single` differ by 1 pixel, `sponza` by 2, `transparent_blend`, `metal_rough_glossy` and
+`glossy_motion` by 3-4, `deferred_taa_fxaa` by 3), and `deformation` by 53; `deferred_ssao_off` did not
+change. No geometry moved, no lighting changed, no descriptor is misread. The 53-pixel `deformation`
+delta is recorded but its cause was not established: that scenario captures `gbuffer_channel = 8` with
+TAA off, so TAA history cannot explain it.
 
-THE CAUSE IS FRONT-END CODEGEN, and the evidence is in the two modules: both call the SAME GLSL.std.450
-instructions (Normalize, SmoothStep, FClamp, Sqrt, Length, Pow, Sin, Cos, Exp, Log, Fract, Cross, Reflect, Mix
-- the same set), in DIFFERENT SEQUENCES, and the driver contracts the multiply-adds differently. The sky's
-smoothstep bands are smooth enough that a last-bit difference almost never flips an 8-bit value, which is why
-the cost is a handful of pixels rather than a visible change.
+THE CAUSE OF THE ONE-STEP DELTAS IS FRONT-END CODEGEN, and the evidence is in the two modules: both call the
+SAME GLSL.std.450 instructions (Normalize, SmoothStep, FClamp, Sqrt, Length, Pow, Sin, Cos, Exp, Log, Fract,
+Cross, Reflect, Mix - the same set), in DIFFERENT SEQUENCES, and the driver contracts the multiply-adds
+differently. The sky's smoothstep bands are smooth enough that a last-bit difference almost never flips an
+8-bit value, which is why the cost is a handful of pixels rather than a visible change. This explains the
+eight one-step deltas; it does not explain the 53-pixel `deformation` delta, which stays unattributed.
 
 WHAT WAS TRIED FIRST, so the next person does not repeat it: `-fp-mode precise` (the obvious knob - "disable
 optimization that could change the result") made NINE scenarios differ, including two that had been identical
@@ -520,8 +525,8 @@ frames too, and the references were captured FROM that build.
 SO THE REFERENCES WERE RE-CAPTURED with `-Update`, AND THE PREVIOUS SET WAS ARCHIVED FIRST at
 `%LOCALAPPDATA%\deren\baseline.pre-slang-deferred` - it is the only record of what the GLSL deferred
 stage rendered, and archiving before a re-baseline is what this project's own driver note prescribes. Every
-other stage kept the byte-identical property it had earned: the re-baseline moved only the eight frames above,
-each by at most a few pixels, and the two scenarios without sky did not move at all.
+other stage kept the byte-identical property it had earned: the re-baseline moved only the nine frames above -
+eight by at most a few pixels and `deformation` by 53 - and `deferred_ssao_off` did not move at all.
 
 **A NEARBY HAZARD from the same driver area**, worth knowing before the matrix-heavy stages are ported:NVIDIA has an open report of a different descriptor-heap defect on this driver family - a whole-matrix
 `OpLoad` through an untyped pointer ignoring `MatrixStride` (it gathers 4-bytes-apart columns), with
@@ -550,9 +555,9 @@ done too, and the UBO member lists are shared through the `VR_MAT4` type macro: 
 
 ## 10. What remained, and how it finished
 
-THE MIGRATION IS COMPLETE. Every stage output is built by slangc - `VR_SLANG_SOURCES` carries forty-two
-application entries (plus four more for `test_acceleration_structures`, behind `if(TARGET
-test_acceleration_structures)`) - the retired GLSL stage sources
+THE MIGRATION IS COMPLETE. Every stage output is built by slangc - `VR_SLANG_SOURCES` carried forty-two
+application entries at migration completion (plus four more for `test_acceleration_structures`, behind
+`if(TARGET test_acceleration_structures)`); it now carries 61 entries from 40 files - the retired GLSL stage sources
 are in `source/reference/shaders/glsl.old/`; `slangc` is required by `CMakeLists.txt` with no glslc fallback; the compile
 scripts and the docs were synced; CI installs a pinned slangc and asserts that CMake found it. The numbered
 list below is kept as the record of HOW each step closed, because the reasons are what a reader needs - not

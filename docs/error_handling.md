@@ -8,9 +8,9 @@ new code is expected to follow, and the gaps between the two.
 
 | style | where it is used | measured size |
 | --- | --- | --- |
-| `rhi::error` | the RHI contract's own enum; every backend call that can fail answers one. It is the boundary's vocabulary, and the contract deliberately does not grow `std::expected` (a factory answers nullptr, the command verbs answer `rhi::error`) | the contract's whole fallible surface |
+| `rhi::error` | the RHI contract's own enum; every backend call that can fail answers one. It is the boundary's vocabulary. Most factories still answer nullptr and the command verbs answer `rhi::error`; resource-group creation, submission and image-content retrieval now return `std::expected<..., rhi::error>` | the contract's whole fallible surface |
 | `std::expected<void, deren::utility::vessel::string>` | the engine's internal workhorse: the pipeline builders in `runtime`, the mask-bake and compute-skin jobs, the acceleration-structure build, the resource-schema validation, the glTF sidecars, `utility::write_png` | 26 declarations plus their definitions |
-| `std::expected<T, deren::promise::rhi::error_info>` | the code-bearing answer, written directly - there is no alias or wrapper module for it any more. `error_info` carries the code, the backend's message and its source location | intended for APIs whose callers must classify; not started in production |
+| `std::expected<T, deren::promise::rhi::error_info>` | the code-bearing answer, written directly - there is no alias or wrapper module for it any more. `error_info` carries the code, the backend's message and its source location | intended for APIs whose callers must classify; adopted by the engine's newer paths, while the RHI's newer paths use `rhi::error` inside the expected |
 | `bool` / `frame_status` | the frame loop's coarse result: `proceed`, `skipped`, `closed`, and one status per failed verb. Used where the caller's action (continue, yield, exit) is all that matters | the frame loop |
 | `panic` / `fast_panic` | "stop now": log the message and the raw stack, then terminate | 41 sites in `source/engine` |
 
@@ -27,7 +27,7 @@ new code is expected to follow, and the gaps between the two.
 3. **A failure nobody can act on is logged exactly once and re-raised.** Never swallowed, never
    turned into a default value: a fallback that hides a failure is the same bug as a crash, one frame
    later.
-4. **`panic` is for programming errors only**: a caller that violated the subsystem's contract
+4. **Programming errors always panic**: a caller that violated the subsystem's contract
    (`get_scene()` before `set_scene()`, a material table that must start with the default material, a
    stream that ends early). Those are not environment-dependent and the message is the contract.
 5. **Memory exhaustion is UNRECOVERABLE by decision.** A device OOM (`out_of_device_memory`) panics:

@@ -244,7 +244,7 @@ to record/reset an in-flight command buffer or modify its borrowed data concurre
   Contract defaults are spelled in the header so both sides agree.
 - Backend and executable/plugins are rebuilt together for an ABI change. The DLL name and entry point are the
   stable loader contract; the application resolves the backend by name and never imports backend symbols.
-- ABI 54 removes the incomplete query/swapchain factory slots and unused mesh extension from ABI 53; all
+- ABI 55 removes the incomplete query/swapchain factory slots and unused mesh extension from ABI 53; all
   components must be rebuilt together. The standard is written for ABI 61. A future ABI change must add a revision note here and update the affected
   virtual clauses; the conformance checklist in section 6 must be rerun.
 
@@ -643,7 +643,7 @@ carries NO individual submission permission and NO batch execution permission;
 those belong to the concrete owners. The recording lifecycle (`begin_recording`
 / `end_recording`), the recording session and the allocation behind it are the
 backend's, and no allocator, pool or reset verb appears in the contract. Since
-ABI 54 the recorder may also DEFER work: state setters, push parameters and group
+ABI 53 the recorder may also DEFER work: state setters, push parameters and group
 loads can be queued as an operation stream, `apply_operations()` (or
 `end_recording()`) applies them in order, and consumer errors surface there.
 
@@ -731,7 +731,7 @@ up only what a safe reset needs, and never publishes the buffer for submission.
 
 - `[[nodiscard]] virtual error clear_color_image(image const& target, deren::utility::vessel::array<float, 4> const& color, subresource_range const& range) = 0;` -- **Requirement:** record a clear of the color image's subresource range to one RGBA value; an ALL-ZERO range means the whole image. **Returns/errors:** `ok`; `not_ready` = not recording; `invalid_argument` = a null or foreign image. **Ownership/lifetime:** the image is borrowed; it must stay alive through GPU completion, and the clear must be ordered by the caller against later reads. **Threading:** caller-serialized; `color` components are RGBA.
 
-- `[[nodiscard]] virtual error load_texture_group(texture_group_ref const& /*group*/) {` -- **Requirement:** bind one immutable sampled texture group for following work (ABI 31); a null group clears the binding. Success RETAINS the group for recorded work. **Returns/errors:** `ok`; `not_ready` = not recording, or the group is not owned by this core, or no pipeline is bound; `invalid_argument` = a group this backend did not hand out or a token mismatch; `unsupported` = a backend without the mechanism (the DEFAULT BODY) or a pipeline whose texture-group slot is not enabled. **Ownership/lifetime:** the group is retained through recorded work and pending GPU use; the device and backend must outlive every reference. **Threading:** contract does not specify.
+- `[[nodiscard]] virtual error load_texture_group(texture_group_ref const& /*group*/) {` -- **Requirement:** bind one immutable sampled texture group for following work (ABI 31); a null group clears the binding. A successful call RETAINS a non-null group for recorded work; clearing still requires a bound pipeline whose texture-group slot is enabled and a ready descriptor heap. **Returns/errors:** a previously latched recording error is returned unchanged; `not_ready` = not recording, no native command buffer, or the descriptor heap is not ready; `unsupported` = no pipeline is bound, the backend has no mechanism (the DEFAULT BODY), or the bound pipeline's texture-group slot is not enabled; `invalid_argument` = a group this backend did not hand out, or a bound pipeline this backend does not own. **Ownership/lifetime:** the group is retained through recorded work and pending GPU use; the device and backend must outlive every reference. **Threading:** contract does not specify.
 
 #### command_buffer
 

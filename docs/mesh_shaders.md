@@ -7,6 +7,11 @@ culling (measured, NOT shipped - it removes visible geometry in both orientation
 host-side culling and a static draw's per-chunk meshlet dispatch (both unimplemented, both measured where a number
 exists), and TIMINGS (there are none: the counters measure work, not milliseconds).**
 
+> **CURRENT-COUNT NOTE (2026-11-08).** The `10/10`, `ctest 10/10` and "26 / 27 modules" figures below are
+> records from the time of each step. The current gate defines 16 scenarios (15 in `-Full`, 30 renders),
+> CTest has 85 tests (7 device-labelled, 78 run in CI), and `VR_SLANG_SOURCES` currently has 61 entries
+> from 40 files.
+
 - The binding model is proven (the heap-native probe runs through a mesh pipeline and reports the same pixel as the
   vertex one did), and EVERY geometry stage this renderer draws leaves with is a mesh stage: shadow, G-buffer, forward
   `pbr`/`unlit`. The capture gate is byte-identical to the committed vertex-path references, which is the strongest
@@ -332,7 +337,7 @@ path was never used". The startup log says which one it was (`shadow: the caster
 casters`), and the forced probe proves the log is telling the truth.
 
 The vertex entry, the fragment entry and the pass's fallback were all still there AT THE TIME this was measured, and
-`ctest` (8/8 then, 10/10 now), `spirv-val` (26 modules then, 27 after step 4 removed the two vertex geometry modules)
+`ctest` (8/8 then, 10/10 then), `spirv-val` (26 modules then, 27 after step 4 removed the two vertex geometry modules; the current build has 61 entries from 40 Slang files)
 and the validation layer stayed clean with the mesh path active.
 
 ### Step 2 - `pbr.vert` becomes a mesh stage (DONE: the G-buffer, the forward/unlit/transparent leaves and the shadow pass all have mesh forms)
@@ -432,9 +437,9 @@ descriptor heap: meshlet table written (address 0x1cc30290, 65536 records of 48 
 meshlets: 3145 over 103 primitives (85 triangles each at most, object-space spheres)
 ```
 
-THE TABLE is `heap_slots_meshlets` (slot 745, at the end of the used region so nothing after it renumbers), one
-48-byte record per meshlet, host-visible and written ONCE while the scene imports - which is why it owns ONE slot
-rather than the per-frame pair every frame-varying buffer has: there is no frame in flight whose contents could
+THE TABLE is `heap_slots_meshlets` (`heap_slot_base + 1257`), one 48-byte record per meshlet, host-visible and
+written ONCE while the scene imports - which is why it owns ONE slot rather than the per-frame pair every
+frame-varying buffer has: there is no frame in flight whose contents could
 disagree with it (the TLAS is the counter-example, and the reason that rule exists). The host record's fields land
 at the same byte offsets the shader reads them at - first index (0), count (4), base vertex (8), a pad word (12),
 centre (16/20/24), radius (28), the normal cone's axis (32/36/40) and its cosine (44) - and `tests`-time

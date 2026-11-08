@@ -14,6 +14,16 @@ instrument that has to exist before the fix can be accepted at all.
 > The measurements, the fixtures and the acceptance are
 > unaffected; only the paths changed.
 
+> **A NOTE ON THE SLOT NUMBERS (2026-11-08).** The implementation steps below are historical records.
+> Step 1 describes the 1024-slot grid as it stood then: used span 743, families placed at 743/745. The
+> current grid is 3072 slots; `skin_matrices_previous` is `+1255`, `meshlets` is `+1257`, and the free
+> tail starts at `+1596`. The reasoning (append past the used end) is unchanged.
+>
+> **A NOTE ON THE GATE AND TEST COUNTS (2026-11-08).** The `10/10` gate figures and the `ctest 8/8` /
+> `13/13` steps below are records from the time. The current gate defines 16 scenarios: 5 core, 10
+> extra and 1 visibility. A default round is 5 x 2 = 10 renders; `-Full` is 15 x 2 = 30 renders. CTest
+> now has 85 tests, 7 of them device-labelled and skipped by CI, so CI runs 78.
+
 ## 1. The gap, stated by the code
 
 `source/shaders/pbr.vert:149-154` builds the previous world position like this:
@@ -58,7 +68,8 @@ buffer holding the block that was current one frame ago is reachable as
 `heap_slots_skin_matrices_previous + heap_frame_slot` - and that is exactly how the rigid half already
 reaches its own past. `advance_motion_transforms()` publishes the one-frame-ago state **into the current
 frame slot's** buffer (`source/engine/runtime/runtime.frames.cppm:224,240`) rather than leaving it in the other
-slot, which is why `heap_previous_slot` needs no lane (`source/shaders/common/heap_slots.slang:122`), and
+slot, which is why `heap_previous_slot` needs no lane (`heap_slot_constants.slang` holds the heap slot
+policy), and
 `advance_motion_deformations()` does the same by construction (decision 2). The alternative - leave the
 previous data sitting in the other frame slot and address it with a host-resolved `1 - frame_slot` through
 the existing `extra_lane` mechanism (`source/engine/runtime/runtime.cpp:869-871`) - is refused: it would make the
@@ -66,9 +77,9 @@ deformation half address its own past differently from the rigid half, for no ga
 
 The push budget is why this matters, and it was measured rather than assumed: the scene / G-buffer leaf
 push occupies **108 of `pass::max_push_bytes = 128`** - the 96-byte `material_push_constants`
-(`scene_push_constant_size`, `source/backends/vulkan/core/declarations/core.declarations.cppm:87`, held to it by the `static_assert` at
-`source/engine/primitive/primitives/primitive.primitives.cppm:301`) plus three 4-byte lanes `{frame_slot, image_index, extra_lane}`
-(`runtime.cpp:849`); the limit is at `source/engine/pass/pass.cppm:184`. **20 bytes stay free**, and only the morph half
+(`scene_push_constant_size` in `source/backends/vulkan/core/declarations/core.declarations.cppm`, held to it by the `static_assert` in
+`source/engine/primitive/primitives/primitive.primitives.cppm`) plus three 4-byte lanes `{frame_slot, image_index, extra_lane}`
+(`source/engine/runtime/runtime.cpp`, in `make_outline_pipeline`); the limit is at `source/engine/pass/pass.cppm:184`. **20 bytes stay free**, and only the morph half
 needs one of them. (THAT COUNT IS PRE-MESH-SHADER ARITHMETIC: since docs/mesh_shaders.md step 1 the same
 block also carries the 32-byte `MeshGeometryLanes`, the declared block is 144 bytes, and the device is
 required to have room for it - so no new lane may be added to it by this design.)
@@ -178,20 +189,20 @@ olive"** - and today that is what a deforming mesh reports.
 The half that needs no push-block change, and it covers the assets that skin rather than morph.
 
 * **the heap family**: `heap_slots_skin_matrices_previous`, 2 slots (per-frame families span 2 slots,
-  `MAX_FRAMES_IN_FLIGHT = 2` at `source/backends/vulkan/core/declarations/core.declarations.cppm:607`), declared in **both**
-  `source/shaders/common/heap_slots.slang` (beside `:56`) and the `struct heap_slots` in
-  `source/backends/vulkan/core/declarations/core.declarations.cppm` (beside `:543`), plus a `heap_skin_previous_slot` macro beside
-  `source/shaders/common/heap_slots.slang:123`. The grid is `heap_slot_base = 16384`, `heap_slot_stride = 64`,
-  `heap_slot_count = 1024` (`core.declarations.cppm:496,513-514`; `core.constructor.cppm:97-110` reserves
-  it), the used span is 743 slots, so the free tail is 743..1023 - the two new families belong there
-  (743 and 745), not in the middle of a family that would then have to be renumbered. Two ctest rules
-  decide this rather than review: `source/tests/test_render_resources.cpp:659,661` parses **both** files and
-  asserts that the grid's scalars and every array's slot agree (a one-sided edit fails), and `:692-702`
-  requires every named shader slot to be referenced as `heap_slots::<name>` by some host unit - which the
-  `write_heap_scene_buffer` call below is, and would not be if the family were addressed any other way.
-  One recorded follow-up: the "703 slots are in use" comment in `source/shaders/common/heap_slots.slang:89` and
-  `core.declarations.cppm:514` is stale - it stops at `display_color` + 8 and ignores `tlas` (703,704),
-    `rt_visibility_storage` (711..718) and the visibility buffer (719..726, which replaced the removed MegaLights
+  `MAX_FRAMES_IN_FLIGHT = 2` at `source/backends/vulkan/core/declarations/core.declarations.cppm`), declared in **both**
+  `source/shaders/common/heap_slot_constants.slang` (`heap_slots_skin_matrices_previous`) and the `struct heap_slots` in
+  `source/backends/vulkan/core/declarations/core.declarations.cppm`, plus the `heap_skin_previous_slot` macro in
+  `source/shaders/common/heap_slot_constants.slang`. The current grid is `heap_slot_base = 16384`,
+  `heap_slot_stride = 64`, `heap_slot_count = 3072` (`source/engine/render_layout/render_layout.cppm:162,136,165`;
+  reserved in `core.constructor.cppm:203-211`), and 1,324 slots are in use (`render_layout.cppm:163`), so the
+  free tail is 1324..3071 - the two new families belong there (+1255 and +1257), not in the middle of a family
+  that would then have to be renumbered. Two ctest rules
+  decide this rather than review: `source/tests/test_render_resources.cpp:779,810` parses **both** files and
+  asserts that the grid's scalars and every array's slot agree (a one-sided edit fails; the comparisons are at
+  `:898-900`), and it requires every named shader slot to be referenced as `heap_slots::<name>` by some host unit -
+  which the `write_heap_scene_buffer` call below is, and would not be if the family were addressed any other way.
+  One recorded follow-up: an older "703 slots are in use" comment is stale - it stops at `display_color` + 8 and
+  ignores `tlas` (703,704), `rt_visibility_storage` (711..718) and the visibility buffer (719..726, which replaced the removed MegaLights
 * **the buffers**: `skin_buffers_previous` + its mapped pointer, created beside
   `runtime.constructor.cppm:340-351` and published through `write_heap_scene_buffer` beside `:622`; plus a
   host `std::vector<glm::mat4> skin_previous` holding one frame of history, exactly as `motion_previous`
@@ -263,8 +274,9 @@ Debug and ASan+UBSan builds are measured non-deterministic here, so they are hel
 and a run that reports no finding" instead.
 
 Two ctest checks carry steps 1 and 2 specifically, and neither can be satisfied by review:
-`source/tests/test_render_resources.cpp:659,661` (the grid's two sources of truth agree) and `:692-702` (every
-named shader slot is written by a host unit); if the morph lane ends up sharing the lane group, `:503`
+`source/tests/test_render_resources.cpp:779,810` (the grid's two sources of truth agree; comparisons at
+`:898-900`) and the same test's named-slot coverage rule (every shader slot is written by a host unit); if the
+morph lane ends up sharing the lane group, `:503`
 (the shadow cascade's offset) joins them.
 
 The specific instruments, all of which exist:

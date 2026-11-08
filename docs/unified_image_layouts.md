@@ -57,7 +57,8 @@ unchanged (section 4).
   `shadow_map_sampling_transition`, `sampling_to_transfer_dst_transition`, ...) and the section header
   now states the rule, because a barrier whose two layouts are both GENERAL is still a real barrier.
 * `source/backends/vulkan/core/vma/vma.cppm`, `source/engine/runtime/runtime.{probes,readback,frames,constructor}.cppm`,
-  `source/engine/pass/{taa,megalights_temporal}.cpp`, `source/backends/vulkan/core/core.constructor.cppm` - copies, clears and
+  `source/engine/pass/taa.cpp` (the list also contained the now-deleted `megalights_temporal.cpp`),
+  `source/backends/vulkan/core/core.constructor.cppm` - copies, clears and
   every heap image descriptor write. The descriptor one is not cosmetic: a heap image descriptor states
   the layout the image is in, so a descriptor claiming `SHADER_READ_ONLY_OPTIMAL` for an image that is
   really in GENERAL is a lie validation rejects.
@@ -90,6 +91,11 @@ which is how the rule was caught: a quoted
 error message is evidence and must not be edited to match the current code.
 
 ## 4. The gate, and one withdrawn measurement
+
+> **CURRENT-COUNT NOTE (2026-11-08).** This section is the gate as it stood at the time of the step:
+> 43 tests and 14 scenes in `-Full`. The current gate defines 16 scenarios (15 in `-Full`, 30 renders)
+> and CTest has 85 tests, 7 device-labelled (78 run in CI). The 14-scene measurements below are kept
+> as the record of that step.
 
 * `cmake --build build -j 12`: exit 0.
 * `ctest --test-dir build`: 43/43.

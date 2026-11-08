@@ -93,7 +93,7 @@ namespace deren::vulkan {
         return this->full_core.submit_commands(commands, nullptr);
     }
 
-    rhi::error core::command_facet::submit(std::span<rhi::mergeable_command_buffer_ref const> batch) {
+    deren::promise::rhi::error core::command_facet::submit(std::span<deren::promise::rhi::mergeable_command_buffer_ref const> batch) {
         return this->full_core.submit_batch(batch, nullptr);
     }
 

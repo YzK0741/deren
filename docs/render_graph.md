@@ -1,8 +1,9 @@
 # CPU render graph core
 
 Import `deren.engine.render_graph` and link `render_graph_core`. This independent
-CPU library builds dependency and optional abstract synchronization plans. It creates no GPU resources, records no
-commands, and emits no RHI barriers.
+CPU library builds dependency and optional abstract synchronization plans. The CPU core itself creates no GPU
+resources, records no commands, and emits no RHI barriers; the backend converters do the recording (see
+[the RHI mapping audit](render_graph_rhi_mapping.md)).
 
 The graph is the production recording path, not a side library: since the 2026-10-17 cleanup `runtime`
 composes the main-view and post chains into one graph (`record_post_graph` / `finish_post_graph` in
@@ -310,10 +311,11 @@ Subresource ranges, typed parameter visitors, the baseline abstract barrier
 plan and diagnostic dumps are implemented, and so are execution preparation, binding, lease
 retention, GPU recording/submission and final-state publication: the converters and the optional
 scoped recording capability live in the backend (see [the RHI mapping audit](render_graph_rhi_mapping.md)),
-and the Bloom, post-chain and main-graph paths record real frames when they are opted in (see
-"Composing an executable graph" and "First main-chain boundary" below). What the CPU core itself
-still does not do is validate GPU synchronization on its own, and the graph does not replace
-production rendering by default.
+and since the 2026-10-17 cleanup the graph is the only recording path: the Bloom, post-chain and
+main-graph stages are composed into it, and the legacy hand-ordered scene tail and legacy Bloom path
+are gone (see "Composing an executable graph" and "First main-chain boundary" below). What the CPU
+core itself still does not do is validate GPU synchronization on its own; the backend converters
+record the commands the plan describes.
 
 ## Diagnostic dumps
 

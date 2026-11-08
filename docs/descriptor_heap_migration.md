@@ -534,3 +534,13 @@ What changed:
   shader grid's texture run and `render_layout::scene_texture_capacity` are the same number, and that the
   capacity is at least what the acceptance scene measured (517). The shader side has no separate capacity
   constant - it addresses `heap_slots_textures + index` - which is why a drift would have been silent.
+
+## The ray-traced reflection growth (2026-11-08)
+
+The 2048-slot section above is preserved as the 2026-10-20 snapshot. The grid is now **3072 slots**: the
+ray-traced reflection families occupy `+1372..+1595`, and the highest used slot is `base + 1595` (the
+depth-current storage twin at `+1588` plus the eight-slot image stride). The free tail is
+`base + 1596 .. base + 3071`. `heap_slot_count = 3072u` in
+`source/shaders/common/heap_slot_constants.slang` and the matching `static_assert` in
+`source/backends/vulkan/core/declarations/core.declarations.cppm` are the current source of truth; the
+1024- and 2048-slot numbers above are dated capacity snapshots, not the current grid.
