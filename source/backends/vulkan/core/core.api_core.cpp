@@ -21,24 +21,23 @@
 //     source/tests/test_dynamic_link.cpp (G1) check.
 //   - the factories: REAL since S3 - each `create_*` answers the contract handle, or `nullptr` for a
 //     descriptor this backend cannot serve (§4.2: no throwing path across the boundary).
-//   - the recording surface and the frame views: REAL, borrowed views of objects this class already owns
-//     (the frame's primary command buffer, the swapchain image the frame draws into, the read-back
-//     slot). See the view types in core.declarations.cppm.
+//   - the recording surface: REAL, a borrowed view of objects this class already owns (the frame's
+//     primary command buffer, the swapchain image the frame draws into, the read-back slot). See the
+//     view types in core.declarations.cppm.
 //   - the shadow gate (plan §8.3, gate A5): `use()` derives the barrier from the contract's role pair
 //     and the asserts right below prove - field by field, AT COMPILE TIME - that it lands exactly on
 //     the two recipes this renderer shipped by hand. The same dump is emitted once per pair at run
 //     time, so the log carries both sides.
-//   - the frame calls: the machinery this file's class already had - `wait_frame_slot`,
-//     `frame.image_available_semaphores`, `submit()`, `present()`, `wait_idle()`. `frame_begin()` also
-//     performs the acquire, which is the one piece that used to live in the runtime
-//     (runtime.frames.cppm:115): the device and the swapchain are the backend's, so the acquire is
-//     the backend's too.
+//   - the frame calls: moved to facet/core.frame_views.cpp with the frame face's borrowed views. The
+//     machinery is unchanged - `wait_frame_slot`, `frame.image_available_semaphores`, `submit()`,
+//     `present()`, `wait_idle()`, and `frame_begin()`'s acquire, which is the backend's because the
+//     device and the swapchain are.
 // ============================================================================
 module;
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
-#include <memory> // std::shared_ptr: the backend's INTERNAL retain of an owned command buffer (the contract hands out shared_object)
+#include <memory> // std::shared_ptr: the backend's INTERNAL retain of an concrete command buffer (the contract hands out shared_object)
 #include <vulkan/vulkan.h>
 
 module deren.vulkan.core;
@@ -597,16 +596,16 @@ namespace deren::vulkan {
     }
 
     bool core::frame_heap::ready() const noexcept {
-        return this->owner != nullptr && this->owner->resource.descriptor_heaps.ready();
+        return this->parent != nullptr && this->parent->resource.descriptor_heaps.ready();
     }
 
     rhi::descriptor_heap_properties core::frame_heap::properties() const noexcept {
-        if (this->owner == nullptr) {
+        if (this->parent == nullptr) {
             return {};
         }
-        auto const& limits = this->owner->resource.descriptor_heaps.limits();
+        auto const& limits = this->parent->resource.descriptor_heaps.limits();
         return {
-            .resource_size = this->owner->resource.descriptor_heaps.resource_size(),
+            .resource_size = this->parent->resource.descriptor_heaps.resource_size(),
             .max_resource_size = limits.max_resource_size,
             .max_sampler_size = limits.max_sampler_size,
             .resource_alignment = limits.resource_alignment,
@@ -666,13 +665,13 @@ namespace deren::vulkan {
             {
                 std::lock_guard lock(command.contract_command_buffers_mutex);
                 if (command.contract_command_buffers.contains(commands)) {
-                    recorded = static_cast<owned_command_buffer*>(commands);
+                    recorded = static_cast<core::command_buffer*>(commands);
                 }
             }
             if (recorded == nullptr) {
                 std::lock_guard lock(command.contract_mergeable_buffers_mutex);
                 if (command.contract_mergeable_buffers.contains(commands)) {
-                    recorded = static_cast<owned_mergeable_command_buffer*>(commands)->inner.get();
+                    recorded = static_cast<core::mergeable_command_buffer*>(commands)->inner.get();
                     if (recorded == nullptr) {
                         result = rhi::error::not_ready;
                         return nullptr;
@@ -707,8 +706,8 @@ namespace deren::vulkan {
         if (type != VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE && type != VK_DESCRIPTOR_TYPE_STORAGE_IMAGE) {
             return rhi::error::unsupported;
         }
-        auto const capacity = this->owner->resource.descriptor_heaps.resource_size();
-        auto const stride = this->owner->resource.descriptor_heaps.descriptor_stride(type);
+        auto const capacity = this->parent->resource.descriptor_heaps.resource_size();
+        auto const stride = this->parent->resource.descriptor_heaps.descriptor_stride(type);
         if (info.offset > capacity || stride > capacity - info.offset) {
             return rhi::error::invalid_argument;
         }
@@ -717,14 +716,15 @@ namespace deren::vulkan {
         }
         // 类型标签相同不代表具体布局相同；先核实本core发出的活跃image，再访问owned_image。
         {
-            std::lock_guard const lock(this->owner->resource.contract_images_mutex);
-            if (!this->owner->resource.contract_images.contains(info.resource)) {
+            std::lock_guard const lock(this->parent->resource.contract_images_mutex);
+            if (!this->parent->resource.contract_images.contains(info.resource)) {
                 return rhi::error::invalid_argument;
             }
         }
-        auto const& image = *rhi::do_concrete<owned_image>(*info.resource, concrete::image);
-        if (image.source && (!tracked || image.state() != rhi::lazy_state::ready))
+        auto const& image = *rhi::do_concrete<core::image>(*info.resource, concrete::image);
+        if (image.source && (!tracked || image.state() != rhi::lazy_state::ready)) {
             return rhi::error::unsupported;
+        }
         auto const& range = *info.view;
         if (range.base_layer >= image.array_layers || range.base_mip >= image.mip_levels) {
             return rhi::error::invalid_argument;
@@ -753,7 +753,7 @@ namespace deren::vulkan {
                                                           mips, layers);
         view.subresourceRange.baseMipLevel = range.base_mip;
         view.subresourceRange.baseArrayLayer = range.base_layer;
-        return this->owner->resource.descriptor_heaps.write_image(info.offset, view, VK_IMAGE_LAYOUT_GENERAL, type) ? rhi::error::ok : rhi::error::operation_failed;
+        return this->parent->resource.descriptor_heaps.write_image(info.offset, view, VK_IMAGE_LAYOUT_GENERAL, type) ? rhi::error::ok : rhi::error::operation_failed;
     }
 
     rhi::error core::frame_heap::write_buffer(rhi::heap_buffer_write_info const& info) noexcept {
@@ -769,13 +769,13 @@ namespace deren::vulkan {
             type != VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR) {
             return rhi::error::unsupported;
         }
-        auto const capacity = this->owner->resource.descriptor_heaps.resource_size();
-        auto const stride = this->owner->resource.descriptor_heaps.descriptor_stride(type);
+        auto const capacity = this->parent->resource.descriptor_heaps.resource_size();
+        auto const stride = this->parent->resource.descriptor_heaps.descriptor_stride(type);
         if (info.address == 0 || info.size == 0 || info.size > UINT64_MAX - info.address ||
             info.offset > capacity || stride > capacity - info.offset) {
             return rhi::error::invalid_argument;
         }
-        return this->owner->resource.descriptor_heaps.write_buffer(info.offset, info.address, info.size, type) ? rhi::error::ok : rhi::error::operation_failed;
+        return this->parent->resource.descriptor_heaps.write_buffer(info.offset, info.address, info.size, type) ? rhi::error::ok : rhi::error::operation_failed;
     }
 
     rhi::error core::frame_heap::bind(rhi::heap_bind_info const& info) const noexcept {
@@ -786,44 +786,55 @@ namespace deren::vulkan {
         if (!this->ready()) {
             return rhi::error::not_ready;
         }
-        auto* const recorded = this->owner->resolve_recorder(info.commands, result);
+        auto* const recorded = this->parent->resolve_recorder(info.commands, result);
         if (result != rhi::error::ok) {
             return result;
         }
-        if (auto result = recorded->apply_operations(); result != rhi::error::ok)
+        if (auto result = recorded->apply_operations(); result != rhi::error::ok) {
             return result;
-        if (auto prepared = this->owner->prepare_lazy_descriptors(*recorded); prepared != rhi::error::ok)
+        }
+        if (auto prepared = this->parent->prepare_lazy_descriptors(*recorded); prepared != rhi::error::ok) {
             return prepared;
-        this->owner->resource.descriptor_heaps.record_bind(recorded->native());
+        }
+        this->parent->resource.descriptor_heaps.record_bind(recorded->native());
         return rhi::error::ok;
     }
 
     rhi::error core::frame_commands::push_constants(std::uint32_t offset, std::span<std::byte const> data) noexcept {
-        if (owner)
-            ++owner->operation_requests[0]; // push_constants
-        if (!recording || native() == VK_NULL_HANDLE)
+        if (parent) {
+            ++parent->operation_requests[0]; // push_constants
+        }
+        if (!recording || native() == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
-        if (recording_error != rhi::error::ok)
+        }
+        if (recording_error != rhi::error::ok) {
             return recording_error;
-        if (!recording || native() == VK_NULL_HANDLE)
+        }
+        if (!recording || native() == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
-        if (!owner || !owner->resource.descriptor_heaps.ready())
+        }
+        if (!parent || !parent->resource.descriptor_heaps.ready()) {
             return rhi::error::unsupported;
-        auto const capacity = owner->device.capabilities_view.max_push_constants_size();
-        if (capacity == 0)
+        }
+        auto const capacity = parent->device.capabilities_view.max_push_constants_size();
+        if (capacity == 0) {
             return rhi::error::unsupported;
+        }
         auto result = rhi::validate_push_constants_range(offset, data.size(), capacity);
-        if (result != rhi::error::ok)
+        if (result != rhi::error::ok) {
             return result;
+        }
         // Protect backend-owned pipeline group bytes on either kind of recorder.
         if (bound_pipeline) {
-            std::lock_guard lock(owner->resource.contract_pipelines_mutex);
-            if (!owner->resource.contract_pipelines.contains(bound_pipeline)) {
+            std::lock_guard lock(parent->resource.contract_pipelines_mutex);
+            if (!parent->resource.contract_pipelines.contains(bound_pipeline)) {
                 return rhi::error::invalid_argument;
             }
-            for (auto const& binding : bound_pipeline->resource_layout)
-                if (offset < binding.push_byte_offset + 4u && data.size() > binding.push_byte_offset - std::min(offset, binding.push_byte_offset))
+            for (auto const& binding : bound_pipeline->resource_layout) {
+                if (offset < binding.push_byte_offset + 4u && data.size() > binding.push_byte_offset - std::min(offset, binding.push_byte_offset)) {
                     return rhi::error::invalid_argument;
+                }
+            }
             if (bound_pipeline->group_binding.enabled) {
                 auto reserved = bound_pipeline->group_binding.push_byte_offset;
                 if (offset < reserved + 4 && offset + data.size() > reserved) {
@@ -832,7 +843,7 @@ namespace deren::vulkan {
             }
         }
         operations.append<rec::operation_kind::push>({offset}, data);
-        ++owner->deferred_requested;
+        ++parent->deferred_requested;
         return rhi::error::ok;
     }
 
@@ -841,7 +852,7 @@ namespace deren::vulkan {
             return {};
         }
         VkBindHeapInfoEXT resource{}, sampler{};
-        this->owner->resource.descriptor_heaps.bind_infos(resource, sampler);
+        this->parent->resource.descriptor_heaps.bind_infos(resource, sampler);
         return {
             .resource = {resource.heapRange.address, resource.heapRange.size, resource.reservedRangeOffset, resource.reservedRangeSize},
             .sampler = {sampler.heapRange.address, sampler.heapRange.size, sampler.reservedRangeOffset, sampler.reservedRangeSize},
@@ -900,18 +911,14 @@ namespace deren::vulkan {
     }
 
     rhi::buffer* core::create_buffer_raw(rhi::buffer_desc const& desc) {
-        return this->create_buffer(desc).release();
+        return this->resource.create_buffer(desc).release();
     }
 
-    rhi::unique_object<rhi::buffer> core::create_buffer(rhi::buffer_desc const& declared_desc) {
-        return this->resource.create_buffer(declared_desc);
-    }
-
-    std::uint64_t core::owned_buffer::size() const noexcept {
+    std::uint64_t core::buffer::size() const noexcept {
         return this->size_bytes;
     }
 
-    std::span<std::byte> core::owned_buffer::mapped() noexcept {
+    std::span<std::byte> core::buffer::mapped() noexcept {
         // EMPTY when this buffer cannot be mapped - the contract's spelling of "this one is not
         // host-visible", so a caller decides from the span instead of guessing (the same answer the
         // frame's read-back view gives).
@@ -921,12 +928,13 @@ namespace deren::vulkan {
         return std::span<std::byte>(static_cast<std::byte*>(this->mapped_bytes), static_cast<std::size_t>(this->size_bytes));
     }
 
-    void core::owned_buffer::release() noexcept {
-        if (references.fetch_sub(1, std::memory_order_acq_rel) != 1)
+    void core::buffer::release() noexcept {
+        if (references.fetch_sub(1, std::memory_order_acq_rel) != 1) {
             return;
-        if (this->owner != nullptr) {
-            std::lock_guard const lock(this->owner->resource.contract_buffers_mutex);
-            this->owner->resource.contract_buffers.erase(this);
+        }
+        if (this->parent != nullptr) {
+            std::lock_guard const lock(this->parent->resource.contract_buffers_mutex);
+            this->parent->resource.contract_buffers.erase(this);
         }
         // RELEASE IS THE ALLOCATOR'S REFERENCE-COUNT DECREMENT, and it happens inside the backend: the
         // destructor resets the `vk_buffer` owner, whose release lambda reaches `free_buffer` - which
@@ -936,37 +944,26 @@ namespace deren::vulkan {
         delete this;
     }
 
-    rhi::resource_memory_statistics core::memory_statistics() const noexcept {
-        return this->resource.memory_statistics();
-    }
-
-    rhi::unique_object<rhi::image> core::create_image(rhi::image_desc const& declared_desc) {
-        return this->resource.create_image(declared_desc);
-    }
-
-    rhi::unique_object<rhi::sampler> core::create_sampler(rhi::sampler_desc const& declared_desc) {
-        return this->resource.create_sampler(declared_desc);
-    }
-
     // ---- THE OWNED IMAGE FACE'S OBJECTS (abi 7, §17's design) --------------------------------------
 
-    rhi::image_extent core::owned_image::extent() const noexcept {
+    rhi::image_extent core::image::extent() const noexcept {
         return {.width = this->width, .height = this->height, .depth = 1};
     }
 
-    rhi::image_format core::owned_image::format() const noexcept {
+    rhi::image_format core::image::format() const noexcept {
         return this->declared_format;
     }
 
-    rhi::unique_object<rhi::image_view> core::owned_image::make_view(rhi::image_view_desc const& declared_desc) {
+    rhi::unique_object<rhi::image_view> core::image::make_view(rhi::image_view_desc const& declared_desc) {
         // The range is validated against THIS image's shape, per the contract's rule: a range the
         // image does not have is refused, not clamped - a clamped view would sample the wrong mip and
         // say nothing.
         rhi::image_view_desc const desc = sanitize_image_view_desc(declared_desc);
         if (source && (desc.base_layer >= array_layers || desc.base_mip >= mip_levels ||
                        (desc.layer_count && desc.layer_count > array_layers - desc.base_layer) ||
-                       (desc.mip_count && desc.mip_count > mip_levels - desc.base_mip)))
+                       (desc.mip_count && desc.mip_count > mip_levels - desc.base_mip))) {
             return nullptr;
+        }
         uint32_t const layers = desc.layer_count == 0 ? this->array_layers - desc.base_layer : desc.layer_count;
         uint32_t const mips = desc.mip_count == 0 ? this->mip_levels - desc.base_mip : desc.mip_count;
         if (desc.base_layer >= this->array_layers || layers == 0 || desc.base_layer + layers > this->array_layers) {
@@ -1006,18 +1003,19 @@ namespace deren::vulkan {
         view_info.subresourceRange.levelCount = mips;
         view_info.subresourceRange.layerCount = layers;
 
-        auto answer = std::make_unique<owned_image_view>();
+        auto answer = std::make_unique<core::image_view>();
         answer->description = desc;
         answer->parent_image = this->share();
-        answer->device = this->owner->device.logical_device;
+        answer->device = this->parent->device.logical_device;
         if (this->source) {
-            answer->lazy_reference = owner->depend_on(*this);
-            if (desc.role != rhi::view_role::sampled)
+            answer->lazy_reference = parent->depend_on(*this);
+            if (desc.role != rhi::view_role::sampled) {
                 return nullptr;
+            }
             return rhi::unique_object<rhi::image_view>{answer.release()};
         }
         VkImageView handle = VK_NULL_HANDLE;
-        if (vkCreateImageView(this->owner->device.logical_device, &view_info, nullptr, &handle) != VK_SUCCESS || handle == VK_NULL_HANDLE) {
+        if (vkCreateImageView(this->parent->device.logical_device, &view_info, nullptr, &handle) != VK_SUCCESS || handle == VK_NULL_HANDLE) {
             deren::utility::log("rhi: make_view refused: vkCreateImageView failed");
             return nullptr;
         }
@@ -1025,26 +1023,26 @@ namespace deren::vulkan {
         return rhi::unique_object<rhi::image_view>{answer.release()};
     }
 
-    deren::promise::rhi::shared_object<deren::promise::rhi::image> core::owned_image::share() {
-        std::lock_guard const lock(this->shared_owner_mutex);
-        if (auto retained = this->shared_owner.lock()) {
+    deren::promise::rhi::shared_object<deren::promise::rhi::image> core::image::share() {
+        std::lock_guard const lock(this->shared_handle_mutex);
+        if (auto retained = this->shared_handle.lock()) {
             return retained;
         }
         // THE ONE CONTROL BLOCK IS BUILT HERE: the extra reference it will drop is taken FIRST, so the
         // shared handle's single `release()` balances it exactly; repeated share() calls reuse the block.
         this->references.fetch_add(1, std::memory_order_relaxed);
         auto retained = deren::promise::rhi::shared_object<deren::promise::rhi::image>(this);
-        this->shared_owner = retained;
+        this->shared_handle = retained;
         return retained;
     }
 
-    void core::owned_image::release() noexcept {
+    void core::image::release() noexcept {
         if (this->references.fetch_sub(1, std::memory_order_acq_rel) != 1) {
             return;
         }
         {
-            std::lock_guard const lock(this->owner->resource.contract_images_mutex);
-            this->owner->resource.contract_images.erase(this);
+            std::lock_guard const lock(this->parent->resource.contract_images_mutex);
+            this->parent->resource.contract_images.erase(this);
         }
         // `delete this`: the destructor resets the `vk_image` RAII owner, which is the allocator's
         // reference-count decrement (rhi.api_core.cppm's ownership note - release, not necessarily
@@ -1052,50 +1050,42 @@ namespace deren::vulkan {
         delete this;
     }
 
-    core::owned_image_view::~owned_image_view() noexcept {
+    core::image_view::~image_view() noexcept {
         if (this->native_view != VK_NULL_HANDLE && this->device != VK_NULL_HANDLE) {
             vkDestroyImageView(this->device, this->native_view, nullptr);
             this->native_view = VK_NULL_HANDLE;
         }
     }
 
-    void core::owned_image_view::release() noexcept {
+    void core::image_view::release() noexcept {
         delete this;
     }
 
-    core::owned_sampler::~owned_sampler() noexcept {
+    core::sampler::~sampler() noexcept {
         if (this->native_sampler_handle != VK_NULL_HANDLE && this->device != VK_NULL_HANDLE) {
             vkDestroySampler(this->device, this->native_sampler_handle, nullptr);
             this->native_sampler_handle = VK_NULL_HANDLE;
         }
     }
 
-    void core::owned_sampler::release() noexcept {
-        if (owner) {
-            std::lock_guard lock(owner->resource.group_members_mutex);
-            owner->resource.group_members.erase(this);
+    void core::sampler::release() noexcept {
+        if (parent) {
+            std::lock_guard lock(parent->resource.group_members_mutex);
+            parent->resource.group_members.erase(this);
         }
         delete this;
     }
 
-    void core::owned_shader::release() noexcept {
+    void core::shader::release() noexcept {
         delete this;
     }
 
-    void core::owned_pipeline::release() noexcept {
-        if (this->owner != nullptr) {
-            std::lock_guard const lock(this->owner->resource.contract_pipelines_mutex);
-            this->owner->resource.contract_pipelines.erase(this);
+    void core::pipeline::release() noexcept {
+        if (this->parent != nullptr) {
+            std::lock_guard const lock(this->parent->resource.contract_pipelines_mutex);
+            this->parent->resource.contract_pipelines.erase(this);
         }
         delete this;
-    }
-
-    rhi::unique_object<rhi::shader> core::create_shader(rhi::shader_desc const& declared_desc) {
-        return this->resource.create_shader(declared_desc);
-    }
-
-    rhi::unique_object<rhi::pipeline> core::create_pipeline(rhi::pipeline_desc const& declared_desc) {
-        return this->resource.create_pipeline(declared_desc);
     }
 
     /// THE COMPUTE PIPELINE, in the shape the engine's raw builders had (pipelines.cppm's
@@ -1107,7 +1097,7 @@ namespace deren::vulkan {
     ///    interface, the colour formats, the blend attachments, the sample count, the depth test and bias) is
     ///    absent: the module is built from `compute_code` and the create info carries one stage, one NULL
     ///    layout and nothing else.
-    ///  * THE BIND POINT IS DECIDED HERE, ONCE. `owned_pipeline::bind_point` is what `bind_pipeline` (abi 20)
+    ///  * THE BIND POINT IS DECIDED HERE, ONCE. `core::pipeline::bind_point` is what `bind_pipeline` (abi 20)
     ///    hands the API, and the graphics path leaves it at its GRAPHICS default - a compute pipeline that
     ///    forgot to set it would be bound to the wrong point with no error anywhere. (`create_pipeline`'s
     ///    own note explains why the contract made the bind point the backend's business.)
@@ -1159,8 +1149,8 @@ namespace deren::vulkan {
             deren::utility::log("rhi: create_pipeline {} refused: vkCreateComputePipelines failed", what);
             return nullptr;
         }
-        auto* const answer = new owned_pipeline();
-        answer->owner = this;
+        auto* const answer = new core::pipeline();
+        answer->parent = this;
         {
             std::lock_guard const lock(this->resource.contract_pipelines_mutex);
             answer->identity = resource.resource_identity.fetch_add(1, std::memory_order_relaxed);
@@ -1169,7 +1159,7 @@ namespace deren::vulkan {
         // THE MODULE DIES WITH THIS CALL, the pipeline does not: a VkShaderModule is only needed while the
         // pipeline is being created, and holding one per pipeline would keep N modules alive for nothing. The
         // RAII wrapper above destroys it when this function returns, whatever the path out.
-        answer->owned.emplace(pipeline, this->device.logical_device);
+        answer->native_object.emplace(pipeline, this->device.logical_device);
         answer->native_handle = pipeline;
         answer->bind_point = VK_PIPELINE_BIND_POINT_COMPUTE;
         answer->group_binding = desc.texture_group;
@@ -1345,29 +1335,25 @@ namespace deren::vulkan {
             deren::utility::log("rhi: create_pipeline {} refused: vkCreateRayTracingPipelinesKHR failed", what);
             return nullptr;
         }
-        auto* const answer = new owned_pipeline();
-        answer->owner = this;
+        auto* const answer = new core::pipeline();
+        answer->parent = this;
         {
             std::lock_guard const lock(this->resource.contract_pipelines_mutex);
             answer->identity = resource.resource_identity.fetch_add(1, std::memory_order_relaxed);
             this->resource.contract_pipelines.insert(answer);
         }
-        answer->owned.emplace(pipeline, this->device.logical_device);
+        answer->native_object.emplace(pipeline, this->device.logical_device);
         answer->native_handle = pipeline;
         answer->bind_point = VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR;
         answer->group_count = info.groupCount;
         return answer;
     }
 
-    rhi::command_buffer* core::begin_commands() {
-        return this->frame.begin_commands();
-    }
-
     // ---- THE OWNED COMMAND BUFFER (abi 15) ----------------------------------------------------------
 
-    core::owned_command_buffer* core::allocate_owned_command_buffer(VkCommandBufferLevel const level) {
-        auto* const answer = new owned_command_buffer();
-        answer->owner = this;
+    core::command_buffer* core::allocate_command_buffer(VkCommandBufferLevel const level) {
+        auto* const answer = new core::command_buffer();
+        answer->parent = this;
         // ONE POOL PER BUFFER, created and owned by the wrapper (handles/handles.cppm): the handle is a
         // self-contained device resource and the recording thread that owns it never shares a pool.
         answer->buffer = ::deren::vulkan::make_command_buffer(this->device.logical_device, this->device.graphics_queue_family_index, level);
@@ -1390,20 +1376,12 @@ namespace deren::vulkan {
         return answer;
     }
 
-    rhi::unique_object<rhi::command_buffer> core::create_command_buffer(rhi::command_buffer_desc const& declared_desc) {
-        return this->command.create_command_buffer(declared_desc);
-    }
-
-    rhi::shared_object<rhi::command_buffer> core::make_command_buffer(rhi::command_buffer_desc const& desc) {
-        return this->command.make_command_buffer(desc);
-    }
-
     // ---- abi 35: the mergeable command buffer (batch-only) -----------------------------------------
 
-    void core::owned_mergeable_command_buffer::release() noexcept {
-        if (this->owner != nullptr) {
-            std::lock_guard const lock(this->owner->command.contract_mergeable_buffers_mutex);
-            this->owner->command.contract_mergeable_buffers.erase(this);
+    void core::mergeable_command_buffer::release() noexcept {
+        if (this->parent != nullptr) {
+            std::lock_guard const lock(this->parent->command.contract_mergeable_buffers_mutex);
+            this->parent->command.contract_mergeable_buffers.erase(this);
         }
         // THE INNER SECONDARY IS DROPPED BY THE `std::shared_ptr` MEMBER - a backend-INTERNAL retain, not a
         // contract handle: a submission that is still in flight holds its own reference (retain_command), so
@@ -1411,13 +1389,6 @@ namespace deren::vulkan {
         delete this;
     }
 
-    rhi::mergeable_command_buffer_ref core::make_mergeable_command_buffer(rhi::command_buffer_desc const& declared_desc) {
-        return this->command.make_mergeable_command_buffer(declared_desc);
-    }
-
-    rhi::error core::submit(std::span<deren::promise::rhi::mergeable_command_buffer_ref const> batch) {
-        return this->command.submit(batch);
-    }
     rhi::error core::submit_batch(std::span<rhi::mergeable_command_buffer_ref const> batch, rhi::submission_token* token) {
         // EMPTY IS A CALLER BUG: an empty frame wants no queue submission, and there is no acquire/present
         // to do on its behalf - refusing keeps "submitted nothing" from looking like "submitted the frame".
@@ -1434,7 +1405,7 @@ namespace deren::vulkan {
             }
         }
         for (auto const& one : batch) {
-            auto const& mergeable = *rhi::do_concrete<owned_mergeable_command_buffer>(*one, concrete::mergeable_command_buffer);
+            auto const& mergeable = *rhi::do_concrete<core::mergeable_command_buffer>(*one, concrete::mergeable_command_buffer);
             if (mergeable.inner == nullptr) {
                 return rhi::error::not_ready;
             }
@@ -1457,15 +1428,15 @@ namespace deren::vulkan {
         // does not need a second submission mechanism.
         rhi::command_buffer_desc primary_desc{};
         primary_desc.kind = rhi::command_buffer_kind::primary;
-        rhi::command_buffer* const raw_primary = this->create_command_buffer(primary_desc).release();
+        rhi::command_buffer* const raw_primary = this->command.create_command_buffer(primary_desc).release();
         if (raw_primary == nullptr) {
             return rhi::error::not_ready;
         }
-        auto* const primary = static_cast<owned_command_buffer*>(raw_primary);
+        auto* const primary = static_cast<core::command_buffer*>(raw_primary);
         rhi::error status = primary->begin_recording(rhi::command_buffer_begin_info{});
         if (status == rhi::error::ok) {
             for (auto const& one : batch) {
-                auto& inner = *static_cast<owned_mergeable_command_buffer*>(one.get())->inner;
+                auto& inner = *static_cast<core::mergeable_command_buffer*>(one.get())->inner;
                 // THE RECORDING IS RETAINED (and its pending counter raised) by the primary's secondary_refs,
                 // which the submission path copies into the pending submission: the caller may drop its
                 // mergeable handles as soon as this call returns.
@@ -1484,13 +1455,13 @@ namespace deren::vulkan {
         return status;
     }
 
-    void core::owned_command_buffer::release() noexcept {
+    void core::command_buffer::release() noexcept {
         if (references.fetch_sub(1, std::memory_order_acq_rel) != 1) {
             return;
         }
         {
-            std::lock_guard const lock(this->owner->command.contract_command_buffers_mutex);
-            this->owner->command.contract_command_buffers.erase(this);
+            std::lock_guard const lock(this->parent->command.contract_command_buffers_mutex);
+            this->parent->command.contract_command_buffers.erase(this);
         }
         // `delete this`: the destructor releases the `vk_command_buffer`, whose own release DESTROYS THE
         // COMMAND POOL it created - the contract's one reference is the whole lifetime rule here (there
@@ -1498,7 +1469,7 @@ namespace deren::vulkan {
         delete this;
     }
 
-    rhi::error core::owned_command_buffer::begin_recording(rhi::command_buffer_begin_info const& declared_info) {
+    rhi::error core::command_buffer::begin_recording(rhi::command_buffer_begin_info const& declared_info) {
         if (pending.load(std::memory_order_acquire) != 0 || recording_users.load(std::memory_order_acquire) != 0 || recording) {
             return rhi::error::not_ready;
         }
@@ -1545,13 +1516,13 @@ namespace deren::vulkan {
                 }
                 for (std::uint32_t index = 0; index < attachment.color_format_count; ++index) {
                     auto const format = attachment.color_formats[index];
-                    native_color_formats[index] = native_image_format(format, this->owner->frame.depth_attachment_format);
+                    native_color_formats[index] = native_image_format(format, this->parent->frame.depth_attachment_format);
                     if (format == rhi::image_format::depth || native_color_formats[index] == VK_FORMAT_UNDEFINED) {
                         return rhi::error::invalid_argument;
                     }
                 }
                 rendering.colorAttachmentCount = attachment.color_format_count;
-                rendering.depthAttachmentFormat = native_image_format(attachment.depth_format, this->owner->frame.depth_attachment_format);
+                rendering.depthAttachmentFormat = native_image_format(attachment.depth_format, this->parent->frame.depth_attachment_format);
                 rendering.rasterizationSamples = static_cast<VkSampleCountFlagBits>(attachment.samples);
                 rendering.viewMask = attachment.view_mask;
             } else {
@@ -1601,9 +1572,9 @@ namespace deren::vulkan {
                        sizeof(rhi::command_buffer_begin_info::inherit_descriptor_heaps))) {
             inherit_descriptor_heaps = declared_info.inherit_descriptor_heaps;
         }
-        if (inherit_descriptor_heaps && this->owner->resource.descriptor_heaps.ready() &&
+        if (inherit_descriptor_heaps && this->parent->resource.descriptor_heaps.ready() &&
             (inherits || rhi::has_flag(usage, rhi::command_buffer_usage::render_pass_continue))) {
-            this->owner->resource.descriptor_heaps.bind_infos(resource_bind, sampler_bind);
+            this->parent->resource.descriptor_heaps.bind_infos(resource_bind, sampler_bind);
             heap_inheritance = VkCommandBufferInheritanceDescriptorHeapInfoEXT{
                 .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_DESCRIPTOR_HEAP_INFO_EXT,
                 .pNext = inheritance.pNext,
@@ -1651,7 +1622,7 @@ namespace deren::vulkan {
         return result;
     }
 
-    rhi::error core::owned_command_buffer::end_recording() noexcept {
+    rhi::error core::command_buffer::end_recording() noexcept {
         if (!recording) {
             return rhi::error::not_ready;
         }
@@ -1661,8 +1632,9 @@ namespace deren::vulkan {
         final_application = true;
         auto applied = apply_operations();
         final_application = false;
-        if (rendering_active && !rendering_inherited && applied == rhi::error::ok)
+        if (rendering_active && !rendering_inherited && applied == rhi::error::ok) {
             applied = rhi::error::invalid_argument;
+        }
         if (applied != rhi::error::ok) {
             // Reset also handles a native recording invalidated by a destroyed borrowed resource.
             static_cast<void>(vkResetCommandBuffer(*this->buffer, 0));
@@ -1686,7 +1658,7 @@ namespace deren::vulkan {
         // there is nothing to drop. Reaching here is a lifecycle PRECONDITION violation, so it terminates
         // loudly instead of being tolerated with a log - the container-based ownership in this batch is what
         // makes "who releases" unambiguous; this branch is the caller ignoring it.
-        deren::utility::panic("rhi: release() on the FRAME's command buffer - it is a borrowed view owned by the core, "
+        deren::utility::panic("rhi: release() on the FRAME's command buffer - it is a borrowed view concrete by the core, "
                               "and only factory products carry a reference to drop");
     }
 
@@ -1756,8 +1728,9 @@ namespace deren::vulkan {
         final_application = true;
         auto applied = apply_operations();
         final_application = false;
-        if (rendering_active && !rendering_inherited && applied == rhi::error::ok)
+        if (rendering_active && !rendering_inherited && applied == rhi::error::ok) {
             applied = rhi::error::invalid_argument;
+        }
         if (applied != rhi::error::ok) {
             // Reset also handles a native recording invalidated by a destroyed borrowed resource.
             static_cast<void>(vkResetCommandBuffer(command_buffer, 0));
@@ -1776,10 +1749,11 @@ namespace deren::vulkan {
         /// THE ONE RECORDING-TIME MERGE (abi 36): validate the whole batch, then record the segments into
         /// `target`'s native buffer in span order. The segments are retained through the target's
         /// `secondary_refs`, which is what keeps their recordings alive for the submission that follows.
-        [[nodiscard]] rhi::error execute_mergeable_batch(core& owner, core::frame_commands& target,
+        [[nodiscard]] rhi::error execute_mergeable_batch(core& parent, core::frame_commands& target,
                                                          std::span<deren::promise::rhi::mergeable_command_buffer_ref const> batch) {
-            if (auto applied = target.apply_operations(); applied != rhi::error::ok)
+            if (auto applied = target.apply_operations(); applied != rhi::error::ok) {
                 return applied;
+            }
             if (batch.empty()) {
                 return rhi::error::invalid_argument;
             }
@@ -1791,17 +1765,17 @@ namespace deren::vulkan {
                 return rhi::error::not_ready;
             }
             {
-                std::lock_guard const lock(owner.command.contract_mergeable_buffers_mutex);
+                std::lock_guard const lock(parent.command.contract_mergeable_buffers_mutex);
                 for (auto const& one : batch) {
-                    if (one == nullptr || !owner.command.contract_mergeable_buffers.contains(one.get())) {
+                    if (one == nullptr || !parent.command.contract_mergeable_buffers.contains(one.get())) {
                         return rhi::error::invalid_argument;
                     }
                 }
             }
-            deren::utility::vessel::vector<core::owned_mergeable_command_buffer const*> resolved;
+            deren::utility::vessel::vector<core::mergeable_command_buffer const*> resolved;
             resolved.reserve(batch.size());
             for (auto const& one : batch) {
-                auto const& mergeable = *rhi::do_concrete<core::owned_mergeable_command_buffer>(*one, concrete::mergeable_command_buffer);
+                auto const& mergeable = *rhi::do_concrete<core::mergeable_command_buffer>(*one, concrete::mergeable_command_buffer);
                 if (mergeable.inner == nullptr || mergeable.inner->kind != rhi::command_buffer_kind::secondary ||
                     !mergeable.inner->executable || mergeable.inner->recording ||
                     mergeable.inner->pending.load(std::memory_order_acquire) != 0 || *mergeable.inner->buffer == VK_NULL_HANDLE) {
@@ -1816,7 +1790,7 @@ namespace deren::vulkan {
             }
             for (auto const* const mergeable : resolved) {
                 auto& inner = *mergeable->inner;
-                target.secondary_refs.push_back(owner.retain_command(inner, true));
+                target.secondary_refs.push_back(parent.retain_command(inner, true));
                 VkCommandBuffer const native = *inner.buffer;
                 vkCmdExecuteCommands(command_buffer, 1, &native);
                 target.finish_native();
@@ -1826,24 +1800,17 @@ namespace deren::vulkan {
     } // namespace
 
     rhi::error core::frame_commands::execute(std::span<deren::promise::rhi::mergeable_command_buffer_ref const> batch) {
-        if (owner)
-            ++owner->operation_requests[1]; // execute
-        return execute_mergeable_batch(*this->owner, *this, batch);
+        if (parent) {
+            ++parent->operation_requests[1]; // execute
+        }
+        return execute_mergeable_batch(*this->parent, *this, batch);
     }
 
-    rhi::error core::owned_command_buffer::execute(std::span<deren::promise::rhi::mergeable_command_buffer_ref const> batch) {
+    rhi::error core::command_buffer::execute(std::span<deren::promise::rhi::mergeable_command_buffer_ref const> batch) {
         if (this->kind != rhi::command_buffer_kind::primary) {
             return rhi::error::invalid_argument; // only a primary can be a merge target
         }
-        return execute_mergeable_batch(*this->owner, *this, batch);
-    }
-
-    rhi::image* core::frame_image() noexcept {
-        return this->frame.frame_image();
-    }
-
-    rhi::buffer* core::frame_readback_buffer() noexcept {
-        return this->frame.frame_readback_buffer();
+        return execute_mergeable_batch(*this->parent, *this, batch);
     }
 
     VkCommandBuffer core::frame_command_buffer() const noexcept {
@@ -1861,7 +1828,7 @@ namespace deren::vulkan {
     // view object is a member of that core, so it can never outlive it).
 
     rhi::image_extent core::frame_image_slot::extent() const noexcept {
-        rhi::image_extent const extent = this->owner->frame.swap_chain_extent;
+        rhi::image_extent const extent = this->parent->frame.swap_chain_extent;
         return rhi::image_extent{.width = extent.width, .height = extent.height, .depth = 1};
     }
 
@@ -1887,7 +1854,7 @@ namespace deren::vulkan {
         }
         // THE SWAPCHAIN IMAGE'S SHAPE IS ONE LAYER AND ONE MIP, and that is a fact rather than a limit of
         // this implementation: the presentation image is what it is. A range outside it is refused, not
-        // clamped - the same rule `owned_image::make_view` follows, for the same reason (a clamped view
+        // clamped - the same rule `core::image::make_view` follows, for the same reason (a clamped view
         // samples something the caller did not ask for and says nothing).
         uint32_t const layers = desc.layer_count == 0 ? 1u : desc.layer_count;
         uint32_t const mips = desc.mip_count == 0 ? 1u : desc.mip_count;
@@ -1898,19 +1865,19 @@ namespace deren::vulkan {
             return nullptr;
         }
         VkImageViewCreateInfo const view_info = make_image_view_info(image,
-                                                                     this->owner->frame.swap_chain_image_format,
+                                                                     this->parent->frame.swap_chain_image_format,
                                                                      VK_IMAGE_VIEW_TYPE_2D,
                                                                      VK_IMAGE_ASPECT_COLOR_BIT,
                                                                      mips,
                                                                      layers);
         VkImageView handle = VK_NULL_HANDLE;
-        if (vkCreateImageView(this->owner->device.logical_device, &view_info, nullptr, &handle) != VK_SUCCESS || handle == VK_NULL_HANDLE) {
+        if (vkCreateImageView(this->parent->device.logical_device, &view_info, nullptr, &handle) != VK_SUCCESS || handle == VK_NULL_HANDLE) {
             deren::utility::log("rhi: make_view on the borrowed frame image refused: vkCreateImageView failed");
             return nullptr;
         }
-        auto* const answer = new owned_image_view();
+        auto* const answer = new core::image_view();
         answer->native_view = handle;
-        answer->device = this->owner->device.logical_device;
+        answer->device = this->parent->device.logical_device;
         return rhi::unique_object<rhi::image_view>{answer};
     }
 
@@ -1918,51 +1885,53 @@ namespace deren::vulkan {
         // A VIEW IS NOT A FACTORY PRODUCT: this object is a member of the core, the swapchain image behind it
         // belongs to the swapchain, and the view carries no reference. Reaching here is a lifecycle
         // PRECONDITION violation and terminates loudly (see `frame_commands::release`).
-        deren::utility::panic("rhi: release() on a borrowed frame image view - it is owned by the core and carries no reference; "
+        deren::utility::panic("rhi: release() on a borrowed frame image view - it is concrete by the core and carries no reference; "
                               "only factory products carry a reference to drop");
     }
 
     rhi::image_format core::frame_image_slot::format() const noexcept {
-        return this->owner->frame.presentation_surface.format();
+        return this->parent->frame.presentation_surface.format();
     }
 
     VkImage core::frame_image_slot::handle() const noexcept {
-        core const& self = *this->owner;
+        core const& self = *this->parent;
         std::size_t const index = static_cast<std::size_t>(self.frame.acquired_image_index);
         return index < self.frame.swap_chain_images.size() ? self.frame.swap_chain_images[index] : VK_NULL_HANDLE;
     }
 
     std::uint64_t core::frame_readback_slot::size() const noexcept {
-        return static_cast<std::uint64_t>(this->owner->frame.readback_slot_size);
+        return static_cast<std::uint64_t>(this->parent->frame.readback_slot_size);
     }
 
     void core::frame_readback_slot::release() noexcept {
         // BORROWED, same answer as the frame image view's: the read-back slot is the core's own allocation,
         // so a release here is a lifecycle precondition violation and terminates.
-        deren::utility::panic("rhi: release() on a borrowed frame read-back buffer - it is owned by the core and carries no "
+        deren::utility::panic("rhi: release() on a borrowed frame read-back buffer - it is concrete by the core and carries no "
                               "reference; only factory products carry a reference to drop");
     }
 
     std::span<std::byte> core::frame_readback_slot::mapped() noexcept {
         // EMPTY when the buffer cannot be mapped - the contract's spelling of "this one is not
         // host-visible", so a caller decides from the span instead of guessing.
-        if (this->owner->frame.readback_slot_mapped == nullptr || this->owner->frame.readback_slot_size == 0) {
+        if (this->parent->frame.readback_slot_mapped == nullptr || this->parent->frame.readback_slot_size == 0) {
             return {};
         }
-        return std::span<std::byte>(static_cast<std::byte*>(this->owner->frame.readback_slot_mapped),
-                                    static_cast<std::size_t>(this->owner->frame.readback_slot_size));
+        return std::span<std::byte>(static_cast<std::byte*>(this->parent->frame.readback_slot_mapped),
+                                    static_cast<std::size_t>(this->parent->frame.readback_slot_size));
     }
 
     VkBuffer core::frame_readback_slot::handle() const noexcept {
-        return this->owner->frame.readback_slot_handle;
+        return this->parent->frame.readback_slot_handle;
     }
 
     rhi::error core::frame_commands::use(rhi::image const& resource, rhi::image_use const from, rhi::image_use const to) noexcept {
-        if (owner)
-            ++owner->operation_requests[2]; // use
-        if (auto result = apply_operations(); result != rhi::error::ok)
+        if (parent) {
+            ++parent->operation_requests[2]; // use
+        }
+        if (auto result = apply_operations(); result != rhi::error::ok) {
             return result;
-        core* const self = this->owner;
+        }
+        core* const self = this->parent;
         if (self == nullptr || !self->frame.frame_in_flight) {
             // NO FRAME IS BEING RECORDED, so there is nowhere to record the transition - and SAYING SO is
             // the point of the return value: a silently dropped barrier is a frame whose image is in a
@@ -2024,11 +1993,13 @@ namespace deren::vulkan {
     rhi::error core::frame_commands::copy_image_to_buffer(rhi::buffer& destination,
                                                           rhi::image const& source,
                                                           rhi::image_copy_region const& region) noexcept {
-        if (owner)
-            ++owner->operation_requests[3]; // copy_image_to_buffer
-        if (auto result = apply_operations(); result != rhi::error::ok)
+        if (parent) {
+            ++parent->operation_requests[3]; // copy_image_to_buffer
+        }
+        if (auto result = apply_operations(); result != rhi::error::ok) {
             return result;
-        core* const self = this->owner;
+        }
+        core* const self = this->parent;
         if (rhi::is_concrete(source, concrete::image)) {
             if (!self || !this->recording || this->native() == VK_NULL_HANDLE) {
                 return rhi::error::not_ready;
@@ -2042,9 +2013,9 @@ namespace deren::vulkan {
                     return rhi::error::invalid_argument;
                 }
             }
-            auto const& image = *rhi::do_concrete<core::owned_image>(source, concrete::image);
-            auto const& buffer = static_cast<core::owned_buffer const&>(destination);
-            if (image.owner != self || buffer.owner != self || !buffer.readback) {
+            auto const& image = *rhi::do_concrete<core::image>(source, concrete::image);
+            auto const& buffer = static_cast<core::buffer const&>(destination);
+            if (image.parent != self || buffer.parent != self || !buffer.readback) {
                 return rhi::error::invalid_argument;
             }
             if (!rhi::has_flag(image.declared_flags, rhi::image_flag::transfer_source)) {
@@ -2366,11 +2337,13 @@ namespace deren::vulkan {
     } // namespace
 
     rhi::error core::frame_commands::barrier(rhi::barrier_group const& group) {
-        if (owner)
-            ++owner->operation_requests[4]; // barrier
-        if (auto result = apply_operations(); result != rhi::error::ok)
+        if (parent) {
+            ++parent->operation_requests[4]; // barrier
+        }
+        if (auto result = apply_operations(); result != rhi::error::ok) {
             return result;
-        core* const self = this->owner;
+        }
+        core* const self = this->parent;
         VkCommandBuffer const command_buffer = this->native();
         if (self == nullptr || command_buffer == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
@@ -2394,19 +2367,20 @@ namespace deren::vulkan {
             if (self->frame.frame_snapshots.contains(resource)) {
                 auto const& snapshot = *static_cast<frame_snapshot const*>(resource);
                 // Like scoped synchronization, frame targets belong only to the acquired primary.
-                if (this != &self->frame.commands_view || snapshot.owner != self || !snapshot.current()) {
+                if (this != &self->frame.commands_view || snapshot.parent != self || !snapshot.current()) {
                     return rhi::error::invalid_argument;
                 }
                 native = snapshot.native_handle;
                 format = self->frame.swap_chain_image_format;
                 return rhi::error::ok;
             }
-            if (!self->resource.contract_images.contains(resource))
+            if (!self->resource.contract_images.contains(resource)) {
                 return rhi::error::invalid_argument;
+            }
             registry_lock.unlock();
-            auto const* const owned = rhi::do_concrete<owned_image>(*resource, concrete::image);
-            native = owned->source ? VK_NULL_HANDLE : owned->native_handle;
-            format = owned->resolved_format;
+            auto const* const concrete = rhi::do_concrete<core::image>(*resource, concrete::image);
+            native = concrete->source ? VK_NULL_HANDLE : concrete->native_handle;
+            format = concrete->resolved_format;
             return rhi::error::ok;
         };
 
@@ -2441,11 +2415,12 @@ namespace deren::vulkan {
                 registered = self->resource.contract_images.contains(one.resource);
             }
             if (registered) {
-                auto const& image = *static_cast<owned_image const*>(one.resource);
+                auto const& image = *static_cast<core::image const*>(one.resource);
                 if (image.source && (one.range.base_mip >= image.mip_levels || one.range.base_layer >= image.array_layers ||
                                      (one.range.mip_count && one.range.mip_count > image.mip_levels - one.range.base_mip) ||
-                                     (one.range.layer_count && one.range.layer_count > image.array_layers - one.range.base_layer)))
+                                     (one.range.layer_count && one.range.layer_count > image.array_layers - one.range.base_layer))) {
                     return rhi::error::invalid_argument;
+                }
             }
             VkImageMemoryBarrier2 barrier = barrier_for(one.from, one.to);
             if (barrier.srcStageMask == 0 && barrier.srcAccessMask == 0 && barrier.dstStageMask == 0 && barrier.dstAccessMask == 0) {
@@ -2469,13 +2444,15 @@ namespace deren::vulkan {
                 return rhi::error::invalid_argument;
             }
             {
-                std::lock_guard lock(owner->resource.contract_buffers_mutex);
-                if (!owner->resource.contract_buffers.contains(one.resource))
+                std::lock_guard lock(parent->resource.contract_buffers_mutex);
+                if (!parent->resource.contract_buffers.contains(one.resource)) {
                     return rhi::error::invalid_argument;
+                }
             }
-            auto const* const owned = static_cast<owned_buffer const*>(one.resource);
-            if (one.offset >= owned->size_bytes || (one.size && one.size > owned->size_bytes - one.offset))
+            auto const* const concrete = static_cast<core::buffer const*>(one.resource);
+            if (one.offset >= concrete->size_bytes || (one.size && one.size > concrete->size_bytes - one.offset)) {
                 return rhi::error::invalid_argument;
+            }
             VkPipelineStageFlags2 source_stage = 0;
             VkAccessFlags2 source_access = 0;
             VkPipelineStageFlags2 destination_stage = 0;
@@ -2492,9 +2469,9 @@ namespace deren::vulkan {
                 .dstAccessMask = destination_access,
                 .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                 .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .buffer = owned->source ? VK_NULL_HANDLE : owned->native,
+                .buffer = concrete->source ? VK_NULL_HANDLE : concrete->native,
                 .offset = one.offset,
-                .size = one.size == 0 ? (owned->size_bytes - one.offset) : one.size,
+                .size = one.size == 0 ? (concrete->size_bytes - one.offset) : one.size,
             };
         }
         // THE GLOBAL MEMORY BARRIER OF THE BATCH (abi 21), if the caller declared one: the same role-pair
@@ -2525,8 +2502,8 @@ namespace deren::vulkan {
                 if (one.resource == nullptr || !rhi::is_concrete(*one.resource, concrete::acceleration_structure)) {
                     return rhi::error::invalid_argument;
                 }
-                auto const& structure = static_cast<owned_acceleration_structure const&>(*one.resource);
-                if (structure.native == VK_NULL_HANDLE || structure.owner != self) {
+                auto const& structure = static_cast<core::acceleration_structure const&>(*one.resource);
+                if (structure.native == VK_NULL_HANDLE || structure.parent != self) {
                     return rhi::error::invalid_argument;
                 }
                 VkPipelineStageFlags2 source_stage = 0;
@@ -2563,21 +2540,24 @@ namespace deren::vulkan {
             auto* resource = group.images[i].resource;
             bool registered;
             {
-                std::lock_guard lock(owner->resource.contract_images_mutex);
-                registered = owner->resource.contract_images.contains(resource);
+                std::lock_guard lock(parent->resource.contract_images_mutex);
+                registered = parent->resource.contract_images.contains(resource);
             }
-            if (!registered)
+            if (!registered) {
                 continue; // borrowed frame target
+            }
             auto ready = demand(*resource);
-            if (ready != rhi::error::ok)
+            if (ready != rhi::error::ok) {
                 return ready;
-            image_barriers[i].image = static_cast<owned_image const*>(resource)->native_handle;
+            }
+            image_barriers[i].image = static_cast<core::image const*>(resource)->native_handle;
         }
         for (std::size_t i = 0; i < group.buffers.size(); ++i) {
             auto ready = demand(*group.buffers[i].resource);
-            if (ready != rhi::error::ok)
+            if (ready != rhi::error::ok) {
                 return ready;
-            buffer_barriers[i].buffer = static_cast<owned_buffer const*>(group.buffers[i].resource)->native;
+            }
+            buffer_barriers[i].buffer = static_cast<core::buffer const*>(group.buffers[i].resource)->native;
         }
         VkDependencyInfo const dependency = {
             .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
@@ -2595,10 +2575,12 @@ namespace deren::vulkan {
     }
 
     rhi::error core::frame_commands::barrier(rhi::image_barrier const& one) {
-        if (owner)
-            ++owner->operation_requests[4]; // barrier
-        if (auto result = apply_operations(); result != rhi::error::ok)
+        if (parent) {
+            ++parent->operation_requests[4]; // barrier
+        }
+        if (auto result = apply_operations(); result != rhi::error::ok) {
             return result;
+        }
         // The single-image form is the group of one - the same derivation, the same refusals.
         deren::utility::vessel::array<rhi::image_barrier, 1> const one_barriers = {one};
         rhi::barrier_group const group{
@@ -2610,11 +2592,13 @@ namespace deren::vulkan {
     }
 
     rhi::error core::frame_commands::begin_rendering(rhi::rendering_info const& info) {
-        if (owner)
-            ++owner->operation_requests[5]; // begin_rendering
-        if (auto result = apply_operations(); result != rhi::error::ok)
+        if (parent) {
+            ++parent->operation_requests[5]; // begin_rendering
+        }
+        if (auto result = apply_operations(); result != rhi::error::ok) {
             return result;
-        core* const self = this->owner;
+        }
+        core* const self = this->parent;
         VkCommandBuffer const command_buffer = this->native();
         if (self == nullptr || command_buffer == VK_NULL_HANDLE || !recording || rendering_active) {
             return rhi::error::not_ready;
@@ -2626,7 +2610,7 @@ namespace deren::vulkan {
             if (view == nullptr || !rhi::is_concrete(*view, concrete::image_view)) {
                 return VK_NULL_HANDLE;
             }
-            return static_cast<owned_image_view const*>(view)->native_view;
+            return static_cast<core::image_view const*>(view)->native_view;
         };
         // THE BOUND IS THE PASS FRAMEWORK'S, NOT THIS FUNCTION'S: `pass::max_render_targets` is 8 and the
         // SCENE instance is the widest site (three surface targets + velocity + the scene colour + depth),
@@ -2705,10 +2689,12 @@ namespace deren::vulkan {
     }
 
     void core::frame_commands::end_rendering() noexcept {
-        if (owner)
-            ++owner->operation_requests[6]; // end_rendering
-        if (!recording || recording_error != rhi::error::ok)
+        if (parent) {
+            ++parent->operation_requests[6]; // end_rendering
+        }
+        if (!recording || recording_error != rhi::error::ok) {
             return;
+        }
         if (!rendering_active || rendering_inherited) {
             recording_error = rhi::error::invalid_argument;
             return;
@@ -2725,215 +2711,14 @@ namespace deren::vulkan {
         }
     }
 
-    rhi::error core::frame_commands::bind_pipeline(rhi::pipeline const& handle) {
-        if (owner)
-            ++owner->operation_requests[7]; // bind_pipeline
-        if (!recording || native() == VK_NULL_HANDLE)
-            return rhi::error::not_ready;
-        if (recording_error != rhi::error::ok)
-            return recording_error;
-        if (!recording) {
-            return rhi::error::not_ready;
-        }
-        VkCommandBuffer const command_buffer = this->native();
-        if (command_buffer == VK_NULL_HANDLE) {
-            return rhi::error::not_ready;
-        }
-        if (!rhi::is_concrete(handle, concrete::pipeline)) {
-            return rhi::error::invalid_argument;
-        }
-        {
-            std::lock_guard lock(owner->resource.contract_pipelines_mutex);
-            if (!owner->resource.contract_pipelines.contains(&handle)) {
-                return rhi::error::invalid_argument;
-            }
-        }
-        auto const* const owned = rhi::do_concrete<owned_pipeline>(handle, concrete::pipeline);
-        operations.append<rec::operation_kind::pipeline>({reinterpret_cast<std::uintptr_t>(owned), owned->identity});
-        ++owner->deferred_requested;
-        bound_pipeline = owned;
-        return rhi::error::ok;
-    }
-
-    rhi::error core::frame_commands::bind_vertex_buffer(rhi::buffer const& handle, std::uint64_t const offset) {
-        if (owner)
-            ++owner->operation_requests[8]; // bind_vertex_buffer
-        if (!recording || native() == VK_NULL_HANDLE)
-            return rhi::error::not_ready;
-        if (recording_error != rhi::error::ok)
-            return recording_error;
-        VkCommandBuffer const command_buffer = this->native();
-        if (command_buffer == VK_NULL_HANDLE) {
-            return rhi::error::not_ready;
-        }
-        if (!rhi::is_concrete(handle, concrete::buffer)) {
-            return rhi::error::invalid_argument;
-        }
-        {
-            std::lock_guard lock(owner->resource.contract_buffers_mutex);
-            if (!owner->resource.contract_buffers.contains(&handle))
-                return rhi::error::invalid_argument;
-        }
-        auto const* const owned = static_cast<owned_buffer const*>(&handle);
-        if (owned->owner != owner || offset >= owned->size_bytes)
-            return rhi::error::invalid_argument;
-        retain_lazy(*owned);
-        operations.append<rec::operation_kind::vertex>({reinterpret_cast<std::uintptr_t>(owned), owned->identity, offset});
-        ++owner->deferred_requested;
-        return rhi::error::ok;
-    }
-
-    rhi::error core::frame_commands::bind_index_buffer(rhi::buffer const& handle, std::uint64_t const offset, rhi::index_type const type) {
-        if (owner)
-            ++owner->operation_requests[9]; // bind_index_buffer
-        if (!recording || native() == VK_NULL_HANDLE)
-            return rhi::error::not_ready;
-        if (recording_error != rhi::error::ok)
-            return recording_error;
-        VkCommandBuffer const command_buffer = this->native();
-        if (command_buffer == VK_NULL_HANDLE) {
-            return rhi::error::not_ready;
-        }
-        if (!rhi::is_concrete(handle, concrete::buffer)) {
-            return rhi::error::invalid_argument;
-        }
-        {
-            std::lock_guard lock(owner->resource.contract_buffers_mutex);
-            if (!owner->resource.contract_buffers.contains(&handle))
-                return rhi::error::invalid_argument;
-        }
-        auto const* const owned = static_cast<owned_buffer const*>(&handle);
-        if (owned->owner != owner || offset >= owned->size_bytes)
-            return rhi::error::invalid_argument;
-        if ((type != rhi::index_type::uint16 && type != rhi::index_type::uint32) ||
-            offset % (type == rhi::index_type::uint32 ? 4 : 2))
-            return rhi::error::invalid_argument;
-        retain_lazy(*owned);
-        operations.append<rec::operation_kind::index>({reinterpret_cast<std::uintptr_t>(owned), owned->identity, offset, static_cast<std::uint64_t>(type)});
-        ++owner->deferred_requested;
-        return rhi::error::ok;
-    }
-
-    void core::frame_commands::draw(std::uint32_t const vertex_count, std::uint32_t const instance_count, std::uint32_t const first_vertex, std::uint32_t const first_instance) noexcept {
-        if (owner)
-            ++owner->operation_requests[10]; // draw
-        if (!recording || native() == VK_NULL_HANDLE || recording_error != rhi::error::ok)
-            return;
-        if (!rendering_active) {
-            recording_error = rhi::error::invalid_argument;
-            return;
-        }
-        operations.append<rec::operation_kind::draw>({vertex_count, instance_count, first_vertex, first_instance});
-        ++owner->deferred_requested;
-    }
-
-    void core::frame_commands::draw_indexed(std::uint32_t const index_count, std::uint32_t const instance_count, std::uint32_t const first_index, std::int32_t const vertex_offset, std::uint32_t const first_instance) noexcept {
-        if (owner)
-            ++owner->operation_requests[11]; // draw_indexed
-        if (!recording || native() == VK_NULL_HANDLE || recording_error != rhi::error::ok)
-            return;
-        if (!rendering_active) {
-            recording_error = rhi::error::invalid_argument;
-            return;
-        }
-        operations.append<rec::operation_kind::draw_indexed>({index_count, instance_count, first_index, static_cast<std::uint32_t>(vertex_offset), first_instance});
-        ++owner->deferred_requested;
-    }
-
-    rhi::error core::frame_commands::dispatch_indirect(rhi::buffer const& arguments, std::uint64_t offset) {
-        if (owner)
-            ++owner->operation_requests[12]; // dispatch_indirect
-        if (!recording || native() == VK_NULL_HANDLE)
-            return rhi::error::not_ready;
-        if (recording_error != rhi::error::ok)
-            return recording_error;
-        auto* self = this->owner;
-        auto const command = this->native();
-        if (!self || command == VK_NULL_HANDLE)
-            return rhi::error::not_ready;
-        if (!rhi::is_concrete(arguments, concrete::buffer))
-            return rhi::error::invalid_argument;
-        {
-            std::lock_guard lock(owner->resource.contract_buffers_mutex);
-            if (!owner->resource.contract_buffers.contains(&arguments))
-                return rhi::error::invalid_argument;
-        }
-        auto const* owned = static_cast<owned_buffer const*>(&arguments);
-        if (owned->owner != self || !rhi::has_flag(owned->declared_flags, rhi::buffer_flag::indirect) ||
-            rhi::validate_dispatch_indirect_range(owned->size_bytes, offset) != rhi::error::ok)
-            return rhi::error::invalid_argument;
-        if (rendering_active)
-            return rhi::error::invalid_argument;
-        operations.append<rec::operation_kind::dispatch_indirect>({reinterpret_cast<std::uintptr_t>(owned), owned->identity, offset, 1, 0});
-        ++owner->deferred_requested;
-        return rhi::error::ok;
-    }
-
-    void core::frame_commands::dispatch(std::uint32_t const groups_x, std::uint32_t const groups_y, std::uint32_t const groups_z) noexcept {
-        if (owner)
-            ++owner->operation_requests[13]; // dispatch
-        if (!recording || native() == VK_NULL_HANDLE || recording_error != rhi::error::ok)
-            return;
-        if (rendering_active) {
-            recording_error = rhi::error::invalid_argument;
-            return;
-        }
-        operations.append<rec::operation_kind::dispatch>({groups_x, groups_y, groups_z});
-        ++owner->deferred_requested;
-    }
-
-    void core::frame_commands::draw_mesh_tasks(std::uint32_t const groups_x, std::uint32_t const groups_y, std::uint32_t const groups_z) noexcept {
-        if (owner)
-            ++owner->operation_requests[14]; // draw_mesh_tasks
-        if (!recording || native() == VK_NULL_HANDLE || recording_error != rhi::error::ok)
-            return;
-        if (!rendering_active) {
-            recording_error = rhi::error::invalid_argument;
-            return;
-        }
-        if (!owner->device.mesh_dispatch) {
-            recording_error = rhi::error::unsupported;
-            return;
-        }
-        operations.append<rec::operation_kind::mesh>({groups_x, groups_y, groups_z});
-        ++owner->deferred_requested;
-    }
-
-    void core::frame_commands::trace_rays(rhi::shader_binding_table_region const& raygen, rhi::shader_binding_table_region const& miss,
-                                          rhi::shader_binding_table_region const& hit, rhi::shader_binding_table_region const& callable,
-                                          std::uint32_t const width, std::uint32_t const height, std::uint32_t const depth) noexcept {
-        if (owner)
-            ++owner->operation_requests[15]; // trace_rays
-        if (!recording || native() == VK_NULL_HANDLE || recording_error != rhi::error::ok)
-            return;
-        if (rendering_active) {
-            recording_error = rhi::error::invalid_argument;
-            return;
-        }
-        if (!owner->device.ray_trace_launch) {
-            recording_error = rhi::error::unsupported;
-            return;
-        }
-        operations.append<rec::operation_kind::trace>({raygen.address, raygen.stride, raygen.size,
-                                                       miss.address, miss.stride, miss.size, hit.address, hit.stride, hit.size,
-                                                       callable.address, callable.stride, callable.size, width, height, depth});
-        ++owner->deferred_requested;
-    }
-
-    rhi::unique_object<rhi::micromap> core::create_micromap(rhi::micromap_desc const& declared_desc) {
-        return this->resource.create_micromap(declared_desc);
-    }
-
-    rhi::unique_object<rhi::acceleration_structure> core::create_acceleration_structure(rhi::acceleration_structure_desc const& declared_desc) {
-        return this->resource.create_acceleration_structure(declared_desc);
-    }
-
     rhi::error core::frame_commands::build_micromap(rhi::micromap& target) {
-        if (owner)
-            ++owner->operation_requests[16]; // build_micromap
-        if (auto result = apply_operations(); result != rhi::error::ok)
+        if (parent) {
+            ++parent->operation_requests[16]; // build_micromap
+        }
+        if (auto result = apply_operations(); result != rhi::error::ok) {
             return result;
-        core* const self = this->owner;
+        }
+        core* const self = this->parent;
         VkCommandBuffer const command_buffer = this->native();
         if (self == nullptr || command_buffer == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
@@ -2944,8 +2729,8 @@ namespace deren::vulkan {
         if (!rhi::is_concrete(target, concrete::micromap)) {
             return rhi::error::invalid_argument; // a handle this backend did not hand out
         }
-        auto& micromap = static_cast<owned_micromap&>(target);
-        if (micromap.owner != self || micromap.native == VK_NULL_HANDLE) {
+        auto& micromap = static_cast<core::micromap&>(target);
+        if (micromap.parent != self || micromap.native == VK_NULL_HANDLE) {
             return rhi::error::invalid_argument;
         }
         // THE BARRIER IS THE BACKEND'S, as it is for an acceleration structure build: the setup buffers were
@@ -2986,15 +2771,15 @@ namespace deren::vulkan {
         return rhi::error::ok;
     }
 
-    void core::owned_micromap::release() noexcept {
+    void core::micromap::release() noexcept {
         delete this;
     }
 
-    core::owned_micromap::~owned_micromap() noexcept {
+    core::micromap::~micromap() noexcept {
         // THE ORDER IS THE POINT, as it is for an acceleration structure: the micromap first, then the memory it
         // lives in and the setup buffers the build read.
-        if (this->native != VK_NULL_HANDLE && this->owner != nullptr && this->owner->device.micromap_destroy != nullptr) {
-            this->owner->device.micromap_destroy(this->owner->device.logical_device, this->native, nullptr);
+        if (this->native != VK_NULL_HANDLE && this->parent != nullptr && this->parent->device.micromap_destroy != nullptr) {
+            this->parent->device.micromap_destroy(this->parent->device.logical_device, this->native, nullptr);
         }
         for (deren::promise::rhi::buffer* const buffer : {this->indices, this->triangles, this->data, this->scratch, this->storage}) {
             if (buffer != nullptr) {
@@ -3004,11 +2789,13 @@ namespace deren::vulkan {
     }
 
     rhi::error core::frame_commands::build_acceleration_structure(rhi::acceleration_structure& target) {
-        if (owner)
-            ++owner->operation_requests[17]; // build_acceleration_structure
-        if (auto result = apply_operations(); result != rhi::error::ok)
+        if (parent) {
+            ++parent->operation_requests[17]; // build_acceleration_structure
+        }
+        if (auto result = apply_operations(); result != rhi::error::ok) {
             return result;
-        core* const self = this->owner;
+        }
+        core* const self = this->parent;
         VkCommandBuffer const command_buffer = this->native();
         if (self == nullptr || command_buffer == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
@@ -3019,8 +2806,8 @@ namespace deren::vulkan {
         if (!rhi::is_concrete(target, concrete::acceleration_structure)) {
             return rhi::error::invalid_argument; // a handle this backend did not hand out (the provenance rule)
         }
-        auto& structure = static_cast<owned_acceleration_structure&>(target);
-        if (structure.owner != self) {
+        auto& structure = static_cast<core::acceleration_structure&>(target);
+        if (structure.parent != self) {
             return rhi::error::invalid_argument;
         }
         if (structure.top_level && structure.instance_count == 0) {
@@ -3072,11 +2859,13 @@ namespace deren::vulkan {
     }
 
     rhi::error core::frame_commands::refit_acceleration_structure(rhi::acceleration_structure& target) {
-        if (owner)
-            ++owner->operation_requests[18]; // refit_acceleration_structure
-        if (auto result = apply_operations(); result != rhi::error::ok)
+        if (parent) {
+            ++parent->operation_requests[18]; // refit_acceleration_structure
+        }
+        if (auto result = apply_operations(); result != rhi::error::ok) {
             return result;
-        core* const self = this->owner;
+        }
+        core* const self = this->parent;
         VkCommandBuffer const command_buffer = this->native();
         if (self == nullptr || command_buffer == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
@@ -3087,8 +2876,8 @@ namespace deren::vulkan {
         if (!rhi::is_concrete(target, concrete::acceleration_structure)) {
             return rhi::error::invalid_argument;
         }
-        auto& structure = static_cast<owned_acceleration_structure&>(target);
-        if (structure.owner != self) {
+        auto& structure = static_cast<core::acceleration_structure&>(target);
+        if (structure.parent != self) {
             return rhi::error::invalid_argument;
         }
         if (!structure.refittable) {
@@ -3138,15 +2927,15 @@ namespace deren::vulkan {
 
     // ---- the owned acceleration structure's own verbs -----------------------------------------------------
 
-    std::uint64_t core::owned_acceleration_structure::device_address() const noexcept {
+    std::uint64_t core::acceleration_structure::device_address() const noexcept {
         return this->address;
     }
 
-    std::uint64_t core::owned_acceleration_structure::size_bytes() const noexcept {
+    std::uint64_t core::acceleration_structure::size_bytes() const noexcept {
         return this->structure_size;
     }
 
-    rhi::error core::owned_acceleration_structure::write_instances(std::span<rhi::acceleration_structure_instance const> records) {
+    rhi::error core::acceleration_structure::write_instances(std::span<rhi::acceleration_structure_instance const> records) {
         if (!this->top_level || this->instances_mapped == nullptr) {
             return rhi::error::unsupported; // a bottom-level structure has no instance list to write
         }
@@ -3169,22 +2958,22 @@ namespace deren::vulkan {
         return rhi::error::ok;
     }
 
-    void core::owned_acceleration_structure::release() noexcept {
-        if (owner) {
-            std::lock_guard lock(owner->resource.group_members_mutex);
-            owner->resource.group_members.erase(this);
+    void core::acceleration_structure::release() noexcept {
+        if (parent) {
+            std::lock_guard lock(parent->resource.group_members_mutex);
+            parent->resource.group_members.erase(this);
         }
         delete this;
     }
 
-    core::owned_acceleration_structure::~owned_acceleration_structure() noexcept {
-        if (owner) {
-            std::lock_guard lock(owner->resource.contract_structures_mutex);
-            owner->resource.contract_structures.erase(this);
+    core::acceleration_structure::~acceleration_structure() noexcept {
+        if (parent) {
+            std::lock_guard lock(parent->resource.contract_structures_mutex);
+            parent->resource.contract_structures.erase(this);
         }
         // THE ORDER IS THE POINT (see the type's note): the structure first, then the memory it lives in.
-        if (this->native != VK_NULL_HANDLE && this->owner != nullptr && this->owner->device.acceleration_structure_destroy != nullptr) {
-            this->owner->device.acceleration_structure_destroy(this->owner->device.logical_device, this->native, nullptr);
+        if (this->native != VK_NULL_HANDLE && this->parent != nullptr && this->parent->device.acceleration_structure_destroy != nullptr) {
+            this->parent->device.acceleration_structure_destroy(this->parent->device.logical_device, this->native, nullptr);
         }
         if (this->instances != nullptr) {
             this->instances->release();
@@ -3197,46 +2986,54 @@ namespace deren::vulkan {
         }
     }
     rhi::error core::frame_commands::draw_indirect(rhi::buffer const& arguments, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) {
-        if (owner)
-            ++owner->operation_requests[19]; // draw_indirect
-        if (!recording || native() == VK_NULL_HANDLE)
+        if (parent) {
+            ++parent->operation_requests[19]; // draw_indirect
+        }
+        if (!recording || native() == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
-        if (recording_error != rhi::error::ok)
+        }
+        if (recording_error != rhi::error::ok) {
             return recording_error;
+        }
         static_assert(sizeof(VkDrawIndirectCommand) == sizeof(rhi::draw_indirect_command));
-        if (this->owner == nullptr || !this->recording || this->native() == VK_NULL_HANDLE) {
+        if (this->parent == nullptr || !this->recording || this->native() == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
         }
         if (!rhi::is_concrete(arguments, concrete::buffer)) {
             return rhi::error::invalid_argument;
         }
         {
-            std::lock_guard lock(owner->resource.contract_buffers_mutex);
-            if (!owner->resource.contract_buffers.contains(&arguments))
+            std::lock_guard lock(parent->resource.contract_buffers_mutex);
+            if (!parent->resource.contract_buffers.contains(&arguments)) {
                 return rhi::error::invalid_argument;
+            }
         }
-        auto const& owned = static_cast<owned_buffer const&>(arguments);
-        if (owned.owner != this->owner || !rhi::has_flag(owned.declared_flags, rhi::buffer_flag::indirect)) {
+        auto const& concrete = static_cast<core::buffer const&>(arguments);
+        if (concrete.parent != this->parent || !rhi::has_flag(concrete.declared_flags, rhi::buffer_flag::indirect)) {
             return rhi::error::invalid_argument;
         }
-        auto const valid = rhi::validate_draw_indirect_range(owned.size_bytes, offset, count, stride);
+        auto const valid = rhi::validate_draw_indirect_range(concrete.size_bytes, offset, count, stride);
         if (valid != rhi::error::ok || count == 0u) {
             return valid;
         }
-        if (!rendering_active)
+        if (!rendering_active) {
             return rhi::error::invalid_argument;
-        operations.append<rec::operation_kind::draw_indirect>({reinterpret_cast<std::uintptr_t>(&owned), owned.identity, offset, count, stride});
-        ++owner->deferred_requested;
+        }
+        operations.append<rec::operation_kind::draw_indirect>({reinterpret_cast<std::uintptr_t>(&concrete), concrete.identity, offset, count, stride});
+        ++parent->deferred_requested;
         return rhi::error::ok;
     }
 
     rhi::error core::frame_commands::draw_mesh_tasks_indirect(rhi::buffer const& argument_buffer, std::uint64_t const offset, std::uint32_t const count, std::uint32_t const stride) {
-        if (owner)
-            ++owner->operation_requests[20]; // draw_mesh_tasks_indirect
-        if (!recording || native() == VK_NULL_HANDLE)
+        if (parent) {
+            ++parent->operation_requests[20]; // draw_mesh_tasks_indirect
+        }
+        if (!recording || native() == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
-        if (recording_error != rhi::error::ok)
+        }
+        if (recording_error != rhi::error::ok) {
             return recording_error;
+        }
         // THE CONTRACT'S RECORD LAYOUT IS THE API'S, AND THIS IS WHERE THAT IS PROVEN: callers write
         // `rhi::mesh_task_command` records into their argument buffer and pass `mesh_task_command_size` as the
         // stride, so the two structures must be the same bytes. The backend is the only side that can assert it
@@ -3245,7 +3042,7 @@ namespace deren::vulkan {
                       "the argument buffer's record IS the contract's layout, and the stride its size");
         static_assert(sizeof(VkDrawMeshTasksIndirectCommandEXT) == sizeof(rhi::mesh_task_command),
                       "the contract's record and the API's structure must agree");
-        core* const self = this->owner;
+        core* const self = this->parent;
         VkCommandBuffer const command_buffer = this->native();
         if (self == nullptr || command_buffer == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
@@ -3257,74 +3054,35 @@ namespace deren::vulkan {
             return rhi::error::unsupported; // no mesh-shader extension entry point on this device
         }
         {
-            std::lock_guard lock(owner->resource.contract_buffers_mutex);
-            if (!owner->resource.contract_buffers.contains(&argument_buffer))
+            std::lock_guard lock(parent->resource.contract_buffers_mutex);
+            if (!parent->resource.contract_buffers.contains(&argument_buffer)) {
                 return rhi::error::invalid_argument;
+            }
         }
-        auto const* const owned = static_cast<owned_buffer const*>(&argument_buffer);
-        if (owned->owner != owner || !rhi::has_flag(owned->declared_flags, rhi::buffer_flag::indirect))
+        auto const* const concrete = static_cast<core::buffer const*>(&argument_buffer);
+        if (concrete->parent != parent || !rhi::has_flag(concrete->declared_flags, rhi::buffer_flag::indirect)) {
             return rhi::error::invalid_argument;
-        auto const valid = rhi::validate_mesh_task_indirect_range(owned->size_bytes, offset, count, stride);
-        if (valid != rhi::error::ok || count == 0)
+        }
+        auto const valid = rhi::validate_mesh_task_indirect_range(concrete->size_bytes, offset, count, stride);
+        if (valid != rhi::error::ok || count == 0) {
             return valid;
-        if (!rendering_active)
+        }
+        if (!rendering_active) {
             return rhi::error::invalid_argument;
-        operations.append<rec::operation_kind::mesh_indirect>({reinterpret_cast<std::uintptr_t>(owned), owned->identity, offset, count, stride});
-        ++owner->deferred_requested;
+        }
+        operations.append<rec::operation_kind::mesh_indirect>({reinterpret_cast<std::uintptr_t>(concrete), concrete->identity, offset, count, stride});
+        ++parent->deferred_requested;
         return rhi::error::ok;
     }
 
-    void core::frame_commands::set_viewport(rhi::viewport const& vp) noexcept {
-        if (owner)
-            ++owner->operation_requests[21]; // set_viewport
-        if (!recording || native() == VK_NULL_HANDLE || recording_error != rhi::error::ok)
-            return;
-        operations.append<rec::operation_kind::viewport>(rec::pack(deren::utility::vessel::array<float, 6>{vp.x, vp.y, vp.width, vp.height, vp.min_depth, vp.max_depth}));
-        ++owner->deferred_requested;
-    }
-
-    void core::frame_commands::set_scissor(rhi::rect const& scissor) noexcept {
-        if (owner)
-            ++owner->operation_requests[22]; // set_scissor
-        if (!recording || native() == VK_NULL_HANDLE || recording_error != rhi::error::ok)
-            return;
-        operations.append<rec::operation_kind::scissor>(rec::pack(deren::utility::vessel::array<std::uint32_t, 4>{static_cast<std::uint32_t>(scissor.offset_x), static_cast<std::uint32_t>(scissor.offset_y), scissor.width, scissor.height}));
-        ++owner->deferred_requested;
-    }
-
-    void core::frame_commands::set_cull_mode(rhi::cull_mode const mode) noexcept {
-        if (owner)
-            ++owner->operation_requests[23]; // set_cull_mode
-        if (!recording || native() == VK_NULL_HANDLE || recording_error != rhi::error::ok)
-            return;
-        operations.append<rec::operation_kind::cull>(rec::words{static_cast<std::uint64_t>(mode)});
-        ++owner->deferred_requested;
-    }
-
-    void core::frame_commands::set_depth_write(bool const enable) noexcept {
-        if (owner)
-            ++owner->operation_requests[24]; // set_depth_write
-        if (!recording || native() == VK_NULL_HANDLE || recording_error != rhi::error::ok)
-            return;
-        operations.append<rec::operation_kind::depth_write>(rec::words{enable});
-        ++owner->deferred_requested;
-    }
-
-    void core::frame_commands::set_depth_bias(float const constant_factor, float const slope_factor, float const clamp) noexcept {
-        if (owner)
-            ++owner->operation_requests[25]; // set_depth_bias
-        if (!recording || native() == VK_NULL_HANDLE || recording_error != rhi::error::ok)
-            return;
-        operations.append<rec::operation_kind::depth_bias>(rec::pack(deren::utility::vessel::array<float, 3>{constant_factor, slope_factor, clamp}));
-        ++owner->deferred_requested;
-    }
-
     rhi::error core::frame_commands::copy_image(rhi::image_copy const& copy) {
-        if (owner)
-            ++owner->operation_requests[26]; // copy_image
-        if (auto result = apply_operations(); result != rhi::error::ok)
+        if (parent) {
+            ++parent->operation_requests[26]; // copy_image
+        }
+        if (auto result = apply_operations(); result != rhi::error::ok) {
             return result;
-        core* const self = this->owner;
+        }
+        core* const self = this->parent;
         VkCommandBuffer const command_buffer = this->native();
         if (self == nullptr || command_buffer == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
@@ -3340,14 +3098,15 @@ namespace deren::vulkan {
                 !self->resource.contract_images.contains(copy.destination)) {
                 return rhi::error::invalid_argument;
             }
-            auto const* const source_owned = rhi::do_concrete<owned_image>(*copy.source, concrete::image);
-            auto const* const destination_owned = rhi::do_concrete<owned_image>(*copy.destination, concrete::image);
-            if (source_owned->source || destination_owned->source)
+            auto const* const source_resource = rhi::do_concrete<core::image>(*copy.source, concrete::image);
+            auto const* const destination_resource = rhi::do_concrete<core::image>(*copy.destination, concrete::image);
+            if (source_resource->source || destination_resource->source) {
                 return rhi::error::unsupported;
-            source_native = source_owned->native_handle;
-            source_format = source_owned->resolved_format;
-            destination_native = destination_owned->native_handle;
-            destination_format = destination_owned->resolved_format;
+            }
+            source_native = source_resource->native_handle;
+            source_format = source_resource->resolved_format;
+            destination_native = destination_resource->native_handle;
+            destination_format = destination_resource->resolved_format;
         }
         auto const layer_of = [](rhi::image_copy_region const& region) {
             return VkImageSubresourceLayers{VK_IMAGE_ASPECT_COLOR_BIT, region.mip_level, region.base_array_layer,
@@ -3382,10 +3141,12 @@ namespace deren::vulkan {
 
     rhi::error core::frame_commands::copy_buffer(rhi::buffer& destination, rhi::buffer const& source, std::uint64_t const size, std::uint64_t const source_offset,
                                                  std::uint64_t const destination_offset) {
-        if (owner)
-            ++owner->operation_requests[27]; // copy_buffer
-        if (auto result = apply_operations(); result != rhi::error::ok)
+        if (parent) {
+            ++parent->operation_requests[27]; // copy_buffer
+        }
+        if (auto result = apply_operations(); result != rhi::error::ok) {
             return result;
+        }
         VkCommandBuffer const command_buffer = this->native();
         if (command_buffer == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
@@ -3393,13 +3154,14 @@ namespace deren::vulkan {
         if (!rhi::is_concrete(destination, concrete::buffer) || !rhi::is_concrete(source, concrete::buffer)) {
             return rhi::error::invalid_argument;
         }
-        auto const* const destination_owned = static_cast<owned_buffer const*>(&destination);
-        auto const* const source_owned = static_cast<owned_buffer const*>(&source);
-        if (destination_owned->source || source_owned->source)
+        auto const* const destination_resource = static_cast<core::buffer const*>(&destination);
+        auto const* const source_resource = static_cast<core::buffer const*>(&source);
+        if (destination_resource->source || source_resource->source) {
             return rhi::error::unsupported;
+        }
         // ABI 53: reject an empty copy or an overrun instead of handing it to vkCmdCopyBuffer2.
-        if (size == 0u || source_offset > source_owned->size_bytes || size > source_owned->size_bytes - source_offset ||
-            destination_offset > destination_owned->size_bytes || size > destination_owned->size_bytes - destination_offset) {
+        if (size == 0u || source_offset > source_resource->size_bytes || size > source_resource->size_bytes - source_offset ||
+            destination_offset > destination_resource->size_bytes || size > destination_resource->size_bytes - destination_offset) {
             return rhi::error::invalid_argument;
         }
         VkBufferCopy2 const regions = {
@@ -3412,8 +3174,8 @@ namespace deren::vulkan {
         VkCopyBufferInfo2 const copy_info = {
             .sType = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2,
             .pNext = nullptr,
-            .srcBuffer = source_owned->native,
-            .dstBuffer = destination_owned->native,
+            .srcBuffer = source_resource->native,
+            .dstBuffer = destination_resource->native,
             .regionCount = 1,
             .pRegions = &regions,
         };
@@ -3422,11 +3184,13 @@ namespace deren::vulkan {
     }
 
     rhi::error core::frame_commands::clear_color_image(rhi::image const& target, deren::utility::vessel::array<float, 4> const& color, rhi::subresource_range const& range) {
-        if (owner)
-            ++owner->operation_requests[28]; // clear_color_image
-        if (auto result = apply_operations(); result != rhi::error::ok)
+        if (parent) {
+            ++parent->operation_requests[28]; // clear_color_image
+        }
+        if (auto result = apply_operations(); result != rhi::error::ok) {
             return result;
-        core* const self = this->owner;
+        }
+        core* const self = this->parent;
         VkCommandBuffer const command_buffer = this->native();
         if (self == nullptr || command_buffer == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
@@ -3438,12 +3202,13 @@ namespace deren::vulkan {
         if (!self->resource.contract_images.contains(&target)) {
             return rhi::error::invalid_argument;
         }
-        auto const* const owned = static_cast<owned_image const*>(&target);
-        if (owned->source)
+        auto const* const concrete = static_cast<core::image const*>(&target);
+        if (concrete->source) {
             return rhi::error::unsupported;
+        }
         VkClearColorValue const clear = {.float32 = {color[0], color[1], color[2], color[3]}};
         VkImageSubresourceRange const native_range = subresource_of(VK_IMAGE_ASPECT_COLOR_BIT, range);
-        vkCmdClearColorImage(command_buffer, owned->native_handle, VK_IMAGE_LAYOUT_GENERAL, &clear, 1, &native_range);
+        vkCmdClearColorImage(command_buffer, concrete->native_handle, VK_IMAGE_LAYOUT_GENERAL, &clear, 1, &native_range);
         return rhi::error::ok;
     }
 
@@ -3458,19 +3223,19 @@ namespace deren::vulkan {
         // does not need one, because the answer it computes (`vkGetBufferDeviceAddress`) is only defined
         // for a buffer this device created in the first place. So: a `static_cast` on a documented
         // precondition, not a hopeful assumption.
-        auto const* const owned = static_cast<owned_buffer const*>(&resource);
-        if (this->owner == nullptr || !owned->addressable || owned->source) {
+        auto const* const concrete = static_cast<core::buffer const*>(&resource);
+        if (this->parent == nullptr || !concrete->addressable || concrete->source) {
             // ASKED FOR NOTHING, GET NOTHING: a buffer created without `buffer_flag::device_address` has
             // no address to report (Vulkan only allows the call for a buffer created with that usage),
             // and 0 is the contract's spelling of "none" - the module's own guard, not a failure.
             return 0ull;
         }
-        VkBufferDeviceAddressInfo const query = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = owned->native};
-        std::uint64_t const address = static_cast<std::uint64_t>(vkGetBufferDeviceAddress(this->owner->device.logical_device, &query));
+        VkBufferDeviceAddressInfo const query = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = concrete->native};
+        std::uint64_t const address = static_cast<std::uint64_t>(vkGetBufferDeviceAddress(this->parent->device.logical_device, &query));
         if (address == 0u) {
             deren::utility::log("rhi: buffer_address() answered 0 for native {:#x} (usage flags {:#x}) - the address is only defined when the device enabled "
                                 "bufferDeviceAddress, which is what the flag promised",
-                                reinterpret_cast<std::uintptr_t>(owned->native), owned->declared_flags);
+                                reinterpret_cast<std::uintptr_t>(concrete->native), concrete->declared_flags);
         }
         return address + offset;
     }
@@ -3487,25 +3252,25 @@ namespace deren::vulkan {
 
     rhi::error core::frame_shader_group_access::read(rhi::pipeline const& resource, std::uint32_t const first_group,
                                                      std::uint32_t const group_count, std::span<std::uint8_t> const out) const noexcept {
-        if (this->owner == nullptr || !this->owner->device.ray_tracing_pipeline_available) {
+        if (this->parent == nullptr || !this->parent->device.ray_tracing_pipeline_available) {
             return rhi::error::unsupported;
         }
-        core& self = *this->owner;
+        core& self = *this->parent;
         std::lock_guard const lock(self.resource.contract_pipelines_mutex);
         if (!self.resource.contract_pipelines.contains(&resource)) {
             return rhi::error::invalid_argument;
         }
-        auto const& owned = static_cast<owned_pipeline const&>(resource);
+        auto const& concrete = static_cast<core::pipeline const&>(resource);
         std::uint64_t const required = static_cast<std::uint64_t>(group_count) * self.device.ray_tracing_pipeline_properties.shaderGroupHandleSize;
-        if (owned.bind_point != VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR || group_count == 0 ||
-            first_group >= owned.group_count || group_count > owned.group_count - first_group || required == 0 || required > out.size()) {
+        if (concrete.bind_point != VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR || group_count == 0 ||
+            first_group >= concrete.group_count || group_count > concrete.group_count - first_group || required == 0 || required > out.size()) {
             return rhi::error::invalid_argument;
         }
         auto const query = reinterpret_cast<PFN_vkGetRayTracingShaderGroupHandlesKHR>(vkGetDeviceProcAddr(self.device.logical_device, "vkGetRayTracingShaderGroupHandlesKHR"));
         if (query == nullptr) {
             return rhi::error::unsupported;
         }
-        VkResult const result = query(self.device.logical_device, owned.native_handle, first_group, group_count,
+        VkResult const result = query(self.device.logical_device, concrete.native_handle, first_group, group_count,
                                       static_cast<std::size_t>(required), out.data());
         return generic_error(result);
     }
@@ -3574,50 +3339,50 @@ namespace deren::vulkan {
     // struct would have: false for the features, zero for the numbers - the callers' own guard rails treat a
     // zero limit as "visibly not a device" (the note `physical_properties_of` used to carry).
     bool core::frame_device_capabilities::compute_indirect() const noexcept {
-        return this->owner != nullptr;
+        return this->parent != nullptr;
     }
 
     bool core::frame_device_capabilities::buffer_int64_atomics() const noexcept {
-        return this->owner != nullptr && this->owner->device.buffer_int64_atomics_available;
+        return this->parent != nullptr && this->parent->device.buffer_int64_atomics_available;
     }
 
     bool core::frame_device_capabilities::mesh_shader() const noexcept {
-        return this->owner != nullptr && this->owner->device.mesh_shader_available;
+        return this->parent != nullptr && this->parent->device.mesh_shader_available;
     }
 
     bool core::frame_device_capabilities::ray_query() const noexcept {
-        return this->owner != nullptr && this->owner->device.ray_query_available;
+        return this->parent != nullptr && this->parent->device.ray_query_available;
     }
 
     std::uint32_t core::frame_device_capabilities::max_push_constants_size() const noexcept {
-        return this->owner != nullptr ? this->owner->resource.descriptor_heaps.push_capacity() : 0u;
+        return this->parent != nullptr ? this->parent->resource.descriptor_heaps.push_capacity() : 0u;
     }
 
     std::uint32_t core::frame_device_capabilities::graphics_queue_family() const noexcept {
-        return this->owner == nullptr ? 0u : this->owner->device.graphics_queue_family_index;
+        return this->parent == nullptr ? 0u : this->parent->device.graphics_queue_family_index;
     }
 
     rhi::shader_binding_table_properties core::frame_device_capabilities::shader_binding_table() const noexcept {
-        if (this->owner == nullptr) {
+        if (this->parent == nullptr) {
             return {};
         }
-        auto const& properties = this->owner->device.ray_tracing_pipeline_properties;
+        auto const& properties = this->parent->device.ray_tracing_pipeline_properties;
         return rhi::shader_binding_table_properties{.handle_size = properties.shaderGroupHandleSize,
                                                     .handle_alignment = properties.shaderGroupHandleAlignment,
                                                     .base_alignment = properties.shaderGroupBaseAlignment};
     }
 
     std::uint64_t core::frame_device_capabilities::acceleration_structure_scratch_alignment() const noexcept {
-        return this->owner == nullptr ? 0u : this->owner->device.acceleration_structure_properties.minAccelerationStructureScratchOffsetAlignment;
+        return this->parent == nullptr ? 0u : this->parent->device.acceleration_structure_properties.minAccelerationStructureScratchOffsetAlignment;
     }
 
     std::uint64_t core::frame_device_capabilities::max_acceleration_structure_instances() const noexcept {
-        return this->owner == nullptr ? 0u : this->owner->device.acceleration_structure_properties.maxInstanceCount;
+        return this->parent == nullptr ? 0u : this->parent->device.acceleration_structure_properties.maxInstanceCount;
     }
 
     rhi::error core::frame_host_copy::copy_image_to_memory(rhi::image const& source, std::span<std::byte> destination,
                                                            rhi::image_copy_region const& region) noexcept {
-        core* const self = this->owner;
+        core* const self = this->parent;
         if (self == nullptr || !self->device.host_image_copy_available) {
             // The ability is announced ONLY when this holds, so a caller that checked `abilities()` never
             // sees this; one that did not gets the contract's named refusal rather than a call through a
@@ -3632,20 +3397,22 @@ namespace deren::vulkan {
         if (static_cast<void const*>(&source) == static_cast<void const*>(&self->frame.frame_image_view)) {
             return rhi::error::invalid_argument;
         }
-        auto const* const owned = static_cast<owned_image const*>(&source);
-        if (owned->source)
+        auto const* const concrete = static_cast<core::image const*>(&source);
+        if (concrete->source) {
             return rhi::error::unsupported;
-        if (owned->native_handle == VK_NULL_HANDLE) {
+        }
+        if (concrete->native_handle == VK_NULL_HANDLE) {
             return rhi::error::invalid_argument;
         }
-        return host_copy_image_out(*self, owned->native_handle, destination, region);
+        return host_copy_image_out(*self, concrete->native_handle, destination, region);
     }
 
     // ---- image::get_content (abi 25): THE CONTENT, NOT A HANDLE --------------------------------------
-    std::expected<rhi::image_content, rhi::error> core::owned_image::get_content(rhi::image_copy_region const& region) const {
-        if (source)
+    std::expected<rhi::image_content, rhi::error> core::image::get_content(rhi::image_copy_region const& region) const {
+        if (source) {
             return std::unexpected(rhi::error::unsupported);
-        core* const self = this->owner;
+        }
+        core* const self = this->parent;
         if (self == nullptr || this->native_handle == VK_NULL_HANDLE) {
             return std::unexpected(rhi::error::invalid_argument);
         }
@@ -3695,461 +3462,9 @@ namespace deren::vulkan {
     // probes do.
     std::expected<rhi::image_content, rhi::error> core::frame_image_slot::get_content(rhi::image_copy_region const& region) const {
         static_cast<void>(region);
-        if (this->owner == nullptr) {
+        if (this->parent == nullptr) {
             return std::unexpected(rhi::error::invalid_argument);
         }
         return std::unexpected(rhi::error::unsupported);
-    }
-
-    VkResult core::acquire_next_image(uint32_t& image_index) {
-        frame.frame_acquire_consumed = false;
-        if (this->create_options.native_window == nullptr) {
-            image_index = static_cast<uint32_t>(frame.current_frame);
-            frame.acquired_image_index = image_index;
-            frame.frame_in_flight = frame.frame_acquired = true;
-            ++frame.frame_acquire_epoch;
-            frame.async_present_queued = false;
-            return VK_SUCCESS;
-        }
-        // The frame slot in progress: submit() and wait_frame_slot() use `frame.current_frame` for it, and
-        // to_next_frame() advances it, so the acquire semaphore below is the one that slot's submission
-        // will wait on (VUID-vkAcquireNextImageKHR-semaphore-01779 needs the slot to be idle - the
-        // caller's wait_frame_slot() is what guarantees that).
-        uint32_t const slot = static_cast<uint32_t>(this->frame.current_frame);
-        VkResult result = VK_SUCCESS;
-        if (this->frame.prefetched_slot == slot) {
-            image_index = this->frame.prefetched_image;
-            this->frame.prefetched_slot = UINT32_MAX;
-        } else {
-            // acquire requires exclusive host access to this swapchain. If prefetch could not
-            // acquire an image, wait for the worker before accessing the WSI object again.
-            if (this->frame.present_pending.valid()) {
-                this->frame.present_pending.wait();
-            }
-            result = vkAcquireNextImageKHR(this->device.logical_device, this->frame.swap_chain, UINT64_MAX,
-                                           this->frame.image_available_semaphores[slot], VK_NULL_HANDLE, &image_index);
-        }
-        if (result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR) {
-            // THE FRAME IN FLIGHT IS NOW THIS IMAGE, and that is all `frame.frame_in_flight` means: from here
-            // until submit() hands the frame over, `begin_commands()` and `frame_image()` answer for it.
-            // Both spellings go through this one primitive - the contract's frame_begin() and the
-            // runtime's own pacing path - so neither can be "in flight" without the other knowing.
-            this->frame.acquired_image_index = image_index;
-            this->frame.async_present_queued = false;
-            this->frame.frame_in_flight = true;
-            // THE FRAME'S OWN RECORDING TARGET: while this frame is in flight the borrowed view's shared head
-            // names the frame slot's buffer; the frame's own submit/advance clears it. (The GUI overlay no
-            // longer records here - gui abi 5 gives the plugin its own two mergeable segments.)
-            this->frame.commands_view.set_target(this->frame_command_buffer());
-            // and this is what makes `frame_image()` answer at all: before the first successful acquire
-            // there is no last-acquired image, only a default index that happens to name one.
-            this->frame.frame_acquired = true;
-            ++this->frame.frame_acquire_epoch;
-        }
-        return result;
-    }
-
-    rhi::submit_info core::frame_begin() {
-        return this->frame.frame_begin();
-    }
-
-    rhi::error core::present() {
-        return this->frame.present();
-    }
-
-    void core::wait_idle() {
-        // The const facade call (source/backends/vulkan/core/core.cpp) is the implementation; the contract's virtual is
-        // not const, so this overload exists to forward into it.
-        core const& self = *this;
-        self.wait_idle();
-    }
-
-    rhi::swapchain* core::frame_swapchain() noexcept {
-        return this->frame.frame_swapchain();
-    }
-
-    rhi::error core::submit() {
-        return this->frame.submit();
-    }
-    rhi::error core::submit(rhi::command_buffer& commands) {
-        return this->command.submit(commands);
-    }
-    rhi::error core::submit_commands(rhi::command_buffer& commands, rhi::submission_token* token) {
-        if (token) {
-            *token = {};
-            if (&commands == &frame.commands_view) {
-                return rhi::error::unsupported;
-            }
-        }
-        // THE FRAME'S OWN LIST first, which is the shape this verb had from the start.
-        if (&commands != static_cast<rhi::command_buffer*>(&this->frame.commands_view)) {
-            // ---- AND THE CALLER'S OWN LIST (plan X4) ------------------------------------------------------
-            //
-            // WHAT THIS WIDENING IS FOR, and it is a WIDENING rather than a new slot (the signature does not
-            // move, so abi 27 stands): the probes record their read-back into a buffer THEY created
-            // (`create_command_buffer()`), and they used to hand it to the queue through the escape with a raw
-            // `vkQueueSubmit` (the escape is deleted in abi 43) - the last Vulkan reference the engine half had.
-            // A one-shot list the caller owns is the same operation the frame's list is (record -> submit to
-            // the graphics queue); what differs is
-            // that NOTHING IS PRESENTED, so the acquire state, the swapchain image and the semaphores are not
-            // involved. THE ORDERING STAYS THE CALLER'S (`wait_idle()`), exactly as it was when it submitted by
-            // hand - the contract has no fence for an owned buffer, and inventing one is not this batch's call.
-            {
-                std::lock_guard const lock(this->command.contract_command_buffers_mutex);
-                if (!this->command.contract_command_buffers.contains(&commands)) {
-                    return rhi::error::invalid_argument; // a list this backend did not hand out (provenance)
-                }
-            }
-            auto& owned = *rhi::do_concrete<core::owned_command_buffer>(commands, concrete::command_buffer);
-            if (owned.kind != rhi::command_buffer_kind::primary) {
-                return rhi::error::invalid_argument;
-            }
-            if (!owned.executable || owned.recording || owned.pending.load(std::memory_order_acquire)) {
-                return rhi::error::not_ready;
-            }
-            VkCommandBuffer const native = *owned.buffer;
-            if (native == VK_NULL_HANDLE || this->device.graphics_queue_handle == VK_NULL_HANDLE) {
-                return rhi::error::not_ready;
-            }
-            VkSubmitInfo one_shot = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                                     .pNext = nullptr,
-                                     .waitSemaphoreCount = 0,
-                                     .pWaitSemaphores = nullptr,
-                                     .pWaitDstStageMask = nullptr,
-                                     .commandBufferCount = 1,
-                                     .pCommandBuffers = &native,
-                                     .signalSemaphoreCount = 0,
-                                     .pSignalSemaphores = nullptr};
-            auto submission = std::make_unique<pending_submission>();
-            submission->owner = this;
-            submission->primary = retain_command(owned, false);
-            submission->groups = owned.group_refs;
-            submission->resources = owned.resource_refs;
-            submission->lazy_refs = owned.lazy_refs;
-            submission->secondaries = owned.secondary_refs;
-            std::lock_guard lock(command.submissions_mutex);
-            if (token) {
-                if (command.completion_failure != rhi::error::ok) {
-                    return command.completion_failure;
-                }
-                if (command.completion_sequence == UINT64_MAX) {
-                    return rhi::error::unsupported;
-                }
-                if (command.completion_timeline == VK_NULL_HANDLE) {
-                    VkSemaphoreTypeCreateInfo type{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
-                                                   .pNext = nullptr,
-                                                   .semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE,
-                                                   .initialValue = 0};
-                    VkSemaphoreCreateInfo create{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, .pNext = &type, .flags = 0};
-                    auto created = vkCreateSemaphore(this->device.logical_device, &create, nullptr, &command.completion_timeline);
-                    if (created != VK_SUCCESS) {
-                        return generic_error(created);
-                    }
-                }
-                submission->timeline = command.completion_timeline;
-                submission->value = command.completion_sequence + 1;
-            } else {
-                VkFenceCreateInfo const fence_info{.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .pNext = nullptr, .flags = 0};
-                auto created = vkCreateFence(this->device.logical_device, &fence_info, nullptr, &submission->fence);
-                if (created != VK_SUCCESS) {
-                    return generic_error(created);
-                }
-            }
-            VkTimelineSemaphoreSubmitInfo signal{.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
-                                                 .pNext = nullptr,
-                                                 .waitSemaphoreValueCount = 0,
-                                                 .pWaitSemaphoreValues = nullptr,
-                                                 .signalSemaphoreValueCount = token ? 1u : 0u,
-                                                 .pSignalSemaphoreValues = &submission->value};
-            if (token) {
-                one_shot.pNext = &signal;
-                one_shot.signalSemaphoreCount = 1;
-                one_shot.pSignalSemaphores = &command.completion_timeline;
-            }
-            for (auto const& secondary : submission->secondaries) {
-                if (!secondary->executable || (!secondary->simultaneous_use && secondary->pending.load(std::memory_order_acquire))) {
-                    return rhi::error::not_ready;
-                }
-            }
-            command.pending_submissions.reserve(command.pending_submissions.size() + 1);
-            std::lock_guard queue_lock(this->device.vma.queue_access());
-            auto const submitted = vkQueueSubmit(this->device.graphics_queue_handle, 1, &one_shot, submission->fence);
-            if (submitted == VK_SUCCESS) {
-                owned.pending.fetch_add(1, std::memory_order_release);
-                if (owned.one_time_submit) {
-                    owned.executable = false;
-                }
-                for (auto const& secondary : submission->secondaries) {
-                    secondary->pending.fetch_add(1, std::memory_order_release);
-                    if (secondary->one_time_submit) {
-                        secondary->executable = false;
-                    }
-                }
-                if (token) {
-                    command.completion_sequence = submission->value;
-                    *token = {command.completion_device_id, command.completion_sequence};
-                }
-                submission->submitted = true;
-                command.pending_submissions.push_back(std::move(submission));
-            }
-            if (submitted == VK_ERROR_DEVICE_LOST) {
-                command.completion_failure = rhi::error::device_lost;
-            }
-            return generic_error(submitted);
-        }
-        if (!this->frame.frame_in_flight) {
-            return rhi::error::not_ready;
-        }
-        // The image and the present-ready semaphore are this backend's own acquire state - never
-        // caller data (the contract's note). The raw failure becomes the generic translation; the
-        // device-level codes travel as themselves.
-        report_operation_counts();
-        return generic_error(this->submit_frame(this->frame_command_buffer(), this->frame.acquired_image_index));
-    }
-
-    // ---- the frame face (abi 13) ----------------------------------------------------------------
-    //
-    // THE ACCESSORS hand out this core's two borrowed views - the same object every call, the
-    // constructor set their `owner`. The views' methods compose the machinery this class already
-    // owned: the walker is today's frame prologue fused (wait -> latch timings -> acquire -> report),
-    // the profiler reads the timing snapshot the walker's latch produced.
-
-    rhi::frame_walker* core::walk_frames() noexcept {
-        return this->frame.walk_frames();
-    }
-
-    rhi::gpu_profiler* core::profiler() noexcept {
-        return this->frame.profiler();
-    }
-
-    std::uint32_t core::frame_walker_view::slot_count() const noexcept {
-        return static_cast<std::uint32_t>(this->owner->frame.frames_in_flight);
-    }
-
-    std::uint32_t core::frame_walker_view::position() const noexcept {
-        // THE one authority: this is the backend's own cursor, read without advancing.
-        return static_cast<std::uint32_t>(this->owner->frame.current_frame);
-    }
-
-    rhi::frame_open_info core::frame_walker_view::wait_and_acquire() {
-        // THE FIVE STEPS in the order the contract's note spells out - each position is load-bearing.
-        uint32_t const slot = static_cast<uint32_t>(this->owner->frame.current_frame);
-
-        // 1 + 2. the cursor (read, not advanced) and its timeline. A never-submitted slot (value 0)
-        // has nothing to wait for - VK_SUCCESS by definition, the same early return as today.
-        VkResult const waited = this->owner->wait_frame_slot_result(slot);
-        if (waited != VK_SUCCESS) {
-            // The wait's VkResult, REPORTED instead of dropped (today `wait_frame_slot` voids it):
-            // the code says what class of failure, the message names the step, native_code carries
-            // the raw VkResult for whoever needs the exact number.
-            return {.frame = {}, .result = deren::vulkan::failed(deren::vulkan::generic_error(waited), waited, "waiting the frame slot's timeline failed")};
-        }
-
-        // 3. LATCH this slot's previous frame's GPU timings, here between the wait and the acquire -
-        // exactly where the engine's collect_gpu_timings sits today, so the wait already guarantees
-        // the timestamps are readable AND a frame the acquire kills on OUT_OF_DATE is still
-        // collected. Behaviour unchanged; the position is the backend's now.
-        this->owner->frame.profiler_view.latch(slot);
-
-        // 4. the acquire - the same primitive `frame_begin()` goes through (one mechanism, two
-        // spellings), translated AT THIS CALL SITE: SUBOPTIMAL is ok here (the acquired image
-        // renders), OUT_OF_DATE is the rebuild signal the caller's classifier acts on.
-        uint32_t image_index = 0;
-        VkResult const acquired = this->owner->acquire_next_image(image_index);
-        rhi::error const opened = deren::vulkan::acquire_error(acquired);
-        if (opened != rhi::error::ok) {
-            // The zero-frame rule: `frame` is zeroed and unusable, and the caller now knows WHY
-            // (out_of_date => rebuild and skip; device_lost => fatal; ...) - the information
-            // `frame_begin()`'s zeroed submit_info could not carry.
-            return {.frame = {}, .result = deren::vulkan::failed(opened, acquired, "acquiring the next swapchain image failed")};
-        }
-
-        // 5. the frame is open: this slot, the acquired image, and a zeroed diagnostic saying ok.
-        return {.frame = {.frame_index = slot, .image_index = image_index}, .result = {}};
-    }
-
-    void core::frame_walker_view::walk_to_next() noexcept {
-        // The present-side close: advance ONE slot. It does not promise "the frame is over" - only
-        // that the ring moved (the engine calls this after its present recipe).
-        this->owner->to_next_frame();
-    }
-
-    void core::gpu_profiler_view::latch(uint32_t const slot) noexcept {
-        // Non-const on purpose: the latch writes the read-once guard (a slot's timings are fetched
-        // at most once per submission), the same bookkeeping read_gpu_timings keeps.
-        core& self = *this->owner;
-        this->latch_failed = false;
-        if (!self.frame.gpu_timing_supported) {
-            this->latched_mark_count = 0; // the device cannot timestamp: the report is honestly empty
-            return;
-        }
-        uint64_t const submitted = self.frame.frame_done_values[slot];
-        if (submitted == 0 || submitted <= self.frame.gpu_timing_read_value[slot]) {
-            return; // nothing new since the previous latch: the snapshot stays as it was
-        }
-        self.frame.gpu_timing_read_value[slot] = submitted; // this submission is now accounted for (once)
-        uint32_t const marks = self.frame.gpu_timing_marks[slot];
-        this->latched_mark_count = marks;
-        if (marks == 0) {
-            return; // a submission with no marks has nothing to fetch
-        }
-        deren::utility::vessel::array<uint64_t, gpu_timing_mark_capacity> ticks = {};
-        VkResult const status = vkGetQueryPoolResults(self.device.logical_device, self.frame.timestamp_query_pool, slot * gpu_timing_mark_capacity, marks,
-                                                      sizeof(uint64_t) * marks, ticks.data(), sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
-        if (status == VK_NOT_READY) {
-            // The timeline wait already said the submission completed, so this is the same defensive
-            // reading read_gpu_timings has: report no measurement rather than waiting or stalling.
-            this->latched_mark_count = 0;
-            return;
-        }
-        if (status != VK_SUCCESS) {
-            // A real read-back failure: the mark count is host-known, the ticks are not - the
-            // getters answer `device_lost` for it instead of reporting silence.
-            this->latch_failed = true;
-            return;
-        }
-        this->latched_ticks = ticks;
-        for (uint32_t mark = 0; mark < marks; ++mark) {
-            // The names are by-value string_views of the engine's static text (the `window_title`
-            // rule), copied out at latch time - the array below may be overwritten by the next
-            // recording, the snapshot must not move with it.
-            this->latched_names[mark] = self.frame.gpu_timing_names[slot][mark];
-        }
-    }
-
-    std::uint32_t core::gpu_profiler_view::stage_count() const noexcept {
-        if (!this->owner->frame.gpu_timing_supported) {
-            return 0; // "no timing => always 0": the caller reads this as unsupported via get_stage_info
-        }
-        return this->latched_mark_count;
-    }
-
-    rhi::error core::gpu_profiler_view::get_stage_info(uint32_t const index, std::string_view* const name,
-                                                       uint64_t* const duration_ns) const noexcept {
-        if (!this->owner->frame.gpu_timing_supported) {
-            return rhi::error::unsupported; // the device or configuration has no timing to report
-        }
-        if (index >= this->latched_mark_count) {
-            return rhi::error::invalid_argument;
-        }
-        if (this->latch_failed) {
-            return rhi::error::device_lost; // the timestamp read-back failed; the count is all we know
-        }
-        if (index + 1 >= this->latched_mark_count) {
-            return rhi::error::not_ready; // the last mark closes the frame and opens no stage
-        }
-        if (name != nullptr) {
-            *name = this->latched_names[index];
-        }
-        if (duration_ns != nullptr) {
-            // The same masking the milliseconds reader does: the counter is a modulo-2^valid_bits
-            // ring, so the delta is taken inside the width (a wrap inside the span comes out right),
-            // and the device's timestampPeriod converts ticks to nanoseconds (1 ns/tick with 64
-            // valid bits on the device this backend ships on - the integer is lossless there).
-            uint64_t const mask = this->owner->frame.timestamp_valid_bits >= 64 ? ~uint64_t{0} : ((uint64_t{1} << this->owner->frame.timestamp_valid_bits) - 1);
-            uint64_t const delta = (this->latched_ticks[index + 1] - this->latched_ticks[index]) & mask;
-            *duration_ns = static_cast<uint64_t>(static_cast<double>(delta) * static_cast<double>(this->owner->frame.timestamp_period_ns));
-        }
-        return rhi::error::ok;
-    }
-
-    rhi::stage_time_map core::get_time_profiling() const {
-        std::lock_guard lock(this->time_profiling_mutex);
-        return this->time_profiling;
-    }
-
-    void core::record_stage_time(std::string_view const name, double const milliseconds) {
-        std::lock_guard lock(this->time_profiling_mutex);
-        auto [slot, inserted] = this->time_profiling.try_emplace(std::string(name));
-        slot->second.tick(milliseconds);
-    }
-
-    void core::reset_time_profiling_window() {
-        std::lock_guard lock(this->time_profiling_mutex);
-        for (auto& [name, info] : this->time_profiling) {
-            info.reset_window();
-        }
-    }
-} // namespace deren::vulkan
-
-namespace deren::vulkan {
-
-    void core::report_operation_counts() noexcept {
-        if (std::getenv("DEREN_RENDER_OPERATION_STATS")) {
-            std::uint64_t total = 0;
-            for (auto count : operation_requests)
-                total += count;
-            deren::utility::log("render operations: total={}", total);
-            deren::utility::log("render operations lowered: requested={} retained={} setters={} work={}",
-                                deferred_requested, deferred_retained, emitted_setters, emitted_work);
-            if (operation_requests[0])
-                deren::utility::log("render operations: push_constants={}", operation_requests[0]);
-            if (operation_requests[1])
-                deren::utility::log("render operations: execute={}", operation_requests[1]);
-            if (operation_requests[2])
-                deren::utility::log("render operations: use={}", operation_requests[2]);
-            if (operation_requests[3])
-                deren::utility::log("render operations: copy_image_to_buffer={}", operation_requests[3]);
-            if (operation_requests[4])
-                deren::utility::log("render operations: barrier={}", operation_requests[4]);
-            if (operation_requests[5])
-                deren::utility::log("render operations: begin_rendering={}", operation_requests[5]);
-            if (operation_requests[6])
-                deren::utility::log("render operations: end_rendering={}", operation_requests[6]);
-            if (operation_requests[7])
-                deren::utility::log("render operations: bind_pipeline={}", operation_requests[7]);
-            if (operation_requests[8])
-                deren::utility::log("render operations: bind_vertex_buffer={}", operation_requests[8]);
-            if (operation_requests[9])
-                deren::utility::log("render operations: bind_index_buffer={}", operation_requests[9]);
-            if (operation_requests[10])
-                deren::utility::log("render operations: draw={}", operation_requests[10]);
-            if (operation_requests[11])
-                deren::utility::log("render operations: draw_indexed={}", operation_requests[11]);
-            if (operation_requests[12])
-                deren::utility::log("render operations: dispatch_indirect={}", operation_requests[12]);
-            if (operation_requests[13])
-                deren::utility::log("render operations: dispatch={}", operation_requests[13]);
-            if (operation_requests[14])
-                deren::utility::log("render operations: draw_mesh_tasks={}", operation_requests[14]);
-            if (operation_requests[15])
-                deren::utility::log("render operations: trace_rays={}", operation_requests[15]);
-            if (operation_requests[16])
-                deren::utility::log("render operations: build_micromap={}", operation_requests[16]);
-            if (operation_requests[17])
-                deren::utility::log("render operations: build_acceleration_structure={}", operation_requests[17]);
-            if (operation_requests[18])
-                deren::utility::log("render operations: refit_acceleration_structure={}", operation_requests[18]);
-            if (operation_requests[19])
-                deren::utility::log("render operations: draw_indirect={}", operation_requests[19]);
-            if (operation_requests[20])
-                deren::utility::log("render operations: draw_mesh_tasks_indirect={}", operation_requests[20]);
-            if (operation_requests[21])
-                deren::utility::log("render operations: set_viewport={}", operation_requests[21]);
-            if (operation_requests[22])
-                deren::utility::log("render operations: set_scissor={}", operation_requests[22]);
-            if (operation_requests[23])
-                deren::utility::log("render operations: set_cull_mode={}", operation_requests[23]);
-            if (operation_requests[24])
-                deren::utility::log("render operations: set_depth_write={}", operation_requests[24]);
-            if (operation_requests[25])
-                deren::utility::log("render operations: set_depth_bias={}", operation_requests[25]);
-            if (operation_requests[26])
-                deren::utility::log("render operations: copy_image={}", operation_requests[26]);
-            if (operation_requests[27])
-                deren::utility::log("render operations: copy_buffer={}", operation_requests[27]);
-            if (operation_requests[28])
-                deren::utility::log("render operations: clear_color_image={}", operation_requests[28]);
-            if (operation_requests[29])
-                deren::utility::log("render operations: begin_gpu_timing={}", operation_requests[29]);
-            if (operation_requests[30])
-                deren::utility::log("render operations: mark_gpu_timing={}", operation_requests[30]);
-            if (operation_requests[31])
-                deren::utility::log("render operations: load_resource_group={}", operation_requests[31]);
-            if (operation_requests[32])
-                deren::utility::log("render operations: load_texture_group={}", operation_requests[32]);
-        }
-        operation_requests.fill(0);
-        deferred_requested = deferred_retained = emitted_setters = emitted_work = 0;
     }
 } // namespace deren::vulkan

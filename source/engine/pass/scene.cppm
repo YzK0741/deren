@@ -81,10 +81,10 @@ export namespace deren::engine::pass {
          * the previous segment's state would skip a bind it needs. The renderer builds it because the registry
          * is its, and `gbuffer` says which pass's default a leaf with default semantics wants.
          */
-        render_environment (*make_environment)(void* owner, ::deren::engine::recording_target target, bool gbuffer) = nullptr;
+        render_environment (*make_environment)(void* parent, ::deren::engine::recording_target target, bool gbuffer) = nullptr;
         /// record the segments in parallel through the renderer's task pool (same reason as above)
-        void (*run_tasks)(void* owner, std::span<std::function<void()>> tasks) = nullptr;
-        void* owner = nullptr;
+        void (*run_tasks)(void* parent, std::span<std::function<void()>> tasks) = nullptr;
+        void* parent = nullptr;
         // (THE HEAP-BIND FIELD IS GONE - plan X5 B3.5. It existed to chain the two `VkBindHeapInfoEXT` a
         //  secondary must inherit, because a secondary is VALIDATED ON ITS OWN and the heap bound on the primary
         //  does not reach it - but THE PASS STOPPED CALLING IT AT ABI 20: a secondary is begun through the

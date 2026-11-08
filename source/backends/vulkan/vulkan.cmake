@@ -139,7 +139,9 @@ target_sources(deren_vulkan
         source/backends/vulkan/core/facet/core.resource_facet.cpp
         source/backends/vulkan/core/facet/core.command_facet.cpp
         source/backends/vulkan/core/facet/core.frame_facet.cpp
+        source/backends/vulkan/core/facet/core.frame_views.cpp
         source/backends/vulkan/core/command/core.scoped_synchronization.cpp
+        source/backends/vulkan/core/command/core.api_draw.cpp
         source/backends/vulkan/core/frame/core.frame_resources.cpp
         source/backends/vulkan/core/frame/core.frame_checkpoint.cpp
         source/backends/vulkan/core/support/radix_sort.cpp

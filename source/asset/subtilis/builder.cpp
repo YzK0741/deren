@@ -25,43 +25,51 @@ namespace deren::asset::subtilis {
             auto point = [&](uint32_t id) {auto v=source.positions[id];extent({v[0],v[1],v[2]},0); };
             for (auto id : fine) {
                 auto const& c = p.clusters[id];
-                for (auto vertex : std::span(p.indices).subspan(c.first_index, c.index_count))
+                for (auto vertex : std::span(p.indices).subspan(c.first_index, c.index_count)) {
                     point(vertex);
+                }
                 if (c.producer != none) {
                     auto s = p.groups[c.producer].lod;
                     extent({s.x, s.y, s.z}, s.radius);
                 }
             }
-            for (auto id : coarse.indices)
+            for (auto id : coarse.indices) {
                 point(id);
+            }
             array<float, 3> center{};
-            for (unsigned k = 0; k < 3; ++k)
+            for (unsigned k = 0; k < 3; ++k) {
                 center[k] = static_cast<float>(lo[k] / 2 + hi[k] / 2);
+            }
             double radius = 0;
             auto include = [&](array<double, 3> v, double r) { radius = std::max(radius, std::hypot(v[0] - center[0], v[1] - center[1], v[2] - center[2]) + r); };
             auto vertex = [&](uint32_t id) {auto v=source.positions[id];include({v[0],v[1],v[2]},0); };
             for (auto id : fine) {
                 auto const& c = p.clusters[id];
-                for (auto v : std::span(p.indices).subspan(c.first_index, c.index_count))
+                for (auto v : std::span(p.indices).subspan(c.first_index, c.index_count)) {
                     vertex(v);
+                }
                 if (c.producer != none) {
                     auto s = p.groups[c.producer].lod;
                     include({s.x, s.y, s.z}, s.radius);
                 }
             }
-            for (auto v : coarse.indices)
+            for (auto v : coarse.indices) {
                 vertex(v);
+            }
             float rounded = static_cast<float>(radius);
-            if (double(rounded) < radius)
+            if (double(rounded) < radius) {
                 rounded = std::nextafter(rounded, std::numeric_limits<float>::infinity());
-            if (!std::isfinite(rounded))
+            }
+            if (!std::isfinite(rounded)) {
                 return fail(error_code::invalid_geometry, "LOD sphere cannot fit f32");
+            }
             return sphere{center[0], center[1], center[2], rounded};
         }
         string metadata(build_options const& o, build_report const& report) {
             yyjson_alc allocator{
                 [](void*, size_t n) -> void* { return utility::memory::allocate(n); },
-                [](void*, void* p, size_t old, size_t n) -> void* {auto* next=utility::memory::allocate(n);if(p)std::memcpy(next,p,std::min(old,n));utility::memory::deallocate(p);return next; },
+                [](void*, void* p, size_t old, size_t n) -> void* {auto* next=utility::memory::allocate(n);if(p){std::memcpy(next,p,std::min(old,n));
+}utility::memory::deallocate(p);return next; },
                 [](void*, void* p) { utility::memory::deallocate(p); }, nullptr};
             auto* d = yyjson_mut_doc_new(&allocator);
             auto* root = yyjson_mut_obj(d);
@@ -99,12 +107,14 @@ namespace deren::asset::subtilis {
             auto* rejected = yyjson_mut_obj(d);
             yyjson_mut_obj_add_val(d, root, "rejected", rejected);
             char const* names[]{"none", "noProgress", "unsafeTopology", "zeroScale", "numericError", "boundaryChanged"};
-            for (size_t i = 1; i < report.rejected.size(); ++i)
+            for (size_t i = 1; i < report.rejected.size(); ++i) {
                 yyjson_mut_obj_add_uint(d, rejected, names[i], report.rejected[i]);
+            }
             size_t length = 0;
             auto* bytes = yyjson_mut_write_opts(d, 0, &allocator, &length, nullptr);
-            if (!bytes)
+            if (!bytes) {
                 utility::fast_panic("subtilis metadata serialization failed");
+            }
             string out(bytes, length);
             utility::memory::deallocate(bytes);
             yyjson_mut_doc_free(d);
@@ -157,15 +167,18 @@ namespace deren::asset::subtilis {
         vector<stage_profile> profile_rows(stage_accumulator const& stages) {
             vector<stage_profile> rows;
             rows.reserve(stage_kinds);
-            for (size_t at = 0; at < stage_kinds; ++at)
+            for (size_t at = 0; at < stage_kinds; ++at) {
                 rows.push_back({string(stage_definitions[at].name), stages.cpu[at], stage_definitions[at].inclusive, stages.count[at]});
+            }
             return rows;
         }
         double accumulated_milliseconds(stage_accumulator const& stages) {
             double total = 0;
-            for (size_t at = 0; at < stage_kinds; ++at)
-                if (!stage_definitions[at].inclusive)
+            for (size_t at = 0; at < stage_kinds; ++at) {
+                if (!stage_definitions[at].inclusive) {
                     total += stages.cpu[at];
+                }
+            }
             return total;
         }
         // Conservative per-task known-work estimate: input windows copied by the candidate plus the
@@ -173,8 +186,9 @@ namespace deren::asset::subtilis {
         // concurrency, never for identity.
         size_t reduction_task_estimate(std::span<bd::cluster_input const> inputs) {
             size_t indices = 0;
-            for (auto input : inputs)
+            for (auto input : inputs) {
                 indices += input.indices.size();
+            }
             return 65536 + indices * 12;
         }
         struct prepared_group {
@@ -208,13 +222,16 @@ namespace deren::asset::subtilis {
             if (slot.reason == bd::rejection_reason::none) {
                 auto lod = lod_sphere(source, data, workspace.fine[group], slot.candidate.coarse);
                 float previous = 0;
-                for (auto id : workspace.fine[group])
-                    if (data.clusters[id].producer != none)
+                for (auto id : workspace.fine[group]) {
+                    if (data.clusters[id].producer != none) {
                         previous = std::max(previous, data.groups[data.clusters[id].producer].error);
+                    }
+                }
                 double cumulative = double(previous) + slot.candidate.local_error;
                 float error = static_cast<float>(cumulative);
-                if (double(error) < cumulative)
+                if (double(error) < cumulative) {
                     error = std::nextafter(error, std::numeric_limits<float>::infinity());
+                }
                 if (!lod || !std::isfinite(error)) {
                     slot.reason = bd::rejection_reason::numeric_error;
                 } else {
@@ -256,8 +273,9 @@ namespace deren::asset::subtilis {
                 data.clusters.push_back(c);
             }
             data.references.insert(data.references.end(), workspace.fine[group].begin(), workspace.fine[group].end());
-            for (auto id : workspace.fine[group])
+            for (auto id : workspace.fine[group]) {
                 data.clusters[id].consumer = group_id;
+            }
             for (uint32_t i = 0; i < coarse.clusters.size(); ++i) {
                 data.references.push_back(first_cluster + i);
                 workspace.next.push_back(first_cluster + i);
@@ -295,8 +313,9 @@ namespace deren::asset::subtilis {
             }
             auto partitions = bd::partition_clusters(context.source, views, context.options, context.scale);
             context.stages.add(stage_kind::partition, stage_now() - partition_started);
-            if (!partitions)
+            if (!partitions) {
                 return std::unexpected(partitions.error());
+            }
             views.clear();
             round_workspace workspace;
             auto const groups = partitions->size();
@@ -306,8 +325,9 @@ namespace deren::asset::subtilis {
             for (size_t group = 0; group < groups; ++group) {
                 auto const& partition = (*partitions)[group];
                 workspace.fine[group].reserve(partition.size());
-                for (auto index : partition)
+                for (auto index : partition) {
                     workspace.fine[group].push_back(context.active[index]);
+                }
             }
             // Input spans point into the payload's index vector, which commits grow (and therefore
             // may relocate). Serial commits are interleaved with prepares, so they rebuild their
@@ -329,11 +349,13 @@ namespace deren::asset::subtilis {
                 for (size_t group = 0; group < groups; ++group) {
                     fill_inputs(group);
                     auto prepared = prepare_group(workspace, group, context.source, context.data, context.topology, context.scale, context.options);
-                    if (!prepared)
+                    if (!prepared) {
                         return std::unexpected(prepared.error());
+                    }
                     auto committed = commit_task(group);
-                    if (!committed)
+                    if (!committed) {
                         return std::unexpected(committed.error());
+                    }
                 }
             } else {
                 vector<size_t> estimates(groups);
@@ -349,18 +371,21 @@ namespace deren::asset::subtilis {
                     return prepare_group(workspace, group, context.source, context.data, context.topology, context.scale, context.options);
                 };
                 auto ordered = bd::run_ordered(groups, context.threads, estimates, available, prepare_task, commit_task);
-                if (!ordered)
+                if (!ordered) {
                     return std::unexpected(ordered.error());
+                }
                 // Deterministic planned concurrency: a pure function of the estimates and budget.
                 context.planned_concurrency = std::max(context.planned_concurrency, static_cast<uint32_t>(std::max<size_t>(admitted, 1)));
             }
             std::sort(workspace.next.begin(), workspace.next.end());
             context.active = std::move(workspace.next);
-            if (!workspace.progressed)
+            if (!workspace.progressed) {
                 return false;
+            }
             uint64_t triangles = 0;
-            for (auto id : context.active)
+            for (auto id : context.active) {
                 triangles += context.data.clusters[id].index_count / 3;
+            }
             context.report.levels.push_back({triangles, context.active.size(), context.data.groups.size(), context.active.size()});
             return true;
         }
@@ -368,28 +393,33 @@ namespace deren::asset::subtilis {
             double const started = stage_now();
             stage_accumulator stages;
             auto identity = build_digest(options);
-            if (!identity)
+            if (!identity) {
                 return std::unexpected(identity.error());
+            }
             limits validation_limits;
             validation_limits.max_payload_bytes = budget.max_output_bytes;
-            if (source.positions.size() > validation_limits.max_records || source.indices.size() > validation_limits.max_records)
+            if (source.positions.size() > validation_limits.max_records || source.indices.size() > validation_limits.max_records) {
                 return fail(error_code::capacity, "source record limit");
+            }
             uint64_t base_work = uint64_t(source.positions.size()) * 64 + uint64_t(source.indices.size()) * 96 + 65536;
-            if (base_work > budget.max_known_work_bytes)
+            if (base_work > budget.max_known_work_bytes) {
                 return fail(error_code::capacity, "known work budget too small");
+            }
             double const fingerprint_started = stage_now();
             auto content = source_digest(source);
             stages.add(stage_kind::source_fingerprint, stage_now() - fingerprint_started);
-            if (!content)
+            if (!content) {
                 return std::unexpected(content.error());
+            }
             // One process-wide allocator initialization before any concurrent task can touch
             // meshoptimizer; tasks never swap the global allocator callbacks.
             bd::initialize_meshoptimizer();
             double const leaf_started = stage_now();
             auto leaf = bd::cluster_lod0(source, options);
             stages.add(stage_kind::leaf_cluster, stage_now() - leaf_started);
-            if (!leaf)
+            if (!leaf) {
                 return std::unexpected(leaf.error());
+            }
             payload data;
             data.indices = std::move(leaf->indices);
             data.clusters = std::move(leaf->clusters);
@@ -407,17 +437,20 @@ namespace deren::asset::subtilis {
             report.known_work_limit_bytes = budget.max_known_work_bytes;
             report.known_work_peak_bytes = base_work;
             report.levels.push_back({source.indices.size() / 3, active.size(), 0, active.size()});
-            if (storage(data) > budget.max_output_bytes || storage(data) > budget.max_known_work_bytes - base_work)
+            if (storage(data) > budget.max_output_bytes || storage(data) > budget.max_known_work_bytes - base_work) {
                 return fail(error_code::capacity, "initial payload exceeds build budget");
+            }
             uint32_t planned_concurrency = 1;
             for (uint32_t round = 0; round < options.max_rounds; ++round) {
                 report.rounds = round + 1;
                 round_context context{source, data, options, budget, topology, scale, base_work, threads, report, stages, planned_concurrency, active};
                 auto progressed = run_round(context);
-                if (!progressed)
+                if (!progressed) {
                     return std::unexpected(progressed.error());
-                if (!*progressed)
+                }
+                if (!*progressed) {
                     break;
+                }
             }
             data.roots = active;
             report.lod0_only = data.groups.empty();
@@ -426,27 +459,32 @@ namespace deren::asset::subtilis {
                 bool cross = false;
                 for (auto id : std::span(data.references).subspan(g.coarse_first, g.coarse_count)) {
                     auto consumer = data.clusters[id].consumer;
-                    if (consumer == none)
+                    if (consumer == none) {
                         continue;
-                    if (first == none)
+                    }
+                    if (first == none) {
                         first = consumer;
-                    else if (first != consumer)
+                    } else if (first != consumer) {
                         cross = true;
+                    }
                 }
-                if (cross)
+                if (cross) {
                     ++report.cross_group_repartitions;
+                }
             }
             data.build_meta = metadata(options, report);
             double const validate_started = stage_now();
             auto validated = make_asset(std::move(source), std::move(data), validation_limits);
             stages.add(stage_kind::validate, stage_now() - validate_started);
-            if (!validated)
+            if (!validated) {
                 return std::unexpected(validated.error());
+            }
             double const encode_started = stage_now();
             auto wire = encode(validated->data(), validation_limits);
             stages.add(stage_kind::encode, stage_now() - encode_started);
-            if (!wire)
+            if (!wire) {
                 return std::unexpected(wire.error());
+            }
             report.planned_concurrency = planned_concurrency;
             report.accumulated_ms = accumulated_milliseconds(stages);
             report.stages = profile_rows(stages);
@@ -458,8 +496,9 @@ namespace deren::asset::subtilis {
         return build_impl(std::move(source), options, budget, 1);
     }
     result<build_result> build(source_geometry source, build_options const& options, execution_options const& execution) {
-        if (execution.threads == 0)
+        if (execution.threads == 0) {
             return fail(error_code::invalid_options, "thread count must be at least 1");
+        }
         return build_impl(std::move(source), options, execution.limits, execution.threads);
     }
 } // namespace deren::asset::subtilis

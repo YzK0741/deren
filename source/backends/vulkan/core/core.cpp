@@ -104,18 +104,19 @@ namespace deren::vulkan {
         if (this->target != VK_NULL_HANDLE) {
             return this->target;
         }
-        return this->owner != nullptr ? this->owner->frame_command_buffer() : VK_NULL_HANDLE;
+        return this->parent != nullptr ? this->parent->frame_command_buffer() : VK_NULL_HANDLE;
     }
 
     rhi::error core::frame_commands::begin_gpu_timing() noexcept {
-        ++owner->operation_requests[29]; // begin_gpu_timing
-        if (auto result = apply_operations(); result != rhi::error::ok)
+        ++parent->operation_requests[29]; // begin_gpu_timing
+        if (auto result = apply_operations(); result != rhi::error::ok) {
             return result;
-        core& owner = *this->owner;
-        if (!owner.frame.gpu_timing_supported) {
+        }
+        core& parent = *this->parent;
+        if (!parent.frame.gpu_timing_supported) {
             return rhi::error::unsupported; // the device cannot timestamp: the report stays honestly empty
         }
-        if (!owner.frame.frame_in_flight) {
+        if (!parent.frame.frame_in_flight) {
             return rhi::error::not_ready; // the same window `use()` refuses in
         }
         if (this->target != VK_NULL_HANDLE) {
@@ -124,29 +125,30 @@ namespace deren::vulkan {
             // has no range to open - the frame-scoped verbs' own `not_ready` window.
             return rhi::error::not_ready;
         }
-        owner.begin_gpu_timing(this->native(), static_cast<uint32_t>(owner.frame.current_frame));
+        parent.begin_gpu_timing(this->native(), static_cast<uint32_t>(parent.frame.current_frame));
         return rhi::error::ok;
     }
 
     rhi::error core::frame_commands::mark_gpu_timing(std::uint32_t const mark_index, std::string_view const stage_name) noexcept {
-        ++owner->operation_requests[30]; // mark_gpu_timing
-        if (auto result = apply_operations(); result != rhi::error::ok)
+        ++parent->operation_requests[30]; // mark_gpu_timing
+        if (auto result = apply_operations(); result != rhi::error::ok) {
             return result;
-        core& owner = *this->owner;
-        if (!owner.frame.gpu_timing_supported) {
+        }
+        core& parent = *this->parent;
+        if (!parent.frame.gpu_timing_supported) {
             return rhi::error::unsupported;
         }
-        if (!owner.frame.frame_in_flight) {
+        if (!parent.frame.frame_in_flight) {
             return rhi::error::not_ready;
         }
         if (this->target != VK_NULL_HANDLE) {
             return rhi::error::not_ready; // the frame slot's range again (see begin_gpu_timing)
         }
-        uint32_t const slot = static_cast<uint32_t>(owner.frame.current_frame);
+        uint32_t const slot = static_cast<uint32_t>(parent.frame.current_frame);
         // THE MARKS ARE POSITIONAL: an out-of-order index would mislabel every later interval, so it
         // is refused by name instead of being accepted silently (the check gpu_mark used to make by
         // reading this class's count field - the field read leaves the engine with the check).
-        if (owner.frame.gpu_timing_marks[slot] != mark_index) {
+        if (parent.frame.gpu_timing_marks[slot] != mark_index) {
             return rhi::error::invalid_argument;
         }
         // WHICH PIPELINE STAGE the timestamp resolves at is the backend's measurement policy, not a
@@ -154,7 +156,7 @@ namespace deren::vulkan {
         // "nothing yet recorded"), every pass boundary resolves at the bottom (it measures everything
         // submitted so far) - the one pattern this renderer's marks ever expressed, now owned here.
         VkPipelineStageFlagBits const stage = mark_index == 0 ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT : VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-        owner.mark_gpu_timing(this->native(), slot, stage, stage_name);
+        parent.mark_gpu_timing(this->native(), slot, stage, stage_name);
         return rhi::error::ok;
     }
 
@@ -264,10 +266,11 @@ namespace deren::vulkan {
             timeline_info.waitSemaphoreValueCount = submit_info.waitSemaphoreCount = 0;
             timeline_info.signalSemaphoreValueCount = submit_info.signalSemaphoreCount = 1;
         }
-        if (frame.frame_acquire_consumed)
+        if (frame.frame_acquire_consumed) {
             timeline_info.waitSemaphoreValueCount = submit_info.waitSemaphoreCount = 0;
+        }
         auto submission = std::make_unique<pending_submission>();
-        submission->owner = this;
+        submission->parent = this;
         submission->timeline = frame.frame_done_semaphores[slot];
         submission->value = signal_value;
         submission->groups = frame.commands_view.group_refs;
@@ -305,37 +308,37 @@ namespace deren::vulkan {
     std::shared_future<deren::promise::rhi::error> core::frame_async_presentation::begin() {
         auto completion = std::make_shared<std::promise<deren::promise::rhi::error>>();
         auto result = completion->get_future().share();
-        if (!owner->frame.frame_acquired || owner->frame.frame_in_flight || owner->frame.async_present_queued) {
+        if (!parent->frame.frame_acquired || parent->frame.frame_in_flight || parent->frame.async_present_queued) {
             completion->set_value(deren::promise::rhi::error::not_ready);
             return result;
         }
-        if (owner->frame.present_pending.valid()) {
-            owner->frame.present_pending.wait();
+        if (parent->frame.present_pending.valid()) {
+            parent->frame.present_pending.wait();
         }
-        if (!owner->frame.present_worker) {
-            owner->frame.present_worker = std::make_unique<deren::utility::thread_pool>(1);
+        if (!parent->frame.present_worker) {
+            parent->frame.present_worker = std::make_unique<deren::utility::thread_pool>(1);
         }
-        VkQueue const queue = owner->device.present_queue_handle;
-        VkSwapchainKHR const swapchain = owner->frame.swap_chain;
-        uint32_t const image = owner->frame.acquired_image_index;
-        VkSemaphore const ready = owner->frame.present_ready_semaphores[image];
-        uint32_t const next_slot = (static_cast<uint32_t>(owner->frame.current_frame) + 1u) % static_cast<uint32_t>(owner->frame.image_available_semaphores.size());
+        VkQueue const queue = parent->device.present_queue_handle;
+        VkSwapchainKHR const swapchain = parent->frame.swap_chain;
+        uint32_t const image = parent->frame.acquired_image_index;
+        VkSemaphore const ready = parent->frame.present_ready_semaphores[image];
+        uint32_t const next_slot = (static_cast<uint32_t>(parent->frame.current_frame) + 1u) % static_cast<uint32_t>(parent->frame.image_available_semaphores.size());
         uint64_t completed = 0;
-        bool const slot_idle = owner->frame.frame_done_values[next_slot] == 0 ||
-                               (vkGetSemaphoreCounterValue(owner->device.logical_device, owner->frame.frame_done_semaphores[next_slot], &completed) == VK_SUCCESS && completed >= owner->frame.frame_done_values[next_slot]);
-        if (slot_idle && owner->frame.prefetched_slot == UINT32_MAX) {
+        bool const slot_idle = parent->frame.frame_done_values[next_slot] == 0 ||
+                               (vkGetSemaphoreCounterValue(parent->device.logical_device, parent->frame.frame_done_semaphores[next_slot], &completed) == VK_SUCCESS && completed >= parent->frame.frame_done_values[next_slot]);
+        if (slot_idle && parent->frame.prefetched_slot == UINT32_MAX) {
             uint32_t next_image = 0;
-            VkResult const acquired = vkAcquireNextImageKHR(owner->device.logical_device, swapchain, 0,
-                                                            owner->frame.image_available_semaphores[next_slot], VK_NULL_HANDLE, &next_image);
+            VkResult const acquired = vkAcquireNextImageKHR(parent->device.logical_device, swapchain, 0,
+                                                            parent->frame.image_available_semaphores[next_slot], VK_NULL_HANDLE, &next_image);
             if (acquired == VK_SUCCESS || acquired == VK_SUBOPTIMAL_KHR) {
-                owner->frame.prefetched_slot = next_slot;
-                owner->frame.prefetched_image = next_image;
+                parent->frame.prefetched_slot = next_slot;
+                parent->frame.prefetched_image = next_image;
             }
         }
-        core* const retained = owner;
-        owner->frame.async_present_queued = true;
-        owner->frame.present_pending = result;
-        bool const posted = owner->frame.present_worker->post([retained, completion, queue, swapchain, image, ready] {
+        core* const retained = parent;
+        parent->frame.async_present_queued = true;
+        parent->frame.present_pending = result;
+        bool const posted = parent->frame.present_worker->post([retained, completion, queue, swapchain, image, ready] {
             VkPresentInfoKHR info{};
             info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
             info.waitSemaphoreCount = 1;
@@ -383,27 +386,27 @@ namespace deren::vulkan {
     }
 
     rhi::error core::swapchain_view::recreate() {
-        if (this->owner->create_options.native_window == nullptr) {
+        if (this->parent->create_options.native_window == nullptr) {
             return rhi::error::unsupported;
         }
         // ok = a new generation was built; not_ready = the window reports a zero extent and nothing
         // was built - a DEFERRED recreate is a state, not a failure, and the caller retries when the
         // window is sized. Real build failures never reach here: they are the backend's named
         // startup-style panics, the same rule the constructor's build path follows.
-        return this->owner->recreate_swap_chain() ? rhi::error::ok : rhi::error::not_ready;
+        return this->parent->recreate_swap_chain() ? rhi::error::ok : rhi::error::not_ready;
     }
 
     rhi::image_extent core::swapchain_view::extent() const noexcept {
         // What presentation SHOWS; the caller's render scale is the caller's own decision and is
         // deliberately not pre-multiplied here (the contract's note).
-        return {.width = this->owner->frame.swap_chain_extent.width, .height = this->owner->frame.swap_chain_extent.height};
+        return {.width = this->parent->frame.swap_chain_extent.width, .height = this->parent->frame.swap_chain_extent.height};
     }
 
     rhi::image_format core::swapchain_view::format() const noexcept {
         // The four 8-bit shapes a screenshot can be unpacked from; anything else is `unknown`, and the
         // engine's read stage turns that into the one-time "unsupported swapchain format" it already
         // had (runtime.readback.cppm).
-        switch (this->owner->frame.swap_chain_image_format) {
+        switch (this->parent->frame.swap_chain_image_format) {
         case VK_FORMAT_B8G8R8A8_SRGB:
             return rhi::image_format::bgra8_srgb;
         case VK_FORMAT_B8G8R8A8_UNORM:

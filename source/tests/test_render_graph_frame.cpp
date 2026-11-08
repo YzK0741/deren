@@ -31,12 +31,14 @@ int main(int argc, char** argv) {
         options.validation_layers = true;
         auto core = deren::engine::load_api_core(options);
         CHECK(core);
-        if (!core)
+        if (!core) {
             return deren::vk_test::finish("test_render_graph_frame");
+        }
         auto* checkpoint = rhi::query_extension<rhi::frame_checkpoint>(*core);
         CHECK(checkpoint);
-        if (!checkpoint)
+        if (!checkpoint) {
             return deren::vk_test::finish("test_render_graph_frame");
+        }
         CHECK(checkpoint->checkpoint_and_wait() == rhi::error::not_ready);
         check_resource_memory_device(*core);
         check_texture_feedback(*core);
@@ -92,8 +94,9 @@ int main(int argc, char** argv) {
     CHECK(!core->resources->memory_statistics().supported);
     auto frames = rhi::query_extension<rhi::frame_resources>(*core);
     CHECK(frames);
-    if (!frames)
+    if (!frames) {
         return deren::vk_test::finish("test_render_graph_frame");
+    }
     CHECK(!frames->retain_image());
     (void)core->frames->frame_begin();
     auto shared = frames->retain_image();
@@ -110,8 +113,9 @@ int main(int argc, char** argv) {
     CHECK(graph.add_pass("present", present, {true}));
     auto plan = graph.compile({true});
     CHECK(plan);
-    if (!plan)
+    if (!plan) {
         return deren::vk_test::finish("test_render_graph_frame");
+    }
     CHECK(plan->barriers.back().after.layout == rg::resource_layout::present);
     CHECK(plan->barriers.back().after.access == rg::memory_access::none);
     std::array<rg::execution::resource_binding, 1> bindings{image};
@@ -119,8 +123,9 @@ int main(int argc, char** argv) {
     CHECK(ready);
     unsigned calls = 0;
     auto callback = [&](rg::execution::record_context const&) noexcept { ++calls; return rhi::error::ok; };
-    if (ready)
+    if (ready) {
         CHECK(ready->record(*core->frames->begin_commands(), callback) == rhi::error::ok);
+    }
     CHECK(calls == 2);
     if (ready) {
         rg::execution::prepared_graph prefix, suffix;
@@ -138,8 +143,9 @@ int main(int argc, char** argv) {
     auto next = frames->retain_image();
     CHECK(next && next != shared);
     calls = 0;
-    if (ready)
+    if (ready) {
         CHECK(ready->record(*core->frames->begin_commands(), callback) != rhi::error::ok);
+    }
     CHECK(calls == 0);
     CHECK(!rg::execution::prepared_graph::prepare(core, *plan, bindings));
     // A read-only pass can require no barriers. Identity checks must still reject

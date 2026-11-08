@@ -76,12 +76,15 @@ export namespace deren::engine::subtilis {
             return selected_bound_;
         }
         static std::expected<dag_asset, dag_error> make(std::span<dag_cluster const> clusters, std::span<dag_group const> groups, std::span<uint32_t const> references, std::span<uint32_t const> leaves, std::span<uint32_t const> roots, uint32_t lod0_index_count, uint32_t total_index_count = dag_none) {
-            if (clusters.size() >= dag_none || groups.size() >= dag_none || references.size() > UINT32_MAX || leaves.size() > UINT32_MAX || roots.size() > UINT32_MAX)
+            if (clusters.size() >= dag_none || groups.size() >= dag_none || references.size() > UINT32_MAX || leaves.size() > UINT32_MAX || roots.size() > UINT32_MAX) {
                 return std::unexpected(dag_error::capacity);
-            if (clusters.empty() || leaves.empty() || roots.empty())
+            }
+            if (clusters.empty() || leaves.empty() || roots.empty()) {
                 return std::unexpected(dag_error::invalid_hierarchy);
-            if (!lod0_index_count || lod0_index_count % 3)
+            }
+            if (!lod0_index_count || lod0_index_count % 3) {
                 return std::unexpected(dag_error::invalid_lod0_coverage);
+            }
             auto valid_sphere = [](dag_sphere s) { return std::isfinite(s.x) && std::isfinite(s.y) && std::isfinite(s.z) && std::isfinite(s.radius) && s.radius >= 0; };
             auto distance = [](dag_sphere a, dag_sphere b) { return std::hypot(double(a.x) - b.x, double(a.y) - b.y, double(a.z) - b.z); };
             auto geometry = [](dag_cluster const& c) {auto const& r=c.record;return dag_sphere{r.center_x,r.center_y,r.center_z,r.radius}; };
@@ -89,44 +92,58 @@ export namespace deren::engine::subtilis {
             for (auto const& c : clusters) {
                 auto const& r = c.record;
                 auto finish = uint64_t(r.first_index) + r.index_count;
-                if (finish > UINT32_MAX)
+                if (finish > UINT32_MAX) {
                     return std::unexpected(dag_error::capacity);
-                if (!r.index_count || r.index_count % 3 || r.index_count > meshlet_max_indices || r.base_vertex || r._pad || !valid_sphere(geometry(c)) || !std::isfinite(r.axis_x) || !std::isfinite(r.axis_y) || !std::isfinite(r.axis_z) || !std::isfinite(r.cone_cos) || r.cone_cos < -1 || r.cone_cos > 1 || (total_index_count != dag_none && finish > total_index_count))
+                }
+                if (!r.index_count || r.index_count % 3 || r.index_count > meshlet_max_indices || r.base_vertex || r._pad || !valid_sphere(geometry(c)) || !std::isfinite(r.axis_x) || !std::isfinite(r.axis_y) || !std::isfinite(r.axis_z) || !std::isfinite(r.cone_cos) || r.cone_cos < -1 || r.cone_cos > 1 || (total_index_count != dag_none && finish > total_index_count)) {
                     return std::unexpected(dag_error::invalid_cluster);
-                if ((c.producer != dag_none && c.producer >= groups.size()) || (c.consumer != dag_none && c.consumer >= groups.size()) || (c.producer != dag_none && c.consumer != dag_none && c.producer >= c.consumer))
+                }
+                if ((c.producer != dag_none && c.producer >= groups.size()) || (c.consumer != dag_none && c.consumer >= groups.size()) || (c.producer != dag_none && c.consumer != dag_none && c.producer >= c.consumer)) {
                     return std::unexpected(dag_error::invalid_hierarchy);
-                if (c.producer != dag_none && r.first_index < lod0_index_count)
+                }
+                if (c.producer != dag_none && r.first_index < lod0_index_count) {
                     return std::unexpected(dag_error::invalid_lod0_coverage);
+                }
                 end = std::max(end, finish);
             }
-            if (lod0_index_count > end || (total_index_count != dag_none && lod0_index_count > total_index_count))
+            if (lod0_index_count > end || (total_index_count != dag_none && lod0_index_count > total_index_count)) {
                 return std::unexpected(dag_error::invalid_lod0_coverage);
-            for (auto id : references)
-                if (id >= clusters.size())
+            }
+            for (auto id : references) {
+                if (id >= clusters.size()) {
                     return std::unexpected(dag_error::invalid_range);
+                }
+            }
             utility::vessel::vector<uint32_t> producer(clusters.size(), dag_none), consumer(clusters.size(), dag_none);
             auto in_range = [&](dag_range r) { return r.first <= references.size() && r.count <= references.size() - r.first; };
             for (uint32_t id = 0; id < groups.size(); ++id) {
                 auto const& g = groups[id];
-                if (!g.fine.count || !g.coarse.count || !in_range(g.fine) || !in_range(g.coarse))
+                if (!g.fine.count || !g.coarse.count || !in_range(g.fine) || !in_range(g.coarse)) {
                     return std::unexpected(dag_error::invalid_range);
-                if (!valid_sphere(g.lod))
+                }
+                if (!valid_sphere(g.lod)) {
                     return std::unexpected(dag_error::invalid_cluster);
-                if (!std::isfinite(g.error) || g.error < 0)
+                }
+                if (!std::isfinite(g.error) || g.error < 0) {
                     return std::unexpected(dag_error::invalid_error);
+                }
                 uint64_t fine_indices = 0, coarse_indices = 0;
                 for (auto c : references.subspan(g.fine.first, g.fine.count)) {
-                    if (consumer[c] != dag_none || clusters[c].consumer != id)
+                    if (consumer[c] != dag_none || clusters[c].consumer != id) {
                         return std::unexpected(dag_error::invalid_hierarchy);
+                    }
                     auto dependency = clusters[c].producer;
                     if (dependency != dag_none) {
-                        if (dependency >= id)
+                        if (dependency >= id) {
                             return std::unexpected(dag_error::invalid_hierarchy);
+                        }
                         auto const& previous = groups[dependency];
-                        if (previous.error > g.error)
+                        if (previous.error > g.error) {
                             return std::unexpected(dag_error::invalid_error);
-                        if (distance(g.lod, previous.lod) + double(previous.lod.radius) > double(g.lod.radius))
+                        }
+                        if (distance(g.lod, previous.lod) + double(previous.lod.radius) > double(g.lod.radius)) {
                             return std::unexpected(dag_error::invalid_cluster);
+                        }
                     }
                     // Cluster and LOD bounds independently enclose actual vertices.
                     // Neither containment of the cluster sphere nor its center is
@@ -135,44 +152,55 @@ export namespace deren::engine::subtilis {
                     fine_indices += clusters[c].record.index_count;
                 }
                 for (auto c : references.subspan(g.coarse.first, g.coarse.count)) {
-                    if (producer[c] != dag_none || clusters[c].producer != id || consumer[c] == id)
+                    if (producer[c] != dag_none || clusters[c].producer != id || consumer[c] == id) {
                         return std::unexpected(dag_error::invalid_hierarchy);
+                    }
                     producer[c] = id;
                     coarse_indices += clusters[c].record.index_count;
                 }
-                if (coarse_indices >= fine_indices)
+                if (coarse_indices >= fine_indices) {
                     return std::unexpected(dag_error::invalid_hierarchy);
+                }
             }
-            for (size_t i = 0; i < clusters.size(); ++i)
-                if (producer[i] != clusters[i].producer || consumer[i] != clusters[i].consumer)
+            for (size_t i = 0; i < clusters.size(); ++i) {
+                if (producer[i] != clusters[i].producer || consumer[i] != clusters[i].consumer) {
                     return std::unexpected(dag_error::invalid_hierarchy);
+                }
+            }
             auto exact_set = [&](std::span<uint32_t const> ids, bool leaf) {
                 utility::vessel::vector<bool> seen(clusters.size(), false);
                 for (auto id : ids) {
-                    if (id >= clusters.size() || seen[id] || (leaf ? producer[id] : consumer[id]) != dag_none)
+                    if (id >= clusters.size() || seen[id] || (leaf ? producer[id] : consumer[id]) != dag_none) {
                         return false;
+                    }
                     seen[id] = true;
                 }
-                for (size_t i = 0; i < seen.size(); ++i)
-                    if (seen[i] != ((leaf ? producer[i] : consumer[i]) == dag_none))
+                for (size_t i = 0; i < seen.size(); ++i) {
+                    if (seen[i] != ((leaf ? producer[i] : consumer[i]) == dag_none)) {
                         return false;
+                    }
+                }
                 return true;
             };
-            if (!exact_set(leaves, true) || !exact_set(roots, false))
+            if (!exact_set(leaves, true) || !exact_set(roots, false)) {
                 return std::unexpected(dag_error::invalid_hierarchy);
+            }
             utility::vessel::vector<meshlet> lod0;
             lod0.reserve(leaves.size());
-            for (auto id : leaves)
+            for (auto id : leaves) {
                 lod0.push_back(clusters[id].record);
+            }
             std::sort(lod0.begin(), lod0.end(), [](auto const& a, auto const& b) { return a.first_index < b.first_index; });
             uint64_t cursor = 0;
             for (auto const& c : lod0) {
-                if (c.first_index != cursor)
+                if (c.first_index != cursor) {
                     return std::unexpected(dag_error::invalid_lod0_coverage);
+                }
                 cursor += c.index_count;
             }
-            if (cursor != lod0_index_count)
+            if (cursor != lod0_index_count) {
                 return std::unexpected(dag_error::invalid_lod0_coverage);
+            }
             dag_asset result;
             result.clusters_.assign(clusters.begin(), clusters.end());
             result.groups_.assign(groups.begin(), groups.end());

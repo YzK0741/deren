@@ -12,14 +12,22 @@ namespace deren::vulkan::detail {
     [[nodiscard]] upload_result upload_sequence(Begin&& begin, Record&& record, End&& end,
                                                 Submit&& submit, Wait&& wait, Reset&& reset) {
         auto status = begin();
-        if (status != VK_SUCCESS) return {status, false};
+        if (status != VK_SUCCESS) {
+            return {status, false};
+        }
         record();
         status = end();
-        if (status != VK_SUCCESS) return {status, false};
+        if (status != VK_SUCCESS) {
+            return {status, false};
+        }
         status = submit();
-        if (status != VK_SUCCESS) return {status, false};
+        if (status != VK_SUCCESS) {
+            return {status, false};
+        }
         status = wait();
-        if (status != VK_SUCCESS) return {status, status != VK_ERROR_DEVICE_LOST};
+        if (status != VK_SUCCESS) {
+            return {status, status != VK_ERROR_DEVICE_LOST};
+        }
         return {reset(), false};
     }
 } // namespace deren::vulkan::detail

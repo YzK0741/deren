@@ -139,4 +139,3 @@ export namespace deren::gui {
     /// THE HOST'S VIEW OF IT, as a type: what `deren::utility::dynamic_link`'s resolved address is cast to.
     using make_gui_fn = std::shared_ptr<overlay> (*)(std::uint32_t abi_version, create_info const* info);
 } // namespace deren::gui
-

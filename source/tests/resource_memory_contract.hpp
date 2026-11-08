@@ -37,7 +37,9 @@ void check_resource_memory_tracker() {
     CHECK(overlapping.buffers.current_bytes + overlapping.images.current_bytes == overlapping.total.current_bytes);
     CHECK(overlapping.total.current_allocations == 4 && overlapping.total.peak_allocations == 4);
     rendezvous.arrive_and_wait();
-    for (auto& worker : workers) worker.join();
+    for (auto& worker : workers) {
+        worker.join();
+    }
     CHECK(concurrent.snapshot().total.current_bytes == 0 && concurrent.snapshot().total.peak_bytes == 256);
 }
 
@@ -56,10 +58,8 @@ void check_resource_memory_device(rhi::api_core& core) {
     CHECK(core.resources->memory_statistics().buffers.current_bytes == before.buffers.current_bytes);
     CHECK(core.resources->memory_statistics().buffers.peak_bytes >= live_buffer.buffers.peak_bytes);
 
-    std::array<std::uint8_t, 64*64*4> pixels{};
-    rhi::image_desc desc{.extent = {64, 64, 1}, .mip_levels = 1, .array_layers = 1,
-        .format = rhi::image_format::rgba8_unorm, .flags = rhi::to_bits(rhi::image_flag::sampled),
-        .initial_bytes = std::as_bytes(std::span(pixels))};
+    std::array<std::uint8_t, 64 * 64 * 4> pixels{};
+    rhi::image_desc desc{.extent = {64, 64, 1}, .mip_levels = 1, .array_layers = 1, .format = rhi::image_format::rgba8_unorm, .flags = rhi::to_bits(rhi::image_flag::sampled), .initial_bytes = std::as_bytes(std::span(pixels))};
     auto first = core.resources->create_image(desc);
     CHECK(first);
     auto live_image = core.resources->memory_statistics();
@@ -69,7 +69,8 @@ void check_resource_memory_device(rhi::api_core& core) {
     auto view = first ? first->make_view({}) : rhi::unique_object<rhi::image_view>{};
     CHECK(second && view);
     CHECK(core.resources->memory_statistics().images.current_bytes == live_image.images.current_bytes);
-    first.reset(); second.reset();
+    first.reset();
+    second.reset();
     CHECK(core.resources->memory_statistics().images.current_bytes == live_image.images.current_bytes);
     view.reset();
     CHECK(core.resources->memory_statistics().images.current_bytes == before.images.current_bytes);

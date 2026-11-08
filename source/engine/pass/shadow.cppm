@@ -37,7 +37,7 @@ import deren.promise.rhi;
 import deren.engine.pass;
 import deren.engine.render_resource;
 import deren.engine.primitive; // max_shadow_cascades: the run of layers this pass's declaration claims
-import deren.engine.pipelines; // vk_pipeline: the RAII owner of the pipeline this pass builds
+import deren.engine.pipelines; // vk_pipeline: the RAII parent of the pipeline this pass builds
 
 export namespace deren::engine::pass {
 
@@ -69,10 +69,10 @@ export namespace deren::engine::pass {
         /// @param mesh_stage whether @p pipeline is a MESH pipeline, i.e. whether the casters must be drawn as
         ///        dispatches (vkCmdDrawMeshTasksEXT) instead of indexed draws - the pipeline and the way to feed
         ///        it are one fact, so they travel together (see docs/mesh_shaders.md step 1)
-        bool (*record_cascade)(void* owner, deren::promise::rhi::mergeable_command_buffer_ref const& secondary, uint32_t cascade_index, deren::promise::rhi::pipeline* pipeline, bool mesh_stage, bool meshlets) = nullptr;
+        bool (*record_cascade)(void* parent, deren::promise::rhi::mergeable_command_buffer_ref const& secondary, uint32_t cascade_index, deren::promise::rhi::pipeline* pipeline, bool mesh_stage, bool meshlets) = nullptr;
         /// the frame loop's scheduler: one task per cascade, each recording into its own secondary
-        void (*run_tasks)(void* owner, std::span<std::function<void()>> tasks) = nullptr;
-        void* owner = nullptr;
+        void (*run_tasks)(void* parent, std::span<std::function<void()>> tasks) = nullptr;
+        void* parent = nullptr;
         /// the per-cascade SECONDARY command buffers, in cascade order - one per layer this frame renders.
         /// THE CONTRACT HANDLES, BORROWED (abi 20): the frame loop owns the buffers (per slot, one per cascade)
         /// and the pass only records into them and executes them - so this is a span of raw pointers and the
@@ -162,7 +162,7 @@ export namespace deren::engine::pass {
             .resync_viewport = false,
         };
         render_resource::instances::resource_snapshot resource_view;
-        void release_owned() noexcept;
+        void release_contract() noexcept;
         deren::promise::rhi::api_core* built_against = nullptr;
         /// THE MESH FORM, and since step 4 (docs/mesh_shaders.md) it is the pass's ONLY form: the vertex pipeline is
         /// gone with the rest of the vertex geometry path, so a device that cannot build this one gets no shadow map

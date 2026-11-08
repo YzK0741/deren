@@ -14,8 +14,9 @@ import deren.gaussian_loader;
 namespace gs = deren::gaussian;
 deren::utility::vessel::string header(deren::utility::vessel::string format = "ascii", unsigned count = 1) {
     deren::utility::vessel::string s = "ply\nformat " + format + " 1.0\nelement vertex " + deren::utility::vessel::to_string(count) + "\n";
-    for (auto name : {"x", "y", "z", "scale_0", "scale_1", "scale_2", "rot_0", "rot_1", "rot_2", "rot_3", "opacity", "f_dc_0", "f_dc_1", "f_dc_2"})
+    for (auto name : {"x", "y", "z", "scale_0", "scale_1", "scale_2", "rot_0", "rot_1", "rot_2", "rot_3", "opacity", "f_dc_0", "f_dc_1", "f_dc_2"}) {
         s += "property float " + deren::utility::vessel::string(name) + "\n";
+    }
     return s;
 }
 auto parse(deren::utility::vessel::string const& text, gs::load_options options = {}) {
@@ -36,8 +37,9 @@ int main() {
     auto binary = header("binary_little_endian") + "end_header\n";
     for (float f : {1.f, 2.f, 3.f, 0.f, 0.f, 0.f, 2.f, 0.f, 0.f, 0.f, 0.f, 1.f, 2.f, 3.f}) {
         auto bits = std::bit_cast<std::uint32_t>(f);
-        for (unsigned b = 0; b < 4; ++b)
+        for (unsigned b = 0; b < 4; ++b) {
             binary += char((bits >> (b * 8)) & 255);
+        }
     }
     auto b = parse(binary);
     CHECK(b && model && b->particles[0].center == model->particles[0].center);
@@ -51,17 +53,20 @@ int main() {
     CHECK(!parse(good, {.max_particles = 4, .max_file_bytes = 4096, .max_output_bytes = 1}));
     auto zero = header("ascii", 0) + "end_header\n";
     CHECK(parse(zero));
-    for (auto values : {"nan 2 3 0 0 0 1 0 0 0 0 1 2 3", "1 2 3 1000 0 0 1 0 0 0 0 1 2 3", "1 2 3 0 0 0 0 0 0 0 0 1 2 3"})
+    for (auto values : {"nan 2 3 0 0 0 1 0 0 0 0 1 2 3", "1 2 3 1000 0 0 1 0 0 0 0 1 2 3", "1 2 3 0 0 0 0 0 0 0 0 1 2 3"}) {
         CHECK(!parse(header() + "end_header\n" + values));
+    }
 
     for (unsigned degree = 1; degree <= 3; ++degree) {
         unsigned bands = (degree + 1) * (degree + 1) - 1;
         auto h = header();
-        for (unsigned i = 0; i < bands * 3; ++i)
+        for (unsigned i = 0; i < bands * 3; ++i) {
             h += "property float f_rest_" + deren::utility::vessel::to_string(i) + "\n";
+        }
         h += "property uchar extra\nend_header\n1 2 3 0 0 0 1 0 0 0 0 1 2 3";
-        for (unsigned i = 0; i < bands * 3; ++i)
+        for (unsigned i = 0; i < bands * 3; ++i) {
             h += " " + deren::utility::vessel::to_string(i + 10);
+        }
         auto sh = parse(h + " 255\n");
         CHECK(sh && sh->sh_degree == degree);
         if (sh) {
@@ -99,8 +104,9 @@ int main() {
     auto low_opacity = parse(header() + "end_header\n0 0 0 0 0 0 1 0 0 0 -1000 0 0 0\n");
     CHECK(low_opacity && low_opacity->particles[0].opacity == 0);
     auto crlf = good;
-    for (std::size_t pos = 0; (pos = crlf.find('\n', pos)) != deren::utility::vessel::string::npos; pos += 2)
+    for (std::size_t pos = 0; (pos = crlf.find('\n', pos)) != deren::utility::vessel::string::npos; pos += 2) {
         crlf.insert(pos, 1, '\r');
+    }
     CHECK(parse(crlf));
     auto huge_count = header();
     auto count_at = huge_count.find("vertex 1");
@@ -120,17 +126,21 @@ int main() {
     // no longer matches the band count) fails here rather than at the viewer.
     {
         deren::utility::vessel::string real = "ply\nformat binary_little_endian 1.0\nelement vertex 2\n";
-        for (auto name : {"x", "y", "z", "nx", "ny", "nz", "f_dc_0", "f_dc_1", "f_dc_2"})
+        for (auto name : {"x", "y", "z", "nx", "ny", "nz", "f_dc_0", "f_dc_1", "f_dc_2"}) {
             real += "property float " + deren::utility::vessel::string(name) + "\n";
-        for (unsigned i = 0; i < 45; ++i)
+        }
+        for (unsigned i = 0; i < 45; ++i) {
             real += "property float f_rest_" + deren::utility::vessel::to_string(i) + "\n";
-        for (auto name : {"opacity", "scale_0", "scale_1", "scale_2", "rot_0", "rot_1", "rot_2", "rot_3"})
+        }
+        for (auto name : {"opacity", "scale_0", "scale_1", "scale_2", "rot_0", "rot_1", "rot_2", "rot_3"}) {
             real += "property float " + deren::utility::vessel::string(name) + "\n";
+        }
         real += "end_header\n";
         auto push = [&real](float value) {
             auto bits = std::bit_cast<std::uint32_t>(value);
-            for (unsigned b = 0; b < 4; ++b)
+            for (unsigned b = 0; b < 4; ++b) {
                 real += char((bits >> (b * 8)) & 255);
+            }
         };
         for (int vertex = 0; vertex < 2; ++vertex) {
             push(float(1 + vertex));
@@ -142,9 +152,10 @@ int main() {
             push(0.25f);
             push(0.5f);
             push(0.75f); // f_dc
-            for (unsigned i = 0; i < 45; ++i)
+            for (unsigned i = 0; i < 45; ++i) {
                 push(float(100 + i)); // f_rest: each value names its own slot
-            push(2.0f);               // opacity (logit)
+            }
+            push(2.0f); // opacity (logit)
             push(-3.0f);
             push(-3.0f);
             push(-3.0f); // scale (log)

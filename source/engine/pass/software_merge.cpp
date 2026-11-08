@@ -26,10 +26,10 @@ namespace deren::engine::pass {
         if (this->merge_pipeline.has_value()) {
             return; // already built for this device
         }
-        std::span<std::uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.owner, vertex_shader_name) : std::span<std::uint8_t const>{};
-        std::span<std::uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.owner, fragment_shader_name) : std::span<std::uint8_t const>{};
+        std::span<std::uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.parent, vertex_shader_name) : std::span<std::uint8_t const>{};
+        std::span<std::uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.parent, fragment_shader_name) : std::span<std::uint8_t const>{};
         if (vertex_spirv.empty() || fragment_spirv.empty()) {
-            deren::utility::log("software merge disabled: the owner has no {} or {}", vertex_shader_name, fragment_shader_name);
+            deren::utility::log("software merge disabled: the parent has no {} or {}", vertex_shader_name, fragment_shader_name);
             return;
         }
         // THE DEPTH FORMAT IS THE CONTRACT'S `depth` ROLE: the backend picks the device's concrete format, exactly as

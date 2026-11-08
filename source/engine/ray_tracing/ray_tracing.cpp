@@ -385,7 +385,7 @@ namespace deren::engine::ray_tracing {
 
             std::uintptr_t mask_address = 0;
             uint32_t mask_stride = 0;
-            if (inputs.mask_bake && inputs.hooks.mask_ready != nullptr && inputs.hooks.mask_ready(inputs.hooks.owner)) {
+            if (inputs.mask_bake && inputs.hooks.mask_ready != nullptr && inputs.hooks.mask_ready(inputs.hooks.parent)) {
                 // material_record::flags bit 4 is alphaMode MASK (see source/backends/vulkan/primitive.cppm; the bits are literals
                 // in register_material, so they are literals here too).
                 uint32_t const material_index = caster->push.material_index.value;
@@ -440,7 +440,7 @@ namespace deren::engine::ray_tracing {
             uint32_t skin_source_stride = 0;
             uint32_t skin_vertex_count = 0;
             uint32_t skin_base = 0;
-            if (mask_address == 0 && inputs.skin_bake && inputs.hooks.skin_ready != nullptr && inputs.hooks.skin_ready(inputs.hooks.owner) &&
+            if (mask_address == 0 && inputs.skin_bake && inputs.hooks.skin_ready != nullptr && inputs.hooks.skin_ready(inputs.hooks.parent) &&
                 caster->push.skin_base != 0 && caster->vertex_count != 0 && caster->vertex_stride == skin_source_stride_expected) {
                 constexpr uint32_t skin_vertex_stride = 32u; // position, normal, uv - what hit shading reads
                 uint64_t const skinned_bytes = static_cast<uint64_t>(caster->vertex_count) * skin_vertex_stride;
@@ -496,7 +496,7 @@ namespace deren::engine::ray_tracing {
         // Record only after all destinations and BLAS objects are prepared. Abandoning a failed
         // allocation must not leave commands pointing into freed, never-submitted bake storage.
         for (auto const& bake : pending_mask_bakes) {
-            inputs.hooks.record_mask_bake(inputs.hooks.owner, commands, bake);
+            inputs.hooks.record_mask_bake(inputs.hooks.parent, commands, bake);
         }
         mask_bakes_recorded = !pending_mask_bakes.empty();
 
@@ -510,7 +510,7 @@ namespace deren::engine::ray_tracing {
                     this->skin_levels.push_back(built.blas_index);
                 }
             }
-            if (!inputs.hooks.record_skin(inputs.hooks.owner, commands, this->caster_list)) {
+            if (!inputs.hooks.record_skin(inputs.hooks.parent, commands, this->caster_list)) {
                 return std::unexpected(failure{.message = "Ray tracing: initial skin recording failed", .disable_skin_bake = true});
             }
         }
@@ -634,8 +634,8 @@ namespace deren::engine::ray_tracing {
         // (the addresses do not change, so the order does not matter to correctness - but the refit has to be
         // recorded before this frame writes the scene block's binding 16, the ordering the mask bake's own-set
         // comment explains).
-        if (inputs.skin_bake && !this->skin_levels.empty() && inputs.hooks.skin_ready != nullptr && inputs.hooks.skin_ready(inputs.hooks.owner)) {
-            if (!inputs.hooks.record_skin(inputs.hooks.owner, commands, this->caster_list)) {
+        if (inputs.skin_bake && !this->skin_levels.empty() && inputs.hooks.skin_ready != nullptr && inputs.hooks.skin_ready(inputs.hooks.parent)) {
+            if (!inputs.hooks.record_skin(inputs.hooks.parent, commands, this->caster_list)) {
                 return std::unexpected(failure{.message = "Ray tracing: skin update recording failed", .disable_skin_bake = true});
             } else {
                 if (auto const updated = levels.record_update(commands, this->skin_levels); !updated) {

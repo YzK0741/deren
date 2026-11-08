@@ -49,8 +49,8 @@ export namespace deren::engine::pass {
         /// so the pass begins, records and ends it and never releases it.
         deren::promise::rhi::mergeable_command_buffer_ref secondary = {};
         /// the draw state builder (see scene_frame::make_environment: the registry is the renderer's)
-        render_environment (*make_environment)(void* owner, ::deren::engine::recording_target target, bool gbuffer) = nullptr;
-        void* owner = nullptr;
+        render_environment (*make_environment)(void* parent, ::deren::engine::recording_target target, bool gbuffer) = nullptr;
+        void* parent = nullptr;
         // (THE HEAP-BIND FIELD IS GONE - plan X5 B3.5: the secondary's descriptor-heap inheritance is derived by
         //  the BACKEND from the heaps it owns, which is why the pass stopped calling the hook at abi 20 - see
         //  scene_frame's note for the whole reason.)

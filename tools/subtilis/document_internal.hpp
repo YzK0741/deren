@@ -11,7 +11,8 @@ namespace deren::tools::subtilis {
     inline yyjson_alc json_allocator() {
         return {
             [](void*, size_t size) -> void* { return utility::memory::allocate(size); },
-            [](void*, void* old, size_t old_size, size_t size) -> void* {auto* next=utility::memory::allocate(size);if(old) std::memcpy(next,old,std::min(old_size,size));utility::memory::deallocate(old);return next; },
+            [](void*, void* old, size_t old_size, size_t size) -> void* {auto* next=utility::memory::allocate(size);if(old){ std::memcpy(next,old,std::min(old_size,size));
+}utility::memory::deallocate(old);return next; },
             [](void*, void* p) { utility::memory::deallocate(p); }, nullptr};
     }
     inline auto fail(char const* message, asset::error_code code = asset::error_code::invalid_input) {
@@ -43,13 +44,15 @@ namespace deren::tools::subtilis {
     }
     inline std::uint32_t get_u32(std::span<byte const> b, size_t offset) {
         std::uint32_t n = 0;
-        for (unsigned i = 0; i < 4; ++i)
+        for (unsigned i = 0; i < 4; ++i) {
             n |= std::uint32_t(std::to_integer<unsigned>(b[offset + i])) << (i * 8);
+        }
         return n;
     }
     inline void put_u32(vector<byte>& b, std::uint32_t n) {
-        for (unsigned i = 0; i < 4; ++i)
+        for (unsigned i = 0; i < 4; ++i) {
             b.push_back(byte((n >> (i * 8)) & 255));
+        }
     }
     result<void> validate_accessors(document const&);
     result<void> preflight_references(document const&);

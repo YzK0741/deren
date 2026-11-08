@@ -21,7 +21,9 @@ static void check_rt_traversal(deren::promise::rhi::api_core& core,
     auto const read_shader = [executable](char const* name) {
         auto const path = std::filesystem::absolute(executable).parent_path() / "shaders" / name;
         std::ifstream file(path, std::ios::binary | std::ios::ate);
-        if (!file) { return deren::utility::vessel::vector<std::byte>{}; }
+        if (!file) {
+            return deren::utility::vessel::vector<std::byte>{};
+        }
         auto const size = file.tellg();
         deren::utility::vessel::vector<std::byte> code(static_cast<std::size_t>(size));
         file.seekg(0);
@@ -32,20 +34,25 @@ static void check_rt_traversal(deren::promise::rhi::api_core& core,
     auto const miss = read_shader("rt_traversal_probe.rmiss.spv");
     auto const hit = read_shader("rt_traversal_probe.rchit.spv");
     CHECK(!raygen.empty() && !miss.empty() && !hit.empty());
-    if (raygen.empty() || miss.empty() || hit.empty()) { return; }
+    if (raygen.empty() || miss.empty() || hit.empty()) {
+        return;
+    }
     deren::utility::vessel::array<rhi::ray_tracing_stage, 3> const stages = {
         rhi::ray_tracing_stage{.stage = rhi::shader_stage::ray_generation, .code = raygen},
         rhi::ray_tracing_stage{.stage = rhi::shader_stage::miss, .code = miss},
         rhi::ray_tracing_stage{.stage = rhi::shader_stage::closest_hit, .code = hit},
     };
     deren::utility::vessel::array<rhi::ray_tracing_group, 3> const groups = {
-        rhi::ray_tracing_group{.general = 0}, rhi::ray_tracing_group{.general = 1},
+        rhi::ray_tracing_group{.general = 0},
+        rhi::ray_tracing_group{.general = 1},
         rhi::ray_tracing_group{.closest_hit = 2},
     };
     constexpr std::uint32_t offset = (16384u + 1000u) * 64u; // deliberately different from the renderer's TLAS slots
     auto const heap_binding = heap->bindings().resource;
     CHECK(heap_binding.address != 0 && heap_binding.size >= offset + 64u + sizeof(std::uint64_t));
-    if (heap_binding.address == 0 || heap_binding.size < offset + 64u + sizeof(std::uint64_t)) { return; }
+    if (heap_binding.address == 0 || heap_binding.size < offset + 64u + sizeof(std::uint64_t)) {
+        return;
+    }
     deren::utility::vessel::array<rhi::acceleration_structure_heap_binding, 1> const bindings = {
         rhi::acceleration_structure_heap_binding{.binding = 7, .byte_offset = offset, .array_stride = 64, .array_count = 2},
     };
@@ -71,42 +78,58 @@ static void check_rt_traversal(deren::promise::rhi::api_core& core,
     }
     rhi::unique_object<rhi::pipeline> pipeline{core.resources->create_pipeline(desc)};
     CHECK(pipeline);
-    if (!pipeline) { return; }
+    if (!pipeline) {
+        return;
+    }
 
     auto const properties = capabilities.shader_binding_table();
     CHECK(properties.handle_size != 0 && properties.base_alignment != 0);
-    if (properties.handle_size == 0 || properties.base_alignment == 0) { return; }
+    if (properties.handle_size == 0 || properties.base_alignment == 0) {
+        return;
+    }
     std::uint32_t const stride = ((properties.handle_size + properties.base_alignment - 1) / properties.base_alignment) * properties.base_alignment;
     deren::utility::vessel::vector<std::uint8_t> handles(3u * properties.handle_size);
     auto* const group_access = rhi::query_extension<rhi::shader_group_access>(core);
     CHECK(group_access != nullptr);
-    if (group_access == nullptr) { return; }
+    if (group_access == nullptr) {
+        return;
+    }
     bool const queried = group_access->read(*pipeline, 0, 3, handles) == rhi::error::ok;
     CHECK(queried);
-    if (!queried) { return; }
+    if (!queried) {
+        return;
+    }
     CHECK(group_access->read(*pipeline, 3, 1, handles) == rhi::error::invalid_argument);
     CHECK(group_access->read(*pipeline, 0, 0, handles) == rhi::error::invalid_argument);
     CHECK(group_access->read(*pipeline, 0, 3, std::span<std::uint8_t>{handles}.first(handles.size() - 1)) == rhi::error::invalid_argument);
     CHECK(group_access->read(*pipeline, 0xFFFFFFFFu, 2, handles) == rhi::error::invalid_argument);
     struct foreign_pipeline final : rhi::pipeline {
-        [[nodiscard]] std::string_view get_tag() const noexcept override { return "foreign_pipeline"; }
+        [[nodiscard]] std::string_view get_tag() const noexcept override {
+            return "foreign_pipeline";
+        }
         foreign_pipeline() noexcept = default;
-        void release() noexcept override {}
+        void release() noexcept override {
+        }
     } foreign;
     CHECK(group_access->read(foreign, 0, 1, handles) == rhi::error::invalid_argument);
     rhi::unique_object<rhi::buffer> table{core.resources->create_buffer({
-        .size = 3u * stride + properties.base_alignment - 1u, .usage = rhi::buffer_usage::storage_coherent,
+        .size = 3u * stride + properties.base_alignment - 1u,
+        .usage = rhi::buffer_usage::storage_coherent,
         .flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::shader_binding_table),
     })};
     rhi::unique_object<rhi::buffer> output{core.resources->create_buffer({
-        .size = 6u * sizeof(std::uint32_t), .usage = rhi::buffer_usage::storage_coherent,
+        .size = 6u * sizeof(std::uint32_t),
+        .usage = rhi::buffer_usage::storage_coherent,
         .flags = rhi::to_bits(rhi::buffer_flag::device_address),
     })};
     rhi::unique_object<rhi::acceleration_structure> second_tlas{core.resources->create_acceleration_structure({
-        .type = rhi::acceleration_structure_type::top_level, .instance_capacity = 1,
+        .type = rhi::acceleration_structure_type::top_level,
+        .instance_capacity = 1,
     })};
     CHECK(table && output && second_tlas);
-    if (!table || !output || !second_tlas) { return; }
+    if (!table || !output || !second_tlas) {
+        return;
+    }
     auto const base = addresses.buffer_address(*table, 0);
     auto const aligned = ((base + properties.base_alignment - 1) / properties.base_alignment) * properties.base_alignment;
     auto const table_offset = static_cast<std::size_t>(aligned - base);
@@ -119,31 +142,57 @@ static void check_rt_traversal(deren::promise::rhi::api_core& core,
     moved.transform[3] = 3; // slot 1 hits only if the correct descriptor array element was read
     moved.structure_reference = blas.device_address();
     auto const checked = [](rhi::error result) { CHECK(result == rhi::error::ok); return result == rhi::error::ok; };
-    if (!checked(second_tlas->write_instances(std::span(&moved, 1)))) { return; }
-    if (!checked(heap->write_buffer({.offset = offset, .address = first_tlas.device_address(), .size = first_tlas.size_bytes(),
-                              .type = rhi::descriptor_type::acceleration_structure}))) { return; }
-    if (!checked(heap->write_buffer({.offset = offset + 64, .address = second_tlas->device_address(), .size = second_tlas->size_bytes(),
-                              .type = rhi::descriptor_type::acceleration_structure}))) { return; }
+    if (!checked(second_tlas->write_instances(std::span(&moved, 1)))) {
+        return;
+    }
+    if (!checked(heap->write_buffer({.offset = offset, .address = first_tlas.device_address(), .size = first_tlas.size_bytes(), .type = rhi::descriptor_type::acceleration_structure}))) {
+        return;
+    }
+    if (!checked(heap->write_buffer({.offset = offset + 64, .address = second_tlas->device_address(), .size = second_tlas->size_bytes(), .type = rhi::descriptor_type::acceleration_structure}))) {
+        return;
+    }
     rhi::unique_object<rhi::command_buffer> commands{core.commands->create_command_buffer({})};
     CHECK(commands);
-    if (!commands) { return; }
-    if (!checked(commands->begin_recording({}))) { return; }
-    if (!checked(commands->build_acceleration_structure(*second_tlas))) { return; }
-    if (!checked(commands->barrier({.stage = rhi::stage_hint::ray_tracing, .has_memory = true,
-                             .memory = {.from = rhi::buffer_use::acceleration_structure_write, .to = rhi::buffer_use::acceleration_structure_read}}))) { return; }
-    if (!checked(heap->bind({.commands = commands.get()}))) { return; }
-    if (!checked(commands->bind_pipeline(*pipeline))) { return; }
-    struct push { std::uint64_t destination; std::uint32_t slot; std::uint32_t padding = 0; std::uint64_t resource_heap; };
+    if (!commands) {
+        return;
+    }
+    if (!checked(commands->begin_recording({}))) {
+        return;
+    }
+    if (!checked(commands->build_acceleration_structure(*second_tlas))) {
+        return;
+    }
+    if (!checked(commands->barrier({.stage = rhi::stage_hint::ray_tracing, .has_memory = true, .memory = {.from = rhi::buffer_use::acceleration_structure_write, .to = rhi::buffer_use::acceleration_structure_read}}))) {
+        return;
+    }
+    if (!checked(heap->bind({.commands = commands.get()}))) {
+        return;
+    }
+    if (!checked(commands->bind_pipeline(*pipeline))) {
+        return;
+    }
+    struct push {
+        std::uint64_t destination;
+        std::uint32_t slot;
+        std::uint32_t padding = 0;
+        std::uint64_t resource_heap;
+    };
     static_assert(sizeof(push) == 24 && offsetof(push, resource_heap) == 16);
     auto const region = [stride](std::uint64_t address) { return rhi::shader_binding_table_region{.address = address, .size = stride, .stride = stride}; };
     for (std::uint32_t slot = 0; slot < 2; ++slot) {
         push const data{.destination = addresses.buffer_address(*output, 0), .slot = slot, .resource_heap = heap_binding.address};
-        if (!checked(commands.get()->push_constants(0u, std::as_bytes(std::span(&data, 1))))) { return; }
+        if (!checked(commands.get()->push_constants(0u, std::as_bytes(std::span(&data, 1))))) {
+            return;
+        }
         commands->trace_rays(region(aligned), region(aligned + stride), region(aligned + 2 * stride), {}, 3, 1, 1);
     }
-    if (!checked(commands->end_recording())) { return; }
+    if (!checked(commands->end_recording())) {
+        return;
+    }
     // abi 42: the owned primary submits through the CONTRACT (the escape's raw submit is gone).
-    if (!checked(core.commands->submit(*commands))) { return; }
+    if (!checked(core.commands->submit(*commands))) {
+        return;
+    }
     core.wait_idle();
     deren::vk_test::write_line("rt_traversal: submitted and waited through the contract");
     deren::utility::vessel::array<std::uint32_t, 6> values{};
@@ -154,5 +203,5 @@ static void check_rt_traversal(deren::promise::rhi::api_core& core,
         CHECK(values[slot * 3 + 2] == 0); // instance mask discards a known hit
     }
     deren::vk_test::write_line("rt_traversal: GPU results {},{},{} / {},{},{} (expected 1,0,0 / 1,0,0; {})",
-        values[0], values[1], values[2], values[3], values[4], values[5], native_heap ? "native heap" : "mapped heap");
+                               values[0], values[1], values[2], values[3], values[4], values[5], native_heap ? "native heap" : "mapped heap");
 }

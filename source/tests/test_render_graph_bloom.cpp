@@ -41,8 +41,8 @@ struct test_composite final : pass::frame_pass {
     }
     void on_swapchain_recreated(pass::pass_host const&) override {
     }
-    pass::owned_pipeline named_pipeline(std::string_view name) const noexcept override {
-        return name == "post_hdr" ? pass::owned_pipeline{.contract = const_cast<test_pipeline*>(&pipeline)} : pass::owned_pipeline{};
+    pass::pipeline_ref named_pipeline(std::string_view name) const noexcept override {
+        return name == "post_hdr" ? pass::pipeline_ref{.contract = const_cast<test_pipeline*>(&pipeline)} : pass::pipeline_ref{};
     }
 };
 int main() {
@@ -66,15 +66,18 @@ int main() {
     }
     auto graph = bloom::compile(description);
     CHECK(graph);
-    if (!graph)
+    if (!graph) {
         return deren::vk_test::finish("test_render_graph_bloom");
+    }
     CHECK(graph->resources.size() == 5 && graph->execution_order.size() == 5 && graph->outputs.size() == 4);
     CHECK(graph->barriers.back().before_pass == 4);
-    for (auto const& state : graph->final_states)
+    for (auto const& state : graph->final_states) {
         CHECK(state.state.layout == rg::resource_layout::shader_read_only);
+    }
     auto reused = description;
-    for (auto& state : reused.level_states)
+    for (auto& state : reused.level_states) {
         state = {rg::resource_layout::shader_read_only, rg::pipeline_stage::fragment_shader | rg::pipeline_stage::color_output, rg::memory_access::read | rg::memory_access::write};
+    }
     auto reuse_plan = bloom::compile(reused);
     CHECK(reuse_plan);
     if (reuse_plan) {
@@ -88,12 +91,13 @@ int main() {
     CHECK(!bloom::compile(aliased));
     auto prepared = bloom::prepared_chain::prepare(core, input, levels, description.input_state, description.level_states);
     CHECK(prepared);
-    if (!prepared)
+    if (!prepared) {
         return deren::vk_test::finish("test_render_graph_bloom");
+    }
     (void)core->frames->frame_begin();
     auto commands = core->frames->begin_commands();
     CHECK(commands->begin_recording({}) == rhi::error::ok);
-    auto command_owner = rhi::shared_object<rhi::command_buffer>(core, commands);
+    auto command_handle = rhi::shared_object<rhi::command_buffer>(core, commands);
     test_pipeline pipeline;
     CHECK(commands->bind_pipeline(pipeline) == rhi::error::ok);
     std::array<rhi::pipeline*, 1> pipelines{&pipeline};
@@ -103,13 +107,13 @@ int main() {
         pass::post_bloom_pass stage(level);
         pass::resolved_io io{};
         std::array<pass::resolved_binding, 1> target{{{.image_handle = levels[level].get(), .view_handle = views[level].get()}}};
-        io.cmd = command_owner.get();
+        io.cmd = command_handle.get();
         io.list = commands;
         io.targets = target;
         io.pipelines = pipelines;
         io.extent = {8U >> level, 8U >> level, 1};
-        io.push_block = {&calls, [](void* owner, rhi::command_buffer&, std::span<std::byte const> bytes, uint32_t lane) {
-                             auto& count = *static_cast<unsigned*>(owner);
+        io.push_block = {&calls, [](void* parent, rhi::command_buffer&, std::span<std::byte const> bytes, uint32_t lane) {
+                             auto& count = *static_cast<unsigned*>(parent);
                              pass::post_push_constants push{};
                              CHECK(bytes.size() == sizeof(push));
                              std::memcpy(&push, bytes.data(), sizeof(push));

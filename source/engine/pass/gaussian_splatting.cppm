@@ -28,17 +28,17 @@ export namespace deren::engine::pass {
         /// The GPU compute chain INSIDE this entry is the snapshot's own: its three dispatches write and read the
         /// frame snapshot's private buffers (no other pass touches them) and it emits their barriers itself, so the
         /// graph's boundary for this pass is exactly the raster's target write and depth read.
-        void record_owned(resolved_io const& io);
+        void record(resolved_io const& io);
         deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
-        /// \brief the one body both entries run: own_barriers is the only difference between them
-        deren::promise::rhi::error record_impl(resolved_io const& io, bool own_barriers) noexcept;
+        /// \brief the one body both entries run: local_barriers is the only difference between them
+        deren::promise::rhi::error record_impl(resolved_io const& io, bool local_barriers) noexcept;
         [[nodiscard]] bool ready() const noexcept override {
             return static_cast<bool>(pipeline);
         }
         [[nodiscard]] deren::promise::rhi::pipeline* pipeline_handle() const noexcept override {
             return pipeline.get();
         }
-        [[nodiscard]] owned_pipeline named_pipeline(std::string_view name) const noexcept override {
+        [[nodiscard]] pipeline_ref named_pipeline(std::string_view name) const noexcept override {
             return {name == "gaussian" ? pipeline.get() : nullptr};
         }
         void set_frame(std::shared_ptr<gaussian_splatting::raster_frame const> snapshot) noexcept {

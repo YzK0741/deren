@@ -25,7 +25,7 @@ export namespace deren::engine::gaussian_splatting {
         std::uint64_t frame_id = 0;
     };
     struct gpu_frame_timing {
-        void* owner = nullptr;
+        void* parent = nullptr;
         void (*mark)(void*, std::uint32_t phase) = nullptr;
     };
     struct gpu_instance_range {
@@ -93,12 +93,12 @@ export namespace deren::engine::gaussian_splatting {
                                           projected,
                                           buffer_count,
         };
-        deren::promise::rhi::api_core* owner = nullptr;
+        deren::promise::rhi::api_core* parent = nullptr;
         raster_push push;
         std::uint64_t parameter_address = 0, bytes = 0;
         // The device and asset leases outlive the subchain's drain and all owned allocations.
         deren::promise::rhi::shared_object<deren::promise::rhi::api_core> device_lease;
-        deren::utility::vessel::vector<std::shared_ptr<raster_asset const>> owners;
+        deren::utility::vessel::vector<std::shared_ptr<raster_asset const>> retained_assets;
         deren::promise::rhi::unique_object<deren::promise::rhi::radix_sorter> sorter;
         deren::engine::pass::pass_chain storage_chain;
         deren::engine::pass::buffer_storage_pass* storage_provider = nullptr;

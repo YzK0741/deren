@@ -625,8 +625,9 @@ namespace {
         std::array<meshlet, 4> mixed{record(0, 0, -10, 0.002f), record(0, 0, -10, 0.5f),
                                      record(10, 0, -10, 0.002f), record(0, 0, -0.5f, 0.002f)};
         std::array<sw::projected_record, 4> projections;
-        for (std::size_t i = 0; i < mixed.size(); ++i)
+        for (std::size_t i = 0; i < mixed.size(); ++i) {
             projections[i] = sw::project(mixed[i], identity(), *metrics, grid);
+        }
         for (float threshold : {0.01f, 1.0f, 4.0f, 4000.0f}) {
             sw::item_records raw{.item_index = 0, .model = identity(), .records = mixed};
             auto reuse = raw;
@@ -1116,8 +1117,9 @@ namespace {
         auto params = camera_parameters_for(orthographic(1.0f, 10.0f, 1.0f, 1.0f), 256u, 256u);
         auto camera = sw::prepare_camera(params);
         CHECK(camera.has_value());
-        if (!camera)
+        if (!camera) {
             return;
+        }
         auto m = record(0, 0, -5, 0.2f);
         auto p = sw::project(m, identity(), *camera, sw::make_tile_grid(256, 256), 0.001);
         CHECK(p.triangle_edge_upper_px < 1.0 && p.diameter_upper_px > 1.0);
@@ -1163,14 +1165,16 @@ namespace {
         auto const params = camera_parameters_for(orthographic(1.0f, 10.0f, 1.0f, 1.0f), 256u, 256u);
         auto const camera = sw::prepare_camera(params);
         CHECK(camera.has_value());
-        if (!camera)
+        if (!camera) {
             return;
+        }
         auto const grid = sw::make_tile_grid(256u, 256u);
         std::vector<meshlet> records = {record(0, 0, -5, 0.2f), record(4, 0, -5, 0.001f),
                                         record(0, 0, -5, 0.001f), record(0.4f, 0, -5, 0.001f)};
         std::vector<sw::projected_record> projections;
-        for (auto const& m : records)
+        for (auto const& m : records) {
             projections.push_back(sw::project(m, identity(), *camera, grid));
+        }
         sw::item_records item{.item_index = 7u, .model = identity(), .records = records, .cached_projections = projections};
         deren::utility::vessel::vector<std::uint32_t> order;
         auto const split = sw::split_records(item, *camera, 1.0f, order);
@@ -1186,9 +1190,11 @@ namespace {
         if (csr) {
             auto expected = sw::triangle_dispatch_entries(*csr);
             CHECK(expected && expected->size() == entries.size());
-            if (expected)
-                for (std::size_t i = 0; i < std::min(expected->size(), entries.size()); ++i)
+            if (expected) {
+                for (std::size_t i = 0; i < std::min(expected->size(), entries.size()); ++i) {
                     CHECK((*expected)[i].item_index == entries[i].item_index && (*expected)[i].meshlet_id == entries[i].meshlet_id);
+                }
+            }
         }
         auto const size = entries.size();
         CHECK(!sw::append_triangle_dispatch(split, order, projections, entries, 3u));

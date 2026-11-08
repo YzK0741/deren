@@ -64,14 +64,14 @@ export namespace deren::engine::gaussian_splatting {
             return geometry;
         }
         [[nodiscard]] std::shared_ptr<gpu_asset const> const& gpu() const noexcept {
-            return gpu_owner;
+            return gpu_asset_handle;
         }
 
     private:
         raster_asset() = default;
         friend std::expected<std::shared_ptr<raster_asset const>, foundation_error> make_raster_asset(deren::promise::rhi::api_core&, deren::gaussian::asset, foundation_limits const&, deren::promise::rhi::shared_object<deren::promise::rhi::api_core>);
         std::shared_ptr<deren::gaussian::asset const> cpu_asset;
-        std::shared_ptr<gpu_asset const> gpu_owner;
+        std::shared_ptr<gpu_asset const> gpu_asset_handle;
         deren::utility::vessel::vector<geometry_record> geometry;
     };
     class raster_frame : public std::enable_shared_from_this<raster_frame> {
@@ -112,11 +112,11 @@ export namespace deren::engine::gaussian_splatting {
         deren::utility::vessel::vector<draw_reference> reference_data;
         deren::utility::vessel::vector<draw_reference> staging_reference_data;
         deren::utility::vessel::vector<instance_record> instance_data;
-        deren::promise::rhi::api_core* owner = nullptr;
+        deren::promise::rhi::api_core* parent = nullptr;
         // These leases outlive the storage subchain's completion drain.
         deren::promise::rhi::shared_object<deren::promise::rhi::api_core> device_lease;
-        deren::utility::vessel::vector<std::shared_ptr<raster_asset const>> owners;
-        deren::utility::vessel::vector<std::shared_ptr<raster_asset const>> staging_owners;
+        deren::utility::vessel::vector<std::shared_ptr<raster_asset const>> retained_assets;
+        deren::utility::vessel::vector<std::shared_ptr<raster_asset const>> staging_handles;
         deren::engine::pass::pass_chain storage_chain;
         deren::engine::pass::buffer_storage_pass* storage_provider = nullptr;
         render_resource::instances::resource_snapshot storage_view;

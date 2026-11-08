@@ -56,8 +56,9 @@ static vessel::vector<boost::default_color_type> reachable(graph const& g, std::
     auto map = boost::make_iterator_property_map(colors.begin(), boost::get(boost::vertex_index, g));
     queue pending;
     for (auto root : roots) {
-        if (colors[root] == boost::white_color)
+        if (colors[root] == boost::white_color) {
             boost::breadth_first_visit(reversed, root, pending, boost::default_bfs_visitor{}, map);
+        }
     }
     return colors;
 }
@@ -77,8 +78,9 @@ static std::expected<vessel::vector<vertex>, error> stable_order(graph const& g,
     for (auto [i, end] = boost::vertices(view); i != end; ++i) {
         ++count;
         degrees[*i] = boost::in_degree(*i, view);
-        if (degrees[*i] == 0)
+        if (degrees[*i] == 0) {
             ready.push_back(*i);
+        }
     }
     std::make_heap(ready.begin(), ready.end(), std::greater<vertex>{});
     while (!ready.empty()) {

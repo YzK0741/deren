@@ -31,7 +31,7 @@ export import deren.utility.shared;
 import deren.promise.rhi;
 
 import deren.engine.pass;
-import deren.engine.pipelines; // vk_pipeline: the RAII owner of the pipeline this job builds
+import deren.engine.pipelines; // vk_pipeline: the RAII parent of the pipeline this job builds
 
 export namespace deren::engine::pass {
 
@@ -104,22 +104,22 @@ export namespace deren::engine::pass {
          *        since the compute builders moved to `api_core::create_pipeline`, so `bind_pipeline` carries the
          *        compute bind point the backend decided.
          * @param request the caster's bake request
-         * @param push_owner the renderer, @param push_raw its endpoint for a stage that declares NO index lanes
+         * @param push_source the renderer, @param push_raw its endpoint for a stage that declares NO index lanes
          *
          * The block goes to the pipeline as DATA now: no pipeline in this renderer has a layout (`vkCmdPushConstants`
          * would have nothing to push to), so `deren.vulkan.core`'s conversion made every stage read `vkCmdPushDataEXT`
          * instead. RAW - with no heap indices appended - is the exact endpoint this shader wants: it declares none,
          * because everything it reads is a device address pushed here or a material record in the heap.
          */
-        void record(deren::promise::rhi::command_buffer& commands, mask_bake_request const& request, void* push_owner,
-                    bool (*push_raw)(void* owner, deren::promise::rhi::command_buffer& commands, std::span<std::byte const> bytes)) const noexcept;
+        void record(deren::promise::rhi::command_buffer& commands, mask_bake_request const& request, void* push_source,
+                    bool (*push_raw)(void* parent, deren::promise::rhi::command_buffer& commands, std::span<std::byte const> bytes)) const noexcept;
         /// @brief whether the job built what it records with (the renderer's gate for baking at all)
         [[nodiscard]] bool ready() const noexcept;
 
     private:
         static constexpr std::string_view shader_name = "mask_bake.comp.spv";
         static constexpr uint32_t group_size = 64; // `mask_bake.comp`'s local_size_x
-        void release_owned() noexcept;
+        void release_contract() noexcept;
         deren::promise::rhi::api_core* built_against = nullptr;
         // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
         // would duplicate it and hide the override.

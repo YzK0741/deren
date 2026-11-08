@@ -59,8 +59,9 @@ namespace {
         for (std::size_t alignment : {std::size_t{1}, std::size_t{8}, std::size_t{64}, std::size_t{4096}}) {
             auto block = mem::try_allocate(513, alignment);
             CHECK(block.has_value());
-            if (!block)
+            if (!block) {
                 continue;
+            }
             CHECK(reinterpret_cast<std::uintptr_t>(*block) % alignment == 0);
             std::fill_n(static_cast<unsigned char*>(*block), 513, static_cast<unsigned char>(42));
             std::thread release([pointer = *block] { mem::deallocate(pointer); });
@@ -68,8 +69,9 @@ namespace {
         }
         auto empty = mem::try_allocate(0);
         CHECK(empty && *empty != nullptr);
-        if (empty)
+        if (empty) {
             mem::deallocate(*empty);
+        }
         mem::deallocate(nullptr);
         for (std::size_t alignment : {std::size_t{0}, std::size_t{3}}) {
             auto invalid = mem::try_allocate(8, alignment);
@@ -82,8 +84,9 @@ namespace {
         CHECK(!refused && refused.error() == mem::allocation_error::out_of_memory);
         auto recovered = mem::try_allocate(64, 8);
         CHECK(recovered.has_value());
-        if (recovered)
+        if (recovered) {
             mem::deallocate(*recovered);
+        }
         auto oom = mem::try_allocate(static_cast<std::size_t>(std::numeric_limits<std::ptrdiff_t>::max()), 64);
         CHECK(!oom && oom.error() == mem::allocation_error::out_of_memory);
     }
@@ -145,13 +148,15 @@ namespace {
         auto path = std::filesystem::absolute(executable).parent_path() / VESSEL_PROBE_FILENAME;
         auto library = deren::utility::dynamic_link::load(path.string());
         CHECK(library.has_value());
-        if (!library)
+        if (!library) {
             return;
+        }
         auto alloc_symbol = library->symbol("vessel_probe_allocate");
         auto free_symbol = library->symbol("vessel_probe_free");
         CHECK(alloc_symbol && free_symbol);
-        if (!alloc_symbol || !free_symbol)
+        if (!alloc_symbol || !free_symbol) {
             return;
+        }
         auto alloc = reinterpret_cast<void* (*)(std::size_t, std::size_t) noexcept>(const_cast<void*>(*alloc_symbol));
         auto free = reinterpret_cast<void (*)(void*) noexcept>(const_cast<void*>(*free_symbol));
         auto before = mem::statistics();
@@ -164,8 +169,9 @@ namespace {
         CHECK(mem::statistics().current_bytes == before.current_bytes);
         auto local = mem::try_allocate(321, 64);
         CHECK(local.has_value());
-        if (local)
+        if (local) {
             free(*local);
+        }
         CHECK(mem::statistics().current_bytes == before.current_bytes);
         CHECK(mem::statistics().current_allocations == before.current_allocations);
     }
@@ -194,26 +200,27 @@ int main(int argc, char** argv) {
         vessel_prepare_child();
         std::fputs("allocation child started\n", stderr);
         std::fflush(stderr);
-        if (std::string_view(argv[1]) == "--oom")
+        if (std::string_view(argv[1]) == "--oom") {
             static_cast<void>(mem::allocate(static_cast<std::size_t>(std::numeric_limits<std::ptrdiff_t>::max()), 64));
-        else if (std::string_view(argv[1]) == "--overflow")
+        } else if (std::string_view(argv[1]) == "--overflow") {
             static_cast<void>(mem::allocator<std::uint64_t>{}.allocate(std::numeric_limits<std::size_t>::max()));
-        else if (std::string_view(argv[1]) == "--alignment")
+        } else if (std::string_view(argv[1]) == "--alignment") {
             static_cast<void>(mem::allocate(1, 3));
-        else if (std::string_view(argv[1]) == "--max-size") {
+        } else if (std::string_view(argv[1]) == "--max-size") {
             utility_memory_test_fail_after(0);
             static_cast<void>(mem::allocator<std::uint64_t>{}.allocate(mem::allocator<std::uint64_t>::max_size()));
-        } else if (std::string_view(argv[1]) == "--max-size-plus-one")
+        } else if (std::string_view(argv[1]) == "--max-size-plus-one") {
             static_cast<void>(mem::allocator<std::uint64_t>{}.allocate(mem::allocator<std::uint64_t>::max_size() + 1));
-        else if (std::string_view(argv[1]) == "--injected-oom") {
+        } else if (std::string_view(argv[1]) == "--injected-oom") {
             utility_memory_test_fail_after(0);
             vessel::vector<int> values;
             values.push_back(7);
         } else if (std::string_view(argv[1]) == "--concurrent-oom") {
             utility_memory_test_pause_first_failure();
             std::thread writer([] { mem::allocation_failure(mem::allocation_error::out_of_memory, 64, 8); });
-            while (!utility_memory_test_failure_ready())
+            while (!utility_memory_test_failure_ready()) {
                 std::this_thread::yield();
+            }
             mem::allocation_failure(mem::allocation_error::out_of_memory, 128, 8);
             writer.join();
         }

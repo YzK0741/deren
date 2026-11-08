@@ -57,8 +57,9 @@ int main() {
     large.pop_back();
     run = sub::prepare_lod0(large, sub::reservation{61440, 4096}, clip, scratch, {}, [](unsigned, auto) { return true; });
     CHECK(run.source == sub::run_source::visible && run.count == 4096);
-    for (auto& row : rows)
+    for (auto& row : rows) {
         row.center_x = 4;
+    }
     auto before = writes;
     run = sub::prepare_lod0(rows, space, clip, scratch, {}, writer);
     CHECK(run.source == sub::run_source::visible && run.count == 0 && run.reason == sub::fallback_reason::none);

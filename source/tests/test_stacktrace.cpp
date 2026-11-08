@@ -108,8 +108,9 @@ vessel_child_result run_report_child(char const* executable, char const* mode, c
 }
 std::uintptr_t field(vessel::string const& text, std::string_view name) {
     auto at = text.find(name);
-    if (at == vessel::string::npos)
+    if (at == vessel::string::npos) {
         return 0;
+    }
     at += name.size();
     std::uintptr_t result = 0;
     static_cast<void>(std::from_chars(text.data() + at, text.data() + text.size(), result, 16));
@@ -178,10 +179,11 @@ int main(int argc, char** argv) {
         }
         if (std::string_view(argv[1]) == "--crash" || std::string_view(argv[1]) == "--overflow") {
             static_cast<void>(diag::install_crash_handler());
-            if (std::string_view(argv[1]) == "--overflow")
+            if (std::string_view(argv[1]) == "--overflow") {
                 trace_stack_overflow();
-            else
+            } else {
                 trace_fault();
+            }
             return 1;
         }
         if (std::string_view(argv[1]) == "--worker-overflow") {
@@ -198,14 +200,17 @@ int main(int argc, char** argv) {
             utility_log_test_pause_after(0);
             deren::utility::log_text("held log worker");
             auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-            while (utility_log_test_pause_count() == count && std::chrono::steady_clock::now() < deadline)
+            while (utility_log_test_pause_count() == count && std::chrono::steady_clock::now() < deadline) {
                 std::this_thread::yield();
-            if (utility_log_test_pause_count() == count)
+            }
+            if (utility_log_test_pause_count() == count) {
                 return 2;
+            }
             deren::utility::panic("blocked log panic marker");
         }
-        if (std::string_view(argv[1]) == "--panic")
+        if (std::string_view(argv[1]) == "--panic") {
             deren::utility::panic("ordinary panic diagnostics");
+        }
         if (std::string_view(argv[1]) == "--long-fast") {
             vessel::string reason(8192, 'x');
             utility_memory_test_fail_after(0);
@@ -326,23 +331,23 @@ int main(int argc, char** argv) {
     // THE FAULT PC IS EXACT, NOT A RETURN ADDRESS. The crash log carries the fault frame's RVA,
     // which does not move with ASLR, so this rebuilds that frame against THIS image and decodes
     // it twice: as the exact PC a crash record holds, and as a return address. MEASURED: exact
-    // lands on stacktrace_fault.cpp:18 (`*page = 42;`), one byte lower on :16 - which is why a
+    // lands on stacktrace_fault.cpp:19 (`*page = 42;`), one byte lower on :16 - which is why a
     // blanket `pc - 1` misreports the faulting line.
     diag::symbolizer_options raw_only;
     raw_only.executable = "off";
-    auto const own_base = field(diag::symbolize(capture_site(), raw_only).text, "base=0x");
+    auto const base_address = field(diag::symbolize(capture_site(), raw_only).text, "base=0x");
     auto const fault_rva = field(crash_text, "rva=0x");
-    CHECK(own_base != 0 && fault_rva != 0);
-    if (own_base && fault_rva) {
+    CHECK(base_address != 0 && fault_rva != 0);
+    if (base_address && fault_rva) {
         diag::stack_trace fault;
         fault.count = 1;
-        fault.addresses[0] = own_base + fault_rva;
+        fault.addresses[0] = base_address + fault_rva;
         fault.exact_address_count = 1;
         auto const exact = diag::symbolize(fault);
         fault.exact_address_count = 0;
         auto const adjusted = diag::symbolize(fault);
-        CHECK(exact.text.find("stacktrace_fault.cpp:18") != vessel::string::npos);
-        CHECK(adjusted.text.find("stacktrace_fault.cpp:18") == vessel::string::npos);
+        CHECK(exact.text.find("stacktrace_fault.cpp:19") != vessel::string::npos);
+        CHECK(adjusted.text.find("stacktrace_fault.cpp:19") == vessel::string::npos);
     }
 #if defined(STACKTRACE_DECODER) && defined(STACKTRACE_PYTHON)
     // THE CROSS-CHECK, and why it is here: the fault-frame rule lived in TWO decoders with no test
@@ -368,7 +373,7 @@ int main(int argc, char** argv) {
             }
             static_cast<void>(TRACE_PCLOSE(pipe));
         }
-        CHECK(decoded.find("stacktrace_fault.cpp:18") != vessel::string::npos);
+        CHECK(decoded.find("stacktrace_fault.cpp:19") != vessel::string::npos);
     }
 #endif
 #endif

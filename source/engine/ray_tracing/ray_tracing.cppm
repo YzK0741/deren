@@ -103,13 +103,13 @@ export namespace deren::engine::ray_tracing {
      * comes, changes one side only).
      */
     struct bake_hooks {
-        void* owner = nullptr;
+        void* parent = nullptr;
         /// whether the MASK bake can take a request (its pipeline exists)
-        bool (*mask_ready)(void* owner) = nullptr;
+        bool (*mask_ready)(void* parent) = nullptr;
         /// bake ONE caster's alphaMode MASK into an expanded vertex buffer (the job owns the pipeline and the set)
-        void (*record_mask_bake)(void* owner, rhi::command_buffer& command_buffer, pass::mask_bake_request const& request) = nullptr;
+        void (*record_mask_bake)(void* parent, rhi::command_buffer& command_buffer, pass::mask_bake_request const& request) = nullptr;
         /// whether the skinning job can take a request (its pipeline and sets exist)
-        bool (*skin_ready)(void* owner) = nullptr;
+        bool (*skin_ready)(void* parent) = nullptr;
         /**
          * @brief re-skin this frame's skinned casters, and report whether any dispatch was recorded
          *
@@ -117,7 +117,7 @@ export namespace deren::engine::ray_tracing {
          * `skin_destination_address` is non-zero - the same walk, and the same "which casters are skinned"
          * answer, the build itself used.
          */
-        bool (*record_skin)(void* owner, rhi::command_buffer& command_buffer, std::span<caster_level const> casters) = nullptr;
+        bool (*record_skin)(void* parent, rhi::command_buffer& command_buffer, std::span<caster_level const> casters) = nullptr;
     };
 
     /**

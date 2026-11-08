@@ -188,7 +188,7 @@ namespace deren::engine {
         if (any) {
             this->rhi_face().wait_idle();
         }
-        // `unique_object`'s assignment drops the reference, which for an `owned_image_view` is
+        // `unique_object`'s assignment drops the reference, which for an `core::image_view` is
         // `vkDestroyImageView` - the destruction the contract's ownership note promises.
         this->frame_swapchain_views = {};
     }
@@ -252,7 +252,7 @@ namespace deren::engine {
         // retire are gone with the sets (every stage reaches its images through the heap, whose slots name images
         // rather than sets), so the only per-generation state left is the PASSES' - and they are told below.
         if (this->frame_wiring.recreated != nullptr) {
-            this->frame_wiring.recreated(this->frame_wiring.owner);
+            this->frame_wiring.recreated(this->frame_wiring.parent);
         }
         // AND THE PASSES ARE TOLD, by the record step rather than by a hand-kept list. That is the hazard this layer was
         // built to remove: a pass that keeps per-generation state cannot be missed, because it is not this function
@@ -986,7 +986,7 @@ namespace deren::engine {
             return f;
         }
         feature_facts const facts = this->make_feature_facts();
-        auto const ask = [this, &facts](std::string_view const name) { return this->frame_wiring.feature_active(this->frame_wiring.owner, facts, name); };
+        auto const ask = [this, &facts](std::string_view const name) { return this->frame_wiring.feature_active(this->frame_wiring.parent, facts, name); };
         f.unlit = ask("unlit");
         f.gbuffer_debug = ask("gbuffer-debug");
         f.shadow = ask("shadow");
@@ -1009,7 +1009,7 @@ namespace deren::engine {
         if (this->frame_wiring.feature_active == nullptr) {
             return false;
         }
-        return this->frame_wiring.feature_active(this->frame_wiring.owner, this->make_feature_facts(), name);
+        return this->frame_wiring.feature_active(this->frame_wiring.parent, this->make_feature_facts(), name);
     }
 
     void runtime::warn_missing_feature(std::string_view const key, deren::utility::vessel::string const& message) {
@@ -1047,7 +1047,7 @@ namespace deren::engine {
         if (this->frame_wiring.feature_available == nullptr) {
             return false;
         }
-        return this->frame_wiring.feature_available(this->frame_wiring.owner, this->make_feature_facts(), name);
+        return this->frame_wiring.feature_available(this->frame_wiring.parent, this->make_feature_facts(), name);
     }
 
     void runtime::log_feature_status() const {
@@ -1556,7 +1556,7 @@ namespace deren::engine {
             .materials = materials != nullptr ? std::span<material_record const>(materials, this->material_count) : std::span<material_record const>{},
             .mask_bake = this->rt_mask_bake,
             .skin_bake = this->rt_skin_bake,
-            .hooks = ray_tracing::bake_hooks{.owner = const_cast<runtime*>(this),
+            .hooks = ray_tracing::bake_hooks{.parent = const_cast<runtime*>(this),
                                              .mask_ready = &runtime::structure_mask_ready,
                                              .record_mask_bake = &runtime::structure_record_mask_bake,
                                              .skin_ready = &runtime::structure_skin_ready,
@@ -1564,8 +1564,8 @@ namespace deren::engine {
         };
     }
 
-    bool runtime::structure_mask_ready(void* const owner) noexcept {
-        return static_cast<runtime*>(owner)->mask_bake.ready();
+    bool runtime::structure_mask_ready(void* const parent) noexcept {
+        return static_cast<runtime*>(parent)->mask_bake.ready();
     }
 
     namespace {
@@ -1592,17 +1592,17 @@ namespace deren::engine {
 
     // THE PASS LAYER still records into the frame's command buffer (its publishers speak resolved_io), so this
     // thin spelling adapts a non-owning contract buffer to the environment target the shared implementation takes.
-    bool runtime::push_pass_stage_block(void* const owner, rhi::command_buffer& commands, std::span<std::byte const> const bytes, uint32_t const extra_lane) {
-        return runtime::push_stage_block(owner, recording_target(commands), bytes, extra_lane);
+    bool runtime::push_pass_stage_block(void* const parent, rhi::command_buffer& commands, std::span<std::byte const> const bytes, uint32_t const extra_lane) {
+        return runtime::push_stage_block(parent, recording_target(commands), bytes, extra_lane);
     }
 
-    bool runtime::push_stage_block(void* const owner, recording_target const& target, std::span<std::byte const> const bytes, uint32_t const extra_lane) {
+    bool runtime::push_stage_block(void* const parent, recording_target const& target, std::span<std::byte const> const bytes, uint32_t const extra_lane) {
         // THE INDICES ARE APPENDED HERE, and that placement is the whole trick: the renderer knows the frame slot and
         // the swapchain image, a pass knows neither, and a converted stage's shader declares them as its block's
         // LAST two fields (see source/shaders/heap_slots.glsl). Doing it here is what keeps every pass's push struct - and
         // its static_assert on the size - untouched. The optional third lane is the post chain's own source slot,
         // which only that chain's passes can name.
-        runtime* const self = static_cast<runtime*>(owner);
+        runtime* const self = static_cast<runtime*>(parent);
         // THE THIRD LANE IS RESOLVED INTO A SLOT HERE, because it is the one fact that needs both sides: a post
         // stage knows WHICH source it reads (0 = the HDR target every post chain starts from, N > 0 = bloom level
         // N - 1, which is what a downsample at level N reads), and the renderer knows WHERE the grid puts those
@@ -1616,40 +1616,40 @@ namespace deren::engine {
         return push_with_lanes(self->frame_ring().position(), self->current_image_index, target, bytes, source_slot, 3u);
     }
 
-    bool runtime::push_scene_stage_block(void* const owner, recording_target const& target, std::span<std::byte const> const bytes, uint32_t const extra_lane) {
+    bool runtime::push_scene_stage_block(void* const parent, recording_target const& target, std::span<std::byte const> const bytes, uint32_t const extra_lane) {
         // THE THIRD LANE CROSSES VERBATIM HERE, unlike push_stage_block's post-chain slot. A scene stage declares
         // frame_slot, image_index and its own spare lane; that lane is not a heap index and must not be resolved
         // against the bloom levels. The shadow session still uses push_stage_block: its shader ignores the lane.
-        runtime* const self = static_cast<runtime*>(owner);
+        runtime* const self = static_cast<runtime*>(parent);
         return push_with_lanes(self->frame_ring().position(), self->current_image_index, target, bytes, extra_lane, 3u);
     }
 
-    bool runtime::push_index_block(void* const owner, rhi::command_buffer& command_buffer, std::span<std::byte const> const bytes, uint32_t const extra_lane) {
-        runtime* const self = static_cast<runtime*>(owner);
+    bool runtime::push_index_block(void* const parent, rhi::command_buffer& command_buffer, std::span<std::byte const> const bytes, uint32_t const extra_lane) {
+        runtime* const self = static_cast<runtime*>(parent);
         return push_with_lanes(self->frame_ring().position(), self->current_image_index, recording_target(command_buffer), bytes, extra_lane, 2u);
     }
 
-    bool runtime::push_software_block(void* const owner, rhi::command_buffer& commands, std::span<std::byte const> const bytes, uint32_t const mode) {
-        auto* self = static_cast<runtime*>(owner);
+    bool runtime::push_software_block(void* const parent, rhi::command_buffer& commands, std::span<std::byte const> const bytes, uint32_t const mode) {
+        auto* self = static_cast<runtime*>(parent);
         return push_with_lanes(self->frame_ring().position(), self->current_image_index,
                                recording_target(commands), bytes, mode, 3u);
     }
 
-    bool runtime::push_raw_block(void* const /*owner*/, rhi::command_buffer& command_buffer, std::span<std::byte const> const bytes) {
+    bool runtime::push_raw_block(void* const /*parent*/, rhi::command_buffer& command_buffer, std::span<std::byte const> const bytes) {
         // This synchronous push retains neither the bytes nor the command buffer. A borrowed
         // shared_object would allocate a control block for every item in both raster passes.
         return command_buffer.push_constants(0u, bytes) == rhi::error::ok;
     }
 
-    bool runtime::push_raw_block(void* const /*owner*/, rhi::command_recorder& command_buffer, std::span<std::byte const> const bytes) {
+    bool runtime::push_raw_block(void* const /*parent*/, rhi::command_recorder& command_buffer, std::span<std::byte const> const bytes) {
         return command_buffer.push_constants(0u, bytes) == rhi::error::ok;
     }
 
     // ---- the MESH session's endpoints (docs/mesh_shaders.md step 1): what a draw without an input assembler
     //      needs and only the device's owner can answer. ----
 
-    std::uintptr_t runtime::mesh_buffer_address(void* const owner, rhi::buffer const& buffer) {
-        runtime* const self = static_cast<runtime*>(owner);
+    std::uintptr_t runtime::mesh_buffer_address(void* const parent, rhi::buffer const& buffer) {
+        runtime* const self = static_cast<runtime*>(parent);
         // THE HOOK TAKES A CONTRACT BUFFER (render_environment's own note says why: the primitive's geometry is
         // `unique_object` members now, and a hook that demanded a raw handle would force every primitive to keep
         // one - i.e. to keep reaching into the backend for exactly what this migration removes).
@@ -1660,7 +1660,7 @@ namespace deren::engine {
         return self->buffer_address(buffer);
     }
 
-    bool runtime::push_geometry_block(void* const /*owner*/, recording_target const& target, uint32_t const offset, std::span<std::byte const> const bytes) {
+    bool runtime::push_geometry_block(void* const /*parent*/, recording_target const& target, uint32_t const offset, std::span<std::byte const> const bytes) {
         // A raw push at an offset the STAGE declares (see mesh_geometry_offset): the block `push_stage_block` sends
         // already ends with the three heap index lanes, so the geometry lanes of a mesh stage's block cannot ride
         // along with it - they are appended after them, which is a second push rather than a second block.
@@ -1668,8 +1668,8 @@ namespace deren::engine {
         return target.get() != nullptr && target.get()->push_constants(offset, bytes) == rhi::error::ok;
     }
 
-    bool runtime::draw_mesh_tasks(void* const owner, recording_target const& target, uint32_t const groups_x, uint32_t const groups_y, uint32_t const groups_z) {
-        runtime* const self = static_cast<runtime*>(owner);
+    bool runtime::draw_mesh_tasks(void* const parent, recording_target const& target, uint32_t const groups_x, uint32_t const groups_y, uint32_t const groups_z) {
+        runtime* const self = static_cast<runtime*>(parent);
         // THE CONTRACT VERB RECORDS IT (abi 26's sibling - the verb has existed since abi 15): the two
         // `vkCmdDrawMeshTasks*` entry points are the BACKEND's, resolved at ITS startup and reached through
         // `draw_mesh_tasks()` / `draw_mesh_tasks_indirect()`. The engine used to resolve the same two pointers
@@ -1696,11 +1696,11 @@ namespace deren::engine {
     // IT ANSWERS RATHER THAN ASSERTS when the route is unavailable, and the reasons are all logged once: a silent
     // fall-back is a seam nobody tests, which is exactly how the first version of this (entry point resolved,
     // buffer never bound) went unnoticed for a whole round.
-    bool runtime::draw_mesh_tasks_indirect(void* const owner, recording_target const& target, uint32_t const command_slot, uint32_t const groups_x, uint32_t const groups_y, uint32_t const groups_z) {
-        runtime* const self = static_cast<runtime*>(owner);
+    bool runtime::draw_mesh_tasks_indirect(void* const parent, recording_target const& target, uint32_t const command_slot, uint32_t const groups_x, uint32_t const groups_y, uint32_t const groups_z) {
+        runtime* const self = static_cast<runtime*>(parent);
         auto const direct = [&]() {
             self->mesh_indirect_direct_fallbacks.fetch_add(1u, std::memory_order_relaxed);
-            return runtime::draw_mesh_tasks(owner, target, groups_x, groups_y, groups_z);
+            return runtime::draw_mesh_tasks(parent, target, groups_x, groups_y, groups_z);
         };
         if (!runtime_detail::mesh_shader_available_of(self->rhi_face()) || self->mesh_indirect_mapped == nullptr || !self->mesh_indirect_buffer) {
             if (!self->mesh_indirect_route_logged) {
@@ -1766,8 +1766,8 @@ namespace deren::engine {
     // ---- THE HOST'S SIDE OF MESHLET CULLING (docs/mesh_shaders.md step 3, the culling's cheapest stage) ----
     // The camera's `proj * view`, for the recording path's frustum test: the same matrix the stage computes from the
     // camera UBO, taken from the frame's own snapshot so the cull and the draw agree about where the camera is.
-    bool runtime::meshlet_view_proj(void* const owner, float* const out16) {
-        runtime const* const self = static_cast<runtime const*>(owner);
+    bool runtime::meshlet_view_proj(void* const parent, float* const out16) {
+        runtime const* const self = static_cast<runtime const*>(parent);
         if (out16 == nullptr) {
             return false;
         }
@@ -2182,7 +2182,7 @@ namespace deren::engine {
 
     bool runtime::record_visibility_items(deren::promise::rhi::command_buffer& command_buffer,
                                           std::span<rhi::mergeable_command_buffer_ref const> segments,
-                                          pass::visibility_frame::bind_segment_fn bind_segment, void* segment_owner,
+                                          pass::visibility_frame::bind_segment_fn bind_segment, void* segment_context,
                                           std::uint32_t& recorded) {
         namespace vis = deren::engine::visibility;
         recorded = 0;
@@ -2292,8 +2292,9 @@ namespace deren::engine {
             }
         }
         bool const gpu_routing = this->software_gpu_route_active_frame;
-        if (gpu_routing)
+        if (gpu_routing) {
             software_probe_frame_active = false;
+        }
         auto const* gpu_requested = std::getenv("DEREN_SOFTWARE_RASTER_GPU");
         auto const* edge_mode = std::getenv("DEREN_SOFTWARE_RASTER_EDGE");
         bool const triangle_edge_routing = software_raster_frame_active && this->software_visibility->triangles_active() &&
@@ -2375,20 +2376,23 @@ namespace deren::engine {
             this->subtilis_previous_width = extent.width;
             this->subtilis_previous_height = extent.height;
             for (auto it = this->subtilis_histories.begin(); it != this->subtilis_histories.end();) {
-                if (it->second.generation.expired())
+                if (it->second.generation.expired()) {
                     it = this->subtilis_histories.erase(it);
-                else
+                } else {
                     ++it;
+                }
             }
             histories.resize(count);
             for (uint32_t i = 0; i < count; ++i) {
                 auto const* leaf = leaves[i];
-                if (!leaf->subtilis_geometry || !leaf->subtilis_geometry->source().imported_payload())
+                if (!leaf->subtilis_geometry || !leaf->subtilis_geometry->source().imported_payload()) {
                     continue;
+                }
                 auto& saved = this->subtilis_histories[leaf];
                 auto model = hzb_model_bits_of(*leaf);
-                if (saved.lifetime_id == leaf->lifetime_id && saved.generation.lock() == leaf->subtilis_geometry && saved.model == model)
+                if (saved.lifetime_id == leaf->lifetime_id && saved.generation.lock() == leaf->subtilis_geometry && saved.model == model) {
                     histories[i] = saved.cut;
+                }
                 saved.lifetime_id = leaf->lifetime_id;
                 saved.generation = leaf->subtilis_geometry;
                 saved.model = model;
@@ -2442,8 +2446,9 @@ namespace deren::engine {
                 plan.software_allowed = subtilis::coarse_allowed(leaf, policy);
                 plan.run = subtilis::prepare_item(leaf, policy, view, selected, published, [this](uint32_t base, std::span<meshlet const> records) { return runtime::meshlet_culled_write(this, base, std::as_bytes(records)); }, histories.empty() ? nullptr : &histories[index], this->subtilis_view_epoch);
                 plan.input_count = plan.space.count;
-                if (this->gpu_timings_enabled)
+                if (this->gpu_timings_enabled) {
                     plan.cut_us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - cut_started).count();
+                }
                 plan.selected_count = plan.run.count;
                 plan.fallback_count = plan.run.reason != subtilis::fallback_reason::none ? 1u : 0u;
                 plan.input_triangles = leaf.draw_index_count / 3;
@@ -2477,9 +2482,10 @@ namespace deren::engine {
                 if (software_raster_frame_active) {
                     auto const grid = software::make_tile_grid(software_probe_camera->width, software_probe_camera->height);
                     plan.software_projections.reserve(plan.run.count);
-                    for (std::uint32_t record = 0u; record < plan.run.count; ++record)
+                    for (std::uint32_t record = 0u; record < plan.run.count; ++record) {
                         plan.software_projections.push_back(software::project(selected[record], model, *software_probe_camera, grid,
                                                                               triangle_edge_routing && leaf.subtilis_geometry ? leaf.subtilis_geometry->triangle_edge(selected[record]) : std::numeric_limits<double>::infinity()));
+                    }
                 }
                 software::item_records const probe_item{.item_index = index,
                                                         .model = model,
@@ -2487,8 +2493,9 @@ namespace deren::engine {
                                                         .cached_projections = plan.software_projections};
                 auto const threshold = software_raster_frame_active ? this->software_raster_threshold_px : software::threshold_px_default;
                 auto const split = software::split_records(probe_item, *software_probe_camera, threshold, probe_order, software_metric);
-                if (software_raster_frame_active && this->software_visibility->triangles_active())
+                if (software_raster_frame_active && this->software_visibility->triangles_active()) {
                     plan.software_dispatch_valid = software::append_triangle_dispatch(split, probe_order, plan.software_projections, plan.software_dispatch);
+                }
                 plan.probe.classified = true;
                 plan.probe.selected = split.record_count;
                 plan.probe.hardware = split.hardware_count;
@@ -2604,23 +2611,28 @@ namespace deren::engine {
         this->software_active_tile_count = 0u;
         if (gpu_routing) {
             auto metadata = this->software_visibility->route_metadata_words();
-            if (metadata.size() < 8u + software::software_entry_budget)
+            if (metadata.size() < 8u + software::software_entry_budget) {
                 return false;
+            }
             for (auto const& plan : plans) {
-                if (plan.run.source != subtilis::run_source::visible || plan.run.count == 0u)
+                if (plan.run.source != subtilis::run_source::visible || plan.run.count == 0u) {
                     continue;
+                }
                 if (plan.run.base > software::software_entry_budget || plan.run.count > software::software_entry_budget - plan.run.base ||
-                    plan.gpu_route_edges.size() != plan.run.count)
+                    plan.gpu_route_edges.size() != plan.run.count) {
                     return false;
-                for (std::uint32_t i = 0u; i < plan.run.count; ++i)
+                }
+                for (std::uint32_t i = 0u; i < plan.run.count; ++i) {
                     metadata[8u + plan.run.base + i] = std::bit_cast<std::uint32_t>(plan.gpu_route_edges[i]);
+                }
             }
             auto const lane_bytes = software::software_tiles_bytes(extent.width, extent.height);
             auto* words = static_cast<std::uint32_t*>(this->software_tiles_mapped);
             software::software_tile_lists empty{};
             empty.grid = software::make_tile_grid(extent.width, extent.height);
-            if (!words || !software::write_triangle_dispatch({words + frame_slot * lane_bytes / 4u, static_cast<std::size_t>(lane_bytes / 4u)}, empty))
+            if (!words || !software::write_triangle_dispatch({words + frame_slot * lane_bytes / 4u, static_cast<std::size_t>(lane_bytes / 4u)}, empty)) {
                 return false;
+            }
             static bool logged = false;
             if (!logged) {
                 deren::utility::log("software raster active: GPU routing, threshold {} px", this->software_raster_threshold_px);
@@ -2670,8 +2682,9 @@ namespace deren::engine {
                     direct.entry_count = static_cast<std::uint32_t>(direct.entries.size());
                     lists = std::move(direct);
                 }
-            } else if (software_raster_frame_active)
+            } else if (software_raster_frame_active) {
                 lists = software::build_tile_lists(items, parameters, this->software_raster_threshold_px, software::software_entry_budget, software_metric);
+            }
             std::uint64_t const lane_bytes = software::software_tiles_bytes(extent.width, extent.height);
             auto* const tile_words = static_cast<std::uint32_t*>(this->software_tiles_mapped);
             bool published = lists.has_value() && tile_words != nullptr && this->software_tiles_buffer &&
@@ -2694,24 +2707,29 @@ namespace deren::engine {
                 references.reserve(items.size());
                 for (auto const& item : items) {
                     auto const* leaf = leaves[item.item_index];
-                    if (!leaf->subtilis_geometry)
+                    if (!leaf->subtilis_geometry) {
                         continue;
+                    }
                     auto const& source = leaf->subtilis_geometry->source();
                     auto& vertices = positions[item.item_index];
                     vertices.resize(source.vertex_count());
                     auto const bytes = source.vertices();
-                    for (std::size_t v = 0; v < vertices.size(); ++v)
+                    for (std::size_t v = 0; v < vertices.size(); ++v) {
                         std::memcpy(vertices[v].data(), bytes.data() + v * source.vertex_stride(), sizeof(float) * 3u);
+                    }
                     auto& ordered = records[item.item_index];
                     deren::utility::vessel::vector<std::uint32_t> order(item.records.size());
                     auto metrics = software::prepare_camera(parameters);
-                    if (!metrics)
+                    if (!metrics) {
                         continue;
+                    }
                     auto const split = software::split_records(item, *metrics, this->software_raster_threshold_px, order, software_metric);
-                    if (split.record_count != item.records.size())
+                    if (split.record_count != item.records.size()) {
                         continue;
-                    for (auto index : order)
+                    }
+                    for (auto index : order) {
                         ordered.push_back(item.records[index]);
+                    }
                     references.push_back({.item_index = item.item_index, .model = item.model, .base_vertex = 0, .records = ordered, .positions = vertices, .indices = source.indices(), .double_sided = (this->material_flags_of(*leaf) & 8u) != 0u});
                 }
                 // CSR remains an independent screenshot-only oracle, never production triangle routing.
@@ -2751,8 +2769,9 @@ namespace deren::engine {
                     depth_file.write(reinterpret_cast<char const*>(reference->depth_bits.data()), reference->depth_bits.size() * sizeof(std::uint32_t));
                     id_file.write(reinterpret_cast<char const*>(reference->id.data()), reference->id.size() * sizeof(std::uint32_t));
                     this->software_capture_oracle_ok = static_cast<bool>(depth_file) && static_cast<bool>(id_file);
-                    if (!this->software_capture_oracle_ok)
+                    if (!this->software_capture_oracle_ok) {
                         deren::utility::log("software CPU capture: FAIL writing oracle");
+                    }
                 } else {
                     this->software_capture_oracle_ok = false;
                     deren::utility::log(forced_oracle_failure ? "software CPU capture: FAIL reference rasterization (forced by DEREN_SOFTWARE_ORACLE_FAIL)"
@@ -2782,8 +2801,9 @@ namespace deren::engine {
             } else {
                 this->software_active_tile_count = triangles ? lists->entry_count : software::active_tile_count(*lists);
                 static bool logged_activation = false;
-                if (triangle_edge_routing && !logged_activation)
+                if (triangle_edge_routing && !logged_activation) {
                     deren::utility::log("software routing: triangle-edge metric active");
+                }
                 if (!logged_activation) {
                     logged_activation = true;
                     deren::utility::log("software raster active: threshold {} px, {} software cluster(s), {} work entries in {} x {} tile grid",
@@ -2809,21 +2829,25 @@ namespace deren::engine {
         if (!histories.empty()) {
             for (uint32_t index = 0; index < count; ++index) {
                 auto saved = this->subtilis_histories.find(leaves[index]);
-                if (saved == this->subtilis_histories.end())
+                if (saved == this->subtilis_histories.end()) {
                     continue;
-                if (plans[index].run.reason != subtilis::fallback_reason::none)
+                }
+                if (plans[index].run.reason != subtilis::fallback_reason::none) {
                     histories[index].reset();
+                }
                 saved->second.cut = std::move(histories[index]);
             }
         }
         if (this->subtilis_active_frame && this->gpu_timings_enabled) {
             this->subtilis_cut_wall_us += std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - planning_started).count();
-            for (auto const& plan : plans)
+            for (auto const& plan : plans) {
                 this->subtilis_cut_work_us += plan.cut_us;
+            }
             this->subtilis_cut_items += count;
             ++this->subtilis_cut_frames;
-            if (this->subtilis_cut_frames % 120 == 0)
+            if (this->subtilis_cut_frames % 120 == 0) {
                 deren::utility::log("subtilis CPU cut: frames {}, work {} us/frame, wall {} us/frame, {} us/item", this->subtilis_cut_frames, this->subtilis_cut_work_us / this->subtilis_cut_frames, this->subtilis_cut_wall_us / this->subtilis_cut_frames, this->subtilis_cut_work_us / this->subtilis_cut_items);
+            }
         }
         // the per-frame classification work is accumulated EVERY probe frame (not only the capture frame), so the JSON
         // can report both this frame's work and the session average the CPU-cost report quotes. It is WORK summed over
@@ -3182,7 +3206,7 @@ namespace deren::engine {
                         return;
                     }
                     auto const& segment = segments[worker];
-                    if (bind_segment == nullptr || !bind_segment(segment_owner, segment) ||
+                    if (bind_segment == nullptr || !bind_segment(segment_context, segment) ||
                         !record_range(*segment, begin, end, totals[worker]) ||
                         segment->end_recording() != rhi::error::ok) {
                         failed.store(true, std::memory_order_relaxed);
@@ -3247,8 +3271,8 @@ namespace deren::engine {
         return true;
     }
 
-    bool runtime::visibility_items_write(void* const owner, uint32_t const base, std::span<std::byte const> const records) {
-        runtime* const self = static_cast<runtime*>(owner);
+    bool runtime::visibility_items_write(void* const parent, uint32_t const base, std::span<std::byte const> const records) {
+        runtime* const self = static_cast<runtime*>(parent);
         if (self->visibility_items_mapped == nullptr) {
             return false;
         }
@@ -3272,8 +3296,8 @@ namespace deren::engine {
         return true;
     }
 
-    bool runtime::meshlet_culled_write(void* const owner, uint32_t const base, std::span<std::byte const> const records) {
-        runtime* const self = static_cast<runtime*>(owner);
+    bool runtime::meshlet_culled_write(void* const parent, uint32_t const base, std::span<std::byte const> const records) {
+        runtime* const self = static_cast<runtime*>(parent);
         if (self->meshlet_culled_mapped == nullptr) {
             return false;
         }
@@ -3297,24 +3321,24 @@ namespace deren::engine {
     //  descriptor heaps from the BACKEND, which derives them from the heaps it owns; this filled two raw
     //  `VkBindHeapInfoEXT` for a hook the pass layer stopped calling at abi 20.)
 
-    void runtime::structure_record_mask_bake(void* const owner, rhi::command_buffer& command_buffer, pass::mask_bake_request const& request) {
+    void runtime::structure_record_mask_bake(void* const parent, rhi::command_buffer& command_buffer, pass::mask_bake_request const& request) {
         // Bake and structure commands must target this frame's same contract buffer.
-        runtime& self = *static_cast<runtime*>(owner);
+        runtime& self = *static_cast<runtime*>(parent);
         rhi::command_buffer* const commands = self.frame_command_buffer();
         if (commands == nullptr || commands != &command_buffer) {
             deren::utility::log("mask bake: the structure hook was called with a command buffer that is not this frame's primary - the bake is skipped");
             return;
         }
-        self.mask_bake.record(*commands, request, owner, &runtime::push_raw_block);
+        self.mask_bake.record(*commands, request, parent, &runtime::push_raw_block);
     }
 
-    bool runtime::structure_skin_ready(void* const owner) noexcept {
-        return static_cast<runtime*>(owner)->compute_skin.ready();
+    bool runtime::structure_skin_ready(void* const parent) noexcept {
+        return static_cast<runtime*>(parent)->compute_skin.ready();
     }
 
-    bool runtime::structure_record_skin(void* const owner, rhi::command_buffer& command_buffer, std::span<ray_tracing::caster_level const> const casters) {
+    bool runtime::structure_record_skin(void* const parent, rhi::command_buffer& command_buffer, std::span<ray_tracing::caster_level const> const casters) {
         // Skin dispatches must share the structure build's recording target.
-        runtime& self = *static_cast<runtime*>(owner);
+        runtime& self = *static_cast<runtime*>(parent);
         rhi::command_buffer* const commands = self.frame_command_buffer();
         if (commands == nullptr || commands != &command_buffer) {
             deren::utility::log("compute skin: the structure hook was called with a command buffer that is not this frame's primary - the skin dispatches are skipped");
@@ -3618,12 +3642,13 @@ namespace deren::engine {
         if (!geometry_source && info.subtilis_import && admit_import) {
             import_lock.lock();
             shared_generation = this->subtilis_upload_cache[info.subtilis_import->cache_key()].lock();
-            if (shared_generation)
-                geometry_source = shared_generation->source_owner();
-            else {
+            if (shared_generation) {
+                geometry_source = shared_generation->source_handle();
+            } else {
                 auto adopted = subtilis::built_geometry::adopt_imported(info.subtilis_import);
-                if (!adopted)
+                if (!adopted) {
                     return nullptr;
+                }
                 geometry_source = std::allocate_shared<subtilis::built_geometry const>(deren::utility::memory::allocator<subtilis::built_geometry>{}, std::move(*adopted));
             }
         }
@@ -3649,9 +3674,10 @@ namespace deren::engine {
                                                  (runtime_detail::ray_query_available_of(this->rhi_face()) ? rhi::to_bits(rhi::buffer_flag::acceleration_structure_input) : rhi::no_buffer_flags);
         if (geometry_source) {
             if (!shared_generation) {
-                auto uploaded = subtilis::upload_geometry(this->core_owner, geometry_source, geometry_flags);
-                if (!uploaded)
+                auto uploaded = subtilis::upload_geometry(this->core_lifetime, geometry_source, geometry_flags);
+                if (!uploaded) {
                     return nullptr;
+                }
                 shared_generation = std::move(*uploaded);
             }
             if (import_lock.owns_lock()) {
@@ -3692,7 +3718,7 @@ namespace deren::engine {
                 }
                 return rhi::error::ok;
             };
-            if (geometry->prepare_resources(this->core_owner, {}, admit) != rhi::error::ok) {
+            if (geometry->prepare_resources(this->core_lifetime, {}, admit) != rhi::error::ok) {
                 return nullptr;
             }
             auto snapshot = geometry->resources().snapshot();
@@ -3725,7 +3751,7 @@ namespace deren::engine {
         if (geometry_source) {
             auto leaves = geometry_source->lod0_clusters();
             result->meshlets.assign(leaves.begin(), leaves.end());
-        } else
+        } else {
             result->meshlets = deren::engine::build_meshlets(deren::engine::meshlet_build_input{
                 .vertex_data = upload_info.vertex_data,
                 .vertex_stride = upload_info.vertex_stride,
@@ -3736,6 +3762,7 @@ namespace deren::engine {
                 .index_count = upload_info.index_count,
                 .base_vertex = 0,
             });
+        }
         // ... AND INTO THE TABLE a task stage reads, where this primitive owns a CONTIGUOUS run: it remembers the
         // run's first record (`meshlet_base`) and the geometry lanes carry it, so one draw's meshlets are one
         // window. A scene past `meshlet_capacity` keeps the geometry it uploaded and loses only the CULLING for the
@@ -3883,7 +3910,7 @@ namespace deren::engine {
         auto result = std::make_unique<instanced_draw_primitive>();
         // same pipeline semantics as the source geometry it draws (empty = default semantics)
         result->pipeline_name = source.pipeline_name;
-        result->source = &source; // geometry owner; must stay in this runtime's scene tree
+        result->source = &source; // geometry parent; must stay in this runtime's scene tree
         result->instance_count = count;
         result->push.material_index = source.push.material_index;
         result->push.flags = 1u; // bit0: pbr.vert picks instances[instance_base + gl_InstanceIndex]

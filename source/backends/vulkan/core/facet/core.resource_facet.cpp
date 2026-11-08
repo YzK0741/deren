@@ -267,8 +267,9 @@ namespace deren::vulkan {
             if (covered_by(declared, offsetof(rhi_pipeline_desc, texture_group), sizeof(rhi_pipeline_desc::texture_group))) {
                 options.texture_group = desc.texture_group;
             }
-            if (covered_by(declared, offsetof(rhi_pipeline_desc, resource_group), sizeof(rhi_pipeline_desc::resource_group)))
+            if (covered_by(declared, offsetof(rhi_pipeline_desc, resource_group), sizeof(rhi_pipeline_desc::resource_group))) {
                 options.resource_group = desc.resource_group;
+            }
             return options;
         }
 
@@ -432,13 +433,13 @@ namespace deren::vulkan {
         // `initial_bytes` empty means ALLOCATE ONLY - which is what the GPU-only targets, the read-back
         // slot and an acceleration structure's storage ask for, and what a content-keyed allocator must
         // never match against anything.
-        auto* const answer = new owned_buffer{};
+        auto* const answer = new core::buffer{};
         // `initial_bytes` is the contract's `std::byte` view and the allocator takes `uint8_t const*`:
         // the cast is the boundary between the contract's byte type and VMA's, spelled here so neither
         // side has to know the other's.
-        answer->owned = this->full_core.device.vma.create_buffer(
+        answer->allocation = this->full_core.device.vma.create_buffer(
             desc.initial_bytes.empty() ? nullptr : reinterpret_cast<uint8_t const*>(desc.initial_bytes.data()), desc.size, type, extra_usage);
-        if (!answer->owned.valid()) {
+        if (!answer->allocation.valid()) {
             deren::utility::log("rhi: create_buffer could not allocate {} B (usage {}, flags {:#x})", desc.size,
                                 static_cast<std::uint32_t>(desc.usage), desc.flags);
             delete answer;
@@ -449,13 +450,13 @@ namespace deren::vulkan {
         answer->readback = desc.usage == rhi::buffer_usage::readback_coherent;
         answer->declared_usage = desc.usage;
         answer->declared_flags = desc.flags;
-        answer->owner = &this->full_core;
+        answer->parent = &this->full_core;
 
         // THE DETAIL IS READ, NEVER KEPT: `get_buffer_detail` answers with a pointer into the
         // allocator's own map and has already released its lock by the time it returns, so what is
         // copied out here are the two VALUES the contract needs - the Vulkan handle and the mapped
         // address - not the pointer to the record (see the type's note).
-        auto const* const detail = this->full_core.device.vma.get_buffer_detail(answer->owned.handle());
+        auto const* const detail = this->full_core.device.vma.get_buffer_detail(answer->allocation.handle());
         if (detail != nullptr) {
             answer->native = detail->buffer;
             answer->mapped_bytes = detail->allocation_info.pMappedData;
@@ -527,24 +528,24 @@ namespace deren::vulkan {
         // ---- THE ALLOCATION (the allocator's own dedup sees the content at creation) --------------
         // create_image uploads the staging copy itself for data-carrying types and answers an owning
         // RAII handle (vma.cppm's type table); empty bytes mean allocate-only.
-        vk_image const owned = this->full_core.device.vma.create_image(
+        vk_image const allocation = this->full_core.device.vma.create_image(
             reinterpret_cast<uint8_t const*>(desc.initial_bytes.data()), desc.initial_bytes.size(), create_info, type);
-        if (owned.handle() == 0) {
+        if (allocation.handle() == 0) {
             deren::utility::log("rhi: create_image {} refused: the allocator could not serve {}x{}, {} layer(s), {} mip(s)",
                                 what, create_info.width, create_info.height, create_info.array_layers, create_info.mip_levels);
             return nullptr;
         }
 
         // The detail lookup is an UNLOCKED BORROW: the VkImage is copied out NOW (the same rule
-        // owned_buffer's comment states), never the pointer into the allocator's map.
-        image_detail const* const detail = this->full_core.device.vma.get_image_detail(owned.handle());
+        // core::buffer's comment states), never the pointer into the allocator's map.
+        image_detail const* const detail = this->full_core.device.vma.get_image_detail(allocation.handle());
         if (detail == nullptr) {
             deren::utility::log("rhi: create_image {} refused: the allocator holds no detail for the allocation", what);
             return nullptr;
         }
-        auto* const answer = new owned_image();
-        answer->owner = &this->full_core;
-        answer->owned = owned;
+        auto* const answer = new core::image();
+        answer->parent = &this->full_core;
+        answer->allocation = allocation;
         answer->native_handle = detail->image;
         answer->resolved_format = native_format;
         answer->width = create_info.width;
@@ -559,7 +560,7 @@ namespace deren::vulkan {
             this->contract_images.insert(answer);
         }
         deren::utility::log("rhi: create_image {} {}x{} layers {} mips {} -> handle {:#x}",
-                            what, create_info.width, create_info.height, create_info.array_layers, create_info.mip_levels, owned.handle());
+                            what, create_info.width, create_info.height, create_info.array_layers, create_info.mip_levels, allocation.handle());
         return rhi::unique_object<rhi::image>{answer};
     }
 
@@ -602,8 +603,8 @@ namespace deren::vulkan {
                                 static_cast<int>(desc.address_mode), desc.max_lod);
             return nullptr;
         }
-        auto* const answer = new owned_sampler();
-        answer->owner = &this->full_core;
+        auto* const answer = new core::sampler();
+        answer->parent = &this->full_core;
         answer->info = info;
         {
             std::lock_guard lock(this->group_members_mutex);
@@ -662,8 +663,8 @@ namespace deren::vulkan {
             deren::utility::log("rhi: create_shader {} refused: vkCreateShaderModule failed", what);
             return nullptr;
         }
-        auto* const answer = new owned_shader();
-        answer->owned.emplace(std::move(module.value()));
+        auto* const answer = new core::shader();
+        answer->module.emplace(std::move(module.value()));
         return rhi::unique_object<rhi::shader>{answer};
     }
 
@@ -774,18 +775,18 @@ namespace deren::vulkan {
             deren::utility::log("rhi: create_pipeline {} refused: {}", what, pipeline.error());
             return nullptr;
         }
-        auto* const answer = new owned_pipeline();
-        answer->owner = &this->full_core;
+        auto* const answer = new core::pipeline();
+        answer->parent = &this->full_core;
         {
             std::lock_guard const lock(this->contract_pipelines_mutex);
             answer->identity = this->resource_identity.fetch_add(1, std::memory_order_relaxed);
             this->contract_pipelines.insert(answer);
         }
-        answer->owned.emplace(std::move(pipeline.value()));
+        answer->native_object.emplace(std::move(pipeline.value()));
         answer->group_binding = desc.texture_group;
         answer->resource_layout.assign(desc.resource_group.begin(), desc.resource_group.end());
         std::sort(answer->resource_layout.begin(), answer->resource_layout.end(), [](auto const& a, auto const& b) { return a.binding < b.binding; });
-        answer->native_handle = answer->owned->get_pipeline();
+        answer->native_handle = answer->native_object->get_pipeline();
         return rhi::unique_object<rhi::pipeline>{answer};
     }
 
@@ -848,8 +849,8 @@ namespace deren::vulkan {
             return nullptr;
         }
 
-        auto* const out = new owned_micromap{};
-        out->owner = &this->full_core;
+        auto* const out = new core::micromap{};
+        out->parent = &this->full_core;
         out->triangle_count = triangle_count;
         out->triangle_array_stride = sizeof(VkMicromapTriangleEXT);
         out->index_stride = static_cast<std::uint32_t>(sizeof(std::uint32_t));
@@ -938,7 +939,7 @@ namespace deren::vulkan {
             out->scratch_address = this->address_view.buffer_address(*out->scratch, 0);
         }
 
-        auto const* const storage_buffer = rhi::do_concrete<owned_buffer>(*out->storage, concrete::buffer);
+        auto const* const storage_buffer = rhi::do_concrete<core::buffer>(*out->storage, concrete::buffer);
         VkMicromapCreateInfoEXT create_info{};
         create_info.sType = VK_STRUCTURE_TYPE_MICROMAP_CREATE_INFO_EXT;
         create_info.pNext = nullptr;
@@ -1017,8 +1018,8 @@ namespace deren::vulkan {
             return nullptr;
         }
 
-        auto* const structure = new owned_acceleration_structure{};
-        structure->owner = &this->full_core;
+        auto* const structure = new core::acceleration_structure{};
+        structure->parent = &this->full_core;
         structure->top_level = top_level;
         structure->refittable = rhi::has_flag(flags, rhi::acceleration_structure_flag::allow_update);
         structure->instance_capacity = instance_capacity;
@@ -1082,8 +1083,8 @@ namespace deren::vulkan {
                         delete structure;
                         return nullptr;
                     }
-                    auto& micromap = static_cast<owned_micromap&>(*source.opacity_micromap);
-                    if (micromap.owner != &this->full_core) {
+                    auto& micromap = static_cast<core::micromap&>(*source.opacity_micromap);
+                    if (micromap.parent != &this->full_core) {
                         deren::utility::log("rhi: create_acceleration_structure refused: a geometry's opacity micromap belongs to another device");
                         delete structure;
                         return nullptr;
@@ -1178,7 +1179,7 @@ namespace deren::vulkan {
         }
 
         // ---- 3. THE HANDLE AND ITS ADDRESS --------------------------------------------------------------
-        auto const* const storage_buffer = rhi::do_concrete<owned_buffer>(*structure->storage, concrete::buffer);
+        auto const* const storage_buffer = rhi::do_concrete<core::buffer>(*structure->storage, concrete::buffer);
         VkAccelerationStructureCreateInfoKHR create_info{};
         create_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
         create_info.pNext = nullptr;
@@ -1217,16 +1218,19 @@ namespace deren::vulkan {
     std::expected<rhi::unique_object<rhi::lazy_buffer>, rhi::error>
     core::resource_facet::create_lazy_buffer(rhi::lazy_buffer_desc const& request) {
         auto checked = rhi::validate_lazy_buffer(request);
-        if (checked != rhi::error::ok)
+        if (checked != rhi::error::ok) {
             return std::unexpected(checked);
+        }
         auto const& desc = request.resource;
         constexpr auto allowed = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::storage);
-        if (desc.flags & ~allowed)
+        if (desc.flags & ~allowed) {
             return std::unexpected(rhi::error::unsupported);
-        auto value = std::unique_ptr<owned_buffer>(new (std::nothrow) owned_buffer);
-        if (!value)
+        }
+        auto value = std::unique_ptr<core::buffer>(new (std::nothrow) core::buffer);
+        if (!value) {
             return std::unexpected(rhi::error::out_of_host_memory);
-        value->owner = &this->full_core;
+        }
+        value->parent = &this->full_core;
         value->source = request.data;
         value->description = desc;
 
@@ -1248,40 +1252,49 @@ namespace deren::vulkan {
     std::expected<rhi::unique_object<rhi::lazy_image>, rhi::error>
     core::resource_facet::create_lazy_image(rhi::lazy_image_desc const& request) {
         if (request.struct_size < sizeof(request) || request.resource.struct_size < sizeof(rhi::image_desc) ||
-            !request.data || request.data->empty() || !request.resource.initial_bytes.empty())
+            !request.data || request.data->empty() || !request.resource.initial_bytes.empty()) {
             return std::unexpected(rhi::error::invalid_argument);
+        }
         auto desc = request.resource;
         auto const format = this->full_core.resolve_format(desc.format);
         auto const allowed = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::cube_compatible);
         if (!rhi::has_flag(desc.flags, rhi::image_flag::sampled) || (desc.flags & ~allowed) ||
-            desc.format == rhi::image_format::depth || format == VK_FORMAT_UNDEFINED)
+            desc.format == rhi::image_format::depth || format == VK_FORMAT_UNDEFINED) {
             return std::unexpected(rhi::error::unsupported);
+        }
         if (!desc.extent.width || !desc.extent.height || desc.extent.depth != 1 || !desc.array_layers ||
             (rhi::has_flag(desc.flags, rhi::image_flag::cube_compatible) &&
-             (desc.array_layers != 6 || desc.extent.width != desc.extent.height)))
+             (desc.array_layers != 6 || desc.extent.width != desc.extent.height))) {
             return std::unexpected(rhi::error::invalid_argument);
+        }
         auto max_mips = static_cast<std::uint32_t>(std::bit_width(std::max(desc.extent.width, desc.extent.height)));
-        if (!desc.mip_levels)
+        if (!desc.mip_levels) {
             desc.mip_levels = max_mips;
-        if (desc.mip_levels > max_mips)
+        }
+        if (desc.mip_levels > max_mips) {
             return std::unexpected(rhi::error::invalid_argument);
+        }
         auto packed = detail::packed_image_size(format, desc.extent.width, desc.extent.height, desc.array_layers, desc.mip_levels);
-        if (!packed || *packed != request.data->size())
+        if (!packed || *packed != request.data->size()) {
             return std::unexpected(rhi::error::invalid_argument);
+        }
         VkImageFormatProperties properties{};
         auto flags = rhi::has_flag(desc.flags, rhi::image_flag::cube_compatible) ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0u;
         auto supported = vkGetPhysicalDeviceImageFormatProperties(this->full_core.device.physical_device, format, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL,
                                                                   VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT,
                                                                   flags, &properties);
-        if (supported != VK_SUCCESS)
+        if (supported != VK_SUCCESS) {
             return std::unexpected(rhi::error::unsupported);
+        }
         if (desc.extent.width > properties.maxExtent.width || desc.extent.height > properties.maxExtent.height ||
-            desc.array_layers > properties.maxArrayLayers || desc.mip_levels > properties.maxMipLevels)
+            desc.array_layers > properties.maxArrayLayers || desc.mip_levels > properties.maxMipLevels) {
             return std::unexpected(rhi::error::invalid_argument);
-        auto value = std::unique_ptr<owned_image>(new (std::nothrow) owned_image);
-        if (!value)
+        }
+        auto value = std::unique_ptr<core::image>(new (std::nothrow) core::image);
+        if (!value) {
             return std::unexpected(rhi::error::out_of_host_memory);
-        value->owner = &this->full_core;
+        }
+        value->parent = &this->full_core;
         value->source = request.data;
         value->description = desc;
         value->debug_name = desc.debug_name ? desc.debug_name : "lazy image";
@@ -1306,27 +1319,32 @@ namespace deren::vulkan {
 
     std::expected<rhi::resource_group_ref, rhi::error> core::resource_facet::create_resource_group(rhi::resource_group_desc const& desc) {
         auto fail = [](rhi::error error) -> std::expected<rhi::resource_group_ref, rhi::error> { return std::unexpected(error); };
-        if (desc.struct_size < sizeof(desc) || desc.entries.empty() || desc.entries.size() > rhi::resource_group_capacity)
+        if (desc.struct_size < sizeof(desc) || desc.entries.empty() || desc.entries.size() > rhi::resource_group_capacity) {
             return fail(rhi::error::invalid_argument);
-        if (!this->descriptor_heaps.ready() || this->heap_grid_offset == VK_WHOLE_SIZE)
+        }
+        if (!this->descriptor_heaps.ready() || this->heap_grid_offset == VK_WHOLE_SIZE) {
             return fail(rhi::error::unsupported);
-        auto group = std::unique_ptr<owned_resource_group>(new (std::nothrow) owned_resource_group);
-        if (!group)
+        }
+        auto group = std::unique_ptr<core::resource_group>(new (std::nothrow) core::resource_group);
+        if (!group) {
             return fail(rhi::error::out_of_host_memory);
-        group->owner = &this->full_core;
+        }
+        group->parent = &this->full_core;
         group->entries.assign(desc.entries.begin(), desc.entries.end());
         std::sort(group->entries.begin(), group->entries.end(), [](auto const& a, auto const& b) { return a.binding < b.binding; });
         VkPhysicalDeviceProperties properties{};
         vkGetPhysicalDeviceProperties(this->full_core.device.physical_device, &properties);
         for (auto const& entry : group->entries) {
-            if (!entry.resource.owns_lifetime())
+            if (!entry.resource.retains_lifetime()) {
                 return fail(rhi::error::invalid_argument);
+            }
             if (entry.kind == rhi::resource_kind::uniform_buffer || entry.kind == rhi::resource_kind::storage_buffer) {
                 std::unique_lock lock(this->contract_buffers_mutex);
                 auto found = std::find_if(this->contract_buffers.begin(), this->contract_buffers.end(), [&](auto* p) { return static_cast<rhi::object const*>(p) == entry.resource.get(); });
-                if (found == this->contract_buffers.end())
+                if (found == this->contract_buffers.end()) {
                     return fail(rhi::error::invalid_argument);
-                auto const& value = *static_cast<owned_buffer const*>(*found);
+                }
+                auto const& value = *static_cast<core::buffer const*>(*found);
                 if (value.source) {
                     lock.unlock();
                     group->lazy_references.push_back(this->full_core.depend_on(value));
@@ -1335,9 +1353,10 @@ namespace deren::vulkan {
             } else if (entry.kind == rhi::resource_kind::sampled_image || entry.kind == rhi::resource_kind::storage_image) {
                 std::unique_lock lock(this->contract_images_mutex);
                 auto found = std::find_if(this->contract_images.begin(), this->contract_images.end(), [&](auto* p) { return static_cast<rhi::object const*>(p) == entry.resource.get(); });
-                if (found == this->contract_images.end())
+                if (found == this->contract_images.end()) {
                     return fail(rhi::error::invalid_argument);
-                auto const& value = *static_cast<owned_image const*>(*found);
+                }
+                auto const& value = *static_cast<core::image const*>(*found);
                 if (value.source) {
                     lock.unlock();
                     group->lazy_references.push_back(this->full_core.depend_on(value));
@@ -1345,24 +1364,27 @@ namespace deren::vulkan {
                 }
             } else if (entry.kind == rhi::resource_kind::texture_group) {
                 std::lock_guard lock(this->texture_groups.mutex);
-                if (!this->texture_groups.tokens_by_group.contains(static_cast<rhi::texture_group const*>(entry.resource.get())))
+                if (!this->texture_groups.tokens_by_group.contains(static_cast<rhi::texture_group const*>(entry.resource.get()))) {
                     return fail(rhi::error::invalid_argument);
-                auto const& value = *static_cast<owned_texture_group const*>(entry.resource.get());
+                }
+                auto const& value = *static_cast<core::texture_group const*>(entry.resource.get());
                 group->deferred |= std::any_of(value.deferred_images.begin(), value.deferred_images.end(), [](auto const& p) { return bool(p); });
             }
         }
         for (std::size_t index = 0; index < group->entries.size(); ++index) {
             auto const& entry = group->entries[index];
-            if (!entry.resource.owns_lifetime() || entry.kind > rhi::resource_kind::acceleration_structure ||
-                (index && entry.binding == group->entries[index - 1].binding))
+            if (!entry.resource.retains_lifetime() || entry.kind > rhi::resource_kind::acceleration_structure ||
+                (index && entry.binding == group->entries[index - 1].binding)) {
                 return fail(rhi::error::invalid_argument);
+            }
             auto const* entry_resource = entry.resource.get();
             if (entry.kind == rhi::resource_kind::texture_group) {
                 std::lock_guard lock(this->texture_groups.mutex);
                 auto found = std::find_if(this->texture_groups.tokens_by_group.begin(), this->texture_groups.tokens_by_group.end(),
                                           [entry_resource](auto const& item) { return static_cast<rhi::object const*>(item.first) == entry_resource; });
-                if (found == this->texture_groups.tokens_by_group.end())
+                if (found == this->texture_groups.tokens_by_group.end()) {
                     return fail(rhi::error::invalid_argument);
+                }
                 group->values.push_back(found->second);
                 continue;
             }
@@ -1374,28 +1396,33 @@ namespace deren::vulkan {
                 std::lock_guard lock(this->contract_buffers_mutex);
                 auto found = std::find_if(this->contract_buffers.begin(), this->contract_buffers.end(),
                                           [entry_resource](auto* item) { return static_cast<rhi::object const*>(item) == entry_resource; });
-                if (found == this->contract_buffers.end())
+                if (found == this->contract_buffers.end()) {
                     return fail(rhi::error::invalid_argument);
+                }
                 auto* buffer = *found;
-                auto const& owned = *static_cast<owned_buffer const*>(buffer);
+                auto const& concrete = *static_cast<core::buffer const*>(buffer);
                 bool uniform = entry.kind == rhi::resource_kind::uniform_buffer;
-                bool usage = uniform ? (owned.declared_usage == rhi::buffer_usage::uniform_gpu_only ||
-                                        owned.declared_usage == rhi::buffer_usage::uniform_coherent || owned.declared_usage == rhi::buffer_usage::uniform_cached)
-                                     : (owned.declared_usage == rhi::buffer_usage::storage_gpu_only || owned.declared_usage == rhi::buffer_usage::storage_coherent);
-                if (!usage || !owned.addressable)
+                bool usage = uniform ? (concrete.declared_usage == rhi::buffer_usage::uniform_gpu_only ||
+                                        concrete.declared_usage == rhi::buffer_usage::uniform_coherent || concrete.declared_usage == rhi::buffer_usage::uniform_cached)
+                                     : (concrete.declared_usage == rhi::buffer_usage::storage_gpu_only || concrete.declared_usage == rhi::buffer_usage::storage_coherent);
+                if (!usage || !concrete.addressable) {
                     return fail(rhi::error::unsupported);
-                if (entry.offset >= owned.size_bytes)
+                }
+                if (entry.offset >= concrete.size_bytes) {
                     return fail(rhi::error::invalid_argument);
-                size = entry.size ? entry.size : owned.size_bytes - entry.offset;
+                }
+                size = entry.size ? entry.size : concrete.size_bytes - entry.offset;
                 auto alignment = uniform ? properties.limits.minUniformBufferOffsetAlignment : properties.limits.minStorageBufferOffsetAlignment;
                 auto limit = uniform ? properties.limits.maxUniformBufferRange : properties.limits.maxStorageBufferRange;
-                if (size > owned.size_bytes - entry.offset || size > limit || (alignment && entry.offset % alignment))
+                if (size > concrete.size_bytes - entry.offset || size > limit || (alignment && entry.offset % alignment)) {
                     return fail(rhi::error::invalid_argument);
-                address = this->full_core.internal_address(owned, entry.offset);
+                }
+                address = this->full_core.internal_address(concrete, entry.offset);
                 // Uniforms lower to native storage descriptors; satisfy both sets of constraints.
                 if ((!group->deferred && !address) || (address && address % properties.limits.minStorageBufferOffsetAlignment) ||
-                    size > properties.limits.maxStorageBufferRange || (address && size > UINT64_MAX - address))
+                    size > properties.limits.maxStorageBufferRange || (address && size > UINT64_MAX - address)) {
                     return fail(rhi::error::invalid_argument);
+                }
                 // Heap ConstantBuffer is an OpBufferPointerEXT StorageBuffer in the current shader ABI.
                 type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
                 break;
@@ -1404,36 +1431,43 @@ namespace deren::vulkan {
             case rhi::resource_kind::storage_image: {
                 std::lock_guard lock(this->contract_images_mutex);
                 if (std::none_of(this->contract_images.begin(), this->contract_images.end(),
-                                 [entry_resource](auto* item) { return static_cast<rhi::object const*>(item) == entry_resource; }))
+                                 [entry_resource](auto* item) { return static_cast<rhi::object const*>(item) == entry_resource; })) {
                     return fail(rhi::error::invalid_argument);
-                auto const& image = *static_cast<owned_image const*>(entry_resource);
+                }
+                auto const& image = *static_cast<core::image const*>(entry_resource);
                 auto const& view = entry.view;
                 bool sampled = entry.kind == rhi::resource_kind::sampled_image;
                 if (view.struct_size < sizeof(view) || view.base_mip >= image.mip_levels || view.base_layer >= image.array_layers ||
                     (view.mip_count && view.mip_count > image.mip_levels - view.base_mip) ||
-                    (view.layer_count && view.layer_count > image.array_layers - view.base_layer))
+                    (view.layer_count && view.layer_count > image.array_layers - view.base_layer)) {
                     return fail(rhi::error::invalid_argument);
+                }
                 if (view.role != (sampled ? rhi::view_role::sampled : rhi::view_role::storage) ||
-                    !rhi::has_flag(image.declared_flags, sampled ? rhi::image_flag::sampled : rhi::image_flag::storage))
+                    !rhi::has_flag(image.declared_flags, sampled ? rhi::image_flag::sampled : rhi::image_flag::storage)) {
                     return fail(rhi::error::unsupported);
+                }
                 break;
             }
             case rhi::resource_kind::sampler:
             case rhi::resource_kind::acceleration_structure: {
                 std::lock_guard lock(this->group_members_mutex);
-                if (!this->group_members.contains(entry_resource))
+                if (!this->group_members.contains(entry_resource)) {
                     return fail(rhi::error::invalid_argument);
+                }
                 if (entry.kind == rhi::resource_kind::sampler) {
-                    if (!rhi::is_concrete(*entry_resource, concrete::sampler))
+                    if (!rhi::is_concrete(*entry_resource, concrete::sampler)) {
                         return fail(rhi::error::invalid_argument);
+                    }
                 } else {
-                    if (!rhi::is_concrete(*entry_resource, concrete::acceleration_structure))
+                    if (!rhi::is_concrete(*entry_resource, concrete::acceleration_structure)) {
                         return fail(rhi::error::invalid_argument);
-                    auto const& owned = *static_cast<owned_acceleration_structure const*>(entry_resource);
-                    if (!owned.top_level || !owned.address || !owned.structure_size)
+                    }
+                    auto const& concrete = *static_cast<core::acceleration_structure const*>(entry_resource);
+                    if (!concrete.top_level || !concrete.address || !concrete.structure_size) {
                         return fail(rhi::error::invalid_argument);
-                    address = owned.address;
-                    size = owned.structure_size;
+                    }
+                    address = concrete.address;
+                    size = concrete.structure_size;
                     type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
                 }
                 break;
@@ -1454,31 +1488,37 @@ namespace deren::vulkan {
                     offset = free.back();
                     free.pop_back();
                 } else if (sampler) {
-                    if (!this->next_sampler)
+                    if (!this->next_sampler) {
                         this->next_sampler = heap_sampler_base + static_cast<std::uint32_t>(this->shared_sampler_infos.size());
+                    }
                     offset = VkDeviceSize(this->next_sampler) * 32u;
-                    if (offset + 32u > this->descriptor_heaps.sampler_size())
+                    if (offset + 32u > this->descriptor_heaps.sampler_size()) {
                         return fail(rhi::error::out_of_device_memory);
+                    }
                     ++this->next_sampler;
                 } else {
                     offset = this->descriptor_heaps.reserve_bytes(64u, 64u);
-                    if (offset == VK_WHOLE_SIZE)
+                    if (offset == VK_WHOLE_SIZE) {
                         return fail(rhi::error::out_of_device_memory);
+                    }
                 }
             }
             group->allocations.push_back({offset, sampler});
             if (sampler) {
-                auto const& info = static_cast<owned_sampler const*>(entry_resource)->info;
-                if (!this->descriptor_heaps.write_samplers(offset, std::span(&info, 1)))
+                auto const& info = static_cast<core::sampler const*>(entry_resource)->info;
+                if (!this->descriptor_heaps.write_samplers(offset, std::span(&info, 1))) {
                     return fail(rhi::error::operation_failed);
+                }
             } else if (entry.kind == rhi::resource_kind::sampled_image || entry.kind == rhi::resource_kind::storage_image) {
                 auto type = entry.kind == rhi::resource_kind::sampled_image ? rhi::descriptor_type::sampled_image : rhi::descriptor_type::storage_image;
                 rhi::heap_image_write_info info{.offset = offset, .resource = static_cast<rhi::image const*>(entry_resource), .view = &entry.view, .type = type};
                 auto status = this->heap_view.write_image_native(info, true);
-                if (status != rhi::error::ok)
+                if (status != rhi::error::ok) {
                     return fail(status);
-            } else if (!address || !this->descriptor_heaps.write_buffer(offset, address, size, type))
+                }
+            } else if (!address || !this->descriptor_heaps.write_buffer(offset, address, size, type)) {
                 return fail(rhi::error::operation_failed);
+            }
             group->values.push_back(static_cast<std::uint32_t>(offset / (sampler ? 32u : 64u)));
         }
         {
@@ -1520,8 +1560,8 @@ namespace deren::vulkan {
                 if (!this->contract_images.contains(image)) {
                     return {};
                 }
-                auto const& owned = *static_cast<owned_image const*>(image);
-                auto const valid = this->full_core.validate_texture_group_image(owned);
+                auto const& concrete = *static_cast<core::image const*>(image);
+                auto const valid = this->full_core.validate_texture_group_image(concrete);
                 if (valid == rhi::error::unsupported) {
                     return fail(rhi::error::unsupported);
                 }
@@ -1539,11 +1579,11 @@ namespace deren::vulkan {
         if (initialized != rhi::error::ok) {
             return fail(initialized);
         }
-        auto answer = std::unique_ptr<owned_texture_group>(new (std::nothrow) owned_texture_group);
+        auto answer = std::unique_ptr<core::texture_group>(new (std::nothrow) core::texture_group);
         if (!answer) {
             return fail(rhi::error::out_of_host_memory);
         }
-        answer->owner = &this->full_core;
+        answer->parent = &this->full_core;
         rhi::error status = rhi::error::ok;
         {
             std::lock_guard lock(this->texture_groups.mutex);

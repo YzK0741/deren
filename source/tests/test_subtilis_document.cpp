@@ -60,17 +60,20 @@ int main() {
                     auto* a = yyjson_doc_get_root(before);
                     auto* b = yyjson_doc_get_root(after);
                     auto same = [](yyjson_val* left, yyjson_val* right) { return left == nullptr || right == nullptr ? left == right : yyjson_equals(left, right); };
-                    for (auto key : {"nodes", "scenes", "materials", "accessors", "extras"})
+                    for (auto key : {"nodes", "scenes", "materials", "accessors", "extras"}) {
                         CHECK(same(yyjson_obj_get(a, key), yyjson_obj_get(b, key)));
+                    }
                     // The default fixture deliberately carries no unknown extensions (GLB relocation
                     // must not guess their semantics); the unknown-extension preservation arm below
                     // covers the DOM path.
                     CHECK(yyjson_obj_get(a, "extensions") == nullptr && yyjson_obj_get(b, "extensions") == nullptr);
                     auto primitive = [](yyjson_val* root) { return yyjson_arr_get(yyjson_obj_get(yyjson_arr_get(yyjson_obj_get(root, "meshes"), 0), "primitives"), 0); };
-                    for (auto key : {"attributes", "indices", "material"})
+                    for (auto key : {"attributes", "indices", "material"}) {
                         CHECK(same(yyjson_obj_get(primitive(a), key), yyjson_obj_get(primitive(b), key)));
-                    for (size_t i = 0; i < 4; ++i)
+                    }
+                    for (size_t i = 0; i < 4; ++i) {
                         CHECK(yyjson_equals(yyjson_arr_get(yyjson_obj_get(a, "bufferViews"), i), yyjson_arr_get(yyjson_obj_get(b, "bufferViews"), i)));
+                    }
                 }
                 yyjson_doc_free(before);
                 yyjson_doc_free(after);
@@ -87,12 +90,14 @@ int main() {
                 // A required extension that extensionsUsed does not declare is invalid.
                 auto not_used_json = edit_json(required_json, [](auto*, auto* root) {
                     auto* used = yyjson_mut_obj_get(root, "extensionsUsed");
-                    if (!yyjson_mut_is_arr(used))
+                    if (!yyjson_mut_is_arr(used)) {
                         return;
+                    }
                     for (size_t i = yyjson_mut_arr_size(used); i-- > 0;) {
                         auto* value = yyjson_mut_arr_get(used, i);
-                        if (yyjson_mut_is_str(value) && std::string_view(yyjson_mut_get_str(value)) == "DEREN_subtilis")
+                        if (yyjson_mut_is_str(value) && std::string_view(yyjson_mut_get_str(value)) == "DEREN_subtilis") {
                             yyjson_mut_arr_remove(used, i);
+                        }
                     }
                 });
                 write(dir / "not-used.glb", glb(not_used_json, cooked_bin));
@@ -127,8 +132,9 @@ int main() {
             CHECK(saved && saved->find("VENDOR_metadata") != sub::string::npos && saved->find("18446744073709551615") != sub::string::npos && saved->find("keep me") != sub::string::npos);
             auto refused = tool::serialize_embedded_glb(*unknown_doc);
             CHECK(!refused);
-            if (!refused)
+            if (!refused) {
                 CHECK(refused.error().code == sub::error_code::io);
+            }
             auto with_image = edit_json(unknown.json, [](auto* d, auto* root) {
                 auto* images = yyjson_mut_arr(d);
                 auto* image = yyjson_mut_obj(d);
@@ -142,8 +148,9 @@ int main() {
             if (image_doc) {
                 auto image_refused = tool::serialize_embedded_glb(*image_doc);
                 CHECK(!image_refused);
-                if (!image_refused)
+                if (!image_refused) {
                     CHECK(image_refused.error().code == sub::error_code::io);
+                }
             }
         }
     }
@@ -158,8 +165,9 @@ int main() {
         write(dir / "known-extension.glb", glb(known.json, known.bin));
         auto known_doc = tool::read_document(dir / "known-extension.glb", {});
         CHECK(known_doc);
-        if (known_doc)
+        if (known_doc) {
             CHECK(tool::serialize_embedded_glb(*known_doc));
+        }
     }
     auto check_eligible = [&](sub::string json, size_t expected) {write(dir/"variant.glb",glb(std::move(json),f.bin)); auto d=tool::read_document(dir/"variant.glb",{});CHECK(d);if(d){auto e=tool::eligible_primitives(*d);CHECK(e && e->size()==expected);} };
     auto no_normal = f.json;
@@ -171,13 +179,15 @@ int main() {
     write(dir / "unsupported-attribute.glb", glb(tangent, f.bin));
     auto unsupported_attribute = tool::read_document(dir / "unsupported-attribute.glb", {});
     CHECK(unsupported_attribute);
-    if (unsupported_attribute && wire)
+    if (unsupported_attribute && wire) {
         CHECK(!tool::attach_payload(*unsupported_attribute, {0, 0}, *wire));
+    }
     auto no_uv = f.json;
     replace(no_uv, ",\"TEXCOORD_0\":2", "");
     check_eligible(no_uv, 1);
-    for (auto mode : {"MASK", "BLEND"})
+    for (auto mode : {"MASK", "BLEND"}) {
         check_eligible(edit_json(f.json, [&](auto* d, auto* root) {auto* material=yyjson_mut_arr_get(yyjson_mut_obj_get(root,"materials"),0);yyjson_mut_obj_add_strcpy(d,material,"alphaMode",mode); }), 0);
+    }
     auto tangent_json = edit_json(f.json, [&](auto* d, auto* root) {
         auto* a = yyjson_mut_obj(d);
         yyjson_mut_obj_add_uint(d, a, "componentType", 5126);
@@ -205,8 +215,9 @@ int main() {
             yyjson_mut_obj_add_uint(d, a, "componentType", i ? 5126 : 5123);
             yyjson_mut_obj_add_uint(d, a, "count", fixture.source.positions.size());
             yyjson_mut_obj_add_str(d, a, "type", "VEC4");
-            if (i)
+            if (i) {
                 yyjson_mut_obj_add_uint(d, a, "bufferView", 4);
+            }
             yyjson_mut_arr_append(accessors, a);
         }
         auto* view = yyjson_mut_obj(d);
@@ -240,8 +251,9 @@ int main() {
         CHECK(saved && saved->find("\"skin\":0") != sub::string::npos);
     }
     auto animated_bin = f.bin;
-    for (float value : {0.f, 1.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f})
+    for (float value : {0.f, 1.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f}) {
         put(animated_bin, std::bit_cast<std::uint32_t>(value));
+    }
     auto animated_json = edit_json(f.json, [&](auto* d, auto* root) {
         auto* views = yyjson_mut_obj_get(root, "bufferViews");
         auto* accessors = yyjson_mut_obj_get(root, "accessors");
@@ -298,8 +310,9 @@ int main() {
             auto* before = yyjson_read(animated_json.data(), animated_json.size(), 0);
             auto* after = yyjson_read(saved->data(), saved->size(), 0);
             CHECK(before && after);
-            if (before && after)
+            if (before && after) {
                 CHECK(yyjson_equals(yyjson_obj_get(yyjson_doc_get_root(before), "animations"), yyjson_obj_get(yyjson_doc_get_root(after), "animations")));
+            }
             yyjson_doc_free(before);
             yyjson_doc_free(after);
         }
@@ -397,13 +410,15 @@ int main() {
         }
         quant.insert(quant.end(), 2, std::byte{0});
     }
-    for (unsigned i = 0; i < 3; ++i)
+    for (unsigned i = 0; i < 3; ++i) {
         quant.insert(quant.end(), {std::byte{0}, std::byte{0}, std::byte{127}, std::byte{0}});
-    for (auto uv : sub::array<sub::array<std::uint16_t, 2>, 3>{{{0, 0}, {65535, 0}, {0, 65535}}})
+    }
+    for (auto uv : sub::array<sub::array<std::uint16_t, 2>, 3>{{{0, 0}, {65535, 0}, {0, 65535}}}) {
         for (auto v : uv) {
             quant.push_back(std::byte(v & 255));
             quant.push_back(std::byte(v >> 8));
         }
+    }
     quant.insert(quant.end(), {std::byte{0}, std::byte{1}, std::byte{2}});
     sub::string quant_json = R"({"asset":{"version":"2.0"},"extensionsUsed":["KHR_mesh_quantization"],"extensionsRequired":["KHR_mesh_quantization"],"buffers":[{"byteLength":51}],"bufferViews":[{"buffer":0,"byteLength":24,"byteStride":8},{"buffer":0,"byteOffset":24,"byteLength":12,"byteStride":4},{"buffer":0,"byteOffset":36,"byteLength":12},{"buffer":0,"byteOffset":48,"byteLength":3}],"accessors":[{"bufferView":0,"componentType":5122,"normalized":true,"count":3,"type":"VEC3","min":[-1,-1,0],"max":[1,1,0]},{"bufferView":1,"componentType":5120,"normalized":true,"count":3,"type":"VEC3"},{"bufferView":2,"componentType":5123,"normalized":true,"count":3,"type":"VEC2"},{"bufferView":3,"componentType":5121,"count":3,"type":"SCALAR"}],"meshes":[{"primitives":[{"attributes":{"POSITION":0,"NORMAL":1,"TEXCOORD_0":2},"indices":3}]}],"nodes":[{"mesh":0,"translation":[100,0,0]}],"scenes":[{"nodes":[0]}],"scene":0})";
     write(dir / "quantized.glb", glb(quant_json, quant));

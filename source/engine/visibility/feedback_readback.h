@@ -8,11 +8,13 @@ namespace deren::engine::feedback_readback {
         // The slot's prior GPU work completed before reuse. Its last use was the readback copy.
         rhi::buffer_barrier ready{.resource = &gpu, .from = rhi::buffer_use::transfer_source, .to = rhi::buffer_use::transfer_destination};
         auto status = commands.barrier({.buffers = std::span(&ready, 1)});
-        if (status != rhi::error::ok)
+        if (status != rhi::error::ok) {
             return status;
+        }
         status = commands.copy_buffer(gpu, zero, bytes, 0, 0);
-        if (status != rhi::error::ok)
+        if (status != rhi::error::ok) {
             return status;
+        }
         rhi::buffer_barrier shader{.resource = &gpu, .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::shader_read_write};
         return commands.barrier({.buffers = std::span(&shader, 1)});
     }
@@ -22,11 +24,13 @@ namespace deren::engine::feedback_readback {
         std::array<rhi::buffer_barrier, 2> copy{{{.resource = &gpu, .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::transfer_source},
                                                  {.resource = &host, .from = rhi::buffer_use::host_read, .to = rhi::buffer_use::transfer_destination}}};
         auto status = commands.barrier({.buffers = copy});
-        if (status != rhi::error::ok)
+        if (status != rhi::error::ok) {
             return status;
+        }
         status = commands.copy_buffer(host, gpu, bytes, 0, 0);
-        if (status != rhi::error::ok)
+        if (status != rhi::error::ok) {
             return status;
+        }
         rhi::buffer_barrier readable{.resource = &host, .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read};
         return commands.barrier({.buffers = std::span(&readable, 1)});
     }

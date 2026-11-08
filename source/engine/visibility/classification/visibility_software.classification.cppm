@@ -421,19 +421,22 @@ export namespace deren::engine::visibility::software {
             if (nearest > 0.0) {
                 double const off_axis = (std::hypot(view_center[0], view_center[1]) + measurement.world_radius) / nearest;
                 projection_bound = projection_bound / nearest * std::sqrt(1.0 + off_axis * off_axis);
-            } else
+            } else {
                 projection_bound = std::numeric_limits<double>::infinity();
+            }
         }
-        if (measurement.front_of_near && std::isfinite(object_max_edge) && object_max_edge >= 0.0)
+        if (measurement.front_of_near && std::isfinite(object_max_edge) && object_max_edge >= 0.0) {
             result.triangle_edge_upper_px = std::nextafter(object_max_edge * measurement.model_scale * projection_bound,
                                                            std::numeric_limits<double>::infinity());
+        }
         double const center_x = (ndc_x * 0.5 + 0.5) * static_cast<double>(camera.width);
         double const center_y = (ndc_y * 0.5 + 0.5) * static_cast<double>(camera.height);
         double const radius_px = measurement.front_of_near ? std::max<double>(minimum_screen_radius_px,
                                                                               std::nextafter(measurement.world_radius * projection_bound, std::numeric_limits<double>::infinity()))
                                                            : std::numeric_limits<double>::infinity();
-        if (!std::isfinite(radius_px) || !std::isfinite(center_x) || !std::isfinite(center_y))
+        if (!std::isfinite(radius_px) || !std::isfinite(center_x) || !std::isfinite(center_y)) {
             return result;
+        }
         result.center_px = {static_cast<float>(center_x), static_cast<float>(center_y)};
         // Round outward when storing the double bound in the float footprint field.
         result.radius_px = std::nextafter(static_cast<float>(radius_px), std::numeric_limits<float>::infinity());

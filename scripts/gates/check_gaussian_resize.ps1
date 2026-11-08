@@ -83,9 +83,9 @@ try {
                 $script:renderWindow = [IntPtr]::Zero
                 $callback = [GaussianResizeCheck.Windows+Enumerate] {
                     param($window, $parameter)
-                    $owner = [uint32]0
-                    [void][GaussianResizeCheck.Windows]::GetWindowThreadProcessId($window, [ref]$owner)
-                    if ($owner -eq $process.Id) {
+                    $window_process_id = [uint32]0
+                    [void][GaussianResizeCheck.Windows]::GetWindowThreadProcessId($window, [ref]$window_process_id)
+                    if ($window_process_id -eq $process.Id) {
                         $windowClass = [System.Text.StringBuilder]::new(256)
                         [void][GaussianResizeCheck.Windows]::GetClassName($window, $windowClass, 256)
                         $rectangle = [GaussianResizeCheck.Windows+Rect]::new()

@@ -42,9 +42,15 @@ namespace deren::vk_test {
     struct file_output {
         using difference_type = std::ptrdiff_t;
         std::FILE* file;
-        file_output& operator*() noexcept { return *this; }
-        file_output& operator++() noexcept { return *this; }
-        file_output operator++(int) noexcept { return *this; }
+        file_output& operator*() noexcept {
+            return *this;
+        }
+        file_output& operator++() noexcept {
+            return *this;
+        }
+        file_output operator++(int) noexcept {
+            return *this;
+        }
         file_output& operator=(char value) noexcept {
             static_cast<void>(std::fputc(value, file));
             return *this;
@@ -92,20 +98,20 @@ namespace deren::vk_test {
 // harness also carries runtime conditions (`CHECK(file.is_open())`) and some pinned constants are not constant
 // expressions at all (a `float const` computed through a lambda). The check itself is unchanged: the condition is
 // still evaluated exactly once, the report text is the same, and so is the process exit code.
-#define CHECK(cond)                                                \
-    do {                                                           \
+#define CHECK(cond)                                                       \
+    do {                                                                  \
         ++::deren::vk_test::checks();                                     \
-        bool const check_failed = !(cond);                         \
-        if (check_failed) {                                        \
+        bool const check_failed = !(cond);                                \
+        if (check_failed) {                                               \
             ::deren::vk_test::report(#cond, __FILE__, __LINE__, nullptr); \
-        }                                                          \
+        }                                                                 \
     } while (false)
 
-#define CHECK_MSG(cond, message)                                     \
-    do {                                                             \
+#define CHECK_MSG(cond, message)                                            \
+    do {                                                                    \
         ++::deren::vk_test::checks();                                       \
-        bool const check_failed = !(cond);                           \
-        if (check_failed) {                                          \
+        bool const check_failed = !(cond);                                  \
+        if (check_failed) {                                                 \
             ::deren::vk_test::report(#cond, __FILE__, __LINE__, (message)); \
-        }                                                            \
+        }                                                                   \
     } while (false)

@@ -125,14 +125,17 @@ namespace {
             a = sample();
             a.sh_degree = degree;
             unsigned const used = 3 * (degree + 1) * (degree + 1);
-            for (unsigned i = 0; i < used; ++i)
+            for (unsigned i = 0; i < used; ++i) {
                 a.particles[0].sh[i] = static_cast<float>(i) + 0.25f;
-            for (unsigned i = used; i < 48; ++i)
+            }
+            for (unsigned i = used; i < 48; ++i) {
                 a.particles[0].sh[i] = 123.0f;
+            }
             result = gs::pack_asset(a);
             CHECK(result && result->sh_degree == degree);
-            for (unsigned i = 0; i < 48; ++i)
+            for (unsigned i = 0; i < 48; ++i) {
                 CHECK(result->sh[0].coefficients[i] == (i < used ? a.particles[0].sh[i] : 0.0f));
+            }
         }
     }
     void test_invalid_packing() {
@@ -170,9 +173,11 @@ void test_models() {
     CHECK(inv);
     if (inv) {
         auto product = model * *inv;
-        for (unsigned i = 0; i < 4; ++i)
-            for (unsigned j = 0; j < 4; ++j)
+        for (unsigned i = 0; i < 4; ++i) {
+            for (unsigned j = 0; j < 4; ++j) {
                 CHECK(close(product[i][j], i == j ? 1.0f : 0.0f));
+            }
+        }
     }
     auto bad = identity;
     bad[0][0] = 2;
@@ -213,8 +218,9 @@ void test_sorting() {
     }
     sorted = gs::sort_draw_references(instances, {{0, 0, 0}, {0, 0, 1}});
     CHECK(sorted && sorted->size() == 4);
-    if (sorted && !sorted->empty())
+    if (sorted && !sorted->empty()) {
         CHECK((*sorted)[0].instance_index == 0 && (*sorted)[0].local_gaussian_index == 0);
+    }
     instances[1].model = glm::mat4{1};
     a.particles[1].center[2] = -1;
     sorted = gs::sort_draw_references(instances, {});
@@ -333,8 +339,9 @@ struct upload_probe : rhi::api_core, rhi::resource_factory, rhi::command_context
         if (desc.usage == rhi::buffer_usage::storage_gpu_only && !desc.initial_bytes.empty()) {
             return nullptr;
         }
-        if (calls == fail_at)
+        if (calls == fail_at) {
             return nullptr;
+        }
         auto copy = desc;
         copy.initial_bytes = {};
         descriptors.push_back(copy);
@@ -430,8 +437,9 @@ void check_asset_storage(Asset const& asset) {
 void test_upload() {
     auto packed = gs::pack_asset(sample());
     CHECK(packed);
-    if (!packed)
+    if (!packed) {
         return;
+    }
     upload_probe probe;
     auto result = upload_with_lease(probe, *packed);
     CHECK(result && *result);
@@ -585,22 +593,24 @@ void test_covariance_tolerance() {
         input.particles[0].rotation = {std::cos(angle), 0, 0, std::sin(angle)};
         auto converted = gs::pack_asset(input);
         CHECK(converted);
-        if (!converted)
+        if (!converted) {
             continue;
+        }
         upload_probe probe;
         auto result = upload_with_lease(probe, *converted);
         CHECK(result && *result);
     }
 }
-void test_owned_upload() {
+void test_upload_retention() {
     auto device = std::make_shared<upload_probe>();
     std::weak_ptr<upload_probe> root = device;
     auto packed = std::make_shared<gs::packed_asset const>(*gs::pack_asset(sample()));
     std::weak_ptr<gs::packed_asset const> source = packed;
     auto asset = gs::upload_asset(*device, packed, {}, rhi::shared_object<rhi::api_core>{device});
     CHECK(asset);
-    if (!asset)
+    if (!asset) {
         return;
+    }
     packed.reset();
     CHECK(source.expired()); // Upload aliases are released; no duplicate packed cloud stays resident.
     auto snapshot = (*asset)->resources();
@@ -626,12 +636,12 @@ void test_owned_upload() {
     CHECK(!missing && missing.error().code == gs::error_code::invalid_argument && other.calls == 0);
 }
 int main() {
-    test_owned_upload();
+    test_upload();
     test_packing();
     test_invalid_packing();
     test_models();
     test_sorting();
-    test_upload();
+    test_upload_retention();
     test_invalid_sort_allocation();
     test_covariance_tolerance();
     return deren::vk_test::finish("gaussian_splatting");

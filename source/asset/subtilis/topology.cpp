@@ -104,8 +104,9 @@ namespace deren::asset::subtilis::builder_detail {
 
     topology analyze_topology(source_geometry const& data) {
         topology t;
-        if (!source_digest(data))
+        if (!source_digest(data)) {
             return t;
+        }
         vector<uint32_t> order(data.positions.size());
         std::iota(order.begin(), order.end(), 0u);
         std::sort(order.begin(), order.end(), [&](auto a, auto b) { return data.positions[a] != data.positions[b] ? data.positions[a] < data.positions[b] : a < b; });
@@ -114,8 +115,9 @@ namespace deren::asset::subtilis::builder_detail {
         t.seams.resize(order.size(), 0);
         t.unsafe_vertices.resize(order.size(), 0);
         vector<bool> used(order.size(), false);
-        for (auto id : data.indices)
+        for (auto id : data.indices) {
             used[id] = true;
+        }
         auto attrs = [&](uint32_t id) {auto n=data.normals[id];auto uv=data.uv0[id];return array<float,5>{n[0],n[1],n[2],uv[0],uv[1]}; };
         uint32_t representative = 0, first_used = none;
         for (size_t i = 0; i < order.size(); ++i) {
@@ -126,44 +128,57 @@ namespace deren::asset::subtilis::builder_detail {
             }
             t.position_class[id] = representative;
             if (used[id]) {
-                if (first_used == none)
+                if (first_used == none) {
                     first_used = id;
-                else if (attrs(id) != attrs(first_used))
+                } else if (attrs(id) != attrs(first_used)) {
                     t.seams[representative] = 1;
+                }
             }
         }
-        std::sort(order.begin(), order.end(), [&](auto a, auto b) {if(data.positions[a]!=data.positions[b])return data.positions[a]<data.positions[b];auto aa=attrs(a),bb=attrs(b);return aa!=bb?aa<bb:a<b; });
+        std::sort(order.begin(), order.end(), [&](auto a, auto b) {if(data.positions[a]!=data.positions[b]){return data.positions[a]<data.positions[b];
+}auto aa=attrs(a),bb=attrs(b);return aa!=bb?aa<bb:a<b; });
         for (size_t i = 0; i < order.size(); ++i) {
             auto id = order[i];
-            if (!i || data.positions[id] != data.positions[order[i - 1]] || attrs(id) != attrs(order[i - 1]))
+            if (!i || data.positions[id] != data.positions[order[i - 1]] || attrs(id) != attrs(order[i - 1])) {
                 representative = id;
+            }
             t.attribute_class[id] = representative;
         }
         auto original = graph(data, t, data.indices);
-        for (size_t triangle = 0; triangle < original.unsafe.size(); ++triangle)
-            if (original.unsafe[triangle])
-                for (unsigned k = 0; k < 3; ++k)
+        for (size_t triangle = 0; triangle < original.unsafe.size(); ++triangle) {
+            if (original.unsafe[triangle]) {
+                for (unsigned k = 0; k < 3; ++k) {
                     t.unsafe_vertices[t.position_class[data.indices[triangle * 3 + k]]] = 1;
-        vector<pair> owners;
-        owners.reserve(data.indices.size());
-        for (size_t i = 0; i < data.indices.size(); ++i)
-            owners.push_back({t.position_class[data.indices[i]], original.parent[i / 3]});
-        std::sort(owners.begin(), owners.end());
-        for (size_t i = 1; i < owners.size(); ++i)
-            if (owners[i][0] == owners[i - 1][0] && owners[i][1] != owners[i - 1][1])
-                t.unsafe_vertices[owners[i][0]] = 1;
+                }
+            }
+        }
+        vector<pair> vertex_origins;
+        vertex_origins.reserve(data.indices.size());
+        for (size_t i = 0; i < data.indices.size(); ++i) {
+            vertex_origins.push_back({t.position_class[data.indices[i]], original.parent[i / 3]});
+        }
+        std::sort(vertex_origins.begin(), vertex_origins.end());
+        for (size_t i = 1; i < vertex_origins.size(); ++i) {
+            if (vertex_origins[i][0] == vertex_origins[i - 1][0] && vertex_origins[i][1] != vertex_origins[i - 1][1]) {
+                t.unsafe_vertices[vertex_origins[i][0]] = 1;
+            }
+        }
         return t;
     }
     boundary_signature boundary_of(source_geometry const& data, std::span<uint32_t const> indices, topology const& t) {
         boundary_signature out;
-        if (indices.empty() || indices.size() % 3 || t.position_class.size() != data.positions.size())
+        if (indices.empty() || indices.size() % 3 || t.position_class.size() != data.positions.size()) {
             return out;
-        for (auto id : indices)
-            if (id >= t.position_class.size() || t.unsafe_vertices[t.position_class[id]])
+        }
+        for (auto id : indices) {
+            if (id >= t.position_class.size() || t.unsafe_vertices[t.position_class[id]]) {
                 return out;
+            }
+        }
         auto g = graph(data, t, indices), a = graph(data, t, indices, true);
-        if (std::find(g.unsafe.begin(), g.unsafe.end(), 1) != g.unsafe.end() || std::find(a.unsafe.begin(), a.unsafe.end(), 1) != a.unsafe.end())
+        if (std::find(g.unsafe.begin(), g.unsafe.end(), 1) != g.unsafe.end() || std::find(a.unsafe.begin(), a.unsafe.end(), 1) != a.unsafe.end()) {
             return out;
+        }
         out.geometric = boundary(g);
         out.attribute = boundary(a);
         for (auto e : out.geometric) {
@@ -176,13 +191,16 @@ namespace deren::asset::subtilis::builder_detail {
         }
         std::sort(out.boundary_classes.begin(), out.boundary_classes.end());
         out.boundary_classes.erase(std::unique(out.boundary_classes.begin(), out.boundary_classes.end()), out.boundary_classes.end());
-        for (size_t i = 0; i < indices.size(); ++i)
+        for (size_t i = 0; i < indices.size(); ++i) {
             out.class_components.push_back({t.position_class[indices[i]], g.parent[i / 3]});
+        }
         std::sort(out.class_components.begin(), out.class_components.end());
         out.class_components.erase(std::unique(out.class_components.begin(), out.class_components.end()), out.class_components.end());
-        for (size_t i = 1; i < out.class_components.size(); ++i)
-            if (out.class_components[i][0] == out.class_components[i - 1][0])
+        for (size_t i = 1; i < out.class_components.size(); ++i) {
+            if (out.class_components[i][0] == out.class_components[i - 1][0]) {
                 return {};
+            }
+        }
         out.components = g.parent;
         std::sort(out.components.begin(), out.components.end());
         out.components.erase(std::unique(out.components.begin(), out.components.end()), out.components.end());
@@ -194,21 +212,24 @@ namespace deren::asset::subtilis::builder_detail {
     }
     bool preserves_region(source_geometry const& data, topology const& t, boundary_signature const& original, std::span<uint32_t const> indices) {
         auto candidate = boundary_of(data, indices, t);
-        if (!original.valid || !candidate.valid || !(candidate == original))
+        if (!original.valid || !candidate.valid || !(candidate == original)) {
             return false;
+        }
         vector<uint32_t> components;
         for (size_t i = 0; i < indices.size(); i += 3) {
-            array<uint32_t, 3> owners{};
+            array<uint32_t, 3> vertex_origins{};
             for (unsigned k = 0; k < 3; ++k) {
                 auto id = t.position_class[indices[i + k]];
                 auto found = std::lower_bound(original.class_components.begin(), original.class_components.end(), id, [](auto const& entry, auto key) { return entry[0] < key; });
-                if (found == original.class_components.end() || (*found)[0] != id)
+                if (found == original.class_components.end() || (*found)[0] != id) {
                     return false;
-                owners[k] = (*found)[1];
+                }
+                vertex_origins[k] = (*found)[1];
             }
-            if (owners[0] != owners[1] || owners[0] != owners[2])
+            if (vertex_origins[0] != vertex_origins[1] || vertex_origins[0] != vertex_origins[2]) {
                 return false;
-            components.push_back(owners[0]);
+            }
+            components.push_back(vertex_origins[0]);
         }
         std::sort(components.begin(), components.end());
         components.erase(std::unique(components.begin(), components.end()), components.end());

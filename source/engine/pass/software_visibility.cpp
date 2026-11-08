@@ -26,12 +26,15 @@ namespace deren::engine::pass {
         if (this->built_against != nullptr && this->built_against != context.face) {
             this->visibility_pipeline.reset(); // a new device generation: the old handle belonged to the old device
             this->triangle_pipeline.reset();
-            for (auto& scratch : this->triangle_scratch)
+            for (auto& scratch : this->triangle_scratch) {
                 scratch.reset();
-            for (auto& buffer : this->route_metadata)
+            }
+            for (auto& buffer : this->route_metadata) {
                 buffer.reset();
-            for (auto& buffer : this->route_arguments)
+            }
+            for (auto& buffer : this->route_arguments) {
                 buffer.reset();
+            }
             this->gpu_route_ready = false;
         }
         this->built_against = context.face;
@@ -39,9 +42,9 @@ namespace deren::engine::pass {
         if (this->visibility_pipeline.has_value()) {
             return; // already built for this device
         }
-        std::span<std::uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.owner, shader_name) : std::span<std::uint8_t const>{};
+        std::span<std::uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.parent, shader_name) : std::span<std::uint8_t const>{};
         if (spirv.empty()) {
-            deren::utility::log("software visibility disabled: the owner has no {}", shader_name);
+            deren::utility::log("software visibility disabled: the parent has no {}", shader_name);
             return;
         }
         // A HEAP-NATIVE COMPUTE PIPELINE: no layout, no set - every descriptor it samples or writes is a heap slot.
@@ -54,11 +57,12 @@ namespace deren::engine::pass {
         this->visibility_pipeline = std::move(built->trace);
         auto const* caps = rhi::query_extension<rhi::device_capabilities>(*context.face);
         if (this->triangle_requested && caps && caps->buffer_int64_atomics()) {
-            auto const atomic_spirv = context.shader ? context.shader(context.owner, "software_visibility_atomic.comp.spv") : std::span<std::uint8_t const>{};
+            auto const atomic_spirv = context.shader ? context.shader(context.parent, "software_visibility_atomic.comp.spv") : std::span<std::uint8_t const>{};
             if (!atomic_spirv.empty()) {
                 auto atomic_built = pipelines::build_software_visibility(*context.face, atomic_spirv);
-                if (atomic_built)
+                if (atomic_built) {
                     this->triangle_pipeline = std::move(atomic_built->trace);
+                }
             }
             deren::utility::log("software triangle prototype: pipeline {}", this->triangle_pipeline ? "ready" : "unavailable; hardware fallback");
         }
@@ -67,39 +71,46 @@ namespace deren::engine::pass {
 
     bool software_visibility_pass::prepare_triangles(std::uint32_t slot, std::uint32_t width, std::uint32_t height) {
         this->triangle_frame = false;
-        if (!this->triangle_requested)
+        if (!this->triangle_requested) {
             return true;
-        if (!this->device || !this->triangle_pipeline || slot >= this->triangle_scratch.size() || width == 0u || height == 0u)
+        }
+        if (!this->device || !this->triangle_pipeline || slot >= this->triangle_scratch.size() || width == 0u || height == 0u) {
             return false;
+        }
         // Shader pixel indices are uint32. Reject rather than truncate a scratch allocation/index.
         std::uint64_t const pixels = static_cast<std::uint64_t>(width) * height;
-        if (pixels > UINT32_MAX)
+        if (pixels > UINT32_MAX) {
             return false;
+        }
         auto* heap = rhi::query_extension<rhi::descriptor_space>(*this->device);
-        if (!heap || !heap->ready() || !heap->fixed_slots().count)
+        if (!heap || !heap->ready() || !heap->fixed_slots().count) {
             return false;
+        }
         auto& scratch = this->triangle_scratch[slot];
         if (!scratch || scratch->size() != pixels * sizeof(std::uint64_t)) {
             auto replacement = this->device->resources->create_buffer({.size = pixels * sizeof(std::uint64_t),
                                                                        .usage = rhi::buffer_usage::storage_gpu_only,
                                                                        .flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::storage)});
-            if (!replacement)
+            if (!replacement) {
                 return false;
+            }
             scratch = std::move(replacement);
         }
         if (heap->write_buffer({.slot = render_layout::heap_slots::software_atomic + slot,
                                 .resource = scratch.get(),
                                 .size = scratch->size(),
-                                .type = rhi::descriptor_type::storage_buffer}) != rhi::error::ok)
+                                .type = rhi::descriptor_type::storage_buffer}) != rhi::error::ok) {
             return false;
+        }
         this->triangle_slot = slot;
         this->triangle_frame = true;
         return true;
     }
 
     std::span<std::uint32_t> software_visibility_pass::route_metadata_words() const noexcept {
-        if (!this->gpu_route_ready || !this->route_metadata[this->triangle_slot])
+        if (!this->gpu_route_ready || !this->route_metadata[this->triangle_slot]) {
             return {};
+        }
         auto bytes = this->route_metadata[this->triangle_slot]->mapped();
         return {reinterpret_cast<std::uint32_t*>(bytes.data()), bytes.size() / 4u};
     }
@@ -109,31 +120,37 @@ namespace deren::engine::pass {
         if (!this->device || !std::isfinite(parameters.threshold_px) || parameters.threshold_px <= 0.0f ||
             !std::isfinite(parameters.near_plane) || parameters.near_plane <= 0.0f ||
             !std::isfinite(parameters.projection_scale) || parameters.projection_scale <= 0.0f ||
-            parameters.budget > visibility::software::software_entry_budget)
+            parameters.budget > visibility::software::software_entry_budget) {
             return false;
+        }
         auto const* caps = rhi::query_extension<rhi::device_capabilities>(*this->device);
-        if (!caps || !caps->compute_indirect() || !this->prepare_triangles(slot, width, height) || !this->triangle_frame)
+        if (!caps || !caps->compute_indirect() || !this->prepare_triangles(slot, width, height) || !this->triangle_frame) {
             return false;
+        }
         auto* heap = rhi::query_extension<rhi::descriptor_space>(*this->device);
-        if (!heap || !heap->ready() || !heap->fixed_slots().count)
+        if (!heap || !heap->ready() || !heap->fixed_slots().count) {
             return false;
+        }
         constexpr std::uint64_t metadata_bytes = (8u + visibility::software::software_entry_budget) * 4ull;
         auto prepare = [&](rhi::shared_object<rhi::buffer>& buffer, std::uint64_t bytes, std::uint32_t heap_slot, bool indirect) {
             if (!buffer || buffer->size() != bytes) {
                 auto flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::storage);
-                if (indirect)
+                if (indirect) {
                     flags |= rhi::to_bits(rhi::buffer_flag::indirect);
+                }
                 auto created = this->device->resources->create_buffer({.size = bytes, .usage = rhi::buffer_usage::storage_coherent, .flags = flags});
-                if (!created)
+                if (!created) {
                     return false;
+                }
                 buffer = rhi::shared_object<rhi::buffer>{std::move(created)};
             }
             auto mapped = buffer->mapped();
             return mapped.size() >= bytes && heap->write_buffer({.slot = heap_slot + slot, .resource = buffer.get(), .size = bytes, .type = rhi::descriptor_type::storage_buffer}) == rhi::error::ok;
         };
         if (!prepare(this->route_metadata[slot], metadata_bytes, render_layout::heap_slots::software_route_metadata, false) ||
-            !prepare(this->route_arguments[slot], 16u, render_layout::heap_slots::software_route_arguments, true))
+            !prepare(this->route_arguments[slot], 16u, render_layout::heap_slots::software_route_arguments, true)) {
             return false;
+        }
         auto meta = reinterpret_cast<std::uint32_t*>(this->route_metadata[slot]->mapped().data());
         meta[0] = std::bit_cast<std::uint32_t>(parameters.threshold_px);
         meta[1] = std::bit_cast<std::uint32_t>(parameters.near_plane);
@@ -164,21 +181,26 @@ namespace deren::engine::pass {
             std::uint32_t const gy = (io.extent.height + tile_extent - 1u) / tile_extent;
             // The slot was fenced before preparation; previous unpack reads must finish before a new clear.
             if (order(rhi::buffer_use::shader_read_write, rhi::buffer_use::shader_write) != rhi::error::ok ||
-                !io.push_block(*io.list, {}, 2u))
+                !io.push_block(*io.list, {}, 2u)) {
                 return rhi::error::not_ready;
+            }
             io.list->dispatch(gx, gy, 1u);
             if (order(rhi::buffer_use::shader_write, rhi::buffer_use::shader_read_write) != rhi::error::ok ||
-                !io.push_block(*io.list, {}, this->hzb_results_active ? 1u : 0u))
+                !io.push_block(*io.list, {}, this->hzb_results_active ? 1u : 0u)) {
                 return rhi::error::not_ready;
+            }
             if (this->gpu_route_ready) {
                 auto const status = io.list->dispatch_indirect(*this->route_arguments[this->triangle_slot], 0u);
-                if (status != rhi::error::ok)
+                if (status != rhi::error::ok) {
                     return status;
-            } else if (this->active_tile_count != 0u)
+                }
+            } else if (this->active_tile_count != 0u) {
                 io.list->dispatch(std::min(this->active_tile_count, 65535u), (this->active_tile_count + 65534u) / 65535u, 1u);
+            }
             if (order(rhi::buffer_use::shader_read_write, rhi::buffer_use::shader_read) != rhi::error::ok ||
-                !io.push_block(*io.list, {}, 4u))
+                !io.push_block(*io.list, {}, 4u)) {
                 return rhi::error::not_ready;
+            }
             io.list->dispatch(gx, gy, 1u);
             static bool logged = false;
             if (!logged) {

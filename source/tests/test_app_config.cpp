@@ -25,8 +25,9 @@ namespace {
             CHECK(s.lighting.environment_background == 1);
             CHECK(s.render.tone_mapping == 1);
             CHECK(s.render.exposure == 1.5f);
-        } else
+        } else {
             CHECK_MSG(false, "environment viewing controls must be parsed");
+        }
     }
 
     void test_environment_viewing_controls() {

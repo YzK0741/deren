@@ -23,10 +23,10 @@ namespace rhi = deren::promise::rhi;
 namespace deren::engine::pass {
 
     shadow_pass::~shadow_pass() {
-        this->release_owned();
+        this->release_contract();
     }
 
-    void shadow_pass::release_owned() noexcept {
+    void shadow_pass::release_contract() noexcept {
         this->mesh_pipeline.reset();
         this->meshlet_pipeline.reset();
     }
@@ -54,28 +54,28 @@ namespace deren::engine::pass {
             return;
         }
         if (this->built_against != nullptr && this->built_against != context.face) {
-            this->release_owned();
+            this->release_contract();
         }
         this->built_against = context.face;
         if (this->mesh_pipeline.has_value()) {
             return; // already built for this device
         }
-        std::span<uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.owner, fragment_shader_name) : std::span<uint8_t const>{};
+        std::span<uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.parent, fragment_shader_name) : std::span<uint8_t const>{};
         // ---- THE VERTEX FORM IS GONE (docs/mesh_shaders.md step 4): the pass's geometry arrives through a MESH
         // stage, so the vertex module is neither loaded nor registered anywhere, and the mesh one is REQUIRED. A
         // device without VK_EXT_mesh_shader does not reach here at all (the runtime refuses to start), which is why
         // the two checks below are defensive: they keep a mis-registered shader a log line rather than a crash.
         if (context.shader == nullptr || fragment_spirv.empty()) {
-            deren::utility::log("shadow disabled: the owner has no {}", fragment_shader_name);
+            deren::utility::log("shadow disabled: the parent has no {}", fragment_shader_name);
             return;
         }
         if (!context.mesh_shaders) {
             deren::utility::log("shadow disabled: the device has no mesh shaders, and the vertex form is gone (docs/mesh_shaders.md step 4)");
             return;
         }
-        std::span<uint8_t const> const mesh_spirv = context.shader != nullptr ? context.shader(context.owner, mesh_shader_name) : std::span<uint8_t const>{};
+        std::span<uint8_t const> const mesh_spirv = context.shader != nullptr ? context.shader(context.parent, mesh_shader_name) : std::span<uint8_t const>{};
         if (mesh_spirv.empty()) {
-            deren::utility::log("shadow disabled: the owner has no {}", mesh_shader_name);
+            deren::utility::log("shadow disabled: the parent has no {}", mesh_shader_name);
             return;
         }
         // The pipeline is heap-native: nothing about the draw's descriptors or push travels through a layout.
@@ -85,14 +85,14 @@ namespace deren::engine::pass {
         auto mesh_built = pipelines::build_shadow(*context.face, rhi::image_format::depth, create_bias_constant, create_bias_slope, create_bias_clamp, mesh_spirv, fragment_spirv, rhi::shader_stage::mesh);
         if (!mesh_built) {
             deren::utility::log("shadow disabled: the mesh pipeline was refused ({})", mesh_built.error());
-            this->release_owned();
+            this->release_contract();
             return;
         }
         this->mesh_pipeline = std::move(*mesh_built);
         deren::utility::log("SUCCESS: shadow MESH pipeline created (the depth-only pass, fed by mesh dispatches)");
         // ---- ... and the MESHLET form (docs/mesh_shaders.md step 3): only the MESH module differs (same fragment
         // stage), and a missing shader or a refusal is a log line - the mesh form above is a complete answer.
-        std::span<uint8_t const> const meshlet_spirv = context.shader != nullptr ? context.shader(context.owner, meshlet_shader_name) : std::span<uint8_t const>{};
+        std::span<uint8_t const> const meshlet_spirv = context.shader != nullptr ? context.shader(context.parent, meshlet_shader_name) : std::span<uint8_t const>{};
         if (!meshlet_spirv.empty()) {
             auto meshlet_built = pipelines::build_shadow(*context.face, rhi::image_format::depth, create_bias_constant, create_bias_slope, create_bias_clamp, meshlet_spirv, fragment_spirv, rhi::shader_stage::mesh);
             if (meshlet_built) {
@@ -200,10 +200,10 @@ namespace deren::engine::pass {
                 if (secondary == nullptr) {
                     return;
                 }
-                recorded[cascade] = this->pass_frame.record_cascade(this->pass_frame.owner, secondary, cascade, pipeline, mesh_stage, meshlets);
+                recorded[cascade] = this->pass_frame.record_cascade(this->pass_frame.parent, secondary, cascade, pipeline, mesh_stage, meshlets);
             });
         }
-        this->pass_frame.run_tasks(this->pass_frame.owner, tasks);
+        this->pass_frame.run_tasks(this->pass_frame.parent, tasks);
 
         // ---- ONE INSTANCE PER CASCADE, in the primary ----
         rhi::image_extent const map_extent = {this->pass_frame.map_size, this->pass_frame.map_size};

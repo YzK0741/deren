@@ -332,8 +332,9 @@ export namespace deren::engine::render_graph::visibility {
             params.software_depth = texture_read{*in.software_depth, {}, read};
             params.software_id = texture_read{*in.software_id, {}, read};
         }
-        if (in.mip_feedback)
+        if (in.mip_feedback) {
             params.mip_feedback = buffer_read_write{*in.mip_feedback, {}, {resource_usage::storage, pipeline_stage::compute_shader}};
+        }
         auto added = graph.add_pass("visibility resolve", std::move(params));
         if (!added) {
             return std::unexpected(added.error());
@@ -418,8 +419,9 @@ export namespace deren::engine::render_graph::visibility {
         if (in.hzb_results) {
             params.hzb_results = buffer_read{*in.hzb_results, {}, storage};
         }
-        if (in.indirect_arguments)
+        if (in.indirect_arguments) {
             params.indirect_arguments = buffer_read{*in.indirect_arguments, {}, access_scope{resource_usage::indirect_buffer, pipeline_stage::draw_indirect}};
+        }
         auto added = graph.add_pass("software visibility", std::move(params));
         if (!added) {
             return std::unexpected(added.error());

@@ -16,19 +16,21 @@ namespace {
     void image_tests() {
         constexpr std::array ordinary{rhi_sync::image_layout::general, rhi_sync::image_layout::shader_read_only,
                                       rhi_sync::image_layout::color_attachment, rhi_sync::image_layout::transfer_source, rhi_sync::image_layout::transfer_destination};
-        for (auto before : ordinary)
+        for (auto before : ordinary) {
             for (auto after : ordinary) {
                 rhi_sync::image_transition input{{before, compute_write}, {after, fragment_read}, {1, 2, 3, 4, rhi_sync::aspect::color}};
                 auto mapped = native::map_image(input);
                 CHECK(mapped);
-                if (!mapped)
+                if (!mapped) {
                     continue;
+                }
                 CHECK(mapped->oldLayout == VK_IMAGE_LAYOUT_GENERAL && mapped->newLayout == VK_IMAGE_LAYOUT_GENERAL);
                 CHECK(mapped->srcStageMask == VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT && mapped->dstStageMask == VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT);
                 CHECK(mapped->srcAccessMask == VK_ACCESS_2_MEMORY_WRITE_BIT && mapped->dstAccessMask == VK_ACCESS_2_MEMORY_READ_BIT);
                 CHECK(mapped->subresourceRange.baseMipLevel == 1 && mapped->subresourceRange.levelCount == 2 && mapped->subresourceRange.baseArrayLayer == 3 && mapped->subresourceRange.layerCount == 4);
                 CHECK(mapped->image == VK_NULL_HANDLE && mapped->srcQueueFamilyIndex == VK_QUEUE_FAMILY_IGNORED && mapped->dstQueueFamilyIndex == VK_QUEUE_FAMILY_IGNORED);
             }
+        }
         rhi_sync::image_transition fresh{{}, {rhi_sync::image_layout::color_attachment, {rhi_sync::stage::color_output, rhi_sync::access::write}}, {0, 1, 0, 1, rhi_sync::aspect::color}};
         auto mapped = native::map_image(fresh);
         CHECK(mapped && mapped->oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && mapped->newLayout == VK_IMAGE_LAYOUT_GENERAL);

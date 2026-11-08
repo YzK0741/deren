@@ -27,8 +27,9 @@ int main() {
         geometry.color = *graph.import_texture({91, 1}, rg::initial_contents::undefined, "HDR", {}, rg::resource_state{});
         geometry.velocity = *graph.import_texture({91, 2}, rg::initial_contents::undefined, "velocity", {}, rg::resource_state{});
         geometry.depth = *graph.import_texture({91, 3}, rg::initial_contents::undefined, "depth", {1, 1, rg::texture_aspect::depth}, rg::resource_state{});
-        for (unsigned i = 0; i < 3; ++i)
+        for (unsigned i = 0; i < 3; ++i) {
             geometry.surface[i] = *graph.import_texture({91, 4 + i}, rg::initial_contents::undefined, "surface", {}, rg::resource_state{});
+        }
         auto visibility = *graph.import_texture({91, 7}, rg::initial_contents::undefined, "RT visibility", {}, rg::resource_state{});
         auto drawn = rg::geometry::append(graph, geometry);
         auto traced = rg::rt_shadow::append(graph, {visibility, geometry.surface, geometry.depth});
@@ -37,12 +38,13 @@ int main() {
         CHECK(plan);
         if (plan && traced) {
             unsigned published = 0;
-            for (auto const& barrier : plan->barriers)
+            for (auto const& barrier : plan->barriers) {
                 if (barrier.before_pass == traced->pass.index() && barrier.resource != visibility.index()) {
                     CHECK(barrier.memory_dependency);
                     CHECK(barrier.after.stages == rg::pipeline_stage::ray_tracing);
                     ++published;
                 }
+            }
             CHECK(published == 4);
         }
     }
@@ -52,12 +54,14 @@ int main() {
         in.color = *graph.import_texture({29, 1}, rg::initial_contents::undefined, "HDR", {}, rg::resource_state{});
         in.velocity = *graph.import_texture({29, 2}, rg::initial_contents::undefined, "velocity", {}, rg::resource_state{});
         in.depth = *graph.import_texture({29, 3}, rg::initial_contents::undefined, "depth", {1, 1, rg::texture_aspect::depth}, rg::resource_state{});
-        for (unsigned i = 0; i < 3; ++i)
+        for (unsigned i = 0; i < 3; ++i) {
             in.surface[i] = *graph.import_texture({29, 4 + i}, rg::initial_contents::undefined, "surface", {}, rg::resource_state{});
+        }
         std::array<rg::buffer_ref, 8> buffers;
-        for (unsigned i = 0; i < buffers.size(); ++i)
+        for (unsigned i = 0; i < buffers.size(); ++i) {
             buffers[i] = *graph.import_buffer({29, 10 + i}, (i == 0 && !defined) ? rg::initial_contents::undefined : rg::initial_contents::defined, "shared", {64},
                                               rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::mesh_shader | rg::pipeline_stage::fragment_shader, rg::memory_access::read});
+        }
         in.shared = rg::geometry::shared_inputs{buffers[0], buffers[1], buffers[2], buffers[3], buffers[4], buffers[5], buffers[6]};
         auto drawn = rg::geometry::append(graph, in);
         auto lit = lighting::append(graph, {in.color, in.surface, in.depth, lighting::shared_inputs{buffers[0], buffers[7]}});
@@ -78,15 +82,17 @@ int main() {
         in.color = *graph.import_texture({3, 1}, rg::initial_contents::undefined, "HDR", {}, rg::resource_state{});
         in.velocity = *graph.import_texture({3, 2}, rg::initial_contents::undefined, "velocity", {}, rg::resource_state{});
         in.depth = *graph.import_texture({3, 3}, rg::initial_contents::undefined, "depth", {1, 1, rg::texture_aspect::depth}, rg::resource_state{});
-        for (unsigned i = 0; i < 3; ++i)
+        for (unsigned i = 0; i < 3; ++i) {
             in.surface[i] = *graph.import_texture({3, 4 + i}, rg::initial_contents::undefined, "surface", {}, rg::resource_state{});
+        }
         auto drawn = rg::geometry::append(graph, in);
         auto lit = lighting::append(graph, {in.color, in.surface, in.depth});
         post::inputs tail{};
         tail.hdr = in.color;
         tail.frame = *graph.import_texture({3, 7}, rg::initial_contents::undefined, "frame", {}, rg::resource_state{});
-        for (unsigned i = 0; i < 4; ++i)
+        for (unsigned i = 0; i < 4; ++i) {
             tail.bloom[i] = *graph.import_texture({3, 8 + i}, rg::initial_contents::undefined, "bloom", {}, rg::resource_state{});
+        }
         auto output = post::append(graph, tail, {});
         CHECK(drawn && lit && output && graph.export_resource(output->color));
         auto plan = graph.compile({true});
@@ -95,9 +101,11 @@ int main() {
             CHECK(plan->execution_order[0] == drawn->pass.index());
             CHECK(plan->passes[drawn->pass.index()].accesses.size() == 6);
             unsigned handoffs = 0;
-            for (auto const& barrier : plan->barriers)
-                if (barrier.before_pass == lit->pass.index() && barrier.memory_dependency)
+            for (auto const& barrier : plan->barriers) {
+                if (barrier.before_pass == lit->pass.index() && barrier.memory_dependency) {
                     ++handoffs;
+                }
+            }
             CHECK(handoffs == 5);
         }
         in.velocity = in.color;
@@ -108,9 +116,10 @@ int main() {
         lighting::inputs inputs{};
         inputs.color = *graph.import_texture({1, 1}, defined ? rg::initial_contents::defined : rg::initial_contents::undefined, "emissive", {},
                                              rg::resource_state{rg::resource_layout::color_attachment, rg::pipeline_stage::color_output, rg::memory_access::write});
-        for (unsigned i = 0; i < 3; ++i)
+        for (unsigned i = 0; i < 3; ++i) {
             inputs.surface[i] = *graph.import_texture({1, 2 + i}, rg::initial_contents::defined, "surface", {},
                                                       rg::resource_state{rg::resource_layout::color_attachment, rg::pipeline_stage::color_output, rg::memory_access::write});
+        }
         inputs.depth = *graph.import_texture({1, 5}, rg::initial_contents::defined, "depth", {1, 1, rg::texture_aspect::depth},
                                              rg::resource_state{rg::resource_layout::depth_stencil_attachment, rg::pipeline_stage::depth_stencil, rg::memory_access::write});
         // THE SCENE-WIDE IBL (adoption stage 2E): three sampled images the lighting stage reads every frame, plus
@@ -134,13 +143,15 @@ int main() {
         inputs.shared = shared;
         auto lit = lighting::append(graph, inputs);
         CHECK(lit);
-        if (!lit)
+        if (!lit) {
             continue;
+        }
         post::inputs post_inputs{};
         post_inputs.hdr = lit->color;
         post_inputs.frame = *graph.import_texture({1, 6}, rg::initial_contents::undefined, "frame", {}, rg::resource_state{});
-        for (unsigned i = 0; i < 4; ++i)
+        for (unsigned i = 0; i < 4; ++i) {
             post_inputs.bloom[i] = *graph.import_texture({1, 7 + i}, rg::initial_contents::undefined, "bloom", {}, rg::resource_state{});
+        }
         auto output = post::append(graph, post_inputs, {});
         CHECK(output && graph.export_resource(output->color));
         auto plan = graph.compile({true});
@@ -154,10 +165,12 @@ int main() {
             CHECK(params && params->shared->shadow_cascades && params->shared->shadow_cascades->resource == shadow_cascades);
             bool load = false, sampled = false;
             for (auto const& barrier : plan->barriers) {
-                if (barrier.resource == inputs.color.index() && barrier.before_pass == lit->pass.index())
+                if (barrier.resource == inputs.color.index() && barrier.before_pass == lit->pass.index()) {
                     load = barrier.memory_dependency && barrier.after.layout == rg::resource_layout::color_attachment && barrier.after.access == (rg::memory_access::read | rg::memory_access::write);
-                if (barrier.resource == inputs.color.index() && barrier.before_pass == output->bloom[0].index())
+                }
+                if (barrier.resource == inputs.color.index() && barrier.before_pass == output->bloom[0].index()) {
                     sampled = barrier.after.layout == rg::resource_layout::shader_read_only;
+                }
             }
             CHECK(load && sampled);
         }
@@ -171,13 +184,15 @@ int main() {
         in.color = *graph.import_texture({51, 1}, rg::initial_contents::undefined, "HDR", {}, rg::resource_state{});
         in.velocity = *graph.import_texture({51, 2}, rg::initial_contents::undefined, "velocity", {}, rg::resource_state{});
         in.depth = *graph.import_texture({51, 3}, rg::initial_contents::undefined, "depth", {1, 1, rg::texture_aspect::depth}, rg::resource_state{});
-        for (unsigned i = 0; i < 3; ++i)
+        for (unsigned i = 0; i < 3; ++i) {
             in.surface[i] = *graph.import_texture({51, 4 + i}, rg::initial_contents::undefined, "surface", {}, rg::resource_state{});
+        }
         std::array<rg::buffer_ref, 7> shared_buffers;
-        for (unsigned i = 0; i < shared_buffers.size(); ++i)
+        for (unsigned i = 0; i < shared_buffers.size(); ++i) {
             shared_buffers[i] = *graph.import_buffer({51, 10 + i}, rg::initial_contents::defined, "shared", {64},
                                                      rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::mesh_shader | rg::pipeline_stage::fragment_shader,
                                                                         rg::memory_access::read});
+        }
         rg::resource_state const read_state{rg::resource_layout::general, rg::pipeline_stage::mesh_shader, rg::memory_access::read};
         rg::resource_state const read_write_state{rg::resource_layout::general, rg::pipeline_stage::mesh_shader,
                                                   rg::memory_access::read | rg::memory_access::write};
@@ -199,12 +214,15 @@ int main() {
             CHECK(params && params->shared && params->shared->meshlets);
             bool statistics_read_write = false, table_read = false, indirect_draw_stage = false;
             for (auto const& access : plan->passes[drawn->pass.index()].accesses) {
-                if (access.resource == stats.index() && access.mode == rg::content_access::read_write)
+                if (access.resource == stats.index() && access.mode == rg::content_access::read_write) {
                     statistics_read_write = true;
-                if (access.resource == table.index() && access.mode == rg::content_access::read)
+                }
+                if (access.resource == table.index() && access.mode == rg::content_access::read) {
                     table_read = true;
-                if (access.resource == indirect.index() && (access.scope.stages & rg::pipeline_stage::draw_indirect) != rg::pipeline_stage::none)
+                }
+                if (access.resource == indirect.index() && (access.scope.stages & rg::pipeline_stage::draw_indirect) != rg::pipeline_stage::none) {
                     indirect_draw_stage = true;
+                }
             }
             CHECK(statistics_read_write && table_read && indirect_draw_stage);
         }
@@ -225,8 +243,9 @@ int main() {
             rg::resource_state const attached{rg::resource_layout::color_attachment, rg::pipeline_stage::color_output, rg::memory_access::write};
             lighting::inputs inputs{};
             inputs.color = *graph.import_texture({61, 3}, rg::initial_contents::defined, "emissive", {}, attached);
-            for (unsigned i = 0; i < 3; ++i)
+            for (unsigned i = 0; i < 3; ++i) {
                 inputs.surface[i] = *graph.import_texture({61, 4 + i}, rg::initial_contents::defined, "surface", {}, attached);
+            }
             inputs.depth = *graph.import_texture({61, 7}, rg::initial_contents::defined, "depth", {1, 1, rg::texture_aspect::depth},
                                                  rg::resource_state{rg::resource_layout::depth_stencil_attachment, rg::pipeline_stage::depth_stencil,
                                                                     rg::memory_access::write});
@@ -244,20 +263,25 @@ int main() {
             if (plan && lit) {
                 bool counts_ordered = false, indices_ordered = false;
                 for (auto const& barrier : plan->barriers) {
-                    if (barrier.before_pass != lit->pass.index() || !barrier.memory_dependency)
+                    if (barrier.before_pass != lit->pass.index() || !barrier.memory_dependency) {
                         continue;
-                    if (barrier.resource == counts.index())
+                    }
+                    if (barrier.resource == counts.index()) {
                         counts_ordered = true;
-                    if (barrier.resource == indices.index())
+                    }
+                    if (barrier.resource == indices.index()) {
                         indices_ordered = true;
+                    }
                 }
                 CHECK(counts_ordered && indices_ordered);
                 std::size_t sort_position = plan->execution_order.size(), lit_position = plan->execution_order.size();
                 for (std::size_t i = 0; i < plan->execution_order.size(); ++i) {
-                    if (plan->execution_order[i] == sort->pass.index())
+                    if (plan->execution_order[i] == sort->pass.index()) {
                         sort_position = i;
-                    if (plan->execution_order[i] == lit->pass.index())
+                    }
+                    if (plan->execution_order[i] == lit->pass.index()) {
                         lit_position = i;
+                    }
                 }
                 CHECK(sort_position < lit_position);
             }
@@ -276,8 +300,9 @@ int main() {
             rg::resource_state const attached{rg::resource_layout::color_attachment, rg::pipeline_stage::color_output, rg::memory_access::write};
             lighting::inputs inputs{};
             inputs.color = *graph.import_texture({71, 2}, rg::initial_contents::defined, "emissive", {}, attached);
-            for (unsigned i = 0; i < 3; ++i)
+            for (unsigned i = 0; i < 3; ++i) {
                 inputs.surface[i] = *graph.import_texture({71, 3 + i}, rg::initial_contents::defined, "surface", {}, attached);
+            }
             inputs.depth = *graph.import_texture({71, 6}, rg::initial_contents::defined, "depth", {1, 1, rg::texture_aspect::depth},
                                                  rg::resource_state{rg::resource_layout::depth_stencil_attachment, rg::pipeline_stage::depth_stencil,
                                                                     rg::memory_access::write});
@@ -294,16 +319,20 @@ int main() {
             CHECK(plan);
             if (plan && lit) {
                 bool ordered = false;
-                for (auto const& barrier : plan->barriers)
-                    if (barrier.resource == cascades.index() && barrier.before_pass == lit->pass.index() && barrier.memory_dependency)
+                for (auto const& barrier : plan->barriers) {
+                    if (barrier.resource == cascades.index() && barrier.before_pass == lit->pass.index() && barrier.memory_dependency) {
                         ordered = true;
+                    }
+                }
                 CHECK(ordered);
                 std::size_t producer_position = plan->execution_order.size(), consumer_position = plan->execution_order.size();
                 for (std::size_t i = 0; i < plan->execution_order.size(); ++i) {
-                    if (plan->execution_order[i] == shadow_producer->pass.index())
+                    if (plan->execution_order[i] == shadow_producer->pass.index()) {
                         producer_position = i;
-                    if (plan->execution_order[i] == lit->pass.index())
+                    }
+                    if (plan->execution_order[i] == lit->pass.index()) {
                         consumer_position = i;
+                    }
                 }
                 CHECK(producer_position < consumer_position);
             }
@@ -333,16 +362,20 @@ int main() {
                 CHECK(plan->passes[resolve->pass.index()].accesses.size() == 5); // four sampled reads + the target write
                 CHECK(plan->passes[copy->pass.index()].accesses.size() == 2);    // the transfer read + the transfer write
                 bool target_ordered = false;
-                for (auto const& barrier : plan->barriers)
-                    if (barrier.resource == hdr.index() && barrier.before_pass == copy->pass.index() && barrier.memory_dependency)
+                for (auto const& barrier : plan->barriers) {
+                    if (barrier.resource == hdr.index() && barrier.before_pass == copy->pass.index() && barrier.memory_dependency) {
                         target_ordered = true;
+                    }
+                }
                 CHECK(target_ordered);
                 std::size_t resolve_position = plan->execution_order.size(), copy_position = plan->execution_order.size();
                 for (std::size_t i = 0; i < plan->execution_order.size(); ++i) {
-                    if (plan->execution_order[i] == resolve->pass.index())
+                    if (plan->execution_order[i] == resolve->pass.index()) {
                         resolve_position = i;
-                    if (plan->execution_order[i] == copy->pass.index())
+                    }
+                    if (plan->execution_order[i] == copy->pass.index()) {
                         copy_position = i;
+                    }
                 }
                 CHECK(resolve_position < copy_position);
             }
@@ -371,16 +404,20 @@ int main() {
                 CHECK(plan->passes[transparent->pass.index()].accesses.size() == 2); // the preserve-write target + the depth read
                 std::size_t resolve_position = plan->execution_order.size(), transparent_position = plan->execution_order.size();
                 for (std::size_t i = 0; i < plan->execution_order.size(); ++i) {
-                    if (plan->execution_order[i] == resolve->pass.index())
+                    if (plan->execution_order[i] == resolve->pass.index()) {
                         resolve_position = i;
-                    if (plan->execution_order[i] == transparent->pass.index())
+                    }
+                    if (plan->execution_order[i] == transparent->pass.index()) {
                         transparent_position = i;
+                    }
                 }
                 CHECK(resolve_position < transparent_position);
                 bool depth_transitioned = false;
-                for (auto const& barrier : plan->barriers)
-                    if (barrier.resource == depth.index() && barrier.before_pass == transparent->pass.index())
+                for (auto const& barrier : plan->barriers) {
+                    if (barrier.resource == depth.index() && barrier.before_pass == transparent->pass.index()) {
                         depth_transitioned = true;
+                    }
+                }
                 CHECK(depth_transitioned);
             }
         }
@@ -407,16 +444,20 @@ int main() {
                 CHECK(plan->passes[gaussian->pass.index()].accesses.size() == 2); // the preserve-write target + the depth read
                 std::size_t resolve_position = plan->execution_order.size(), gaussian_position = plan->execution_order.size();
                 for (std::size_t i = 0; i < plan->execution_order.size(); ++i) {
-                    if (plan->execution_order[i] == resolve->pass.index())
+                    if (plan->execution_order[i] == resolve->pass.index()) {
                         resolve_position = i;
-                    if (plan->execution_order[i] == gaussian->pass.index())
+                    }
+                    if (plan->execution_order[i] == gaussian->pass.index()) {
                         gaussian_position = i;
+                    }
                 }
                 CHECK(resolve_position < gaussian_position);
                 bool depth_transitioned = false;
-                for (auto const& barrier : plan->barriers)
-                    if (barrier.resource == depth.index() && barrier.before_pass == gaussian->pass.index())
+                for (auto const& barrier : plan->barriers) {
+                    if (barrier.resource == depth.index() && barrier.before_pass == gaussian->pass.index()) {
                         depth_transitioned = true;
+                    }
+                }
                 CHECK(depth_transitioned);
             }
         }
@@ -444,17 +485,21 @@ int main() {
             // The claim is that the vocabulary reaches the LOWERING: at least one barrier for the visibility image
             // names the ray-tracing stage on one of its sides, and the sampler's pass is ordered after the trace.
             bool trace_stage_named = false;
-            for (auto const& barrier : plan->barriers)
+            for (auto const& barrier : plan->barriers) {
                 if (barrier.resource == visibility.index() &&
-                    (((barrier.before.stages | barrier.after.stages) & rg::pipeline_stage::ray_tracing) == rg::pipeline_stage::ray_tracing))
+                    (((barrier.before.stages | barrier.after.stages) & rg::pipeline_stage::ray_tracing) == rg::pipeline_stage::ray_tracing)) {
                     trace_stage_named = true;
+                }
+            }
             CHECK(trace_stage_named);
             std::size_t producer_position = plan->execution_order.size(), consumer_position = plan->execution_order.size();
             for (std::size_t i = 0; i < plan->execution_order.size(); ++i) {
-                if (plan->execution_order[i] == producer->index())
+                if (plan->execution_order[i] == producer->index()) {
                     producer_position = i;
-                if (plan->execution_order[i] == consumer->index())
+                }
+                if (plan->execution_order[i] == consumer->index()) {
                     consumer_position = i;
+                }
             }
             CHECK(producer_position < consumer_position);
         }

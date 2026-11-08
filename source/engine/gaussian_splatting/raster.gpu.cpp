@@ -69,23 +69,23 @@ namespace deren::engine::gaussian_splatting {
             return std::unexpected(packed.error());
         }
         deren::utility::log("gaussian asset: packed {} geometry record(s); uploading to the device", packed->geometry.size());
-        auto packed_owner = std::make_shared<packed_asset>(std::move(*packed));
-        auto uploaded = upload_asset(core, std::shared_ptr<packed_asset const>{packed_owner}, limits, std::move(device_lease));
+        auto packed_handle = std::make_shared<packed_asset>(std::move(*packed));
+        auto uploaded = upload_asset(core, std::shared_ptr<packed_asset const>{packed_handle}, limits, std::move(device_lease));
         if (!uploaded) {
             return std::unexpected(uploaded.error());
         }
         deren::utility::log("gaussian asset: the static tables are uploaded");
         std::shared_ptr<raster_asset> result(new raster_asset{});
         result->cpu_asset = std::make_shared<deren::gaussian::asset const>(std::move(input));
-        result->gpu_owner = std::move(*uploaded);
-        result->geometry = std::move(packed_owner->geometry);
+        result->gpu_asset_handle = std::move(*uploaded);
+        result->geometry = std::move(packed_handle->geometry);
         return std::shared_ptr<raster_asset const>{std::move(result)};
     }
     std::expected<std::shared_ptr<raster_frame const>, foundation_error> prepare_raster_frame(rhi::api_core& core, std::span<raster_instance const> inputs, raster_camera const& camera, foundation_limits const& limits, raster_frame* const reuse, rhi::shared_object<rhi::api_core> device_lease) {
         if (device_lease && device_lease.get() != &core) {
             return failure(error_code::invalid_argument, "Raster device lease belongs to another core");
         }
-        if (reuse && reuse->owner != &core) {
+        if (reuse && reuse->parent != &core) {
             return failure(error_code::invalid_argument, "Raster frame belongs to another core");
         }
         if (reuse && device_lease && !reuse->device_lease && reuse->storage_view.size()) {
@@ -147,35 +147,35 @@ namespace deren::engine::gaussian_splatting {
         auto* const target = reuse ? reuse : result;
         if (reuse) {
             result->reference_data.swap(reuse->staging_reference_data);
-            result->owners.swap(reuse->staging_owners);
+            result->retained_assets.swap(reuse->staging_handles);
         }
         struct recycle_workspace {
             bool enabled;
             deren::utility::vessel::vector<draw_reference>& saved_references;
             deren::utility::vessel::vector<draw_reference>& working_references;
-            deren::utility::vessel::vector<std::shared_ptr<raster_asset const>>& saved_owners;
-            deren::utility::vessel::vector<std::shared_ptr<raster_asset const>>& working_owners;
+            deren::utility::vessel::vector<std::shared_ptr<raster_asset const>>& saved_assets;
+            deren::utility::vessel::vector<std::shared_ptr<raster_asset const>>& working_assets;
             ~recycle_workspace() {
                 if (enabled) {
                     working_references.clear();
-                    working_owners.clear();
+                    working_assets.clear();
                     saved_references.swap(working_references);
-                    saved_owners.swap(working_owners);
+                    saved_assets.swap(working_assets);
                 }
             }
-        } workspace{reuse != nullptr, target->staging_reference_data, result->reference_data, target->staging_owners, result->owners};
+        } workspace{reuse != nullptr, target->staging_reference_data, result->reference_data, target->staging_handles, result->retained_assets};
         if (device_lease) {
             target->device_lease = std::move(device_lease);
         }
         auto const publish = [&] -> std::shared_ptr<raster_frame const> {
-            target->owner = &core;
+            target->parent = &core;
             if (!reuse) {
                 return created;
             }
             reuse->push = result->push;
             reuse->reference_data.swap(result->reference_data);
             reuse->instance_data = std::move(result->instance_data);
-            reuse->owners.swap(result->owners);
+            reuse->retained_assets.swap(result->retained_assets);
             reuse->bytes = result->bytes;
             reuse->total = result->total;
             reuse->near_omitted = result->near_omitted;
@@ -268,9 +268,9 @@ namespace deren::engine::gaussian_splatting {
             return failure(error_code::unsupported, "raster frame requires device addresses");
         }
         result->instance_data = std::move(records);
-        result->owners.reserve(inputs.size());
+        result->retained_assets.reserve(inputs.size());
         for (auto const& input : inputs) {
-            result->owners.push_back(input.asset);
+            result->retained_assets.push_back(input.asset);
         }
         namespace managed = render_resource::instances;
         deren::utility::vessel::array<managed::request, 2> requests;

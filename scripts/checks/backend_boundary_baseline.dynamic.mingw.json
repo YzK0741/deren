@@ -206,8 +206,8 @@
     "deren_make_api_core"
   ],
   "nm": "llvm-nm.EXE",
-  "owning_stl_count": 0,
-  "owning_stl_symbols": [],
+  "stl_container_count": 0,
+  "stl_container_symbols": [],
   "reverse_boundary_symbols": [],
   "shared_utility": {
     "archive": "libshared_utility.a",

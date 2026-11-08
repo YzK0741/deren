@@ -34,8 +34,9 @@ namespace {
             return *this;
         }
         deren::gltf::subtilis_payload_view get_subtilis() const {
-            if (observations)
+            if (observations) {
                 ++*observations;
+            }
             return deren::gltf::drawable_iterator::get_subtilis();
         }
     };
@@ -45,8 +46,9 @@ namespace {
     }
     uint32_t u32(vector<uint8_t> const& bytes, size_t at) {
         uint32_t v = 0;
-        for (unsigned i = 0; i < 4; ++i)
+        for (unsigned i = 0; i < 4; ++i) {
             v |= uint32_t(bytes[at + i]) << (i * 8);
+        }
         return v;
     }
     struct fixture {
@@ -62,13 +64,15 @@ namespace {
         f.payload = read(dir / (std::string(name) + ".payload"));
         auto s = read(dir / (std::string(name) + ".source.bin"));
         CHECK(s.size() >= 8);
-        if (s.size() < 8)
+        if (s.size() < 8) {
             return f;
+        }
         f.vertex_count = u32(s, 0);
         f.index_count = u32(s, 4);
         CHECK(s.size() == 8 + uint64_t(f.vertex_count) * 32 + uint64_t(f.index_count) * 4);
-        if (s.size() != 8 + uint64_t(f.vertex_count) * 32 + uint64_t(f.index_count) * 4)
+        if (s.size() != 8 + uint64_t(f.vertex_count) * 32 + uint64_t(f.index_count) * 4) {
             return f;
+        }
         f.vertices.resize(size_t(f.vertex_count) * 80);
         for (uint32_t i = 0; i < f.vertex_count; ++i) {
             std::memcpy(f.vertices.data() + i * 80, s.data() + 8 + i * 12, 12);
@@ -103,8 +107,9 @@ namespace {
                 for (uint32_t i = 0; i < size; ++i) {
                     auto id = old[start + i];
                     p.references.push_back(id);
-                    if (id == 4)
+                    if (id == 4) {
                         p.references.push_back(10);
+                    }
                 }
                 count = static_cast<uint32_t>(p.references.size()) - first;
             };
@@ -136,8 +141,9 @@ namespace {
         for (auto& c : input.data.clusters) {
             auto first = c.first_index, count = c.index_count;
             c.first_index = static_cast<uint32_t>(input.data.indices.size());
-            for (unsigned i = 0; i < 6; ++i)
+            for (unsigned i = 0; i < 6; ++i) {
                 input.data.indices.insert(input.data.indices.end(), old.begin() + first, old.begin() + first + count);
+            }
             c.index_count *= 6;
         }
         input.source.indices.assign(input.data.indices.begin(), input.data.indices.begin() + 432);
@@ -192,8 +198,9 @@ int main() {
                     CHECK(sub::matches_generation(*first));
                     CHECK(first->meshlet_count == first->subtilis_import->lod0_clusters().size());
                     CHECK(first->draw_index_count == first->subtilis_import->lod0_index_count());
-                    for (size_t i = 0; i < first->meshlets.size(); ++i)
+                    for (size_t i = 0; i < first->meshlets.size(); ++i) {
                         CHECK(first->meshlets[i].first_index == first->subtilis_import->lod0_clusters()[i].first_index);
+                    }
                     auto projection = glm::mat4(1);
                     projection[2][2] = -.01f;
                     projection[3][2] = -.001f;
@@ -251,7 +258,7 @@ int main() {
         auto imported = sub::import_payload(fixture.input());
         CHECK(imported);
         if (imported) {
-            auto owner = std::make_shared<sub::imported_asset const>(std::move(*imported));
+            auto parent = std::make_shared<sub::imported_asset const>(std::move(*imported));
             for (uint32_t room : {4u, 1u, 0u}) {
                 namespace rhi = deren::promise::rhi;
                 rhi::create_info options{};
@@ -264,8 +271,9 @@ int main() {
                 std::array<uint8_t, 4> shader{3, 2, 35, 7};
                 CHECK(runtime.make_pipeline("pbr", shader, shader, shader));
                 vector<uint32_t> indices(size_t(deren::engine::meshlet_capacity - room) * deren::engine::meshlet_max_indices);
-                for (size_t i = 0; i < indices.size(); ++i)
+                for (size_t i = 0; i < indices.size(); ++i) {
                     indices[i] = static_cast<uint32_t>(i % 3);
+                }
                 deren::engine::primitive_create_info fill{};
                 fill.vertex_data = fixture.vertices;
                 fill.vertex_stride = 80;
@@ -275,7 +283,7 @@ int main() {
                 auto* filler = runtime.make_primitive("pbr", fill);
                 CHECK(filler && filler->meshlet_count == deren::engine::meshlet_capacity - room);
                 deren::engine::primitive_create_info info{};
-                info.subtilis_import = owner;
+                info.subtilis_import = parent;
                 auto* leaf = runtime.make_primitive("pbr", info);
                 CHECK(leaf && leaf->draw_index_count == 432);
                 CHECK(leaf && leaf->meshlet_count == (room == 4 ? 4u : 0u));
@@ -310,8 +318,9 @@ int main() {
             CHECK(a->build_hash() == p->build_hash);
         }
         CHECK(a->cache_key().payload_hash == wire::sha256(std::as_bytes(std::span(f.payload))));
-        for (auto const& c : a->hierarchy().clusters())
+        for (auto const& c : a->hierarchy().clusters()) {
             CHECK(c.record.base_vertex == 0 && c.record._pad == 0 && c.record.axis_x == 0 && c.record.axis_y == 0 && c.record.axis_z == 0 && c.record.cone_cos == 0);
+        }
         auto repeated = sub::import_payload(f.input());
         CHECK(repeated && repeated->cache_key() == a->cache_key());
         auto shared = std::make_shared<sub::imported_asset const>(std::move(*a));

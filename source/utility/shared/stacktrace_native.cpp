@@ -146,30 +146,36 @@ namespace deren::utility::detail::trace_native {
 
     bool prepare_output() noexcept {
 #if defined(_WIN32)
-        if (emergency_output.load(std::memory_order_acquire))
+        if (emergency_output.load(std::memory_order_acquire)) {
             return true;
+        }
 #else
-        if (emergency_output.load(std::memory_order_acquire) >= 0)
+        if (emergency_output.load(std::memory_order_acquire) >= 0) {
             return true;
+        }
 #endif
         bool expected = false;
-        if (!emergency_open_attempted.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
+        if (!emergency_open_attempted.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
             return false; // never wait for another fatal reporter or retry forever
+        }
 #if defined(_WIN32)
         HANDLE file = CreateFileW(L"deren-crash.log", FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
                                   nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (file == INVALID_HANDLE_VALUE)
+        if (file == INVALID_HANDLE_VALUE) {
             return false;
+        }
 #else
         int file = ::open("deren-crash.log", O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
-        if (file < 0)
+        if (file < 0) {
             return false;
+        }
         if (file < 3) {
             int const duplicate = fcntl(file, F_DUPFD_CLOEXEC, 3);
             close(file);
             file = duplicate;
-            if (file < 0)
+            if (file < 0) {
                 return false;
+            }
         }
 #endif
         emergency_output.store(file, std::memory_order_release);
@@ -177,8 +183,9 @@ namespace deren::utility::detail::trace_native {
     }
 
     void write_preopened_text(char const* value, std::size_t size) noexcept {
-        if (!value || !size)
+        if (!value || !size) {
             return;
+        }
 #if defined(_WIN32)
         HANDLE const output = emergency_output.load(std::memory_order_acquire);
         if (output) {
@@ -237,7 +244,8 @@ namespace deren::utility::detail::trace_native {
             auto& s = *static_cast<struct state*>(opaque);
             if (s.skip) { --s.skip; return _URC_NO_REASON; }
             auto pc = static_cast<std::uintptr_t>(_Unwind_GetIP(context));
-            if (!pc) return _URC_END_OF_STACK;
+            if (!pc){ return _URC_END_OF_STACK;
+}
             if (s.output->count == s.depth) { s.output->truncated = true; return _URC_END_OF_STACK; }
             s.output->pc[s.output->count++] = pc;
             return _URC_NO_REASON; }, &state);
@@ -266,11 +274,13 @@ namespace deren::utility::detail::trace_native {
         frame.base = reinterpret_cast<std::uintptr_t>(module);
 #else
         Dl_info info{};
-        if (!dladdr(reinterpret_cast<void*>(pc), &info) || !info.dli_fbase || !info.dli_fname)
+        if (!dladdr(reinterpret_cast<void*>(pc), &info) || !info.dli_fbase || !info.dli_fname) {
             return false;
+        }
         auto length = std::strlen(info.dli_fname);
-        if (length >= sizeof(frame.module))
+        if (length >= sizeof(frame.module)) {
             return false;
+        }
         std::memcpy(frame.module, info.dli_fname, length + 1);
         frame.base = reinterpret_cast<std::uintptr_t>(info.dli_fbase);
 #if defined(__linux__)

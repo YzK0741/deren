@@ -12,62 +12,57 @@ import :declarations;
 namespace deren::vulkan {
     namespace rhi = deren::promise::rhi;
 
-    std::expected<rhi::unique_object<rhi::lazy_buffer>, rhi::error>
-    core::create_lazy_buffer(rhi::lazy_buffer_desc const& request) {
-        return this->resource.create_lazy_buffer(request);
-    }
-
-    std::expected<rhi::unique_object<rhi::lazy_image>, rhi::error>
-    core::create_lazy_image(rhi::lazy_image_desc const& request) {
-        return this->resource.create_lazy_image(request);
-    }
-
-    rhi::error core::owned_buffer::unload() noexcept {
-        if (!source)
+    rhi::error core::buffer::unload() noexcept {
+        if (!source) {
             return rhi::error::unsupported;
+        }
         return loading.unload([&] {
-            owned = {};
+            allocation = {};
             native = VK_NULL_HANDLE;
             mapped_bytes = nullptr;
         });
     }
-    rhi::error core::owned_image::unload() noexcept {
-        if (!source)
+    rhi::error core::image::unload() noexcept {
+        if (!source) {
             return rhi::error::unsupported;
+        }
         return loading.unload([&] {
-            owned = {};
+            allocation = {};
             native_handle = VK_NULL_HANDLE;
         });
     }
 
-    std::shared_ptr<void> core::depend_on(owned_buffer const& resource) {
-        if (!resource.source)
+    std::shared_ptr<void> core::depend_on(core::buffer const& resource) {
+        if (!resource.source) {
             return {};
-        auto* value = const_cast<owned_buffer*>(&resource);
+        }
+        auto* value = const_cast<core::buffer*>(&resource);
         std::lock_guard lock(value->loading.mutex);
         value->references.fetch_add(1, std::memory_order_relaxed);
         value->loading.users.fetch_add(1, std::memory_order_relaxed);
-        return std::shared_ptr<void>(value, [](owned_buffer* item) {
+        return std::shared_ptr<void>(value, [](core::buffer* item) {
             item->loading.users.fetch_sub(1, std::memory_order_release);
             item->release();
         });
     }
-    std::shared_ptr<void> core::depend_on(owned_image const& resource) {
-        if (!resource.source)
+    std::shared_ptr<void> core::depend_on(core::image const& resource) {
+        if (!resource.source) {
             return {};
-        auto* value = const_cast<owned_image*>(&resource);
+        }
+        auto* value = const_cast<core::image*>(&resource);
         std::lock_guard lock(value->loading.mutex);
         value->references.fetch_add(1, std::memory_order_relaxed);
         value->loading.users.fetch_add(1, std::memory_order_relaxed);
-        return std::shared_ptr<void>(value, [](owned_image* item) {
+        return std::shared_ptr<void>(value, [](core::image* item) {
             item->loading.users.fetch_sub(1, std::memory_order_release);
             item->release();
         });
     }
 
-    rhi::error core::materialize(owned_buffer& value) noexcept {
-        if (!value.source)
+    rhi::error core::materialize(core::buffer& value) noexcept {
+        if (!value.source) {
             return rhi::error::ok;
+        }
         return value.loading.run([&]() noexcept {
             auto desc = value.description;
             // The existing uniform GPU allocator supports staging initialization and storage descriptors.
@@ -76,44 +71,48 @@ namespace deren::vulkan {
                 desc.flags |= rhi::to_bits(rhi::buffer_flag::storage);
             }
             desc.initial_bytes = std::as_bytes(std::span(*value.source));
-            auto physical = create_buffer(desc);
+            auto physical = this->resource.create_buffer(desc);
             if (!physical) {
                 return rhi::error::operation_failed;
             }
-            auto& concrete = *static_cast<owned_buffer*>(physical.get());
-            value.owned = std::move(concrete.owned);
+            auto& concrete = *static_cast<core::buffer*>(physical.get());
+            value.allocation = std::move(concrete.allocation);
             value.native = concrete.native;
             return rhi::error::ok;
         });
     }
 
-    rhi::error core::materialize(owned_image& value) noexcept {
-        if (!value.source)
+    rhi::error core::materialize(core::image& value) noexcept {
+        if (!value.source) {
             return rhi::error::ok;
+        }
         return value.loading.run([&]() noexcept {
             auto desc = value.description;
             desc.initial_bytes = std::as_bytes(std::span(*value.source));
-            auto physical = create_image(desc);
+            auto physical = this->resource.create_image(desc);
             if (!physical) {
                 return rhi::error::operation_failed;
             }
-            auto& concrete = *static_cast<owned_image*>(physical.get());
-            value.owned = std::move(concrete.owned);
+            auto& concrete = *static_cast<core::image*>(physical.get());
+            value.allocation = std::move(concrete.allocation);
             value.native_handle = concrete.native_handle;
             return rhi::error::ok;
         });
     }
 
-    rhi::error core::materialize(owned_image_view& value) noexcept {
+    rhi::error core::materialize(core::image_view& value) noexcept {
         std::lock_guard lock(value.loading_mutex);
-        if (value.native_view)
+        if (value.native_view) {
             return rhi::error::ok;
-        if (!value.parent_image)
+        }
+        if (!value.parent_image) {
             return rhi::error::invalid_argument;
-        auto& image = *static_cast<owned_image*>(value.parent_image.get());
+        }
+        auto& image = *static_cast<core::image*>(value.parent_image.get());
         auto status = materialize(image);
-        if (status != rhi::error::ok)
+        if (status != rhi::error::ok) {
             return status;
+        }
         auto desc = value.description;
         auto layers = desc.layer_count ? desc.layer_count : image.array_layers - desc.base_layer;
         auto mips = desc.mip_count ? desc.mip_count : image.mip_levels - desc.base_mip;
@@ -127,7 +126,7 @@ namespace deren::vulkan {
         return vkCreateImageView(this->device.logical_device, &info, nullptr, &value.native_view) == VK_SUCCESS ? rhi::error::ok : rhi::error::operation_failed;
     }
 
-    rhi::error core::materialize(owned_texture_group& group) noexcept {
+    rhi::error core::materialize(core::texture_group& group) noexcept {
         return group.loading.run([&]() noexcept {
             decltype(group.deferred_images) images;
             {
@@ -135,41 +134,48 @@ namespace deren::vulkan {
                 images = group.deferred_images;
             }
             for (std::size_t i = 0; i < images.size(); ++i) {
-                if (!images[i])
+                if (!images[i]) {
                     continue;
-                auto loaded = materialize(*static_cast<owned_image*>(images[i].get()));
-                if (loaded != rhi::error::ok)
+                }
+                auto loaded = materialize(*static_cast<core::image*>(images[i].get()));
+                if (loaded != rhi::error::ok) {
                     return loaded;
+                }
                 std::lock_guard lock(resource.texture_groups.mutex);
                 loaded = write_group_texture_locked(group, static_cast<std::uint32_t>(i), *images[i]);
-                if (loaded != rhi::error::ok)
+                if (loaded != rhi::error::ok) {
                     return loaded;
+                }
             }
             return rhi::error::ok;
         });
     }
 
-    rhi::error core::materialize(owned_resource_group& group) noexcept {
+    rhi::error core::materialize(core::resource_group& group) noexcept {
         std::lock_guard lock(group.loading_mutex);
-        if (!group.deferred || group.physical)
+        if (!group.deferred || group.physical) {
             return rhi::error::ok;
+        }
         for (auto const& entry : group.entries) {
             auto* resource = entry.resource.get();
             rhi::error loaded = rhi::error::ok;
-            if (entry.kind == rhi::resource_kind::uniform_buffer || entry.kind == rhi::resource_kind::storage_buffer)
-                loaded = materialize(*static_cast<owned_buffer*>(resource));
-            else if (entry.kind == rhi::resource_kind::sampled_image || entry.kind == rhi::resource_kind::storage_image)
-                loaded = materialize(*static_cast<owned_image*>(resource));
-            else if (entry.kind == rhi::resource_kind::texture_group)
-                loaded = materialize(*static_cast<owned_texture_group*>(resource));
-            if (loaded != rhi::error::ok)
+            if (entry.kind == rhi::resource_kind::uniform_buffer || entry.kind == rhi::resource_kind::storage_buffer) {
+                loaded = materialize(*static_cast<core::buffer*>(resource));
+            } else if (entry.kind == rhi::resource_kind::sampled_image || entry.kind == rhi::resource_kind::storage_image) {
+                loaded = materialize(*static_cast<core::image*>(resource));
+            } else if (entry.kind == rhi::resource_kind::texture_group) {
+                loaded = materialize(*static_cast<core::texture_group*>(resource));
+            }
+            if (loaded != rhi::error::ok) {
                 return loaded;
+            }
         }
-        auto physical = create_resource_group({.entries = group.entries});
-        if (!physical)
+        auto physical = this->resource.create_resource_group({.entries = group.entries});
+        if (!physical) {
             return physical.error();
+        }
         group.physical = std::move(*physical);
-        group.values = static_cast<owned_resource_group*>(group.physical.get())->values;
+        group.values = static_cast<core::resource_group*>(group.physical.get())->values;
         return rhi::error::ok;
     }
 
@@ -190,7 +196,7 @@ namespace deren::vulkan {
                 status = recorder.demand(*binding.buffer_write.resource);
                 if (status == rhi::error::ok && !binding.published) {
                     auto const& info = binding.buffer_write;
-                    auto address = internal_address(*static_cast<owned_buffer const*>(info.resource), info.offset);
+                    auto address = internal_address(*static_cast<core::buffer const*>(info.resource), info.offset);
                     status = address ? resource.heap_view.write_buffer({.offset = static_cast<std::uint64_t>(slot) * heap_slot_stride,
                                                                         .address = address,
                                                                         .size = info.size,
@@ -208,9 +214,10 @@ namespace deren::vulkan {
         return rhi::error::ok;
     }
 
-    std::uint64_t core::internal_address(owned_buffer const& buffer, std::uint64_t offset) const noexcept {
-        if (!buffer.addressable || (buffer.source && buffer.state() != rhi::lazy_state::ready) || !buffer.native)
+    std::uint64_t core::internal_address(core::buffer const& buffer, std::uint64_t offset) const noexcept {
+        if (!buffer.addressable || (buffer.source && buffer.state() != rhi::lazy_state::ready) || !buffer.native) {
             return 0;
+        }
         VkBufferDeviceAddressInfo info{};
         info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
         info.buffer = buffer.native;
@@ -219,13 +226,14 @@ namespace deren::vulkan {
 
     rhi::error core::frame_commands::demand(rhi::buffer const& resource) {
         {
-            std::lock_guard lock(owner->resource.contract_buffers_mutex);
-            if (!owner->resource.contract_buffers.contains(&resource))
+            std::lock_guard lock(parent->resource.contract_buffers_mutex);
+            if (!parent->resource.contract_buffers.contains(&resource)) {
                 return rhi::error::invalid_argument;
+            }
         }
-        auto& value = const_cast<owned_buffer&>(static_cast<owned_buffer const&>(resource));
+        auto& value = const_cast<core::buffer&>(static_cast<core::buffer const&>(resource));
         retain_lazy(value);
-        auto result = owner->materialize(value);
+        auto result = parent->materialize(value);
         if (result != rhi::error::ok) {
             recording_error = result;
             executable = false;
@@ -234,13 +242,14 @@ namespace deren::vulkan {
     }
     rhi::error core::frame_commands::demand(rhi::image const& resource) {
         {
-            std::lock_guard lock(owner->resource.contract_images_mutex);
-            if (!owner->resource.contract_images.contains(&resource))
+            std::lock_guard lock(parent->resource.contract_images_mutex);
+            if (!parent->resource.contract_images.contains(&resource)) {
                 return rhi::error::invalid_argument;
+            }
         }
-        auto& value = const_cast<owned_image&>(static_cast<owned_image const&>(resource));
+        auto& value = const_cast<core::image&>(static_cast<core::image const&>(resource));
         retain_lazy(value);
-        auto result = owner->materialize(value);
+        auto result = parent->materialize(value);
         if (result != rhi::error::ok) {
             recording_error = result;
             executable = false;
@@ -248,14 +257,16 @@ namespace deren::vulkan {
         return result;
     }
 
-    void core::frame_commands::retain_lazy(owned_buffer const& resource) {
-        if (!resource.source || std::any_of(lazy_refs.begin(), lazy_refs.end(), [&resource](auto const& ref) { return ref.get() == &resource; }))
+    void core::frame_commands::retain_lazy(core::buffer const& resource) {
+        if (!resource.source || std::any_of(lazy_refs.begin(), lazy_refs.end(), [&resource](auto const& ref) { return ref.get() == &resource; })) {
             return;
-        lazy_refs.push_back(owner->depend_on(resource));
+        }
+        lazy_refs.push_back(parent->depend_on(resource));
     }
-    void core::frame_commands::retain_lazy(owned_image const& resource) {
-        if (!resource.source || std::any_of(lazy_refs.begin(), lazy_refs.end(), [&resource](auto const& ref) { return ref.get() == &resource; }))
+    void core::frame_commands::retain_lazy(core::image const& resource) {
+        if (!resource.source || std::any_of(lazy_refs.begin(), lazy_refs.end(), [&resource](auto const& ref) { return ref.get() == &resource; })) {
             return;
-        lazy_refs.push_back(owner->depend_on(resource));
+        }
+        lazy_refs.push_back(parent->depend_on(resource));
     }
 } // namespace deren::vulkan

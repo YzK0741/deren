@@ -29,11 +29,13 @@ namespace deren::engine::transfer_detail {
             : core(std::move(device)) {
         }
         rhi::error observe(bool wait, std::uint64_t timeout = 0) {
-            if (completed)
+            if (completed) {
                 return rhi::error::ok;
+            }
             auto* completion = core ? rhi::query_extension<rhi::command_submission>(*core) : nullptr;
-            if (!completion || token.sequence == 0)
+            if (!completion || token.sequence == 0) {
                 return rhi::error::not_ready;
+            }
             auto result = wait ? completion->wait(token, timeout) : completion->poll(token);
             if (result == rhi::error::ok) {
                 completed = true;
@@ -73,13 +75,16 @@ export namespace deren::engine {
         }
         [[nodiscard]] std::expected<std::span<std::byte const>, transfer_rhi::error> readback(std::size_t index) {
             namespace rhi = transfer_rhi;
-            if (!value || index >= value->outputs.size())
+            if (!value || index >= value->outputs.size()) {
                 return std::unexpected(rhi::error::invalid_argument);
-            if (auto result = poll(); result != rhi::error::ok)
+            }
+            if (auto result = poll(); result != rhi::error::ok) {
                 return std::unexpected(result);
+            }
             auto bytes = value->outputs[index]->mapped();
-            if (bytes.size() != value->outputs[index]->size())
+            if (bytes.size() != value->outputs[index]->size()) {
                 return std::unexpected(rhi::error::operation_failed);
+            }
             return std::span<std::byte const>(bytes);
         }
     };
@@ -95,39 +100,50 @@ export namespace deren::engine {
                                                                transfer_rhi::synchronization::scope before, transfer_rhi::synchronization::scope after, bool download) {
             namespace rhi = transfer_rhi;
             namespace sync = rhi::synchronization;
-            if (!value || !value->core)
+            if (!value || !value->core) {
                 return std::unexpected(rhi::error::not_ready);
+            }
             auto* scopes = rhi::query_extension<rhi::scoped_synchronization>(*value->core);
-            if (!scopes || !rhi::query_extension<rhi::command_submission>(*value->core))
+            if (!scopes || !rhi::query_extension<rhi::command_submission>(*value->core)) {
                 return std::unexpected(rhi::error::unsupported);
+            }
             if (!resource || resource.device() != value->core.get() || size == 0 ||
-                after.stages == sync::stage::none || after.accesses == sync::access::none)
+                after.stages == sync::stage::none || after.accesses == sync::access::none) {
                 return std::unexpected(rhi::error::invalid_argument);
+            }
             rhi::scoped_buffer_info info{};
-            if (auto result = scopes->describe(*resource.get(), info); result != rhi::error::ok)
+            if (auto result = scopes->describe(*resource.get(), info); result != rhi::error::ok) {
                 return std::unexpected(result);
+            }
             auto usage = download ? sync::usage::transfer_source : sync::usage::transfer_destination;
             if (offset > info.byte_size || size > info.byte_size - offset ||
-                !(info.usage_mask & static_cast<std::uint32_t>(usage)))
+                !(info.usage_mask & static_cast<std::uint32_t>(usage))) {
                 return std::unexpected(rhi::error::invalid_argument);
+            }
             transfer_detail::operation op{resource, {}, offset, size, before, after, download};
             rhi::scoped_buffer_barrier transitions[] = {transfer_detail::transition(op, false), transfer_detail::transition(op, true)};
-            if (auto result = scopes->validate({}, transitions); result != rhi::error::ok)
+            if (auto result = scopes->validate({}, transitions); result != rhi::error::ok) {
                 return std::unexpected(result);
-            if (!value->allocations)
+            }
+            if (!value->allocations) {
                 value->allocations = resource_cluster::create(value->core, "buffer transfers");
+            }
             auto allocation = value->allocations->create_buffer({.size = size, .usage = download ? rhi::buffer_usage::readback_coherent : rhi::buffer_usage::staging_source});
-            if (!allocation)
+            if (!allocation) {
                 return std::unexpected(allocation.error());
+            }
             auto mapped = (*allocation)->mapped();
-            if (mapped.size() != size)
+            if (mapped.size() != size) {
                 return std::unexpected(rhi::error::operation_failed);
-            if (!download)
+            }
+            if (!download) {
                 std::memcpy(mapped.data(), bytes.data(), bytes.size());
+            }
             op.staging = *allocation;
             auto index = value->outputs.size();
-            if (download)
+            if (download) {
                 value->outputs.push_back(*allocation);
+            }
             value->operations.push_back(std::move(op));
             return index;
         }
@@ -160,8 +176,9 @@ export namespace deren::engine {
         buffer_transfer_service(buffer_transfer_service const&) = delete ("buffer_transfer_service is non-copyable: pass it by reference or construct a new instance");
         buffer_transfer_service& operator=(buffer_transfer_service const&) = delete ("buffer_transfer_service is non-copyable: modify the existing instance instead");
         ~buffer_transfer_service() noexcept {
-            if (drain(UINT64_MAX) != transfer_rhi::error::ok)
+            if (drain(UINT64_MAX) != transfer_rhi::error::ok) {
                 deren::utility::fast_panic("environment: buffer transfer final drain failed");
+            }
         }
         [[nodiscard]] buffer_transfer_batch make_batch() const {
             return buffer_transfer_batch(core);
@@ -171,22 +188,27 @@ export namespace deren::engine {
         }
         [[nodiscard]] std::expected<buffer_transfer_ticket, transfer_rhi::error> submit(buffer_transfer_batch&& batch) {
             namespace rhi = transfer_rhi;
-            if (!core || !batch.value)
+            if (!core || !batch.value) {
                 return std::unexpected(rhi::error::not_ready);
-            if (batch.value->core.get() != core.get() || batch.value->operations.empty())
+            }
+            if (batch.value->core.get() != core.get() || batch.value->operations.empty()) {
                 return std::unexpected(rhi::error::invalid_argument);
+            }
             auto* completion = rhi::query_extension<rhi::command_submission>(*core);
             auto* scopes = rhi::query_extension<rhi::scoped_synchronization>(*core);
-            if (!completion || !scopes)
+            if (!completion || !scopes) {
                 return std::unexpected(rhi::error::unsupported);
+            }
             auto state = std::exchange(batch.value, {});
             state->commands = core->commands->make_command_buffer({});
-            if (!state->commands)
+            if (!state->commands) {
                 return std::unexpected(rhi::error::operation_failed);
+            }
             auto& commands = *state->commands;
             auto result = commands.begin_recording({});
-            if (result != rhi::error::ok)
+            if (result != rhi::error::ok) {
                 return std::unexpected(result);
+            }
             for (auto const& op : state->operations) {
                 auto pre = transfer_detail::transition(op, false), post = transfer_detail::transition(op, true);
                 result = scopes->record(commands, {}, std::span(&pre, 1));
@@ -194,8 +216,9 @@ export namespace deren::engine {
                     result = op.download ? commands.copy_buffer(*op.staging.get(), *op.resource.get(), op.size, op.offset, 0)
                                          : commands.copy_buffer(*op.resource.get(), *op.staging.get(), op.size, 0, op.offset);
                 }
-                if (result == rhi::error::ok)
+                if (result == rhi::error::ok) {
                     result = scopes->record(commands, {}, std::span(&post, 1));
+                }
                 if (result == rhi::error::ok && op.download) {
                     rhi::buffer_barrier host{.resource = op.staging.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read};
                     result = commands.barrier(rhi::barrier_group{.buffers = std::span(&host, 1)});
@@ -206,8 +229,9 @@ export namespace deren::engine {
                 }
             }
             result = commands.end_recording();
-            if (result != rhi::error::ok)
+            if (result != rhi::error::ok) {
                 return std::unexpected(result);
+            }
             // All service ownership is registered before native submit can succeed.
             pending.push_back(state);
             auto submitted = completion->submit(commands);
@@ -221,12 +245,13 @@ export namespace deren::engine {
         [[nodiscard]] transfer_rhi::error collect() {
             for (auto it = pending.begin(); it != pending.end();) {
                 auto result = (*it)->observe(false);
-                if (result == transfer_rhi::error::ok)
+                if (result == transfer_rhi::error::ok) {
                     it = pending.erase(it);
-                else if (result == transfer_rhi::error::not_ready)
+                } else if (result == transfer_rhi::error::not_ready) {
                     ++it;
-                else
+                } else {
                     return result;
+                }
             }
             return transfer_rhi::error::ok;
         }
@@ -234,8 +259,9 @@ export namespace deren::engine {
         [[nodiscard]] transfer_rhi::error drain(std::uint64_t timeout_ns = UINT64_MAX) {
             for (auto const& state : pending) {
                 auto result = state->observe(true, timeout_ns);
-                if (result != transfer_rhi::error::ok)
+                if (result != transfer_rhi::error::ok) {
                     return result;
+                }
             }
             pending.clear();
             return transfer_rhi::error::ok;

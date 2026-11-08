@@ -21,30 +21,40 @@ namespace {
     }
     wire::source_geometry source(vector<std::byte> const& bytes) {
         size_t cursor = 0;
-        auto u32 = [&]() {uint32_t v=0;for(unsigned i=0;i<4;++i)v|=uint32_t(std::to_integer<unsigned>(bytes[cursor++]))<<(i*8);return v; };
+        auto u32 = [&]() {uint32_t v=0;for(unsigned i=0;i<4;++i){v|=uint32_t(std::to_integer<unsigned>(bytes[cursor++]))<<(i*8);
+}return v; };
         wire::source_geometry s;
         CHECK(bytes.size() >= 8);
-        if (bytes.size() < 8)
+        if (bytes.size() < 8) {
             return s;
+        }
         auto n = u32(), m = u32();
         CHECK(8 + uint64_t(n) * 32 + uint64_t(m) * 4 == bytes.size());
-        if (8 + uint64_t(n) * 32 + uint64_t(m) * 4 != bytes.size())
+        if (8 + uint64_t(n) * 32 + uint64_t(m) * 4 != bytes.size()) {
             return s;
+        }
         s.positions.resize(n);
         s.normals.resize(n);
         s.uv0.resize(n);
         s.indices.resize(m);
-        for (auto& row : s.positions)
-            for (auto& v : row)
+        for (auto& row : s.positions) {
+            for (auto& v : row) {
                 v = std::bit_cast<float>(u32());
-        for (auto& row : s.normals)
-            for (auto& v : row)
+            }
+        }
+        for (auto& row : s.normals) {
+            for (auto& v : row) {
                 v = std::bit_cast<float>(u32());
-        for (auto& row : s.uv0)
-            for (auto& v : row)
+            }
+        }
+        for (auto& row : s.uv0) {
+            for (auto& v : row) {
                 v = std::bit_cast<float>(u32());
-        for (auto& v : s.indices)
+            }
+        }
+        for (auto& v : s.indices) {
             v = u32();
+        }
         return s;
     }
     auto translate(wire::validated_asset const& asset) {
@@ -62,16 +72,18 @@ namespace {
             r.cone_cos = 0;
             clusters.push_back({r, c.producer, c.consumer});
         }
-        for (auto const& g : p.groups)
+        for (auto const& g : p.groups) {
             groups.push_back({{g.fine_first, g.fine_count}, {g.coarse_first, g.coarse_count}, {g.lod.x, g.lod.y, g.lod.z, g.lod.radius}, g.error});
+        }
         return sub::dag_asset::make(clusters, groups, p.references, p.leaves, p.roots, static_cast<uint32_t>(asset.geometry().indices.size()), static_cast<uint32_t>(p.indices.size()));
     }
     uint32_t comparisons = 0;
     void exercise(wire::validated_asset const& reference) {
         auto asset = translate(reference);
         CHECK(asset);
-        if (!asset)
+        if (!asset) {
             return;
+        }
         if (reference.data().groups.size() == 4 && reference.data().clusters.size() == 10) {
             vector<bool> decisions{false, true, true, true};
             sub::dag_lod_detail::close_coarsening(*asset, decisions);
@@ -131,20 +143,24 @@ namespace {
             vector<deren::engine::meshlet> out;
             auto cut = sub::select_cut(*asset, view, UINT32_MAX, out);
             CHECK(cut && expected);
-            if (!cut || !expected)
+            if (!cut || !expected) {
                 return;
+            }
             CHECK(out.size() == expected->size());
-            if (out.size() == expected->size())
+            if (out.size() == expected->size()) {
                 for (size_t i = 0; i < out.size(); ++i) {
                     auto const& c = asset->clusters()[(*expected)[i]];
                     CHECK((sub::dag_cluster{out[i], c.producer, c.consumer} == c));
                 }
+            }
             vector<deren::engine::meshlet> repeat;
             auto again = sub::select_cut(*asset, view, UINT32_MAX, repeat);
             CHECK(again && repeat.size() == out.size());
-            if (repeat.size() == out.size())
-                for (size_t i = 0; i < out.size(); ++i)
+            if (repeat.size() == out.size()) {
+                for (size_t i = 0; i < out.size(); ++i) {
                     CHECK(repeat[i].first_index == out[i].first_index);
+                }
+            }
             ++comparisons;
         };
         for (float threshold : {0.f, .1f, .2f, 100.f}) {
@@ -192,8 +208,9 @@ int main() {
     auto cross = subtilis_fixture::cross_dag();
     auto reference = wire::make_asset(cross.source, cross.data, {});
     CHECK(reference);
-    if (reference)
+    if (reference) {
         exercise(*reference);
+    }
     auto directory = std::filesystem::path(VR_TEST_SOURCE_DIR) / "source/tests/fixtures/subtilis";
     auto manifest_bytes = read(directory / "fixtures.json");
     auto* manifest = yyjson_read(reinterpret_cast<char const*>(manifest_bytes.data()), manifest_bytes.size(), 0);
@@ -210,30 +227,35 @@ int main() {
                 CHECK(bytes.size() == yyjson_get_uint(yyjson_obj_get(file, "bytes")));
                 auto hash = wire::sha256(bytes);
                 std::string hex;
-                for (auto b : hash)
+                for (auto b : hash) {
                     hex += std::format("{:02x}", std::to_integer<unsigned>(b));
+                }
                 CHECK(hex == yyjson_get_str(yyjson_obj_get(file, "sha256")));
             }
             auto p = wire::decode(read(directory / (name + ".payload")), {});
             CHECK(p);
-            if (!p)
+            if (!p) {
                 continue;
+            }
             auto a = wire::make_asset(source(read(directory / (name + ".source.bin"))), std::move(*p), {});
             CHECK(a);
             if (a && name == "cross_dag") {
                 vector<uint32_t> consumers(a->data().groups.size(), wire::none);
                 bool crossing = false;
                 for (auto const& c : a->data().clusters) {
-                    if (c.producer == wire::none || c.consumer == wire::none)
+                    if (c.producer == wire::none || c.consumer == wire::none) {
                         continue;
-                    if (consumers[c.producer] != wire::none && consumers[c.producer] != c.consumer)
+                    }
+                    if (consumers[c.producer] != wire::none && consumers[c.producer] != c.consumer) {
                         crossing = true;
+                    }
                     consumers[c.producer] = c.consumer;
                 }
                 CHECK(crossing);
             }
-            if (a)
+            if (a) {
                 exercise(*a);
+            }
         }
         yyjson_doc_free(manifest);
     }

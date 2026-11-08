@@ -27,10 +27,10 @@ namespace rhi = deren::promise::rhi;
 namespace deren::engine::pass {
 
     cluster_pass::~cluster_pass() {
-        this->release_owned();
+        this->release_contract();
     }
 
-    void cluster_pass::release_owned() noexcept {
+    void cluster_pass::release_contract() noexcept {
         this->pass_pipeline.reset();
     }
 
@@ -71,15 +71,15 @@ namespace deren::engine::pass {
             return;
         }
         if (this->built_against != nullptr && this->built_against != context.face) {
-            this->release_owned();
+            this->release_contract();
         }
         this->built_against = context.face;
         if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
-        std::span<uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.owner, shader_name) : std::span<uint8_t const>{};
+        std::span<uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.parent, shader_name) : std::span<uint8_t const>{};
         if (spirv.empty()) {
-            deren::utility::log("clustered lights disabled: the owner has no {}", shader_name);
+            deren::utility::log("clustered lights disabled: the parent has no {}", shader_name);
             return;
         }
         // NO SET LAYOUT IS ASKED FOR: the pipeline is heap-native (a null layout plus the heap flag), so the
@@ -87,7 +87,7 @@ namespace deren::engine::pass {
         auto built = pipelines::build_cluster(*context.face, spirv);
         if (!built) {
             deren::utility::log("clustered lights disabled: {}", built.error());
-            this->release_owned();
+            this->release_contract();
             return;
         }
         this->pass_pipeline = std::move(built->trace);

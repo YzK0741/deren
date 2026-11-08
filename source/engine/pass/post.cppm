@@ -45,7 +45,7 @@ import deren.promise.rhi;
 
 import deren.engine.pass;
 import deren.engine.render_resource;
-import deren.engine.pipelines; // vk_pipeline: the RAII owner of the pipelines this pass builds
+import deren.engine.pipelines; // vk_pipeline: the RAII parent of the pipelines this pass builds
 
 export namespace deren::engine::pass {
 
@@ -195,7 +195,7 @@ export namespace deren::engine::pass {
          * object, and answering by NAME is what lets the chain share it without the renderer knowing whose it is
          * (see `frame_pass::named_pipeline`).
          */
-        [[nodiscard]] owned_pipeline named_pipeline(std::string_view name) const noexcept override;
+        [[nodiscard]] pipeline_ref named_pipeline(std::string_view name) const noexcept override;
         /**
          * @brief the GI upsample's ON/OFF lane, which is THIS pass's parameter
          *
@@ -228,7 +228,7 @@ export namespace deren::engine::pass {
             .pipelines = pipeline_names,
             .resync_viewport = true, // the record step sets the viewport and scissor from io.extent
         };
-        void release_owned() noexcept;
+        void release_contract() noexcept;
         /// @brief compose the chain's push block for this frame's target choice (see resolve)
         [[nodiscard]] bool fill_push(resolved_io& out, bool writing_ldr) const;
         deren::promise::rhi::api_core* built_against = nullptr;

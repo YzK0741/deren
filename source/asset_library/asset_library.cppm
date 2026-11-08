@@ -113,8 +113,8 @@ namespace deren::asset_library {
         // asks for the captured game-toon path.
         bool game_toon = false;
         std::string toon_profile;
-        std::optional<std::int32_t> tone_mapping; // 0..2, same meaning as [render] tone_mapping
-        std::filesystem::path environment_hdr; // empty when absent or unreadable
+        std::optional<std::int32_t> tone_mapping;        // 0..2, same meaning as [render] tone_mapping
+        std::filesystem::path environment_hdr;           // empty when absent or unreadable
         std::optional<std::array<float, 6>> camera_pose; // yaw, pitch, distance, target xyz
     };
 
@@ -135,16 +135,24 @@ namespace deren::asset_library {
         [[nodiscard]] static asset_library scan(std::filesystem::path root);
 
         /// true when the root was scanned and at least one asset was loaded
-        [[nodiscard]] bool valid() const noexcept { return error_.empty(); }
+        [[nodiscard]] bool valid() const noexcept {
+            return error_.empty();
+        }
 
         /// why the root could not be used; empty when valid()
-        [[nodiscard]] std::string const& error() const noexcept { return error_; }
+        [[nodiscard]] std::string const& error() const noexcept {
+            return error_;
+        }
 
         /// the absolute root that was scanned
-        [[nodiscard]] std::filesystem::path const& root() const noexcept { return root_; }
+        [[nodiscard]] std::filesystem::path const& root() const noexcept {
+            return root_;
+        }
 
         /// assets sorted by id, so iteration order never depends on the filesystem
-        [[nodiscard]] std::span<asset_entry const> entries() const noexcept { return entries_; }
+        [[nodiscard]] std::span<asset_entry const> entries() const noexcept {
+            return entries_;
+        }
 
         /// the asset named by library.toml's `default`, or the first asset when
         /// that key is absent; nullptr when no asset was loaded
@@ -155,7 +163,9 @@ namespace deren::asset_library {
 
         /// non-fatal problems found while scanning (bad manifests, duplicate ids,
         /// missing optional files), one line each
-        [[nodiscard]] std::vector<std::string> const& warnings() const noexcept { return warnings_; }
+        [[nodiscard]] std::vector<std::string> const& warnings() const noexcept {
+            return warnings_;
+        }
 
     private:
         std::filesystem::path root_;

@@ -145,8 +145,9 @@ namespace deren::vulkan {
             {},
         };
 
-        if (fragment_shader_module)
+        if (fragment_shader_module) {
             shader_stage_create_infos[1] = make_shader_stage(**fragment_shader_module, VK_SHADER_STAGE_FRAGMENT_BIT);
+        }
 
         // double-sided materials need per-draw cull control (core dynamic state since Vulkan 1.3);
         // transparent (alphaMode BLEND) leaves disable depth writes per draw, also a 1.3 core

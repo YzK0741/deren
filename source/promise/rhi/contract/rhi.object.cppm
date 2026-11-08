@@ -134,13 +134,13 @@ export namespace deren::promise::rhi {
         /// contract call (null = a non-owning handle: it owns no reference and releases nothing), and the
         /// weak count keeps the block alive for the weak handles.
         struct shared_object_control final {
-            shared_object_control(void (*release_instance)(void*) noexcept, void* const own_instance) noexcept
-                : owned{own_instance}
+            shared_object_control(void (*release_instance)(void*) noexcept, void* const instance_handle) noexcept
+                : instance{instance_handle}
                 , release{release_instance} {
             }
             /// the object whose reference the block owns; NOT the alias target (an aliasing handle may
             /// point at a different object than the one the control block releases)
-            void* owned = nullptr;
+            void* instance = nullptr;
             std::atomic<std::uint32_t> strong{1};
             /// One implicit weak reference belongs to the strong group until object destruction
             /// finishes. External weak releases can never delete a block still used by the release callback.
@@ -179,8 +179,8 @@ export namespace deren::promise::rhi {
             }
         }
 
-        shared_object(unique_object<rhi_object>&& owner) noexcept
-            : shared_object(owner.release()) {
+        shared_object(unique_object<rhi_object>&& parent) noexcept
+            : shared_object(parent.release()) {
         }
 
         /// a handle to a DERIVED object as a handle to the interface: the SAME control block is shared,
@@ -190,7 +190,7 @@ export namespace deren::promise::rhi {
         shared_object(shared_object<derived_object> const& other) noexcept
             : instance{static_cast<rhi_object*>(other.get())}
             , control{other.control}
-            , alias_owner{other.alias_owner} {
+            , alias_lifetime{other.alias_lifetime} {
             this->acquire();
         }
 
@@ -199,55 +199,55 @@ export namespace deren::promise::rhi {
         shared_object(shared_object<derived_object>&& other) noexcept
             : instance{static_cast<rhi_object*>(other.get())}
             , control{other.control}
-            , alias_owner{std::move(other.alias_owner)} {
+            , alias_lifetime{std::move(other.alias_lifetime)} {
             other.instance = nullptr;
             other.control = nullptr;
         }
 
         template <typename derived_object>
             requires std::derived_from<derived_object, rhi_object>
-        shared_object(unique_object<derived_object>&& owner) noexcept
-            : shared_object(static_cast<rhi_object*>(owner.release())) {
+        shared_object(unique_object<derived_object>&& parent) noexcept
+            : shared_object(static_cast<rhi_object*>(parent.release())) {
         }
 
         /// AN ALIAS TO A NON-OWNING RHI POINTER tied to an engine owner's lifetime (the engine lease shape):
         /// the owner keeps the resource alive and this handle owns no RHI reference of its own.
         /// an ENGINE-OWNER handle (a test's std::make_shared<fake_root>, say) adopted as an alias: the
         /// shared pointer's own reference is the lifetime, so no RHI release runs.
-        template <typename owner_type>
-            requires std::derived_from<owner_type, rhi_object>
-        shared_object(std::shared_ptr<owner_type> owner) noexcept
-            : instance{owner.get()}
-            , alias_owner{std::move(owner)} {
+        template <typename parent_type>
+            requires std::derived_from<parent_type, rhi_object>
+        shared_object(std::shared_ptr<parent_type> parent) noexcept
+            : instance{parent.get()}
+            , alias_lifetime{std::move(parent)} {
         }
 
-        template <typename owner_type>
-        shared_object(std::shared_ptr<owner_type> owner, rhi_object* const pointer) noexcept
+        template <typename parent_type>
+        shared_object(std::shared_ptr<parent_type> parent, rhi_object* const pointer) noexcept
             : instance{pointer}
-            , alias_owner{std::move(owner)} {
+            , alias_lifetime{std::move(parent)} {
         }
 
         /// the same alias with a CONTRACT-OWNER root: shares that handle's control block (so the root
         /// outlives the borrowed pointer) without releasing an extra reference of its own.
-        template <typename owner_object>
-            requires std::derived_from<owner_object, object>
-        shared_object(shared_object<owner_object> const& owner, rhi_object* const pointer) noexcept
+        template <typename parent_object>
+            requires std::derived_from<parent_object, object>
+        shared_object(shared_object<parent_object> const& parent, rhi_object* const pointer) noexcept
             : instance{pointer}
-            , control{owner.control} {
+            , control{parent.control} {
             this->acquire();
         }
 
         shared_object(shared_object const& other) noexcept
             : instance{other.instance}
             , control{other.control}
-            , alias_owner{other.alias_owner} {
+            , alias_lifetime{other.alias_lifetime} {
             this->acquire();
         }
 
         shared_object(shared_object&& other) noexcept
             : instance{other.instance}
             , control{other.control}
-            , alias_owner{std::move(other.alias_owner)} {
+            , alias_lifetime{std::move(other.alias_lifetime)} {
             other.instance = nullptr;
             other.control = nullptr;
         }
@@ -265,7 +265,7 @@ export namespace deren::promise::rhi {
                 this->reset();
                 this->instance = other.instance;
                 this->control = other.control;
-                this->alias_owner = std::move(other.alias_owner);
+                this->alias_lifetime = std::move(other.alias_lifetime);
                 other.instance = nullptr;
                 other.control = nullptr;
             }
@@ -280,12 +280,12 @@ export namespace deren::promise::rhi {
         void reset() noexcept {
             if (this->control == nullptr) {
                 this->instance = nullptr;
-                this->alias_owner.reset();
+                this->alias_lifetime.reset();
                 return;
             }
             if (this->control->strong.fetch_sub(1, std::memory_order_acq_rel) == 1) {
                 if (this->control->release != nullptr) {
-                    this->control->release(this->control->owned);
+                    this->control->release(this->control->instance);
                 }
                 if (this->control->weak.fetch_sub(1, std::memory_order_acq_rel) == 1) {
                     delete this->control;
@@ -302,7 +302,7 @@ export namespace deren::promise::rhi {
             detail::shared_object_control* const other_control = other.control;
             other.control = this->control;
             this->control = other_control;
-            this->alias_owner.swap(other.alias_owner);
+            this->alias_lifetime.swap(other.alias_lifetime);
         }
 
         [[nodiscard]] rhi_object* get() const noexcept {
@@ -323,12 +323,12 @@ export namespace deren::promise::rhi {
             if (this->control != nullptr) {
                 return this->control->strong.load(std::memory_order_acquire);
             }
-            return this->alias_owner != nullptr ? static_cast<std::uint32_t>(this->alias_owner.use_count()) : 0u;
+            return this->alias_lifetime != nullptr ? static_cast<std::uint32_t>(this->alias_lifetime.use_count()) : 0u;
         }
         /// True for an owning reference or lifetime alias, false for an empty handle.
         /// An alias owner must actually retain its target; this cannot inspect arbitrary owner types.
-        [[nodiscard]] bool owns_lifetime() const noexcept {
-            return instance != nullptr && ((control != nullptr && control->release != nullptr) || alias_owner != nullptr);
+        [[nodiscard]] bool retains_lifetime() const noexcept {
+            return instance != nullptr && ((control != nullptr && control->release != nullptr) || alias_lifetime != nullptr);
         }
         [[nodiscard]] bool unique() const noexcept {
             return this->use_count() == 1u;
@@ -337,7 +337,7 @@ export namespace deren::promise::rhi {
         /// whether @p other shares THIS handle's control block (the std::shared_ptr::owner_before identity)
         [[nodiscard]] bool shares_control(shared_object const& other) const noexcept {
             return this->control != nullptr ? this->control == other.control
-                                            : this->alias_owner.get() == other.alias_owner.get();
+                                            : this->alias_lifetime.get() == other.alias_lifetime.get();
         }
 
         friend bool operator==(shared_object const& value, std::nullptr_t) noexcept {
@@ -371,7 +371,7 @@ export namespace deren::promise::rhi {
 
         rhi_object* instance = nullptr;
         detail::shared_object_control* control = nullptr;
-        std::shared_ptr<void const> alias_owner;
+        std::shared_ptr<void const> alias_lifetime;
     };
 
     /// THE NON-OWNING OBSERVER OF A SHARED HANDLE, modeled on `std::weak_ptr`: it observes a control block
@@ -386,24 +386,24 @@ export namespace deren::promise::rhi {
         weak_object(weak_object const& other) noexcept
             : instance{other.instance}
             , control{other.control}
-            , alias_owner{other.alias_owner} {
+            , alias_lifetime{other.alias_lifetime} {
             this->acquire_weak();
         }
 
         weak_object(weak_object&& other) noexcept
             : instance{other.instance}
             , control{other.control}
-            , alias_owner{std::move(other.alias_owner)} {
+            , alias_lifetime{std::move(other.alias_lifetime)} {
             other.instance = nullptr;
             other.control = nullptr;
         }
 
         template <typename derived_object>
             requires std::derived_from<derived_object, rhi_object>
-        weak_object(shared_object<derived_object> const& owner) noexcept
-            : instance{static_cast<rhi_object*>(owner.get())}
-            , control{owner.control}
-            , alias_owner{owner.alias_owner} {
+        weak_object(shared_object<derived_object> const& parent) noexcept
+            : instance{static_cast<rhi_object*>(parent.get())}
+            , control{parent.control}
+            , alias_lifetime{parent.alias_lifetime} {
             this->acquire_weak();
         }
 
@@ -412,14 +412,14 @@ export namespace deren::promise::rhi {
         weak_object(weak_object<derived_object> const& other) noexcept
             : instance{static_cast<rhi_object*>(other.instance)}
             , control{other.control}
-            , alias_owner{other.alias_owner} {
+            , alias_lifetime{other.alias_lifetime} {
             this->acquire_weak();
         }
 
         template <typename derived_object>
             requires std::derived_from<derived_object, rhi_object>
-        weak_object& operator=(shared_object<derived_object> const& owner) noexcept {
-            weak_object copy{owner};
+        weak_object& operator=(shared_object<derived_object> const& parent) noexcept {
+            weak_object copy{parent};
             this->swap(copy);
             return *this;
         }
@@ -445,7 +445,7 @@ export namespace deren::promise::rhi {
                 this->release_control();
                 this->instance = other.instance;
                 this->control = other.control;
-                this->alias_owner = std::move(other.alias_owner);
+                this->alias_lifetime = std::move(other.alias_lifetime);
                 other.instance = nullptr;
                 other.control = nullptr;
             }
@@ -460,7 +460,7 @@ export namespace deren::promise::rhi {
         [[nodiscard]] shared_object<rhi_object> lock() const noexcept {
             std::shared_ptr<void const> retained_alias;
             if (this->has_alias()) {
-                retained_alias = this->alias_owner.lock();
+                retained_alias = this->alias_lifetime.lock();
                 if (retained_alias == nullptr) {
                     return {};
                 }
@@ -472,7 +472,7 @@ export namespace deren::promise::rhi {
                         shared_object<rhi_object> locked;
                         locked.instance = this->instance;
                         locked.control = this->control;
-                        locked.alias_owner = std::move(retained_alias);
+                        locked.alias_lifetime = std::move(retained_alias);
                         return locked;
                     }
                 }
@@ -481,7 +481,7 @@ export namespace deren::promise::rhi {
             if (retained_alias != nullptr) {
                 shared_object<rhi_object> locked;
                 locked.instance = this->instance;
-                locked.alias_owner = std::move(retained_alias);
+                locked.alias_lifetime = std::move(retained_alias);
                 return locked;
             }
             return {};
@@ -491,14 +491,14 @@ export namespace deren::promise::rhi {
             if (this->control != nullptr) {
                 return this->control->strong.load(std::memory_order_acquire) == 0;
             }
-            return !this->has_alias() || this->alias_owner.expired();
+            return !this->has_alias() || this->alias_lifetime.expired();
         }
 
         [[nodiscard]] std::uint32_t use_count() const noexcept {
             if (this->control != nullptr) {
                 return this->control->strong.load(std::memory_order_acquire);
             }
-            return this->has_alias() ? static_cast<std::uint32_t>(this->alias_owner.use_count()) : 0u;
+            return this->has_alias() ? static_cast<std::uint32_t>(this->alias_lifetime.use_count()) : 0u;
         }
 
         void reset() noexcept {
@@ -512,7 +512,7 @@ export namespace deren::promise::rhi {
             detail::shared_object_control* const other_control = other.control;
             other.control = this->control;
             this->control = other_control;
-            this->alias_owner.swap(other.alias_owner);
+            this->alias_lifetime.swap(other.alias_lifetime);
         }
 
         /// whether @p other observes the same control block (or the same engine owner)
@@ -525,7 +525,7 @@ export namespace deren::promise::rhi {
             if (!this_has_alias || !other_has_alias) {
                 return !this_has_alias && !other_has_alias;
             }
-            return !this->alias_owner.owner_before(other.alias_owner) && !other.alias_owner.owner_before(this->alias_owner);
+            return !this->alias_lifetime.owner_before(other.alias_lifetime) && !other.alias_lifetime.owner_before(this->alias_lifetime);
         }
 
         /// whether @p other shares this observer's control block or engine-owner identity
@@ -534,11 +534,11 @@ export namespace deren::promise::rhi {
                 return this->control == other.control;
             }
             bool const this_has_alias = this->has_alias();
-            bool const other_has_alias = other.alias_owner != nullptr;
+            bool const other_has_alias = other.alias_lifetime != nullptr;
             if (!this_has_alias || !other_has_alias) {
                 return !this_has_alias && !other_has_alias;
             }
-            return !this->alias_owner.owner_before(other.alias_owner) && !other.alias_owner.owner_before(this->alias_owner);
+            return !this->alias_lifetime.owner_before(other.alias_lifetime) && !other.alias_lifetime.owner_before(this->alias_lifetime);
         }
 
     private:
@@ -550,7 +550,7 @@ export namespace deren::promise::rhi {
 
         [[nodiscard]] bool has_alias() const noexcept {
             std::weak_ptr<void const> const empty;
-            return this->alias_owner.owner_before(empty) || empty.owner_before(this->alias_owner);
+            return this->alias_lifetime.owner_before(empty) || empty.owner_before(this->alias_lifetime);
         }
 
         void release_control() noexcept {
@@ -561,12 +561,12 @@ export namespace deren::promise::rhi {
                 this->control = nullptr;
             }
             this->instance = nullptr;
-            this->alias_owner.reset();
+            this->alias_lifetime.reset();
         }
 
         rhi_object* instance = nullptr;
         detail::shared_object_control* control = nullptr;
-        std::weak_ptr<void const> alias_owner;
+        std::weak_ptr<void const> alias_lifetime;
     };
 
     /// THE CONCRETE-IDENTITY MECHANISM, SHARED BY EVERY BACKEND: a handle's `get_tag()` is the concrete

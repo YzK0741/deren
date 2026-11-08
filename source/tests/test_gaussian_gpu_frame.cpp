@@ -33,8 +33,9 @@ namespace {
             return raster_probe_commands::begin_rendering(info);
         }
         rhi::error barrier(rhi::barrier_group const& group) override {
-            for (auto const& b : group.buffers)
+            for (auto const& b : group.buffers) {
                 consumers.push_back(b.to);
+            }
             return raster_probe_commands::barrier(group);
         }
         rhi::error draw_indirect(rhi::buffer const&, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) override {
@@ -94,12 +95,13 @@ namespace {
             return kind == rhi::extension_kind::gpu_sorting ? &sorting_view : raster_probe_core::query_extension(kind);
         }
         rhi::unique_object<rhi::buffer> create_buffer(rhi::buffer_desc const& desc) override {
-            rhi::unique_object<rhi::buffer> owned = raster_probe_core::create_buffer(desc);
-            auto* buffer = static_cast<raster_test::raster_probe_buffer*>(owned.release());
+            rhi::unique_object<rhi::buffer> handle = raster_probe_core::create_buffer(desc);
+            auto* buffer = static_cast<raster_test::raster_probe_buffer*>(handle.release());
             if (buffer) {
                 buffer->host_enabled = desc.usage == rhi::buffer_usage::storage_coherent;
-                if (buffer->host_enabled)
+                if (buffer->host_enabled) {
                     buffer->storage.resize(static_cast<std::size_t>(desc.size));
+                }
                 allocated.push_back(buffer);
             }
             return rhi::unique_object<rhi::buffer>{buffer};
@@ -122,8 +124,8 @@ namespace {
         a.particles.push_back(p);
         return a;
     }
-    bool push(void* owner, rhi::command_buffer&, std::span<std::byte const> bytes, std::uint32_t) {
-        static_cast<commands*>(owner)->operations.push_back("push" + deren::utility::vessel::to_string(bytes.size()));
+    bool push(void* parent, rhi::command_buffer&, std::span<std::byte const> bytes, std::uint32_t) {
+        static_cast<commands*>(parent)->operations.push_back("push" + deren::utility::vessel::to_string(bytes.size()));
         return true;
     }
     template <typename core_type>
@@ -216,11 +218,13 @@ int main() {
         return gs::prepare_gpu_frame(device, items, camera_value, limits, reuse, lease);
     };
     auto frame = prepare(inputs, camera());
-    if (frame)
+    if (frame) {
         check_managed_storage(**frame);
+    }
     CHECK(frame && (*frame)->candidate_count() == 2u && (*frame)->byte_size() == 752u);
-    if (!frame)
+    if (!frame) {
         return deren::vk_test::finish("gaussian_gpu_frame");
+    }
     deren::utility::vessel::array<gs::gpu_instance_range, 2> ranges{};
     std::memcpy(ranges.data(), device.allocated[3]->mapped().data(), sizeof(ranges));
     CHECK(ranges[0].instance_index == 1u && ranges[0].begin == 0u && ranges[0].end == 1u);
@@ -253,8 +257,8 @@ int main() {
     CHECK((list.consumers == deren::utility::vessel::vector<rhi::buffer_use>{rhi::buffer_use::shader_read_write, rhi::buffer_use::shader_read, rhi::buffer_use::shader_read, rhi::buffer_use::indirect_read, rhi::buffer_use::host_read}));
     CHECK((*frame)->completed_stats(123u).frame_id == 123u);
     list.operations.clear();
-    gs::gpu_frame_timing const timing{&list, [](void* owner, std::uint32_t phase) {
-                                          static_cast<commands*>(owner)->operations.push_back("mark" + deren::utility::vessel::to_string(phase));
+    gs::gpu_frame_timing const timing{&list, [](void* parent, std::uint32_t phase) {
+                                          static_cast<commands*>(parent)->operations.push_back("mark" + deren::utility::vessel::to_string(phase));
                                       }};
     CHECK((*frame)->record_preparation(list, pipelines, {&list, push}, timing) == rhi::error::ok);
     CHECK((list.operations == deren::utility::vessel::vector<deren::utility::vessel::string>{"bind", "push8", "compute", "bind", "push8", "compute", "mark0", "sort", "mark1", "bind", "push8", "compute", "mark2"}));
@@ -265,8 +269,8 @@ int main() {
     pass::pass_context context;
     context.face = &device;
     context.depth_format = rhi::image_format::depth;
-    context.owner = const_cast<void*>(static_cast<void const*>(&shader));
-    context.shader = [](void* owner, std::string_view) { return std::span<std::uint8_t const>{*static_cast<deren::utility::vessel::array<std::uint8_t, 4> const*>(owner)}; };
+    context.parent = const_cast<void*>(static_cast<void const*>(&shader));
+    context.shader = [](void* parent, std::string_view) { return std::span<std::uint8_t const>{*static_cast<deren::utility::vessel::array<std::uint8_t, 4> const*>(parent)}; };
     stage.create(context);
     CHECK(stage.gpu_ready());
     commands complete;
@@ -277,7 +281,7 @@ int main() {
     io.target_storage[1] = {.image_handle = reinterpret_cast<rhi::image*>(std::uintptr_t{3}), .view_handle = reinterpret_cast<rhi::image_view*>(std::uintptr_t{4})};
     io.targets = std::span{io.target_storage}.first(2);
     io.push_block = {&complete, push};
-    stage.record_owned(io);
+    stage.record(io);
     CHECK(stage.last_error() == rhi::error::ok && complete.draws == 1u);
     CHECK((complete.operations == deren::utility::vessel::vector<deren::utility::vessel::string>{"bind", "push8", "compute", "bind", "push8", "compute", "sort", "bind", "push8", "compute", "bind", "push112", "begin", "indirect"}));
     auto empty = prepare(std::span<gs::raster_instance const>{}, camera());
@@ -285,8 +289,8 @@ int main() {
     stage.set_gpu_frame(*empty);
     commands zero;
     io.list = &zero;
-    io.push_block.owner = &zero;
-    stage.record_owned(io);
+    io.push_block.parent = &zero;
+    stage.record(io);
     CHECK(zero.draws == 0u && zero.operations.empty());
     stage.set_frame({});
     reused->reset();
@@ -328,15 +332,15 @@ int main() {
         std::weak_ptr<core> root = leased;
         auto asset = gs::make_raster_asset(*leased, source(), {}, leased);
         deren::utility::vessel::array<gs::raster_instance, 1> input{gs::raster_instance{*asset, glm::mat4{1}, 1}};
-        auto owned = gs::prepare_gpu_frame(*leased, input, camera(), {}, nullptr, leased);
-        CHECK(owned.has_value());
-        if (owned) {
-            auto storage = (*owned)->resources();
+        auto frame = gs::prepare_gpu_frame(*leased, input, camera(), {}, nullptr, leased);
+        CHECK(frame.has_value());
+        if (frame) {
+            auto storage = (*frame)->resources();
             asset->reset();
             input = {};
             leased.reset();
             CHECK(!root.expired());
-            owned->reset();
+            frame->reset();
             CHECK(!root.expired()); // a retained buffer generation also retains the device
             storage = {};
             CHECK(root.expired());

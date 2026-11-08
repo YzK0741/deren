@@ -31,8 +31,9 @@ namespace deren::asset::subtilis {
             uint64_t count = 0;
             for (auto id : clusters) {
                 auto n = p.clusters[id].index_count;
-                if (count > max_records || n > max_records - count)
+                if (count > max_records || n > max_records - count) {
                     return fail("expanded cluster index workspace exceeds limit");
+                }
                 count += n;
             }
             out.reserve(static_cast<size_t>(count));
@@ -71,8 +72,9 @@ namespace deren::asset::subtilis {
             std::sort(order.begin(), order.end(), [&](auto a, auto b) { return s.positions[a] != s.positions[b] ? s.positions[a] < s.positions[b] : a < b; });
             uint32_t representative = 0;
             for (size_t i = 0; i < order.size(); ++i) {
-                if (!i || s.positions[order[i]] != s.positions[order[i - 1]])
+                if (!i || s.positions[order[i]] != s.positions[order[i - 1]]) {
                     representative = order[i];
+                }
                 out.position[order[i]] = representative;
             }
             auto key = [&](uint32_t id) {
@@ -84,8 +86,9 @@ namespace deren::asset::subtilis {
             std::sort(order.begin(), order.end(), [&](auto a, auto b) {auto ka=key(a),kb=key(b);return ka!=kb?ka<kb:a<b; });
             representative = 0;
             for (size_t i = 0; i < order.size(); ++i) {
-                if (!i || key(order[i]) != key(order[i - 1]))
+                if (!i || key(order[i]) != key(order[i - 1])) {
                     representative = order[i];
+                }
                 out.attribute[order[i]] = representative;
             }
             return out;
@@ -108,23 +111,27 @@ namespace deren::asset::subtilis {
                 array<uint32_t, 3> tri{classes[ids[i]], classes[ids[i + 1]], classes[ids[i + 2]]};
                 for (unsigned k = 0; k < 3; ++k) {
                     auto u = tri[k], v = tri[(k + 1) % 3];
-                    if (u == v)
+                    if (u == v) {
                         return fail("degenerate reduction edge");
+                    }
                     edges.push_back({std::min(u, v), std::max(u, v), static_cast<uint32_t>(i / 3), u < v ? 1u : 0u});
                 }
                 std::sort(tri.begin(), tri.end());
                 faces.push_back(tri);
             }
             std::sort(faces.begin(), faces.end());
-            if (std::adjacent_find(faces.begin(), faces.end()) != faces.end())
+            if (std::adjacent_find(faces.begin(), faces.end()) != faces.end()) {
                 return fail("duplicate reduction face");
+            }
             std::sort(edges.begin(), edges.end());
             for (size_t first = 0; first < edges.size();) {
                 size_t end = first + 1;
-                while (end < edges.size() && edges[end][0] == edges[first][0] && edges[end][1] == edges[first][1])
+                while (end < edges.size() && edges[end][0] == edges[first][0] && edges[end][1] == edges[first][1]) {
                     ++end;
-                if (end - first > 2 || (end - first == 2 && edges[first][3] == edges[first + 1][3]))
+                }
+                if (end - first > 2 || (end - first == 2 && edges[first][3] == edges[first + 1][3])) {
                     return fail("nonmanifold reduction edge");
+                }
                 if (end - first == 1) {
                     auto e = edges[first];
                     result.boundary.push_back(e[3] ? array<uint32_t, 2>{e[0], e[1]} : array<uint32_t, 2>{e[1], e[0]});
@@ -139,15 +146,19 @@ namespace deren::asset::subtilis {
                 vertices.reserve(ids.size());
                 for (size_t i = 0; i < parent.size(); ++i) {
                     auto r = root(static_cast<uint32_t>(i));
-                    if (r == i)
+                    if (r == i) {
                         ++result.component_count;
-                    for (unsigned k = 0; k < 3; ++k)
+                    }
+                    for (unsigned k = 0; k < 3; ++k) {
                         vertices.push_back({classes[ids[i * 3 + k]], r});
+                    }
                 }
                 std::sort(vertices.begin(), vertices.end());
-                for (size_t i = 1; i < vertices.size(); ++i)
-                    if (vertices[i][0] == vertices[i - 1][0] && vertices[i][1] != vertices[i - 1][1])
+                for (size_t i = 1; i < vertices.size(); ++i) {
+                    if (vertices[i][0] == vertices[i - 1][0] && vertices[i][1] != vertices[i - 1][1]) {
                         return fail("pinched reduction components");
+                    }
+                }
             }
             std::sort(result.boundary.begin(), result.boundary.end());
             return result;
@@ -158,8 +169,9 @@ namespace deren::asset::subtilis {
             bool operator==(region const&) const = default;
         };
         result<region> analyze_region(source_geometry const& s, std::span<uint32_t const> ids, vertex_classes const& classes) {
-            if (!ids.size() || ids.size() % 3)
+            if (!ids.size() || ids.size() % 3) {
                 return fail("invalid reduction region");
+            }
             for (size_t i = 0; i < ids.size(); i += 3) {
                 auto a = s.positions[ids[i]], b = s.positions[ids[i + 1]], c = s.positions[ids[i + 2]];
                 array<double, 3> ab{}, ac{};
@@ -167,15 +179,18 @@ namespace deren::asset::subtilis {
                     ab[k] = double(b[k]) - a[k];
                     ac[k] = double(c[k]) - a[k];
                 }
-                if (std::hypot(ab[1] * ac[2] - ab[2] * ac[1], ab[2] * ac[0] - ab[0] * ac[2], ab[0] * ac[1] - ab[1] * ac[0]) == 0)
+                if (std::hypot(ab[1] * ac[2] - ab[2] * ac[1], ab[2] * ac[0] - ab[0] * ac[2], ab[0] * ac[1] - ab[1] * ac[0]) == 0) {
                     return fail("degenerate reduction triangle");
+                }
             }
             auto geometric = analyze_class_graph(ids, classes.position, true);
-            if (!geometric)
+            if (!geometric) {
                 return std::unexpected(geometric.error());
+            }
             auto attribute = analyze_class_graph(ids, classes.attribute, false);
-            if (!attribute)
+            if (!attribute) {
                 return std::unexpected(attribute.error());
+            }
             region out;
             out.geometric = std::move(geometric->boundary);
             out.attribute = std::move(attribute->boundary);
@@ -188,106 +203,142 @@ namespace deren::asset::subtilis {
         uint64_t strides[]{4, 32, 48, 4, 4, 4, 1};
         uint64_t bytes = 352;
         for (size_t i = 0; i < 7; ++i) {
-            if (counts[i] > lim.max_records || counts[i] > UINT32_MAX || ((i == 1 || i == 2) && counts[i] == none))
+            if (counts[i] > lim.max_records || counts[i] > UINT32_MAX || ((i == 1 || i == 2) && counts[i] == none)) {
                 return std::unexpected(error{error_code::capacity, "record limit", {}, {}});
+            }
             bytes += (counts[i] * strides[i] + 7) & ~uint64_t(7);
         }
-        if (bytes > lim.max_payload_bytes)
+        if (bytes > lim.max_payload_bytes) {
             return std::unexpected(error{error_code::capacity, "payload byte limit", {}, {}});
-        if (p.clusters.empty() || p.indices.empty() || p.leaves.empty() || p.roots.empty())
+        }
+        if (p.clusters.empty() || p.indices.empty() || p.leaves.empty() || p.roots.empty()) {
             return fail("empty asset");
-        for (auto id : p.references)
-            if (id >= p.clusters.size())
+        }
+        for (auto id : p.references) {
+            if (id >= p.clusters.size()) {
                 return fail("reference outside cluster table");
+            }
+        }
         for (auto const& c : p.clusters) {
-            if (!c.index_count || c.index_count % 3 || c.index_count > 255 || !range(c.first_index, c.index_count, p.indices.size()) || !sphere_valid(c.geometry))
+            if (!c.index_count || c.index_count % 3 || c.index_count > 255 || !range(c.first_index, c.index_count, p.indices.size()) || !sphere_valid(c.geometry)) {
                 return fail("invalid cluster record");
-            if ((c.producer != none && c.producer >= p.groups.size()) || (c.consumer != none && c.consumer >= p.groups.size()) || (c.producer != none && c.consumer != none && c.producer >= c.consumer))
+            }
+            if ((c.producer != none && c.producer >= p.groups.size()) || (c.consumer != none && c.consumer >= p.groups.size()) || (c.producer != none && c.consumer != none && c.producer >= c.consumer)) {
                 return fail("invalid cluster dependency");
+            }
         }
         vector<uint32_t> producer(p.clusters.size(), none), consumer(p.clusters.size(), none);
         for (uint32_t id = 0; id < p.groups.size(); ++id) {
             auto const& g = p.groups[id];
-            if (!g.fine_count || !g.coarse_count || !range(g.fine_first, g.fine_count, p.references.size()) || !range(g.coarse_first, g.coarse_count, p.references.size()) || !sphere_valid(g.lod) || !std::isfinite(g.error) || g.error < 0)
+            if (!g.fine_count || !g.coarse_count || !range(g.fine_first, g.fine_count, p.references.size()) || !range(g.coarse_first, g.coarse_count, p.references.size()) || !sphere_valid(g.lod) || !std::isfinite(g.error) || g.error < 0) {
                 return fail("invalid reduction group", id);
+            }
             uint64_t fine_indices = 0, coarse_indices = 0;
             for (auto c : fine(p, g)) {
-                if (c >= p.clusters.size() || consumer[c] != none || p.clusters[c].consumer != id)
+                if (c >= p.clusters.size() || consumer[c] != none || p.clusters[c].consumer != id) {
                     return fail("invalid or repeated fine reference", id);
+                }
                 auto dependency = p.clusters[c].producer;
-                if (dependency != none && (dependency >= id || p.groups[dependency].error > g.error || distance(g.lod, p.groups[dependency].lod) + p.groups[dependency].lod.radius > double(g.lod.radius)))
+                if (dependency != none && (dependency >= id || p.groups[dependency].error > g.error || distance(g.lod, p.groups[dependency].lod) + p.groups[dependency].lod.radius > double(g.lod.radius))) {
                     return fail("nonmonotone dependency metric", id);
+                }
                 consumer[c] = id;
                 fine_indices += p.clusters[c].index_count;
             }
             for (auto c : coarse(p, g)) {
-                if (c >= p.clusters.size() || producer[c] != none || p.clusters[c].producer != id || consumer[c] == id)
+                if (c >= p.clusters.size() || producer[c] != none || p.clusters[c].producer != id || consumer[c] == id) {
                     return fail("invalid or repeated coarse reference", id);
+                }
                 producer[c] = id;
                 coarse_indices += p.clusters[c].index_count;
             }
-            if (coarse_indices >= fine_indices)
+            if (coarse_indices >= fine_indices) {
                 return fail("reduction has no triangle progress", id);
+            }
         }
-        for (size_t i = 0; i < p.clusters.size(); ++i)
-            if (producer[i] != p.clusters[i].producer || consumer[i] != p.clusters[i].consumer)
+        for (size_t i = 0; i < p.clusters.size(); ++i) {
+            if (producer[i] != p.clusters[i].producer || consumer[i] != p.clusters[i].consumer) {
                 return fail("missing reciprocal group reference");
+            }
+        }
         auto exact_set = [&](vector<uint32_t> const& list, bool leaf) {
             vector<bool> found(p.clusters.size(), false);
             for (auto id : list) {
-                if (id >= found.size() || found[id] || (leaf ? producer[id] : consumer[id]) != none)
+                if (id >= found.size() || found[id] || (leaf ? producer[id] : consumer[id]) != none) {
                     return false;
+                }
                 found[id] = true;
             }
-            for (size_t i = 0; i < found.size(); ++i)
-                if (found[i] != ((leaf ? producer[i] : consumer[i]) == none))
+            for (size_t i = 0; i < found.size(); ++i) {
+                if (found[i] != ((leaf ? producer[i] : consumer[i]) == none)) {
                     return false;
+                }
+            }
             return true;
         };
-        if (!exact_set(p.leaves, true) || !exact_set(p.roots, false))
+        if (!exact_set(p.leaves, true) || !exact_set(p.roots, false)) {
             return fail("leaf or root coverage mismatch");
+        }
         return {};
     }
     result<validated_asset> make_asset(source_geometry source, payload data, limits const& lim) {
         auto structure = validate_structure(data, lim);
-        if (!structure)
+        if (!structure) {
             return std::unexpected(structure.error());
-        if (source.positions.size() > lim.max_records || source.indices.size() > lim.max_records || uint64_t(source.positions.size()) * 32 + uint64_t(source.indices.size()) * 4 > lim.max_input_bytes)
+        }
+        if (source.positions.size() > lim.max_records || source.indices.size() > lim.max_records || uint64_t(source.positions.size()) * 32 + uint64_t(source.indices.size()) * 4 > lim.max_input_bytes) {
             return std::unexpected(error{error_code::capacity, "source geometry exceeds limits", {}, {}});
+        }
         auto hash = source_digest(source);
-        if (!hash)
+        if (!hash) {
             return std::unexpected(hash.error());
-        if (*hash != data.source_hash)
+        }
+        if (*hash != data.source_hash) {
             return fail("source fingerprint mismatch");
-        for (auto id : data.indices)
-            if (id >= source.positions.size())
+        }
+        for (auto id : data.indices) {
+            if (id >= source.positions.size()) {
                 return fail("cluster vertex outside source");
-        for (auto const& c : data.clusters)
-            for (auto vertex : std::span(data.indices).subspan(c.first_index, c.index_count))
-                if (!inside(c.geometry, source.positions[vertex]))
+            }
+        }
+        for (auto const& c : data.clusters) {
+            for (auto vertex : std::span(data.indices).subspan(c.first_index, c.index_count)) {
+                if (!inside(c.geometry, source.positions[vertex])) {
                     return fail("geometry sphere excludes a vertex");
+                }
+            }
+        }
         auto leaves = gather(data, data.leaves, std::min(lim.max_records, uint64_t(source.indices.size())));
-        if (!leaves)
+        if (!leaves) {
             return std::unexpected(leaves.error());
-        if (triangles(*leaves) != triangles(source.indices))
+        }
+        if (triangles(*leaves) != triangles(source.indices)) {
             return fail("LOD0 triangle multiset or winding mismatch");
+        }
         auto classes = classify_vertices(source);
         for (uint32_t id = 0; id < data.groups.size(); ++id) {
             auto const& g = data.groups[id];
             auto f = gather(data, fine(data, g), lim.max_records), c = gather(data, coarse(data, g), lim.max_records);
-            if (!f)
+            if (!f) {
                 return std::unexpected(f.error());
-            if (!c)
+            }
+            if (!c) {
                 return std::unexpected(c.error());
-            for (auto vertex : *f)
-                if (!inside(g.lod, source.positions[vertex]))
+            }
+            for (auto vertex : *f) {
+                if (!inside(g.lod, source.positions[vertex])) {
                     return fail("LOD sphere excludes fine geometry", id);
-            for (auto vertex : *c)
-                if (!inside(g.lod, source.positions[vertex]))
+                }
+            }
+            for (auto vertex : *c) {
+                if (!inside(g.lod, source.positions[vertex])) {
                     return fail("LOD sphere excludes coarse geometry", id);
+                }
+            }
             auto fine_region = analyze_region(source, *f, classes), coarse_region = analyze_region(source, *c, classes);
-            if (!fine_region || !coarse_region || *fine_region != *coarse_region)
+            if (!fine_region || !coarse_region || *fine_region != *coarse_region) {
                 return fail("reduction boundary or components differ", id);
+            }
         }
         return validated_asset(std::move(source), std::move(data));
     }

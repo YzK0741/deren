@@ -48,8 +48,9 @@ struct queue_gate {
         create.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
         create.pNext = &type;
         CHECK(vkCreateSemaphore(device, &create, nullptr, &semaphore) == VK_SUCCESS);
-        if (!semaphore)
+        if (!semaphore) {
             return;
+        }
         std::uint64_t value = 1;
         VkTimelineSemaphoreSubmitInfo timeline{};
         timeline.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
@@ -66,8 +67,9 @@ struct queue_gate {
         CHECK(armed);
     }
     void release() {
-        if (!armed)
+        if (!armed) {
             return;
+        }
         VkSemaphoreSignalInfo signal{};
         signal.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO;
         signal.semaphore = semaphore;
@@ -78,16 +80,18 @@ struct queue_gate {
     }
     ~queue_gate() {
         release();
-        if (semaphore)
+        if (semaphore) {
             vkDestroySemaphore(device, semaphore, nullptr);
+        }
     }
 };
 
 void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context_view const& main_context) {
     std::ifstream input(VR_TEXTURE_GROUP_SHADER_PATH, std::ios::binary | std::ios::ate);
     CHECK(input.good());
-    if (!input.good())
+    if (!input.good()) {
         return;
+    }
     deren::utility::vessel::vector<std::byte> code(static_cast<std::size_t>(input.tellg()));
     input.seekg(0);
     input.read(reinterpret_cast<char*>(code.data()), static_cast<std::streamsize>(code.size()));
@@ -100,8 +104,9 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context_view co
     auto wrong = desc;
     wrong.texture_group.push_byte_offset = 0; // destination is uint64, not the group token
     CHECK(!core.resources->create_pipeline(wrong));
-    if (!pipeline)
+    if (!pipeline) {
         return;
+    }
     auto make_image = [&core](std::uint32_t pixel) {
         rhi::image_desc info{};
         info.extent = {.width = 1, .height = 1, .depth = 1};
@@ -112,8 +117,9 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context_view co
     };
     auto red = make_image(0xff0000ffu), blue = make_image(0xffff0000u), green = make_image(0xff00ff00u);
     CHECK(red && blue && green);
-    if (!red || !blue || !green)
+    if (!red || !blue || !green) {
         return;
+    }
     rhi::texture_group_info a{};
     a.textures[0] = red.get();
     a.textures[15] = blue.get();
@@ -122,8 +128,9 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context_view co
     b.textures[15] = green.get();
     auto group_a = core.resources->assign_texture_group(a), group_b = core.resources->assign_texture_group(b);
     CHECK(group_a && group_b);
-    if (!group_a || !group_b)
+    if (!group_a || !group_b) {
         return;
+    }
     rhi::image* const red_image = red.get();
     red.reset();
     blue.reset();
@@ -215,8 +222,9 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context_view co
         storage_desc.flags = rhi::to_bits(rhi::image_flag::storage);
         auto storage = core.resources->create_image(storage_desc);
         CHECK(storage);
-        if (storage)
+        if (storage) {
             CHECK(space->write_image({.slot = fixed.base + 2, .resource = storage.get(), .view = &view, .type = rhi::descriptor_type::storage_image}) == rhi::error::ok);
+        }
         write.type = rhi::descriptor_type::storage_buffer;
         write.slot = fixed.base + fixed.count;
         CHECK(space->write_buffer(write) == rhi::error::invalid_argument);
@@ -257,8 +265,9 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context_view co
         out_of_range.index = rhi::texture_group_capacity;
         CHECK(space->write(out_of_range) == rhi::error::invalid_argument);
     }
-    if (!output || !commands || !heap || !addresses)
+    if (!output || !commands || !heap || !addresses) {
         return;
+    }
     std::memset(output->mapped().data(), 0, 60);
     CHECK(commands->load_texture_group(group_a) == rhi::error::not_ready);
     CHECK(commands->begin_recording({}) == rhi::error::ok);
@@ -287,8 +296,9 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context_view co
     for (std::uint32_t i = 0; i < 5; ++i) {
         data.index = i;
         CHECK(commands.get()->push_constants(12, std::as_bytes(std::span(&data.index, 1))) == rhi::error::ok);
-        if (i == 0 || i == 4)
+        if (i == 0 || i == 4) {
             CHECK(commands->load_texture_group(group_a) == rhi::error::ok);
+        }
         if (i == 0) {
             struct foreign_group : rhi::texture_group {
                 [[nodiscard]] std::string_view get_tag() const noexcept override {
@@ -301,12 +311,15 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context_view co
             rhi::texture_group_ref wrong = rhi::shared_object<rhi::texture_group>{&foreign};
             CHECK(commands->load_texture_group(wrong) == rhi::error::invalid_argument);
         }
-        if (i == 1)
+        if (i == 1) {
             CHECK(commands->load_texture_group(group_b) == rhi::error::ok);
-        if (i == 2)
+        }
+        if (i == 2) {
             CHECK(commands->load_texture_group({}) == rhi::error::ok);
-        if (i == 3)
+        }
+        if (i == 3) {
             CHECK(commands->bind_pipeline(*pipeline) == rhi::error::ok);
+        }
         commands->dispatch(1, 1, 1);
     }
     auto native = deren::vulkan::is_command_buffer(*commands)
@@ -348,9 +361,11 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context_view co
     deren::utility::vessel::array<std::uint32_t, 15> const expected{0x8001, 0xff, 0xff0000, 0x8001, 0xff00, 0xff00,
                                                                     0, 0, 0, 0, 0, 0, 0x8001, 0xff, 0xff0000};
     CHECK(actual == expected);
-    if (actual != expected)
-        for (std::size_t i = 0; i < actual.size(); ++i)
+    if (actual != expected) {
+        for (std::size_t i = 0; i < actual.size(); ++i) {
             deren::vk_test::write_line("heap output[{}] = {:#x}, expected {:#x}", i, actual[i], expected[i]);
+        }
+    }
 
     // ---- ABI 35: BATCH SUBMISSION of two mergeable command buffers (real backend) --------------------
     // Two independent segments copy one value each into two halves of a host-visible buffer; ONE batch
@@ -421,10 +436,12 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context_view co
 
 int main(int argc, char** argv) {
     bool with_device = false;
-    for (int i = 1; i < argc; ++i)
+    for (int i = 1; i < argc; ++i) {
         with_device |= std::string_view(argv[i]) == "--with-device";
-    if (!with_device)
+    }
+    if (!with_device) {
         return deren::vk_test::skip("test_texture_group", "--with-device was not passed: the device lane did not run");
+    }
     rhi::create_info creation{};
     creation.window_width = 64;
     creation.window_height = 64;
@@ -432,20 +449,23 @@ int main(int argc, char** argv) {
     creation.validation_layers = true;
     auto core = deren::engine::load_api_core(creation);
     CHECK(core);
-    if (!core)
+    if (!core) {
         return deren::vk_test::finish("test_texture_group");
+    }
     deren::vulkan::main_context_view const* const main_context = vulkan_main(*core);
     CHECK(main_context != nullptr);
-    if (main_context == nullptr)
+    if (main_context == nullptr) {
         return deren::vk_test::finish("test_texture_group");
+    }
     VkDevice const device = main_context->device;
     VkQueue const queue = main_context->graphics_queue;
     test_heap_sampling(*core, *main_context);
     rhi::unique_object<rhi::buffer> output{core->resources->create_buffer({.size = 4, .usage = rhi::buffer_usage::readback_coherent})};
     auto primary = core->commands->make_command_buffer({});
     CHECK(output && primary);
-    if (!output || !primary)
+    if (!output || !primary) {
         return deren::vk_test::finish("test_texture_group");
+    }
     // abi 42: the fill travels through the CONTRACT (a copy from a host-initialised buffer), because the
     // escape no longer lends a native buffer handle - only the recording target a third-party renderer needs.
     std::array<std::byte, 4> const source_value{std::byte{0x44}, std::byte{0x33}, std::byte{0x22}, std::byte{0x11}};
@@ -454,8 +474,9 @@ int main(int argc, char** argv) {
                                                                            .flags = rhi::to_bits(rhi::buffer_flag::transfer_source),
                                                                            .initial_bytes = std::span<std::byte const>(source_value.data(), source_value.size())})};
     CHECK(source);
-    if (!source)
+    if (!source) {
         return deren::vk_test::finish("test_texture_group");
+    }
     std::memset(output->mapped().data(), 0, 4);
     CHECK(primary->begin_recording({}) == rhi::error::ok);
     CHECK(primary->copy_buffer(*output, *source, 4u, 0u, 0u) == rhi::error::ok);
@@ -469,8 +490,9 @@ int main(int argc, char** argv) {
     create.pNext = &type;
     VkSemaphore gate = VK_NULL_HANDLE;
     CHECK(vkCreateSemaphore(device, &create, nullptr, &gate) == VK_SUCCESS);
-    if (gate == VK_NULL_HANDLE)
+    if (gate == VK_NULL_HANDLE) {
         return deren::vk_test::finish("test_texture_group");
+    }
     std::uint64_t const value = 1;
     VkTimelineSemaphoreSubmitInfo timeline{};
     timeline.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;

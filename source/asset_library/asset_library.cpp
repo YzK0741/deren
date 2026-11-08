@@ -1,7 +1,7 @@
 module;
 
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 #include <toml++/toml.hpp>
 
 module deren.asset_library;
@@ -96,7 +96,7 @@ namespace deren::asset_library {
         }
 
         std::optional<std::array<float, 6>> camera_pose_value(toml::table const& table, fs::path const& manifest,
-                                                             std::vector<std::string>& warnings) {
+                                                              std::vector<std::string>& warnings) {
             toml::node const* node = table.get("pose");
             if (node == nullptr) {
                 return std::nullopt;
@@ -281,10 +281,14 @@ namespace deren::asset_library {
 
     std::string_view asset_type_name(asset_type const type) noexcept {
         switch (type) {
-            case asset_type::pbr: return "pbr";
-            case asset_type::toon: return "toon";
-            case asset_type::unlit: return "unlit";
-            case asset_type::gaussian: return "gaussian";
+        case asset_type::pbr:
+            return "pbr";
+        case asset_type::toon:
+            return "toon";
+        case asset_type::unlit:
+            return "unlit";
+        case asset_type::gaussian:
+            return "gaussian";
         }
         return "pbr";
     }
@@ -427,8 +431,7 @@ namespace deren::asset_library {
             if (library.find(requested_default) != nullptr) {
                 library.default_id_ = requested_default;
             } else {
-                warn(library.warnings_, config_path, "default asset '" + requested_default + "' not found; using '" +
-                                                          library.default_id_ + "'");
+                warn(library.warnings_, config_path, "default asset '" + requested_default + "' not found; using '" + library.default_id_ + "'");
             }
         }
         return library;

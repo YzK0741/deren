@@ -6,8 +6,9 @@ namespace deren::engine::subtilis::dag_lod_detail {
         auto clusters = geometry.clusters();
         auto references = geometry.references();
         for (decltype(groups.size()) id = 0; id < groups.size(); ++id) {
-            if (!decisions[id])
+            if (!decisions[id]) {
                 continue;
+            }
             auto const& g = groups[id];
             for (auto c : references.subspan(g.fine.first, g.fine.count)) {
                 auto producer = clusters[c].producer;

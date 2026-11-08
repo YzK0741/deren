@@ -40,10 +40,10 @@ export namespace deren::engine::render_resource {
      * other declaration so far was a compute pass).
      */
     inline constexpr deren::utility::vessel::array<pass_binding, 4> taa_bindings = {{
-        {.binding = 0, .owner = binding_owner::own, .kind = binding_kind::sampled_image, .resource = resource_id::scene_color, .access = binding_access::read, .sampler = sampler_hint::taa, .stages = stage_flag::fragment},
-        {.binding = 1, .owner = binding_owner::own, .kind = binding_kind::sampled_image, .resource = resource_id::taa_history, .access = binding_access::read, .sampler = sampler_hint::taa, .stages = stage_flag::fragment},
-        {.binding = 2, .owner = binding_owner::own, .kind = binding_kind::sampled_image, .resource = resource_id::velocity, .access = binding_access::read, .sampler = sampler_hint::taa, .stages = stage_flag::fragment},
-        {.binding = 3, .owner = binding_owner::own, .kind = binding_kind::sampled_image, .resource = resource_id::gbuffer_depth, .access = binding_access::read, .sampler = sampler_hint::taa, .stages = stage_flag::fragment},
+        {.binding = 0, .parent = binding_scope::local, .kind = binding_kind::sampled_image, .resource = resource_id::scene_color, .access = binding_access::read, .sampler = sampler_hint::taa, .stages = stage_flag::fragment},
+        {.binding = 1, .parent = binding_scope::local, .kind = binding_kind::sampled_image, .resource = resource_id::taa_history, .access = binding_access::read, .sampler = sampler_hint::taa, .stages = stage_flag::fragment},
+        {.binding = 2, .parent = binding_scope::local, .kind = binding_kind::sampled_image, .resource = resource_id::velocity, .access = binding_access::read, .sampler = sampler_hint::taa, .stages = stage_flag::fragment},
+        {.binding = 3, .parent = binding_scope::local, .kind = binding_kind::sampled_image, .resource = resource_id::gbuffer_depth, .access = binding_access::read, .sampler = sampler_hint::taa, .stages = stage_flag::fragment},
     }};
 
     /// @brief the resolve RENDERS INTO the frame's HDR target, which is why it needs a target and not a binding
@@ -72,7 +72,7 @@ export namespace deren::engine::render_resource {
      * scene's primitives into the frame's surface targets. The material table, the texture array, the camera
      * and light UBOs, the shadow map, the instance table and the top level structure all reach its shaders
      * through the frame's heap, whose contents its owners publish - so this declaration names no binding for
-     * any of them. Those are `binding_owner::shared` resources the pass only USES, not owns.
+     * any of them. Those are `binding_scope::shared` resources the pass only USES, not owns.
      *
      * THE TARGETS ARE THE FRAME'S SURFACE, in the order the rendering instance needs them: the three stored
      * G-buffer targets, the motion-vector target, the scene colour target the lighting stage adds on top of,

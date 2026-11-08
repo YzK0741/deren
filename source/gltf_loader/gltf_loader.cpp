@@ -768,8 +768,9 @@ namespace {
                         continue;
                     }
                     current_mesh.primitives.push_back(load_primitive(primitive, asset));
-                    if (payloads)
+                    if (payloads) {
                         current_mesh.primitives.back().subtilis = (*payloads)[*fnode.meshIndex][prim_index];
+                    }
                     ++prim_index;
                 }
                 // glTF mesh.weights: default morph weights (one per target of the primitives)
@@ -1502,10 +1503,12 @@ namespace {
     /// source buffer directly; 3/1-channel inputs must convert first, then release the source. This is what
     /// keeps the loader from retaining a second full copy of every texture through mip generation.
     deren::utility::vessel::vector<uint8_t> to_rgba(deren::gltf::texture_data& texture, bool const consume) {
-        if (!consume)
+        if (!consume) {
             return to_rgba(static_cast<deren::gltf::texture_data const&>(texture));
-        if (texture.component == 4)
+        }
+        if (texture.component == 4) {
             return std::move(texture.data);
+        }
         auto rgba = to_rgba(static_cast<deren::gltf::texture_data const&>(texture));
         deren::utility::vessel::vector<uint8_t>{}.swap(texture.data);
         return rgba;
@@ -1557,8 +1560,9 @@ namespace {
         std::size_t total_bytes = 0;
         for (uint32_t mip = 0, w = width, h = height; mip < mip_count; ++mip) {
             total_bytes += static_cast<std::size_t>(w) * h * 4;
-            if (w == 1 && h == 1)
+            if (w == 1 && h == 1) {
                 break;
+            }
             w = std::max(1u, w / 2);
             h = std::max(1u, h / 2);
         }
@@ -1718,8 +1722,8 @@ namespace deren::gltf {
         if (scene_index >= loaded.scene.size()) {
             return out;
         }
-        deren::gltf::scene const& owner = loaded.scene[scene_index];
-        deren::utility::vessel::vector<node> const& nodes = owner.nodes;
+        deren::gltf::scene const& parent = loaded.scene[scene_index];
+        deren::utility::vessel::vector<node> const& nodes = parent.nodes;
         std::size_t const none = static_cast<std::size_t>(-1);
 
         auto const family_of = [&loaded](primitive const& prim) {
@@ -2191,8 +2195,9 @@ namespace deren::gltf {
 
         scenes result;
         subtilis_cache payloads;
-        if (options.extract_subtilis_payload)
+        if (options.extract_subtilis_payload) {
             payloads = extract_subtilis_payloads(buffer_exp.get(), asset);
+        }
         result.scene.reserve(asset.scenes.size());
         for (std::size_t i = 0; i < asset.scenes.size(); ++i) {
             result.scene.push_back(load_scene(asset, i, options.extract_subtilis_payload ? &payloads : nullptr));
@@ -2268,17 +2273,17 @@ namespace deren::gltf {
 
     // ---- deren::gltf::scenes iteration: flatten scene -> node -> mesh -> primitive ----
 
-    scene_iterator::scene_iterator(scenes const& owner)
-        : iterating_scene(&owner)
+    scene_iterator::scene_iterator(scenes const& parent)
+        : iterating_scene(&parent)
         , exhausted(false) {
         this->advance();
     }
 
     scene_iterator::reference scene_iterator::operator*() const noexcept {
-        auto const& owner = *this->iterating_scene;
-        auto const& prim = owner.scene[this->scene_i].nodes[this->node_i].meshes[this->mesh_i].primitives[this->prim_i];
+        auto const& parent = *this->iterating_scene;
+        auto const& prim = parent.scene[this->scene_i].nodes[this->node_i].meshes[this->mesh_i].primitives[this->prim_i];
         this->current.primitive = &prim;
-        this->current.transform_matrix = owner.scene[this->scene_i].nodes[this->node_i].transform_matrix;
+        this->current.transform_matrix = parent.scene[this->scene_i].nodes[this->node_i].transform_matrix;
         return this->current;
     }
 
@@ -2301,9 +2306,9 @@ namespace deren::gltf {
             this->exhausted = true;
             return;
         }
-        auto const& owner = *this->iterating_scene;
-        while (this->scene_i < owner.scene.size()) {
-            auto const& s = owner.scene[this->scene_i];
+        auto const& parent = *this->iterating_scene;
+        while (this->scene_i < parent.scene.size()) {
+            auto const& s = parent.scene[this->scene_i];
             if (this->node_i >= s.nodes.size()) {
                 ++this->scene_i;
                 this->node_i = this->mesh_i = this->prim_i = 0;
@@ -2369,8 +2374,8 @@ namespace deren::gltf {
         }
     }
 
-    scene_node_iterator::scene_node_iterator(scenes const& owner)
-        : iterating_scene(&owner)
+    scene_node_iterator::scene_node_iterator(scenes const& parent)
+        : iterating_scene(&parent)
         , exhausted(false) {
         this->push_next_root(); // land on the first root of the first scene (or exhaust)
     }
@@ -2444,13 +2449,18 @@ namespace deren::gltf {
                 // Textures no material references will never be decoded; release their decoded bytes
                 // before the mip peak rather than carrying them through the whole resolve.
                 deren::utility::vessel::vector<uint8_t> referenced(consume_scene->textures.size(), 0);
-                for (auto const& material : consume_scene->materials)
-                    for (auto const& entry : material.texture_indices)
-                        if (entry.second < referenced.size())
+                for (auto const& material : consume_scene->materials) {
+                    for (auto const& entry : material.texture_indices) {
+                        if (entry.second < referenced.size()) {
                             referenced[entry.second] = 1;
-                for (std::size_t i = 0; i < referenced.size(); ++i)
-                    if (!referenced[i])
+                        }
+                    }
+                }
+                for (std::size_t i = 0; i < referenced.size(); ++i) {
+                    if (!referenced[i]) {
                         deren::utility::vessel::vector<uint8_t>{}.swap(consume_scene->textures[i].data);
+                    }
+                }
             }
 
             // decoded texture cache: one entry per glTF texture index; shared textures decode once,
@@ -2529,7 +2539,7 @@ namespace deren::gltf {
                     slot.width = decoded.width;
                     slot.height = decoded.height;
                     slot.mip_levels = decoded.mip_levels;
-                    slot.owner = decoded.data;
+                    slot.parent = decoded.data;
                     slot.valid = true;
                 }
                 result.push_back(std::move(out));
@@ -2572,11 +2582,13 @@ namespace deren::gltf {
         return vertex_view{.data = this->vertex_bytes, .stride = this->vertex_stride, .count = this->vertex_count};
     }
     subtilis_payload_view drawable_iterator::get_subtilis() const {
-        if (!(this->inner != scene_iterator{}))
+        if (!(this->inner != scene_iterator{})) {
             return {};
+        }
         auto const* primitive = (*this->inner).primitive;
-        if (!primitive || !primitive->subtilis)
+        if (!primitive || !primitive->subtilis) {
             return {};
+        }
         auto const& p = *primitive->subtilis;
         return {true, p.bytes, p.version, p.profile, p.buffer_view, p.profile_attributes};
     }

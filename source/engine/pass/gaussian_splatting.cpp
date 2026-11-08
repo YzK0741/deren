@@ -25,8 +25,8 @@ namespace deren::engine::pass {
         if (context.face == nullptr || context.shader == nullptr || color_format == rhi::image_format::unknown || context.depth_format == rhi::image_format::unknown) {
             return;
         }
-        auto const vertex = context.shader(context.owner, "gaussian_raster.vert.spv");
-        auto const fragment = context.shader(context.owner, "gaussian_raster.frag.spv");
+        auto const vertex = context.shader(context.parent, "gaussian_raster.vert.spv");
+        auto const fragment = context.shader(context.parent, "gaussian_raster.frag.spv");
         if (vertex.empty() || fragment.empty() || vertex.size() % 4 != 0 || fragment.size() % 4 != 0) {
             return;
         }
@@ -47,7 +47,7 @@ namespace deren::engine::pass {
         if (rhi::query_extension<rhi::gpu_sorting>(*context.face)) {
             deren::utility::vessel::array<std::string_view, 3> const names = {"gaussian_reset.comp.spv", "gaussian_prepare.comp.spv", "gaussian_finalize.comp.spv"};
             for (std::size_t i = 0; i < names.size(); ++i) {
-                auto const code = context.shader(context.owner, names[i]);
+                auto const code = context.shader(context.parent, names[i]);
                 if (code.empty() || code.size() % 4u != 0u) {
                     return;
                 }
@@ -63,7 +63,7 @@ namespace deren::engine::pass {
         }
     }
 
-    void gaussian_splatting_pass::record_owned(resolved_io const& io) {
+    void gaussian_splatting_pass::record(resolved_io const& io) {
         static_cast<void>(this->record_impl(io, true));
     }
 
@@ -71,14 +71,14 @@ namespace deren::engine::pass {
         return this->record_impl(io, false);
     }
 
-    rhi::error gaussian_splatting_pass::record_impl(resolved_io const& io, bool const own_barriers) noexcept {
+    rhi::error gaussian_splatting_pass::record_impl(resolved_io const& io, bool const local_barriers) noexcept {
         struct timing_scope {
             gaussian_splatting::gpu_frame_timing points;
             bool delegated = false;
             ~timing_scope() {
                 if (!delegated && points.mark) {
                     for (std::uint32_t phase = 0; phase < 3u; ++phase) {
-                        points.mark(points.owner, phase);
+                        points.mark(points.parent, phase);
                     }
                 }
             }
@@ -122,7 +122,7 @@ namespace deren::engine::pass {
             rhi::image_barrier{.resource = io.targets[1].image_handle, .from = rhi::image_use::shader_read, .to = rhi::image_use::depth_attachment},
             rhi::image_barrier{.resource = io.targets[0].image_handle, .from = rhi::image_use::color_attachment, .to = rhi::image_use::color_attachment},
         };
-        if (own_barriers) {
+        if (local_barriers) {
             record_error = io.list->barrier(rhi::barrier_group{.images = barriers});
             if (record_error != rhi::error::ok) {
                 return record_error;
@@ -138,7 +138,7 @@ namespace deren::engine::pass {
         scope.has_depth = true;
         record_error = io.list->begin_rendering(scope);
         if (record_error != rhi::error::ok) {
-            if (own_barriers) {
+            if (local_barriers) {
                 auto const recovered = io.list->barrier(restore);
                 if (recovered != rhi::error::ok) {
                     record_error = recovered;
@@ -156,7 +156,7 @@ namespace deren::engine::pass {
             io.list->draw(6, params.visible_count, 0, 0);
         }
         io.list->end_rendering();
-        if (own_barriers) {
+        if (local_barriers) {
             auto const restored = io.list->barrier(restore);
             if (restored != rhi::error::ok) {
                 record_error = restored;

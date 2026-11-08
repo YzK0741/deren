@@ -18,8 +18,9 @@ int main() {
             [&] { return call(3); }, [&] { return call(4); }, [&] { return call(5); });
         CHECK(result.status == ((failure < 0 || failure == 1) ? VK_SUCCESS : VK_ERROR_DEVICE_LOST));
         CHECK(!result.may_be_pending);
-        if (failure == 3)
+        if (failure == 3) {
             CHECK(calls[4] == 0 && calls[5] == 0);
+        }
     }
     auto uncertain = deren::vulkan::detail::upload_sequence(
         [] { return VK_SUCCESS; }, [] {}, [] { return VK_SUCCESS; }, [] { return VK_SUCCESS; },

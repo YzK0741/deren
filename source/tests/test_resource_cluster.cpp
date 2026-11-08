@@ -16,16 +16,16 @@ namespace rhi = deren::promise::rhi;
 using deren::engine::resource_cluster;
 int main() {
     {
-        auto owner = deren::vk_test::probe_make_core({}, rhi::abi_version, true);
-        auto raw = owner->resources->create_buffer({.size = 4});
+        auto parent = deren::vk_test::probe_make_core({}, rhi::abi_version, true);
+        auto raw = parent->resources->create_buffer({.size = 4});
         CHECK(raw);
-        auto owned = deren::engine::resource_lease<rhi::buffer>::from_shared(owner, rhi::shared_object<rhi::buffer>(std::move(raw)));
-        CHECK(owned);
-        deren::engine::buffer_transfer_service transfers(owner);
+        auto lease = deren::engine::resource_lease<rhi::buffer>::from_shared(parent, rhi::shared_object<rhi::buffer>(std::move(raw)));
+        CHECK(lease);
+        deren::engine::buffer_transfer_service transfers(parent);
         auto batch = transfers.make_batch();
         std::uint32_t payload = 17;
         rhi::synchronization::scope after{rhi::synchronization::stage::transfer, rhi::synchronization::access::read};
-        CHECK(batch.upload(owned, 0, std::as_bytes(std::span(&payload, 1)), {}, after) == rhi::error::unsupported);
+        CHECK(batch.upload(lease, 0, std::as_bytes(std::span(&payload, 1)), {}, after) == rhi::error::unsupported);
         CHECK(transfers.pending_count() == 0);
         CHECK(transfers.collect() == rhi::error::ok);
         CHECK(transfers.drain(0) == rhi::error::ok);

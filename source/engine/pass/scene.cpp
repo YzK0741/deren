@@ -90,7 +90,7 @@ namespace deren::engine::pass {
         // buffer for the whole slot), and the session builder takes the owning handle, so the borrow is spelled
         // with a NON-OWNING shared_ptr - the control block drops nothing (the shape the probe backend's static
         // buffer uses for the same reason).
-        render_environment env = this->pass_frame.make_environment(this->pass_frame.owner, recording_target(segment), this->pass_frame.gbuffer);
+        render_environment env = this->pass_frame.make_environment(this->pass_frame.parent, recording_target(segment), this->pass_frame.gbuffer);
         // NO DESCRIPTOR SET IS BOUND, and there is nothing left to bind: the frame bound the resource and sampler
         // heaps once for this command buffer, and every slot a scene shader reads - the camera, the lights, the
         // clusters, the material table, the textures, the instance transforms - is a heap slot it names itself,
@@ -216,7 +216,7 @@ namespace deren::engine::pass {
                     recorded->store(true, std::memory_order_relaxed);
                 });
             }
-            this->pass_frame.run_tasks(this->pass_frame.owner, tasks);
+            this->pass_frame.run_tasks(this->pass_frame.parent, tasks);
             deren::utility::vessel::vector<rhi::mergeable_command_buffer_ref> batch;
             batch.reserve(segment_count);
             for (std::size_t s = 0; s < segment_count; ++s) {

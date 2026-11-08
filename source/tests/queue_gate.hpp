@@ -16,8 +16,9 @@ struct queue_gate {
         create.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
         create.pNext = &type;
         CHECK(vkCreateSemaphore(device, &create, nullptr, &semaphore) == VK_SUCCESS);
-        if (!semaphore)
+        if (!semaphore) {
             return;
+        }
         std::uint64_t const value = 1;
         VkTimelineSemaphoreSubmitInfo timeline{};
         timeline.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
@@ -34,8 +35,9 @@ struct queue_gate {
         CHECK(armed);
     }
     void release() {
-        if (!armed)
+        if (!armed) {
             return;
+        }
         VkSemaphoreSignalInfo signal{};
         signal.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO;
         signal.semaphore = semaphore;

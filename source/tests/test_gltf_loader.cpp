@@ -142,24 +142,28 @@ namespace {
         }
         auto& scenes = *result;
         std::uint64_t before = 0;
-        for (auto const& texture : scenes.textures)
+        for (auto const& texture : scenes.textures) {
             before += texture.data.size();
+        }
         CHECK(before > 0);
 
         auto const materials = deren::gltf::resolve_materials(scenes, true);
         CHECK(materials.size() == scenes.materials.size());
-        if (materials.empty())
+        if (materials.empty()) {
             return;
+        }
         std::uint64_t after = 0;
-        for (auto const& texture : scenes.textures)
+        for (auto const& texture : scenes.textures) {
             after += texture.data.size();
+        }
         // Consuming resolve moves each referenced texture's pixels into its mip chain; it must not
         // retain the complete decoded set next to the full mip set.
         CHECK(after < before);
         auto const held = materials[0].slots[0];
-        CHECK(held.valid && held.owner && !held.data.empty());
-        if (held.owner)
-            CHECK(held.data.data() == held.owner->data());
+        CHECK(held.valid && held.parent && !held.data.empty());
+        if (held.parent) {
+            CHECK(held.data.data() == held.parent->data());
+        }
     }
 
     void test_resolved_mip_payload_has_no_undeclared_tail() {
@@ -180,11 +184,12 @@ namespace {
                 scene.materials[0].texture_indices["albedo"] = 0;
                 auto resolved = deren::gltf::resolve_materials(scene, consume);
                 CHECK(resolved.size() == 1 && resolved[0].slots[0].valid);
-                if (resolved.empty() || !resolved[0].slots[0].valid)
+                if (resolved.empty() || !resolved[0].slots[0].valid) {
                     continue;
+                }
                 auto const& image = resolved[0].slots[0];
                 CHECK(image.mip_levels == f.levels && image.data.size() == f.bytes);
-                CHECK(image.owner && image.owner->size() == f.bytes);
+                CHECK(image.parent && image.parent->size() == f.bytes);
                 CHECK(std::all_of(image.data.begin(), image.data.end(), [](auto byte) { return byte == 255; }));
             }
         }
@@ -194,8 +199,9 @@ namespace {
         auto copied_scene = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/asset/DamagedHelmet/DamagedHelmet.gltf");
         auto moved_scene = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/asset/DamagedHelmet/DamagedHelmet.gltf");
         CHECK(copied_scene.has_value() && moved_scene.has_value());
-        if (!copied_scene.has_value() || !moved_scene.has_value())
+        if (!copied_scene.has_value() || !moved_scene.has_value()) {
             return;
+        }
         auto const copied = deren::gltf::resolve_materials(*copied_scene);
         auto const moved = deren::gltf::resolve_materials(*moved_scene, true);
         CHECK(copied.size() == moved.size());
@@ -204,12 +210,14 @@ namespace {
                 auto const& a = copied[m].slots[i];
                 auto const& b = moved[m].slots[i];
                 CHECK(a.valid == b.valid);
-                if (!a.valid || !b.valid)
+                if (!a.valid || !b.valid) {
                     continue;
+                }
                 CHECK(a.width == b.width && a.height == b.height && a.mip_levels == b.mip_levels);
                 CHECK(a.data.size() == b.data.size());
-                if (a.data.size() == b.data.size())
+                if (a.data.size() == b.data.size()) {
                     CHECK(std::equal(a.data.begin(), a.data.end(), b.data.begin()));
+                }
             }
         }
     }
@@ -253,18 +261,20 @@ namespace {
         CHECK(resolved.size() == scenes.materials.size());
         if (!resolved.empty()) {
             auto const held = resolved[0].slots[0];
-            static_assert(std::is_const_v<typename decltype(held.owner)::element_type>);
-            CHECK(held.owner && !held.data.empty());
-            if (!held.owner || held.data.empty())
+            static_assert(std::is_const_v<typename decltype(held.parent)::element_type>);
+            CHECK(held.parent && !held.data.empty());
+            if (!held.parent || held.data.empty()) {
                 return;
+            }
             auto before = held.data[0];
             auto count = scenes.textures.size();
             auto node_count = scenes.node_by_source.size();
             CHECK(deren::gltf::release_texture_pixels(*result) > 0);
             CHECK(scenes.textures.size() == count && scenes.node_by_source.size() == node_count);
-            for (auto const& texture : scenes.textures)
+            for (auto const& texture : scenes.textures) {
                 CHECK(texture.data.empty() && texture.data.capacity() == 0);
-            CHECK(held.owner && held.data[0] == before);
+            }
+            CHECK(held.parent && held.data[0] == before);
             CHECK(deren::gltf::release_texture_pixels(*result) == 0);
         }
     }
@@ -614,8 +624,9 @@ void test_subtilis_extraction() {
         std::ifstream in(VR_TEST_SOURCE_DIR "/source/tests/fixtures/subtilis/cross_dag.payload", std::ios::binary);
         std::string expected((std::istreambuf_iterator<char>(in)), {});
         CHECK(payload.bytes.size() == expected.size());
-        if (payload.bytes.size() == expected.size())
+        if (payload.bytes.size() == expected.size()) {
             CHECK(std::equal(payload.bytes.begin(), payload.bytes.end(), reinterpret_cast<uint8_t const*>(expected.data())));
+        }
         ++it;
         auto second = it.get_subtilis();
         CHECK(second.present && second.bytes.data() == payload.bytes.data());
@@ -635,14 +646,17 @@ void test_subtilis_extraction() {
     CHECK(!deren::gltf::drawable_iterator{}.get_subtilis().present);
     std::ifstream file(path, std::ios::binary);
     std::string raw((std::istreambuf_iterator<char>(file)), {});
-    auto u32 = [&](size_t at) {uint32_t v=0;for(unsigned i=0;i<4;++i)v|=uint32_t(static_cast<uint8_t>(raw[at+i]))<<(i*8);return v; };
+    auto u32 = [&](size_t at) {uint32_t v=0;for(unsigned i=0;i<4;++i){v|=uint32_t(static_cast<uint8_t>(raw[at+i]))<<(i*8);
+}return v; };
     CHECK(raw.size() >= 28);
-    if (raw.size() < 28)
+    if (raw.size() < 28) {
         return;
+    }
     auto json_length = u32(12);
     CHECK(json_length <= raw.size() - 28);
-    if (json_length > raw.size() - 28)
+    if (json_length > raw.size() - 28) {
         return;
+    }
     auto dir = std::filesystem::current_path() / std::format("subtilis-loader-{}", std::chrono::steady_clock::now().time_since_epoch().count());
     std::error_code ec;
     std::filesystem::create_directory(dir, ec);

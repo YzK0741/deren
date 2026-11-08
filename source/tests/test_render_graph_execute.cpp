@@ -62,8 +62,9 @@ int main() {
     CHECK(!execute::prepared_graph::prepare(core, std::move(plain), bindings));
     auto ready = execute::prepared_graph::prepare(core, plan, bindings);
     CHECK(ready);
-    if (!ready)
+    if (!ready) {
         return deren::vk_test::finish("test_render_graph_execute");
+    }
     auto frame = core->frames->frame_begin();
     (void)frame;
     unsigned calls = 0;

@@ -57,11 +57,11 @@ export namespace deren::engine::subtilis {
         if (!generation || leaf.vertex_buffer.get() != generation->vertices() || leaf.index_buffer.get() != generation->indices()) {
             return false;
         }
-        auto same_owner = [&](std::shared_ptr<void const> const& lease) {
+        auto same_lease = [&](std::shared_ptr<void const> const& lease) {
             return lease.get() == generation.get() && !lease.owner_before(generation) && !generation.owner_before(lease);
         };
         auto const& source = generation->source();
-        if (!same_owner(leaf.vertex_buffer.lease()) || !same_owner(leaf.index_buffer.lease()) ||
+        if (!same_lease(leaf.vertex_buffer.lease()) || !same_lease(leaf.index_buffer.lease()) ||
             leaf.index_type != deren::promise::rhi::index_type::uint32 || leaf.draw_index_count != source.lod0_index_count() ||
             leaf.vertex_count != source.vertex_count() || leaf.vertex_stride != source.vertex_stride() ||
             leaf.vertex_buffer->size() < source.vertices().size() || leaf.index_buffer->size() < source.indices().size_bytes() ||

@@ -21,10 +21,10 @@ namespace rhi = deren::promise::rhi;
 namespace deren::engine::pass {
 
     taa_pass::~taa_pass() {
-        this->release_owned();
+        this->release_contract();
     }
 
-    void taa_pass::release_owned() noexcept {
+    void taa_pass::release_contract() noexcept {
         this->pass_pipeline.reset();
     }
 
@@ -95,22 +95,22 @@ namespace deren::engine::pass {
             return;
         }
         if (this->built_against != nullptr && this->built_against != context.face) {
-            this->release_owned();
+            this->release_contract();
         }
         this->built_against = context.face;
         if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
-        std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.owner, vertex_shader_name) : std::span<uint8_t const>{};
-        std::span<uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.owner, fragment_shader_name) : std::span<uint8_t const>{};
+        std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.parent, vertex_shader_name) : std::span<uint8_t const>{};
+        std::span<uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.parent, fragment_shader_name) : std::span<uint8_t const>{};
         if (vertex_spirv.empty() || fragment_spirv.empty()) {
-            deren::utility::log("taa disabled: the owner has no {} or {}", vertex_shader_name, fragment_shader_name);
+            deren::utility::log("taa disabled: the parent has no {} or {}", vertex_shader_name, fragment_shader_name);
             return;
         }
         auto built = pipelines::build_taa(*context.face, rhi::image_format::r16g16b16a16_sfloat, vertex_spirv, fragment_spirv);
         if (!built) {
             deren::utility::log("taa disabled: {}", built.error());
-            this->release_owned();
+            this->release_contract();
             return;
         }
         this->pass_pipeline = std::move(built->resolve);
@@ -121,10 +121,10 @@ namespace deren::engine::pass {
         /// The guards every TAA entry shares: the record step resolved the handles, this image slot has a history
         /// record, and the frame is current. `history_valid` comes out of the pass's per-image bookkeeping.
         bool taa_frame_ready(resolved_io const& io, deren::utility::vessel::vector<bool>& valid_history, bool& history_valid) {
-            if (io.own.size() < 3u || io.targets.empty() || io.extent.width == 0 || io.extent.height == 0) {
+            if (io.local.size() < 3u || io.targets.empty() || io.extent.width == 0 || io.extent.height == 0) {
                 return false;
             }
-            if (io.list == nullptr || io.own[0].image_handle == nullptr || io.own[1].image_handle == nullptr ||
+            if (io.list == nullptr || io.local[0].image_handle == nullptr || io.local[1].image_handle == nullptr ||
                 io.targets[0].image_handle == nullptr || io.targets[0].view_handle == nullptr) {
                 return false;
             }
@@ -140,7 +140,7 @@ namespace deren::engine::pass {
         }
     } // namespace
 
-    void taa_pass::record_owned(resolved_io const& io) {
+    void taa_pass::record(resolved_io const& io) {
         this->history_written = false;
         bool history_valid = false;
         if (!taa_frame_ready(io, this->valid_history, history_valid)) {
@@ -177,19 +177,19 @@ namespace deren::engine::pass {
         return rhi::error::ok;
     }
 
-    bool taa_pass::record_resolve(resolved_io const& io, bool const history_valid, bool const own_transitions) {
+    bool taa_pass::record_resolve(resolved_io const& io, bool const history_valid, bool const local_transitions) {
         // Layouts, all before vkCmdBeginRendering: this frame's colour, the motion vectors and (on its first
         // use for this image) the history become inputs, and the HDR target - still untouched this frame -
         // becomes the resolve's attachment. The history is left in SHADER_READ_ONLY by the previous frame's
         // copy and is only ever read as a texture, so it needs no barrier once it is valid.
-        if (own_transitions) {
+        if (local_transitions) {
             deren::utility::vessel::array<rhi::image_barrier, 2> barriers = {};
-            barriers[0] = rhi::image_barrier{.resource = io.own[0].image_handle,
+            barriers[0] = rhi::image_barrier{.resource = io.local[0].image_handle,
                                              .from = rhi::image_use::color_attachment,
                                              .to = rhi::image_use::shader_read,
                                              .range = {}}; // scene_color: COLOR_ATTACHMENT -> SHADER_READ
             // THE MOTION VECTORS ARE NOT THIS PASS'S BARRIER ANY MORE, and they were the bug: this batch used to
-            // transition io.own[2] unconditionally, on the assumption that the TAA resolve is the frame's first
+            // transition io.local[2] unconditionally, on the assumption that the TAA resolve is the frame's first
             // sampler of the velocity (the assumption `require_velocity_publish`'s call site documents). Once an
             // EARLIER stage publishes it - the stochastic punctual lighting chain's resolve samples it too, and its
             // stage runs before this one - the unconditional transition claims a COLOR_ATTACHMENT old layout the
@@ -199,7 +199,7 @@ namespace deren::engine::pass {
             // consumes it, so the first sampler in the frame publishes and the rest are no-ops.
             uint32_t barrier_count = 1;
             if (!history_valid) {
-                barriers[barrier_count] = rhi::image_barrier{.resource = io.own[1].image_handle,
+                barriers[barrier_count] = rhi::image_barrier{.resource = io.local[1].image_handle,
                                                              .from = rhi::image_use::undefined,
                                                              .to = rhi::image_use::shader_read,
                                                              .range = {}}; // the history's first use: UNDEFINED -> SHADER_READ
@@ -266,19 +266,19 @@ namespace deren::engine::pass {
         return true;
     }
 
-    bool taa_pass::record_copy(resolved_io const& io, bool const own_transitions) {
+    bool taa_pass::record_copy(resolved_io const& io, bool const local_transitions) {
         // ---- the resolved frame becomes the next frame's history ----
         // A copy rather than a ping-pong: the resolve necessarily writes the image the post chain reads, so
         // the history has to be a separate image, and copying into it keeps every heap slot in the frame
         // stable (no per-frame descriptor rewrites). The barriers move the HDR target out to TRANSFER_SRC and back - the
         // post chain still finds it in GENERAL, exactly where it expects it.
-        if (own_transitions) {
+        if (local_transitions) {
             deren::utility::vessel::array<rhi::image_barrier, 2> const copy_barriers = {
                 rhi::image_barrier{.resource = io.targets[0].image_handle,
                                    .from = rhi::image_use::color_attachment,
                                    .to = rhi::image_use::transfer_source,
                                    .range = {}}, // HDR -> TRANSFER_SRC
-                rhi::image_barrier{.resource = io.own[1].image_handle,
+                rhi::image_barrier{.resource = io.local[1].image_handle,
                                    .from = rhi::image_use::shader_read,
                                    .to = rhi::image_use::transfer_destination,
                                    .range = {}}, // history: SHADER_READ -> TRANSFER_DST
@@ -290,7 +290,7 @@ namespace deren::engine::pass {
 
         rhi::image_copy_region const region = {.extent = {io.extent.width, io.extent.height, 1}};
         if (io.list->copy_image(rhi::image_copy{.source = io.targets[0].image_handle,
-                                                .destination = io.own[1].image_handle,
+                                                .destination = io.local[1].image_handle,
                                                 .source_region = region,
                                                 .destination_region = region}) != rhi::error::ok) {
             return false; // the history was not written, so this frame's resolve must not claim one
@@ -298,13 +298,13 @@ namespace deren::engine::pass {
 
         // hand both images on: the HDR target back to the post chain, the history copy to the next frame's
         // resolve (which will find it in TRANSFER_DST and transition it from there)
-        if (own_transitions) {
+        if (local_transitions) {
             deren::utility::vessel::array<rhi::image_barrier, 2> const hand_back = {
                 rhi::image_barrier{.resource = io.targets[0].image_handle,
                                    .from = rhi::image_use::transfer_source,
                                    .to = rhi::image_use::color_attachment,
                                    .range = {}}, // HDR -> COLOR_ATTACHMENT
-                rhi::image_barrier{.resource = io.own[1].image_handle,
+                rhi::image_barrier{.resource = io.local[1].image_handle,
                                    .from = rhi::image_use::transfer_destination,
                                    .to = rhi::image_use::shader_read,
                                    .range = {}}, // history -> SHADER_READ

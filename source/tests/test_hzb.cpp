@@ -1076,8 +1076,9 @@ namespace {
 namespace {
     hzb::hzb_matrix_bits bits(matrix const& value) {
         hzb::hzb_matrix_bits result{};
-        for (unsigned i = 0; i < 16; ++i)
+        for (unsigned i = 0; i < 16; ++i) {
             result[i] = std::bit_cast<std::uint32_t>(static_cast<float>(value[i]));
+        }
         return result;
     }
     void test_jittered_projection() {
@@ -1163,8 +1164,9 @@ namespace {
         std::array<bool, 4097> many_keep{};
         many_keep.fill(true);
         many_flags.fill(1u);
-        for (unsigned i = 0; i < many_ids.size(); ++i)
+        for (unsigned i = 0; i < many_ids.size(); ++i) {
             many_ids[i] = i;
+        }
         CHECK(!hzb::hzb_compact_recovery(many_ids, many_flags, many_keep, 0, many_output));
         auto maximum = hzb::hzb_compact_recovery(std::span(many_ids).first(4096), std::span(many_flags).first(4096), std::span(many_keep).first(4096), 0, std::span(many_output).first(4096));
         CHECK(maximum && maximum->recovered == 4096 && many_output[4095] == 4095);

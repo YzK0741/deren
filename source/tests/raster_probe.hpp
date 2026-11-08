@@ -37,8 +37,7 @@ namespace raster_test {
             return tag;
         }
         unsigned zero_at = 0, unaligned_at = 0;
-        raster_probe_address()
-            {
+        raster_probe_address() {
         }
         std::uint64_t buffer_address(rhi::buffer const& b, std::uint64_t) const noexcept override {
             auto const& buffer = static_cast<raster_probe_buffer const&>(b);
@@ -101,8 +100,9 @@ namespace raster_test {
         }
         rhi::unique_object<rhi::buffer> create_buffer(rhi::buffer_desc const& desc) override {
             ++calls;
-            if (calls == fail_at)
+            if (calls == fail_at) {
                 return nullptr;
+            }
             auto copy = desc;
             copy.initial_bytes = {};
             descriptors.push_back(copy);

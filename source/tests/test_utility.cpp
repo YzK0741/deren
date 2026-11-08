@@ -263,12 +263,14 @@ namespace {
         auto const text = utility::read_binary_to_string(path, bytes.size());
         CHECK(binary.has_value());
         CHECK(text.has_value());
-        if (binary)
+        if (binary) {
             CHECK(*binary == bytes);
+        }
         if (text) {
             CHECK(text->size() == bytes.size());
-            for (std::size_t i = 0; i < text->size(); ++i)
+            for (std::size_t i = 0; i < text->size(); ++i) {
                 CHECK(static_cast<uint8_t>((*text)[i]) == bytes[i]);
+            }
         }
         // A rejected oversize read must not allocate any payload through the vessel allocator.
         utility_memory_test_fail_after(0);
@@ -277,10 +279,12 @@ namespace {
         utility_memory_test_fail_after(-1);
         CHECK(!limited);
         CHECK(!limited_text);
-        if (!limited)
+        if (!limited) {
             CHECK(limited.error().code == code::too_large);
-        if (!limited_text)
+        }
+        if (!limited_text) {
             CHECK(limited_text.error().code == code::too_large);
+        }
         CHECK(utility::file_error_name(code::too_large) == "too_large");
         CHECK(utility::write_binary_file(path, std::string_view{}).has_value());
         auto const empty_binary = utility::read_binary_to_vector(path, 0);
@@ -296,12 +300,14 @@ namespace {
         }
         auto const directory = utility::read_binary_to_string(std::filesystem::current_path(), 16);
         CHECK(!directory);
-        if (!directory)
+        if (!directory) {
             CHECK(directory.error().code == code::not_regular_file);
+        }
         // Cross the chunk boundary; every byte matters, including zeros and signed-char values.
         vessel::vector<uint8_t> large(1024 * 1024 + 37);
-        for (std::size_t i = 0; i < large.size(); ++i)
+        for (std::size_t i = 0; i < large.size(); ++i) {
             large[i] = static_cast<uint8_t>(i % 251);
+        }
         CHECK(utility::write_binary_file(path, large).has_value());
         // This exceeds string inline storage too, so both readers must reject before allocation.
         utility_memory_test_fail_after(0);
@@ -310,10 +316,12 @@ namespace {
         utility_memory_test_fail_after(-1);
         CHECK(!large_limited);
         CHECK(!large_limited_text);
-        if (!large_limited)
+        if (!large_limited) {
             CHECK(large_limited.error().code == code::too_large);
-        if (!large_limited_text)
+        }
+        if (!large_limited_text) {
             CHECK(large_limited_text.error().code == code::too_large);
+        }
         auto const large_binary = utility::read_binary_to_vector(path, large.size());
         auto const large_text = utility::read_binary_to_string(path, large.size());
         CHECK(large_binary && *large_binary == large);
@@ -455,13 +463,13 @@ namespace {
         std::binary_semaphore started(0), finish(0);
         std::atomic<bool> released = false;
         deren::utility::thread_pool pool(1);
-        auto owner = std::shared_ptr<int>(new int(1), [&pool, &released](int* value) {
+        auto parent = std::shared_ptr<int>(new int(1), [&pool, &released](int* value) {
             static_cast<void>(pool.is_free());
             delete value;
             released.store(true);
         });
-        std::weak_ptr<int> weak = owner;
-        CHECK(pool.post([owned = std::move(owner), &started, &finish] {
+        std::weak_ptr<int> weak = parent;
+        CHECK(pool.post([worker = std::move(parent), &started, &finish] {
             started.release();
             finish.acquire();
         },
@@ -513,8 +521,9 @@ namespace {
         batch.emplace_back();
         bool const accepted = pool.post_batch(batch, 3);
         CHECK(!accepted);
-        if (accepted)
+        if (accepted) {
             pool.shutdown(); // old invalid batch must be discarded, never invoke its empty entry
+        }
         finish.release();
         pool.wait_until_free(); // if rejected, no valid prefix may have been queued either
         pool.shutdown();
@@ -562,12 +571,12 @@ namespace {
                 pool_type pool(1, policy);
                 CHECK(pool.post([&] { started.release(); finish.acquire(); ++ran; }, 4));
                 started.acquire();
-                auto owner = std::shared_ptr<int>(new int(1), [&pool, &capture_released](int* value) {
+                auto parent = std::shared_ptr<int>(new int(1), [&pool, &capture_released](int* value) {
                     static_cast<void>(pool.is_free());
                     delete value;
                     capture_released.store(true);
                 });
-                CHECK(pool.post([owned = std::move(owner), &ran] { ++ran; }, 6));
+                CHECK(pool.post([worker = std::move(parent), &ran] { ++ran; }, 6));
                 pool.shutdown();
                 pool.shutdown(); // idempotent, neither call joins the blocked worker
                 CHECK(!pool.post([] {}));
@@ -582,8 +591,9 @@ namespace {
         std::atomic<int> drained_at_destruction = 0;
         {
             pool_type pool(2);
-            for (int i = 0; i < 12; ++i)
+            for (int i = 0; i < 12; ++i) {
                 CHECK(pool.post([&] { ++drained_at_destruction; }));
+            }
         }
         CHECK(drained_at_destruction.load() == 12);
     }
@@ -604,8 +614,9 @@ namespace {
 
     bool await_log_counter(std::uint64_t (*counter)() noexcept, std::uint64_t target) {
         auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-        while (counter() < target && std::chrono::steady_clock::now() < deadline)
+        while (counter() < target && std::chrono::steady_clock::now() < deadline) {
             std::this_thread::yield();
+        }
         return counter() >= target;
     }
     void test_log_wait_is_a_flushed_prefix() {
@@ -803,8 +814,9 @@ namespace {
         }
         auto tree = deren::utility::bvh<int32_t>::make(boxes);
         CHECK(tree.has_value());
-        if (!tree)
+        if (!tree) {
             return;
+        }
         glm::mat4 const projection = glm::perspective(glm::radians(70.0f), 1.5f, 0.1f, 200.0f);
         for (glm::vec3 const eye : {glm::vec3(0, 0, 80), glm::vec3(80, 15, 0), glm::vec3(-20, 80, -20)}) {
             auto const frustum = deren::utility::make_frustum(projection * glm::lookAt(eye, glm::vec3(0), glm::vec3(0, 1, 0)));
@@ -817,8 +829,9 @@ namespace {
                     found[id] = true;
                 }
             }
-            for (std::size_t i = 0; i < count; ++i)
+            for (std::size_t i = 0; i < count; ++i) {
                 CHECK(found[i] == frustum.in(boxes[i].min, boxes[i].max));
+            }
         }
     }
 
@@ -936,8 +949,9 @@ namespace {
         std::filesystem::remove_all("rotate-log", error);
         std::filesystem::create_directories("rotate-log", error);
         CHECK(!error);
-        if (error)
+        if (error) {
             return;
+        }
         {
             std::ofstream previous("rotate-log/deren-debug.log", std::ios::out | std::ios::trunc);
             previous << "previous session marker\n";
@@ -965,11 +979,13 @@ int32_t main(int argc, char** argv) {
         vessel_prepare_child();
         std::error_code error;
         std::filesystem::create_directories(argv[1], error);
-        if (error)
+        if (error) {
             return 2;
+        }
         std::filesystem::current_path(argv[1], error);
-        if (error)
+        if (error) {
             return 2;
+        }
         if (std::string_view(argv[1]) == "--zero-workers") {
             deren::utility::thread_pool pool(0);
         } else if (std::string_view(argv[1]) == "--negative-workers") {

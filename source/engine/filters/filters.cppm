@@ -82,14 +82,14 @@ export namespace deren::engine {
      *        runtime
      */
     class user_filter {
-        // called owner_share, not owner: the owner parameter of the constructor would hide a member of that name and
+        // called core_reference, not owner: the owner parameter of the constructor would hide a member of that name and
         // MSVC /W4 reports C4458, an error under /WX
         /// the share that keeps the device alive, and the interface pointer the one forwarded call goes through
-        deren::promise::rhi::shared_object<deren::promise::rhi::api_core> owner_share;
+        deren::promise::rhi::shared_object<deren::promise::rhi::api_core> core_reference;
         deren::promise::rhi::api_core* core_face = nullptr;
 
     public:
-        explicit user_filter(deren::promise::rhi::shared_object<deren::promise::rhi::api_core> owner) noexcept;
+        explicit user_filter(deren::promise::rhi::shared_object<deren::promise::rhi::api_core> parent) noexcept;
 
         /// the ring depth the engine sizes its per-slot arrays by. THIS STAYS, and it is why the contract
         /// import above is not an `export import`: the value is re-exported as this facade's own constant,
@@ -120,7 +120,7 @@ export namespace deren::engine {
      * once and only ever have their CONTENTS rewritten; its per-frame-slot buffers (the skin matrices, the
      * cluster bins) are created once and rewritten per slot. A per-swapchain-image VIEW is NOT stable that way -
      * it is rebuilt with every generation - so those are deliberately not served here: a pass receives them per
-     * frame through `resolved_io` (the framework's `own` / `own_per_image` / `barrier_images` channels). Handing
+     * frame through `resolved_io` (the framework's `own` / `local_per_image` / `barrier_images` channels). Handing
      * one out at create time would be the per-image-lifetime trap this branch has already paid for twice.
      */
     class pass_filter {

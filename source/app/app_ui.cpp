@@ -98,8 +98,9 @@ namespace deren::app {
         // into the runtime every frame like the light slots
         panel.add_slider("exposure", &bindings.exposure, 0.1f, 5.0f);
         panel.add_combo("tone mapping", {"ACES (existing)", "Khronos PBR Neutral", "GameToon reference"}, &bindings.tone_mapping);
-        if (!bindings.environment_names.empty())
+        if (!bindings.environment_names.empty()) {
             panel.add_combo("environment", bindings.environment_names, &bindings.environment_index);
+        }
         panel.add_label([&bindings] { return bindings.environment_status; });
         panel.add_slider("environment rotation", &bindings.environment_rotation, -180.0f, 180.0f);
         panel.add_slider("environment strength", &bindings.environment_strength, 0.0f, 8.0f);

@@ -210,7 +210,7 @@ namespace deren::engine::scene_tree {
     export void update_world(scene_node& node, glm::mat4 const& parent_world);
 
     /** @brief find an imported node's accumulated world transform; leave output unchanged when absent. */
-    export [[nodiscard]] bool find_world(scene const& owner, uint64_t import_instance, std::size_t source_index, glm::mat4& output);
+    export [[nodiscard]] bool find_world(scene const& parent, uint64_t import_instance, std::size_t source_index, glm::mat4& output);
 
     /**
      * @ingroup engine_scene_tree
@@ -254,7 +254,7 @@ namespace deren::engine::scene_tree {
     export class scene_iterator {
     public:
         scene_iterator() = default; // end()
-        explicit scene_iterator(scene& owner);
+        explicit scene_iterator(scene& parent);
 
         [[nodiscard]] scene_node& operator*() const noexcept;
         [[nodiscard]] scene_node* operator->() const noexcept;
@@ -283,8 +283,8 @@ namespace deren::engine::scene_tree {
     };
 
     /** @brief begin()/end() of a scene's node tree (DFS pre-order, every root) */
-    export inline scene_iterator begin(scene& owner) noexcept {
-        return scene_iterator{owner};
+    export inline scene_iterator begin(scene& parent) noexcept {
+        return scene_iterator{parent};
     }
     /** @brief end() sentinel of a scene's node-tree range */
     export inline scene_iterator end(scene&) noexcept {

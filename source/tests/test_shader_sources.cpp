@@ -370,8 +370,9 @@ int32_t main() {
 
     // The forward path must not feed undefined control lanes into shared lighting.
     deren::utility::vessel::string forward;
-    for (auto const& line : read_lines(deren::utility::vessel::string(VR_TEST_SOURCE_DIR) + "/source/shaders/scene/pbr.slang"))
+    for (auto const& line : read_lines(deren::utility::vessel::string(VR_TEST_SOURCE_DIR) + "/source/shaders/scene/pbr.slang")) {
         forward += line + "\n";
+    }
     CHECK(forward.find("si.shadow_override = -1.0;") != deren::utility::vessel::string::npos);
     // The shared light-count lane is a float on the host and in the compute prefix. Reading its
     // bits as uint turns 32 lights into 0x42000000 and makes the traversal visit inactive slots.

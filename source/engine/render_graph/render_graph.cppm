@@ -22,7 +22,7 @@ export namespace deren::engine::render_graph {
         deren::utility::vessel::vector<std::pair<uint32_t, uint32_t>> orders;
         graph_error error(error_code, uint32_t pass = invalid_index, uint32_t resource = invalid_index) const;
         std::expected<uint32_t, graph_error> import(resource_identity, initial_contents, std::string_view, resource_kind, resource_shape, std::optional<resource_state>);
-        std::expected<void, graph_error> export_index(uint64_t owner, uint32_t index, resource_kind, resource_range);
+        std::expected<void, graph_error> export_index(uint64_t parent, uint32_t index, resource_kind, resource_range);
 
     public:
         builder();

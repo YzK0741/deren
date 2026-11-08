@@ -65,16 +65,16 @@ namespace deren::engine::pass {
             return;
         }
         if (this->built_against != nullptr && this->built_against != context.face) {
-            this->release_owned();
+            this->release_contract();
         }
         this->built_against = context.face;
         if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
-        std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.owner, vertex_shader_name) : std::span<uint8_t const>{};
-        std::span<uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.owner, fragment_shader_name) : std::span<uint8_t const>{};
+        std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.parent, vertex_shader_name) : std::span<uint8_t const>{};
+        std::span<uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.parent, fragment_shader_name) : std::span<uint8_t const>{};
         if (vertex_spirv.empty() || fragment_spirv.empty()) {
-            deren::utility::log("toon screen rim disabled: the owner has no {} or {}", vertex_shader_name, fragment_shader_name);
+            deren::utility::log("toon screen rim disabled: the parent has no {} or {}", vertex_shader_name, fragment_shader_name);
             return;
         }
         // ONE colour target and it is the HDR one, because this pass runs INSIDE the HDR chain (after the
@@ -96,7 +96,7 @@ namespace deren::engine::pass {
                                                        std::span<rhi::blend_mode const>(blends));
         if (!built) {
             deren::utility::log("toon screen rim disabled: {}", built.error());
-            this->release_owned();
+            this->release_contract();
             return;
         }
         built->viewport = rhi::viewport{.x = 0.0f, .y = 0.0f, .width = 1.0f, .height = 1.0f, .min_depth = 0.0f, .max_depth = 1.0f}; // the record step resyncs it from io.extent
@@ -110,12 +110,12 @@ namespace deren::engine::pass {
         // and the viewport/scissor are resynced by the record step (see pass_behaviour::resync_viewport).
     }
 
-    void toon_screen_rim_pass::release_owned() noexcept {
+    void toon_screen_rim_pass::release_contract() noexcept {
         this->pass_pipeline.reset();
     }
 
     toon_screen_rim_pass::~toon_screen_rim_pass() {
-        this->release_owned();
+        this->release_contract();
     }
 
     bool toon_screen_rim_pass::pipeline_ready() const noexcept {

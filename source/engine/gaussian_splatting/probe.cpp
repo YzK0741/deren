@@ -168,7 +168,7 @@ namespace deren::engine::gaussian_splatting {
                     return list.push_constants(0u, transmitted) == rhi::error::ok;
                 },
             };
-            raster.record_owned(io);
+            raster.record(io);
             if (raster.last_error() != rhi::error::ok) {
                 return failure("Gaussian probe raster recording refused");
             }
@@ -301,9 +301,9 @@ namespace deren::engine::gaussian_splatting {
         pass::pass_context context;
         context.face = &core;
         context.depth_format = rhi::image_format::depth;
-        context.owner = &pair;
-        context.shader = [](void* owner, std::string_view name) {
-            auto const& shaders = *static_cast<shader_pair*>(owner);
+        context.parent = &pair;
+        context.shader = [](void* parent, std::string_view name) {
+            auto const& shaders = *static_cast<shader_pair*>(parent);
             if (name == "gaussian_reset.comp.spv") {
                 return shaders.compute[0];
             }

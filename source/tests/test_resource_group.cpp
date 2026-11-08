@@ -36,8 +36,9 @@ struct queue_gate {
         create.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
         create.pNext = &type;
         CHECK(vkCreateSemaphore(device, &create, nullptr, &semaphore) == VK_SUCCESS);
-        if (!semaphore)
+        if (!semaphore) {
             return;
+        }
         std::uint64_t const value = 1;
         VkTimelineSemaphoreSubmitInfo timeline{};
         timeline.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
@@ -54,8 +55,9 @@ struct queue_gate {
         CHECK(armed);
     }
     void release() {
-        if (!armed)
+        if (!armed) {
             return;
+        }
         VkSemaphoreSignalInfo signal{};
         signal.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO;
         signal.semaphore = semaphore;
@@ -120,28 +122,32 @@ int main(int argc, char** argv) {
     invalid = layout;
     invalid[0].kind = static_cast<kind>(99);
     CHECK(rhi::validate_resource_group_layout(invalid) == rhi::error::invalid_argument);
-    if (argc < 2 || std::string_view(argv[1]) != "--with-device")
+    if (argc < 2 || std::string_view(argv[1]) != "--with-device") {
         return deren::vk_test::finish("test_resource_group (layout)");
+    }
     rhi::create_info creation{};
     creation.window_width = 64;
     creation.window_height = 64;
     creation.validation_layers = true;
     auto core = deren::engine::load_api_core(creation);
     CHECK(core);
-    if (!core)
+    if (!core) {
         return deren::vk_test::finish("test_resource_group");
+    }
     deren::vk_test::check_buffer_creation_contract(*core);
     check_lazy_resource_contract(*core);
     deren::vk_test::check_recording_scope_contract(*core);
     std::array<std::byte, 16> unsupported_upload{};
-    for (auto usage : {rhi::buffer_usage::storage_gpu_only, rhi::buffer_usage::acceleration_structure_storage, rhi::buffer_usage::acceleration_structure_scratch})
+    for (auto usage : {rhi::buffer_usage::storage_gpu_only, rhi::buffer_usage::acceleration_structure_storage, rhi::buffer_usage::acceleration_structure_scratch}) {
         CHECK(!core->resources->create_buffer({.size = unsupported_upload.size(), .usage = usage, .initial_bytes = unsupported_upload}));
+    }
 
     auto* completion = rhi::query_extension<rhi::command_submission>(*core);
     auto* push_capabilities = rhi::query_extension<rhi::device_capabilities>(*core);
     CHECK(completion && push_capabilities);
-    if (!completion || !push_capabilities)
+    if (!completion || !push_capabilities) {
         return deren::vk_test::finish("test_resource_group");
+    }
     {
         auto source = std::make_shared<bytes const>(16, std::uint8_t{19});
         auto value = core->resources->create_lazy_buffer({.resource = {.size = 16, .usage = rhi::buffer_usage::vertex}, .data = source});
@@ -161,8 +167,9 @@ int main(int argc, char** argv) {
                 CHECK((*value)->unload() == rhi::error::not_ready);
             }
             gate.release();
-            if (token)
+            if (token) {
                 CHECK(completion->wait(*token, UINT64_MAX) == rhi::error::ok);
+            }
             CHECK((*value)->unload() == rhi::error::not_ready); // reusable recording still owns the allocation
             CHECK(retained->begin_recording({}) == rhi::error::ok);
             CHECK((*value)->unload() == rhi::error::ok);
@@ -177,15 +184,17 @@ int main(int argc, char** argv) {
                 CHECK((*value)->unload() == rhi::error::not_ready);
             }
             pending_gate.release();
-            if (pending_token)
+            if (pending_token) {
                 CHECK(completion->wait(*pending_token, UINT64_MAX) == rhi::error::ok);
+            }
             CHECK((*value)->unload() == rhi::error::ok);
         }
     }
     auto const push_capacity = push_capabilities->max_push_constants_size();
     CHECK(push_capacity >= 4 && (push_capacity & 3u) == 0);
-    if (push_capacity < 4)
+    if (push_capacity < 4) {
         return deren::vk_test::finish("test_resource_group");
+    }
     auto check_push_range = [&](rhi::command_recorder& recorder) {
         std::array<std::byte, 4> word{};
         CHECK(recorder.push_constants(0u, {}) == rhi::error::invalid_argument);
@@ -197,8 +206,9 @@ int main(int argc, char** argv) {
     };
     std::ifstream file(VR_RESOURCE_GROUP_SHADER_PATH, std::ios::binary | std::ios::ate);
     CHECK(file.good());
-    if (!file.good())
+    if (!file.good()) {
         return deren::vk_test::finish("test_resource_group");
+    }
     deren::utility::vessel::vector<std::byte> code(static_cast<std::size_t>(file.tellg()));
     file.seekg(0);
     file.read(reinterpret_cast<char*>(code.data()), static_cast<std::streamsize>(code.size()));
@@ -218,8 +228,9 @@ int main(int argc, char** argv) {
     pipeline_desc.resource_group = bad_layout;
     CHECK(!core->resources->create_pipeline(pipeline_desc));
     pipeline_desc.resource_group = layout;
-    if (!pipeline)
+    if (!pipeline) {
         return deren::vk_test::finish("test_resource_group");
+    }
     auto read_shader = [](char const* path) {
         std::ifstream input(path, std::ios::binary | std::ios::ate);
         deren::utility::vessel::vector<std::byte> bytes;
@@ -265,14 +276,17 @@ int main(int argc, char** argv) {
     auto output = make_buffer(rhi::buffer_usage::storage_coherent, 256);
     auto uniform = lazy_mode ? make_lazy_buffer(rhi::buffer_usage::uniform_gpu_only, 41) : make_buffer(rhi::buffer_usage::uniform_coherent, 256);
     CHECK(input && output && uniform);
-    if (!input || !output || !uniform)
+    if (!input || !output || !uniform) {
         return deren::vk_test::finish("test_resource_group");
+    }
     std::uint32_t value = 73;
-    if (!lazy_mode)
+    if (!lazy_mode) {
         std::memcpy(input->mapped().data(), &value, 4);
+    }
     value = 41;
-    if (!lazy_mode)
+    if (!lazy_mode) {
         std::memcpy(uniform->mapped().data(), &value, 4);
+    }
     std::memset(output->mapped().data(), 0, 256);
     std::uint32_t pixel = 0xff0000ff;
     rhi::image_desc image_desc{};
@@ -287,10 +301,12 @@ int main(int argc, char** argv) {
         std::memcpy(pixels->data(), &pixel, 4);
         auto made = core->resources->create_lazy_image({.resource = image_desc, .data = pixels});
         CHECK(made);
-        if (made)
+        if (made) {
             image = rhi::shared_object<rhi::image>(std::move(*made));
-    } else
+        }
+    } else {
         image = rhi::shared_object<rhi::image>(core->resources->create_image(image_desc));
+    }
     image_desc.initial_bytes = {};
     bool const storage_readback_available = rhi::query_extension<rhi::host_image_copy>(*core) != nullptr;
     image_desc.flags = rhi::to_bits(rhi::image_flag::storage) | (storage_readback_available ? rhi::to_bits(rhi::image_flag::host_transfer) : 0u);
@@ -298,8 +314,9 @@ int main(int argc, char** argv) {
     auto storage_readback = storage;
     rhi::shared_object<rhi::sampler> sampler(core->resources->create_sampler({}));
     CHECK(image && storage && sampler);
-    if (!image || !storage || !sampler)
+    if (!image || !storage || !sampler) {
         return deren::vk_test::finish("test_resource_group");
+    }
     if (lazy_mode) {
         auto warmup = core->commands->create_command_buffer({});
         CHECK(warmup->begin_recording({}) == rhi::error::ok);
@@ -318,11 +335,13 @@ int main(int argc, char** argv) {
     textures.textures[0] = image.get();
     rhi::error status = rhi::error::operation_failed;
     auto texture_group = core->resources->assign_texture_group(textures, &status);
-    if (lazy_mode)
+    if (lazy_mode) {
         CHECK(static_cast<rhi::lazy_image*>(image.get())->state() == rhi::lazy_state::unloaded);
+    }
     CHECK(texture_group && status == rhi::error::ok);
-    if (!texture_group)
+    if (!texture_group) {
         return deren::vk_test::finish("test_resource_group");
+    }
     std::array entries{
         rhi::resource_group_entry{.binding = 70, .kind = kind::uniform_buffer, .resource = uniform},
         rhi::resource_group_entry{.binding = 20, .kind = kind::storage_buffer, .resource = output},
@@ -360,12 +379,14 @@ int main(int argc, char** argv) {
     unsigned recycled = 0;
     for (; recycled < 7000; ++recycled) {
         auto temporary = create();
-        if (!temporary)
+        if (!temporary) {
             break;
+        }
         bad = entries;
         bad[4].resource = input; // failure after several resource descriptors were written
-        if (core->resources->create_resource_group({.entries = bad}))
+        if (core->resources->create_resource_group({.entries = bad})) {
             break;
+        }
     }
     CHECK(recycled == 7000);
     bad = {};
@@ -384,13 +405,15 @@ int main(int argc, char** argv) {
     for (bool batch : {true, false}) {
         auto temporary = create();
         CHECK(temporary);
-        if (!temporary)
+        if (!temporary) {
             break;
+        }
         rhi::resource_group_ref::weak retained(*temporary);
         auto segment = core->commands->make_mergeable_command_buffer({});
         CHECK(segment);
-        if (!segment)
+        if (!segment) {
             break;
+        }
         CHECK(segment->begin_recording({}) == rhi::error::ok);
         check_push_range(*segment);
         CHECK(segment->barrier(rhi::image_barrier{.resource = storage.get(), .from = batch ? rhi::image_use::undefined : rhi::image_use::shader_write, .to = batch ? rhi::image_use::shader_write : rhi::image_use::shader_read_write}) == rhi::error::ok);
@@ -404,9 +427,9 @@ int main(int argc, char** argv) {
         CHECK(segment->end_recording() == rhi::error::ok);
         temporary = std::unexpected(rhi::error::unsupported);
         std::expected<rhi::submission_token, rhi::error> token = std::unexpected(rhi::error::unsupported);
-        if (batch)
+        if (batch) {
             token = completion->submit(std::span(&segment, 1));
-        else {
+        } else {
             auto parent = core->commands->make_command_buffer({});
             CHECK(parent);
             CHECK(parent->begin_recording({}) == rhi::error::ok);
@@ -416,8 +439,9 @@ int main(int argc, char** argv) {
         }
         CHECK(token);
         segment.reset();
-        if (token)
+        if (token) {
             CHECK(completion->wait(*token, UINT64_MAX) == rhi::error::ok);
+        }
         CHECK(retained.expired());
         auto* values = reinterpret_cast<std::uint32_t const*>(output->mapped().data()) + index * 5;
         CHECK(values[0] == 73 && values[1] == 255 && values[2] == 1 && values[3] == 255 && values[4] == 41);
@@ -464,13 +488,15 @@ int main(int argc, char** argv) {
     }
     auto made = create();
     CHECK(made);
-    if (!made)
+    if (!made) {
         return deren::vk_test::finish("test_resource_group");
+    }
     rhi::resource_group_ref group = *made;
     auto commands = core->commands->make_command_buffer({});
     CHECK(commands);
-    if (!commands)
+    if (!commands) {
         return deren::vk_test::finish("test_resource_group");
+    }
     // Stale pending borrowed identities fail before native replay and recover through begin/reset.
     {
         auto stale = core->commands->make_command_buffer({});
@@ -527,8 +553,9 @@ int main(int argc, char** argv) {
     bad[6].binding = 11;
     auto mismatch = core->resources->create_resource_group({.entries = bad});
     CHECK(mismatch);
-    if (mismatch)
+    if (mismatch) {
         CHECK(commands->load_resource_group(*mismatch) == rhi::error::invalid_argument);
+    }
     mismatch = std::unexpected(rhi::error::unsupported);
     bad = {};
     CHECK(commands->load_resource_group(group) == rhi::error::ok);
@@ -552,8 +579,9 @@ int main(int argc, char** argv) {
     interop.finish_native();
     auto compatible_pipeline = core->resources->create_pipeline(pipeline_desc);
     CHECK(compatible_pipeline);
-    if (compatible_pipeline)
+    if (compatible_pipeline) {
         CHECK(commands->bind_pipeline(*compatible_pipeline) == rhi::error::ok);
+    }
     index = 4; // push consumes the bytes before return; changing source storage cannot change output lane 0.
     commands->dispatch(1, 1, 1);
     rhi::buffer_barrier barrier{.resource = output.get(), .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::host_read};
@@ -583,8 +611,9 @@ int main(int argc, char** argv) {
         CHECK(!observer.expired() && !input_observer.expired());
     }
     gate.release();
-    if (token)
+    if (token) {
         CHECK(completion->wait(*token, UINT64_MAX) == rhi::error::ok);
+    }
     auto* result = reinterpret_cast<std::uint32_t const*>(output->mapped().data());
     deren::vk_test::write_line("group readback: {} {} {} {} {}", result[0], result[1], result[2], result[3], result[4]);
     CHECK(result[0] == 73);

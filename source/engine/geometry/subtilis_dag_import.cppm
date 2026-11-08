@@ -96,34 +96,44 @@ export namespace deren::engine::subtilis {
     };
     inline std::expected<imported_asset, import_failure> import_payload(import_input const& input) {
         namespace wire = deren::asset::subtilis;
-        if (!input.profile_attributes)
+        if (!input.profile_attributes) {
             return std::unexpected(import_failure::profile_mismatch);
-        if (!input.material_opaque)
+        }
+        if (!input.material_opaque) {
             return std::unexpected(import_failure::material_not_opaque);
-        if (input.version != 1 || input.profile != "shared-vertices" || input.payload_bytes.empty())
+        }
+        if (input.version != 1 || input.profile != "shared-vertices" || input.payload_bytes.empty()) {
             return std::unexpected(import_failure::invalid_payload);
+        }
         wire::limits limits;
         auto bytes = std::as_bytes(input.payload_bytes);
         auto decoded = wire::decode(bytes, limits);
-        if (!decoded)
+        if (!decoded) {
             return std::unexpected(import_failure::invalid_payload);
+        }
         // Bound the decoded hierarchy tables from the leaf budget before structural validation and
         // make() build their per-cluster copies: a legal payload's tables are proportional to its
         // leaves, so a larger table is a capacity failure rather than a slow rejection.
-        if (decoded->clusters.size() > import_record_limit || decoded->groups.size() > import_record_limit || decoded->references.size() > import_record_limit)
+        if (decoded->clusters.size() > import_record_limit || decoded->groups.size() > import_record_limit || decoded->references.size() > import_record_limit) {
             return std::unexpected(import_failure::capacity_item);
+        }
         auto structure = wire::validate_structure(*decoded, limits);
-        if (!structure)
+        if (!structure) {
             return std::unexpected(import_failure::invalid_dag);
-        if (decoded->leaves.size() > visible_meshlet_capacity)
+        }
+        if (decoded->leaves.size() > visible_meshlet_capacity) {
             return std::unexpected(import_failure::capacity_item);
-        if (decoded->groups.empty())
+        }
+        if (decoded->groups.empty()) {
             return std::unexpected(import_failure::lod0_only);
+        }
         uint64_t vertex_bytes = uint64_t(input.vertex_count) * input.vertex_stride, index_bytes = uint64_t(input.index_count) * input.index_width;
-        if (input.vertex_count > limits.max_records || input.index_count > limits.max_records || vertex_bytes > limits.max_input_bytes || index_bytes > limits.max_input_bytes - vertex_bytes)
+        if (input.vertex_count > limits.max_records || input.index_count > limits.max_records || vertex_bytes > limits.max_input_bytes || index_bytes > limits.max_input_bytes - vertex_bytes) {
             return std::unexpected(import_failure::capacity_item);
-        if (input.vertex_stride != 80 || !input.vertex_count || !input.index_count || input.index_count % 3 || (input.index_width != 2 && input.index_width != 4) || vertex_bytes > input.vertex_bytes.size() || index_bytes > input.index_bytes.size())
+        }
+        if (input.vertex_stride != 80 || !input.vertex_count || !input.index_count || input.index_count % 3 || (input.index_width != 2 && input.index_width != 4) || vertex_bytes > input.vertex_bytes.size() || index_bytes > input.index_bytes.size()) {
             return std::unexpected(import_failure::source_mismatch);
+        }
         wire::source_geometry source;
         source.positions.resize(input.vertex_count);
         source.normals.resize(input.vertex_count);
@@ -141,20 +151,26 @@ export namespace deren::engine::subtilis {
                 uint16_t value = 0;
                 std::memcpy(&value, index, 2);
                 source.indices[id] = value;
-            } else
+            } else {
                 std::memcpy(&source.indices[id], index, 4);
+            }
         }
         auto source_hash = wire::source_digest(source);
-        if (!source_hash || *source_hash != decoded->source_hash)
+        if (!source_hash || *source_hash != decoded->source_hash) {
             return std::unexpected(import_failure::source_mismatch);
-        for (auto index : decoded->indices)
-            if (index >= input.vertex_count)
+        }
+        for (auto index : decoded->indices) {
+            if (index >= input.vertex_count) {
                 return std::unexpected(import_failure::source_mismatch);
+            }
+        }
         uint64_t finest_indices = 0;
-        for (auto id : decoded->leaves)
+        for (auto id : decoded->leaves) {
             finest_indices += decoded->clusters[id].index_count;
-        if (finest_indices != input.index_count)
+        }
+        if (finest_indices != input.index_count) {
             return std::unexpected(import_failure::source_mismatch);
+        }
         utility::vessel::vector<dag_cluster> clusters;
         utility::vessel::vector<dag_group> groups;
         clusters.reserve(decoded->clusters.size());
@@ -170,17 +186,20 @@ export namespace deren::engine::subtilis {
             record.cone_cos = 0; // no normal-cone claim; all other cone/padding fields are zero
             clusters.push_back({record, c.producer, c.consumer});
         }
-        for (auto const& g : decoded->groups)
+        for (auto const& g : decoded->groups) {
             groups.push_back({{g.fine_first, g.fine_count}, {g.coarse_first, g.coarse_count}, {g.lod.x, g.lod.y, g.lod.z, g.lod.radius}, g.error});
+        }
         auto hierarchy = dag_asset::make(clusters, groups, decoded->references, decoded->leaves, decoded->roots, input.index_count, static_cast<uint32_t>(decoded->indices.size()));
-        if (!hierarchy)
+        if (!hierarchy) {
             return std::unexpected(hierarchy.error() == dag_error::capacity ? import_failure::capacity_item : import_failure::invalid_dag);
+        }
         import_key key{*source_hash, wire::sha256(bytes)};
         return imported_asset(std::move(*hierarchy), utility::vessel::vector<uint8_t>(input.vertex_bytes.begin(), input.vertex_bytes.begin() + static_cast<size_t>(vertex_bytes)), std::move(decoded->indices), input.vertex_count, input.vertex_stride, key, decoded->build_hash);
     }
     [[nodiscard]] inline std::expected<void, import_failure> admit_table(imported_asset const& asset, uint64_t used, uint32_t capacity) noexcept {
-        if (used > capacity || asset.lod0_clusters().size() > capacity - used)
+        if (used > capacity || asset.lod0_clusters().size() > capacity - used) {
             return std::unexpected(import_failure::capacity_table);
+        }
         return {};
     }
 } // namespace deren::engine::subtilis

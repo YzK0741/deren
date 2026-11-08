@@ -35,9 +35,10 @@ namespace {
         for (bool resolve : {false, true}) {
             rg::builder graph;
             std::array<rg::buffer_ref, 10> b{};
-            for (unsigned i = 0; i < b.size(); ++i)
+            for (unsigned i = 0; i < b.size(); ++i) {
                 b[i] = *graph.import_buffer({83, 100 + i}, rg::initial_contents::defined, "table", {64},
                                             rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::compute_shader, rg::memory_access::read});
+            }
             constexpr rg::access_scope compute{rg::resource_usage::storage, rg::pipeline_stage::compute_shader};
             CHECK(graph.add_pass("hzb cull", cull_outputs{{b[4], {}, compute}, {b[5], {}, compute}, {b[2], {}, compute}}).has_value());
             auto image = [&](unsigned id, bool defined, bool depth = false) {
@@ -55,16 +56,18 @@ namespace {
                 in.shared->hzb_results = b[5];
                 auto appended = visibility::append(graph, in);
                 CHECK(appended.has_value());
-                if (!appended)
+                if (!appended) {
                     continue;
+                }
                 consumer = appended->pass;
                 CHECK(graph.export_resource(vis).has_value());
             } else {
                 visibility::resolve_inputs in{};
                 in.vis_id = vis;
                 in.depth = depth;
-                for (unsigned i = 0; i < in.surface.size(); ++i)
+                for (unsigned i = 0; i < in.surface.size(); ++i) {
                     in.surface[i] = image(3 + i, false);
+                }
                 in.velocity = image(6, false);
                 in.color = image(7, false);
                 in.shared = visibility::resolve_shared_inputs{b[0], b[6], b[7], b[1], b[8], b[9]};
@@ -73,23 +76,28 @@ namespace {
                 in.shared->hzb_results = b[5];
                 auto appended = visibility::append_resolve(graph, in);
                 CHECK(appended.has_value());
-                if (!appended)
+                if (!appended) {
                     continue;
+                }
                 consumer = appended->pass;
                 CHECK(graph.export_resource(in.color).has_value());
             }
             auto plan = graph.compile({true});
             CHECK(plan.has_value());
-            if (!plan)
+            if (!plan) {
                 continue;
+            }
             for (auto resource : {b[4], b[5], b[2]}) {
-                if (resolve && resource == b[2])
+                if (resolve && resource == b[2]) {
                     continue;
+                }
                 bool ordered = false;
                 auto stage = resource == b[2] ? rg::pipeline_stage::draw_indirect : (resolve ? rg::pipeline_stage::compute_shader : rg::pipeline_stage::mesh_shader);
-                for (auto const& barrier : plan->barriers)
-                    if (barrier.resource == resource.index() && barrier.before_pass == consumer.index())
+                for (auto const& barrier : plan->barriers) {
+                    if (barrier.resource == resource.index() && barrier.before_pass == consumer.index()) {
                         ordered |= barrier.memory_dependency && barrier.before.stages == rg::pipeline_stage::compute_shader && barrier.after.stages == stage;
+                    }
+                }
                 CHECK(ordered);
             }
         }
@@ -99,9 +107,10 @@ namespace {
     void gpu_software_route_resources() {
         rg::builder graph;
         std::array<rg::buffer_ref, 14> b{};
-        for (unsigned i = 0; i < b.size(); ++i)
+        for (unsigned i = 0; i < b.size(); ++i) {
             b[i] = *graph.import_buffer({95, 100 + i}, rg::initial_contents::defined, "route table", {256},
                                         rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::compute_shader, rg::memory_access::read});
+        }
         visibility::software_routing_inputs routing{b[0], b[10], b[11], b[12]};
         auto cull = visibility::append_hzb_cull(graph, b[6], b[7], b[8], b[3], b[9], b[5], b[4], b[2], routing);
         CHECK(cull.has_value());
@@ -125,12 +134,15 @@ namespace {
         if (compiled && sw) {
             bool args_barrier = false, work_barrier = false;
             for (auto const& barrier : compiled->barriers) {
-                if (barrier.before_pass != sw->pass.index() || !barrier.memory_dependency)
+                if (barrier.before_pass != sw->pass.index() || !barrier.memory_dependency) {
                     continue;
-                if (barrier.resource == b[12].index() && barrier.after.stages == rg::pipeline_stage::draw_indirect)
+                }
+                if (barrier.resource == b[12].index() && barrier.after.stages == rg::pipeline_stage::draw_indirect) {
                     args_barrier = true;
-                if (barrier.resource == b[11].index() && barrier.after.stages == rg::pipeline_stage::compute_shader)
+                }
+                if (barrier.resource == b[11].index() && barrier.after.stages == rg::pipeline_stage::compute_shader) {
                     work_barrier = true;
+                }
             }
             CHECK(args_barrier && work_barrier);
         }
@@ -139,8 +151,9 @@ namespace {
     void test_full_recovery_chain() {
         rg::builder graph;
         std::array<rg::buffer_ref, 13> b{};
-        for (unsigned i = 0; i < b.size(); ++i)
+        for (unsigned i = 0; i < b.size(); ++i) {
             b[i] = *graph.import_buffer({90, 100 + i}, rg::initial_contents::defined, "table", {256}, rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::compute_shader, rg::memory_access::read});
+        }
         auto image = [&](unsigned id, bool depth = false) { return *graph.import_texture({90, id}, rg::initial_contents::undefined, "image", {1, 1, depth ? rg::texture_aspect::depth : rg::texture_aspect::color}, rg::resource_state{}); };
         auto vis = image(1), depth = image(2, true);
         visibility::shared_inputs shared{b[0], b[1], b[2]};
@@ -160,8 +173,9 @@ namespace {
         visibility::resolve_inputs in{};
         in.vis_id = vis;
         in.depth = depth;
-        for (unsigned i = 0; i < 3; ++i)
+        for (unsigned i = 0; i < 3; ++i) {
             in.surface[i] = image(3 + i);
+        }
         in.velocity = image(6);
         in.color = image(7);
         in.shared = visibility::resolve_shared_inputs{b[0], b[10], b[9], b[1], b[11], b[12]};
@@ -173,18 +187,22 @@ namespace {
         CHECK(graph.export_resource(in.color).has_value());
         auto plan = graph.compile({true});
         CHECK(plan.has_value());
-        if (!plan || !cull || !raster || !build || !recover || !load || !resolve)
+        if (!plan || !cull || !raster || !build || !recover || !load || !resolve) {
             return;
+        }
         std::array<std::uint32_t, 6> expected{cull->index(), raster->pass.index(), build->index(), recover->index(), load->pass.index(), resolve->pass.index()};
         CHECK(plan->execution_order.size() == expected.size());
-        for (unsigned i = 0; i < expected.size() && i < plan->execution_order.size(); ++i)
+        for (unsigned i = 0; i < expected.size() && i < plan->execution_order.size(); ++i) {
             CHECK(plan->execution_order[i] == expected[i]);
+        }
         auto const* params = plan->passes[load->pass.index()].parameters.get<visibility::raster_load_parameters>();
         CHECK(params && params->vis_id.resource == vis && params->depth.resource == depth);
         auto dependency = [&](auto res, rg::pass_ref before, rg::pipeline_stage stage) {
-            for (auto const& barrier : plan->barriers)
-                if (barrier.resource == res.index() && barrier.before_pass == before.index() && barrier.memory_dependency && barrier.after.stages == stage)
+            for (auto const& barrier : plan->barriers) {
+                if (barrier.resource == res.index() && barrier.before_pass == before.index() && barrier.memory_dependency && barrier.after.stages == stage) {
                     return true;
+                }
+            }
             return false;
         };
         CHECK(dependency(b[4], load->pass, rg::pipeline_stage::mesh_shader));
@@ -425,8 +443,9 @@ int main() {
         in.shared = visibility::shared_inputs{buffers[0], buffers[1], buffers[2]};
         auto culled = *graph.import_buffer({31, 100}, rg::initial_contents::defined, "selected run", {64},
                                            rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::compute_shader, rg::memory_access::write});
-        if (with_culled)
+        if (with_culled) {
             in.shared->culled_meshlets = culled;
+        }
         auto added = visibility::append(graph, in);
         CHECK(added.has_value());
         CHECK(graph.export_resource(in.vis_id).has_value());
@@ -444,9 +463,11 @@ int main() {
             CHECK(params && params->shared->culled_meshlets.has_value() == with_culled);
             if (with_culled) {
                 bool dependency = false;
-                for (auto const& barrier : plan->barriers)
-                    if (barrier.resource == culled.index() && barrier.before_pass == added->pass.index())
+                for (auto const& barrier : plan->barriers) {
+                    if (barrier.resource == culled.index() && barrier.before_pass == added->pass.index()) {
                         dependency = barrier.memory_dependency && barrier.after.stages == rg::pipeline_stage::mesh_shader;
+                    }
+                }
                 CHECK(dependency);
             }
             // the pass is the only one, so it is first in the execution order
@@ -483,7 +504,7 @@ int main() {
 
     // ---- the RESOLVE lane (v0.4c; v0.5 made it the opaque producer so its depth input is the frame's own
     //      G-buffer depth): two sampled reads, five storage writes, six table reads ----
-    for (bool with_mip_feedback : {false, true})
+    for (bool with_mip_feedback : {false, true}) {
         for (bool with_culled : {false, true}) {
             rg::builder graph;
             visibility::resolve_inputs in{};
@@ -507,8 +528,9 @@ int main() {
             in.shared = visibility::resolve_shared_inputs{buffers[0], buffers[1], buffers[2], buffers[3], buffers[4], buffers[5]};
             auto culled = *graph.import_buffer({31, 100}, rg::initial_contents::defined, "selected run", {64},
                                                rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::compute_shader, rg::memory_access::write});
-            if (with_culled)
+            if (with_culled) {
                 in.shared->culled_meshlets = culled;
+            }
             if (with_mip_feedback) {
                 in.mip_feedback = *graph.import_buffer({31, 101}, rg::initial_contents::defined, "mip demand", {65536},
                                                        rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::compute_shader, rg::memory_access::write});
@@ -523,8 +545,9 @@ int main() {
                 auto const* params = plan->passes[added->pass.index()].parameters.get<visibility::resolve_parameters>();
                 CHECK(params != nullptr);
                 CHECK(params && params->mip_feedback.has_value() == with_mip_feedback);
-                if (params && with_mip_feedback)
+                if (params && with_mip_feedback) {
                     CHECK(params->mip_feedback->resource == *in.mip_feedback);
+                }
                 CHECK(params && params->vis_id.resource == in.vis_id);
                 CHECK(params && params->depth.resource == in.depth);
                 CHECK(params && params->surface[0].resource == in.surface[0]);
@@ -542,13 +565,16 @@ int main() {
                 CHECK(params && params->shared->culled_meshlets.has_value() == with_culled);
                 if (with_culled) {
                     bool dependency = false;
-                    for (auto const& barrier : plan->barriers)
-                        if (barrier.resource == culled.index() && barrier.before_pass == added->pass.index())
+                    for (auto const& barrier : plan->barriers) {
+                        if (barrier.resource == culled.index() && barrier.before_pass == added->pass.index()) {
                             dependency = barrier.memory_dependency && barrier.after.stages == rg::pipeline_stage::compute_shader;
+                        }
+                    }
                     CHECK(dependency);
                 }
             }
         }
+    }
     // ---- one image cannot be two of the resolve's outputs ----
     {
         rg::builder graph;

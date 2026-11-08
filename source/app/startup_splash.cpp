@@ -11,7 +11,7 @@
 
 namespace {
     constexpr wchar_t splash_class[] = L"DerenStartupSplash";
-    constexpr UINT attach_owner_message = WM_APP + 1;
+    constexpr UINT attach_window_message = WM_APP + 1;
 
     LRESULT CALLBACK splash_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
         if (message == WM_NCCREATE) {
@@ -102,7 +102,7 @@ namespace deren::app {
                 }
                 MSG message{};
                 while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
-                    if (message.message == attach_owner_message && message.hwnd == nullptr) {
+                    if (message.message == attach_window_message && message.hwnd == nullptr) {
                         SetWindowLongPtrW(window, GWLP_HWNDPARENT, static_cast<LONG_PTR>(message.wParam));
                         SetWindowPos(window, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
                     } else {
@@ -122,9 +122,9 @@ namespace deren::app {
         return 0;
     }
 
-    void startup_splash::attach_owner(GLFWwindow* const window) noexcept {
+    void startup_splash::attach_window(GLFWwindow* const window) noexcept {
         if (thread_ && window) {
-            PostThreadMessageW(thread_id_, attach_owner_message, reinterpret_cast<WPARAM>(glfwGetWin32Window(window)), 0);
+            PostThreadMessageW(thread_id_, attach_window_message, reinterpret_cast<WPARAM>(glfwGetWin32Window(window)), 0);
         }
     }
 
@@ -151,9 +151,12 @@ namespace deren::app {
 } // namespace deren::app
 #else
 namespace deren::app {
-    startup_splash::startup_splash(bool) noexcept {}
+    startup_splash::startup_splash(bool) noexcept {
+    }
     startup_splash::~startup_splash() = default;
-    void startup_splash::attach_owner(GLFWwindow*) noexcept {}
-    void startup_splash::close() noexcept {}
+    void startup_splash::attach_window(GLFWwindow*) noexcept {
+    }
+    void startup_splash::close() noexcept {
+    }
 } // namespace deren::app
 #endif

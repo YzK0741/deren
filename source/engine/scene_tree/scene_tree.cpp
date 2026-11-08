@@ -25,8 +25,8 @@ namespace deren::engine::scene_tree {
     // first child is visited next). Only valid while the tree structure is frozen (see
     // scene_iterator in scene_tree.cppm): no make/import/clear / child-vector pushes while
     // iterators live.
-    scene_iterator::scene_iterator(scene& owner) {
-        for (auto it = owner.roots.rbegin(); it != owner.roots.rend(); ++it) {
+    scene_iterator::scene_iterator(scene& parent) {
+        for (auto it = parent.roots.rbegin(); it != parent.roots.rend(); ++it) {
             this->stack.emplace_back(&*it, 0); // roots sit at depth 0
         }
         this->exhausted = this->stack.empty();
@@ -156,7 +156,7 @@ namespace deren::engine::scene_tree {
         }
         return nullptr;
     }
-    bool find_world(scene const& owner, uint64_t const import_instance, std::size_t const source_index, glm::mat4& output) {
+    bool find_world(scene const& parent, uint64_t const import_instance, std::size_t const source_index, glm::mat4& output) {
         auto const visit = [&](auto&& self, scene_node const& node, glm::mat4 const& parent_world) -> bool {
             glm::mat4 const world = parent_world * node.local;
             if (node.import_instance == import_instance && node.source_index == source_index) {
@@ -170,7 +170,7 @@ namespace deren::engine::scene_tree {
             }
             return false;
         };
-        for (scene_node const& root : owner.roots) {
+        for (scene_node const& root : parent.roots) {
             if (visit(visit, root, glm::mat4(1.0f))) {
                 return true;
             }

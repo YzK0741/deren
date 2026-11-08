@@ -21,7 +21,7 @@ namespace deren::engine::gaussian_splatting {
         if (!view) {
             return std::unexpected(view.error());
         }
-        if (reuse && reuse->owner != &core) {
+        if (reuse && reuse->parent != &core) {
             return failure(error_code::invalid_argument, "GPU frame belongs to another core");
         }
         if (reuse && device_lease && !reuse->device_lease && reuse->storage_view.size()) {
@@ -35,7 +35,7 @@ namespace deren::engine::gaussian_splatting {
         std::sort(order.begin(), order.end(), [&](auto a, auto b) { return inputs[a].stable_id < inputs[b].stable_id; });
         deren::utility::vessel::vector<instance_record> records(inputs.size());
         deren::utility::vessel::vector<gpu_instance_range> range_data;
-        deren::utility::vessel::vector<std::shared_ptr<raster_asset const>> owners;
+        deren::utility::vessel::vector<std::shared_ptr<raster_asset const>> retained_assets;
         std::uint64_t count = 0;
         for (std::size_t position = 0; position < order.size(); ++position) {
             auto const index = order[position];
@@ -57,16 +57,16 @@ namespace deren::engine::gaussian_splatting {
             }
             count = next;
             records[index] = {asset->geometry_address(), asset->sh_address(), input.model, *inverse, asset->sh_degree(), {}};
-            owners.push_back(input.asset);
+            retained_assets.push_back(input.asset);
         }
         std::shared_ptr<gpu_frame> result = reuse ? reuse->shared_from_this() : std::shared_ptr<gpu_frame>{new gpu_frame{}};
         if (device_lease) {
             result->device_lease = std::move(device_lease);
         }
         if (count == 0) {
-            result->owner = &core;
+            result->parent = &core;
             result->push = {};
-            result->owners = std::move(owners);
+            result->retained_assets = std::move(retained_assets);
             return result;
         }
         auto* sorting = rhi::query_extension<rhi::gpu_sorting>(core);
@@ -218,8 +218,8 @@ namespace deren::engine::gaussian_splatting {
             result->buffers[i] = {candidates[i]};
         }
         result->storage_view = std::move(pending);
-        result->owner = &core;
-        result->owners = std::move(owners);
+        result->parent = &core;
+        result->retained_assets = std::move(retained_assets);
         result->push = data.raster;
         result->push.flags = 1u; // Raster reads the completed projection cache; compute still uses flags=0.
         result->parameter_address = addresses[gpu_frame::parameters];
@@ -232,7 +232,7 @@ namespace deren::engine::gaussian_splatting {
             std::uint32_t next = 0;
             void mark() {
                 if (points.mark) {
-                    points.mark(points.owner, next);
+                    points.mark(points.parent, next);
                 }
                 ++next;
             }

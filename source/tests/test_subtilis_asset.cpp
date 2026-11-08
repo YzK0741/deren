@@ -87,7 +87,7 @@ int main() {
     rejects(sub::asset_error::invalid_hierarchy);
     description.roots = roots;
     description.groups = std::span(groups).first(2);
-    rejects(sub::asset_error::invalid_cluster_range); // third cluster has no owner
+    rejects(sub::asset_error::invalid_cluster_range); // third cluster has no parent
     description.groups = groups;
     // A parent with more records than its complete finest representation cannot use M1's reservation.
     std::array<meshlet, 5> over{};

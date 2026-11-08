@@ -36,7 +36,7 @@ import deren.promise.rhi;            // the contract's recording surface: the fr
 
 namespace deren::engine {
     namespace {
-        /// Bind through the shared recording vocabulary while retaining the typed owner.
+        /// Bind through the shared recording vocabulary while retaining the typed parent.
         void bind_pipeline_on(recording_target const& target, auto const& pipeline) noexcept {
             if (target) {
                 pipeline.begin_pipeline(*target.get());
@@ -912,8 +912,9 @@ namespace deren::engine {
                                              this->software_visibility && this->software_visibility->ready() && this->software_merge && this->software_merge->ready();
         if (this->subtilis_on) {
             this->subtilis_peak_items = std::max(this->subtilis_peak_items, static_cast<uint32_t>(this->frame_visible.size()));
-            if (this->visibility_admission_frame == visibility::admission::item_overflow || this->visibility_admission_frame == visibility::admission::meshlet_overflow)
+            if (this->visibility_admission_frame == visibility::admission::item_overflow || this->visibility_admission_frame == visibility::admission::meshlet_overflow) {
                 ++this->subtilis_capacity_frames;
+            }
         }
         if (this->visibility_buffer_on && this->visibility_lane_frame == deren::engine::visibility::opaque_lane::geometry && !this->visibility_fallback_logged) {
             this->visibility_fallback_logged = true;
@@ -1125,11 +1126,11 @@ namespace deren::engine {
     // (`create_shadow_resources`). What is left here is what the pass genuinely cannot know: which secondaries to
     // record into, and what a caster's draw state is (the scene block, the live depth-bias state, the two-sided
     // policy, the secondary's own begin info) - so that arrives as a callback, and the map's edge with it.
-    bool runtime::record_shadow_cascade(void* const owner, rhi::mergeable_command_buffer_ref const& secondary, uint32_t const cascade_index, rhi::pipeline* const pipeline, bool const mesh_stage, bool const meshlets) {
-        runtime* const self = static_cast<runtime*>(owner);
+    bool runtime::record_shadow_cascade(void* const parent, rhi::mergeable_command_buffer_ref const& secondary, uint32_t const cascade_index, rhi::pipeline* const pipeline, bool const mesh_stage, bool const meshlets) {
+        runtime* const self = static_cast<runtime*>(parent);
         // The secondary inherits ONLY the depth attachment (no colour one): dynamic rendering 1.3, single-sampled,
         // viewMask 0 - and the DESCRIPTOR HEAPS, which the BACKEND derives from its own heap state when it
-        // begins the recorder (see core::owned_command_buffer::begin_recording). That derivation is why the
+        // begins the recorder (see core::command_buffer::begin_recording). That derivation is why the
         // hand-written `VkCommandBufferInheritanceDescriptorHeapInfoEXT` that stood here is gone: this
         // secondary is validated on its own, and the shadow shaders read the light matrices and the shadow map
         // straight out of the heaps, but the heap is the BACKEND's state and this layer has no business
@@ -1177,8 +1178,8 @@ namespace deren::engine {
         return true;
     }
 
-    void runtime::run_shadow_tasks(void* const owner, std::span<std::function<void()>> const tasks) {
-        static_cast<runtime*>(owner)->run_tasks(tasks, deren::engine::task_priority::recording);
+    void runtime::run_shadow_tasks(void* const parent, std::span<std::function<void()>> const tasks) {
+        static_cast<runtime*>(parent)->run_tasks(tasks, deren::engine::task_priority::recording);
     }
     bool runtime::main_graph_candidate() const noexcept {
         // THE FRAME IS GRAPH-RECORDED WHENEVER THERE IS A SCENE TO RECORD. Everything else the graph needs - the post
@@ -1198,7 +1199,7 @@ namespace deren::engine {
         auto const counts = this->cluster_resource_view.find(render_resource::resource_id::cluster_counts);
         auto const indices = this->cluster_resource_view.find(render_resource::resource_id::cluster_indices);
         auto const slot = this->frame_ring().position();
-        return counts && indices && counts->device.get() == this->core_owner.get() && indices->device.get() == this->core_owner.get() &&
+        return counts && indices && counts->device.get() == this->core_lifetime.get() && indices->device.get() == this->core_lifetime.get() &&
                slot < counts->objects.size() && slot < indices->objects.size() && counts->objects[slot].buffer && indices->objects[slot].buffer;
     }
 
@@ -1368,7 +1369,7 @@ namespace deren::engine {
         };
         // The shadow session's endpoint (see render_environment::push_block). `this` is const here because the
         // method is; the endpoint only records into the command buffer, so the cast is a formality.
-        env.push_owner = const_cast<runtime*>(this);
+        env.push_source = const_cast<runtime*>(this);
         env.push_block = &runtime::push_stage_block;
         // ---- ... AND HOW THIS SESSION FEEDS ITS GEOMETRY: a mesh pipeline has no input assembler, so a caster is
         //      DISPATCHED and its buffers travel as addresses in the stage block instead of being bound (see
@@ -1574,7 +1575,7 @@ namespace deren::engine {
             this->taa_jitter_index = 0;
         }
         // ... and the PASS's half of that edge (whether each image's history holds anything) is the caller's to
-        // apply, which is what the return value says: it is the one thing the flag's owner cannot do for the pass.
+        // apply, which is what the return value says: it is the one thing the flag's parent cannot do for the pass.
         return turned_on;
     }
 
@@ -1633,8 +1634,8 @@ namespace deren::engine {
         // startup failure here a log line rather than a broken frame.
         //
         // IT IS HANDED A CONTEXT, NOT A HOST: building a pass needs a device and the shared lookups, and it
-        // needs no frame. ANY owner can fill this struct - that is what makes a pass usable outside this
-        // renderer - and this runtime is one such owner, filling the device from the core it owns.
+        // needs no frame. ANY parent can fill this struct - that is what makes a pass usable outside this
+        // renderer - and this runtime is one such parent, filling the device from the core it owns.
         //
         // The SHARED samplers must exist before the context is filled, because a pass caches the five it may
         // choose between at create time (a declaration picks one by hint, and a null sampler in a set is a
@@ -1712,8 +1713,8 @@ namespace deren::engine {
     render_resource::shared::sampler_set runtime::shared_samplers() const noexcept {
         // The runtime owns all six objects. Passes borrow their contract pointers by hint;
         // no backend handle is needed to identify a sampler or to write it through the heap.
-        auto borrowed = [](rhi::shared_object<rhi::sampler> const& owned) {
-            return static_cast<rhi::sampler*>(owned.get());
+        auto borrowed = [](rhi::shared_object<rhi::sampler> const& resource) {
+            return static_cast<rhi::sampler*>(resource.get());
         };
         return {.gbuffer = borrowed(this->gbuffer_sampler),
                 .taa = borrowed(this->taa_sampler),
@@ -1767,20 +1768,20 @@ namespace deren::engine {
             // reaches a native device through the escape when it needs an allocated entry point (pass::native_device).
             .face = &this->rhi_face(),
             .swap_chain_format = this->swap_chain_image_format,
-            .shader = [](void* owner, std::string_view const name) { return static_cast<runtime*>(owner)->registered_shader(name); },
+            .shader = [](void* parent, std::string_view const name) { return static_cast<runtime*>(parent)->registered_shader(name); },
             // The SBT numbers a tracing pass builds its table against, straight from the capability query (see
             // device_capabilities): zeroed here on a device that has no ray-tracing pipeline.
             .ray_tracing_properties = runtime_detail::ray_tracing_properties_of(this->rhi_face()),
-            // ... and the owner's buffer factory: the pass gets a handle and a device address, the runtime keeps
+            // ... and the parent's buffer factory: the pass gets a handle and a device address, the runtime keeps
             // the allocation for the generation (see `pass_upload_buffers`).
             .create_upload_buffer =
-                [](void* owner, void const* data, uint64_t const bytes, rhi::buffer_flags const flags, uint64_t* const out_address) -> rhi::buffer* {
-                runtime* const self = static_cast<runtime*>(owner);
+                [](void* parent, void const* data, uint64_t const bytes, rhi::buffer_flags const flags, uint64_t* const out_address) -> rhi::buffer* {
+                runtime* const self = static_cast<runtime*>(parent);
                 // THE CALLER'S FLAGS GO STRAIGHT THROUGH (abi 24): the hook speaks the contract's bit set now, so
                 // the Vulkan-usage switch that stood here - and the named panic for a bit its mapping did not
                 // cover - has nothing left to translate. `device_address` is ORed in because the ADDRESS is what
                 // the caller comes for (a shader binding table's whole purpose); the caller's own bits decide the
-                // rest. The pass framework's rule still holds: the owner either builds what was asked for or
+                // rest. The pass framework's rule still holds: the parent either builds what was asked for or
                 // answers nullptr, and a pass that gets nullptr records nothing rather than reading zeros.
                 if (out_address != nullptr) {
                     *out_address = 0;
@@ -1819,13 +1820,13 @@ namespace deren::engine {
             // that knows what a pass may reach - the context itself stays a plain struct of callbacks, so the
             // framework still does not depend on `deren.vulkan.core`.
             .resource =
-                [](void* owner, render_resource::resource_id const id, uint32_t const element) {
-                    runtime* const self = static_cast<runtime*>(owner);
+                [](void* parent, render_resource::resource_id const id, uint32_t const element) {
+                    runtime* const self = static_cast<runtime*>(parent);
                     resource_handles const handles = self->pass_resources.resource(id, element);
                     return pass::resolved_binding{.image_handle = handles.image, .view_handle = handles.view, .buffer_handle = handles.buffer};
                 },
             .frames_in_flight = this->frame_ring().slot_count(),
-            .owner = this,
+            .parent = this,
         };
     }
 
@@ -1838,8 +1839,8 @@ namespace deren::engine {
         if (this->material_mapped != nullptr) {
             this->pass_resources.register_resource(render_resource::resource_id::material_table, 0, resource_handles{.buffer = &*this->material_buffer});
         }
-        if (!this->owned_texture_views.empty()) {
-            this->pass_resources.register_resource(render_resource::resource_id::scene_textures, 0, resource_handles{.view = &*this->owned_texture_views[0]});
+        if (!this->scene_texture_views.empty()) {
+            this->pass_resources.register_resource(render_resource::resource_id::scene_textures, 0, resource_handles{.view = &*this->scene_texture_views[0]});
         }
         for (uint32_t slot = 0; slot < this->skin_buffers.size(); ++slot) {
             this->pass_resources.register_resource(render_resource::resource_id::skin_matrices, slot, resource_handles{.buffer = &*this->skin_buffers[slot]});
@@ -1881,7 +1882,7 @@ namespace deren::engine {
         // NO FAMILY-SPAN PUBLICATION IS LEFT HERE (3-D/E step 2): the one family that used the run form was
         // `resource_id::swapchain_image`, and the contract has no contiguous run of the presentation images to
         // publish - the engine names ONE of them per frame (`frame_image()`) and publishes that instance below.
-        // Every other per-image group is engine-held and published instance by instance (`owned_family`).
+        // Every other per-image group is engine-held and published instance by instance (`family`).
         // One resource that exists once (a device-wide image): the instance is still the schema's (0 for
         // device-wide, the slot for a per-frame-slot buffer that happens to exist once).
         auto const single = [&table](render_resource::resource_id const id, uint32_t const element, uint32_t const instance, pass::resolved_binding const binding) {
@@ -1889,8 +1890,8 @@ namespace deren::engine {
         };
         // One buffer: the RAII wrapper holds a handle and the descriptor needs the VkBuffer behind it, so the
         // lookup goes through vma exactly where the renderer's own binding writes do.
-        auto const buffer = [&table](render_resource::resource_id const id, uint32_t const instance, auto const& owned) {
-            table.publish(id, 0, instance, pass::resolved_binding{.buffer_handle = &*owned});
+        auto const buffer = [&table](render_resource::resource_id const id, uint32_t const instance, auto const& resource) {
+            table.publish(id, 0, instance, pass::resolved_binding{.buffer_handle = &*resource});
         };
         for (size_t i = 0; i < this->scene_table_resource_views.size(); ++i) {
             auto const id = pass::scene_tables_pass::ids[i];
@@ -1900,15 +1901,15 @@ namespace deren::engine {
         }
         // One image, in the contract lane ONLY (plan X5 B2): the raw `VkImage` the binding used to carry is
         // gone, and the handle is what `image()` answers with.
-        auto const image = [](auto const& owned) -> pass::resolved_binding {
-            return static_cast<bool>(owned) ? pass::resolved_binding{.image_handle = &*owned} : pass::resolved_binding{};
+        auto const image = [](auto const& resource) -> pass::resolved_binding {
+            return static_cast<bool>(resource) ? pass::resolved_binding{.image_handle = &*resource} : pass::resolved_binding{};
         };
         // ONE ENGINE-OWNED PER-IMAGE FAMILY (③-D/E A1): the engine holds the generation's handles, so the
         // run the table needs is assembled here, instance by instance, each handle through the contract's
         // escape. `find()` answers exactly what the family form answered; the family form itself needs a
         // CONTIGUOUS run of `VkImageView`s, which an array of `unique_object`s is not - and a local run
         // would dangle, because the table stores the span rather than copying it.
-        auto const owned_family = [&table](render_resource::resource_id const id, uint32_t const element, auto const& images, auto const& views) {
+        auto const family = [&table](render_resource::resource_id const id, uint32_t const element, auto const& images, auto const& views) {
             for (std::size_t instance = 0; instance < rhi::max_swapchain_images; ++instance) {
                 if (!static_cast<bool>(images[instance]) || !static_cast<bool>(views[instance])) {
                     continue;
@@ -1943,33 +1944,33 @@ namespace deren::engine {
         // passes name `ldr` as a BARRIER image), and `views_of` - the only reader of a family span - is
         // consulted by `resolve_declaration` for own per-swapchain-image bindings alone. `find()` is what
         // every one of those sites uses, and it answers exactly what the family form answered.
-        owned_family(render_resource::resource_id::hdr, 0, this->hdr_images, this->hdr_image_views);
+        family(render_resource::resource_id::hdr, 0, this->hdr_images, this->hdr_image_views);
         // THE VISIBILITY BUFFER AND ITS CAPTURE-ONLY DEPTH (visibility-buffer v0.3b): the raster pass names both as
         // render TARGETS, so the table has to carry the current image or the declaration cannot resolve.
-        owned_family(render_resource::resource_id::visibility_buffer, 0, this->visibility_images, this->visibility_image_views);
-        owned_family(render_resource::resource_id::ldr, 0, this->ldr_images, this->ldr_image_views);
+        family(render_resource::resource_id::visibility_buffer, 0, this->visibility_images, this->visibility_image_views);
+        family(render_resource::resource_id::ldr, 0, this->ldr_images, this->ldr_image_views);
         // THE G-BUFFER CLUSTER IS THE ENGINE'S OWN (③-D/E A1.4), published the same way and for the same
         // reason: NO FAMILY-SPAN CONSUMER. `gbuffer_depth` and `velocity` ARE `own` per-image bindings of the
-        // TAA pass, so `resolve_declaration` does fill `own_per_image` for them - and NO PASS READS IT (the
+        // TAA pass, so `resolve_declaration` does fill `local_per_image` for them - and NO PASS READS IT (the
         // framework is the only writer, and every pass names its own image's view through `find`). The span
         // form would need a parallel contiguous `VkImage`/`VkImageView` run beside each manager array; with
         // no reader, the instance-by-instance form answers the same `find` with no second copy to drift.
-        owned_family(render_resource::resource_id::gbuffer_depth, 0, this->gbuffer_depth_images, this->gbuffer_depth_image_views);
-        owned_family(render_resource::resource_id::velocity, 0, this->velocity_images, this->velocity_image_views);
+        family(render_resource::resource_id::gbuffer_depth, 0, this->gbuffer_depth_images, this->gbuffer_depth_image_views);
+        family(render_resource::resource_id::velocity, 0, this->velocity_images, this->velocity_image_views);
         // THE TAA HISTORY PAIR IS THE ENGINE'S OWN (③-D/E A1.1), and the rest of this chain follows it group
         // by group - which is why these calls have a different shape from the backend-owned ones.
-        owned_family(render_resource::resource_id::taa_history, 0, this->taa_history_images, this->taa_history_image_views);
+        family(render_resource::resource_id::taa_history, 0, this->taa_history_images, this->taa_history_image_views);
         // THE STOCHASTIC-CHAIN TRIO AND THE FOUR BLOOM LEVELS ARE THE ENGINE'S OWN (③-D/E A1.5), published the
         // same way and for the same reason as the groups above: NO FAMILY-SPAN READER. None of the seven is an
-        // `own` per-image binding, so `resolve_declaration` never even fills `own_per_image` for them - each pass
+        // `own` per-image binding, so `resolve_declaration` never even fills `local_per_image` for them - each pass
         // names the image it reads through `find`.
         // The three stored surface targets are a RUN of targets (`count = 3`), never an `own` binding: no
-        // `own_per_image` is filled for them, so the instance-by-instance form is exact here too.
+        // `local_per_image` is filled for them, so the instance-by-instance form is exact here too.
         for (std::size_t target = 0; target < this->gbuffer_images.size(); ++target) {
-            owned_family(render_resource::resource_id::gbuffer_targets, static_cast<uint32_t>(target), this->gbuffer_images[target], this->gbuffer_image_views[target]);
+            family(render_resource::resource_id::gbuffer_targets, static_cast<uint32_t>(target), this->gbuffer_images[target], this->gbuffer_image_views[target]);
         }
         for (uint32_t level = 0; level < deren::engine::render_layout::bloom_level_count; ++level) {
-            owned_family(render_resource::resource_id::bloom, level, this->bloom_images[level], this->bloom_image_views[level]);
+            family(render_resource::resource_id::bloom, level, this->bloom_images[level], this->bloom_image_views[level]);
         }
         // `scene_color` is an ALIAS rather than a family of its own: the scene-side passes write the TAA input
         // while the resolve runs and the HDR target otherwise (see scene_target_view), so WHAT THE ID MEANS is
@@ -2009,7 +2010,7 @@ namespace deren::engine {
         // ---- per FRAME SLOT: the ray-traced visibility image, the shadow map's cascades, the buffers ----
         // THE ENGINE'S OWN IMAGE NOW (③-D/E A1.2), and published instance by instance because THIS GROUP HAS
         // NO FAMILY-SPAN CONSUMER: `rt_shadow_visibility` is scoped PER FRAME SLOT, and `resolve_declaration`
-        // only fills `own_per_image` for `resource_scope::per_swapchain_image` - so no `views_of` run is owed
+        // only fills `local_per_image` for `resource_scope::per_swapchain_image` - so no `views_of` run is owed
         // here, and the engine's `deren::utility::vessel::array<unique_object>` needs no parallel contiguous native array.
         for (std::size_t slot = 0; slot < rhi::max_frames_in_flight; ++slot) {
             if (!static_cast<bool>(this->rt_shadow_image_views[slot]) || !static_cast<bool>(this->rt_shadow_images[slot])) {
@@ -2096,8 +2097,8 @@ namespace deren::engine {
         // The white fallback and the array it is element 0 of. The array is BINDLESS (one binding, N descriptors),
         // which the declaration vocabulary cannot index element by element yet - so what is published is the one
         // element that always exists, which is also the one every declaration can name (element 0).
-        if (this->white_texture_index < this->owned_textures.size() && this->white_texture_index < this->owned_texture_views.size()) {
-            pass::resolved_binding white = image(this->owned_textures[this->white_texture_index]);
+        if (this->white_texture_index < this->scene_textures.size() && this->white_texture_index < this->scene_texture_views.size()) {
+            pass::resolved_binding white = image(this->scene_textures[this->white_texture_index]);
             single(render_resource::resource_id::white_texture, 0, 0, white);
             single(render_resource::resource_id::scene_textures, 0, 0, white);
         }
@@ -2153,10 +2154,10 @@ namespace deren::engine {
         // The own bindings, indexed by their own binding number: the validator requires those to be contiguous
         // from zero, so `own[binding]` IS this binding's handle (see resolved_io).
         for (render_resource::pass_binding const& binding : decl.bindings) {
-            if (binding.owner != render_resource::binding_owner::own || binding.binding >= io.own.size()) {
+            if (binding.parent != render_resource::binding_scope::local || binding.binding >= io.local.size()) {
                 continue;
             }
-            check(binding.resource, binding.element, io.own[binding.binding], "own binding");
+            check(binding.resource, binding.element, io.local[binding.binding], "local binding");
         }
         // The targets, walked the way `resolve_declaration` walks them: a target claiming a RUN of elements
         // (`render_target::count`) expands to one slot per element, so the declaration's t-th entry is NOT always
@@ -2195,20 +2196,20 @@ namespace deren::engine {
     pass::visibility_frame runtime::make_visibility_frame(bool const recovery) noexcept {
         pass::visibility_frame frame{};
         static bool const parallel = std::getenv("DEREN_PARALLEL_VISIBILITY") != nullptr;
-        frame.record_items = [](void* owner, deren::promise::rhi::command_buffer& command_buffer,
+        frame.record_items = [](void* parent, deren::promise::rhi::command_buffer& command_buffer,
                                 std::span<rhi::mergeable_command_buffer_ref const> segments,
-                                pass::visibility_frame::bind_segment_fn bind_segment, void* segment_owner,
+                                pass::visibility_frame::bind_segment_fn bind_segment, void* segment_context,
                                 std::uint32_t& recorded) {
-            return static_cast<runtime*>(owner)->record_visibility_items(command_buffer, segments, bind_segment,
-                                                                         segment_owner, recorded);
+            return static_cast<runtime*>(parent)->record_visibility_items(command_buffer, segments, bind_segment,
+                                                                          segment_context, recorded);
         };
         if (recovery) {
             frame.segments = {};
-            frame.record_items = [](void* owner, rhi::command_buffer& command_buffer,
+            frame.record_items = [](void* parent, rhi::command_buffer& command_buffer,
                                     std::span<rhi::mergeable_command_buffer_ref const> /*segments*/,
-                                    pass::visibility_frame::bind_segment_fn /*bind_segment*/, void* /*segment_owner*/,
+                                    pass::visibility_frame::bind_segment_fn /*bind_segment*/, void* /*segment_context*/,
                                     std::uint32_t& recorded) {
-                return static_cast<runtime*>(owner)->record_visibility_recovery(command_buffer, recorded);
+                return static_cast<runtime*>(parent)->record_visibility_recovery(command_buffer, recorded);
             };
         } else if (parallel) {
             auto& segments = this->visibility_segments[static_cast<std::size_t>(this->frame_ring().position())];
@@ -2224,7 +2225,7 @@ namespace deren::engine {
             this->visibility_segment_view.assign(segments.begin(), segments.end());
             frame.segments = this->visibility_segment_view;
         }
-        frame.owner = this;
+        frame.parent = this;
         frame.extent = this->render_extent();
         return frame;
     }
@@ -2251,7 +2252,7 @@ namespace deren::engine {
             .segments = this->scene_segment_view,
             .make_environment = &runtime::make_scene_environment,
             .run_tasks = &runtime::run_scene_tasks,
-            .owner = this,
+            .parent = this,
             .color_formats = this->scene_color_formats,
             .depth_format = rhi::image_format::depth,
             .samples = 1u,
@@ -2262,8 +2263,8 @@ namespace deren::engine {
 
     /// build ONE segment's draw state; a fresh one per segment, because the pipeline-dedup state is per
     /// recording session (see scene_frame::make_environment)
-    render_environment runtime::make_scene_environment(void* owner, recording_target target, bool const gbuffer) {
-        runtime& self = *static_cast<runtime*>(owner);
+    render_environment runtime::make_scene_environment(void* parent, recording_target target, bool const gbuffer) {
+        runtime& self = *static_cast<runtime*>(parent);
         render_environment env;
         // THE SESSION'S BUFFER IS THE CONTRACT HANDLE (abi 21): the caller hands over the same borrowed
         // shared_ptr the pass records into (`resolved_io::cmd`, or the scene/transparent frame's own
@@ -2398,7 +2399,7 @@ namespace deren::engine {
         // the SCENE endpoint, which appends the two heap indices and leaves the optional third lane verbatim. It
         // must NOT be push_stage_block: that one resolves the third lane into a post-chain source slot, and a
         // scene shader's spare lane (the toon reflection strength) is not a heap index.
-        env.push_owner = &self;
+        env.push_source = &self;
         env.push_block = &runtime::push_scene_stage_block;
         // ... and how a session feeds its leaves: a mesh pipeline has no input assembler, so every leaf is dispatched
         // with its geometry window pushed instead of bound (see primitive::mesh_dispatch). The WINDOW itself is
@@ -2424,8 +2425,8 @@ namespace deren::engine {
     }
 
     /// the renderer's scheduler, handed to the pass so the segment fan-out stays the frame loop's policy
-    void runtime::run_scene_tasks(void* owner, std::span<std::function<void()>> const tasks) {
-        static_cast<runtime*>(owner)->run_tasks(tasks, deren::engine::task_priority::recording);
+    void runtime::run_scene_tasks(void* parent, std::span<std::function<void()>> const tasks) {
+        static_cast<runtime*>(parent)->run_tasks(tasks, deren::engine::task_priority::recording);
     }
 
     // THE SCENE PASS'S RESOLVER IS GONE (S3): its six targets, its shared set and its extent are resolved from
@@ -2433,7 +2434,7 @@ namespace deren::engine {
     // used to be the first line here - "there is no surface pipeline, or no target generation to draw into" - is
     // now the pass's FEATURE ("scene", answered by `gbuffer_pass_active()` in `feature_active`). The generation
     // half of it is what the table already says: a frame whose targets do not exist has no entry to resolve, so
-    // the pass does not run. What is NOT resolved here anymore is `out.own = {}` and `out.push = {}` either -
+    // the pass does not run. What is NOT resolved here anymore is `out.local = {}` and `out.push = {}` either -
     // this pass declares neither, and the generic resolver leaves both empty for exactly that case.
 
     pass::transparent_frame runtime::make_transparent_frame() noexcept {
@@ -2447,7 +2448,7 @@ namespace deren::engine {
             .leaves = this->frame_transparent,
             .secondary = transparent,
             .make_environment = &runtime::make_scene_environment,
-            .owner = this,
+            .parent = this,
             .color_format = deren::engine::render_layout::hdr_format,
             .depth_format = rhi::image_format::depth,
             .extent = this->render_extent(),
@@ -2513,7 +2514,7 @@ namespace deren::engine {
         // the contract's `mapped()` is the write for a `storage_coherent` buffer, and this slot's own frame has
         // completed by the time the ring comes round again, which is the rule that comment states.
         auto const started = std::chrono::steady_clock::now();
-        auto const frame = gaussian_splatting::prepare_raster_frame(this->rhi_face(), this->gaussian_instances, camera, gaussian_splatting::foundation_limits{}, slot.get(), this->core_owner);
+        auto const frame = gaussian_splatting::prepare_raster_frame(this->rhi_face(), this->gaussian_instances, camera, gaussian_splatting::foundation_limits{}, slot.get(), this->core_lifetime);
         this->gaussian_cpu_prepare_ms[static_cast<std::size_t>(this->frame_ring().position())] = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
         if (!frame) {
             // THE FRAME IS SKIPPED, NOT FAKED, and the reason is the error's: the pass records nothing this frame
@@ -2566,7 +2567,7 @@ namespace deren::engine {
         camera.position = glm::vec3(glm::inverse(this->current_ubo.view)[3]);
         camera.extent = this->render_extent();
         auto const started = std::chrono::steady_clock::now();
-        auto prepared = gaussian_splatting::prepare_gpu_frame(this->rhi_face(), this->gaussian_instances, camera, {}, slot.get(), this->core_owner);
+        auto prepared = gaussian_splatting::prepare_gpu_frame(this->rhi_face(), this->gaussian_instances, camera, {}, slot.get(), this->core_lifetime);
         this->gaussian_cpu_prepare_ms[index] = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
         if (!prepared) {
             deren::utility::log("gaussian GPU initialization: {} {}", forced ? "FAIL" : "CPU fallback:", prepared.error().message);
@@ -2687,10 +2688,10 @@ namespace deren::engine {
             // CULL as well as the material.
             .outline_leaves = this->frame_outline,
             .make_environment = &runtime::make_scene_environment,
-            .owner = this,
+            .parent = this,
             // The name the pipeline was registered under (app_pipelines.cpp). Handed over rather than hardcoded in
             // the pass, because the registry is the runtime's: a pass asserting a string another module chose
-            // would be a name with no owner.
+            // would be a name with no parent.
             //
             // ... AND IT IS THE OLD NAME OR THE REWRITTEN CHAIN'S, decided above from `set_goo_toon` and the
             // registry: the pass draws whatever it is handed, so this one expression IS the whole of the
@@ -2733,26 +2734,26 @@ namespace deren::engine {
         for (uint32_t cascade = 0; cascade < cascades; ++cascade) {
             // abi 21: the per-cascade buffer is a CALLER-OWNED contract handle, and the frame carries the
             // BORROWED POINTER to it (`shadow_frame::cascades` is `std::span<rhi::command_buffer* const>`):
-            // the pass begins, records and executes the buffer through the contract, and the owner of the
+            // the pass begins, records and executes the buffer through the contract, and the parent of the
             // shared_ptr stays this runtime's `shadow_recording`.
             this->shadow_secondaries_scratch[cascade] = this->shadow_recording[slot][cascade];
         }
         return pass::shadow_frame{.record_cascade = &runtime::record_shadow_cascade,
                                   .run_tasks = &runtime::run_shadow_tasks,
-                                  .owner = this,
+                                  .parent = this,
                                   .cascades = std::span<rhi::mergeable_command_buffer_ref const>(this->shadow_secondaries_scratch.data(), cascades),
                                   .map_size = this->shadow_map_size,
                                   .allow_meshlets = this->meshlet_table_complete};
     }
 
     pass::draw_callback runtime::overlay_draw() const noexcept {
-        // The trampoline takes the owner as an ARGUMENT rather than using `this`, so the address is a plain
+        // The trampoline takes the parent as an ARGUMENT rather than using `this`, so the address is a plain
         // function pointer and the hook is one value (see pass::draw_callback).
         return pass::draw_callback{.record = &runtime::draw_overlay_after,
                                    .finish = &runtime::finish_overlay_after,
-                                   .owner = const_cast<runtime*>(this),
-                                   .has_recording = [](void* owner) noexcept {
-                                       return bool(static_cast<runtime*>(owner)->overlay_segment);
+                                   .parent = const_cast<runtime*>(this),
+                                   .has_recording = [](void* parent) noexcept {
+                                       return bool(static_cast<runtime*>(parent)->overlay_segment);
                                    }};
     }
 
@@ -2769,22 +2770,22 @@ namespace deren::engine {
     }
 
     runtime::frame_services runtime::make_frame_services() noexcept {
-        // Capture-less lambdas: each one casts the owner back and calls the builder it names, so the owner never
+        // Capture-less lambdas: each one casts the parent back and calls the builder it names, so the parent never
         // sees a member function of this class - it sees the frame. THREE builders, not eleven: the rest of the
         // frames are composed by their own passes from the published facts (see frame_pass::prepare_frame).
         return frame_services{
-            .owner = this,
-            .make_shadow_frame = [](void* owner) { return static_cast<runtime*>(owner)->make_shadow_frame(); },
-            .make_scene_frame = [](void* owner) { return static_cast<runtime*>(owner)->make_scene_frame(); },
-            .make_transparent_frame = [](void* owner) { return static_cast<runtime*>(owner)->make_transparent_frame(); },
-            .make_character_forward_frame = [](void* owner) { return static_cast<runtime*>(owner)->make_character_forward_frame(); },
-            .make_gaussian_frame = [](void* owner) { return static_cast<runtime*>(owner)->make_gaussian_frame(); },
-            .make_gaussian_gpu_frame = [](void* owner, bool ready) { return static_cast<runtime*>(owner)->make_gaussian_gpu_frame(ready); },
-            .gaussian_timing = [](void* owner) { return gaussian_splatting::gpu_frame_timing{owner, [](void* context, std::uint32_t phase) {
-                                                                                                 if (phase < 3u) {
-                                                                                                     static_cast<runtime*>(context)->gpu_mark(static_cast<gpu_mark_id>(static_cast<std::uint32_t>(gpu_mark_id::gaussian_prepare_end) + phase));
-                                                                                                 }
-                                                                                             }}; },
+            .parent = this,
+            .make_shadow_frame = [](void* parent) { return static_cast<runtime*>(parent)->make_shadow_frame(); },
+            .make_scene_frame = [](void* parent) { return static_cast<runtime*>(parent)->make_scene_frame(); },
+            .make_transparent_frame = [](void* parent) { return static_cast<runtime*>(parent)->make_transparent_frame(); },
+            .make_character_forward_frame = [](void* parent) { return static_cast<runtime*>(parent)->make_character_forward_frame(); },
+            .make_gaussian_frame = [](void* parent) { return static_cast<runtime*>(parent)->make_gaussian_frame(); },
+            .make_gaussian_gpu_frame = [](void* parent, bool ready) { return static_cast<runtime*>(parent)->make_gaussian_gpu_frame(ready); },
+            .gaussian_timing = [](void* parent) { return gaussian_splatting::gpu_frame_timing{parent, [](void* context, std::uint32_t phase) {
+                                                                                                  if (phase < 3u) {
+                                                                                                      static_cast<runtime*>(context)->gpu_mark(static_cast<gpu_mark_id>(static_cast<std::uint32_t>(gpu_mark_id::gaussian_prepare_end) + phase));
+                                                                                                  }
+                                                                                              }}; },
         };
     }
 
@@ -2841,7 +2842,7 @@ namespace deren::engine {
     }
 
     void runtime::set_pass_chain(pass::pass_chain& chain, chain_wiring const wiring) noexcept {
-        // THE HANDOVER: the owner's chain, bound into the frame loop's own structure, plus the wiring that supplies
+        // THE HANDOVER: the parent's chain, bound into the frame loop's own structure, plus the wiring that supplies
         // everything the renderer does not know about those passes (see chain_wiring).
         this->bind_frame_chain(chain);
         this->set_chain_wiring(wiring);
@@ -2861,15 +2862,15 @@ namespace deren::engine {
             }
         }
         if (this->frame_wiring.prepare == nullptr) {
-            return; // no owner: the passes keep the frames they just built and record with them
+            return; // no parent: the passes keep the frames they just built and record with them
         }
-        this->frame_wiring.prepare(this->frame_wiring.owner, this->make_frame_services(), stage.name);
+        this->frame_wiring.prepare(this->frame_wiring.parent, this->make_frame_services(), stage.name);
     }
 
     void runtime::collect_stage(std::string_view const stage) {
         frame_results results = {};
         if (this->frame_wiring.collect != nullptr) {
-            this->frame_wiring.collect(this->frame_wiring.owner, stage, results);
+            this->frame_wiring.collect(this->frame_wiring.parent, stage, results);
         }
         if (results.gaussian_record_error != rhi::error::ok) {
             deren::utility::log("gaussian recording: FAIL error {}; this frame's splats were skipped", static_cast<std::uint32_t>(results.gaussian_record_error));
@@ -2927,13 +2928,13 @@ namespace deren::engine {
         }
     }
 
-    pass::owned_pipeline runtime::resolve_pipeline(std::string_view const name) const noexcept {
+    pass::pipeline_ref runtime::resolve_pipeline(std::string_view const name) const noexcept {
         if (pipelines::pipeline_handle const* const pipeline = this->get_pipeline(name); pipeline != nullptr) {
             // ONE LANE, THE CONTRACT'S (abi 21): `pipeline_handle::contract` is set for EVERY pipeline this
             // renderer builds - the graphics recipes, the compute assemblies and the ray-tracing one all come
             // from `api_core::create_pipeline` - and a null contract here is a wiring bug, not a backend without
             // the ability (the record step's raw fallback is gone with the raw lane itself).
-            return pass::owned_pipeline{.contract = pipeline->contract};
+            return pass::pipeline_ref{.contract = pipeline->contract};
         }
         // ... AND THEN THE CHAIN'S OWN PASSES, because a chain's stages may SHARE one pipeline: the post chain's
         // four bloom levels record with the composite's R16F variant, and a copy per level would be five identical
@@ -2942,7 +2943,7 @@ namespace deren::engine {
         if (this->frame_chain != nullptr) {
             for (pass::frame_pass const* const provider : this->frame_chain->as_stage().passes) {
                 if (provider != nullptr) {
-                    pass::owned_pipeline const found = provider->named_pipeline(name);
+                    pass::pipeline_ref const found = provider->named_pipeline(name);
                     if (found.contract != nullptr) {
                         return found;
                     }
@@ -2964,9 +2965,9 @@ namespace deren::engine {
             // lanes name the same borrowed handle by construction.
             .cmd = this->frame_command_buffer(),
             .list = this->rhi_face().frames->begin_commands(),
-            .extent_of = [](void* owner, render_resource::resource_id id, uint32_t element) { return static_cast<runtime*>(owner)->resolve_resource_extent(id, element); },
-            .pipeline = [](void* owner, std::string_view name) { return static_cast<runtime*>(owner)->resolve_pipeline(name); },
-            .owner = this,
+            .extent_of = [](void* parent, render_resource::resource_id id, uint32_t element) { return static_cast<runtime*>(parent)->resolve_resource_extent(id, element); },
+            .pipeline = [](void* parent, std::string_view name) { return static_cast<runtime*>(parent)->resolve_pipeline(name); },
+            .parent = this,
         };
     }
 
@@ -3006,7 +3007,7 @@ namespace deren::engine {
         return pass::pass_host{
             // THE HEAP PUSH EVERY CONVERTED STAGE NEEDS (see resolved_io::push_block): a block sent through
             // vkCmdPushDataEXT, because no heap pipeline has a layout to hold push constants.
-            .push_block = {.owner = this, .push = &runtime::push_pass_stage_block},
+            .push_block = {.parent = this, .push = &runtime::push_pass_stage_block},
             .context = this,
             .resolve = [](void* context, pass::frame_pass const& pass, pass::resolved_io& out) { return static_cast<runtime*>(context)->resolve_pass(pass, out); },
             .apply_behaviour = [](void* context, pass::frame_pass const& pass, pass::resolved_io const& io) { static_cast<runtime*>(context)->apply_pass_behaviour(pass, io); },
@@ -3039,7 +3040,7 @@ namespace deren::engine {
             [[maybe_unused]] bool const written = contract_write_descriptor_image(this->rhi_face(), slot,
                                                                                   *image, rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image);
         };
-        auto const target_image = [](auto const& owned) -> rhi::image const* { return owned.get(); };
+        auto const target_image = [](auto const& resource) -> rhi::image const* { return resource.get(); };
         std::size_t const heap_image = static_cast<std::size_t>(this->current_image_index);
         if (heap_image < rhi::max_swapchain_images) {
             uint32_t const image_slot = static_cast<uint32_t>(heap_image);
@@ -3193,7 +3194,7 @@ namespace deren::engine {
     }
 
     // THE RAY-TRACED SHADOW PASS'S RESOLVER IS GONE (S3): its one barrier image comes from the frame's resource
-    // table (per-frame-slot instance), its two shared sets from the owner, its pipeline from the PASS (which owns
+    // table (per-frame-slot instance), its two shared sets from the parent, its pipeline from the PASS (which owns
     // it) and its push block is composed by the pass itself out of `resolved_io::constants` - the first pass for
     // which a push block crossed that line. The two halves of its old gate went where the scene pass's did:
     //
@@ -3278,12 +3279,12 @@ namespace deren::engine {
     //
     // WHAT IS NOT RESOLVED, and it is a decision rather than an omission: the HDR target's transition to a sampled
     // layout. The composite reads that image whether or not bloom runs and the bright-pass prefilter reads it too,
-    // and on a frame the whole chain is skipped nobody else would move it - so it has exactly one owner and that
-    // owner is the frame loop (see render_resource::post_composite_io).
+    // and on a frame the whole chain is skipped nobody else would move it - so it has exactly one parent and that
+    // parent is the frame loop (see render_resource::post_composite_io).
 
     bool runtime::post_fxaa_active() const noexcept {
         // ONE definition of "the FXAA pass is this frame's last writer": the resolver picks the composite's target
-        // and pipeline variant with it, the frame loop decides the overlay's owner with it, the feature registry
+        // and pipeline variant with it, the frame loop decides the overlay's parent with it, the feature registry
         // reports it, and set_fxaa() already folds the pipeline's existence into `fxaa_on` for the same reason. The
         // pipeline is the FXAA PASS's now (deren.engine.pass.fxaa), which is why this asks the pass rather than a member.
         //
@@ -3313,20 +3314,20 @@ namespace deren::engine {
         return this->render_scale < 1.0f && this->pass_ready("upscale");
     }
 
-    rhi::error runtime::finish_overlay_after(void* const owner, deren::promise::rhi::command_buffer& commands,
+    rhi::error runtime::finish_overlay_after(void* const parent, deren::promise::rhi::command_buffer& commands,
                                              deren::promise::rhi::rendering_info const& rendering) {
-        runtime& self = *static_cast<runtime*>(owner);
+        runtime& self = *static_cast<runtime*>(parent);
         return self.finish_overlay_if_enabled(commands, rendering);
     }
 
-    void runtime::draw_overlay_after(void* const owner, deren::promise::rhi::command_buffer& commands,
+    void runtime::draw_overlay_after(void* const parent, deren::promise::rhi::command_buffer& commands,
                                      deren::promise::rhi::command_buffer_begin_info const& begin) {
         // The composite's frame carries this as a plain function pointer (a pass records into what it is given and
         // knows nothing about this class), so the member is reached through the context that frame also holds.
         // THE ARCHITECTURE LINE (abi 20): the pass hands the CONTRACT buffer, and the third-party overlay's own
         // recorder - which is not a contract consumer - receives the native handle derived HERE, once, through the
         // same unwrap path every other raw step uses.
-        runtime& self = *static_cast<runtime*>(owner);
+        runtime& self = *static_cast<runtime*>(parent);
         self.record_overlay_if_enabled(commands, begin);
     }
 

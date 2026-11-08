@@ -92,7 +92,7 @@ namespace deren::engine::pass {
             return rhi::error::invalid_argument; // a refused scope would leave the attachments in a state nobody declared
         }
 
-        render_environment env = this->pass_frame.make_environment(this->pass_frame.owner, io.cmd, /*gbuffer=*/false);
+        render_environment env = this->pass_frame.make_environment(this->pass_frame.parent, io.cmd, /*gbuffer=*/false);
 
         // THE TWO THINGS THIS PASS STATES ABOUT ITSELF, neither of which the renderer could know:
         //

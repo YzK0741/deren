@@ -212,14 +212,14 @@ int main() {
         CHECK(empty.expired() && empty.use_count() == 0u && !empty.lock());
     }
     {
-        auto engine_owner = std::make_shared<counted>(destroyed);
+        auto engine_handle = std::make_shared<counted>(destroyed);
         rhi::weak_object<counted> observer;
         {
-            rhi::shared_object<counted> handle{engine_owner};
+            rhi::shared_object<counted> handle{engine_handle};
             observer = handle;
             {
                 auto locked = observer.lock();
-                CHECK(locked && locked.get() == engine_owner.get());
+                CHECK(locked && locked.get() == engine_handle.get());
             }
             CHECK(observer.use_count() == 2u);
             rhi::weak_object<counted> copy{observer};
@@ -228,18 +228,18 @@ int main() {
         CHECK(!observer.expired());
         {
             auto locked = observer.lock();
-            CHECK(locked && locked.get() == engine_owner.get());
+            CHECK(locked && locked.get() == engine_handle.get());
         }
-        engine_owner.reset();
+        engine_handle.reset();
         CHECK(observer.expired() && !observer.lock());
     }
     {
-        rhi::shared_object<counted> owner{new counted(destroyed)};
-        owner->self = owner;
-        auto observer = owner->self;
+        rhi::shared_object<counted> parent{new counted(destroyed)};
+        parent->self = parent;
+        auto observer = parent->self;
         auto locked = observer.lock();
-        CHECK(locked && owner.use_count() == 2);
-        owner.reset();
+        CHECK(locked && parent.use_count() == 2);
+        parent.reset();
         CHECK(!observer.expired() && destroyed == 0);
         locked.reset();
         CHECK(observer.expired() && !observer.lock() && destroyed == 1);
@@ -248,14 +248,14 @@ int main() {
     // The last external weak may disappear concurrently with the last strong.
     constexpr unsigned iterations = 30000;
     std::barrier gate(2);
-    rhi::shared_object<counted> owner;
+    rhi::shared_object<counted> parent;
     rhi::shared_object<counted>::weak observer;
     std::thread strong_thread([&] {
         for (unsigned i = 0; i < iterations; ++i) {
-            owner = rhi::shared_object<counted>{new counted(destroyed)};
-            observer = owner;
+            parent = rhi::shared_object<counted>{new counted(destroyed)};
+            observer = parent;
             gate.arrive_and_wait();
-            owner.reset();
+            parent.reset();
             gate.arrive_and_wait();
         }
     });
@@ -269,5 +269,5 @@ int main() {
     strong_thread.join();
     weak_thread.join();
     CHECK(destroyed == iterations + 1);
-    return deren::vk_test::finish("test_rhi_ownership");
+    return deren::vk_test::finish("test_rhi_retention");
 }

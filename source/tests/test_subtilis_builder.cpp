@@ -444,8 +444,9 @@ int main() {
                 auto order = [](auto const& a, auto const& b) { return a.first_index < b.first_index; };
                 std::ranges::sort(forest_cut, order);
                 std::ranges::sort(dag_cut, order);
-                for (size_t i = 0; i < std::min(forest_cut.size(), dag_cut.size()); ++i)
+                for (size_t i = 0; i < std::min(forest_cut.size(), dag_cut.size()); ++i) {
                     CHECK(sub::dag_cluster{forest_cut[i]} == sub::dag_cluster{dag_cut[i]});
+                }
             }
         }
         deren::vk_test::write_line("group_size=2: depth {}, {} groups", deep->statistics().depth, deep->statistics().nodes);

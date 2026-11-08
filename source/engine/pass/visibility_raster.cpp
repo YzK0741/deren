@@ -31,10 +31,10 @@ namespace deren::engine::pass {
         if (this->raster_pipeline.has_value()) {
             return; // already built for this device
         }
-        std::span<std::uint8_t const> const mesh_spirv = context.shader != nullptr ? context.shader(context.owner, mesh_shader_name) : std::span<std::uint8_t const>{};
-        std::span<std::uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.owner, fragment_shader_name) : std::span<std::uint8_t const>{};
+        std::span<std::uint8_t const> const mesh_spirv = context.shader != nullptr ? context.shader(context.parent, mesh_shader_name) : std::span<std::uint8_t const>{};
+        std::span<std::uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.parent, fragment_shader_name) : std::span<std::uint8_t const>{};
         if (mesh_spirv.empty() || fragment_spirv.empty()) {
-            deren::utility::log("visibility raster disabled: the owner has no {} or {}", mesh_shader_name, fragment_shader_name);
+            deren::utility::log("visibility raster disabled: the parent has no {} or {}", mesh_shader_name, fragment_shader_name);
             return;
         }
         // THE TARGET SHAPE IS THE DECLARATION'S: one R32_UINT colour target (the visibility buffer), the shared
@@ -63,8 +63,8 @@ namespace deren::engine::pass {
         deren::utility::log("SUCCESS: visibility raster pipeline created (mesh stage, one r32_uint target, depth-tested, no blending)");
     }
 
-    bool visibility_raster_pass::bind_segment(void* const owner, rhi::mergeable_command_buffer_ref const& segment) noexcept {
-        return owner != nullptr && segment && static_cast<visibility_raster_pass*>(owner)->bind_segment_impl(segment);
+    bool visibility_raster_pass::bind_segment(void* const parent, rhi::mergeable_command_buffer_ref const& segment) noexcept {
+        return parent != nullptr && segment && static_cast<visibility_raster_pass*>(parent)->bind_segment_impl(segment);
     }
 
     bool visibility_raster_pass::bind_segment_impl(rhi::mergeable_command_buffer_ref const& segment) noexcept {
@@ -123,7 +123,7 @@ namespace deren::engine::pass {
                                              .clear_depth = 1.0f,
                                              .clear_stencil = 0};
         this->pass_frame.bind_segment = &visibility_raster_pass::bind_segment;
-        this->pass_frame.segment_owner = this;
+        this->pass_frame.segment_context = this;
         bool const parallel = !this->pass_frame.segments.empty() && this->pass_frame.bind_segment != nullptr;
         rhi::rendering_info const rendering_info{
             .struct_size = sizeof(rhi::rendering_info),
@@ -164,8 +164,8 @@ namespace deren::engine::pass {
         io.list->set_viewport(this->raster_pipeline->viewport);
         io.list->set_scissor(this->raster_pipeline->scissor);
         std::uint32_t recorded = 0;
-        bool const ok = this->pass_frame.record_items(this->pass_frame.owner, *io.list, this->pass_frame.segments,
-                                                      this->pass_frame.bind_segment, this->pass_frame.segment_owner, recorded);
+        bool const ok = this->pass_frame.record_items(this->pass_frame.parent, *io.list, this->pass_frame.segments,
+                                                      this->pass_frame.bind_segment, this->pass_frame.segment_context, recorded);
         io.list->end_rendering();
         // THE LANE'S OWN WITNESS (visibility-buffer v0.4b): one line, once per run, saying that the item recorder
         // actually ran and how many mesh-task dispatches it issued. Until this existed the lane's only evidence was

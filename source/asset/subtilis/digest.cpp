@@ -20,9 +20,11 @@ namespace deren::asset::subtilis {
                                                    0x19a4c116u, 0x1e376c08u, 0x2748774cu, 0x34b0bcb5u, 0x391c0cb3u, 0x4ed8aa4au, 0x5b9cca4fu, 0x682e6ff3u,
                                                    0x748f82eeu, 0x78a5636fu, 0x84c87814u, 0x8cc70208u, 0x90befffau, 0xa4506cebu, 0xbef9a3f7u, 0xc67178f2u};
                 uint32_t w[64]{};
-                for (size_t i = 0; i < 16; ++i)
-                    for (size_t j = 0; j < 4; ++j)
+                for (size_t i = 0; i < 16; ++i) {
+                    for (size_t j = 0; j < 4; ++j) {
                         w[i] = (w[i] << 8) | std::to_integer<unsigned>(block[i * 4 + j]);
+                    }
+                }
                 auto rotr = [](uint32_t x, int n) { return std::rotr(x, n); };
                 for (size_t i = 16; i < 64; ++i) {
                     auto s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >> 3);
@@ -65,12 +67,14 @@ namespace deren::asset::subtilis {
                 }
             }
             void append(std::span<byte const> bytes) {
-                for (auto b : bytes)
+                for (auto b : bytes) {
                     append(b);
+                }
             }
             void u32(uint32_t value) {
-                for (unsigned shift = 0; shift < 32; shift += 8)
+                for (unsigned shift = 0; shift < 32; shift += 8) {
                     append(byte((value >> shift) & 255));
+                }
             }
             void f32(float value) {
                 u32(value == 0 ? 0 : std::bit_cast<uint32_t>(value));
@@ -82,14 +86,18 @@ namespace deren::asset::subtilis {
             digest finish() {
                 uint64_t bits = length * 8;
                 append(byte{0x80});
-                while (used != 56)
+                while (used != 56) {
                     append(byte{0});
-                for (int shift = 56; shift >= 0; shift -= 8)
+                }
+                for (int shift = 56; shift >= 0; shift -= 8) {
                     append(byte((bits >> shift) & 255));
+                }
                 digest out{};
-                for (size_t i = 0; i < 8; ++i)
-                    for (size_t j = 0; j < 4; ++j)
+                for (size_t i = 0; i < 8; ++i) {
+                    for (size_t j = 0; j < 4; ++j) {
                         out[i * 4 + j] = byte((h[i] >> (24 - 8 * j)) & 255);
+                    }
+                }
                 return out;
             }
         };
@@ -105,26 +113,33 @@ namespace deren::asset::subtilis {
 
     result<digest> source_digest(source_geometry const& source) {
         auto n = source.positions.size();
-        if (!n || n > UINT32_MAX || source.normals.size() != n || source.uv0.size() != n || source.indices.empty() || source.indices.size() > UINT32_MAX || source.indices.size() % 3)
+        if (!n || n > UINT32_MAX || source.normals.size() != n || source.uv0.size() != n || source.indices.empty() || source.indices.size() > UINT32_MAX || source.indices.size() % 3) {
             return failure(error_code::invalid_geometry, "source attribute/index counts are invalid");
-        auto finite = [](auto const& values) { for (auto const& row : values) for (float f : row) if (!std::isfinite(f)) return false; return true; };
-        if (!finite(source.positions) || !finite(source.normals) || !finite(source.uv0))
+        }
+        auto finite = [](auto const& values) { for (auto const& row : values){ for (float f : row){ if (!std::isfinite(f)){ return false;
+}}} return true; };
+        if (!finite(source.positions) || !finite(source.normals) || !finite(source.uv0)) {
             return failure(error_code::invalid_geometry, "nonfinite source attribute");
-        for (auto id : source.indices)
-            if (id >= n)
+        }
+        for (auto id : source.indices) {
+            if (id >= n) {
                 return failure(error_code::invalid_geometry, "source index outside vertex array");
+            }
+        }
         sha256_stream hash;
         hash.text("DEREN_subtilis.source.v1");
         hash.text("shared-vertices");
         hash.u32(4);
         hash.u32(static_cast<uint32_t>(n));
-        auto attribute = [&](std::string_view name, auto const& values) { hash.text(name); hash.u32(static_cast<uint32_t>(n)); for (auto const& row : values) for (float f : row) hash.f32(f); };
+        auto attribute = [&](std::string_view name, auto const& values) { hash.text(name); hash.u32(static_cast<uint32_t>(n)); for (auto const& row : values){ for (float f : row){ hash.f32(f);
+}} };
         attribute("POSITION", source.positions);
         attribute("NORMAL", source.normals);
         attribute("TEXCOORD_0", source.uv0);
         hash.u32(static_cast<uint32_t>(source.indices.size()));
-        for (auto id : source.indices)
+        for (auto id : source.indices) {
             hash.u32(id);
+        }
         hash.text("OPAQUE");
         hash.text("POSITION,NORMAL,TEXCOORD_0");
         hash.u32(0);
@@ -133,8 +148,9 @@ namespace deren::asset::subtilis {
     result<digest> build_digest(build_options const& o) {
         if (!o.triangle_limit || o.triangle_limit > 85 || o.vertex_limit < 3 || o.vertex_limit > 256 || o.target_group_size < 2 || !o.max_rounds ||
             !std::isfinite(o.target_ratio) || o.target_ratio <= 0 || o.target_ratio >= 1 || !std::isfinite(o.relative_error) || o.relative_error < 0 ||
-            !std::isfinite(o.normal_weight) || o.normal_weight < 0 || !std::isfinite(o.uv_weight) || o.uv_weight < 0)
+            !std::isfinite(o.normal_weight) || o.normal_weight < 0 || !std::isfinite(o.uv_weight) || o.uv_weight < 0) {
             return failure(error_code::invalid_options, "invalid shared-vertices build options");
+        }
         sha256_stream hash;
         hash.text("DEREN_subtilis.build.v1");
         hash.text("shared-vertices");

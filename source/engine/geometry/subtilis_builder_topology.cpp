@@ -170,19 +170,19 @@ namespace deren::engine::subtilis::builder_detail {
         }
         vector<std::uint32_t> components;
         for (std::size_t triangle = 0; triangle < indices.size(); triangle += 3) {
-            std::array<std::uint32_t, 3> owners{};
+            std::array<std::uint32_t, 3> vertex_origins{};
             for (uint32_t k = 0; k < 3; ++k) {
                 auto id = t.class_of[indices[triangle + k]];
                 auto found = std::lower_bound(original.class_components.begin(), original.class_components.end(), id, [](pair const& entry, auto key) { return entry[0] < key; });
                 if (found == original.class_components.end() || (*found)[0] != id) {
                     return false;
                 }
-                owners[k] = (*found)[1];
+                vertex_origins[k] = (*found)[1];
             }
-            if (owners[0] != owners[1] || owners[0] != owners[2]) {
+            if (vertex_origins[0] != vertex_origins[1] || vertex_origins[0] != vertex_origins[2]) {
                 return false;
             }
-            components.push_back(owners[0]);
+            components.push_back(vertex_origins[0]);
         }
         std::sort(components.begin(), components.end());
         components.erase(std::unique(components.begin(), components.end()), components.end());

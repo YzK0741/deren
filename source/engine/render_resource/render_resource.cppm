@@ -39,7 +39,7 @@
  * OWN BINDINGS VERSUS SHARED ONES, which the first real declaration made unavoidable: a pass with a private
  * family still reaches the frame's shared resources (a probe cell's ray needs the top level structure, the
  * material table and the texture array to resolve and shade what it finds). Such a binding is declared here as
- * USAGE - which resource, which access - and `binding_owner` says whether it is the pass's own per-image
+ * USAGE - which resource, which access - and `binding_scope` says whether it is the pass's own per-image
  * binding or something the frame's heap provides; the declaration is the whole of what is left of that
  * vocabulary, because every stage is heap-native now and reaches those resources through the frame's descriptor
  * heap rather than through a set (see source/backends/vulkan/core/descriptor_heap).
