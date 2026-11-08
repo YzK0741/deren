@@ -6,6 +6,7 @@ module;
 module deren.vulkan.core;
 import deren.vstd;
 import deren.promise.rhi;
+import deren.vulkan.constant_init;
 
 namespace deren::vulkan {
     namespace rhi = deren::promise::rhi;
@@ -87,10 +88,7 @@ namespace deren::vulkan {
                 memory.srcAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
                 memory.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
                 memory.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
-                VkDependencyInfo dependency{};
-                dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-                dependency.memoryBarrierCount = 1u;
-                dependency.pMemoryBarriers = &memory;
+                VkDependencyInfo const dependency = make_dependency_info(0, nullptr, 0, nullptr, 1, &memory);
                 if (auto applied = list->prepare_native(); applied != rhi::error::ok) {
                     return applied;
                 }

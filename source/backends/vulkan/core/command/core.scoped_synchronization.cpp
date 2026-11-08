@@ -4,6 +4,7 @@ module;
 module deren.vulkan.core;
 import deren.vstd;
 import deren.promise.rhi;
+import deren.vulkan.constant_init;
 import deren.vulkan.synchronization;
 import deren.utility.shared;
 
@@ -341,12 +342,7 @@ namespace deren::vulkan {
             barrier.buffer = static_cast<core::buffer const*>(one.resource)->native;
             native_buffers.push_back(barrier);
         }
-        VkDependencyInfo info{};
-        info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        info.imageMemoryBarrierCount = static_cast<uint32_t>(native_images.size());
-        info.pImageMemoryBarriers = native_images.data();
-        info.bufferMemoryBarrierCount = static_cast<uint32_t>(native_buffers.size());
-        info.pBufferMemoryBarriers = native_buffers.data();
+        VkDependencyInfo const info = make_dependency_info(static_cast<uint32_t>(native_images.size()), native_images.data(), static_cast<uint32_t>(native_buffers.size()), native_buffers.data());
         if (auto applied = list->apply_operations(); applied != rhi::error::ok) {
             return applied;
         }

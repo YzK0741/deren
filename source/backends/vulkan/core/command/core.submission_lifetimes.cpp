@@ -4,6 +4,7 @@ module;
 module deren.vulkan.core;
 import deren.vstd;
 import deren.utility.shared;
+import deren.vulkan.constant_init;
 import :declarations;
 
 namespace deren::vulkan {
@@ -68,12 +69,7 @@ namespace deren::vulkan {
         // Never block while holding queue/submission locks: another host thread can submit or signal.
         VkResult status;
         if (wait) {
-            VkSemaphoreWaitInfo info{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
-                                     .pNext = nullptr,
-                                     .flags = 0,
-                                     .semaphoreCount = 1,
-                                     .pSemaphores = &timeline,
-                                     .pValues = &token.sequence};
+            VkSemaphoreWaitInfo const info = make_semaphore_wait_info(1, &timeline, &token.sequence);
             status = vkWaitSemaphores(this->device.logical_device, &info, timeout_ns);
         } else {
             std::uint64_t reached = 0;

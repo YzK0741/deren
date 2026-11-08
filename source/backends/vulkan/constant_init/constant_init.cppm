@@ -1,6 +1,6 @@
 // ============================================================================
 // module: deren.vulkan.constant_init
-// module version: 0.9.2  (independent of the app version in CMakeLists project(VERSION))
+// module version: 0.13.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // Compile-time Vulkan info-struct conventions: constexpr factories + constinit
 // "transition" defaults for the structs the engine fills identically everywhere
@@ -13,6 +13,7 @@
 // ============================================================================
 module;
 
+#include <cstddef>
 #include <cstdint>
 #include <vulkan/vulkan.h>
 
@@ -182,15 +183,17 @@ export namespace deren::vulkan {
                 .pQueuePriorities = queue_priorities};
     }
     /**
-     * @brief 2D image view with identity component swizzle, from mip 0 / layer 0
+     * @brief 2D image view with identity component swizzle
      * @param image the image to view
      * @param format the image's format
      * @param view_type usually 2D
      * @param aspect_mask color or depth(-stencil)
      * @param level_count mip levels in the view (VK_REMAINING_MIP_LEVELS for the whole image)
      * @param layer_count array layers in the view (VK_REMAINING_ARRAY_LAYERS for the whole image)
+     * @param base_mip_level first mip level the view addresses
+     * @param base_array_layer first array layer the view addresses
      */
-    constexpr VkImageViewCreateInfo make_image_view_info(VkImage const image, VkFormat const format, VkImageViewType const view_type, VkImageAspectFlags const aspect_mask, uint32_t const level_count, uint32_t const layer_count) noexcept {
+    constexpr VkImageViewCreateInfo make_image_view_info(VkImage const image, VkFormat const format, VkImageViewType const view_type, VkImageAspectFlags const aspect_mask, uint32_t const level_count, uint32_t const layer_count, uint32_t const base_mip_level = 0, uint32_t const base_array_layer = 0) noexcept {
         return {.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
                 .pNext = nullptr,
                 .flags = 0,
@@ -198,7 +201,251 @@ export namespace deren::vulkan {
                 .viewType = view_type,
                 .format = format,
                 .components = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
-                .subresourceRange = {aspect_mask, 0, level_count, 0, layer_count}};
+                .subresourceRange = {aspect_mask, base_mip_level, level_count, base_array_layer, layer_count}};
+    }
+
+    // ---- Barriers, copies, and the remaining call-site info structs ----
+    //
+    // These factories exist because the structures were still filled field by field at their
+    // call sites: the type had no factory, so "use constant_init" had no answer. Each factory
+    // lists every member, and the caller overrides only what varies (the same shape as
+    // make_submit_info / make_attachment_info).
+
+    /**
+     * @brief one image memory barrier with the queue-family pair the engine always ignores
+     * @param image target image (VK_NULL_HANDLE is allowed for a recipe template)
+     */
+    constexpr VkImageMemoryBarrier2 make_image_memory_barrier_2(
+        VkPipelineStageFlags2 const src_stage, VkAccessFlags2 const src_access,
+        VkPipelineStageFlags2 const dst_stage, VkAccessFlags2 const dst_access,
+        VkImageLayout const old_layout, VkImageLayout const new_layout,
+        VkImage const image, VkImageSubresourceRange const subresource_range,
+        uint32_t const src_queue_family = VK_QUEUE_FAMILY_IGNORED,
+        uint32_t const dst_queue_family = VK_QUEUE_FAMILY_IGNORED) noexcept {
+        return {.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                .pNext = nullptr,
+                .srcStageMask = src_stage,
+                .srcAccessMask = src_access,
+                .dstStageMask = dst_stage,
+                .dstAccessMask = dst_access,
+                .oldLayout = old_layout,
+                .newLayout = new_layout,
+                .srcQueueFamilyIndex = src_queue_family,
+                .dstQueueFamilyIndex = dst_queue_family,
+                .image = image,
+                .subresourceRange = subresource_range};
+    }
+    /** @brief one buffer memory barrier with the queue-family pair the engine always ignores */
+    constexpr VkBufferMemoryBarrier2 make_buffer_memory_barrier_2(
+        VkPipelineStageFlags2 const src_stage, VkAccessFlags2 const src_access,
+        VkPipelineStageFlags2 const dst_stage, VkAccessFlags2 const dst_access,
+        VkBuffer const buffer, VkDeviceSize const offset, VkDeviceSize const size,
+        uint32_t const src_queue_family = VK_QUEUE_FAMILY_IGNORED,
+        uint32_t const dst_queue_family = VK_QUEUE_FAMILY_IGNORED) noexcept {
+        return {.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+                .pNext = nullptr,
+                .srcStageMask = src_stage,
+                .srcAccessMask = src_access,
+                .dstStageMask = dst_stage,
+                .dstAccessMask = dst_access,
+                .srcQueueFamilyIndex = src_queue_family,
+                .dstQueueFamilyIndex = dst_queue_family,
+                .buffer = buffer,
+                .offset = offset,
+                .size = size};
+    }
+    /** @brief buffer/image copy region with explicitly packed row and image strides */
+    constexpr VkBufferImageCopy make_buffer_image_copy(
+        VkDeviceSize const buffer_offset, uint32_t const buffer_row_length, uint32_t const buffer_image_height,
+        VkImageSubresourceLayers const image_subresource, VkOffset3D const image_offset,
+        VkExtent3D const image_extent) noexcept {
+        return {.bufferOffset = buffer_offset,
+                .bufferRowLength = buffer_row_length,
+                .bufferImageHeight = buffer_image_height,
+                .imageSubresource = image_subresource,
+                .imageOffset = image_offset,
+                .imageExtent = image_extent};
+    }
+    /** @brief one host image-to-memory copy region, tightly packed (strides 0) */
+    constexpr VkImageToMemoryCopy make_image_to_memory_copy(
+        void* const host_pointer, VkImageSubresourceLayers const image_subresource,
+        VkOffset3D const image_offset, VkExtent3D const image_extent) noexcept {
+        return {.sType = VK_STRUCTURE_TYPE_IMAGE_TO_MEMORY_COPY_EXT,
+                .pNext = nullptr,
+                .pHostPointer = host_pointer,
+                .memoryRowLength = 0,
+                .memoryImageHeight = 0,
+                .imageSubresource = image_subresource,
+                .imageOffset = image_offset,
+                .imageExtent = image_extent};
+    }
+    /** @brief one host memory-to-image copy region, tightly packed (strides 0) */
+    constexpr VkMemoryToImageCopyEXT make_memory_to_image_copy(
+        void const* const host_pointer, VkImageSubresourceLayers const image_subresource,
+        VkOffset3D const image_offset, VkExtent3D const image_extent) noexcept {
+        return {.sType = VK_STRUCTURE_TYPE_MEMORY_TO_IMAGE_COPY_EXT,
+                .pNext = nullptr,
+                .pHostPointer = host_pointer,
+                .memoryRowLength = 0,
+                .memoryImageHeight = 0,
+                .imageSubresource = image_subresource,
+                .imageOffset = image_offset,
+                .imageExtent = image_extent};
+    }
+    /** @brief the head of one vkCopyImageToMemoryEXT call */
+    constexpr VkCopyImageToMemoryInfo make_copy_image_to_memory_info(
+        VkImage const src_image, VkImageLayout const src_layout,
+        uint32_t const region_count, VkImageToMemoryCopy const* const regions) noexcept {
+        return {.sType = VK_STRUCTURE_TYPE_COPY_IMAGE_TO_MEMORY_INFO_EXT,
+                .pNext = nullptr,
+                .flags = 0,
+                .srcImage = src_image,
+                .srcImageLayout = src_layout,
+                .regionCount = region_count,
+                .pRegions = regions};
+    }
+    /** @brief the head of one vkCopyMemoryToImageEXT call */
+    constexpr VkCopyMemoryToImageInfoEXT make_copy_memory_to_image_info(
+        VkImage const dst_image, VkImageLayout const dst_layout,
+        uint32_t const region_count, VkMemoryToImageCopyEXT const* const regions) noexcept {
+        return {.sType = VK_STRUCTURE_TYPE_COPY_MEMORY_TO_IMAGE_INFO_EXT,
+                .pNext = nullptr,
+                .flags = 0,
+                .dstImage = dst_image,
+                .dstImageLayout = dst_layout,
+                .regionCount = region_count,
+                .pRegions = regions};
+    }
+    /** @brief one descriptor heap binding window */
+    constexpr VkBindHeapInfoEXT make_bind_heap_info(
+        VkDeviceAddress const heap_address, VkDeviceSize const heap_size,
+        VkDeviceSize const reserved_range_offset, VkDeviceSize const reserved_range_size) noexcept {
+        return {.sType = VK_STRUCTURE_TYPE_BIND_HEAP_INFO_EXT,
+                .pNext = nullptr,
+                .heapRange = {.address = heap_address, .size = heap_size},
+                .reservedRangeOffset = reserved_range_offset,
+                .reservedRangeSize = reserved_range_size};
+    }
+    /** @brief one micromap build info; @p dst_micromap and @p scratch_address are null/0 for a size query */
+    constexpr VkMicromapBuildInfoEXT make_micromap_build_info(
+        VkMicromapTypeEXT const type, VkBuildMicromapFlagsEXT const flags, VkBuildMicromapModeEXT const mode,
+        VkMicromapEXT const dst_micromap, uint32_t const usage_count,
+        VkMicromapUsageEXT const* const usage, VkDeviceAddress const data_address,
+        VkDeviceAddress const triangle_array_address, uint32_t const triangle_array_stride,
+        VkDeviceAddress const scratch_address = 0) noexcept {
+        return {.sType = VK_STRUCTURE_TYPE_MICROMAP_BUILD_INFO_EXT,
+                .pNext = nullptr,
+                .type = type,
+                .flags = flags,
+                .mode = mode,
+                .dstMicromap = dst_micromap,
+                .usageCountsCount = usage_count,
+                .pUsageCounts = usage,
+                .ppUsageCounts = nullptr,
+                .data = {.deviceAddress = data_address},
+                .scratchData = {.deviceAddress = scratch_address},
+                .triangleArray = {.deviceAddress = triangle_array_address},
+                .triangleArrayStride = triangle_array_stride};
+    }
+    /** @brief the zeroed size-query answer struct (the driver fills the three sizes) */
+    constexpr VkMicromapBuildSizesInfoEXT make_micromap_build_sizes_info() noexcept {
+        return {.sType = VK_STRUCTURE_TYPE_MICROMAP_BUILD_SIZES_INFO_EXT,
+                .pNext = nullptr,
+                .micromapSize = 0,
+                .buildScratchSize = 0,
+                .discardable = 0};
+    }
+    /** @brief one acceleration-structure build/refit geometry info */
+    constexpr VkAccelerationStructureBuildGeometryInfoKHR make_acceleration_structure_build_info(
+        VkAccelerationStructureTypeKHR const type, VkBuildAccelerationStructureFlagsKHR const flags,
+        VkBuildAccelerationStructureModeKHR const mode, VkAccelerationStructureKHR const src,
+        VkAccelerationStructureKHR const dst, uint32_t const geometry_count,
+        VkAccelerationStructureGeometryKHR const* const geometries,
+        VkDeviceAddress const scratch_address,
+        VkAccelerationStructureGeometryKHR const* const* const pp_geometries = nullptr) noexcept {
+        return {.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR,
+                .pNext = nullptr,
+                .type = type,
+                .flags = flags,
+                .mode = mode,
+                .srcAccelerationStructure = src,
+                .dstAccelerationStructure = dst,
+                .geometryCount = geometry_count,
+                .pGeometries = geometries,
+                .ppGeometries = pp_geometries,
+                .scratchData = {.deviceAddress = scratch_address}};
+    }
+    /** @brief the zeroed size-query answer struct (the driver fills the three sizes) */
+    constexpr VkAccelerationStructureBuildSizesInfoKHR make_acceleration_structure_build_sizes_info() noexcept {
+        return {.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR,
+                .pNext = nullptr,
+                .accelerationStructureSize = 0,
+                .updateScratchSize = 0,
+                .buildScratchSize = 0};
+    }
+    /** @brief one acceleration-structure binding at a constant heap offset */
+    constexpr VkDescriptorSetAndBindingMappingEXT make_descriptor_set_and_binding_mapping(
+        uint32_t const descriptor_set, uint32_t const first_binding, uint32_t const binding_count,
+        VkSpirvResourceTypeFlagsEXT const resource_mask, VkDescriptorMappingSourceEXT const source,
+        uint32_t const heap_offset, uint32_t const heap_array_stride) noexcept {
+        return {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT,
+                .pNext = nullptr,
+                .descriptorSet = descriptor_set,
+                .firstBinding = first_binding,
+                .bindingCount = binding_count,
+                .resourceMask = resource_mask,
+                .source = source,
+                .sourceData = {.constantOffset = {.heapOffset = heap_offset,
+                                                  .heapArrayStride = heap_array_stride,
+                                                  .pEmbeddedSampler = nullptr,
+                                                  .samplerHeapOffset = 0,
+                                                  .samplerHeapArrayStride = 0}}};
+    }
+    /** @brief host wait on a semaphore value array */
+    constexpr VkSemaphoreWaitInfo make_semaphore_wait_info(
+        uint32_t const semaphore_count, VkSemaphore const* const semaphores,
+        uint64_t const* const values, VkSemaphoreWaitFlags const flags = 0) noexcept {
+        return {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
+                .pNext = nullptr,
+                .flags = flags,
+                .semaphoreCount = semaphore_count,
+                .pSemaphores = semaphores,
+                .pValues = values};
+    }
+    /** @brief one swapchain present call */
+    constexpr VkPresentInfoKHR make_present_info(
+        uint32_t const wait_count, VkSemaphore const* const waits,
+        uint32_t const swapchain_count, VkSwapchainKHR const* const swapchains,
+        uint32_t const* const image_indices, VkResult* const results = nullptr) noexcept {
+        return {.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+                .pNext = nullptr,
+                .waitSemaphoreCount = wait_count,
+                .pWaitSemaphores = waits,
+                .swapchainCount = swapchain_count,
+                .pSwapchains = swapchains,
+                .pImageIndices = image_indices,
+                .pResults = results};
+    }
+    /** @brief the timeline value arrays attached to a submit */
+    constexpr VkTimelineSemaphoreSubmitInfo make_timeline_semaphore_info(
+        uint32_t const wait_count, uint64_t const* const wait_values,
+        uint32_t const signal_count, uint64_t const* const signal_values) noexcept {
+        return {.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
+                .pNext = nullptr,
+                .waitSemaphoreValueCount = wait_count,
+                .pWaitSemaphoreValues = wait_values,
+                .signalSemaphoreValueCount = signal_count,
+                .pSignalSemaphoreValues = signal_values};
+    }
+    /** @brief one shader module create info over caller-owned SPIR-V words */
+    constexpr VkShaderModuleCreateInfo make_shader_module_info(
+        std::size_t const code_size, uint32_t const* const code,
+        VkShaderModuleCreateFlags const flags = 0) noexcept {
+        return {.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+                .pNext = nullptr,
+                .flags = flags,
+                .codeSize = code_size,
+                .pCode = code};
     }
 
     // ---- Device query chains (properties / features) ----
@@ -292,19 +539,99 @@ export namespace deren::vulkan {
                 .pInheritanceInfo = inheritance};
     }
     /**
-     * @brief one-shot submit of a single command buffer with no semaphores
-     * @param command_buffers pointer to the caller's VkCommandBuffer
+     * @brief one-shot submit of a command buffer with no semaphores
+     * @param command_buffers pointer to the caller's VkCommandBuffer (may be null when count is 0)
+     * @param command_buffer_count number of command buffers to submit (0 for a semaphore-only drain)
      */
-    constexpr VkSubmitInfo make_submit_info(VkCommandBuffer const* command_buffers) noexcept {
+    constexpr VkSubmitInfo make_submit_info(VkCommandBuffer const* command_buffers, uint32_t const command_buffer_count = 1) noexcept {
         return {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
                 .pNext = nullptr,
                 .waitSemaphoreCount = 0,
                 .pWaitSemaphores = nullptr,
                 .pWaitDstStageMask = nullptr,
-                .commandBufferCount = 1,
+                .commandBufferCount = command_buffer_count,
                 .pCommandBuffers = command_buffers,
                 .signalSemaphoreCount = 0,
                 .pSignalSemaphores = nullptr};
+    }
+
+    // ---- Copy-command infos ----
+
+    /**
+     * @brief one image subresource range, the source or destination half of an image copy
+     * @param aspect_mask colour or depth(-stencil)
+     * @param mip_level mip level the copy addresses
+     * @param base_array_layer first array layer
+     * @param layer_count array layers copied (VK_REMAINING_ARRAY_LAYERS for the rest)
+     */
+    constexpr VkImageSubresourceLayers make_image_subresource_layers(VkImageAspectFlags const aspect_mask, uint32_t const mip_level, uint32_t const base_array_layer, uint32_t const layer_count) noexcept {
+        return {.aspectMask = aspect_mask, .mipLevel = mip_level, .baseArrayLayer = base_array_layer, .layerCount = layer_count};
+    }
+    /**
+     * @brief one vkCmdCopyImage2 region
+     * @param src_subresource source mip/layer range
+     * @param src_x source x offset in texels
+     * @param src_y source y offset in texels
+     * @param src_z source z offset in texels
+     * @param dst_subresource destination mip/layer range
+     * @param dst_x destination x offset in texels
+     * @param dst_y destination y offset in texels
+     * @param dst_z destination z offset in texels
+     * @param width copied width in texels
+     * @param height copied height in texels
+     * @param depth copied depth in texels
+     */
+    constexpr VkImageCopy2 make_image_copy_2(VkImageSubresourceLayers const src_subresource, std::int32_t const src_x, std::int32_t const src_y, std::int32_t const src_z, VkImageSubresourceLayers const dst_subresource, std::int32_t const dst_x, std::int32_t const dst_y, std::int32_t const dst_z, std::uint32_t const width, std::uint32_t const height, std::uint32_t const depth) noexcept {
+        return {.sType = VK_STRUCTURE_TYPE_IMAGE_COPY_2,
+                .pNext = nullptr,
+                .srcSubresource = src_subresource,
+                .srcOffset = {src_x, src_y, src_z},
+                .dstSubresource = dst_subresource,
+                .dstOffset = {dst_x, dst_y, dst_z},
+                .extent = {width, height, depth}};
+    }
+    /**
+     * @brief one vkCmdCopyImage2 call
+     * @param src_image source image
+     * @param src_layout source image layout
+     * @param dst_image destination image
+     * @param dst_layout destination image layout
+     * @param region_count number of regions
+     * @param regions caller-owned image-copy array
+     */
+    constexpr VkCopyImageInfo2 make_copy_image_info_2(VkImage const src_image, VkImageLayout const src_layout, VkImage const dst_image, VkImageLayout const dst_layout, uint32_t const region_count, VkImageCopy2 const* regions) noexcept {
+        return {.sType = VK_STRUCTURE_TYPE_COPY_IMAGE_INFO_2,
+                .pNext = nullptr,
+                .srcImage = src_image,
+                .srcImageLayout = src_layout,
+                .dstImage = dst_image,
+                .dstImageLayout = dst_layout,
+                .regionCount = region_count,
+                .pRegions = regions};
+    }
+    /**
+     * @brief one vkCmdCopyBuffer2 region
+     * @param src_offset source byte offset
+     * @param dst_offset destination byte offset
+     * @param size bytes copied
+     */
+    constexpr VkBufferCopy2 make_buffer_copy_2(VkDeviceSize const src_offset, VkDeviceSize const dst_offset, VkDeviceSize const size) noexcept {
+        return {.sType = VK_STRUCTURE_TYPE_BUFFER_COPY_2, .pNext = nullptr, .srcOffset = src_offset, .dstOffset = dst_offset, .size = size};
+    }
+    /**
+     * @brief one vkCmdCopyBuffer2 call
+     * @param src_buffer source buffer
+     * @param dst_buffer destination buffer
+     * @param region_count number of regions
+     * @param regions caller-owned buffer-copy array
+     */
+    constexpr VkCopyBufferInfo2 make_copy_buffer_info_2(VkBuffer const src_buffer, VkBuffer const dst_buffer, uint32_t const region_count, VkBufferCopy2 const* regions) noexcept {
+        return {.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2,
+                .pNext = nullptr,
+                .srcBuffer = src_buffer,
+                .dstBuffer = dst_buffer,
+                .regionCount = region_count,
+                .pRegions = regions};
     }
 
     // ---- Secondary-command-buffer inheritance (dynamic rendering 1.3) ----
@@ -363,23 +690,60 @@ export namespace deren::vulkan {
                 .rasterizationSamples = rasterization_samples};
     }
     /**
+     * @brief one barrier pass with any mix of memory, buffer, and image barriers
+     * @param image_count number of image barriers
+     * @param images caller-owned image barrier array
+     * @param buffer_count number of buffer barriers
+     * @param buffers caller-owned buffer barrier array
+     * @param memory_count number of global memory barriers
+     * @param memories caller-owned memory barrier array
+     */
+    constexpr VkDependencyInfo make_dependency_info(uint32_t const image_count, VkImageMemoryBarrier2 const* images, uint32_t const buffer_count, VkBufferMemoryBarrier2 const* buffers, uint32_t const memory_count = 0, VkMemoryBarrier2 const* memories = nullptr) noexcept {
+        return {.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+                .pNext = nullptr,
+                .dependencyFlags = 0,
+                .memoryBarrierCount = memory_count,
+                .pMemoryBarriers = memories,
+                .bufferMemoryBarrierCount = buffer_count,
+                .pBufferMemoryBarriers = buffers,
+                .imageMemoryBarrierCount = image_count,
+                .pImageMemoryBarriers = images};
+    }
+    /**
      * @brief one barrier pass: VkDependencyInfo with only image memory barriers
      * @param image_barrier_count number of barriers
      * @param barriers caller-owned barrier array
      */
     constexpr VkDependencyInfo make_image_dependency_info(uint32_t const image_barrier_count, VkImageMemoryBarrier2 const* barriers) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-                .pNext = nullptr,
-                .dependencyFlags = 0,
-                .memoryBarrierCount = 0,
-                .pMemoryBarriers = nullptr,
-                .bufferMemoryBarrierCount = 0,
-                .pBufferMemoryBarriers = nullptr,
-                .imageMemoryBarrierCount = image_barrier_count,
-                .pImageMemoryBarriers = barriers};
+        return make_dependency_info(image_barrier_count, barriers, 0, nullptr);
     }
 
     // ---- Dynamic rendering attachment infos ----
+
+    /**
+     * @brief one rendering attachment with caller-chosen load/store ops (the generic form of the
+     *        fixed CLEAR/LOAD helpers below)
+     * @param image_view the attachment's image view
+     * @param image_layout the attachment's layout while rendering (the engine uses GENERAL)
+     * @param load_op CLEAR, LOAD, or DONT_CARE
+     * @param store_op STORE or DONT_CARE
+     * @param clear_value used when @p load_op is CLEAR
+     * @param resolve_mode the resolve mode (the engine always renders at 1x, so NONE)
+     * @param resolve_image_view the resolve target when resolve_mode is not NONE, else VK_NULL_HANDLE
+     */
+    constexpr VkRenderingAttachmentInfo make_attachment_info(VkImageView const image_view, VkImageLayout const image_layout, VkAttachmentLoadOp const load_op, VkAttachmentStoreOp const store_op, VkClearValue const clear_value, VkResolveModeFlagBits const resolve_mode = VK_RESOLVE_MODE_NONE,
+                                                             VkImageView const resolve_image_view = VK_NULL_HANDLE) noexcept {
+        return {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+                .pNext = nullptr,
+                .imageView = image_view,
+                .imageLayout = image_layout,
+                .resolveMode = resolve_mode,
+                .resolveImageView = resolve_image_view,
+                .resolveImageLayout = resolve_mode == VK_RESOLVE_MODE_NONE ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL,
+                .loadOp = load_op,
+                .storeOp = store_op,
+                .clearValue = clear_value};
+    }
 
     /**
      * @brief depth attachment of a rendering instance: loadOp CLEAR with the far-plane value
@@ -496,13 +860,14 @@ export namespace deren::vulkan {
      * @param color_count number of color attachments (0 for a depth-only pass, same as passing
      *        false to the single-attachment overload above)
      * @param depth_attachment the depth attachment, or nullptr
+     * @param layer_count number of layers rendered to (1 unless a multiview pass)
      */
-    constexpr VkRenderingInfo make_rendering_info(VkRenderingFlags const flags, VkRect2D const render_area, VkRenderingAttachmentInfo const* color_attachments, uint32_t const color_count, VkRenderingAttachmentInfo const* depth_attachment) noexcept {
+    constexpr VkRenderingInfo make_rendering_info(VkRenderingFlags const flags, VkRect2D const render_area, VkRenderingAttachmentInfo const* color_attachments, uint32_t const color_count, VkRenderingAttachmentInfo const* depth_attachment, uint32_t const layer_count = 1) noexcept {
         return {.sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
                 .pNext = nullptr,
                 .flags = flags,
                 .renderArea = render_area,
-                .layerCount = 1,
+                .layerCount = layer_count,
                 .viewMask = 0,
                 .colorAttachmentCount = color_count,
                 .pColorAttachments = color_count > 0 ? color_attachments : nullptr,

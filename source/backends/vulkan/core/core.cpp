@@ -202,11 +202,8 @@ namespace deren::vulkan {
         if (value == 0) {
             return VK_SUCCESS;
         }
-        VkSemaphoreWaitInfo wait_info = {};
-        wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
-        wait_info.semaphoreCount = 1;
-        wait_info.pSemaphores = &this->frame.frame_done_semaphores[slot];
-        wait_info.pValues = &value;
+        VkSemaphoreWaitInfo const wait_info = make_semaphore_wait_info(
+            1, &this->frame.frame_done_semaphores[slot], &value);
         auto const result = vkWaitSemaphores(this->device.logical_device, &wait_info, UINT64_MAX);
         if (result == VK_SUCCESS) {
             poll_submissions();
@@ -245,21 +242,14 @@ namespace deren::vulkan {
         // The wait side's value array, for the count rule above: the element is ignored (the semaphore
         // is binary) but the count has to be there.
         uint64_t const wait_value = 0;
-        VkTimelineSemaphoreSubmitInfo timeline_info = {};
-        timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
-        timeline_info.waitSemaphoreValueCount = 1;
-        timeline_info.pWaitSemaphoreValues = &wait_value;
-        timeline_info.signalSemaphoreValueCount = 2;
-        timeline_info.pSignalSemaphoreValues = signal_values;
+        VkTimelineSemaphoreSubmitInfo timeline_info = make_timeline_semaphore_info(
+            1, &wait_value, 2, signal_values);
 
-        VkSubmitInfo submit_info = {};
-        submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        VkSubmitInfo submit_info = make_submit_info(&command_buffer);
         submit_info.pNext = &timeline_info;
         submit_info.waitSemaphoreCount = 1;
         submit_info.pWaitSemaphores = &this->frame.image_available_semaphores[slot];
         submit_info.pWaitDstStageMask = &wait_stage;
-        submit_info.commandBufferCount = 1;
-        submit_info.pCommandBuffers = &command_buffer;
         submit_info.signalSemaphoreCount = 2;
         submit_info.pSignalSemaphores = signal_semaphores;
         if (this->create_options.native_window == nullptr) {
@@ -339,13 +329,7 @@ namespace deren::vulkan {
         parent->frame.async_present_queued = true;
         parent->frame.present_pending = result;
         bool const posted = parent->frame.present_worker->post([retained, completion, queue, swapchain, image, ready] {
-            VkPresentInfoKHR info{};
-            info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-            info.waitSemaphoreCount = 1;
-            info.pWaitSemaphores = &ready;
-            info.swapchainCount = 1;
-            info.pSwapchains = &swapchain;
-            info.pImageIndices = &image;
+            VkPresentInfoKHR const info = make_present_info(1, &ready, 1, &swapchain, &image);
             std::lock_guard queue_lock(retained->device.vma.queue_access());
             completion->set_value(present_error(vkQueuePresentKHR(queue, &info)));
         });
@@ -361,13 +345,8 @@ namespace deren::vulkan {
         }
         // Wait this image's binary present-ready semaphore (signaled by submit() above);
         // vkQueuePresentKHR requires binary wait semaphores (VUID-vkQueuePresentKHR-pWaitSemaphores-03267).
-        VkPresentInfoKHR present_info = {};
-        present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-        present_info.waitSemaphoreCount = 1;
-        present_info.pWaitSemaphores = &this->frame.present_ready_semaphores[image_index];
-        present_info.swapchainCount = 1;
-        present_info.pSwapchains = &this->frame.swap_chain;
-        present_info.pImageIndices = &image_index;
+        VkPresentInfoKHR const present_info = make_present_info(
+            1, &this->frame.present_ready_semaphores[image_index], 1, &this->frame.swap_chain, &image_index);
         // THE TRANSLATION IS THE BACKEND'S, at the present call site: the engine never sees a VkResult
         // (and the engine referencing a translator would JOIN the boundary worklist - the direction
         // the flip measures against).
@@ -848,8 +827,7 @@ namespace deren::vulkan {
                 // A rebuild or shutdown may discard the prefetched frame. Consume its binary
                 // acquire signal before the same slot semaphore can be reused after a rebuild.
                 VkPipelineStageFlags const stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-                VkSubmitInfo drain{};
-                drain.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+                VkSubmitInfo drain = make_submit_info(nullptr, 0);
                 drain.waitSemaphoreCount = 1;
                 drain.pWaitSemaphores = &this->frame.image_available_semaphores[this->frame.prefetched_slot];
                 drain.pWaitDstStageMask = &stage;

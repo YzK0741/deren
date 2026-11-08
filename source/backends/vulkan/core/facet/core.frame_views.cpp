@@ -119,15 +119,7 @@ namespace deren::vulkan {
             if (native == VK_NULL_HANDLE || this->device.graphics_queue_handle == VK_NULL_HANDLE) {
                 return rhi::error::not_ready;
             }
-            VkSubmitInfo one_shot = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                                     .pNext = nullptr,
-                                     .waitSemaphoreCount = 0,
-                                     .pWaitSemaphores = nullptr,
-                                     .pWaitDstStageMask = nullptr,
-                                     .commandBufferCount = 1,
-                                     .pCommandBuffers = &native,
-                                     .signalSemaphoreCount = 0,
-                                     .pSignalSemaphores = nullptr};
+            VkSubmitInfo one_shot = make_submit_info(&native);
             auto submission = std::make_unique<pending_submission>();
             submission->parent = this;
             submission->primary = retain_command(concrete, false);
@@ -144,11 +136,9 @@ namespace deren::vulkan {
                     return rhi::error::unsupported;
                 }
                 if (command.completion_timeline == VK_NULL_HANDLE) {
-                    VkSemaphoreTypeCreateInfo type{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
-                                                   .pNext = nullptr,
-                                                   .semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE,
-                                                   .initialValue = 0};
-                    VkSemaphoreCreateInfo create{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, .pNext = &type, .flags = 0};
+                    VkSemaphoreTypeCreateInfo const type = make_timeline_semaphore_type_info();
+                    VkSemaphoreCreateInfo create = make_binary_semaphore_info();
+                    create.pNext = &type;
                     auto created = vkCreateSemaphore(this->device.logical_device, &create, nullptr, &command.completion_timeline);
                     if (created != VK_SUCCESS) {
                         return generic_error(created);
@@ -157,18 +147,14 @@ namespace deren::vulkan {
                 submission->timeline = command.completion_timeline;
                 submission->value = command.completion_sequence + 1;
             } else {
-                VkFenceCreateInfo const fence_info{.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .pNext = nullptr, .flags = 0};
+                VkFenceCreateInfo const fence_info = make_fence_info();
                 auto created = vkCreateFence(this->device.logical_device, &fence_info, nullptr, &submission->fence);
                 if (created != VK_SUCCESS) {
                     return generic_error(created);
                 }
             }
-            VkTimelineSemaphoreSubmitInfo signal{.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
-                                                 .pNext = nullptr,
-                                                 .waitSemaphoreValueCount = 0,
-                                                 .pWaitSemaphoreValues = nullptr,
-                                                 .signalSemaphoreValueCount = token ? 1u : 0u,
-                                                 .pSignalSemaphoreValues = &submission->value};
+            VkTimelineSemaphoreSubmitInfo const signal =
+                make_timeline_semaphore_info(0, nullptr, token ? 1u : 0u, &submission->value);
             if (token) {
                 one_shot.pNext = &signal;
                 one_shot.signalSemaphoreCount = 1;

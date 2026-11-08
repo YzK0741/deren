@@ -7,6 +7,7 @@ module;
 module deren.vulkan.core;
 import deren.vstd;
 import deren.utility.shared;
+import deren.vulkan.constant_init;
 import :declarations;
 
 namespace deren::vulkan {
@@ -116,13 +117,9 @@ namespace deren::vulkan {
         auto desc = value.description;
         auto layers = desc.layer_count ? desc.layer_count : image.array_layers - desc.base_layer;
         auto mips = desc.mip_count ? desc.mip_count : image.mip_levels - desc.base_mip;
-        VkImageViewCreateInfo info{};
-        info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        info.image = image.native_handle;
-        info.viewType = layers == 1 ? VK_IMAGE_VIEW_TYPE_2D : image.cube_compatible && layers == 6 && desc.base_layer == 0 ? VK_IMAGE_VIEW_TYPE_CUBE
-                                                                                                                           : VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-        info.format = image.resolved_format;
-        info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, desc.base_mip, mips, desc.base_layer, layers};
+        VkImageViewType const view_type = layers == 1 ? VK_IMAGE_VIEW_TYPE_2D : image.cube_compatible && layers == 6 && desc.base_layer == 0 ? VK_IMAGE_VIEW_TYPE_CUBE
+                                                                                                                                             : VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+        VkImageViewCreateInfo const info = make_image_view_info(image.native_handle, image.resolved_format, view_type, VK_IMAGE_ASPECT_COLOR_BIT, mips, layers, desc.base_mip, desc.base_layer);
         return vkCreateImageView(this->device.logical_device, &info, nullptr, &value.native_view) == VK_SUCCESS ? rhi::error::ok : rhi::error::operation_failed;
     }
 

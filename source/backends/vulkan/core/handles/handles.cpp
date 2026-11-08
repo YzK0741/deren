@@ -149,13 +149,8 @@ namespace deren::vulkan {
     std::optional<vk_shader_module> make_shader_module(std::span<uint8_t const> const shader, VkDevice const device) noexcept {
         VkShaderModule shader_module = {};
 
-        VkShaderModuleCreateInfo create_info = {
-            .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-            .pNext = nullptr,
-            .flags = 0,
-            .codeSize = shader.size_bytes(),
-            .pCode = reinterpret_cast<uint32_t const*>(shader.data()),
-        };
+        VkShaderModuleCreateInfo const create_info = make_shader_module_info(
+            shader.size_bytes(), reinterpret_cast<uint32_t const*>(shader.data()));
 
         if (vkCreateShaderModule(device, &create_info, nullptr, &shader_module) != VK_SUCCESS) {
             return std::nullopt;

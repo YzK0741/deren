@@ -21,7 +21,7 @@ target_link_libraries(vulkan_main_context PUBLIC promise Vulkan::Vulkan)
 add_library(vulkan_synchronization STATIC)
 target_sources(vulkan_synchronization PUBLIC FILE_SET CXX_MODULES FILES
     source/backends/vulkan/synchronization/synchronization.cppm)
-target_link_libraries(vulkan_synchronization PUBLIC rhi_sync_contract)
+target_link_libraries(vulkan_synchronization PUBLIC rhi_sync_contract vulkan_constant_init)
 target_include_directories(vulkan_synchronization SYSTEM PUBLIC ${Vulkan_INCLUDE_DIRS})
 if(NOT MSVC)
     target_compile_options(rhi_sync_contract PRIVATE -fno-sanitize=all)

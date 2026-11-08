@@ -183,25 +183,14 @@ namespace deren::vulkan {
         /// accesses at all, which is the honest answer for a transition nobody has defined yet -
         /// `use()` reports it once instead of recording nonsense.
         [[nodiscard]] constexpr VkImageMemoryBarrier2 barrier_for(rhi::image_use const from, rhi::image_use const to) noexcept {
-            VkImageMemoryBarrier2 barrier = {
-                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-                .pNext = nullptr,
-                .srcStageMask = 0,
-                .srcAccessMask = 0,
-                .dstStageMask = 0,
-                .dstAccessMask = 0,
-                // EVERY IMAGE IN THIS RENDERER LIVES IN GENERAL: the layouts are an invariant, not a
-                // parameter (docs/unified_image_layouts.md), which is exactly why the contract carries
-                // no layout. The rows that differ (UNDEFINED as `from`, PRESENT_SRC as `to`) override it.
-                .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
-                .newLayout = VK_IMAGE_LAYOUT_GENERAL,
-                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .image = VK_NULL_HANDLE,
-                // The whole image, one mip, one layer: what the screenshot read-back copies, and what
-                // the hand-written recipes carry.
-                .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
-            };
+            // EVERY IMAGE IN THIS RENDERER LIVES IN GENERAL: the layouts are an invariant, not a
+            // parameter (docs/unified_image_layouts.md), which is exactly why the contract carries
+            // no layout. The rows that differ (UNDEFINED as `from`, PRESENT_SRC as `to`) override it.
+            // The whole image, one mip, one layer: what the screenshot read-back copies, and what
+            // the hand-written recipes carry.
+            VkImageMemoryBarrier2 barrier = make_image_memory_barrier_2(
+                0, 0, 0, 0, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_NULL_HANDLE,
+                {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1});
             for (image_use_pair const& row : image_use_pairs) {
                 if (row.from == from && row.to == to) {
                     barrier.oldLayout = row.old_layout;
@@ -1239,16 +1228,10 @@ namespace deren::vulkan {
                         return nullptr;
                     }
                 }
-                VkDescriptorSetAndBindingMappingEXT mapping{};
-                mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
-                mapping.descriptorSet = binding.descriptor_set;
-                mapping.firstBinding = binding.binding;
-                mapping.bindingCount = 1;
-                mapping.resourceMask = VK_SPIRV_RESOURCE_TYPE_ACCELERATION_STRUCTURE_BIT_EXT;
-                mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
-                mapping.sourceData.constantOffset.heapOffset = binding.byte_offset;
-                mapping.sourceData.constantOffset.heapArrayStride = binding.array_stride;
-                mappings[index].push_back(mapping);
+                mappings[index].push_back(make_descriptor_set_and_binding_mapping(
+                    binding.descriptor_set, binding.binding, 1, VK_SPIRV_RESOURCE_TYPE_ACCELERATION_STRUCTURE_BIT_EXT,
+                    VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT,
+                    binding.byte_offset, binding.array_stride));
             }
             if (!found_stage) {
                 deren::utility::log("rhi: create_pipeline {} refused: acceleration-structure binding has no matching stage", what);
@@ -1491,15 +1474,13 @@ namespace deren::vulkan {
         // The contract's colour formats, converted once into the API's own spelling (see the note below):
         // eight is this backend's ceiling for inherited attachments, and a larger declaration is refused.
         deren::utility::vessel::array<VkFormat, 8> native_color_formats = {};
-        VkCommandBufferInheritanceRenderingInfo rendering = {};
+        VkCommandBufferInheritanceRenderingInfo rendering = make_inheritance_rendering_info(false, nullptr, VK_FORMAT_UNDEFINED, VK_SAMPLE_COUNT_1_BIT);
         VkCommandBufferInheritanceDescriptorHeapInfoEXT heap_inheritance = {};
         VkBindHeapInfoEXT resource_bind = {};
         VkBindHeapInfoEXT sampler_bind = {};
-        VkCommandBufferInheritanceInfo inheritance = {};
-        inheritance.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
+        VkCommandBufferInheritanceInfo inheritance = make_inheritance_info(nullptr);
         bool const inherits = next != nullptr;
         if (inherits) {
-            rendering.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_RENDERING_INFO;
             if (next->s_type == rhi::structure_type::command_buffer_inheritance) {
                 auto const valid = rhi::validate_structure(*next, next->s_type, sizeof(rhi::command_buffer_inheritance_info));
                 if (valid != rhi::error::ok) {
@@ -1533,7 +1514,6 @@ namespace deren::vulkan {
                 return rhi::error::unsupported;
             }
             rendering.pColorAttachmentFormats = rendering.colorAttachmentCount == 0 ? nullptr : native_color_formats.data();
-            inheritance.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
             inheritance.pNext = &rendering;
         } else if (rhi::has_flag(usage, rhi::command_buffer_usage::render_pass_continue)) {
             // A CONTINUATION WITH NO INHERITANCE IS NOT EXPRESSIBLE: Vulkan requires the secondary to
@@ -1581,7 +1561,6 @@ namespace deren::vulkan {
                 .pSamplerHeapBindInfo = &sampler_bind,
                 .pResourceHeapBindInfo = &resource_bind,
             };
-            inheritance.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
             inheritance.pNext = &heap_inheritance;
         }
 
@@ -1596,15 +1575,11 @@ namespace deren::vulkan {
             flags |= VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
         }
 
-        VkCommandBufferBeginInfo const begin = {
-            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-            .pNext = nullptr,
-            .flags = flags,
-            // The inheritance info is passed whenever ANY of it was filled: the caller's attachment chain
-            // or this backend's own heap entry (see above). When neither applies - a primary, or a
-            // secondary begun for inline recording - `pInheritanceInfo` must be NULL.
-            .pInheritanceInfo = kind == rhi::command_buffer_kind::secondary ? &inheritance : nullptr,
-        };
+        // The inheritance info is passed whenever ANY of it was filled: the caller's attachment chain
+        // or this backend's own heap entry (see above). When neither applies - a primary, or a
+        // secondary begun for inline recording - `pInheritanceInfo` must be NULL.
+        VkCommandBufferBeginInfo const begin =
+            make_command_buffer_begin_info(flags, kind == rhi::command_buffer_kind::secondary ? &inheritance : nullptr);
         auto const result = generic_error(vkBeginCommandBuffer(*this->buffer, &begin));
         if (result == rhi::error::ok) {
             secondary_refs.clear();
@@ -1696,12 +1671,7 @@ namespace deren::vulkan {
         if (rhi::has_flag(usage, rhi::command_buffer_usage::render_pass_continue)) {
             return rhi::error::unsupported;
         }
-        VkCommandBufferBeginInfo const begin = {
-            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-            .pNext = nullptr,
-            .flags = flags,
-            .pInheritanceInfo = nullptr, // a primary has no inheritance
-        };
+        VkCommandBufferBeginInfo const begin = make_command_buffer_begin_info(flags, nullptr); // a primary has no inheritance
         auto const result = generic_error(vkBeginCommandBuffer(command_buffer, &begin));
         if (result == rhi::error::ok) {
             secondary_refs.clear();
@@ -2054,10 +2024,11 @@ namespace deren::vulkan {
             if (needed > buffer.size_bytes / bpp / region.array_layer_count) {
                 return rhi::error::invalid_argument;
             }
-            VkBufferImageCopy copy{};
-            copy.imageSubresource = {aspect, region.mip_level, region.base_array_layer, region.array_layer_count};
-            copy.imageOffset = {static_cast<std::int32_t>(region.offset_x), static_cast<std::int32_t>(region.offset_y), 0};
-            copy.imageExtent = {region.extent.width, region.extent.height, 1u};
+            VkBufferImageCopy const copy = make_buffer_image_copy(
+                0, 0, 0,
+                make_image_subresource_layers(aspect, region.mip_level, region.base_array_layer, region.array_layer_count),
+                {static_cast<std::int32_t>(region.offset_x), static_cast<std::int32_t>(region.offset_y), 0},
+                {region.extent.width, region.extent.height, 1u});
             vkCmdCopyImageToBuffer(this->native(), image.native_handle, VK_IMAGE_LAYOUT_GENERAL, buffer.native, 1u, &copy);
             return rhi::error::ok;
         }
@@ -2106,13 +2077,11 @@ namespace deren::vulkan {
 
         // The copy the screenshot path recorded by hand, field for field (batch-2 spec §3.3 item 2):
         // tightly packed, whole subresource, at the source's CURRENT layout (GENERAL everywhere here).
-        VkBufferImageCopy copy = {};
-        copy.bufferOffset = 0;
-        copy.bufferRowLength = 0;
-        copy.bufferImageHeight = 0;
-        copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, region.mip_level, region.base_array_layer, region.array_layer_count};
-        copy.imageOffset = {static_cast<int32_t>(region.offset_x), static_cast<int32_t>(region.offset_y), static_cast<int32_t>(region.offset_z)};
-        copy.imageExtent = {region.extent.width, region.extent.height, region.extent.depth};
+        VkBufferImageCopy const copy = make_buffer_image_copy(
+            0, 0, 0,
+            make_image_subresource_layers(VK_IMAGE_ASPECT_COLOR_BIT, region.mip_level, region.base_array_layer, region.array_layer_count),
+            {static_cast<std::int32_t>(region.offset_x), static_cast<std::int32_t>(region.offset_y), static_cast<std::int32_t>(region.offset_z)},
+            {region.extent.width, region.extent.height, region.extent.depth});
         vkCmdCopyImageToBuffer(command_buffer, self->frame.frame_image_view.handle(), VK_IMAGE_LAYOUT_GENERAL, self->frame.readback_slot_handle, 1, &copy);
         return rhi::error::ok;
     }
@@ -2121,10 +2090,10 @@ namespace deren::vulkan {
     // THE TRANSLATION IS THE BACKEND'S ALONE (the plan's §1): every Vulkan structure below is built
     // here, from the contract's vocabulary. The handles the descriptors carry are verified by
     // interface identity and, for images, by the same registry the heap writes go through; the cast
-    // to `owned_*` is defined only after that check, which is the no-RTTI provenance rule the contract
-    // states as a caller premise. The readiness answer is uniform and cheap: a list with no buffer
-    // to record into (`native()` null) is `not_ready` - the frame list's answer when no frame is in
-    // flight, an owned list's never.
+    // to the concrete core type is defined only after that check, which is the no-RTTI provenance
+    // rule the contract states as a caller premise. The readiness answer is uniform and cheap: a list
+    // with no buffer to record into (`native()` null) is `not_ready` - the frame list's answer when no
+    // frame is in flight, a concrete list's never.
 
     namespace {
 
@@ -2460,19 +2429,10 @@ namespace deren::vulkan {
             if (!buffer_masks_for(one.from, source_stage, source_access) || !buffer_masks_for(one.to, destination_stage, destination_access)) {
                 return rhi::error::unsupported;
             }
-            buffer_barriers[buffer_count++] = VkBufferMemoryBarrier2{
-                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
-                .pNext = nullptr,
-                .srcStageMask = source_stage,
-                .srcAccessMask = source_access,
-                .dstStageMask = destination_stage,
-                .dstAccessMask = destination_access,
-                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .buffer = concrete->source ? VK_NULL_HANDLE : concrete->native,
-                .offset = one.offset,
-                .size = one.size == 0 ? (concrete->size_bytes - one.offset) : one.size,
-            };
+            buffer_barriers[buffer_count++] = make_buffer_memory_barrier_2(
+                source_stage, source_access, destination_stage, destination_access,
+                concrete->source ? VK_NULL_HANDLE : concrete->native,
+                one.offset, one.size == 0 ? (concrete->size_bytes - one.offset) : one.size);
         }
         // THE GLOBAL MEMORY BARRIER OF THE BATCH (abi 21), if the caller declared one: the same role-pair
         // derivation the buffer loop uses, with NO operand - which is the whole reason the field exists. A
@@ -2559,17 +2519,7 @@ namespace deren::vulkan {
             }
             buffer_barriers[i].buffer = static_cast<core::buffer const*>(group.buffers[i].resource)->native;
         }
-        VkDependencyInfo const dependency = {
-            .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-            .pNext = nullptr,
-            .dependencyFlags = 0,
-            .memoryBarrierCount = memory_count,
-            .pMemoryBarriers = memory_count != 0 ? memory_barriers.data() : nullptr,
-            .bufferMemoryBarrierCount = buffer_count,
-            .pBufferMemoryBarriers = buffer_barriers.data(),
-            .imageMemoryBarrierCount = image_count,
-            .pImageMemoryBarriers = image_barriers.data(),
-        };
+        VkDependencyInfo const dependency = make_dependency_info(image_count, image_barriers.data(), buffer_count, buffer_barriers.data(), memory_count, memory_count != 0 ? memory_barriers.data() : nullptr);
         vkCmdPipelineBarrier2(command_buffer, &dependency);
         return rhi::error::ok;
     }
@@ -2627,23 +2577,11 @@ namespace deren::vulkan {
             if (native_view == VK_NULL_HANDLE) {
                 return rhi::error::invalid_argument;
             }
-            attachments[color_count] = VkRenderingAttachmentInfo{
-                .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-                .pNext = nullptr,
-                .imageView = native_view,
-                .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
-                .resolveMode = VK_RESOLVE_MODE_NONE,
-                .resolveImageView = VK_NULL_HANDLE,
-                .resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-                .loadOp = [&one] {
-                    if (one.load == rhi::load_op::clear) {
-                        return VK_ATTACHMENT_LOAD_OP_CLEAR;
-                    }
-                    return one.load == rhi::load_op::dont_care ? VK_ATTACHMENT_LOAD_OP_DONT_CARE : VK_ATTACHMENT_LOAD_OP_LOAD;
-                }(),
-                .storeOp = one.store == rhi::store_op::dont_care ? VK_ATTACHMENT_STORE_OP_DONT_CARE : VK_ATTACHMENT_STORE_OP_STORE,
-                .clearValue = {.color = {{one.clear[0], one.clear[1], one.clear[2], one.clear[3]}}},
-            };
+            VkAttachmentLoadOp const load_op = one.load == rhi::load_op::clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : one.load == rhi::load_op::dont_care ? VK_ATTACHMENT_LOAD_OP_DONT_CARE
+                                                                                                                                                   : VK_ATTACHMENT_LOAD_OP_LOAD;
+            VkAttachmentStoreOp const store_op = one.store == rhi::store_op::dont_care ? VK_ATTACHMENT_STORE_OP_DONT_CARE : VK_ATTACHMENT_STORE_OP_STORE;
+            VkClearValue const clear_value = {.color = {{one.clear[0], one.clear[1], one.clear[2], one.clear[3]}}};
+            attachments[color_count] = make_attachment_info(native_view, VK_IMAGE_LAYOUT_GENERAL, load_op, store_op, clear_value);
             ++color_count;
         }
         VkRenderingAttachmentInfo depth_attachment = {};
@@ -2653,36 +2591,20 @@ namespace deren::vulkan {
             if (native_view == VK_NULL_HANDLE) {
                 return rhi::error::invalid_argument;
             }
-            depth_attachment = VkRenderingAttachmentInfo{
-                .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-                .pNext = nullptr,
-                .imageView = native_view,
-                .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
-                .resolveMode = VK_RESOLVE_MODE_NONE,
-                .resolveImageView = VK_NULL_HANDLE,
-                .resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-                .loadOp = [&info] {
-                    if (info.depth.load == rhi::load_op::clear) {
-                        return VK_ATTACHMENT_LOAD_OP_CLEAR;
-                    }
-                    return info.depth.load == rhi::load_op::dont_care ? VK_ATTACHMENT_LOAD_OP_DONT_CARE : VK_ATTACHMENT_LOAD_OP_LOAD;
-                }(),
-                .storeOp = info.depth.store == rhi::store_op::dont_care ? VK_ATTACHMENT_STORE_OP_DONT_CARE : VK_ATTACHMENT_STORE_OP_STORE,
-                .clearValue = {.depthStencil = {.depth = info.depth.clear_depth, .stencil = info.depth.clear_stencil}},
-            };
+            VkAttachmentLoadOp const load_op = info.depth.load == rhi::load_op::clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : info.depth.load == rhi::load_op::dont_care ? VK_ATTACHMENT_LOAD_OP_DONT_CARE
+                                                                                                                                                                 : VK_ATTACHMENT_LOAD_OP_LOAD;
+            VkAttachmentStoreOp const store_op = info.depth.store == rhi::store_op::dont_care ? VK_ATTACHMENT_STORE_OP_DONT_CARE : VK_ATTACHMENT_STORE_OP_STORE;
+            VkClearValue const clear_value = {.depthStencil = {.depth = info.depth.clear_depth, .stencil = info.depth.clear_stencil}};
+            depth_attachment = make_attachment_info(native_view, VK_IMAGE_LAYOUT_GENERAL, load_op, store_op, clear_value);
         }
-        VkRenderingInfo const rendering = {
-            .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
-            .pNext = nullptr,
-            .flags = info.secondary_contents ? VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT : 0u,
-            .renderArea = {.offset = {info.area.offset_x, info.area.offset_y}, .extent = {info.area.width, info.area.height}},
-            .layerCount = info.layer_count,
-            .viewMask = 0u, // no multi-view use anywhere in the renderer (the plan's §4 verdict)
-            .colorAttachmentCount = color_count,
-            .pColorAttachments = attachments.data(),
-            .pDepthAttachment = depth_used ? &depth_attachment : nullptr,
-            .pStencilAttachment = nullptr,
-        };
+        VkRenderingFlags const rendering_flags = info.secondary_contents ? VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT : 0u;
+        VkRenderingInfo const rendering = make_rendering_info(
+            rendering_flags,
+            VkRect2D{.offset = {info.area.offset_x, info.area.offset_y}, .extent = {info.area.width, info.area.height}},
+            attachments.data(),
+            color_count,
+            depth_used ? &depth_attachment : nullptr,
+            info.layer_count);
         vkCmdBeginRendering(command_buffer, &rendering);
         rendering_active = true;
         return rhi::error::ok;
@@ -2743,30 +2665,14 @@ namespace deren::vulkan {
             .dstStageMask = VK_PIPELINE_STAGE_2_MICROMAP_BUILD_BIT_EXT,
             .dstAccessMask = VK_ACCESS_2_MICROMAP_READ_BIT_EXT | VK_ACCESS_2_MICROMAP_WRITE_BIT_EXT | VK_ACCESS_2_SHADER_READ_BIT,
         };
-        VkDependencyInfo const dependency{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-                                          .pNext = nullptr,
-                                          .dependencyFlags = 0,
-                                          .memoryBarrierCount = 1u,
-                                          .pMemoryBarriers = &barrier,
-                                          .bufferMemoryBarrierCount = 0u,
-                                          .pBufferMemoryBarriers = nullptr,
-                                          .imageMemoryBarrierCount = 0u,
-                                          .pImageMemoryBarriers = nullptr};
+        VkDependencyInfo const dependency = make_dependency_info(0, nullptr, 0, nullptr, 1, &barrier);
         vkCmdPipelineBarrier2(command_buffer, &dependency);
 
-        VkMicromapBuildInfoEXT info{};
-        info.sType = VK_STRUCTURE_TYPE_MICROMAP_BUILD_INFO_EXT;
-        info.pNext = nullptr;
-        info.type = VK_MICROMAP_TYPE_OPACITY_MICROMAP_EXT;
-        info.flags = VK_BUILD_MICROMAP_PREFER_FAST_TRACE_BIT_EXT;
-        info.mode = VK_BUILD_MICROMAP_MODE_BUILD_EXT;
-        info.dstMicromap = micromap.native;
-        info.usageCountsCount = 1u;
-        info.pUsageCounts = &micromap.usage;
-        info.data.deviceAddress = micromap.data_address;
-        info.triangleArray.deviceAddress = micromap.triangles_address;
-        info.triangleArrayStride = micromap.triangle_array_stride;
-        info.scratchData.deviceAddress = micromap.scratch_address;
+        VkMicromapBuildInfoEXT const info = make_micromap_build_info(
+            VK_MICROMAP_TYPE_OPACITY_MICROMAP_EXT, VK_BUILD_MICROMAP_PREFER_FAST_TRACE_BIT_EXT,
+            VK_BUILD_MICROMAP_MODE_BUILD_EXT, micromap.native, 1, &micromap.usage,
+            micromap.data_address, micromap.triangles_address, micromap.triangle_array_stride,
+            micromap.scratch_address);
         self->device.micromap_build(command_buffer, 1u, &info);
         return rhi::error::ok;
     }
@@ -2826,30 +2732,16 @@ namespace deren::vulkan {
             .dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
             .dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
         };
-        VkDependencyInfo const dependency{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-                                          .pNext = nullptr,
-                                          .dependencyFlags = 0,
-                                          .memoryBarrierCount = 1u,
-                                          .pMemoryBarriers = &barrier,
-                                          .bufferMemoryBarrierCount = 0u,
-                                          .pBufferMemoryBarriers = nullptr,
-                                          .imageMemoryBarrierCount = 0u,
-                                          .pImageMemoryBarriers = nullptr};
+        VkDependencyInfo const dependency = make_dependency_info(0, nullptr, 0, nullptr, 1, &barrier);
         vkCmdPipelineBarrier2(command_buffer, &dependency);
 
-        VkAccelerationStructureBuildGeometryInfoKHR build_info{};
-        build_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
-        build_info.pNext = nullptr;
-        build_info.type = structure.top_level ? VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR : VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-        build_info.flags = (structure.top_level ? VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR : VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR) |
-                           (structure.refittable ? VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR : 0u);
-        build_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
-        build_info.srcAccelerationStructure = VK_NULL_HANDLE;
-        build_info.dstAccelerationStructure = structure.native;
-        build_info.geometryCount = static_cast<std::uint32_t>(structure.geometries.size());
-        build_info.pGeometries = structure.geometries.data();
-        build_info.ppGeometries = nullptr;
-        build_info.scratchData.deviceAddress = structure.scratch_address;
+        VkAccelerationStructureBuildGeometryInfoKHR const build_info = make_acceleration_structure_build_info(
+            structure.top_level ? VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR : VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
+            (structure.top_level ? VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR : VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR) |
+                (structure.refittable ? VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR : 0u),
+            VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR, VK_NULL_HANDLE, structure.native,
+            static_cast<std::uint32_t>(structure.geometries.size()), structure.geometries.data(),
+            structure.scratch_address);
         if (structure.top_level) {
             structure.ranges.front().primitiveCount = structure.instance_count; // the build reads what the caller last wrote
         }
@@ -2893,30 +2785,16 @@ namespace deren::vulkan {
             .dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
             .dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
         };
-        VkDependencyInfo const dependency{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-                                          .pNext = nullptr,
-                                          .dependencyFlags = 0,
-                                          .memoryBarrierCount = 1u,
-                                          .pMemoryBarriers = &barrier,
-                                          .bufferMemoryBarrierCount = 0u,
-                                          .pBufferMemoryBarriers = nullptr,
-                                          .imageMemoryBarrierCount = 0u,
-                                          .pImageMemoryBarriers = nullptr};
+        VkDependencyInfo const dependency = make_dependency_info(0, nullptr, 0, nullptr, 1, &barrier);
         vkCmdPipelineBarrier2(command_buffer, &dependency);
 
-        VkAccelerationStructureBuildGeometryInfoKHR build_info{};
-        build_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
-        build_info.pNext = nullptr;
-        build_info.type = structure.top_level ? VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR : VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-        build_info.flags = (structure.top_level ? VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR : VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR) |
-                           VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
-        build_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR; // the whole difference from a build
-        build_info.srcAccelerationStructure = structure.native;
-        build_info.dstAccelerationStructure = structure.native;
-        build_info.geometryCount = static_cast<std::uint32_t>(structure.geometries.size());
-        build_info.pGeometries = structure.geometries.data();
-        build_info.ppGeometries = nullptr;
-        build_info.scratchData.deviceAddress = structure.scratch_address;
+        VkAccelerationStructureBuildGeometryInfoKHR const build_info = make_acceleration_structure_build_info(
+            structure.top_level ? VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR : VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
+            (structure.top_level ? VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR : VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR) |
+                VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR,
+            VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR, structure.native, structure.native,
+            static_cast<std::uint32_t>(structure.geometries.size()), structure.geometries.data(),
+            structure.scratch_address);
         if (structure.top_level) {
             structure.ranges.front().primitiveCount = structure.instance_count;
         }
@@ -3108,33 +2986,20 @@ namespace deren::vulkan {
             destination_native = destination_resource->native_handle;
             destination_format = destination_resource->resolved_format;
         }
-        auto const layer_of = [](rhi::image_copy_region const& region) {
-            return VkImageSubresourceLayers{VK_IMAGE_ASPECT_COLOR_BIT, region.mip_level, region.base_array_layer,
-                                            region.array_layer_count == 0 ? VK_REMAINING_ARRAY_LAYERS : region.array_layer_count};
-        };
-        VkImageCopy2 const regions = {
-            .sType = VK_STRUCTURE_TYPE_IMAGE_COPY_2,
-            .pNext = nullptr,
-            .srcSubresource = layer_of(copy.source_region),
-            .srcOffset = {static_cast<std::int32_t>(copy.source_region.offset_x), static_cast<std::int32_t>(copy.source_region.offset_y),
-                          static_cast<std::int32_t>(copy.source_region.offset_z)},
-            .dstSubresource = layer_of(copy.destination_region),
-            .dstOffset = {static_cast<std::int32_t>(copy.destination_region.offset_x), static_cast<std::int32_t>(copy.destination_region.offset_y),
-                          static_cast<std::int32_t>(copy.destination_region.offset_z)},
-            .extent = {copy.source_region.extent.width, copy.source_region.extent.height, copy.source_region.extent.depth},
-        };
+        VkImageSubresourceLayers const source_layers =
+            make_image_subresource_layers(VK_IMAGE_ASPECT_COLOR_BIT, copy.source_region.mip_level, copy.source_region.base_array_layer,
+                                          copy.source_region.array_layer_count == 0 ? VK_REMAINING_ARRAY_LAYERS : copy.source_region.array_layer_count);
+        VkImageSubresourceLayers const destination_layers =
+            make_image_subresource_layers(VK_IMAGE_ASPECT_COLOR_BIT, copy.destination_region.mip_level, copy.destination_region.base_array_layer,
+                                          copy.destination_region.array_layer_count == 0 ? VK_REMAINING_ARRAY_LAYERS : copy.destination_region.array_layer_count);
+        VkImageCopy2 const regions = make_image_copy_2(
+            source_layers, static_cast<std::int32_t>(copy.source_region.offset_x), static_cast<std::int32_t>(copy.source_region.offset_y),
+            static_cast<std::int32_t>(copy.source_region.offset_z), destination_layers, static_cast<std::int32_t>(copy.destination_region.offset_x),
+            static_cast<std::int32_t>(copy.destination_region.offset_y), static_cast<std::int32_t>(copy.destination_region.offset_z),
+            copy.source_region.extent.width, copy.source_region.extent.height, copy.source_region.extent.depth);
         (void)source_format; // both sides live in GENERAL; the aspects are colour (the copy sites' shape)
         (void)destination_format;
-        VkCopyImageInfo2 const copy_info = {
-            .sType = VK_STRUCTURE_TYPE_COPY_IMAGE_INFO_2,
-            .pNext = nullptr,
-            .srcImage = source_native,
-            .srcImageLayout = VK_IMAGE_LAYOUT_GENERAL,
-            .dstImage = destination_native,
-            .dstImageLayout = VK_IMAGE_LAYOUT_GENERAL,
-            .regionCount = 1,
-            .pRegions = &regions,
-        };
+        VkCopyImageInfo2 const copy_info = make_copy_image_info_2(source_native, VK_IMAGE_LAYOUT_GENERAL, destination_native, VK_IMAGE_LAYOUT_GENERAL, 1, &regions);
         vkCmdCopyImage2(command_buffer, &copy_info);
         return rhi::error::ok;
     }
@@ -3164,21 +3029,8 @@ namespace deren::vulkan {
             destination_offset > destination_resource->size_bytes || size > destination_resource->size_bytes - destination_offset) {
             return rhi::error::invalid_argument;
         }
-        VkBufferCopy2 const regions = {
-            .sType = VK_STRUCTURE_TYPE_BUFFER_COPY_2,
-            .pNext = nullptr,
-            .srcOffset = source_offset,
-            .dstOffset = destination_offset,
-            .size = size,
-        };
-        VkCopyBufferInfo2 const copy_info = {
-            .sType = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2,
-            .pNext = nullptr,
-            .srcBuffer = source_resource->native,
-            .dstBuffer = destination_resource->native,
-            .regionCount = 1,
-            .pRegions = &regions,
-        };
+        VkBufferCopy2 const regions = make_buffer_copy_2(source_offset, destination_offset, size);
+        VkCopyBufferInfo2 const copy_info = make_copy_buffer_info_2(source_resource->native, destination_resource->native, 1, &regions);
         vkCmdCopyBuffer2(command_buffer, &copy_info);
         return rhi::error::ok;
     }
@@ -3293,37 +3145,22 @@ namespace deren::vulkan {
             // packed", i.e. exactly extent.width texels per row and extent.height rows deep. The aspect is
             // COLOUR: the contract's region carries no aspect, and every image this renderer copies out of
             // is a colour one.
-            VkImageToMemoryCopy memory_copy = {};
-            memory_copy.sType = VK_STRUCTURE_TYPE_IMAGE_TO_MEMORY_COPY_EXT;
-            memory_copy.pNext = nullptr;
-            memory_copy.pHostPointer = destination.data();
-            memory_copy.memoryRowLength = 0;
-            memory_copy.memoryImageHeight = 0;
             // THE CONVERSIONS ARE EXPLICIT because the API's own structure is less wide here than the
             // contract's region: `mipLevel` and the offsets are `int32_t` in Vulkan and `uint32_t` in the
             // region. A braced initializer would refuse the narrowing outright (-Wc++11-narrowing), which is
             // the compiler asking for the cast - and a region whose values do not fit is a caller bug the
             // backend cannot repair.
-            memory_copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            memory_copy.imageSubresource.mipLevel = static_cast<std::int32_t>(region.mip_level);
-            memory_copy.imageSubresource.baseArrayLayer = region.base_array_layer;
-            memory_copy.imageSubresource.layerCount = region.array_layer_count;
-            memory_copy.imageOffset = {static_cast<std::int32_t>(region.offset_x),
-                                       static_cast<std::int32_t>(region.offset_y),
-                                       static_cast<std::int32_t>(region.offset_z)};
-            memory_copy.imageExtent = {region.extent.width, region.extent.height, region.extent.depth};
-            VkCopyImageToMemoryInfo copy_info = {};
-            copy_info.sType = VK_STRUCTURE_TYPE_COPY_IMAGE_TO_MEMORY_INFO_EXT;
-            copy_info.pNext = nullptr;
-            copy_info.flags = 0;
-            copy_info.srcImage = source;
+            VkImageToMemoryCopy const memory_copy = make_image_to_memory_copy(
+                destination.data(),
+                make_image_subresource_layers(VK_IMAGE_ASPECT_COLOR_BIT, region.mip_level, region.base_array_layer, region.array_layer_count),
+                {static_cast<std::int32_t>(region.offset_x), static_cast<std::int32_t>(region.offset_y), static_cast<std::int32_t>(region.offset_z)},
+                {region.extent.width, region.extent.height, region.extent.depth});
             // GENERAL, AND THAT IS THIS RENDERER'S OWN CONVENTION rather than a choice made here: every image
             // it creates is kept in GENERAL (the heap-native shaders index the grid directly), and the
             // device's host-copy source layouts list GENERAL among what it can read from - which is exactly
             // what `host_image_copy_available` verifies at startup.
-            copy_info.srcImageLayout = VK_IMAGE_LAYOUT_GENERAL;
-            copy_info.regionCount = 1;
-            copy_info.pRegions = &memory_copy;
+            VkCopyImageToMemoryInfo const copy_info = make_copy_image_to_memory_info(
+                source, VK_IMAGE_LAYOUT_GENERAL, 1, &memory_copy);
             return generic_error(self.device.copy_image_to_memory(self.device.logical_device, &copy_info));
         }
     } // namespace

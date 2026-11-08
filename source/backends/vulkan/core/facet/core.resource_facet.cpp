@@ -896,20 +896,12 @@ namespace deren::vulkan {
             return nullptr;
         }
 
-        VkMicromapBuildInfoEXT info{};
-        info.sType = VK_STRUCTURE_TYPE_MICROMAP_BUILD_INFO_EXT;
-        info.pNext = nullptr;
-        info.type = VK_MICROMAP_TYPE_OPACITY_MICROMAP_EXT;
-        info.flags = VK_BUILD_MICROMAP_PREFER_FAST_TRACE_BIT_EXT;
-        info.mode = VK_BUILD_MICROMAP_MODE_BUILD_EXT;
-        info.usageCountsCount = 1u;
-        info.pUsageCounts = &out->usage;
-        info.data.deviceAddress = out->data_address;
-        info.triangleArray.deviceAddress = out->triangles_address;
-        info.triangleArrayStride = out->triangle_array_stride;
+        VkMicromapBuildInfoEXT const info = make_micromap_build_info(
+            VK_MICROMAP_TYPE_OPACITY_MICROMAP_EXT, VK_BUILD_MICROMAP_PREFER_FAST_TRACE_BIT_EXT,
+            VK_BUILD_MICROMAP_MODE_BUILD_EXT, VK_NULL_HANDLE, 1, &out->usage,
+            out->data_address, out->triangles_address, out->triangle_array_stride);
 
-        VkMicromapBuildSizesInfoEXT sizes{};
-        sizes.sType = VK_STRUCTURE_TYPE_MICROMAP_BUILD_SIZES_INFO_EXT;
+        VkMicromapBuildSizesInfoEXT sizes = make_micromap_build_sizes_info();
         this->full_core.device.micromap_build_sizes(this->full_core.device.logical_device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &info, &sizes);
         if (sizes.micromapSize == 0) {
             deren::utility::log("rhi: create_micromap refused: the build-size query answered zero bytes");
@@ -1125,22 +1117,18 @@ namespace deren::vulkan {
         }
 
         // ---- 2. THE SIZES, THEN THE MEMORY --------------------------------------------------------------
-        VkAccelerationStructureBuildGeometryInfoKHR size_info{};
-        size_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
-        size_info.pNext = nullptr;
-        size_info.type = top_level ? VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR : VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-        size_info.flags = (top_level ? VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR : VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR) |
-                          (structure->refittable ? VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR : 0u);
-        size_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
-        size_info.geometryCount = static_cast<std::uint32_t>(structure->geometries.size());
-        size_info.pGeometries = structure->geometries.data();
+        VkAccelerationStructureBuildGeometryInfoKHR const size_info = make_acceleration_structure_build_info(
+            top_level ? VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR : VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
+            (top_level ? VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR : VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR) |
+                (structure->refittable ? VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR : 0u),
+            VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR, VK_NULL_HANDLE, VK_NULL_HANDLE,
+            static_cast<std::uint32_t>(structure->geometries.size()), structure->geometries.data(), 0);
         deren::utility::vessel::vector<std::uint32_t> primitive_counts;
         primitive_counts.reserve(structure->ranges.size());
         for (auto const& range : structure->ranges) {
             primitive_counts.push_back(top_level ? instance_capacity : range.primitiveCount);
         }
-        VkAccelerationStructureBuildSizesInfoKHR sizes{};
-        sizes.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
+        VkAccelerationStructureBuildSizesInfoKHR sizes = make_acceleration_structure_build_sizes_info();
         this->full_core.device.acceleration_structure_build_sizes(this->full_core.device.logical_device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &size_info, primitive_counts.data(), &sizes);
         if (sizes.accelerationStructureSize == 0) {
             deren::utility::log("rhi: create_acceleration_structure refused: the build-size query answered zero bytes");
