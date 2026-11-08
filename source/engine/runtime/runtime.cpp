@@ -973,7 +973,7 @@ namespace deren::engine {
             .gbuffer_pipeline = this->gbuffer_pipeline_mesh.has_value() || this->gbuffer_pipeline_meshlet.has_value(),
             .structures_ready = this->structures.ready() && this->structures.handle(this->frame_ring().position()) != nullptr,
             .furnace = this->furnace,
-            .punctual_lights = this->light_state.light_count.x,
+            .punctual_lights = this->light_state->light_count.x,
         };
     }
 
@@ -1251,7 +1251,7 @@ namespace deren::engine {
             return;
         }
 
-        glm::vec3 const light_dir = glm::normalize(glm::vec3(this->light_state.light_dir));
+        glm::vec3 const light_dir = glm::normalize(glm::vec3(this->light_state->light_dir));
         // ---- gather: every caster's light-space AABB, computed ONCE for all cascades ----
         // Casters outside the view still cast into it (a wall behind the camera): fitting only the
         // frustum corners clipped them and sunlight leaked through. Every scene leaf's world AABB is
@@ -1301,7 +1301,7 @@ namespace deren::engine {
         params.proj = this->current_proj_unjittered;
         params.view = this->current_ubo.view;
         params.camera_pos = glm::vec3(this->current_ubo.camera_pos);
-        params.light_dir = this->light_state.light_dir;
+        params.light_dir = this->light_state->light_dir;
         params.scene_center = this->shadow_scene_center;
         params.scene_radius = this->scene_extent_radius;
         params.caster_extent = this->shadow_caster_extent;
@@ -1319,11 +1319,11 @@ namespace deren::engine {
         this->shadow_cascade_logged = true;
 
         // the fit produces exactly the lanes the shader reads; the rest of the UBO is untouched
-        this->light_state.light_view_proj = fitted.light_view_proj;
-        this->light_state.cascade_splits = glm::vec4(fitted.cascade_splits[0], fitted.cascade_splits[1], fitted.cascade_splits[2], fitted.cascade_splits[3]);
-        this->light_state.cascade_texel_world = glm::vec4(fitted.cascade_texel_world[0], fitted.cascade_texel_world[1], fitted.cascade_texel_world[2], fitted.cascade_texel_world[3]);
-        this->light_state.cascade_count = static_cast<float>(fitted.cascade_count);
-        this->light_state.light_dir = glm::vec4(fitted.light_dir, 1.0f / static_cast<float>(this->shadow_map_size));
+        this->light_state->light_view_proj = fitted.light_view_proj;
+        this->light_state->cascade_splits = glm::vec4(fitted.cascade_splits[0], fitted.cascade_splits[1], fitted.cascade_splits[2], fitted.cascade_splits[3]);
+        this->light_state->cascade_texel_world = glm::vec4(fitted.cascade_texel_world[0], fitted.cascade_texel_world[1], fitted.cascade_texel_world[2], fitted.cascade_texel_world[3]);
+        this->light_state->cascade_count = static_cast<float>(fitted.cascade_count);
+        this->light_state->light_dir = glm::vec4(fitted.light_dir, 1.0f / static_cast<float>(this->shadow_map_size));
     }
     void runtime::set_shadow_cascades(uint32_t const cascades) noexcept {
         uint32_t const clamped = std::clamp(cascades, 1u, deren::engine::max_shadow_cascades);
@@ -1352,7 +1352,7 @@ namespace deren::engine {
             this->shadow_frustum_valid = false;
         }
         this->shadow_cascade_blend = clamped;
-        this->light_state.cascade_blend = this->shadow_cascade_blend;
+        this->light_state->cascade_blend = this->shadow_cascade_blend;
     }
     void runtime::enable_shadows(glm::vec3 const& scene_center, float const scene_radius) {
         // Remember the scene extent even if shadow setup below fails: the camera far plane
@@ -1375,13 +1375,13 @@ namespace deren::engine {
         // An empty scene has zero radius; give the initial CPU-side frustum a finite size.
         // Shared GPU buffers are created separately by the first frame's resource preparation.
         float const initial_radius = scene_radius > 0.0f ? scene_radius : 1.0f;
-        this->light_state = make_directional_light_ubo(this->sun_direction, scene_center, initial_radius, static_cast<float>(this->shadow_map_size));
+        *this->light_state = make_directional_light_ubo(this->sun_direction, scene_center, initial_radius, static_cast<float>(this->shadow_map_size));
         // the cascade settings are the runtime's, not the UBO builder's: re-apply them over the defaults
-        this->light_state.cascade_count = static_cast<float>(std::clamp(this->shadow_cascades, 1u, deren::engine::max_shadow_cascades));
-        this->light_state.cascade_blend = this->shadow_cascade_blend;
+        this->light_state->cascade_count = static_cast<float>(std::clamp(this->shadow_cascades, 1u, deren::engine::max_shadow_cascades));
+        this->light_state->cascade_blend = this->shadow_cascade_blend;
         // respect the current GUI toggle: the flag in the slot's buffer tells pbr.frag whether
         // the depth map was rendered this frame
-        this->light_state.shadow_enabled = this->shadow_enabled ? 1.0f : 0.0f;
+        this->light_state->shadow_enabled = this->shadow_enabled ? 1.0f : 0.0f;
         this->shadows_enabled = true;
         deren::utility::log("shadow mapping enabled: light frustum center ({:.2f}, {:.2f}, {:.2f}), radius {:.2f}",
                             scene_center.x, scene_center.y, scene_center.z, scene_radius);
@@ -1393,7 +1393,7 @@ namespace deren::engine {
         // next frame's paced write - which is why it is set here rather than recomputed per frame. The
         // device check and the pipeline check are folded in: a request that cannot be honoured leaves the
         // cascaded shadow maps running, and the shader never even looks at the visibility image.
-        this->light_state.rt_shadows = (enabled && this->pass_ready("rt_shadow") && runtime_detail::ray_query_available_of(this->rhi_face())) ? 1.0f : 0.0f;
+        this->light_state->rt_shadows = (enabled && this->pass_ready("rt_shadow") && runtime_detail::ray_query_available_of(this->rhi_face())) ? 1.0f : 0.0f;
     }
 
     void runtime::set_rt_reflections(bool const enabled) noexcept {
@@ -3359,7 +3359,7 @@ namespace deren::engine {
         // light UBO's shadow_enabled flag drives pbr.frag: when shadows are off the shader
         // skips calc_shadow entirely (fully lit), so no shadow-map clearing is needed - this
         // avoids the per-frame-slot double-buffer race that clearing once could not fix.
-        this->light_state.shadow_enabled = (enabled && this->shadows_enabled) ? 1.0f : 0.0f;
+        this->light_state->shadow_enabled = (enabled && this->shadows_enabled) ? 1.0f : 0.0f;
         if (enabled && !this->shadows_enabled) {
             this->warn_missing_feature("shadow-on", "the shadow pass has no effect: enable_shadows() did not succeed (the startup log says why)");
         }
@@ -3370,11 +3370,11 @@ namespace deren::engine {
         // CPU-side only, like set_shadow_enabled: pace_and_acquire() copies light_state (which
         // carries the selected models in the UBO's std140 padding) into the paced slot's light
         // buffer every frame, so flipping the model mid-run never races an in-flight frame.
-        this->light_state.brdf_model = static_cast<float>(std::clamp(model, 0, 3));
+        this->light_state->brdf_model = static_cast<float>(std::clamp(model, 0, 3));
     }
 
     void runtime::set_diffuse_model(int32_t const model) noexcept {
-        this->light_state.diffuse_model = static_cast<float>(std::clamp(model, 0, 1));
+        this->light_state->diffuse_model = static_cast<float>(std::clamp(model, 0, 1));
     }
 
     void runtime::set_toon_rig(toon_rig const& rig) noexcept {
@@ -3435,8 +3435,8 @@ namespace deren::engine {
     void runtime::set_environment(float rotation_degrees, float strength, int32_t background, glm::vec3 color, float blur) noexcept {
         auto e = environment_detail::pack_environment(rotation_degrees, strength, background);
         auto b = environment_detail::pack_background({color.x, color.y, color.z}, blur);
-        this->light_state.environment = {e[0], e[1], e[2], e[3]};
-        this->light_state.environment_background = {b[0], b[1], b[2], b[3]};
+        this->light_state->environment = {e[0], e[1], e[2], e[3]};
+        this->light_state->environment_background = {b[0], b[1], b[2], b[3]};
     }
 
     void runtime::set_exposure(float const exposure) noexcept {
@@ -3473,7 +3473,7 @@ namespace deren::engine {
         this->sun_direction = normalized;
         // Shading and shadow fitting consume the published light state, not sun_direction.
         // Keep the texel-size metadata in w when changing its world-space direction.
-        this->light_state.light_dir = glm::vec4(normalized, this->light_state.light_dir.w);
+        this->light_state->light_dir = glm::vec4(normalized, this->light_state->light_dir.w);
         // THE CASCADES ARE FITTED IN LIGHT SPACE, so a cached fit belongs to ONE direction: the same reason a
         // new light setup invalidates it (see update_shadow_frustum).
         this->shadow_frustum_valid = false;
@@ -3486,8 +3486,8 @@ namespace deren::engine {
             // zero, and a `-0.0f` from a negated zero would still compare equal - but nothing downstream
             // should ever have to know that. This is also the byte-identical path: a frame that never asks
             // for an area light carries the zeros it carried before this call existed.
-            this->light_state.area_light = glm::vec4(0.0f);
-            this->light_state.area_light_axis = glm::vec4(0.0f);
+            this->light_state->area_light = glm::vec4(0.0f);
+            this->light_state->area_light_axis = glm::vec4(0.0f);
             return;
         }
         // The sign of area_light.w is the energy switch, because the two appended lanes have no spare boolean
@@ -3496,8 +3496,8 @@ namespace deren::engine {
         // A zero penumbra is "no penumbra" for the shader; `penumbra` arrives from derive_area_light as
         // max(0, ...) already, and the clamp here is the last line of defence against a caller handing the
         // shading a negative radius.
-        this->light_state.area_light = glm::vec4(centre, signed_half);
-        this->light_state.area_light_axis = glm::vec4(axis, std::max(penumbra, 0.0f));
+        this->light_state->area_light = glm::vec4(centre, signed_half);
+        this->light_state->area_light_axis = glm::vec4(axis, std::max(penumbra, 0.0f));
     }
 
     void runtime::set_toon_shading(float const steps, float const softness) noexcept {
@@ -3543,7 +3543,7 @@ namespace deren::engine {
             if (count >= max_punctual_lights) {
                 break;
             }
-            point_light& slot = this->light_state.punctual_lights[count];
+            point_light& slot = this->light_state->punctual_lights[count];
             slot.position = glm::vec4(light.position, light.npr_data.y);
             // color already scaled by intensity (radiance units, as the shader expects)
             slot.color = glm::vec4(light.color * light.intensity, light.npr_mode);
@@ -3561,7 +3561,7 @@ namespace deren::engine {
                               : glm::vec4(light.range, 0.0f, light.npr_data.z, light.npr_data.w);
             ++count;
         }
-        this->light_state.light_count.x = static_cast<float>(count);
+        this->light_state->light_count.x = static_cast<float>(count);
     }
 
     void runtime::log_scene_tree() const noexcept {

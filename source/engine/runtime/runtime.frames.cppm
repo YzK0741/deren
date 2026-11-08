@@ -320,18 +320,18 @@ namespace deren::engine {
             // shadows follow the camera: refit the light frustum to this frame's camera before
             // the UBO upload (16 points + a few matrix multiplies per frame)
             this->update_shadow_frustum();
-            this->light_state.light_count.y = this->exposure_scale;
-            this->light_state.light_count.z = this->toon_steps;
-            this->light_state.light_count.w = this->toon_softness;
+            this->light_state->light_count.y = this->exposure_scale;
+            this->light_state->light_count.z = this->toon_steps;
+            this->light_state->light_count.w = this->toon_softness;
             // Ray-traced sun shadows: composed HERE rather than in set_rt_shadows, because the light UBO
             // is rebuilt from light_state every frame and a later enable_shadows() (main.cpp calls it
             // after the settings are applied, which is where this flag was first lost) resets fields of
             // this struct. Recomposing it makes the flag authoritative - the lighting stage reads exactly
             // what the passes below will do this frame.
-            this->light_state.rt_shadows = (this->rt_shadows && this->pass_ready("rt_shadow") && runtime_detail::ray_query_available_of(this->rhi_face())) ? 1.0f : 0.0f;
+            this->light_state->rt_shadows = (this->rt_shadows && this->pass_ready("rt_shadow") && runtime_detail::ray_query_available_of(this->rhi_face())) ? 1.0f : 0.0f;
             // the furnace mode still wins: it is a verification mode that turns the sun off entirely
-            this->light_state.sun_intensity = (this->furnace ? 0.0f : 1.0f) * this->sun_intensity;
-            this->light_state.furnace_level = this->furnace ? 1.0f : 0.0f;
+            this->light_state->sun_intensity = (this->furnace ? 0.0f : 1.0f) * this->sun_intensity;
+            this->light_state->furnace_level = this->furnace ? 1.0f : 0.0f;
 
             // ---- clustered light culling (M5): this frame's grid + the view-depth range its
             //      exponential slices span, and the host-side clear of the per-cluster counters.
@@ -355,16 +355,16 @@ namespace deren::engine {
                     cluster_far = std::max(std::min(camera_far, scene_far), cluster_near * 2.0f);
                 }
                 bool const clustered = this->clustered_lights && this->pass_ready("cluster") && !degenerate && this->cluster_tiles_x > 0 && this->cluster_tiles_y > 0;
-                this->light_state.cluster_grid = glm::vec4(static_cast<float>(this->cluster_tiles_x),
-                                                           static_cast<float>(this->cluster_tiles_y),
-                                                           static_cast<float>(deren::engine::cluster_slice_count),
-                                                           clustered ? 1.0f : 0.0f);
-                this->light_state.cluster_depth = glm::vec4(cluster_near,
-                                                            cluster_far,
-                                                            static_cast<float>(this->render_extent().width),
-                                                            static_cast<float>(this->render_extent().height));
+                this->light_state->cluster_grid = glm::vec4(static_cast<float>(this->cluster_tiles_x),
+                                                            static_cast<float>(this->cluster_tiles_y),
+                                                            static_cast<float>(deren::engine::cluster_slice_count),
+                                                            clustered ? 1.0f : 0.0f);
+                this->light_state->cluster_depth = glm::vec4(cluster_near,
+                                                             cluster_far,
+                                                             static_cast<float>(this->render_extent().width),
+                                                             static_cast<float>(this->render_extent().height));
             }
-            if (this->upload_scene_constant(frame_slot, render_resource::resource_id::light_ubo, std::as_bytes(std::span(&this->light_state, 1))) != rhi::error::ok) {
+            if (this->upload_scene_constant(frame_slot, render_resource::resource_id::light_ubo, std::as_bytes(std::span(this->light_state.get(), 1))) != rhi::error::ok) {
                 deren::utility::panic("environment: managed light constants: upload to completed slot failed");
             }
         }
@@ -769,7 +769,7 @@ namespace deren::engine {
                         // be drawn, so the union over the cascades is the exact caster set (a cull per
                         // cascade is cheap against the BVH)
                         for (uint32_t cascade = 0; cascade < std::clamp(this->shadow_cascades, 1u, deren::engine::max_shadow_cascades); ++cascade) {
-                            deren::utility::frustum const light_frustum = deren::utility::make_frustum(this->light_state.light_view_proj[cascade]);
+                            deren::utility::frustum const light_frustum = deren::utility::make_frustum(this->light_state->light_view_proj[cascade]);
                             auto const in_light = this->cull_bvh->frustum_cull(light_frustum);
                             this->shadow_casters.reserve(this->shadow_casters.size() + in_light.size());
                             for (auto const* node : in_light) {
@@ -1862,7 +1862,7 @@ namespace deren::engine {
         // The sun, normalized here because the shader wants a
         // direction, the UBO's own lane stays as the app set it). A zero direction - nothing has set a light yet
         // - is kept as zero rather than turned into a NaN by normalize().
-        glm::vec3 const sun = glm::vec3(this->light_state.light_dir);
+        glm::vec3 const sun = glm::vec3(this->light_state->light_dir);
         this->frame_facts.light_dir = glm::dot(sun, sun) > 0.0f ? glm::vec4(glm::normalize(sun), 0.0f) : glm::vec4(0.0f);
         // ... and the renderer's settings that MORE THAN ONE pass reads (see render_settings for the rule): the
         // post chain's exposure and bloom weights, FXAA's two thresholds, and the GI upsample's silhouette test.

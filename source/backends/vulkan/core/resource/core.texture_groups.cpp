@@ -138,7 +138,7 @@ namespace deren::vulkan {
                                                 rhi::image& texture) noexcept {
         // THE ONE WRITE PATH (registration + descriptor_space::write): the caller holds resource.texture_groups.mutex,
         // has established that `texture` is this backend's image, and has checked the group/index.
-        if (group.allocation >= resource.texture_groups.groups.size() || !resource.texture_groups.groups[group.allocation] ||
+        if (group.allocation >= texture_group_state::group_capacity || !resource.texture_groups.group_live(group.allocation) ||
             index >= rhi::texture_group_capacity) {
             return rhi::error::invalid_argument;
         }
@@ -155,8 +155,8 @@ namespace deren::vulkan {
         auto& cached = resource.texture_groups.cache[&texture];
         auto lease = cached.lock();
         if (!lease) {
-            auto const free = std::find(resource.texture_groups.views.begin() + 1, resource.texture_groups.views.end(), false);
-            if (free == resource.texture_groups.views.end()) {
+            auto const free = resource.texture_groups.first_free_texture_slot();
+            if (free == texture_group_state::texture_capacity) {
                 return rhi::error::out_of_device_memory;
             }
             auto fresh = std::shared_ptr<texture_group_state::sampled_view_lease>(
@@ -168,14 +168,14 @@ namespace deren::vulkan {
             if (!fresh->view) {
                 return rhi::error::operation_failed;
             }
-            fresh->slot = static_cast<std::uint32_t>(free - resource.texture_groups.views.begin());
+            fresh->slot = free;
             auto const& image = static_cast<core::image const&>(texture);
             VkImageViewCreateInfo const view_info = make_image_view_info(image.native_handle, image.resolved_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, image.mip_levels, 1);
             if (!resource.descriptor_heaps.write_image((VkDeviceSize(texture_group_state::texture_base) + fresh->slot) * 64,
                                                        view_info, VK_IMAGE_LAYOUT_GENERAL)) {
                 return rhi::error::operation_failed;
             }
-            *free = true;
+            resource.texture_groups.set_texture_slot_live(free, true);
             fresh->state = &resource.texture_groups;
             cached = fresh;
             lease = std::move(fresh);
@@ -199,7 +199,7 @@ namespace deren::vulkan {
     core::texture_group_state::sampled_view_lease::~sampled_view_lease() noexcept {
         if (state != nullptr) {
             std::lock_guard lock(state->mutex);
-            state->views[slot] = false;
+            state->set_texture_slot_live(slot, false);
         }
         // Destroy the native view and its parent outside the pool lock.
     }
@@ -211,8 +211,8 @@ namespace deren::vulkan {
                 parent->resource.texture_groups.groups_by_token.erase(allocation + 1u);
             }
             parent->resource.texture_groups.tokens_by_group.erase(this);
-            if (allocation < parent->resource.texture_groups.groups.size()) {
-                parent->resource.texture_groups.groups[allocation] = false;
+            if (allocation < texture_group_state::group_capacity) {
+                parent->resource.texture_groups.set_group_live(allocation, false);
             }
         }
     }
