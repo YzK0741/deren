@@ -50,8 +50,8 @@ struct test_composite final : pass::frame_pass {
     rhi::error record_content(pass::resolved_io const&) noexcept override {
         return rhi::error::ok;
     }
-    pass::owned_pipeline named_pipeline(std::string_view name) const noexcept override {
-        return name == "post_hdr" ? pass::owned_pipeline{.contract = const_cast<test_pipeline*>(&pipeline)} : pass::owned_pipeline{};
+    pass::pipeline_ref named_pipeline(std::string_view name) const noexcept override {
+        return name == "post_hdr" ? pass::pipeline_ref{.contract = const_cast<test_pipeline*>(&pipeline)} : pass::pipeline_ref{};
     }
 };
 struct test_deferred final : pass::frame_pass {
@@ -110,8 +110,9 @@ int main() {
         post::inputs inputs{};
         inputs.hdr = *combined.import_texture({1, 1}, rg::initial_contents::undefined, "upstream", {}, rg::resource_state{});
         inputs.frame = *combined.import_texture({1, 2}, rg::initial_contents::undefined, "output", {}, rg::resource_state{});
-        for (unsigned i = 0; i < 4; ++i)
+        for (unsigned i = 0; i < 4; ++i) {
             inputs.bloom[i] = *combined.import_texture({1, 3 + i}, rg::initial_contents::undefined, "level", {}, rg::resource_state{});
+        }
         CHECK(combined.add_pass("upstream", std::array<rg::resource_access, 1>{{{inputs.hdr, rg::content_access::discard_write, {}, {rg::resource_usage::color_attachment, rg::pipeline_stage::color_output}}}}));
         auto output = post::append(combined, inputs, {});
         CHECK(output && combined.export_resource(output->color));
@@ -123,8 +124,9 @@ int main() {
     desc.input = {1, 1};
     desc.output = {1, 2};
     desc.ldr = {1, 3};
-    for (unsigned i = 0; i < 4; ++i)
+    for (unsigned i = 0; i < 4; ++i) {
         desc.levels[i] = {1, 4 + i};
+    }
     desc.lut = rg::resource_identity{1, 8};
     for (auto resolve : {post::resolve::none, post::resolve::fxaa, post::resolve::upscale}) {
         desc.resolution = resolve;
@@ -132,8 +134,9 @@ int main() {
             desc.bloom_enabled = bloom;
             auto graph = post::compile(desc);
             CHECK(graph);
-            if (!graph)
+            if (!graph) {
                 continue;
+            }
             CHECK(graph->execution_order.size() == (resolve == post::resolve::none ? 5 : 6));
             CHECK(graph->outputs.size() == 1);
             auto const* composite = graph->passes[4].parameters.get<post::composite_parameters>();
@@ -158,8 +161,9 @@ int main() {
         if (finish) {
             auto const& state = finish->barriers[0].after;
             CHECK(state.layout == (present ? rg::resource_layout::present : rg::resource_layout::shader_read_only));
-            if (present)
+            if (present) {
                 CHECK(state.stages == rg::pipeline_stage::none && state.access == rg::memory_access::none);
+            }
         }
     }
     // ---- THE RUNTIME'S FRAME STATUS ON THE ONE PATH: an ELIGIBLE frame records through the graph and proceeds; an
@@ -179,28 +183,29 @@ int main() {
         auto& deferred = chain.emplace<test_deferred>();
         deferred.fail = mode == 3;
         chain.emplace<test_composite>();
-        for (unsigned i = 0; i < 4; ++i)
+        for (unsigned i = 0; i < 4; ++i) {
             chain.emplace<pass::post_bloom_pass>(i);
+        }
         deren::engine::runtime runtime{core, options};
         CHECK(!runtime.acquire_radiance_image());
         CHECK(runtime.overlay_draw().valid());
-        CHECK(runtime.overlay_draw().has_recording && !runtime.overlay_draw().has_recording(runtime.overlay_draw().owner));
+        CHECK(runtime.overlay_draw().has_recording && !runtime.overlay_draw().has_recording(runtime.overlay_draw().parent));
         runtime.set_scene(scene);
         deren::engine::runtime::chain_wiring wiring{};
         struct context {
             unsigned mode;
             pass::scene_pass* scene;
         } context{mode, &scene_pass};
-        wiring.owner = &context;
-        wiring.feature_active = [](void* owner, deren::engine::runtime::feature_facts const& facts, std::string_view name) {
-            auto mode = static_cast<struct context*>(owner)->mode;
+        wiring.parent = &context;
+        wiring.feature_active = [](void* parent, deren::engine::runtime::feature_facts const& facts, std::string_view name) {
+            auto mode = static_cast<struct context*>(parent)->mode;
             return (name == "scene" && facts.gbuffer_pipeline) || (name == "bloom" && facts.bloom) ||
                    (name == "toon_screen_rim" && mode == 1) || (name == "goo_rim" && mode == 2);
         };
-        wiring.prepare = [](void* owner, deren::engine::runtime::frame_services const& services, std::string_view stage) {
+        wiring.prepare = [](void* parent, deren::engine::runtime::frame_services const& services, std::string_view stage) {
             if (stage == "scene") {
-                auto* context = static_cast<struct context*>(owner);
-                context->scene->set_frame(context->mode == 5 ? pass::scene_frame{} : services.make_scene_frame(services.owner));
+                auto* context = static_cast<struct context*>(parent);
+                context->scene->set_frame(context->mode == 5 ? pass::scene_frame{} : services.make_scene_frame(services.parent));
             }
         };
         runtime.set_pass_chain(chain, wiring);
@@ -211,17 +216,20 @@ int main() {
         auto before_render = deren::vk_test::probe_rendering_count(*core);
         runtime.record_main_drawcalls();
         // modes 1/2 activate an overlay feature with no pass: eligibility is refused BEFORE anything records.
-        if (mode == 1 || mode == 2)
+        if (mode == 1 || mode == 2) {
             CHECK(deren::vk_test::probe_rendering_count(*core) == before_render);
-        if (mode == 4)
+        }
+        if (mode == 4) {
             deren::vk_test::probe_scoped_validation_failure(*core, 0);
+        }
         auto const end = runtime.end_recording();
         if (mode != 0 && mode != 2) {
             CHECK(end == deren::engine::frame_status::end_recording_failed);
             CHECK(runtime.submit_and_present() == deren::engine::frame_status::submit_failed);
             CHECK(deferred.graph == (mode == 3 ? 1U : 0U));
-            if (mode >= 4)
+            if (mode >= 4) {
                 CHECK(deren::vk_test::probe_rendering_count(*core) == before_render);
+            }
         } else {
             CHECK(end == deren::engine::frame_status::proceed);
             CHECK(runtime.submit_and_present() == deren::engine::frame_status::proceed);
@@ -242,7 +250,7 @@ int main() {
         chain.emplace<test_composite>();
         deren::engine::runtime runtime{core, options};
         CHECK(runtime.overlay_draw().valid());
-        CHECK(runtime.overlay_draw().has_recording && !runtime.overlay_draw().has_recording(runtime.overlay_draw().owner));
+        CHECK(runtime.overlay_draw().has_recording && !runtime.overlay_draw().has_recording(runtime.overlay_draw().parent));
         runtime.set_scene(scene);
         runtime.set_pass_chain(chain, {});
         CHECK(runtime.pace_and_acquire() == deren::engine::frame_status::proceed);

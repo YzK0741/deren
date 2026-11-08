@@ -158,14 +158,14 @@ namespace deren::engine::render_graph {
         passes.push_back(std::move(candidate));
         return pass_ref{incarnation, index};
     }
-    std::expected<void, graph_error> builder::export_index(uint64_t owner, uint32_t index, resource_kind kind, resource_range range) {
+    std::expected<void, graph_error> builder::export_index(uint64_t parent, uint32_t index, resource_kind kind, resource_range range) {
         if (frozen) {
             return std::unexpected(error(error_code::frozen_builder));
         }
-        if (!owner) {
+        if (!parent) {
             return std::unexpected(error(error_code::invalid_ref));
         }
-        if (owner != incarnation) {
+        if (parent != incarnation) {
             return std::unexpected(error(error_code::foreign_ref));
         }
         if (index >= resources.size() || resources[index].kind != kind) {

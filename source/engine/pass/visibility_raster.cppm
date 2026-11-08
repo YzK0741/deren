@@ -52,10 +52,10 @@ export namespace deren::engine::pass {
      */
     struct visibility_frame {
         using segment_ref = deren::promise::rhi::mergeable_command_buffer_ref;
-        using bind_segment_fn = bool (*)(void* owner, segment_ref const& segment);
-        using record_items_fn = bool (*)(void* owner, deren::promise::rhi::command_buffer& command_buffer,
+        using bind_segment_fn = bool (*)(void* parent, segment_ref const& segment);
+        using record_items_fn = bool (*)(void* parent, deren::promise::rhi::command_buffer& command_buffer,
                                          std::span<segment_ref const> segments, bind_segment_fn bind_segment,
-                                         void* segment_owner, std::uint32_t& recorded);
+                                         void* segment_context, std::uint32_t& recorded);
 
         /// how many items the renderer will record this frame (the pass's log line, and the frame's driver)
         std::uint32_t item_count = 0;
@@ -65,15 +65,15 @@ export namespace deren::engine::pass {
          * @param command_buffer the frame's primary, already inside this pass's rendering instance
          * @param segments optional per-worker mergeable segments; empty records straight into the primary
          * @param bind_segment opens one segment and rebinds this pass's pipeline/dynamic state into it
-         * @param segment_owner the pass handed to @p bind_segment
+         * @param segment_context the pass handed to @p bind_segment
          * @param recorded how many items were actually recorded (an item the renderer skips is not counted)
          * @return false when the renderer could not record the frame's items at all (the pass then fails)
          */
         record_items_fn record_items = nullptr;
         std::span<segment_ref const> segments = {};
         bind_segment_fn bind_segment = nullptr;
-        void* segment_owner = nullptr;
-        void* owner = nullptr;
+        void* segment_context = nullptr;
+        void* parent = nullptr;
         deren::promise::rhi::image_extent extent = {};
     };
 
@@ -136,7 +136,7 @@ export namespace deren::engine::pass {
         [[nodiscard]] rhi::error record_content(resolved_io const& io) noexcept override;
 
         /// Open one per-worker segment inside this pass's rendering instance and rebind its pipeline state.
-        static bool bind_segment(void* owner, rhi::mergeable_command_buffer_ref const& segment) noexcept;
+        static bool bind_segment(void* parent, rhi::mergeable_command_buffer_ref const& segment) noexcept;
 
     private:
         bool bind_segment_impl(rhi::mergeable_command_buffer_ref const& segment) noexcept;

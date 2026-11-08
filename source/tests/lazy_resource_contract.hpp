@@ -6,7 +6,9 @@ inline void check_lazy_resource_contract(rhi::api_core& core) {
     std::weak_ptr<bytes const> weak = source;
     auto made = core.resources->create_lazy_buffer({.resource = {.size = 64, .usage = rhi::buffer_usage::vertex}, .data = source});
     CHECK(made);
-    if (!made) return;
+    if (!made) {
+        return;
+    }
     auto value = std::move(*made);
     CHECK(value->state() == rhi::lazy_state::unloaded);
     CHECK(value->unload() == rhi::error::ok);
@@ -16,7 +18,9 @@ inline void check_lazy_resource_contract(rhi::api_core& core) {
     CHECK(!weak.expired());
     auto commands = core.commands->create_command_buffer({});
     CHECK(commands);
-    if (!commands) return;
+    if (!commands) {
+        return;
+    }
     CHECK(commands->begin_recording({}) == rhi::error::ok);
     CHECK(commands->bind_vertex_buffer(*value, 0) == rhi::error::ok);
     CHECK(value->state() == rhi::lazy_state::unloaded);
@@ -40,10 +44,11 @@ inline void check_lazy_resource_contract(rhi::api_core& core) {
     CHECK(weak.expired());
 
     auto pixels = std::make_shared<bytes const>(16, std::uint8_t{127});
-    auto image = core.resources->create_lazy_image({.resource = {.extent = {2, 2, 1}, .format = rhi::image_format::rgba8_unorm,
-        .flags = rhi::to_bits(rhi::image_flag::sampled), .initial_bytes = {}}, .data = pixels});
+    auto image = core.resources->create_lazy_image({.resource = {.extent = {2, 2, 1}, .format = rhi::image_format::rgba8_unorm, .flags = rhi::to_bits(rhi::image_flag::sampled), .initial_bytes = {}}, .data = pixels});
     CHECK(image);
-    if (!image) return;
+    if (!image) {
+        return;
+    }
     CHECK((*image)->state() == rhi::lazy_state::unloaded);
     auto view = (*image)->make_view({});
     CHECK(view);
@@ -51,7 +56,9 @@ inline void check_lazy_resource_contract(rhi::api_core& core) {
     CHECK(!(*image)->make_view({.base_mip = UINT32_MAX}));
     auto* host_copy = rhi::query_extension<rhi::host_image_copy>(core);
     std::array<std::byte, 16> copied{};
-    if (host_copy) CHECK(host_copy->copy_image_to_memory(**image, copied, {}) == rhi::error::unsupported);
+    if (host_copy) {
+        CHECK(host_copy->copy_image_to_memory(**image, copied, {}) == rhi::error::unsupported);
+    }
     auto rejected = core.commands->create_command_buffer({});
     CHECK(rejected->begin_recording({}) == rhi::error::ok);
     CHECK(rejected->clear_color_image(**image, {}, {}) == rhi::error::unsupported);
@@ -66,7 +73,9 @@ inline void check_lazy_resource_contract(rhi::api_core& core) {
     CHECK((*image)->state() == rhi::lazy_state::unloaded);
     CHECK(rejected->end_recording() == rhi::error::ok);
     auto* space = rhi::query_extension<rhi::descriptor_space>(core);
-    if (!space || !space->fixed_slots().count) return;
+    if (!space || !space->fixed_slots().count) {
+        return;
+    }
     auto slot = space->fixed_slots().base + space->fixed_slots().count - 1;
     rhi::image_view_desc range{};
     CHECK(space->write_image({.slot = slot, .resource = image->get(), .view = &range}) == rhi::error::ok);
@@ -75,10 +84,13 @@ inline void check_lazy_resource_contract(rhi::api_core& core) {
     CHECK(descriptor_commands->begin_recording({}) == rhi::error::ok);
     CHECK(space->bind({.commands = descriptor_commands.get()}) == rhi::error::ok);
     CHECK((*image)->state() == rhi::lazy_state::ready);
-    if (auto* heap = rhi::query_extension<rhi::descriptor_heap>(core))
+    if (auto* heap = rhi::query_extension<rhi::descriptor_heap>(core)) {
         CHECK(heap->write_image({.resource = image->get(), .view = &range}) == rhi::error::unsupported);
+    }
     CHECK((*image)->unload() == rhi::error::not_ready);
-    if (host_copy) CHECK(host_copy->copy_image_to_memory(**image, copied, {}) == rhi::error::unsupported);
+    if (host_copy) {
+        CHECK(host_copy->copy_image_to_memory(**image, copied, {}) == rhi::error::unsupported);
+    }
     CHECK(descriptor_commands->end_recording() == rhi::error::ok);
     descriptor_commands.reset();
     CHECK((*image)->unload() == rhi::error::not_ready); // view and fixed descriptor still retain it
@@ -115,12 +127,11 @@ inline void check_lazy_resource_contract(rhi::api_core& core) {
     retained_textures.reset();
     CHECK((*image)->unload() == rhi::error::ok);
 
-    auto grouped = core.resources->create_lazy_buffer({.resource = {.size = 16, .usage = rhi::buffer_usage::uniform_gpu_only,
-        .flags = rhi::to_bits(rhi::buffer_flag::device_address)}, .data = pixels});
+    auto grouped = core.resources->create_lazy_buffer({.resource = {.size = 16, .usage = rhi::buffer_usage::uniform_gpu_only, .flags = rhi::to_bits(rhi::buffer_flag::device_address)}, .data = pixels});
     CHECK(grouped);
     auto* grouped_raw = grouped->get();
-    rhi::shared_object<rhi::buffer> grouped_owner(std::move(*grouped));
-    rhi::resource_group_entry entry{.binding = 1, .kind = rhi::resource_kind::uniform_buffer, .resource = grouped_owner};
+    rhi::shared_object<rhi::buffer> grouped_handle(std::move(*grouped));
+    rhi::resource_group_entry entry{.binding = 1, .kind = rhi::resource_kind::uniform_buffer, .resource = grouped_handle};
     auto group = core.resources->create_resource_group({.entries = std::span(&entry, 1)});
     CHECK(group);
     CHECK(grouped_raw->unload() == rhi::error::ok); // no physical allocation yet
@@ -138,19 +149,15 @@ inline void check_lazy_resource_contract(rhi::api_core& core) {
         rhi::unique_object<rhi::radix_sorter> sorter(sorting->create_radix_sorter());
         if (sorter) {
             auto req = sorter->requirements(4);
-            auto keys = core.resources->create_lazy_buffer({.resource = {.size = 16, .usage = rhi::buffer_usage::vertex,
-                .flags = rhi::to_bits(rhi::buffer_flag::storage)}, .data = pixels});
-            auto values = core.resources->create_lazy_buffer({.resource = {.size = 16, .usage = rhi::buffer_usage::vertex,
-                .flags = rhi::to_bits(rhi::buffer_flag::storage)}, .data = pixels});
-            auto scratch = core.resources->create_buffer({.size = req.scratch_bytes, .usage = rhi::buffer_usage::storage_gpu_only,
-                .flags = req.scratch_flags});
+            auto keys = core.resources->create_lazy_buffer({.resource = {.size = 16, .usage = rhi::buffer_usage::vertex, .flags = rhi::to_bits(rhi::buffer_flag::storage)}, .data = pixels});
+            auto values = core.resources->create_lazy_buffer({.resource = {.size = 16, .usage = rhi::buffer_usage::vertex, .flags = rhi::to_bits(rhi::buffer_flag::storage)}, .data = pixels});
+            auto scratch = core.resources->create_buffer({.size = req.scratch_bytes, .usage = rhi::buffer_usage::storage_gpu_only, .flags = req.scratch_flags});
             CHECK(keys && values && scratch);
             if (keys && values && scratch) {
                 auto warm = core.commands->create_command_buffer({});
                 CHECK(warm->begin_recording({}) == rhi::error::ok);
-                std::array<rhi::buffer_barrier, 2> warm_barriers{{
-                    {.resource = keys->get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::shader_read_write},
-                    {.resource = values->get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::shader_read_write}}};
+                std::array<rhi::buffer_barrier, 2> warm_barriers{{{.resource = keys->get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::shader_read_write},
+                                                                  {.resource = values->get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::shader_read_write}}};
                 CHECK(warm->barrier({.buffers = warm_barriers}) == rhi::error::ok);
                 CHECK(warm->end_recording() == rhi::error::ok);
                 warm.reset();

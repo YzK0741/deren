@@ -79,8 +79,9 @@ namespace deren::engine::environment_detail {
     template <class Fetch>
     DEREN_CUBE_HD cube_vector cube_border_texel(Fetch const& fetch, int32_t size, int32_t face, int32_t x, int32_t y) {
         bool outside_x = x < 0 || x >= size, outside_y = y < 0 || y >= size;
-        if (!outside_x && !outside_y)
+        if (!outside_x && !outside_y) {
             return fetch(face, x, y);
+        }
         if (outside_x && outside_y) {
             // No unique diagonal neighbor at a cube corner. Average the three incident corner texels.
             // https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-cubemapedge

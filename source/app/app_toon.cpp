@@ -849,8 +849,8 @@ namespace deren::app::detail {
         state.matcap_size = baked_matcap_size;
     }
 
-    deren::engine::texture_input toon_texture_callback(void* const owner, std::string_view const material_name, deren::engine::toon_slot const lane) {
-        toon_lookup_state const& state = *static_cast<toon_lookup_state const*>(owner);
+    deren::engine::texture_input toon_texture_callback(void* const parent, std::string_view const material_name, deren::engine::toon_slot const lane) {
+        toon_lookup_state const& state = *static_cast<toon_lookup_state const*>(parent);
         deren::engine::texture_input out = {};
         if (state.sidecar == nullptr || state.scenes == nullptr) {
             return out;
@@ -864,7 +864,7 @@ namespace deren::app::detail {
         bool const face_highlight = lane == deren::engine::toon_slot::metallic_gloss &&
                                     deren::gltf::toon_family_of(material_name) == deren::gltf::toon_family::face &&
                                     !material->slot("_HighlightMap").empty() &&
-                                    toon_colour_callback(owner, material_name, deren::engine::toon_colour_lane::game_toon_0).x > 0.5f;
+                                    toon_colour_callback(parent, material_name, deren::engine::toon_colour_lane::game_toon_0).x > 0.5f;
         std::string_view const slot_name = face_highlight ? "_HighlightMap" : names.slot;
         // white fallback - i.e. "do not read" (see material_record::toon_indices). A map that exists while its
         // flag is off must NOT be read: that is the first rule the sidecar module exists to keep. Asked BY NAME
@@ -939,7 +939,7 @@ namespace deren::app::detail {
         // Captured GameToon reads this map's RGB tint, including its 2D hair-highlight palette.
         // Keep the legacy threshold bake for materials outside that explicit profile.
         if (lane == deren::engine::toon_slot::specular_ramp && model_tex != nullptr &&
-            toon_colour_callback(owner, material_name, deren::engine::toon_colour_lane::game_toon_0).x > 0.5f) {
+            toon_colour_callback(parent, material_name, deren::engine::toon_colour_lane::game_toon_0).x > 0.5f) {
             out.data = std::span<uint8_t const>(model_tex->data.data(), model_tex->data.size());
             out.width = model_tex->width;
             out.height = model_tex->height;
@@ -1121,9 +1121,9 @@ namespace deren::app::detail {
         return out;
     }
 
-    glm::vec4 toon_colour_callback(void* const owner, std::string_view const material_name, deren::engine::toon_colour_lane const lane) {
+    glm::vec4 toon_colour_callback(void* const parent, std::string_view const material_name, deren::engine::toon_colour_lane const lane) {
         std::size_t const lane_index = static_cast<std::size_t>(lane);
-        toon_lookup_state const& state = *static_cast<toon_lookup_state const*>(owner);
+        toon_lookup_state const& state = *static_cast<toon_lookup_state const*>(parent);
         // ---- THE SPECULAR STRENGTH IS READ BEFORE THE SIDECAR IS EVEN LOOKED FOR, AND THAT ORDER IS THE RULE ----
         //
         // Its value is the ASSET'S (`extras_float_of`), the sidecar is only the fallback, and the FAMILY TABLE in
@@ -1271,8 +1271,8 @@ namespace deren::app::detail {
         return parsed;
     }
 
-    float toon_scalar_callback(void* const owner, std::string_view const material_name, std::string_view const row, float const fallback) {
-        toon_lookup_state const& state = *static_cast<toon_lookup_state const*>(owner);
+    float toon_scalar_callback(void* const parent, std::string_view const material_name, std::string_view const row, float const fallback) {
+        toon_lookup_state const& state = *static_cast<toon_lookup_state const*>(parent);
         if (state.sidecar == nullptr) {
             return fallback;
         }

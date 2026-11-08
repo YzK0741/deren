@@ -37,13 +37,15 @@ import deren.engine.pass.hzb_cull;
 
 namespace deren::engine {
     std::expected<runtime::radiance_image, deren::utility::vessel::string> runtime::acquire_radiance_image() {
-        if (!radiance_ready || !radiance_readback)
+        if (!radiance_ready || !radiance_readback) {
             return std::unexpected(deren::utility::vessel::string("radiance capture: no submitted image"));
+        }
         this->rhi_face().wait_idle();
         auto const bytes = radiance_readback->mapped();
         std::uint64_t count = std::uint64_t(radiance_extent.width) * radiance_extent.height * 4;
-        if (count == 0 || count > SIZE_MAX / sizeof(float) || bytes.size() < count * 2)
+        if (count == 0 || count > SIZE_MAX / sizeof(float) || bytes.size() < count * 2) {
             return std::unexpected(deren::utility::vessel::string("radiance capture: invalid readback extent"));
+        }
         radiance_image image{.width = radiance_extent.width, .height = radiance_extent.height};
         image.rgba.resize(static_cast<std::size_t>(count));
         for (std::size_t i = 0; i < count; ++i) {
@@ -92,13 +94,15 @@ namespace deren::engine {
         if (auto const* prefix = std::getenv("DEREN_SOFTWARE_IMAGES_CAPTURE")) {
             auto const captured = this->software_probe_extent;
             std::uint64_t const required = static_cast<std::uint64_t>(captured.width) * captured.height * 4u;
-            if (!required)
+            if (!required) {
                 return std::unexpected(deren::utility::vessel::string("software image capture: no completed capture"));
+            }
             // THE ORACLE GATE (closeout hardening): a capture whose independent CPU reference did not rasterize publishes
             // NO GPU images. Without this a failed oracle left a GPU-only dump that a later comparison could accept by
             // accident, which is exactly the evidence-integrity failure the closeout checkpoint recorded.
-            if (!this->software_route_probe_ready && !this->software_capture_oracle_ok)
+            if (!this->software_route_probe_ready && !this->software_capture_oracle_ok) {
                 return std::unexpected(deren::utility::vessel::string("software image capture: CPU oracle failed; GPU images not published"));
+            }
             if (this->software_route_probe_ready) {
                 namespace software = deren::engine::visibility::software;
                 auto fail = [] { return std::unexpected(deren::utility::vessel::string("software GPU capture: invalid partition or reference")); };
@@ -111,21 +115,25 @@ namespace deren::engine {
                 auto const grid = software::make_tile_grid(captured.width, captured.height);
                 std::size_t const entry_offset = 6u + grid.tile_count() * 3u + 1u;
                 if (work_bytes.size() < (entry_offset + software::software_entry_budget * 2u) * 4u ||
-                    result_bytes.size() < pass::hzb_results_words_per_lane * 4ull || survivor_bytes.size() < meshlet_capacity * sizeof(meshlet))
+                    result_bytes.size() < pass::hzb_results_words_per_lane * 4ull || survivor_bytes.size() < meshlet_capacity * sizeof(meshlet)) {
                     return fail();
-                if (work[2] > this->software_route_probe_budget || work[2] > software::software_entry_budget)
+                }
+                if (work[2] > this->software_route_probe_budget || work[2] > software::software_entry_budget) {
                     return fail();
+                }
                 deren::utility::vessel::vector<software::tile_entry> entries;
-                for (std::uint32_t i = 0; i < work[2]; ++i)
+                for (std::uint32_t i = 0; i < work[2]; ++i) {
                     entries.push_back({work[entry_offset + i * 2u], work[entry_offset + i * 2u + 1u]});
+                }
                 deren::utility::vessel::vector<software::gpu_partition_item> partition;
                 deren::utility::vessel::vector<software::reference_item> references;
                 for (auto const& item : this->software_route_probe_items) {
                     partition.push_back({item.item, item.records, {results + pass::hzb_results_flags_offset + item.base, item.records.size()}, {survivors + item.base, item.records.size()}, results[pass::hzb_results_pass1_count_offset + item.item], results[pass::hzb_results_pass2_count_offset + item.item]});
                     references.push_back({.item_index = item.item, .model = item.model, .records = item.records, .positions = item.positions, .indices = item.indices, .double_sided = item.double_sided});
                 }
-                if (!software::validate_gpu_partition(entries, partition))
+                if (!software::validate_gpu_partition(entries, partition)) {
                     return fail();
+                }
 
                 // THE PARTITION BREAKDOWN, in the file and not only in the log: a recovery frame's evidence must say
                 // its recovery phase actually ran with nonzero counts (the closeout's "explicit nonzero recovery"
@@ -135,17 +143,20 @@ namespace deren::engine {
                 for (auto const& item : partition) {
                     hardware_primary += item.primary_count;
                     hardware_recovery += item.recovery_count;
-                    for (auto const flag : item.flags)
-                        if (flag == 3u)
+                    for (auto const flag : item.flags) {
+                        if (flag == 3u) {
                             ++recovered_visible;
+                        }
+                    }
                 }
                 std::ofstream report(std::string(prefix) + "-route.json", std::ios::out | std::ios::noreplace);
                 report << "{\"partition_valid\":true,\"slot\":" << this->software_route_probe_slot
                        << ",\"software_candidates\":" << entries.size() << ",\"budget\":" << this->software_route_probe_budget
                        << ",\"hardware_primary\":" << hardware_primary << ",\"hardware_recovery\":" << hardware_recovery
                        << ",\"recovered_visible\":" << recovered_visible << "}\n";
-                if (!report)
+                if (!report) {
                     return fail();
+                }
                 deren::utility::log("software GPU capture: partition valid, {} software candidates, slot {}", entries.size(), this->software_route_probe_slot);
                 software::camera_parameters camera{.view = this->software_route_probe_view, .proj = this->software_route_probe_proj, .width = captured.width, .height = captured.height};
                 // Independent diagnostic CSR uses the GPU's actual IDs, without reclassifying candidates.
@@ -153,11 +164,14 @@ namespace deren::engine {
                 for (auto const& entry : entries) {
                     auto const& item = *std::find_if(references.begin(), references.end(), [&](auto const& value) { return value.item_index == entry.item_index; });
                     auto const projected = software::project(item.records[entry.meshlet_id], item.model, camera, grid);
-                    if (!projected.on_screen)
+                    if (!projected.on_screen) {
                         continue;
-                    for (auto y = projected.tile_min_y; y <= projected.tile_max_y; ++y)
-                        for (auto x = projected.tile_min_x; x <= projected.tile_max_x; ++x)
+                    }
+                    for (auto y = projected.tile_min_y; y <= projected.tile_max_y; ++y) {
+                        for (auto x = projected.tile_min_x; x <= projected.tile_max_x; ++x) {
                             bins[std::size_t(y) * grid.tiles_x + x].push_back(entry);
+                        }
+                    }
                 }
                 software::software_tile_lists lists;
                 lists.grid = grid;
@@ -173,29 +187,34 @@ namespace deren::engine {
                 // THE CPU REFERENCE IS THE IMAGE ORACLE, AND IT IS PUBLISHED (route.json, above) ONLY WHEN IT MATCHED;
                 // a scene whose retained geometry is incomplete fails HERE, after the partition report exists but
                 // BEFORE any image dump or manifest - the closeout's "CPU oracle failure must gate GPU-only dumps".
-                if (!reference)
+                if (!reference) {
                     return fail();
+                }
                 std::array<char const*, 2> names{"-cpu-depth.u32", "-cpu-id.u32"};
                 std::array<std::uint32_t const*, 2> data{reference->depth_bits.data(), reference->id.data()};
                 for (std::size_t i = 0; i < names.size(); ++i) {
                     std::ofstream output(std::string(prefix) + names[i], std::ios::binary | std::ios::out | std::ios::noreplace);
                     output.write(reinterpret_cast<char const*>(data[i]), static_cast<std::streamsize>(required));
-                    if (!output)
+                    if (!output) {
                         return fail();
+                    }
                 }
             }
             std::array<char const*, 2> const suffixes{"-depth.u32", "-id.u32"};
             for (std::size_t i = 0; i < suffixes.size(); ++i) {
                 auto* buffer = this->software_probe_readbacks[i].get();
-                if (!buffer)
+                if (!buffer) {
                     return std::unexpected(deren::utility::vessel::string("software image capture: missing buffer"));
+                }
                 auto const bytes = buffer->mapped();
-                if (bytes.size() < required)
+                if (bytes.size() < required) {
                     return std::unexpected(deren::utility::vessel::string("software image capture: short buffer"));
+                }
                 std::ofstream output(std::string(prefix) + suffixes[i], std::ios::binary | std::ios::out | std::ios::noreplace);
                 output.write(reinterpret_cast<char const*>(bytes.data()), static_cast<std::streamsize>(required));
-                if (!output)
+                if (!output) {
                     return std::unexpected(deren::utility::vessel::string("software image capture: file write failed"));
+                }
             }
             // ---- THE CAPTURE MANIFEST, WRITTEN LAST (closeout hardening) ----
             //
@@ -211,10 +230,12 @@ namespace deren::engine {
                     return error ? 0u : static_cast<std::uint64_t>(size);
                 };
                 std::vector<std::pair<std::string, std::uint64_t>> files;
-                for (char const* suffix : {"-depth.u32", "-id.u32", "-cpu-depth.u32", "-cpu-id.u32"})
+                for (char const* suffix : {"-depth.u32", "-id.u32", "-cpu-depth.u32", "-cpu-id.u32"}) {
                     files.emplace_back(suffix, file_bytes(prefix_text + suffix));
-                if (this->software_route_probe_ready)
+                }
+                if (this->software_route_probe_ready) {
                     files.emplace_back("-route.json", file_bytes(prefix_text + "-route.json"));
+                }
                 for (auto const& [suffix, bytes] : files) {
                     if (bytes == 0u) {
                         std::string const message = "software image capture: incomplete capture (" + suffix + " missing)";
@@ -226,14 +247,16 @@ namespace deren::engine {
                          << ",\"files\":[";
                 bool first = true;
                 for (auto const& [suffix, bytes] : files) {
-                    if (!first)
+                    if (!first) {
                         manifest << ',';
+                    }
                     first = false;
                     manifest << "{\"suffix\":\"" << suffix << "\",\"bytes\":" << bytes << '}';
                 }
                 manifest << "]}\n";
-                if (!manifest)
+                if (!manifest) {
                     return std::unexpected(deren::utility::vessel::string("software image capture: manifest write failed"));
+                }
             }
         }
         if (auto const* path = std::getenv("DEREN_GAUSSIAN_HDR_CAPTURE"); path && this->gaussian_hdr_readback) {

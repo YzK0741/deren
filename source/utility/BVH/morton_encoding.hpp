@@ -1,8 +1,8 @@
 #pragma once
 
 // Private to BVH and its encoder test. No Boost type is exported by deren.utility.
-#include <boost/int128/int128.hpp>
 #include <array>
+#include <boost/int128/int128.hpp>
 #include <cstdint>
 
 namespace deren::utility::bvh_detail {
@@ -28,11 +28,11 @@ namespace deren::utility::bvh_detail {
             value = (value | (value << 2)) & spread_mask<1>();
             return value;
         }
-    }
+    } // namespace morton_detail
 
     // Preserve all 32 bits per axis and the existing little-endian 96-bit byte representation.
     constexpr std::array<std::uint8_t, 12> encode_morton_bytes(std::uint32_t const x, std::uint32_t const y,
-                                                            std::uint32_t const z) noexcept {
+                                                               std::uint32_t const z) noexcept {
         auto const value = morton_detail::spread(x) | (morton_detail::spread(y) << 1) | (morton_detail::spread(z) << 2);
         std::array<std::uint8_t, 12> bytes{};
         for (unsigned i = 0; i < bytes.size(); ++i) {
@@ -40,4 +40,4 @@ namespace deren::utility::bvh_detail {
         }
         return bytes;
     }
-}
+} // namespace deren::utility::bvh_detail

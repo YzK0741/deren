@@ -13,8 +13,9 @@
 extern "C" FAULT_NOINLINE void trace_fault() {
 #if defined(_WIN32)
     auto* page = static_cast<unsigned char volatile*>(VirtualAlloc(nullptr, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_NOACCESS));
-    if (!page)
+    if (!page) {
         std::abort();
+    }
     *page = 42;
 #else
     std::abort();
@@ -23,8 +24,9 @@ extern "C" FAULT_NOINLINE void trace_fault() {
 static FAULT_NOINLINE void exhaust_stack(unsigned volatile* condition) {
     unsigned char volatile pad[4096];
     pad[0] = static_cast<unsigned char>(*condition);
-    if (*condition)
+    if (*condition) {
         exhaust_stack(condition);
+    }
     pad[4095] = pad[0];
 }
 extern "C" void trace_stack_overflow() {

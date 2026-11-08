@@ -30,7 +30,7 @@ export import deren.utility.shared;
 import deren.promise.rhi;
 
 import deren.engine.pass;
-import deren.engine.pipelines; // vk_pipeline: the RAII owner of the pipeline this job builds
+import deren.engine.pipelines; // vk_pipeline: the RAII parent of the pipeline this job builds
 
 export namespace deren::engine::pass {
 
@@ -93,19 +93,19 @@ export namespace deren::engine::pass {
          *        it orders every shader write against the acceleration-structure build's reads and has no
          *        resource operand at all.
          * @param requests the frame's skin requests (one dispatch each)
-         * @param push_owner the renderer, @param push_indices its endpoint: the block is sent as DATA with the two
+         * @param push_source the renderer, @param push_indices its endpoint: the block is sent as DATA with the two
          *        heap indices appended (this shader reads the per-frame joint matrices, so it declares both), which
          *        is why the frame slot is no longer a parameter here - the endpoint carries it.
          */
-        [[nodiscard]] bool record(deren::promise::rhi::command_buffer& commands, std::span<compute_skin_request const> requests, void* push_owner,
-                                  bool (*push_indices)(void* owner, deren::promise::rhi::command_buffer& commands, std::span<std::byte const> bytes, uint32_t extra_lane)) const noexcept;
+        [[nodiscard]] bool record(deren::promise::rhi::command_buffer& commands, std::span<compute_skin_request const> requests, void* push_source,
+                                  bool (*push_indices)(void* parent, deren::promise::rhi::command_buffer& commands, std::span<std::byte const> bytes, uint32_t extra_lane)) const noexcept;
         /// @brief whether the job built what it records with (the renderer's gate for skinning at all)
         [[nodiscard]] bool ready() const noexcept;
 
     private:
         static constexpr std::string_view shader_name = "compute_skin.comp.spv";
         static constexpr uint32_t group_size = 64; // `compute_skin.comp`'s local_size_x
-        void release_owned() noexcept;
+        void release_contract() noexcept;
         deren::promise::rhi::api_core* built_against = nullptr;
         // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
         // would duplicate it and hide the override.

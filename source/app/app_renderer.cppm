@@ -77,7 +77,7 @@ export namespace deren::app {
 
         /// @brief the two callbacks the runtime asks for, with this demo as their context
         [[nodiscard]] runtime::chain_wiring wiring() noexcept {
-            return runtime::chain_wiring{.owner = this,
+            return runtime::chain_wiring{.parent = this,
                                          .prepare = &app_renderer::prepare,
                                          .collect = &app_renderer::collect,
                                          .feature_active = &app_renderer::feature_active,
@@ -128,9 +128,9 @@ export namespace deren::app {
 
     private:
         /// give every pass of the named stage its frame, and run the frame's ordering rules for that stage
-        static void prepare(void* owner, runtime::frame_services const& services, std::string_view stage);
+        static void prepare(void* parent, runtime::frame_services const& services, std::string_view stage);
         /// report the stage's results back (see runtime::frame_results)
-        static void collect(void* owner, std::string_view stage, runtime::frame_results& out);
+        static void collect(void* parent, std::string_view stage, runtime::frame_results& out);
         /**
          * @brief the REFLECTION's own accumulation, recorded at the end of the temporal pass's recording
          *
@@ -149,11 +149,11 @@ export namespace deren::app {
          * facts (`runtime::feature_facts`) and this answers, which is the split every one of those answers was
          * already expressing by hand - "the knob AND the pass built its pipeline AND the frame has a surface".
          */
-        static bool feature_active(void* owner, runtime::feature_facts const& facts, std::string_view name);
+        static bool feature_active(void* parent, runtime::feature_facts const& facts, std::string_view name);
         /// ... and the different question "could this feature ever run this SESSION" (the overlay's menu + the log)
-        static bool feature_available(void* owner, runtime::feature_facts const& facts, std::string_view name);
+        static bool feature_available(void* parent, runtime::feature_facts const& facts, std::string_view name);
         /// the swapchain was rebuilt: retire the family this demo keeps outside the chain
-        static void recreated(void* owner);
+        static void recreated(void* parent);
 
         /// the typed references, looked up once by `attach` (a pass whose declaration is missing stays null)
         template <typename PassT>
@@ -167,9 +167,9 @@ export namespace deren::app {
          * runtime (`set_pass_chain`), so the runtime holds no pass of its own and this object owns them all.
          */
         pass::pass_chain chain{"render"};
-        /// named `runtime_owner` rather than `runtime`: the type of this very pointer is `deren::engine::runtime`, and
+        /// named `runtime_handle` rather than `runtime`: the type of this very pointer is `deren::engine::runtime`, and
         /// a member called `runtime` would hide that type inside this class's scope
-        runtime* runtime_owner = nullptr; // the flag halves of the knobs above are the runtime's policy
+        runtime* runtime_handle = nullptr; // the flag halves of the knobs above are the runtime's policy
         /**
          * The frame's services, as last handed to `prepare`, and the reflection's family.
          *

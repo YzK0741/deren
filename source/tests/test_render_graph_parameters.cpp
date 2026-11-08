@@ -63,8 +63,9 @@ namespace {
             CHECK(graph.export_resource(output, {1, 1}));
             auto plan = graph.compile();
             CHECK(plan && plan->execution_order.size() == 1);
-            if (!plan)
+            if (!plan) {
                 return;
+            }
             CHECK(plan->passes[0].accesses.size() == 4);
             auto const* snapshot = plan->passes[0].parameters.get<parameters>();
             CHECK(snapshot && snapshot->count == 7 && snapshot->output.has_value());
@@ -132,16 +133,19 @@ namespace {
         CHECK(graph.add_pass("mode", mode_parameters<Mode>{{{{bytes, {0, 24}}, {bytes, {8, 24}}}}, {image}}, {true}));
         auto plan = graph.compile();
         CHECK(plan && plan->execution_order.size() == 1);
-        if (!plan)
+        if (!plan) {
             return;
+        }
         CHECK(plan->passes[0].accesses.size() == 3);
-        for (auto const& access : plan->passes[0].accesses)
+        for (auto const& access : plan->passes[0].accesses) {
             CHECK(access.mode == Mode);
+        }
         CHECK(plan->resources[0].last_version == (Mode == rg::content_access::read ? 0 : 1));
         CHECK(plan->resources[0].defined == (Mode != rg::content_access::invalidate));
         CHECK(plan->reads.size() == (Mode == rg::content_access::read || Mode == rg::content_access::preserve_write || Mode == rg::content_access::read_write ? 3 : 0));
-        for (auto const& read : plan->reads)
+        for (auto const& read : plan->reads) {
             CHECK(read.producer == rg::invalid_index && read.version == 0);
+        }
     }
     struct tracked_parameters {
         rg::buffer_read read;

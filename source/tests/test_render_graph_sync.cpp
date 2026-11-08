@@ -21,8 +21,9 @@ namespace {
         CHECK(add(graph, "read-write", {{image, rg::content_access::read_write, {}, storage}}));
         auto plan = graph.compile({.synchronization = true});
         CHECK(plan && plan->synchronization_planned);
-        if (!plan)
+        if (!plan) {
             return;
+        }
         CHECK(plan->barriers.size() == 2);
         auto const& barrier = plan->barriers[1];
         CHECK(barrier.before_pass == 1 && barrier.memory_dependency && !barrier.layout_transition);
@@ -41,8 +42,9 @@ namespace {
         add(graph, "overwrite", {{image, rg::content_access::discard_write, {}, storage}});
         auto plan = graph.compile({true});
         CHECK(plan && plan->barriers.size() == 4);
-        if (!plan)
+        if (!plan) {
             return;
+        }
         CHECK(plan->barriers[2].before_pass == 2 && plan->barriers[2].memory_dependency && !plan->barriers[2].layout_transition);
         auto const& overwrite = plan->barriers.back();
         CHECK(overwrite.before_pass == 4);
@@ -242,8 +244,9 @@ namespace {
             }
             auto plan = graph.compile({true});
             CHECK(plan && plan->execution_order.size() == count);
-            if (!plan)
+            if (!plan) {
                 continue;
+            }
             std::array<unsigned, cells> writer{}, visible{}, readers{};
             readers.fill(static_cast<unsigned>(compute));
             bool correct = true;
@@ -253,21 +256,26 @@ namespace {
                     bool raw = !writer[cell] || (visible[cell] & event.stage) == event.stage;
                     bool overwrite = !writer[cell] && !readers[cell];
                     for (auto const& barrier : plan->barriers) {
-                        if (barrier.before_pass != p)
+                        if (barrier.before_pass != p) {
                             continue;
+                        }
                         auto range = std::get<rg::buffer_range>(barrier.range);
-                        if (cell < range.offset || cell >= range.offset + range.size)
+                        if (cell < range.offset || cell >= range.offset + range.size) {
                             continue;
+                        }
                         auto stages = static_cast<unsigned>(barrier.before.stages);
                         auto access = static_cast<unsigned>(barrier.before.access);
                         correct = correct && !barrier.layout_transition && barrier.memory_dependency;
-                        if ((access & 2) && (stages & writer[cell]) == writer[cell])
+                        if ((access & 2) && (stages & writer[cell]) == writer[cell]) {
                             raw = true;
-                        if ((stages & (writer[cell] | readers[cell])) == (writer[cell] | readers[cell]) && (!writer[cell] || (access & 2)) && (!readers[cell] || (access & 1)))
+                        }
+                        if ((stages & (writer[cell] | readers[cell])) == (writer[cell] | readers[cell]) && (!writer[cell] || (access & 2)) && (!readers[cell] || (access & 1))) {
                             overwrite = true;
+                        }
                     }
-                    if (event.mode != rg::content_access::discard_write)
+                    if (event.mode != rg::content_access::discard_write) {
                         correct = correct && raw;
+                    }
                     if (event.mode != rg::content_access::read) {
                         correct = correct && overwrite;
                         writer[cell] = event.stage;

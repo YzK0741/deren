@@ -39,7 +39,7 @@ namespace deren::vulkan {
                                 static_cast<std::uint32_t>(kind));
             return nullptr;
         }
-        auto* const answer = this->full_core.allocate_owned_command_buffer(VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+        auto* const answer = this->full_core.allocate_command_buffer(VK_COMMAND_BUFFER_LEVEL_PRIMARY);
         if (answer == nullptr) {
             return nullptr;
         }
@@ -63,18 +63,18 @@ namespace deren::vulkan {
         // terms (the backend owns the primary that executes the batch), so a caller's `primary` value is
         // replaced rather than refused - the TYPE already says which submission rule applies.
         (void)declared_desc; // a mergeable's descriptor carries nothing the allocation needs today
-        rhi::command_buffer* const raw = this->full_core.allocate_owned_command_buffer(VK_COMMAND_BUFFER_LEVEL_SECONDARY);
+        rhi::command_buffer* const raw = this->full_core.allocate_command_buffer(VK_COMMAND_BUFFER_LEVEL_SECONDARY);
         if (raw == nullptr) {
             return {};
         }
-        auto* const raw_mergeable = new (std::nothrow) owned_mergeable_command_buffer();
+        auto* const raw_mergeable = new (std::nothrow) core::mergeable_command_buffer();
         if (raw_mergeable == nullptr) {
-            static_cast<owned_command_buffer*>(raw)->release();
+            static_cast<core::command_buffer*>(raw)->release();
             return {};
         }
-        raw_mergeable->owner = &this->full_core;
-        raw_mergeable->set_target(*static_cast<owned_command_buffer*>(raw)->buffer);
-        raw_mergeable->inner = std::shared_ptr<owned_command_buffer>(static_cast<owned_command_buffer*>(raw), [](owned_command_buffer* const p) noexcept {
+        raw_mergeable->parent = &this->full_core;
+        raw_mergeable->set_target(*static_cast<core::command_buffer*>(raw)->buffer);
+        raw_mergeable->inner = std::shared_ptr<core::command_buffer>(static_cast<core::command_buffer*>(raw), [](core::command_buffer* const p) noexcept {
             if (p != nullptr) {
                 p->release();
             }

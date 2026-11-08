@@ -23,8 +23,9 @@ namespace {
             CHECK(b.export_resource(image, mip(1)));
             auto plan = b.compile();
             CHECK(plan && plan->execution_order == vector<uint32_t>{1});
-            if (plan)
+            if (plan) {
                 CHECK(plan->dependencies.empty());
+            }
         }
         {
             rg::builder b;
@@ -35,8 +36,9 @@ namespace {
             CHECK(!result && result.error().code == rg::error_code::undefined_read);
             if (!result) {
                 CHECK(result.error().range.has_value());
-                if (result.error().range)
+                if (result.error().range) {
                     CHECK(std::get<rg::texture_range>(*result.error().range).base_mip == 1);
+                }
             }
         }
         {
@@ -47,8 +49,9 @@ namespace {
             add(b, "read all", {{image, rg::content_access::read}}, true);
             auto plan = b.compile();
             CHECK(plan && plan->execution_order == vector<uint32_t>({0, 1, 2}));
-            if (plan)
+            if (plan) {
                 CHECK(plan->resources[0].defined && plan->resources[0].last_producer == rg::invalid_index && plan->reads.size() == 2);
+            }
         }
         {
             rg::builder b;
@@ -105,13 +108,14 @@ namespace {
                 CHECK(plan->dependencies.empty());
                 CHECK(std::all_of(plan->reads.begin(), plan->reads.end(), [](auto const& read) { return read.producer == rg::invalid_index && read.version == 0; }));
                 uint32_t written = 0;
-                for (auto const& state : plan->resources[0].final_ranges)
+                for (auto const& state : plan->resources[0].final_ranges) {
                     if (state.producer == 0) {
                         auto range = std::get<rg::texture_range>(state.range);
                         auto mask = static_cast<uint32_t>(range.aspects);
                         auto count = static_cast<uint32_t>((mask & 2U) != 0) + static_cast<uint32_t>((mask & 4U) != 0);
                         written += range.mip_count * range.layer_count * count;
                     }
+                }
                 CHECK(written == 11);
             }
         }
@@ -125,11 +129,12 @@ namespace {
             add(b, "read right", {{r, rg::content_access::read, rg::buffer_range{8, 8}}}, true);
             auto plan = b.compile();
             CHECK(plan && plan->execution_order == vector<uint32_t>({1, 2}));
-            if (plan)
+            if (plan) {
                 for (auto const& edge : plan->dependencies) {
                     CHECK(edge.from != 0);
                     CHECK(edge.range && std::get<rg::buffer_range>(*edge.range) == rg::buffer_range(8, 8));
                 }
+            }
         }
         {
             rg::builder b;
@@ -163,9 +168,11 @@ namespace {
             CHECK(add(b, "read modify", {{r, rg::content_access::read_write, rg::buffer_range{0, 12}}}, true));
             auto plan = b.compile();
             CHECK(plan && plan->execution_order == vector<uint32_t>({0, 1}));
-            if (plan)
-                for (auto const& edge : plan->dependencies)
+            if (plan) {
+                for (auto const& edge : plan->dependencies) {
                     CHECK(edge.from != edge.to);
+                }
+            }
         }
         {
             rg::builder b;
@@ -214,8 +221,9 @@ namespace {
         CHECK(good && good->index() == 0);
         auto plan = b.compile();
         CHECK(plan && plan->passes[0].accesses.size() == 1);
-        if (plan)
+        if (plan) {
             CHECK(std::get<rg::buffer_range>(plan->passes[0].accesses[0].range) == rg::buffer_range(8, 8));
+        }
         {
             rg::builder huge;
             auto r = *huge.import_buffer({1, 1}, rg::initial_contents::undefined, "huge", {std::numeric_limits<uint64_t>::max()});
@@ -252,11 +260,14 @@ namespace {
             auto each = [&](rg::texture_range range, auto visit) {
                 for (uint32_t a = 0; a < aspects; ++a) {
                     auto flag = a == 0 ? rg::texture_aspect::depth : rg::texture_aspect::stencil;
-                    if (!(static_cast<uint32_t>(range.aspects) & static_cast<uint32_t>(flag)))
+                    if (!(static_cast<uint32_t>(range.aspects) & static_cast<uint32_t>(flag))) {
                         continue;
-                    for (uint32_t mip = range.base_mip; mip < range.base_mip + range.mip_count; ++mip)
-                        for (uint32_t layer = range.base_layer; layer < range.base_layer + range.layer_count; ++layer)
+                    }
+                    for (uint32_t mip = range.base_mip; mip < range.base_mip + range.mip_count; ++mip) {
+                        for (uint32_t layer = range.base_layer; layer < range.base_layer + range.layer_count; ++layer) {
                             visit((a * mips + mip) * layers + layer);
+                        }
+                    }
                 }
             };
             auto make_range = [&] {
@@ -274,22 +285,26 @@ namespace {
             auto output = make_range();
             bool valid = true;
             std::array<bool, writes> needed{};
-            each(output, [&](uint32_t cell) {valid=valid&&defined[cell];if(producers[cell]!=rg::invalid_index) needed[producers[cell]]=true; });
+            each(output, [&](uint32_t cell) {valid=valid&&defined[cell];if(producers[cell]!=rg::invalid_index){ needed[producers[cell]]=true;
+} });
             b.export_resource(image, output);
             auto plan = b.compile();
             CHECK(static_cast<bool>(plan) == valid);
-            if (plan)
+            if (plan) {
                 ++accepted;
-            else
+            } else {
                 ++rejected;
+            }
             if (!plan) {
                 CHECK(plan.error().code == rg::error_code::undefined_export);
                 continue;
             }
             vector<uint32_t> order;
-            for (uint32_t p = 0; p < writes; ++p)
-                if (needed[p])
+            for (uint32_t p = 0; p < writes; ++p) {
+                if (needed[p]) {
                     order.push_back(p);
+                }
+            }
             CHECK(plan->execution_order == order);
             std::array<uint32_t, cells> covered{};
             bool correct = true;

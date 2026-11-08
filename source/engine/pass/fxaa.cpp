@@ -16,7 +16,7 @@ import deren.utility.shared;
 // The record series (abi 20): the two barriers, the rendering scope, the cull mode and the draw now
 // go through the contract, so this file names no `vkCmd*` at all (plan §1 step 4, one pass per commit).
 import deren.promise.rhi;
-import deren.engine.pipelines; // build_fxaa_owned: the pass's own pipeline, built from its two shaders and the surface's format
+import deren.engine.pipelines; // build_fxaa: the pass's own pipeline, built from its two shaders and the surface's format
 import deren.utility;
 
 // The contract's spelling, local to this TU (post.cpp carries the same alias): the record series names
@@ -26,10 +26,10 @@ namespace rhi = deren::promise::rhi;
 namespace deren::engine::pass {
 
     fxaa_pass::~fxaa_pass() {
-        this->release_owned();
+        this->release_contract();
     }
 
-    void fxaa_pass::release_owned() noexcept {
+    void fxaa_pass::release_contract() noexcept {
         this->pass_pipeline.reset();
     }
 
@@ -54,23 +54,23 @@ namespace deren::engine::pass {
             return;
         }
         if (this->built_against != nullptr && this->built_against != context.face) {
-            this->release_owned();
+            this->release_contract();
         }
         this->built_against = context.face;
         if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
-        std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.owner, vertex_shader_name) : std::span<uint8_t const>{};
-        std::span<uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.owner, fragment_shader_name) : std::span<uint8_t const>{};
+        std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.parent, vertex_shader_name) : std::span<uint8_t const>{};
+        std::span<uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.parent, fragment_shader_name) : std::span<uint8_t const>{};
         if (vertex_spirv.empty() || fragment_spirv.empty()) {
-            deren::utility::log("fxaa disabled: the owner has no {} or {}", vertex_shader_name, fragment_shader_name);
+            deren::utility::log("fxaa disabled: the parent has no {} or {}", vertex_shader_name, fragment_shader_name);
             return;
         }
         // The surface's format is the pipeline's declared colour format (the filter writes the swapchain).
-        auto built = pipelines::build_fxaa_owned(*context.face, context.swap_chain_format, vertex_spirv, fragment_spirv);
+        auto built = pipelines::build_fxaa_resources(*context.face, context.swap_chain_format, vertex_spirv, fragment_spirv);
         if (!built) {
             deren::utility::log("fxaa disabled: {}", built.error());
-            this->release_owned();
+            this->release_contract();
             return;
         }
         this->pass_pipeline = std::move(built->antialias);
@@ -164,7 +164,7 @@ namespace deren::engine::pass {
             auto const overlay_begin = pass::make_overlay_begin(
                 rendering_info, io.targets[0].image_handle != nullptr ? io.targets[0].image_handle->format()
                                                                       : deren::promise::rhi::image_format::unknown);
-            this->pass_frame.after_draw.record(this->pass_frame.after_draw.owner, *io.cmd, overlay_begin.begin);
+            this->pass_frame.after_draw.record(this->pass_frame.after_draw.parent, *io.cmd, overlay_begin.begin);
         }
         io.list->end_rendering();
         if (this->pass_frame.after_draw.valid() && this->pass_frame.after_draw.finish != nullptr) {

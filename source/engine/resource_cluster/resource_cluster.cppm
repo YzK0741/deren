@@ -8,17 +8,17 @@ import deren.promise.rhi;
 export namespace deren::engine {
     namespace resource_cluster_detail {
         template <typename T>
-        struct owner {
+        struct parent {
             deren::promise::rhi::shared_object<deren::promise::rhi::api_core> device;
             std::shared_ptr<void const> dependency;
             deren::promise::rhi::unique_object<T> object; // Release before dependency and device.
             deren::promise::rhi::shared_object<T> shared; // The shared handle this lease aliases.
-            owner(deren::promise::rhi::shared_object<deren::promise::rhi::api_core> core, T* resource, std::shared_ptr<void const> parent)
+            parent(deren::promise::rhi::shared_object<deren::promise::rhi::api_core> core, T* resource, std::shared_ptr<void const> parent)
                 : device(std::move(core))
                 , dependency(std::move(parent))
                 , object(resource) {
             }
-            owner(deren::promise::rhi::shared_object<deren::promise::rhi::api_core> core, deren::promise::rhi::shared_object<T> handle)
+            parent(deren::promise::rhi::shared_object<deren::promise::rhi::api_core> core, deren::promise::rhi::shared_object<T> handle)
                 : device(std::move(core))
                 , shared(std::move(handle)) {
             }
@@ -31,10 +31,10 @@ export namespace deren::engine {
     template <typename T>
     class resource_lease {
         friend class resource_cluster;
-        std::shared_ptr<resource_cluster_detail::owner<T>> value;
+        std::shared_ptr<resource_cluster_detail::parent<T>> value;
         T* resource = nullptr;
-        explicit resource_lease(std::shared_ptr<resource_cluster_detail::owner<T>> owner) noexcept
-            : value(std::move(owner)) {
+        explicit resource_lease(std::shared_ptr<resource_cluster_detail::parent<T>> parent) noexcept
+            : value(std::move(parent)) {
             resource = value ? value->object.get() : nullptr;
         }
 
@@ -46,14 +46,14 @@ export namespace deren::engine {
         /// Retain an existing shared owner (including an aliasing generation owner).
         /// The caller supplies the owning core; consumers still validate resource provenance.
         [[nodiscard]] static resource_lease from_shared(
-            deren::promise::rhi::shared_object<deren::promise::rhi::api_core> core, deren::promise::rhi::shared_object<T> owned) {
-            if (!core || !owned || !owned.owns_lifetime()) {
+            deren::promise::rhi::shared_object<deren::promise::rhi::api_core> core, deren::promise::rhi::shared_object<T> resource) {
+            if (!core || !resource || !resource.retains_lifetime()) {
                 return {};
             }
             resource_lease result;
-            result.resource = owned.get();
-            result.value = std::allocate_shared<resource_cluster_detail::owner<T>>(
-                deren::utility::memory::allocator<resource_cluster_detail::owner<T>>{}, std::move(core), std::move(owned));
+            result.resource = resource.get();
+            result.value = std::allocate_shared<resource_cluster_detail::parent<T>>(
+                deren::utility::memory::allocator<resource_cluster_detail::parent<T>>{}, std::move(core), std::move(resource));
             return result;
         }
         [[nodiscard]] deren::promise::rhi::api_core* device() const noexcept {
@@ -82,10 +82,10 @@ export namespace deren::engine {
             if (!raw) {
                 return std::unexpected(deren::promise::rhi::error::operation_failed);
             }
-            auto owned = std::allocate_shared<resource_cluster_detail::owner<T>>(
-                deren::utility::memory::allocator<resource_cluster_detail::owner<T>>{}, core, raw, std::move(parent));
-            members.push_back(owned);
-            return resource_lease<T>{std::move(owned)};
+            auto resource = std::allocate_shared<resource_cluster_detail::parent<T>>(
+                deren::utility::memory::allocator<resource_cluster_detail::parent<T>>{}, core, raw, std::move(parent));
+            members.push_back(resource);
+            return resource_lease<T>{std::move(resource)};
         }
 
     public:

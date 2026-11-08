@@ -361,14 +361,14 @@ namespace {
             host_visible.flags = rhi::to_bits(rhi::buffer_flag::device_address);
             host_visible.initial_bytes = std::span<std::byte const>(initial_bytes.data(), initial_bytes.size());
 
-            rhi::unique_object<rhi::buffer> owned{core->resources->create_buffer(host_visible)};
-            CHECK(static_cast<bool>(owned));
-            if (owned) {
-                CHECK(owned->size() == 64u);
+            rhi::unique_object<rhi::buffer> buffer{core->resources->create_buffer(host_visible)};
+            CHECK(static_cast<bool>(buffer));
+            if (buffer) {
+                CHECK(buffer->size() == 64u);
                 // A HOST-VISIBLE buffer answers with the bytes the caller may write; an EMPTY span is the
                 // contract's spelling of "this one is not host-visible" (see the type's note).
-                CHECK(!owned->mapped().empty());
-                CHECK(owned->mapped().size() == 64u);
+                CHECK(!buffer->mapped().empty());
+                CHECK(buffer->mapped().size() == 64u);
             }
 
             mark("create_buffer: a GPU-ONLY buffer, allocate-only, must not be host-visible");
@@ -398,11 +398,11 @@ namespace {
             if (address_extension != nullptr) {
                 CHECK(address_extension->kind() == rhi::extension_kind::device_address);
                 auto* const addresses = static_cast<rhi::device_address*>(address_extension);
-                if (owned) {
+                if (buffer) {
                     // the addressable one: a real address, and the offset is carried through
-                    std::uint64_t const base = addresses->buffer_address(*owned, 0u);
+                    std::uint64_t const base = addresses->buffer_address(*buffer, 0u);
                     CHECK(base != 0u);
-                    CHECK(addresses->buffer_address(*owned, 16u) == base + 16u);
+                    CHECK(addresses->buffer_address(*buffer, 16u) == base + 16u);
                 }
                 if (device_local) {
                     // the one that asked for no address: 0, not a guess
@@ -604,7 +604,7 @@ namespace {
             // to end: two buffers are created (each with its own command pool), both are recorded, the
             // primary executes the secondary and submits without a frame. Presentation is covered
             // by the engine's frame path and the render gate.
-            mark("create_command_buffer: an owned primary, recorded and merged with a mergeable batch");
+            mark("create_command_buffer: an buffer primary, recorded and merged with a mergeable batch");
             rhi::unique_object<rhi::command_buffer> primary{core->commands->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::primary})};
             auto secondary = core->commands->make_mergeable_command_buffer({});
             CHECK(static_cast<bool>(primary));
@@ -631,10 +631,10 @@ namespace {
                           "the frame-scoped mark verb refuses the same way");
                 // THE NATIVE HANDLE: the backend main context resolves a buffer the CALLER owns, outside
                 // any frame - which is the read-back's case (its read runs after the frame has landed).
-                CHECK_MSG(deren::vulkan::is_command_buffer(*primary), "an owned command buffer's concrete tag is shared");
+                CHECK_MSG(deren::vulkan::is_command_buffer(*primary), "an buffer command buffer's concrete tag is shared");
                 if (deren::vulkan::is_command_buffer(*primary)) {
                     CHECK_MSG(static_cast<deren::vulkan::command_buffer const&>(*primary).get() != VK_NULL_HANDLE,
-                              "an owned buffer's native handle answers through the Vulkan class outside a frame");
+                              "an buffer buffer's native handle answers through the Vulkan class outside a frame");
                 }
 
                 // THE SEGMENT, the executable path: recorded with no usage flags (so executing it
@@ -650,13 +650,13 @@ namespace {
                 }
                 if (sync) {
                     CHECK(sync->record(recorder, {}, {}) == rhi::error::ok);
-                    if (owned) {
+                    if (buffer) {
                         namespace sync_types = rhi::synchronization;
                         rhi::scoped_buffer_barrier const transition{
-                            .resource = owned.get(),
+                            .resource = buffer.get(),
                             .transition = {.before = {sync_types::stage::compute_shader, sync_types::access::write},
                                            .after = {sync_types::stage::compute_shader, sync_types::access::read},
-                                           .size = owned->size()}};
+                                           .size = buffer->size()}};
                         CHECK(sync->record(recorder, {}, std::span(&transition, 1)) == rhi::error::ok);
                     }
                 }
@@ -716,7 +716,7 @@ namespace {
                           "an ended mergeable segment is merged by the recording primary");
                 CHECK(primary->end_recording() == rhi::error::ok);
                 CHECK_MSG(core->commands->submit(*primary) == rhi::error::ok,
-                          "a recorded owned primary submits without acquiring a frame");
+                          "a recorded buffer primary submits without acquiring a frame");
                 core->wait_idle(); // keep both buffers alive until execution completes
             }
 

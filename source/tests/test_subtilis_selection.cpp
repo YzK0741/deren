@@ -106,17 +106,17 @@ int main() {
     ++leaf.meshlets.back().first_index;
     require_mismatch();
     --leaf.meshlets.back().first_index;
-    auto owner = leaf.vertex_buffer.lease();
+    auto parent = leaf.vertex_buffer.lease();
     auto* buffer = leaf.vertex_buffer.get();
     leaf.vertex_buffer.bind(buffer, std::shared_ptr<void const>{uploaded->get(), [](void const*) {}});
     require_mismatch();
-    leaf.vertex_buffer.bind(buffer, owner);
+    leaf.vertex_buffer.bind(buffer, parent);
     auto other = sub::upload_geometry(device, cpu);
     CHECK(other);
     if (other) {
         leaf.vertex_buffer.bind((*other)->vertices(), *other);
         require_mismatch();
-        leaf.vertex_buffer.bind(buffer, owner);
+        leaf.vertex_buffer.bind(buffer, parent);
     }
     CHECK(sub::matches_generation(leaf));
     for (unsigned mode = 0; mode < 5; ++mode) {

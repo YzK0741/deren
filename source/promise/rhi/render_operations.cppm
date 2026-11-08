@@ -182,8 +182,9 @@ export namespace deren::promise::rhi::recording {
         void simplify_into(deren::utility::vessel::vector<render_operation const*>& result, bool final, bool optimize = true) const {
             result.clear();
             result.reserve(storage.size());
-            for (auto const& value : storage)
+            for (auto const& value : storage) {
                 result.push_back(&base(value));
+            }
             simplify_selection(result, final, optimize);
         }
         [[nodiscard]] deren::utility::vessel::vector<render_operation const*> simplify(bool final, bool optimize = true) const {
@@ -193,12 +194,15 @@ export namespace deren::promise::rhi::recording {
         }
     };
     inline void simplify_selection(deren::utility::vessel::vector<render_operation const*>& result, bool final, bool optimize) {
-        if (!optimize)
+        if (!optimize) {
             return;
+        }
         // Coarse equality filtering never crosses another kind or a protected operation.
-        for (std::size_t i = 1; i < result.size(); ++i)
-            if (!result[i]->is_unique() && result[i - 1] && *result[i] == *result[i - 1])
+        for (std::size_t i = 1; i < result.size(); ++i) {
+            if (!result[i]->is_unique() && result[i - 1] && *result[i] == *result[i - 1]) {
                 result[i - 1] = nullptr;
+            }
+        }
         std::uint64_t live = final ? 0 : state_mask;
         // Covered push words since the latest push consumer. Preserve partial overlaps.
         // Common Vulkan push ranges fit inline. Preserve arbitrary offsets via a sparse fallback.
@@ -206,8 +210,9 @@ export namespace deren::promise::rhi::recording {
         deren::utility::vessel::vector<std::uint32_t> overflow;
         for (std::size_t i = result.size(); i > 0; --i) {
             auto* op = result[i - 1];
-            if (!op)
+            if (!op) {
                 continue;
+            }
             if (op->is_unique()) {
                 live |= op->reads();
                 if (op->reads() & bit(operation_kind::push)) {
@@ -233,8 +238,9 @@ export namespace deren::promise::rhi::recording {
                         covered[word / 64] |= mask;
                     } else {
                         seen = std::find(overflow.begin(), overflow.end(), word) != overflow.end();
-                        if (!seen)
+                        if (!seen) {
                             overflow.push_back(word);
+                        }
                     }
                     if (!seen) {
                         overwritten = false;
@@ -244,8 +250,9 @@ export namespace deren::promise::rhi::recording {
                     result[i - 1] = nullptr;
                     continue;
                 }
-            } else
+            } else {
                 live &= ~key;
+            }
             live |= op->reads();
         }
         result.erase(std::remove(result.begin(), result.end(), nullptr), result.end());

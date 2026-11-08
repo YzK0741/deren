@@ -38,13 +38,13 @@ THE THIRD INSTRUMENT: THE IMPORT GRAPH
     A symbol count can reach zero while the engine keeps importing the backend's MODULES - and
     a module import is what actually forbids a SHARED backend, because the BMI would have to
     come from the DLL. `--require-zero` therefore also scans the engine/application sources and
-    fails on every import of a module `deren_vulkan` owns. Ownership comes from CMake's own
+    fails on every import of a module `deren_vulkan` provides. Provenance comes from CMake's own
     `target_sources(deren_vulkan ...)` list, NOT from a name prefix: `source/engine/filters/
     filters.cppm` declares `deren.engine.filters` but belongs to the ENGINE, while
     `source/backends/vulkan/constant_init/constant_init.cppm` belongs to the BACKEND. Test sources are reported
     separately (they link the backend deliberately) and are not part of the gate.
 
-THE SECOND NUMBER: OWNING STL ACROSS THE BOUNDARY
+THE SECOND NUMBER: STL CONTAINERS ACROSS THE BOUNDARY
     A symbol whose signature carries `std::vector` / `std::string` / an allocator is an
     allocation that one image makes and the other frees (today:
     `init_utils::create_host_buffers(..., std::vector<vk_buffer>&, ...)`). The contract
@@ -54,7 +54,7 @@ THE SECOND NUMBER: OWNING STL ACROSS THE BOUNDARY
 
 HISTORICAL MEASUREMENT, build-release-clang64 (Release clang64):
     78 symbols / 227 reference sites / 31 archive members; 0 in the reverse direction;
-    1 of the 78 carries owning STL.
+    1 of the 78 carries an STL container.
 
 BASELINES ARE PER TOOLCHAIN (the symbol sets are not comparable across them):
     backend_boundary_baseline.mingw.json   <- the measured one, from the clang64 tree
@@ -143,7 +143,7 @@ AREA_PATTERNS = (
 
 # An allocation that crosses the boundary: libc++'s std::vector / std::string / allocator,
 # and their libstdc++ spellings, appear in the MANGLED name of any symbol that passes one.
-OWNING_STL_RE = re.compile(r"(6vector|12basic_string|9allocator|6string)")
+STL_CONTAINER_RE = re.compile(r"(6vector|12basic_string|9allocator|6string)")
 
 
 def category(symbol: str) -> str:
@@ -168,8 +168,8 @@ def category(symbol: str) -> str:
     return "other"
 
 
-def carries_owning_stl(symbol: str) -> bool:
-    return OWNING_STL_RE.search(symbol) is not None
+def carries_stl_container(symbol: str) -> bool:
+    return STL_CONTAINER_RE.search(symbol) is not None
 
 
 def find_tool(candidates) -> str | None:
@@ -487,12 +487,12 @@ def load_baseline(path: str) -> dict | None:
         with open(path, encoding="utf-8") as handle:
             baseline = json.load(handle)
         symbols = baseline["cross_boundary_symbols"]
-        owning = baseline["owning_stl_symbols"]
+        stl_container_symbols = baseline["stl_container_symbols"]
         if (not isinstance(symbols, list) or not all(isinstance(s, str) for s in symbols)
                 or len(set(symbols)) != len(symbols) or baseline["count"] != len(symbols)
-                or not isinstance(owning, list) or not all(isinstance(s, str) for s in owning)
-                or len(set(owning)) != len(owning) or baseline["owning_stl_count"] != len(owning)
-                or not set(owning).issubset(symbols)):
+                or not isinstance(stl_container_symbols, list) or not all(isinstance(s, str) for s in stl_container_symbols)
+                or len(set(stl_container_symbols)) != len(stl_container_symbols) or baseline["stl_container_count"] != len(stl_container_symbols)
+                or not set(stl_container_symbols).issubset(symbols)):
             raise ValueError("inconsistent symbol counts or sets")
         return baseline
     except (OSError, ValueError, KeyError, TypeError) as error:
@@ -534,7 +534,7 @@ SOURCE_SUFFIXES = (".cppm", ".cpp", ".hpp", ".h")
 def backend_modules_of(repo_root: str) -> tuple[set[str], set[str]]:
     """({modules deren_vulkan owns}, {its source files, repo-relative}).
 
-    OWNERSHIP COMES FROM THE TARGET, NOT FROM THE NAME. `source/engine/filters/filters.cppm` declares
+    PROVENANCE COMES FROM THE TARGET, NOT FROM THE NAME. `source/engine/filters/filters.cppm` declares
     `deren.engine.filters` but belongs to the ENGINE target (deren_engine), while
     `source/backends/vulkan/constant_init/constant_init.cppm` declares `deren.vulkan.constant_init` and belongs to the
     BACKEND - so a name prefix would be wrong in both directions. The list is read out of CMake's own
@@ -761,7 +761,7 @@ def main() -> int:
     usages = sum(len(undefined[s]) for s in cross)
 
     symbols = sorted(cross)
-    owning = [s for s in symbols if carries_owning_stl(s)]
+    stl_container_symbols = [s for s in symbols if carries_stl_container(s)]
     report = {
         "backend_archive": os.path.basename(backend_archive or backend_dll),
         "defined_in_backend": len(defined),
@@ -770,8 +770,8 @@ def main() -> int:
         "cross_boundary_symbols": symbols,
         "count": len(symbols),
         "usages": usages,
-        "owning_stl_symbols": owning,
-        "owning_stl_count": len(owning),
+        "stl_container_symbols": stl_container_symbols,
+        "stl_container_count": len(stl_container_symbols),
         "consumers": consumers,
         "reverse_boundary_symbols": reverse,
         "stale_consumers": stale,
@@ -914,7 +914,7 @@ def main() -> int:
               f"{len(defined)} defined symbols")
         print(f"engine   {os.path.basename(kit_archive):<24} "
               f"{len(kit_members)} members; {len(cross)} unique backend symbols across {len(consumers)} consumer(s)")
-        print(f"usage    {usages} reference sites; {len(owning)} symbol(s) carry owning STL")
+        print(f"usage    {usages} reference sites; {len(stl_container_symbols)} symbol(s) carry an STL container")
         # (b) the C++ runtime premise: printed every run, because it is what makes the utility
         # split's relaxed export rules sound (see the helper's note).
         cpp_runtime = report["cpp_runtime"]
@@ -1014,7 +1014,7 @@ def main() -> int:
                 proc = subprocess.run([filt, symbol], capture_output=True, text=True)
                 if proc.returncode == 0 and proc.stdout.strip():
                     shown = proc.stdout.strip()
-            marker = "  [owning STL]" if carries_owning_stl(symbol) else ""
+            marker = "  [STL container]" if carries_stl_container(symbol) else ""
             print(f"    {shown}{marker}")
             print(f"        <- {', '.join(sorted(set(cross[symbol])))}")
         print()
@@ -1035,7 +1035,7 @@ def main() -> int:
         return 0 if args.warn and not args.update and not args.require_zero else 1
 
     allowed = int(baseline.get("count", 0))
-    allowed_owning = int(baseline.get("owning_stl_count", 0))
+    allowed_stl_container_count = int(baseline.get("stl_container_count", 0))
     added = report["joiners"]
     if added:
         print(f"FAIL: {len(added)} NEW backend dependencies ({len(symbols)} symbols, baseline {allowed})")
@@ -1045,11 +1045,11 @@ def main() -> int:
             print(f"    ... and {len(added) - 20} more")
         failed = True
 
-    if len(owning) > allowed_owning:
-        print(f"FAIL: {len(owning)} symbols carry an owning STL type across the boundary, "
-              f"baseline is {allowed_owning} (plan §4.2: no STL across the boundary)")
-        for symbol in owning:
-            print(f"    OWNING  {symbol}")
+    if len(stl_container_symbols) > allowed_stl_container_count:
+        print(f"FAIL: {len(stl_container_symbols)} symbols carry an STL container type across the boundary, "
+              f"baseline is {allowed_stl_container_count} (plan §4.2: no STL across the boundary)")
+        for symbol in stl_container_symbols:
+            print(f"    CONTAINER  {symbol}")
         failed = True
 
     if failed:
@@ -1058,7 +1058,7 @@ def main() -> int:
     if args.update:
         write_json(args.baseline, report)
         print(f"check_backend_boundary: baseline ratcheted down to {len(symbols)} symbols "
-              f"({usages} sites, {len(owning)} with owning STL) -> {args.baseline}")
+              f"({usages} sites, {len(stl_container_symbols)} with an STL container) -> {args.baseline}")
         return 0
 
     if len(symbols) < allowed:
@@ -1067,7 +1067,7 @@ def main() -> int:
         return 0
 
     print(f"OK: {len(symbols)} symbols, baseline {allowed}, {usages} reference sites, "
-          f"{len(owning)} with owning STL")
+          f"{len(stl_container_symbols)} with an STL container")
     if args.require_zero:
         print(f"flip gate: every measured symbol is whitelisted ({len(whitelist_hits)} hit), the whitelist has no "
               f"stale entry, and no engine/application source imports a deren_vulkan module")

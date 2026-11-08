@@ -9,9 +9,11 @@ namespace subtilis_fixture {
     inline input cross_dag() {
         input out;
         auto vertex = [&](float x, float y) {
-            for (size_t i = 0; i < out.source.positions.size(); ++i)
-                if (out.source.positions[i] == sub::array<float, 3>{x, y, 0})
+            for (size_t i = 0; i < out.source.positions.size(); ++i) {
+                if (out.source.positions[i] == sub::array<float, 3>{x, y, 0}) {
                     return static_cast<uint32_t>(i);
+                }
+            }
             auto id = static_cast<uint32_t>(out.source.positions.size());
             out.source.positions.push_back({x, y, 0});
             out.source.normals.push_back({0, 0, 1});
@@ -19,7 +21,7 @@ namespace subtilis_fixture {
             return id;
         };
         sub::array<sub::vector<uint32_t>, 4> coarse;
-        for (unsigned y = 0; y < 2; ++y)
+        for (unsigned y = 0; y < 2; ++y) {
             for (unsigned x = 0; x < 2; ++x) {
                 auto id = y * 2 + x;
                 auto a = vertex(float(x), float(y)), b = vertex(float(x + 1), float(y)), c = vertex(float(x + 1), float(y + 1)), d = vertex(float(x), float(y + 1));
@@ -32,6 +34,7 @@ namespace subtilis_fixture {
                 out.data.clusters.push_back({first, 18, sub::none, y, {1, 1, 0, 2}});
                 out.data.leaves.push_back(id);
             }
+        }
         for (uint32_t i = 0; i < 4; ++i) {
             auto first = static_cast<uint32_t>(out.data.indices.size());
             out.data.indices.insert(out.data.indices.end(), coarse[i].begin(), coarse[i].end());
@@ -41,8 +44,9 @@ namespace subtilis_fixture {
             sub::array<uint32_t, 6> rim{vertex(float(x), 0), vertex(float(x + 1), 0), vertex(float(x + 1), 1), vertex(float(x + 1), 2), vertex(float(x), 2), vertex(float(x), 1)};
             auto m = vertex(x + .5f, .5f);
             auto first = static_cast<uint32_t>(out.data.indices.size());
-            for (unsigned i = 0; i < 6; ++i)
+            for (unsigned i = 0; i < 6; ++i) {
                 out.data.indices.insert(out.data.indices.end(), {rim[i], rim[(i + 1) % 6], m});
+            }
             out.data.clusters.push_back({first, 18, 2 + x, sub::none, {1, 1, 0, 2}});
             out.data.roots.push_back(8 + x);
         }

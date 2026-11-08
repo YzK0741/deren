@@ -11,10 +11,12 @@ export namespace deren::engine::texture_residency {
     struct control {
         bool enabled = false, restore_pending = false;
         void set(bool next) noexcept {
-            if (!next && enabled)
+            if (!next && enabled) {
                 restore_pending = true;
-            if (next)
+            }
+            if (next) {
                 restore_pending = false;
+            }
             enabled = next;
         }
     };
@@ -30,8 +32,9 @@ export namespace deren::engine::texture_residency {
     };
     inline bool mark(feedback& result, std::uint32_t packed, std::span<visibility::draw_item const> items) noexcept {
         visibility::id value{packed};
-        if (!value.valid())
+        if (!value.valid()) {
             return true;
+        }
         if (value.item() >= items.size() || items[value.item()].material_index >= material_capacity) {
             result.invalid = 1;
             return false;
@@ -45,17 +48,21 @@ export namespace deren::engine::texture_residency {
                        invalid_texture };
     inline std::expected<utility::vessel::vector<std::uint8_t>, error> demand(
         feedback const& visible, material_textures const& edges, std::span<std::uint8_t const> pinned) {
-        if (visible.invalid)
+        if (visible.invalid) {
             return std::unexpected(error::invalid_feedback);
+        }
         utility::vessel::vector<std::uint8_t> result(pinned.begin(), pinned.end());
         for (std::uint32_t m = 0; m < material_capacity; ++m) {
-            if (!(visible.materials[m / 32] & (1u << (m % 32))))
+            if (!(visible.materials[m / 32] & (1u << (m % 32)))) {
                 continue;
-            if (m >= edges.size())
+            }
+            if (m >= edges.size()) {
                 return std::unexpected(error::invalid_feedback);
+            }
             for (auto id : edges[m]) {
-                if (id >= result.size())
+                if (id >= result.size()) {
                     return std::unexpected(error::invalid_texture);
+                }
                 result[id] = 1;
             }
         }

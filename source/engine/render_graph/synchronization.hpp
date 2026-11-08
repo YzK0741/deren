@@ -17,17 +17,21 @@ namespace deren::engine::render_graph::detail {
         return bits(stages) && !(bits(stages) & ~(7U | 256U | 512U | 1024U));
     }
     inline memory_access access_for(content_access mode) noexcept {
-        if (mode == content_access::read)
+        if (mode == content_access::read) {
             return memory_access::read;
-        if (mode == content_access::discard_write)
+        }
+        if (mode == content_access::discard_write) {
             return memory_access::write;
-        if (mode == content_access::preserve_write || mode == content_access::read_write)
+        }
+        if (mode == content_access::preserve_write || mode == content_access::read_write) {
             return memory_access::read | memory_access::write;
+        }
         return memory_access::none;
     }
     inline resource_layout layout_for(resource_kind kind, resource_usage usage) noexcept {
-        if (kind == resource_kind::buffer)
+        if (kind == resource_kind::buffer) {
             return resource_layout::general;
+        }
         switch (usage) {
         case resource_usage::sampled:
             return resource_layout::shader_read_only;
@@ -48,10 +52,12 @@ namespace deren::engine::render_graph::detail {
         }
     }
     inline bool valid_scope(resource_kind kind, resource_range const& range, content_access mode, access_scope scope) noexcept {
-        if (scope.usage == resource_usage::unspecified)
+        if (scope.usage == resource_usage::unspecified) {
             return scope.stages == pipeline_stage::none;
-        if (mode == content_access::invalidate)
+        }
+        if (mode == content_access::invalidate) {
             return false;
+        }
         auto readonly = mode == content_access::read;
         auto aspect = kind == resource_kind::texture ? bits(std::get<texture_range>(range).aspects) : 0U;
         switch (scope.usage) {
@@ -83,18 +89,24 @@ namespace deren::engine::render_graph::detail {
         }
     }
     inline bool valid_initial_state(resource_kind kind, resource_shape const& shape, initial_contents contents, resource_state state) noexcept {
-        if (bits(state.access) > 3 || (bits(state.stages) & ~2047U))
+        if (bits(state.access) > 3 || (bits(state.stages) & ~2047U)) {
             return false;
-        if (state.layout == resource_layout::undefined)
+        }
+        if (state.layout == resource_layout::undefined) {
             return contents == initial_contents::undefined && state.access == memory_access::none && state.stages == pipeline_stage::none;
-        if (state.layout == resource_layout::present && state.access == memory_access::none && state.stages == pipeline_stage::none)
+        }
+        if (state.layout == resource_layout::present && state.access == memory_access::none && state.stages == pipeline_stage::none) {
             return kind == resource_kind::texture && bits(std::get<texture_shape>(shape).aspects) == 1;
-        if (state.access == memory_access::none || state.stages == pipeline_stage::none)
+        }
+        if (state.access == memory_access::none || state.stages == pipeline_stage::none) {
             return false;
-        if (kind == resource_kind::buffer)
+        }
+        if (kind == resource_kind::buffer) {
             return state.layout == resource_layout::general && !(bits(state.stages) & ~(7U | 32U | 64U | 128U | 256U | 512U | 1024U));
-        if (bits(state.stages) & ~(63U | 256U | 512U | 1024U))
+        }
+        if (bits(state.stages) & ~(63U | 256U | 512U | 1024U)) {
             return false;
+        }
         auto aspects = bits(std::get<texture_shape>(shape).aspects);
         switch (state.layout) {
         // Layout is current; masks conservatively include earlier outstanding accesses.
@@ -132,17 +144,21 @@ namespace deren::engine::render_graph::detail {
         };
         deren::utility::vessel::vector<uint8_t> needed(graph.resources.size(), 0);
         deren::utility::vessel::vector<uint32_t> extra_image_stages(graph.resources.size(), 0);
-        for (auto p : graph.execution_order)
+        for (auto p : graph.execution_order) {
             for (auto const& access : graph.passes[p].accesses) {
-                if (access.mode == content_access::invalidate)
+                if (access.mode == content_access::invalidate) {
                     return fail(error_code::unsupported_access, access.resource, p, access.range);
-                if (access.scope.usage == resource_usage::unspecified)
+                }
+                if (access.scope.usage == resource_usage::unspecified) {
                     return fail(error_code::missing_scope, access.resource, p, access.range);
+                }
                 needed[access.resource] = 1;
                 extra_image_stages[access.resource] |= bits(access.scope.stages) & (256U | 512U);
             }
-        for (auto const& output : graph.outputs)
+        }
+        for (auto const& output : graph.outputs) {
             needed[output.resource] = 1;
+        }
         struct state_cell {
             resource_range range;
             resource_state current;
@@ -151,15 +167,17 @@ namespace deren::engine::render_graph::detail {
         };
         deren::utility::vessel::vector<deren::utility::vessel::vector<state_cell>> states(graph.resources.size());
         for (uint32_t r = 0; r < graph.resources.size(); ++r) {
-            if (!needed[r])
+            if (!needed[r]) {
                 continue;
+            }
             auto const& resource = graph.resources[r];
-            if (!resource.initial_state)
+            if (!resource.initial_state) {
                 return fail(error_code::missing_initial_state, r);
+            }
             auto state = *resource.initial_state;
             states[r].push_back({full_range(resource.shape), state, writes(state.access) ? std::optional(state) : std::nullopt, pipeline_stage::none});
         }
-        for (auto p : graph.execution_order)
+        for (auto p : graph.execution_order) {
             for (auto const& access : graph.passes[p].accesses) {
                 auto const kind = graph.resources[access.resource].kind;
                 auto target = state_for(kind, access);
@@ -175,31 +193,37 @@ namespace deren::engine::render_graph::detail {
                     // Without a logical writer to track, expose it to the baseline image
                     // stages and this graph's optional task/mesh consumers. Cross-graph
                     // task/mesh consumers need explicit boundary coverage.
-                    if (transition && !write && !cell.writer && target.layout != resource_layout::present)
+                    if (transition && !write && !cell.writer && target.layout != resource_layout::present) {
                         destination.stages = pipeline_stage::vertex_shader | pipeline_stage::fragment_shader | pipeline_stage::compute_shader | pipeline_stage::color_output | pipeline_stage::depth_stencil | pipeline_stage::transfer | static_cast<pipeline_stage>(extra_image_stages[access.resource]);
-                    if (transition || memory)
+                    }
+                    if (transition || memory) {
                         graph.barriers.push_back({access.resource, p, cell.range, join_writer(cell.current, cell.writer), destination, transition, memory || transition});
+                    }
                     if (write) {
                         cell.current = target;
                         cell.writer = target;
                         cell.visible = pipeline_stage::none;
                     } else {
-                        if (transition)
+                        if (transition) {
                             cell.current = destination;
-                        else {
+                        } else {
                             cell.current.layout = target.layout;
                             cell.current.stages = cell.current.stages | target.stages;
                             cell.current.access = target.access;
                         }
-                        if (cell.writer)
+                        if (cell.writer) {
                             cell.visible = transition ? target.stages : cell.visible | target.stages;
+                        }
                     }
                 }
             }
+        }
         // Retain the outstanding writer scope for a subsequent graph reading in a new stage.
-        for (uint32_t r = 0; r < states.size(); ++r)
-            for (auto const& cell : states[r])
+        for (uint32_t r = 0; r < states.size(); ++r) {
+            for (auto const& cell : states[r]) {
                 graph.final_states.push_back({r, cell.range, join_writer(cell.current, cell.writer)});
+            }
+        }
         graph.synchronization_planned = true;
         return {};
     }

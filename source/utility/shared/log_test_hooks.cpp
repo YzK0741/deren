@@ -21,15 +21,18 @@ extern "C" LOG_TEST_API void utility_log_test_did_snapshot() noexcept {
 extern "C" LOG_TEST_API void utility_log_test_before_write() noexcept {
     for (;;) {
         int count = remaining.load();
-        if (count < 0)
+        if (count < 0) {
             return;
+        }
         if (count > 0) {
-            if (remaining.compare_exchange_weak(count, count - 1))
+            if (remaining.compare_exchange_weak(count, count - 1)) {
                 return;
+            }
             continue;
         }
         ++pauses;
-        while (remaining.load() == 0)
+        while (remaining.load() == 0) {
             std::this_thread::yield();
+        }
     }
 }

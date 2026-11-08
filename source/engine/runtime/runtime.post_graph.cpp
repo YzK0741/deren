@@ -192,8 +192,9 @@ namespace deren::engine {
         // verdict (set by evaluate_hzb_cull_lane below), `hzb_cull_recorded_this_frame` its recorder's answer.
         this->hzb_cull_active_frame = false;
         this->software_gpu_route_active_frame = false;
-        if (this->software_visibility)
+        if (this->software_visibility) {
             this->software_visibility->disable_gpu_route();
+        }
         this->hzb_recovery_active_frame = false;
         this->hzb_cull_recorded_this_frame = false;
         // Set once the denoiser chain is actually part of the recorded graph. The history-valid bit is advanced only
@@ -206,32 +207,40 @@ namespace deren::engine {
         bool const residency = texture_streaming.enabled && visibility_lane_frame == visibility::opaque_lane::visibility && !active_features().rt_shadow;
         std::optional<std::uint32_t> residency_resolve_index;
         if (!progressive_textures || (!texture_streaming.enabled && !texture_streaming.restore_pending)) {
-            if (auto result = publish_texture_bank(); result != rhi::error::ok)
+            if (auto result = publish_texture_bank(); result != rhi::error::ok) {
                 return result;
+            }
         }
         if (texture_streaming.enabled || texture_streaming.restore_pending) {
-            if (auto result = prepare_texture_feedback(); result != rhi::error::ok)
+            if (auto result = prepare_texture_feedback(); result != rhi::error::ok) {
                 return result;
+            }
             if (progressive_textures) {
-                if (auto result = update_progressive_textures(!residency); result != rhi::error::ok)
+                if (auto result = update_progressive_textures(!residency); result != rhi::error::ok) {
                     return result;
+                }
                 // Disabling streaming is an asynchronous restore transition. Keep polling and
                 // scheduling until every upgrade has completed (or failed with a valid fallback).
                 if (texture_streaming.restore_pending) {
                     bool pending = false;
-                    for (auto const& entry : streamed_textures)
-                        if (entry.source && !entry.failed && (!entry.high || entry.resident_mip != 0 || entry.upload.valid()))
+                    for (auto const& entry : streamed_textures) {
+                        if (entry.source && !entry.failed && (!entry.high || entry.resident_mip != 0 || entry.upload.valid())) {
                             pending = true;
+                        }
+                    }
                     texture_streaming.restore_pending = pending;
                 }
             } else if (!residency) {
                 auto* checkpoint = rhi::query_extension<rhi::frame_checkpoint>(rhi_face());
-                if (!checkpoint)
+                if (!checkpoint) {
                     return rhi::error::unsupported;
-                if (auto result = checkpoint->checkpoint_and_wait(); result != rhi::error::ok)
+                }
+                if (auto result = checkpoint->checkpoint_and_wait(); result != rhi::error::ok) {
                     return result;
-                if (auto result = update_texture_residency(true); result != rhi::error::ok)
+                }
+                if (auto result = update_texture_residency(true); result != rhi::error::ok) {
                     return result;
+                }
                 texture_streaming.restore_pending = false;
             }
         }
@@ -244,7 +253,7 @@ namespace deren::engine {
         if (!frame) {
             return rhi::error::not_ready;
         }
-        this->post_graph_output = lease::from_shared(this->core_owner, frame);
+        this->post_graph_output = lease::from_shared(this->core_lifetime, frame);
         auto frame_cluster = this->create_resource_cluster("post frame");
         auto view = frame_cluster->create_image_view(this->post_graph_output, {});
         if (!view) {
@@ -259,7 +268,7 @@ namespace deren::engine {
         }
         graph::resource_state ldr_state{};
         std::array<graph::resource_state, 4> level_states{};
-        graph::execution::builder build(this->core_owner);
+        graph::execution::builder build(this->core_lifetime);
         graph::post::inputs inputs{};
         auto output_ref = build.import_texture(this->post_graph_output, {}, "frame output");
         if (!output_ref) {
@@ -283,7 +292,7 @@ namespace deren::engine {
         }
         auto retain = [&](uint32_t family, uint32_t pending, graph::resource_state& state) -> lease {
             auto generation = this->output_resource_views[family].find(pass::output_targets_pass::ids[family]);
-            if (!generation || generation->device.get() != this->core_owner.get() || index >= generation->objects.size()) {
+            if (!generation || generation->device.get() != this->core_lifetime.get() || index >= generation->objects.size()) {
                 return {};
             }
             auto image = generation->objects[index].image.get();
@@ -298,7 +307,7 @@ namespace deren::engine {
                 }
                 this->bloom_graph_pending_generations[pending] = generation;
             }
-            return lease::from_shared(this->core_owner, rhi::shared_object<rhi::image>{std::move(generation), image});
+            return lease::from_shared(this->core_lifetime, rhi::shared_object<rhi::image>{std::move(generation), image});
         };
         auto input = retain(0, graph::invalid_index, input_state);
         if (!input || input.get() != this->hdr_images[index].get()) {
@@ -388,7 +397,7 @@ namespace deren::engine {
             inputs.ldr = *ldr_ref;
         }
         if (this->post_lut_image) {
-            auto lut = lease::from_shared(this->core_owner, this->post_lut_image);
+            auto lut = lease::from_shared(this->core_lifetime, this->post_lut_image);
             auto lut_ref = build.import_texture(lut, {graph::initial_contents::defined, {graph::resource_layout::shader_read_only, graph::pipeline_stage::fragment_shader, graph::memory_access::read}}, "post LUT");
             if (!lut_ref) {
                 return post_build_error(lut_ref.error());
@@ -478,7 +487,7 @@ namespace deren::engine {
                     if (!this->ibl_images[i]) {
                         continue;
                     }
-                    auto ibl_lease = lease::from_shared(this->core_owner, this->ibl_images[i]);
+                    auto ibl_lease = lease::from_shared(this->core_lifetime, this->ibl_images[i]);
                     auto ref = build.import_texture(ibl_lease,
                                                     {graph::initial_contents::defined,
                                                      {graph::resource_layout::shader_read_only, graph::pipeline_stage::fragment_shader, graph::memory_access::read}},
@@ -506,8 +515,8 @@ namespace deren::engine {
             if (this->graph_cluster_frame) {
                 auto counts_generation = this->cluster_resource_view.find(render_resource::resource_id::cluster_counts);
                 auto indices_generation = this->cluster_resource_view.find(render_resource::resource_id::cluster_indices);
-                if (!counts_generation || !indices_generation || counts_generation->device.get() != this->core_owner.get() ||
-                    indices_generation->device.get() != this->core_owner.get() || slot >= counts_generation->objects.size() ||
+                if (!counts_generation || !indices_generation || counts_generation->device.get() != this->core_lifetime.get() ||
+                    indices_generation->device.get() != this->core_lifetime.get() || slot >= counts_generation->objects.size() ||
                     slot >= indices_generation->objects.size()) {
                     return rhi::error::not_ready;
                 }
@@ -516,7 +525,7 @@ namespace deren::engine {
                 if (!counts || !indices) {
                     return rhi::error::not_ready;
                 }
-                auto counts_lease = resource_lease<rhi::buffer>::from_shared(this->core_owner, rhi::shared_object<rhi::buffer>{std::move(counts_generation), counts});
+                auto counts_lease = resource_lease<rhi::buffer>::from_shared(this->core_lifetime, rhi::shared_object<rhi::buffer>{std::move(counts_generation), counts});
                 auto counts_import =
                     build.import_buffer(counts_lease,
                                         {graph::initial_contents::defined,
@@ -525,7 +534,7 @@ namespace deren::engine {
                 if (!counts_import) {
                     return post_build_error(counts_import.error());
                 }
-                auto indices_lease = resource_lease<rhi::buffer>::from_shared(this->core_owner, rhi::shared_object<rhi::buffer>{std::move(indices_generation), indices});
+                auto indices_lease = resource_lease<rhi::buffer>::from_shared(this->core_lifetime, rhi::shared_object<rhi::buffer>{std::move(indices_generation), indices});
                 auto indices_import = build.import_buffer(indices_lease, {}, "cluster indices");
                 if (!indices_import) {
                     return post_build_error(indices_import.error());
@@ -543,10 +552,10 @@ namespace deren::engine {
             std::optional<graph::texture_ref> shadow_cascades{};
             if (this->shadow_allocated_layers != 0) {
                 auto shadow_generation = this->shadow_resource_view.find(render_resource::resource_id::shadow_map);
-                if (shadow_generation && shadow_generation->device.get() == this->core_owner.get() && slot < shadow_generation->objects.size()) {
+                if (shadow_generation && shadow_generation->device.get() == this->core_lifetime.get() && slot < shadow_generation->objects.size()) {
                     auto* shadow_image = shadow_generation->objects[slot].image.get();
                     if (shadow_image) {
-                        auto shadow_lease = lease::from_shared(this->core_owner, rhi::shared_object<rhi::image>{std::move(shadow_generation), shadow_image});
+                        auto shadow_lease = lease::from_shared(this->core_lifetime, rhi::shared_object<rhi::image>{std::move(shadow_generation), shadow_image});
                         graph::execution::import_state const shadow_import =
                             this->graph_shadow_frame
                                 ? graph::execution::import_state{graph::initial_contents::undefined, {}}
@@ -604,14 +613,14 @@ namespace deren::engine {
             for (uint32_t i = 0; i < shared_imports.size(); ++i) {
                 auto const& entry = shared_imports[i];
                 auto generation = entry.resources->find(entry.resource);
-                if (!generation || generation->device.get() != this->core_owner.get() || entry.instance >= generation->objects.size()) {
+                if (!generation || generation->device.get() != this->core_lifetime.get() || entry.instance >= generation->objects.size()) {
                     return rhi::error::not_ready;
                 }
                 auto* buffer = generation->objects[entry.instance].buffer.get();
                 if (!buffer || buffer != entry.expected) {
                     return rhi::error::invalid_argument;
                 }
-                auto retained_buffer = resource_lease<rhi::buffer>::from_shared(this->core_owner, rhi::shared_object<rhi::buffer>{std::move(generation), buffer});
+                auto retained_buffer = resource_lease<rhi::buffer>::from_shared(this->core_lifetime, rhi::shared_object<rhi::buffer>{std::move(generation), buffer});
                 auto imported = build.import_buffer(retained_buffer, {graph::initial_contents::defined, {graph::resource_layout::general, entry.stages, entry.access}}, entry.name);
                 if (!imported) {
                     return post_build_error(imported.error());
@@ -631,14 +640,14 @@ namespace deren::engine {
                 // the slot, and it is checked against the borrowed array the pass's descriptor sees.
                 auto const rt_slot = this->frame_ring().position();
                 auto rt_generation = this->output_resource_views[13].find(pass::output_targets_pass::ids[13]);
-                if (!rt_generation || rt_generation->device.get() != this->core_owner.get() || rt_slot >= rt_generation->objects.size()) {
+                if (!rt_generation || rt_generation->device.get() != this->core_lifetime.get() || rt_slot >= rt_generation->objects.size()) {
                     return rhi::error::not_ready;
                 }
                 auto* rt_image = rt_generation->objects[rt_slot].image.get();
                 if (!rt_image || !this->rt_shadow_image_views[rt_slot] || rt_image != this->rt_shadow_images[rt_slot].get()) {
                     return rhi::error::not_ready;
                 }
-                auto rt_lease = lease::from_shared(this->core_owner, rhi::shared_object<rhi::image>{std::move(rt_generation), rt_image});
+                auto rt_lease = lease::from_shared(this->core_lifetime, rhi::shared_object<rhi::image>{std::move(rt_generation), rt_image});
                 if (!rt_lease) {
                     return rhi::error::not_ready;
                 }
@@ -659,14 +668,14 @@ namespace deren::engine {
             if (this->graph_rt_reflection_frame) {
                 auto const reflection_slot = this->frame_ring().position();
                 auto reflection_generation = this->output_resource_views[17].find(pass::output_targets_pass::ids[17]);
-                if (!reflection_generation || reflection_generation->device.get() != this->core_owner.get() || reflection_slot >= reflection_generation->objects.size()) {
+                if (!reflection_generation || reflection_generation->device.get() != this->core_lifetime.get() || reflection_slot >= reflection_generation->objects.size()) {
                     return rhi::error::not_ready;
                 }
                 auto* reflection_image = reflection_generation->objects[reflection_slot].image.get();
                 if (!reflection_image || !this->rt_reflection_image_views[reflection_slot] || reflection_image != this->rt_reflection_images[reflection_slot].get()) {
                     return rhi::error::not_ready;
                 }
-                auto reflection_lease = lease::from_shared(this->core_owner, rhi::shared_object<rhi::image>{std::move(reflection_generation), reflection_image});
+                auto reflection_lease = lease::from_shared(this->core_lifetime, rhi::shared_object<rhi::image>{std::move(reflection_generation), reflection_image});
                 if (!reflection_lease) {
                     return rhi::error::not_ready;
                 }
@@ -706,14 +715,14 @@ namespace deren::engine {
                 auto const import_target = [&](std::uint32_t const index, auto const& images, auto const& views, std::string_view const name,
                                                bool const history = false) -> std::optional<graph::texture_ref> {
                     auto generation = this->output_resource_views[index].find(pass::output_targets_pass::ids[index]);
-                    if (!generation || generation->device.get() != this->core_owner.get() || reflection_slot >= generation->objects.size()) {
+                    if (!generation || generation->device.get() != this->core_lifetime.get() || reflection_slot >= generation->objects.size()) {
                         return std::nullopt;
                     }
                     auto* image = generation->objects[reflection_slot].image.get();
                     if (!image || !views[reflection_slot] || image != images[reflection_slot].get()) {
                         return std::nullopt;
                     }
-                    auto lease = lease::from_shared(this->core_owner, rhi::shared_object<rhi::image>{std::move(generation), image});
+                    auto lease = lease::from_shared(this->core_lifetime, rhi::shared_object<rhi::image>{std::move(generation), image});
                     if (!lease) {
                         return std::nullopt;
                     }
@@ -877,21 +886,24 @@ namespace deren::engine {
             }
             if (this->software_raster_active_frame) {
                 auto generation = this->software_tiles_resource_view.find(render_resource::resource_id::software_tiles);
-                if (!generation || generation->device.get() != this->core_owner.get() || generation->objects.empty() || !generation->objects[0].buffer)
+                if (!generation || generation->device.get() != this->core_lifetime.get() || generation->objects.empty() || !generation->objects[0].buffer) {
                     return rhi::error::not_ready;
-                auto retained = resource_lease<rhi::buffer>::from_shared(this->core_owner, rhi::shared_object<rhi::buffer>{generation, generation->objects[0].buffer.get()});
+                }
+                auto retained = resource_lease<rhi::buffer>::from_shared(this->core_lifetime, rhi::shared_object<rhi::buffer>{generation, generation->objects[0].buffer.get()});
                 auto imported = build.import_buffer(retained, {graph::initial_contents::defined, {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::read}}, "software work list");
-                if (!imported)
+                if (!imported) {
                     return post_build_error(imported.error());
+                }
                 software_tiles_ref = *imported;
             }
             if (this->software_gpu_route_active_frame) {
-                auto metadata = build.import_buffer(resource_lease<rhi::buffer>::from_shared(this->core_owner, this->software_visibility->route_metadata_buffer()),
+                auto metadata = build.import_buffer(resource_lease<rhi::buffer>::from_shared(this->core_lifetime, this->software_visibility->route_metadata_buffer()),
                                                     {graph::initial_contents::defined, {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::read}}, "software route metadata");
-                auto arguments = build.import_buffer(resource_lease<rhi::buffer>::from_shared(this->core_owner, this->software_visibility->route_arguments_buffer()),
+                auto arguments = build.import_buffer(resource_lease<rhi::buffer>::from_shared(this->core_lifetime, this->software_visibility->route_arguments_buffer()),
                                                      {graph::initial_contents::defined, {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::write}}, "software route arguments");
-                if (!metadata || !arguments)
+                if (!metadata || !arguments) {
                     return post_build_error(!metadata ? metadata.error() : arguments.error());
+                }
                 software_route_arguments_ref = *arguments;
                 software_routing_ref = graph::visibility::software_routing_inputs{shared_refs[0], *metadata, *software_tiles_ref, *arguments};
             }
@@ -1036,21 +1048,22 @@ namespace deren::engine {
                 if (this->software_raster_active_frame) {
                     auto import_software_image = [&](std::size_t const family, std::string_view const name) -> std::optional<graph::texture_ref> {
                         auto generation = this->output_resource_views[family].find(pass::output_targets_pass::ids[family]);
-                        if (!generation || generation->device.get() != this->core_owner.get() || index >= generation->objects.size()) {
+                        if (!generation || generation->device.get() != this->core_lifetime.get() || index >= generation->objects.size()) {
                             return {};
                         }
                         auto* image = generation->objects[index].image.get();
                         if (!image) {
                             return {};
                         }
-                        auto image_lease = lease::from_shared(this->core_owner, rhi::shared_object<rhi::image>{std::move(generation), image});
+                        auto image_lease = lease::from_shared(this->core_lifetime, rhi::shared_object<rhi::image>{std::move(generation), image});
                         auto imported = build.import_texture(image_lease, {graph::initial_contents::undefined, {}}, name);
                         return imported ? std::optional<graph::texture_ref>{*imported} : std::optional<graph::texture_ref>{};
                     };
                     auto depth_import = import_software_image(15u, "software visibility depth");
                     auto id_import = import_software_image(16u, "software visibility id");
-                    if (!depth_import || !id_import || !software_tiles_ref)
+                    if (!depth_import || !id_import || !software_tiles_ref) {
                         return rhi::error::not_ready;
+                    }
                     software_depth_ref = *depth_import;
                     software_id_ref = *id_import;
 
@@ -1302,10 +1315,11 @@ namespace deren::engine {
                     resolve_inputs.software_id = software_id_ref;
                 }
                 if (residency && progressive_mips) {
-                    auto mip_lease = resource_lease<rhi::buffer>::from_shared(core_owner, mip_feedback_slots[frame_ring().position()]);
+                    auto mip_lease = resource_lease<rhi::buffer>::from_shared(core_lifetime, mip_feedback_slots[frame_ring().position()]);
                     auto mip_ref = build.import_buffer(mip_lease, {graph::initial_contents::defined, {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::read | graph::memory_access::write}}, "screen mip feedback");
-                    if (!mip_ref)
+                    if (!mip_ref) {
                         return post_build_error(mip_ref.error());
+                    }
                     resolve_inputs.mip_feedback = *mip_ref;
                 }
                 auto resolve_added = build.append([&](graph::builder& description) noexcept {
@@ -1317,10 +1331,11 @@ namespace deren::engine {
                 if (residency) {
                     constexpr graph::access_scope storage{graph::resource_usage::storage, graph::pipeline_stage::compute_shader};
                     constexpr graph::access_scope sampled{graph::resource_usage::sampled, graph::pipeline_stage::compute_shader};
-                    auto result_lease = resource_lease<rhi::buffer>::from_shared(core_owner, visibility_feedback_buffer);
+                    auto result_lease = resource_lease<rhi::buffer>::from_shared(core_lifetime, visibility_feedback_buffer);
                     auto feedback_ref = build.import_buffer(result_lease, {graph::initial_contents::defined, {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::read | graph::memory_access::write}}, "material feedback");
-                    if (!feedback_ref)
+                    if (!feedback_ref) {
                         return post_build_error(feedback_ref.error());
+                    }
                     graph::visibility::feedback_parameters parameters{{*visibility_ref, {}, sampled}, {*depth_ref, {}, sampled}, {shared_refs[12], {}, storage}, {*feedback_ref, {}, storage}};
                     if (software_raster_active_frame) {
                         parameters.software_depth = graph::texture_read{*software_depth_ref, {}, sampled};
@@ -1329,18 +1344,22 @@ namespace deren::engine {
                     auto feedback = build.append([&](graph::builder& description) noexcept {
                         return description.add_pass("visibility material feedback", parameters, graph::pass_options{.side_effect = true});
                     });
-                    if (!feedback)
+                    if (!feedback) {
                         return post_build_error(feedback.error());
+                    }
                     auto bound = build.bind_pass<graph::visibility::feedback_parameters>(*feedback,
                                                                                          [this](graph::visibility::feedback_parameters const&, rhi::command_buffer& buffer, graph::execution::record_context const&) noexcept {
                                                                                              return record_texture_feedback(buffer);
                                                                                          });
-                    if (!bound)
+                    if (!bound) {
                         return post_build_error(bound.error());
-                    if (auto order = build.order_after(resolve_added->pass, *feedback); !order)
+                    }
+                    if (auto order = build.order_after(resolve_added->pass, *feedback); !order) {
                         return post_build_error(order.error());
-                    if (!progressive_textures)
+                    }
+                    if (!progressive_textures) {
                         residency_resolve_index = resolve_added->pass.index();
+                    }
                 }
                 pass::stage resolve_stage{.name = "visibility resolve", .passes = this->visibility_resolve_stage};
                 this->prepare_stage(resolve_stage);
@@ -1360,8 +1379,9 @@ namespace deren::engine {
                         if (progressive_mips && texture_streaming.enabled) {
                             auto slot = frame_ring().position();
                             auto status = feedback_readback::publish(*frame_command_buffer(), *mip_feedback_readback_slots[slot], *mip_feedback_slots[slot], sizeof(texture_residency::mip_feedback));
-                            if (status != rhi::error::ok)
+                            if (status != rhi::error::ok) {
                                 return status;
+                            }
                         }
                         // THE GEOMETRY LANE'S GPU MARKS, EMITTED BY THE LANE THAT REPLACED IT: the per-pass
                         // timing report walks the frame's marks in gpu_mark_id order, and on a visibility frame the
@@ -1600,8 +1620,9 @@ namespace deren::engine {
                 }
             }
             if (this->radiance_requested) {
-                if (this->graph_debug_frame)
+                if (this->graph_debug_frame) {
                     return rhi::error::invalid_argument;
+                }
                 auto extent = this->render_extent();
                 if (!this->radiance_readback || this->radiance_extent.width != extent.width || this->radiance_extent.height != extent.height) {
                     rhi::buffer_desc desc{};
@@ -1610,31 +1631,38 @@ namespace deren::engine {
                     this->radiance_readback = this->rhi_face().resources->create_buffer(desc);
                     this->radiance_extent = extent;
                 }
-                if (!this->radiance_readback)
+                if (!this->radiance_readback) {
                     return rhi::error::operation_failed;
-                auto target = build.import_buffer(resource_lease<rhi::buffer>::from_shared(this->core_owner, this->radiance_readback), {}, "radiance staging");
-                if (!target)
+                }
+                auto target = build.import_buffer(resource_lease<rhi::buffer>::from_shared(this->core_lifetime, this->radiance_readback), {}, "radiance staging");
+                if (!target) {
                     return post_build_error(target.error());
+                }
                 auto added = build.append([&](graph::builder& description) noexcept { return graph::radiance_capture::append(description, scene_target, *target); });
-                if (!added)
+                if (!added) {
                     return post_build_error(added.error());
+                }
                 auto bound = build.bind_pass<graph::radiance_capture::parameters>(*added,
                                                                                   [this, extent](graph::radiance_capture::parameters const& params, rhi::command_buffer& cmd, graph::execution::record_context const& context) noexcept {
                                                                                       auto* source = context.image(params.source.resource.index());
                                                                                       auto* target = context.buffer(params.target.resource.index());
-                                                                                      if (!source || !target || source->format() != rhi::image_format::r16g16b16a16_sfloat)
+                                                                                      if (!source || !target || source->format() != rhi::image_format::r16g16b16a16_sfloat) {
                                                                                           return rhi::error::invalid_argument;
+                                                                                      }
                                                                                       auto copied = cmd.copy_image_to_buffer(*target, *source, {.extent = extent});
-                                                                                      if (copied != rhi::error::ok)
+                                                                                      if (copied != rhi::error::ok) {
                                                                                           return copied;
+                                                                                      }
                                                                                       rhi::buffer_barrier host{.resource = target, .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read};
                                                                                       auto published = cmd.barrier(rhi::barrier_group{.buffers = std::span{&host, 1}});
-                                                                                      if (published == rhi::error::ok)
+                                                                                      if (published == rhi::error::ok) {
                                                                                           this->radiance_recorded = true;
+                                                                                      }
                                                                                       return published;
                                                                                   });
-                if (!bound)
+                if (!bound) {
                     return post_build_error(bound.error());
+                }
             }
             // THE GAUSSIAN RASTER AS A GRAPH PASS (adoption stage 2O): the removed legacy tail ran it BEFORE transparency
             // (lighting -> gaussian -> transparent), so it is appended here. Its GPU compute chain keeps its own
@@ -1928,14 +1956,18 @@ namespace deren::engine {
         if (residency_resolve_index) {
             graph::execution::prepared_graph prefix, suffix;
             error = prepared->partition_before(*residency_resolve_index, prefix, suffix);
-            if (error == rhi::error::ok)
+            if (error == rhi::error::ok) {
                 error = prefix.record(*commands);
-            if (error == rhi::error::ok)
+            }
+            if (error == rhi::error::ok) {
                 error = rhi::query_extension<rhi::frame_checkpoint>(rhi_face())->checkpoint_and_wait();
-            if (error == rhi::error::ok)
+            }
+            if (error == rhi::error::ok) {
                 error = update_texture_residency(false);
-            if (error == rhi::error::ok)
+            }
+            if (error == rhi::error::ok) {
                 error = suffix.record(*commands);
+            }
         } else {
             error = prepared->record(*commands);
         }
@@ -2053,8 +2085,9 @@ namespace deren::engine {
                 auto const* candidates = static_cast<meshlet const*>(this->meshlet_culled_mapped) + slot * meshlet_capacity;
                 for (std::uint32_t i = 0; i < this->frame_visible.size(); ++i) {
                     auto const& description = descriptions[i];
-                    if (description.source != pass::hzb_item_source_culled || !description.candidate_count)
+                    if (description.source != pass::hzb_item_source_culled || !description.candidate_count) {
                         continue;
+                    }
                     if (description.meshlet_base > meshlet_capacity || description.candidate_count > meshlet_capacity - description.meshlet_base) {
                         complete = false;
                         break;
@@ -2069,8 +2102,9 @@ namespace deren::engine {
                     if (leaf->subtilis_geometry) {
                         auto const& source = leaf->subtilis_geometry->source();
                         item.positions.resize(source.vertex_count());
-                        for (std::size_t v = 0; v < item.positions.size(); ++v)
+                        for (std::size_t v = 0; v < item.positions.size(); ++v) {
                             std::memcpy(item.positions[v].data(), source.vertices().data() + v * source.vertex_stride(), sizeof(float) * 3u);
+                        }
                         item.indices.assign(source.indices().begin(), source.indices().end());
                     }
                     this->software_route_probe_items.push_back(std::move(item));
@@ -2099,10 +2133,11 @@ namespace deren::engine {
                 }
                 this->software_route_probe_ready = complete;
             }
-            if (complete)
+            if (complete) {
                 this->software_probe_extent = extent;
-            else
+            } else {
                 deren::utility::log("software image capture: FAIL inactive lane or readback recording");
+            }
         }
         if (this->screenshot_requested && std::getenv("DEREN_DEPTH_PROBE_CAPTURE")) {
             auto* const depth = this->gbuffer_depth_images[this->current_image_index].get();
@@ -2224,7 +2259,7 @@ namespace deren::engine {
             return rhi::error::invalid_argument;
         }
         std::array<graph::execution::resource_binding, 1> binding{this->post_graph_output};
-        auto prepared = graph::execution::prepared_graph::prepare(this->core_owner, std::move(*plan), binding);
+        auto prepared = graph::execution::prepared_graph::prepare(this->core_lifetime, std::move(*plan), binding);
         if (!prepared) {
             return prepared.error().code;
         }

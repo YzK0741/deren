@@ -433,8 +433,8 @@ namespace deren::engine::animation {
             // The shared identity block (indices 0-3) is written by the first controller only: a
             // later controller uploads its joint blocks at its own region base, so it must not
             // prepend the identity block (that would overwrite the preceding region).
-            bool const owns_identity_block = this->skin_region_base == 4;
-            std::size_t const prefix = owns_identity_block ? 4 : 0;
+            bool const prepends_identity_block = this->skin_region_base == 4;
+            std::size_t const prefix = prepends_identity_block ? 4 : 0;
             matrices.reserve(prefix + (this->skin_rigs.size() * 8));
             for (std::size_t i = 0; i < prefix; ++i) {
                 matrices.push_back(glm::mat4(1.0f));
@@ -446,7 +446,7 @@ namespace deren::engine::animation {
                     matrices.push_back(mesh_world_inv * world_of(rig.s.joints[j]) * rig.s.inverse_bind[j]);
                 }
             }
-            this->host.set_skin_matrices_active(matrices, owns_identity_block ? 0u : this->skin_region_base);
+            this->host.set_skin_matrices_active(matrices, prepends_identity_block ? 0u : this->skin_region_base);
             // per-second report data: first rig's LAST joint world x-axis (rotations change it,
             // unlike the joint's position which stays fixed under rotation-only animations)
             this->skin_debug_valid = false;

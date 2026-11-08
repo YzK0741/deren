@@ -74,7 +74,7 @@ namespace deren::engine::pass {
         };
         bool recorded = false;
         if (this->pass_frame.secondary->begin_recording(secondary_begin) == rhi::error::ok) {
-            render_environment env = this->pass_frame.make_environment(this->pass_frame.owner, recording_target(this->pass_frame.secondary), /*gbuffer=*/false);
+            render_environment env = this->pass_frame.make_environment(this->pass_frame.parent, recording_target(this->pass_frame.secondary), /*gbuffer=*/false);
             // No set to bind (see scene_pass::record_segment): every slot these leaves read comes from the heaps,
             // which the runtime binds on this same secondary before executing it.
             for (primitive const* const leaf : this->pass_frame.leaves) {

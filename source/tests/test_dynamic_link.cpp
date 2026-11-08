@@ -1013,19 +1013,19 @@ namespace {
 
         {
 
-            rhi::unique_object<rhi::buffer> owned{core->resources->create_buffer(rhi::buffer_desc{.size = 128u})};
+            rhi::unique_object<rhi::buffer> buffer{core->resources->create_buffer(rhi::buffer_desc{.size = 128u})};
 
-            CHECK(static_cast<bool>(owned));
+            CHECK(static_cast<bool>(buffer));
 
-            CHECK(owned->size() == 128u);
+            CHECK(buffer->size() == 128u);
 
             // move-only: the reference is transferred, and the source is left empty rather than
 
             // aliasing the same object (which would release it twice)
 
-            rhi::unique_object<rhi::buffer> moved{std::move(owned)};
+            rhi::unique_object<rhi::buffer> moved{std::move(buffer)};
 
-            CHECK(!static_cast<bool>(owned));
+            CHECK(!static_cast<bool>(buffer));
 
             CHECK(moved->size() == 128u);
 

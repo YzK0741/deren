@@ -16,7 +16,9 @@ namespace deren::engine::environment_detail {
         return {std::cos(radians), std::sin(radians), strength, mode >= 0 && mode <= 3 ? float(mode) : 0.0f};
     }
     inline std::array<float, 4> pack_background(std::array<float, 3> color, float blur) noexcept {
-        for (auto& value : color) value = std::isfinite(value) ? std::clamp(value, 0.0f, 1.0f) : 0.18f;
+        for (auto& value : color) {
+            value = std::isfinite(value) ? std::clamp(value, 0.0f, 1.0f) : 0.18f;
+        }
         return {color[0], color[1], color[2], std::isfinite(blur) ? std::clamp(blur, 0.0f, 1.0f) : 0.5f};
     }
-}
+} // namespace deren::engine::environment_detail

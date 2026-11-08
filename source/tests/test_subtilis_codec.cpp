@@ -11,13 +11,15 @@ using std::byte;
 namespace {
     uint64_t read(v::vector<byte> const& bytes, size_t at, size_t width) {
         uint64_t value = 0;
-        for (size_t i = 0; i < width; ++i)
+        for (size_t i = 0; i < width; ++i) {
             value |= uint64_t(std::to_integer<unsigned>(bytes[at + i])) << (8 * i);
+        }
         return value;
     }
     void put(v::vector<byte>& bytes, size_t at, uint64_t value, size_t width) {
-        for (size_t i = 0; i < width; ++i)
+        for (size_t i = 0; i < width; ++i) {
             bytes[at + i] = byte((value >> (8 * i)) & 255);
+        }
     }
     v::string hex(sub::digest const& hash) {
         v::string text;
@@ -46,8 +48,9 @@ int main() {
     auto p = fixture();
     auto encoded = sub::encode(p, {});
     CHECK(encoded);
-    if (!encoded)
+    if (!encoded) {
         return deren::vk_test::finish("subtilis_codec");
+    }
     auto const& bytes = *encoded;
     CHECK(bytes.size() == 600); // 352 directory + 40 indices + 96 clusters + 48 groups + 16 refs + 8 leaves + 8 roots + 32 JSON
     CHECK(read(bytes, 0, 8) == 0x00474144534E5244ULL);
@@ -95,8 +98,9 @@ int main() {
     rejects(392 + 28, 0xbf800000, 4); // negative decoded sphere radius
     rejects(568, '[', 1);             // malformed decoded metadata
     rejects(128 + 6 * 32 + 8, 0, 8);  // count/length mismatch
-    for (size_t length : {size_t(0), size_t(127), size_t(351), bytes.size() - 1})
+    for (size_t length : {size_t(0), size_t(127), size_t(351), bytes.size() - 1}) {
         CHECK(!sub::decode(std::span(bytes).first(length), {}));
+    }
     v::vector<byte> unaligned{byte{0}};
     unaligned.insert(unaligned.end(), bytes.begin(), bytes.end());
     CHECK(sub::decode(std::span(unaligned).subspan(1), {})); // host pointer alignment is irrelevant

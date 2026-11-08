@@ -120,10 +120,10 @@ namespace deren::app {
         // A scene whose placements all name their own asset does not need a separate default model: the
         // first placement becomes the default load below. Keep the historic default lookup only when at
         // least one placement inherits the top-level model (or there is no object list at all).
-        bool every_object_owns_model = !settings.scene.objects.empty();
+        bool every_object_has_model = !settings.scene.objects.empty();
         for (deren::app_config::scene_object_settings const& object : settings.scene.objects) {
             if (object.model.empty() && object.asset.empty()) {
-                every_object_owns_model = false;
+                every_object_has_model = false;
                 break;
             }
         }
@@ -151,7 +151,7 @@ namespace deren::app {
         //     default > the old model_dir/DamagedHelmet fallback). A library is never a silent
         //     opt-in for the experimental toon path: the manifest's [toon] game_toon flag is
         //     metadata here, not a render-mode switch.
-        if (config.model_path.empty() && (!settings.asset.empty() || (!every_object_owns_model && !settings.paths.asset_library.empty()))) {
+        if (config.model_path.empty() && (!settings.asset.empty() || (!every_object_has_model && !settings.paths.asset_library.empty()))) {
             deren::asset_library::asset_library const& assets = ensure_library();
             deren::asset_library::asset_entry const* selected = nullptr;
             if (!settings.asset.empty()) {
@@ -171,7 +171,7 @@ namespace deren::app {
             config.model_path = selected->model.string();
             deren::utility::log("asset library: selected '{}' ({})", selected->id, config.model_path);
         }
-        if (config.model_path.empty() && !every_object_owns_model) {
+        if (config.model_path.empty() && !every_object_has_model) {
             if (!settings.paths.model_dir.empty()) {
                 config.model_path = (std::filesystem::path(settings.paths.model_dir) / "DamagedHelmet" / "DamagedHelmet.gltf").string();
                 if (!std::filesystem::is_regular_file(config.model_path)) {

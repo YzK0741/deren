@@ -682,7 +682,7 @@ namespace deren::gltf {
         using reference = drawable_ref const&;
 
         scene_iterator() = default; // end(): the default-constructed iterator is exhausted
-        explicit scene_iterator(scenes const& owner);
+        explicit scene_iterator(scenes const& parent);
 
         reference operator*() const noexcept;
         pointer operator->() const noexcept;
@@ -730,7 +730,7 @@ namespace deren::gltf {
         using reference = node const*;
 
         scene_node_iterator() = default; // end(): the default-constructed iterator is exhausted
-        explicit scene_node_iterator(scenes const& owner);
+        explicit scene_node_iterator(scenes const& parent);
 
         reference operator*() const noexcept;
         pointer operator->() const noexcept;
@@ -901,7 +901,7 @@ namespace deren::gltf {
         uint32_t height = 0;
         uint32_t mip_levels = 1;
         bool valid = false;
-        std::shared_ptr<deren::utility::vessel::vector<uint8_t> const> owner = {};
+        std::shared_ptr<deren::utility::vessel::vector<uint8_t> const> parent = {};
     };
 
     /** @brief PBR factors of one resolved material (mirrors the runtime's material_factors) */

@@ -13,8 +13,9 @@ namespace deren::tools::subtilis::package_detail {
 #else
         bool success = ::rename(from.c_str(), to.c_str()) == 0;
 #endif
-        if (!success)
+        if (!success) {
             return std::unexpected(asset::error{asset::error_code::io, "cannot move staged output into place", {}, {}});
+        }
         return {};
     }
 } // namespace deren::tools::subtilis::package_detail

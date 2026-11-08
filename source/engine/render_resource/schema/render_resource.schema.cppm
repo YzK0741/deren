@@ -180,7 +180,7 @@ export namespace deren::engine::render_resource {
 
     /** @brief how long a resource lives: what decides whether a first-use transition or a clear exists */
     enum class resource_lifetime : uint8_t {
-        per_frame,  // rewritten every frame by its owner
+        per_frame,  // rewritten every frame by its parent
         persistent, // holds state ACROSS frames (histories, the accumulated grid) - see the reset sites
         imported,   // owned outside this renderer (the swapchain image)
     };
@@ -401,8 +401,8 @@ export namespace deren::engine::render_resource {
      * surface, the post chain's images - whose descriptors some other stage publishes; a pass declares only
      * that it USES such a binding, and cannot change it.
      */
-    enum class binding_owner : uint8_t {
-        own,
+    enum class binding_scope : uint8_t {
+        local,
         shared,
     };
 
@@ -479,7 +479,7 @@ export namespace deren::engine::render_resource {
     /// @ingroup engine_render_resource
     struct pass_binding {
         uint32_t binding = 0;
-        binding_owner owner = binding_owner::own;
+        binding_scope parent = binding_scope::local;
         binding_kind kind = binding_kind::sampled_image;
         resource_id resource = resource_id::none;
         /// which image of the resource FAMILY this binding names (0 for a single-image resource)
@@ -587,9 +587,9 @@ export namespace deren::engine::render_resource {
     /**
      * @brief one pass's declared I/O
      *
-     * `bindings` carries both kinds: the `binding_owner::own` entries are the pass's private per-image
+     * `bindings` carries both kinds: the `binding_scope::local` entries are the pass's private per-image
      * bindings, which the validator requires to be numbered contiguously from zero, and the
-     * `binding_owner::shared` entries are declared USAGE of resources the frame's heap provides.
+     * `binding_scope::shared` entries are declared USAGE of resources the frame's heap provides.
      * @ingroup engine_render_resource
      */
     struct pass_io {
@@ -705,7 +705,7 @@ export namespace deren::engine::render_resource {
             return std::unexpected("a pass declaration has no name");
         }
         deren::utility::vessel::string const who{io.name};
-        std::size_t own_count = 0;
+        std::size_t local_count = 0;
         std::size_t depth_targets = 0;
         for (render_target const& t : io.targets) {
             deren::utility::vessel::string const where = who + ": target " + deren::utility::vessel::to_string(t.element);
@@ -812,12 +812,12 @@ export namespace deren::engine::render_resource {
                     return std::unexpected(where + " is declared twice");
                 }
             }
-            if (b.owner == binding_owner::own) {
-                if (b.binding != own_count) {
-                    return std::unexpected(who + ": the pass's own bindings are not numbered contiguously from zero (expected " +
-                                           deren::utility::vessel::to_string(own_count) + ", found " + deren::utility::vessel::to_string(b.binding) + ")");
+            if (b.parent == binding_scope::local) {
+                if (b.binding != local_count) {
+                    return std::unexpected(who + ": the pass's local bindings are not numbered contiguously from zero (expected " +
+                                           deren::utility::vessel::to_string(local_count) + ", found " + deren::utility::vessel::to_string(b.binding) + ")");
                 }
-                ++own_count;
+                ++local_count;
             }
         }
         if (io.push.has_value()) {

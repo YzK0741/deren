@@ -28,11 +28,13 @@ export namespace deren::engine::pass {
     private:
         deren::utility::vessel::array<bool, resource_count> required = [] {
             deren::utility::vessel::array<bool, resource_count> values{};
-            for (size_t i = 0; i < 15; ++i)
+            for (size_t i = 0; i < 15; ++i) {
                 values[i] = true;
+            }
             // the reflection target and its denoiser images are always allocated; the feature only gates their writers
-            for (size_t i = 17; i < resource_count; ++i)
+            for (size_t i = 17; i < resource_count; ++i) {
                 values[i] = true;
+            }
             return values;
         }();
         bool software_resources_selected = false;
@@ -262,8 +264,9 @@ export namespace deren::engine::pass {
         }
         void select_resources(deren::utility::vessel::array<bool, resource_count> selection) noexcept {
             required = selection;
-            for (size_t i = 17; i < resource_count; ++i)
+            for (size_t i = 17; i < resource_count; ++i) {
                 required[i] = true; // the reflection lane and its denoiser images are always allocated
+            }
             software_resources_selected = selection[15] || selection[16];
         }
         void select_software_resources(bool const enabled) noexcept {

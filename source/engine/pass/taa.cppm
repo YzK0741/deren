@@ -38,7 +38,7 @@ import deren.promise.rhi;
 
 import deren.engine.pass;
 import deren.engine.render_resource;
-import deren.engine.pipelines; // vk_pipeline: the RAII owner of the pipeline this pass builds
+import deren.engine.pipelines; // vk_pipeline: the RAII parent of the pipeline this pass builds
 
 export namespace deren::engine::pass {
 
@@ -94,7 +94,7 @@ export namespace deren::engine::pass {
         /// graph emits both the attachment transitions and the transfer round trip the removed legacy path owned here.
         deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
         /// @brief the history copy alone, with none of this pass's own ordering
-        void record_owned(resolved_io const& io);
+        void record(resolved_io const& io);
         deren::promise::rhi::error record_copy(resolved_io const& io) noexcept;
 
         /// @brief whether the pass built everything it records with (the renderer gates the feature on this)
@@ -130,15 +130,15 @@ export namespace deren::engine::pass {
 
     private:
         /// @brief the resolve's drawing half
-        /// @param own_transitions true for the removed legacy record (this pass's attachment/input barriers), false for
+        /// @param local_transitions true for the removed legacy record (this pass's attachment/input barriers), false for
         ///        a graph-recorded frame (the graph declares them)
-        bool record_resolve(resolved_io const& io, bool history_valid, bool own_transitions);
+        bool record_resolve(resolved_io const& io, bool history_valid, bool local_transitions);
         /// @brief the HDR -> history copy's half
-        /// @param own_transitions true for the removed legacy record (the transfer round trip), false for the graph
-        bool record_copy(resolved_io const& io, bool own_transitions);
+        /// @param local_transitions true for the removed legacy record (the transfer round trip), false for the graph
+        bool record_copy(resolved_io const& io, bool local_transitions);
         render_resource::instances::resource_snapshot resource_view;
         /// the four inputs the resolve reads, which the declaration numbers contiguously from zero
-        static constexpr uint32_t own_binding_count = 4;
+        static constexpr uint32_t local_binding_count = 4;
         static constexpr std::string_view vertex_shader_name = "post.vert.spv"; // the synthetic fullscreen triangle
         static constexpr std::string_view fragment_shader_name = "taa.frag.spv";
 
@@ -152,7 +152,7 @@ export namespace deren::engine::pass {
             .pipelines = pipeline_names,
             .resync_viewport = true, // the record step sets the viewport and scissor: the hazard this field exists for
         };
-        void release_owned() noexcept;
+        void release_contract() noexcept;
         deren::promise::rhi::api_core* built_against = nullptr;
         // called pass_pipeline, not pipeline: the class declares pipeline_handle() and a member of that name
         // would duplicate it and hide the override.

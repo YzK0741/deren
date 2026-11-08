@@ -39,7 +39,7 @@ export namespace deren::vulkan {
     /// The concrete identity the backend constructs the BORROWED frame view with.
     inline constexpr std::string_view frame_command_buffer_name = "deren_frame_commands_vulkan";
     /// The concrete identity the backend constructs a caller-OWNED recording buffer with.
-    inline constexpr std::string_view owned_command_buffer_name = "deren_command_buffer_vulkan";
+    inline constexpr std::string_view command_buffer_name = "deren_command_buffer_vulkan";
 
     /// THE VULKAN CLASS: a contract `command_buffer` the Vulkan side casts to after checking the concrete
     /// tag. `get()` is the native handle; `set_target()` is the backend's own way of keeping it current
@@ -101,7 +101,7 @@ export namespace deren::vulkan {
     /// @brief whether @p commands is one of THIS backend's command buffers (the cast's precondition)
     [[nodiscard]] inline bool is_command_buffer(deren::promise::rhi::command_buffer const& commands) noexcept {
         return deren::promise::rhi::is_concrete(commands, frame_command_buffer_name) ||
-               deren::promise::rhi::is_concrete(commands, owned_command_buffer_name);
+               deren::promise::rhi::is_concrete(commands, command_buffer_name);
     }
 
 } // namespace deren::vulkan

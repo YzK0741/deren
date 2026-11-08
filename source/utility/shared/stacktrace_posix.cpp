@@ -19,8 +19,9 @@ extern char** environ;
 namespace deren::utility::detail::trace_native {
     namespace {
         std::uintptr_t fault_pc(void* raw) noexcept {
-            if (!raw)
+            if (!raw) {
                 return 0;
+            }
             auto const& context = *static_cast<ucontext_t const*>(raw);
 #if defined(__linux__) && defined(__x86_64__)
             return static_cast<std::uintptr_t>(context.uc_mcontext.gregs[REG_RIP]);
@@ -35,7 +36,8 @@ namespace deren::utility::detail::trace_native {
             // No unwind, dladdr, stdio, allocation or child process on a signal stack.
             char line[256];
             std::size_t used = 0;
-            auto text = [&](char const* p) { while (*p && used < sizeof(line)) line[used++] = *p++; };
+            auto text = [&](char const* p) { while (*p && used < sizeof(line)){ line[used++] = *p++;
+} };
             auto number = [&](std::uintptr_t value, unsigned radix) {
                 char digits[3 * sizeof(value)];
                 unsigned count = 0;
@@ -43,8 +45,9 @@ namespace deren::utility::detail::trace_native {
                     digits[count++] = "0123456789abcdef"[value % radix];
                     value /= radix;
                 } while (value);
-                while (count && used < sizeof(line))
+                while (count && used < sizeof(line)) {
                     line[used++] = digits[--count];
+                }
             };
             text("deren crash signal=");
             number(static_cast<unsigned>(signal), 10);
@@ -65,8 +68,9 @@ namespace deren::utility::detail::trace_native {
             _exit(128 + signal);
         }
         int above_stdio(int fd) noexcept {
-            if (fd < 0 || fd >= 3)
+            if (fd < 0 || fd >= 3) {
                 return fd;
+            }
             int const copy = fcntl(fd, F_DUPFD_CLOEXEC, 3);
             close(fd);
             return copy;
@@ -75,10 +79,12 @@ namespace deren::utility::detail::trace_native {
 
     bool prepare_thread() noexcept {
         stack_t current{};
-        if (sigaltstack(nullptr, &current))
+        if (sigaltstack(nullptr, &current)) {
             return false;
-        if (!(current.ss_flags & SS_DISABLE))
+        }
+        if (!(current.ss_flags & SS_DISABLE)) {
             return true; // Respect another library's stack.
+        }
         alignas(16) static thread_local unsigned char alternate[64 * 1024];
         stack_t stack{};
         stack.ss_sp = alternate;
@@ -87,8 +93,9 @@ namespace deren::utility::detail::trace_native {
     }
     bool install_handler() noexcept {
         static_cast<void>(prepare_output());
-        if (!prepare_thread())
+        if (!prepare_thread()) {
             return false;
+        }
         constexpr int signals[]{SIGSEGV, SIGBUS, SIGILL, SIGFPE};
         struct sigaction previous[4]{};
         struct sigaction action{};
@@ -112,8 +119,9 @@ namespace deren::utility::detail::trace_native {
                                    std::uint32_t count, bool inlines, char* output, std::size_t cap,
                                    std::size_t& written, std::uint32_t timeout_ms) noexcept {
         written = 0;
-        if (!executable || !module || !offsets || !output || !count || count > capacity || !cap || !timeout_ms)
+        if (!executable || !module || !offsets || !output || !count || count > capacity || !cap || !timeout_ms) {
             return process_status::failed;
+        }
         char addresses[capacity][2 * sizeof(std::uintptr_t) + 3];
         char* arguments[capacity + 10];
         unsigned argc = 0;
@@ -131,17 +139,22 @@ namespace deren::utility::detail::trace_native {
         }
         arguments[argc] = nullptr;
         std::size_t variables = 0;
-        while (environ[variables] && variables < 65536)
+        while (environ[variables] && variables < 65536) {
             ++variables;
-        if (variables == 65536)
+        }
+        if (variables == 65536) {
             return process_status::failed;
+        }
         auto** environment = static_cast<char**>(std::malloc((variables + 1) * sizeof(char*)));
-        if (!environment)
+        if (!environment) {
             return process_status::failed;
+        }
         std::size_t kept = 0;
-        for (std::size_t i = 0; i < variables; ++i)
-            if (std::strncmp(environ[i], "LLVM_SYMBOLIZER_OPTS=", 21) != 0)
+        for (std::size_t i = 0; i < variables; ++i) {
+            if (std::strncmp(environ[i], "LLVM_SYMBOLIZER_OPTS=", 21) != 0) {
                 environment[kept++] = environ[i];
+            }
+        }
         environment[kept] = nullptr;
 
         int pipes[2]{-1, -1};
@@ -157,16 +170,21 @@ namespace deren::utility::detail::trace_native {
                 while (waitpid(child, &status, 0) < 0 && errno == EINTR) {
                 }
             }
-            if (pipes[0] >= 0)
+            if (pipes[0] >= 0) {
                 close(pipes[0]);
-            if (pipes[1] >= 0)
+            }
+            if (pipes[1] >= 0) {
                 close(pipes[1]);
-            if (null_fd >= 0)
+            }
+            if (null_fd >= 0) {
                 close(null_fd);
-            if (actions_ready)
+            }
+            if (actions_ready) {
                 posix_spawn_file_actions_destroy(&actions);
-            if (attributes_ready)
+            }
+            if (attributes_ready) {
                 posix_spawnattr_destroy(&attributes);
+            }
             std::free(environment);
         };
         if (pipe(pipes)) {
@@ -221,8 +239,9 @@ namespace deren::utility::detail::trace_native {
             } else if (got < 0 && errno != EAGAIN && errno != EINTR) {
                 result = process_status::failed;
                 break;
-            } else if (exited && (got == 0 || errno == EAGAIN))
+            } else if (exited && (got == 0 || errno == EAGAIN)) {
                 break;
+            }
             siginfo_t status{};
             if (waitid(P_PID, static_cast<id_t>(child), &status, WEXITED | WNOHANG | WNOWAIT)) {
                 if (errno != EINTR) {
@@ -231,8 +250,9 @@ namespace deren::utility::detail::trace_native {
                 }
             } else if (status.si_pid) {
                 exited = true; // Leave it unreaped until group cleanup, preventing PID reuse.
-                if (status.si_code != CLD_EXITED || status.si_status)
+                if (status.si_code != CLD_EXITED || status.si_status) {
                     result = process_status::failed;
+                }
                 continue; // Drain anything queued before the child exited.
             }
             auto const now = monotonic_ms();

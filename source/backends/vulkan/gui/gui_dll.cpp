@@ -224,8 +224,8 @@ namespace deren::vulkan::gui {
             void remove_panel(deren::gui::panel const& target) override {
                 for (auto it = this->panels.begin(); it != this->panels.end(); ++it) {
                     if (static_cast<deren::gui::panel const*>(&*it) == &target) {
-                        if (debug_panel* const owned = it->target(); owned != nullptr) {
-                            this->content.remove_panel(*owned);
+                        if (debug_panel* const panel = it->target(); panel != nullptr) {
+                            this->content.remove_panel(*panel);
                         }
                         this->panels.erase(it);
                         return;
@@ -235,8 +235,8 @@ namespace deren::vulkan::gui {
             void set_panel_visible(deren::gui::panel const& target, bool visible) override {
                 for (panel_adapter const& adapter : this->panels) {
                     if (static_cast<deren::gui::panel const*>(&adapter) == &target) {
-                        if (debug_panel* const owned = adapter.target(); owned != nullptr) {
-                            this->content.set_panel_visible(*owned, visible);
+                        if (debug_panel* const panel = adapter.target(); panel != nullptr) {
+                            this->content.set_panel_visible(*panel, visible);
                         }
                         return;
                     }

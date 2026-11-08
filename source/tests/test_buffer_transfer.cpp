@@ -27,25 +27,29 @@ int main(int argc, char** argv) {
     CHECK(unavailable_batch.upload({}, 0, {}, {}, transfer_read) == rhi::error::not_ready);
     CHECK(!unavailable.submit(std::move(unavailable_batch)));
     bool device = false;
-    for (int i = 1; i < argc; ++i)
+    for (int i = 1; i < argc; ++i) {
         device |= std::string_view(argv[i]) == "--with-device";
-    if (!device)
+    }
+    if (!device) {
         return deren::vk_test::skip("test_buffer_transfer", "--with-device was not passed: the device lane did not run");
+    }
     rhi::create_info desc{};
     desc.window_width = desc.window_height = 64;
     desc.window_visible = false;
     desc.validation_layers = true;
     auto core = engine::load_api_core(desc);
     CHECK(core);
-    if (!core)
+    if (!core) {
         return deren::vk_test::finish("test_buffer_transfer");
+    }
     auto& native = static_cast<deren::vulkan::main_context_view&>(*core->main_context());
     // Full mip-demand payload, two independent snapshots, then repeated zero-reset reuse.
     {
         constexpr std::uint64_t size = 65536;
         std::array<std::byte, size> zeros{}, sentinel{};
-        for (std::size_t i = 0; i < size; ++i)
+        for (std::size_t i = 0; i < size; ++i) {
             sentinel[i] = std::byte((i * 17 + 3) & 255);
+        }
         auto zero = core->resources->create_buffer({.size = size, .usage = rhi::buffer_usage::staging_source, .initial_bytes = zeros});
         auto input = core->resources->create_buffer({.size = size, .usage = rhi::buffer_usage::staging_source, .initial_bytes = sentinel});
         std::array<rhi::unique_object<rhi::buffer>, 2> gpu, host;
@@ -59,8 +63,9 @@ int main(int argc, char** argv) {
                 unsigned slot = frame % 2;
                 auto command = core->commands->make_command_buffer({});
                 CHECK(command && command->begin_recording({}) == rhi::error::ok);
-                if (!command)
+                if (!command) {
                     break;
+                }
                 CHECK(engine::feedback_readback::clear(*command, *gpu[slot], *zero, size) == rhi::error::ok);
                 if (frame < 2) {
                     rhi::buffer_barrier before{.resource = gpu[slot].get(), .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::transfer_destination};
@@ -76,11 +81,13 @@ int main(int argc, char** argv) {
                 auto mapped = host[slot]->mapped();
                 CHECK(mapped.size() == size);
                 bool matches = mapped.size() == size;
-                for (std::size_t i = 0; matches && i < size; ++i)
+                for (std::size_t i = 0; matches && i < size; ++i) {
                     matches = mapped[i] == (frame < 2 ? sentinel[i] : std::byte{});
+                }
                 CHECK(matches);
-                if (frame == 2)
+                if (frame == 2) {
                     CHECK(host[1]->mapped()[0] == sentinel[0]);
+                }
             }
         }
     }
@@ -88,12 +95,14 @@ int main(int argc, char** argv) {
     auto cluster = engine::resource_cluster::create(core);
     auto allocation = cluster->create_buffer({.size = 64, .usage = rhi::buffer_usage::storage_gpu_only, .flags = rhi::to_bits(rhi::buffer_flag::transfer_source) | rhi::to_bits(rhi::buffer_flag::transfer_destination)});
     CHECK(allocation);
-    if (!allocation)
+    if (!allocation) {
         return deren::vk_test::finish("test_buffer_transfer");
+    }
     auto target = *allocation;
     std::array<std::byte, 16> bytes{}, expected{};
-    for (unsigned i = 0; i < bytes.size(); ++i)
+    for (unsigned i = 0; i < bytes.size(); ++i) {
         bytes[i] = expected[i] = std::byte(i + 1);
+    }
     auto batch = service.make_batch();
     CHECK(batch.upload(target, 0, {}, {}, transfer_read) == rhi::error::invalid_argument);
     CHECK(batch.upload(target, UINT64_MAX, bytes, {}, transfer_read) == rhi::error::invalid_argument);
@@ -106,8 +115,9 @@ int main(int argc, char** argv) {
     CHECK(!batch.readback(target, 63, 2, transfer_read, transfer_read));
     auto no_flags = cluster->create_buffer({.size = 16});
     CHECK(no_flags);
-    if (no_flags)
+    if (no_flags) {
         CHECK(batch.upload(*no_flags, 0, bytes, {}, transfer_read) == rhi::error::invalid_argument);
+    }
     {
         queue_gate gate(native.device, native.graphics_queue);
         auto submitted = service.submit(std::move(batch));
@@ -128,9 +138,11 @@ int main(int argc, char** argv) {
             CHECK(submitted->wait(2000000000) == rhi::error::ok);
             auto result = submitted->readback(0);
             CHECK(result && result->size() == expected.size());
-            if (result && result->size() == expected.size())
-                for (std::size_t i = 0; i < expected.size(); ++i)
+            if (result && result->size() == expected.size()) {
+                for (std::size_t i = 0; i < expected.size(); ++i) {
                     CHECK((*result)[i] == expected[i]);
+                }
+            }
             CHECK(service.collect() == rhi::error::ok && service.pending_count() == 0);
         }
         gate.release();
@@ -140,8 +152,8 @@ int main(int argc, char** argv) {
     auto other = engine::load_api_core(desc);
     CHECK(other);
     if (other) {
-        auto owned = other->resources->create_buffer({.size = 16, .flags = rhi::to_bits(rhi::buffer_flag::transfer_destination)});
-        auto forged = engine::resource_lease<rhi::buffer>::from_shared(core, rhi::shared_object<rhi::buffer>(std::move(owned)));
+        auto buffer = other->resources->create_buffer({.size = 16, .flags = rhi::to_bits(rhi::buffer_flag::transfer_destination)});
+        auto forged = engine::resource_lease<rhi::buffer>::from_shared(core, rhi::shared_object<rhi::buffer>(std::move(buffer)));
         auto rejected = service.make_batch();
         CHECK(rejected.upload(forged, 0, bytes, {}, transfer_read) == rhi::error::invalid_argument);
     }
@@ -180,8 +192,9 @@ int main(int argc, char** argv) {
             CHECK(upload.readback(*buffer, 0, 16, transfer_read, transfer_read));
             auto result = scoped.submit(std::move(upload));
             CHECK(result);
-            if (result)
+            if (result) {
                 survivor = *result;
+            }
         }
         release_gate = std::thread([&] { std::this_thread::sleep_for(std::chrono::milliseconds(20)); gate.release(); });
     }

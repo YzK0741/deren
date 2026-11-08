@@ -61,18 +61,18 @@ namespace deren::vulkan {
     } // namespace
 
     scopes::stage core::scoped_sync_view::supported_stages() const noexcept {
-        if (!owner) {
+        if (!parent) {
             return scopes::stage::none;
         }
-        auto flags = owner->command.synchronization_queue_flags;
+        auto flags = parent->command.synchronization_queue_flags;
         uint32_t result = 0;
         if (flags & VK_QUEUE_GRAPHICS_BIT) {
             result |= 1U | 2U | 8U | 16U | 64U;
         }
-        if ((flags & VK_QUEUE_GRAPHICS_BIT) && owner->device.mesh_shader_available) {
+        if ((flags & VK_QUEUE_GRAPHICS_BIT) && parent->device.mesh_shader_available) {
             result |= 512U;
         }
-        if ((flags & VK_QUEUE_GRAPHICS_BIT) && owner->device.task_shader_available) {
+        if ((flags & VK_QUEUE_GRAPHICS_BIT) && parent->device.task_shader_available) {
             result |= 256U;
         }
         if (flags & VK_QUEUE_COMPUTE_BIT) {
@@ -87,35 +87,35 @@ namespace deren::vulkan {
         // RT stage 1: the ray-tracing PIPELINE stages, reported only when the device can run them. A ray query inside
         // a compute shader needs none of this bit (it is a COMPUTE_SHADER site, and 4U already says so); this is the
         // traceRays launch's stage, which the RT shadow pass's visibility write names.
-        if ((owner->device.ray_query_available || owner->device.ray_tracing_pipeline_available) && (flags & VK_QUEUE_GRAPHICS_BIT)) {
+        if ((parent->device.ray_query_available || parent->device.ray_tracing_pipeline_available) && (flags & VK_QUEUE_GRAPHICS_BIT)) {
             result |= 1024U;
         }
         return static_cast<scopes::stage>(result);
     }
 
     rhi::error core::scoped_sync_view::describe(rhi::image const& resource, rhi::scoped_image_info& output) const noexcept {
-        if (!owner) {
+        if (!parent) {
             return rhi::error::not_ready;
         }
-        std::lock_guard const lock(owner->resource.contract_images_mutex);
-        if (owner->frame.frame_snapshots.contains(&resource)) {
+        std::lock_guard const lock(parent->resource.contract_images_mutex);
+        if (parent->frame.frame_snapshots.contains(&resource)) {
             auto const& image = static_cast<frame_snapshot const&>(resource);
-            if (image.owner != owner || !image.current()) {
+            if (image.parent != parent || !image.current()) {
                 return rhi::error::invalid_argument;
             }
             uint32_t usage = bit(scopes::usage::color_attachment);
-            if (owner->frame.swapchain_transfer_src_supported) {
+            if (parent->frame.swapchain_transfer_src_supported) {
                 usage |= bit(scopes::usage::transfer_source);
             }
-            usage |= bit(owner->create_options.native_window ? scopes::usage::present : scopes::usage::sampled);
+            usage |= bit(parent->create_options.native_window ? scopes::usage::present : scopes::usage::sampled);
             output = {1, 1, scopes::aspect::color, usage, reinterpret_cast<std::uintptr_t>(&image)};
             return rhi::error::ok;
         }
-        if (!owner->resource.contract_images.contains(&resource)) {
+        if (!parent->resource.contract_images.contains(&resource)) {
             return rhi::error::invalid_argument;
         }
-        auto const& image = static_cast<owned_image const&>(resource);
-        if (image.owner != owner || (!image.source && image.native_handle == VK_NULL_HANDLE)) {
+        auto const& image = static_cast<core::image const&>(resource);
+        if (image.parent != parent || (!image.source && image.native_handle == VK_NULL_HANDLE)) {
             return rhi::error::invalid_argument;
         }
         uint32_t usage = 0;
@@ -132,7 +132,7 @@ namespace deren::vulkan {
             output = {image.mip_levels, image.array_layers, format_aspects(image.resolved_format), usage, reinterpret_cast<std::uintptr_t>(&image)};
             return rhi::error::ok;
         }
-        auto const* detail = owner->device.vma.get_image_detail(image.owned.handle());
+        auto const* detail = parent->device.vma.get_image_detail(image.allocation.handle());
         if (!detail) {
             return rhi::error::invalid_argument;
         }
@@ -141,15 +141,15 @@ namespace deren::vulkan {
     }
 
     rhi::error core::scoped_sync_view::describe(rhi::buffer const& resource, rhi::scoped_buffer_info& output) const noexcept {
-        if (!owner) {
+        if (!parent) {
             return rhi::error::not_ready;
         }
-        std::lock_guard const lock(owner->resource.contract_buffers_mutex);
-        if (!owner->resource.contract_buffers.contains(&resource)) {
+        std::lock_guard const lock(parent->resource.contract_buffers_mutex);
+        if (!parent->resource.contract_buffers.contains(&resource)) {
             return rhi::error::invalid_argument;
         }
-        auto const& buffer = static_cast<owned_buffer const&>(resource);
-        if (buffer.owner != owner || (!buffer.source && buffer.native == VK_NULL_HANDLE)) {
+        auto const& buffer = static_cast<core::buffer const&>(resource);
+        if (buffer.parent != parent || (!buffer.source && buffer.native == VK_NULL_HANDLE)) {
             return rhi::error::invalid_argument;
         }
         uint32_t usage = 0;
@@ -191,7 +191,7 @@ namespace deren::vulkan {
             output = {buffer.size_bytes, usage, reinterpret_cast<std::uintptr_t>(&buffer)};
             return rhi::error::ok;
         }
-        auto const* detail = owner->device.vma.get_buffer_detail(buffer.owned.handle());
+        auto const* detail = parent->device.vma.get_buffer_detail(buffer.allocation.handle());
         if (!detail) {
             return rhi::error::invalid_argument;
         }
@@ -200,7 +200,7 @@ namespace deren::vulkan {
     }
 
     rhi::error core::scoped_sync_view::validate(std::span<rhi::scoped_image_barrier const> images, std::span<rhi::scoped_buffer_barrier const> buffers) const noexcept {
-        if (!owner) {
+        if (!parent) {
             return rhi::error::not_ready;
         }
         if (images.size() > UINT32_MAX || buffers.size() > UINT32_MAX) {
@@ -261,11 +261,11 @@ namespace deren::vulkan {
     }
 
     rhi::error core::scoped_sync_view::record(rhi::command_recorder& commands, std::span<rhi::scoped_image_barrier const> images, std::span<rhi::scoped_buffer_barrier const> buffers) const noexcept {
-        if (!owner) {
+        if (!parent) {
             return rhi::error::not_ready;
         }
         rhi::error resolved{};
-        frame_commands* const list = owner->resolve_recorder(&commands, resolved);
+        frame_commands* const list = parent->resolve_recorder(&commands, resolved);
         if (resolved != rhi::error::ok) {
             return resolved;
         }
@@ -277,10 +277,10 @@ namespace deren::vulkan {
             return error;
         }
         // Frame targets may only be recorded into the acquired frame's primary commands.
-        if (list != &owner->frame.commands_view) {
-            std::lock_guard const lock(owner->resource.contract_images_mutex);
+        if (list != &parent->frame.commands_view) {
+            std::lock_guard const lock(parent->resource.contract_images_mutex);
             for (auto const& one : images) {
-                if (owner->frame.frame_snapshots.contains(one.resource)) {
+                if (parent->frame.frame_snapshots.contains(one.resource)) {
                     return rhi::error::invalid_argument;
                 }
             }
@@ -291,19 +291,21 @@ namespace deren::vulkan {
         for (auto const& one : images) {
             bool registered;
             {
-                std::lock_guard lock(owner->resource.contract_images_mutex);
-                registered = owner->resource.contract_images.contains(one.resource);
+                std::lock_guard lock(parent->resource.contract_images_mutex);
+                registered = parent->resource.contract_images.contains(one.resource);
             }
             if (registered) {
                 auto loaded = list->demand(*one.resource);
-                if (loaded != rhi::error::ok)
+                if (loaded != rhi::error::ok) {
                     return loaded;
+                }
             }
         }
         for (auto const& one : buffers) {
             auto loaded = list->demand(*one.resource);
-            if (loaded != rhi::error::ok)
+            if (loaded != rhi::error::ok) {
                 return loaded;
+            }
         }
         deren::utility::vessel::vector<VkImageMemoryBarrier2> native_images;
         deren::utility::vessel::vector<VkBufferMemoryBarrier2> native_buffers;
@@ -312,8 +314,8 @@ namespace deren::vulkan {
         for (auto const& one : images) {
             auto barrier = *native_sync::map_image(one.transition);
             {
-                std::lock_guard const lock(owner->resource.contract_images_mutex);
-                if (owner->frame.frame_snapshots.contains(one.resource)) {
+                std::lock_guard const lock(parent->resource.contract_images_mutex);
+                if (parent->frame.frame_snapshots.contains(one.resource)) {
                     auto const& snapshot = *static_cast<frame_snapshot const*>(one.resource);
                     if (!snapshot.current()) {
                         return rhi::error::invalid_argument;
@@ -323,11 +325,11 @@ namespace deren::vulkan {
                     // The graph's UNDEFINED frontier has no previous GPU access;
                     // the backend additionally chains its layout transition after
                     // this submission's acquire-semaphore wait (color output).
-                    if (owner->create_options.native_window && barrier.oldLayout == VK_IMAGE_LAYOUT_UNDEFINED) {
+                    if (parent->create_options.native_window && barrier.oldLayout == VK_IMAGE_LAYOUT_UNDEFINED) {
                         barrier.srcStageMask |= VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
                     }
-                } else if (owner->resource.contract_images.contains(one.resource)) {
-                    barrier.image = static_cast<owned_image const*>(one.resource)->native_handle;
+                } else if (parent->resource.contract_images.contains(one.resource)) {
+                    barrier.image = static_cast<core::image const*>(one.resource)->native_handle;
                 } else {
                     return rhi::error::invalid_argument;
                 }
@@ -336,7 +338,7 @@ namespace deren::vulkan {
         }
         for (auto const& one : buffers) {
             auto barrier = *native_sync::map_buffer(one.transition);
-            barrier.buffer = static_cast<owned_buffer const*>(one.resource)->native;
+            barrier.buffer = static_cast<core::buffer const*>(one.resource)->native;
             native_buffers.push_back(barrier);
         }
         VkDependencyInfo info{};
@@ -345,8 +347,9 @@ namespace deren::vulkan {
         info.pImageMemoryBarriers = native_images.data();
         info.bufferMemoryBarrierCount = static_cast<uint32_t>(native_buffers.size());
         info.pBufferMemoryBarriers = native_buffers.data();
-        if (auto applied = list->apply_operations(); applied != rhi::error::ok)
+        if (auto applied = list->apply_operations(); applied != rhi::error::ok) {
             return applied;
+        }
         vkCmdPipelineBarrier2(list->native(), &info);
         return rhi::error::ok;
     }

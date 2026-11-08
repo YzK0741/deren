@@ -31,7 +31,7 @@ namespace deren::engine {
         /// merely a rejected call. Hence the guard, once, here.
         void push_stage_block(render_environment const& env, auto const& block) {
             if (env.push_block != nullptr && static_cast<bool>(env.target)) {
-                [[maybe_unused]] bool const pushed = env.push_block(env.push_owner, env.target, std::as_bytes(std::span(&block, 1)), env.extra_push_lane);
+                [[maybe_unused]] bool const pushed = env.push_block(env.push_source, env.target, std::as_bytes(std::span(&block, 1)), env.extra_push_lane);
             }
         }
     } // namespace
@@ -88,7 +88,7 @@ namespace deren::engine {
         deren::utility::vessel::vector<deren::engine::meshlet> kept;
         if (cullable) {
             deren::utility::vessel::array<float, 16> view_proj = {};
-            if (env.meshlet_view_proj(env.push_owner, view_proj.data())) {
+            if (env.meshlet_view_proj(env.push_source, view_proj.data())) {
                 // the matrix arrives as 16 floats (the camera UBO's `proj * view`), copied rather than constructed
                 // through glm's type_ptr helpers: same layout, no extra include, and no doubt about transpose
                 glm::mat4 vp = {};
@@ -106,7 +106,7 @@ namespace deren::engine {
                 }
                 // the write has to succeed or the run stays unculled: a half-written culled table would make the
                 // entry read stale records, which is a wrong picture rather than a slow one
-                if (env.meshlet_culled_write(env.push_owner, geometry.meshlet_base, std::as_bytes(std::span(kept)))) {
+                if (env.meshlet_culled_write(env.push_source, geometry.meshlet_base, std::as_bytes(std::span(kept)))) {
                     survivors = static_cast<uint32_t>(kept.size());
                 }
             }
@@ -129,8 +129,8 @@ namespace deren::engine {
         // block below already documents: "no buffer device address", which a mesh session can see in the
         // lanes it was just pushed.
         mesh_geometry_lanes lanes;
-        lanes.vertex_address = geometry.vertex_buffer ? env.buffer_address(env.push_owner, *geometry.vertex_buffer) : 0;
-        lanes.index_address = geometry.index_buffer ? env.buffer_address(env.push_owner, *geometry.index_buffer) : 0;
+        lanes.vertex_address = geometry.vertex_buffer ? env.buffer_address(env.push_source, *geometry.vertex_buffer) : 0;
+        lanes.index_address = geometry.index_buffer ? env.buffer_address(env.push_source, *geometry.index_buffer) : 0;
         // A MESHLET SESSION CARRIES THE MESHLET RUN HERE (docs/mesh_shaders.md step 3): the meshlet entry reads each
         // record's own window, so these two fields describe WHICH RECORDS this draw owns; the buffer addresses and
         // the index width are still the draw's, which is why the lanes carry both kinds of fact.
@@ -173,7 +173,7 @@ namespace deren::engine {
         deren::utility::vessel::array<std::byte, payload_size> payload = {};
         std::memcpy(payload.data() + lanes_at, &lanes, sizeof(lanes));
         std::size_t const bytes = static_cast<std::size_t>(mesh_stage_block_size) - env.mesh_geometry_push_offset;
-        [[maybe_unused]] bool const pushed = env.push_at(env.push_owner, env.target, env.mesh_geometry_push_offset, std::span<std::byte const>(payload.data(), bytes));
+        [[maybe_unused]] bool const pushed = env.push_at(env.push_source, env.target, env.mesh_geometry_push_offset, std::span<std::byte const>(payload.data(), bytes));
     }
 
     void primitive::mesh_dispatch(render_environment const& env, primitive const& geometry, uint32_t const index_count, uint32_t const instance_count, uint32_t const survivors) const {
@@ -203,9 +203,9 @@ namespace deren::engine {
                 // (the shadow pass) dispatch the same primitive with DIFFERENT counts, so they cannot share a
                 // command - whichever wrote last would be the count both passes got.
                 uint32_t const slot = geometry.meshlet_base + (survivors != not_culled ? deren::engine::meshlet_capacity : 0u);
-                [[maybe_unused]] bool const dispatched = env.draw_mesh_tasks_indirect(env.push_owner, env.target, slot, groups, instance_count, 1u);
+                [[maybe_unused]] bool const dispatched = env.draw_mesh_tasks_indirect(env.push_source, env.target, slot, groups, instance_count, 1u);
             } else {
-                [[maybe_unused]] bool const dispatched = env.draw_mesh_tasks(env.push_owner, env.target, groups, instance_count, 1u);
+                [[maybe_unused]] bool const dispatched = env.draw_mesh_tasks(env.push_source, env.target, groups, instance_count, 1u);
             }
         }
     }

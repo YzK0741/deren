@@ -17,10 +17,12 @@ namespace rhi = deren::promise::rhi;
 
 int main(int argc, char** argv) {
     bool with_device = false;
-    for (int i = 1; i < argc; ++i)
+    for (int i = 1; i < argc; ++i) {
         with_device |= std::string_view(argv[i]) == "--with-device";
-    if (!with_device)
+    }
+    if (!with_device) {
         return deren::vk_test::skip("test_submission_completion", "--with-device was not passed: the device lane did not run");
+    }
     rhi::create_info creation{};
     creation.window_width = 64;
     creation.window_height = 64;
@@ -28,14 +30,16 @@ int main(int argc, char** argv) {
     creation.validation_layers = true;
     auto core = deren::engine::load_api_core(creation);
     CHECK(core);
-    if (!core)
+    if (!core) {
         return deren::vk_test::finish("test_submission_completion");
+    }
     auto* submission = rhi::query_extension<rhi::command_submission>(*core);
     CHECK(submission);
     auto* context = core->main_context();
     CHECK(context && deren::vulkan::is_main_context(*context));
-    if (!submission || !context || !deren::vulkan::is_main_context(*context))
+    if (!submission || !context || !deren::vulkan::is_main_context(*context)) {
         return deren::vk_test::finish("test_submission_completion");
+    }
     auto& native = static_cast<deren::vulkan::main_context_view&>(*context);
     CHECK(submission->poll({}) == rhi::error::invalid_argument);
     CHECK(submission->wait({}, 0) == rhi::error::invalid_argument);
@@ -43,22 +47,25 @@ int main(int argc, char** argv) {
     CHECK(!empty && empty.error() == rhi::error::invalid_argument);
     auto commands = core->commands->make_command_buffer({});
     CHECK(commands);
-    if (!commands)
+    if (!commands) {
         return deren::vk_test::finish("test_submission_completion");
+    }
     auto unrecorded = submission->submit(*commands);
     CHECK(!unrecorded && unrecorded.error() == rhi::error::not_ready);
     std::uint32_t const value = 0x1234abcdu;
     rhi::unique_object<rhi::buffer> source{core->resources->create_buffer({.size = 4, .usage = rhi::buffer_usage::storage_coherent, .flags = rhi::to_bits(rhi::buffer_flag::transfer_source), .initial_bytes = std::as_bytes(std::span(&value, 1))})};
     rhi::unique_object<rhi::buffer> destination{core->resources->create_buffer({.size = 12, .usage = rhi::buffer_usage::readback_coherent})};
     CHECK(source && destination);
-    if (!source || !destination)
+    if (!source || !destination) {
         return deren::vk_test::finish("test_submission_completion");
+    }
     auto staging = core->resources->create_buffer({.size = 4, .usage = rhi::buffer_usage::staging_source});
     auto uniform = core->resources->create_buffer({.size = 4, .usage = rhi::buffer_usage::uniform_coherent, .flags = rhi::to_bits(rhi::buffer_flag::transfer_source)});
     auto cached = core->resources->create_buffer({.size = 4, .usage = rhi::buffer_usage::uniform_cached, .flags = rhi::to_bits(rhi::buffer_flag::transfer_destination)});
     CHECK(staging && uniform && cached);
-    if (!staging || !uniform || !cached)
+    if (!staging || !uniform || !cached) {
         return deren::vk_test::finish("test_submission_completion");
+    }
     // Mutate after factory return, with no explicit flush. Initial upload behavior
     // cannot mask missing coherence on the exposed persistent mapping.
     std::uint32_t const mapped_values[] = {0xabcddcbau, 0x98765432u, 0x13572468u};
@@ -66,8 +73,9 @@ int main(int argc, char** argv) {
     for (std::size_t i = 0; i < std::size(uploads); ++i) {
         auto bytes = uploads[i]->mapped();
         CHECK(bytes.size() == 4);
-        if (bytes.size() != 4)
+        if (bytes.size() != 4) {
             return deren::vk_test::finish("test_submission_completion");
+        }
         std::memcpy(bytes.data(), &mapped_values[i], 4);
     }
     CHECK(commands->begin_recording({}) == rhi::error::ok);
@@ -101,8 +109,9 @@ int main(int argc, char** argv) {
             std::atomic<bool> started = false;
             rhi::error waited = rhi::error::not_ready;
             std::thread waiter([&] {started.store(true);waited=submission->wait(saved,2000000000); });
-            while (!started.load())
+            while (!started.load()) {
                 std::this_thread::yield();
+            }
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             auto second = core->commands->make_command_buffer({});
             CHECK(second);
@@ -198,8 +207,9 @@ int main(int argc, char** argv) {
             CHECK(fresh_commands->end_recording() == rhi::error::ok);
             auto fresh_token = fresh->submit(*fresh_commands);
             CHECK(fresh_token && fresh_token->device_id != retired.device_id && fresh_token->device_id != saved.device_id);
-            if (fresh_token)
+            if (fresh_token) {
                 CHECK(fresh->wait(*fresh_token, 2000000000) == rhi::error::ok);
+            }
         }
     }
     core->wait_idle();

@@ -21,10 +21,10 @@ namespace rhi = deren::promise::rhi;
 namespace deren::engine::pass {
 
     gbuffer_debug_pass::~gbuffer_debug_pass() {
-        this->release_owned();
+        this->release_contract();
     }
 
-    void gbuffer_debug_pass::release_owned() noexcept {
+    void gbuffer_debug_pass::release_contract() noexcept {
         this->pass_pipeline.reset();
     }
 
@@ -48,23 +48,23 @@ namespace deren::engine::pass {
             return;
         }
         if (this->built_against != nullptr && this->built_against != context.face) {
-            this->release_owned();
+            this->release_contract();
         }
         this->built_against = context.face;
         if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
-        std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.owner, vertex_shader_name) : std::span<uint8_t const>{};
-        std::span<uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.owner, fragment_shader_name) : std::span<uint8_t const>{};
+        std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.parent, vertex_shader_name) : std::span<uint8_t const>{};
+        std::span<uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.parent, fragment_shader_name) : std::span<uint8_t const>{};
         if (vertex_spirv.empty() || fragment_spirv.empty()) {
-            deren::utility::log("gbuffer debug view disabled: the owner has no {} or {}", vertex_shader_name, fragment_shader_name);
+            deren::utility::log("gbuffer debug view disabled: the parent has no {} or {}", vertex_shader_name, fragment_shader_name);
             return;
         }
         // The debug view reads the stored surface through the frame's heap, so the pipeline is all it builds.
         auto built = pipelines::build_gbuffer_debug(*context.face, rhi::image_format::r16g16b16a16_sfloat, vertex_spirv, fragment_spirv);
         if (!built) {
             deren::utility::log("gbuffer debug view disabled: {}", built.error());
-            this->release_owned();
+            this->release_contract();
             return;
         }
         this->pass_pipeline = std::move(built->debug);

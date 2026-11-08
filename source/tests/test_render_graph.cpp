@@ -22,8 +22,9 @@ namespace {
             CHECK(b.export_resource(image));
             auto plan = b.compile();
             CHECK(plan && plan->execution_order == vector<uint32_t>{latest.index()});
-            if (plan)
+            if (plan) {
                 CHECK(!plan->passes[old.index()].live && plan->resources[0].last_version == 2);
+            }
         }
         for (auto mode : {rg::content_access::preserve_write, rg::content_access::read_write}) {
             rg::builder b;
@@ -33,8 +34,9 @@ namespace {
             b.export_resource(image);
             auto plan = b.compile();
             CHECK(plan && plan->execution_order == vector<uint32_t>({0, 1}));
-            if (plan)
+            if (plan) {
                 CHECK(plan->reads.size() == 1 && plan->reads[0].producer == 0 && plan->reads[0].version == 1);
+            }
         }
         for (auto mode : {rg::content_access::read, rg::content_access::preserve_write, rg::content_access::read_write}) {
             rg::builder b;
@@ -128,8 +130,9 @@ namespace {
             b.order_after(a, c);
             auto plan = b.compile();
             CHECK(plan && plan->execution_order == vector<uint32_t>({1, 2, 0}));
-            if (plan)
+            if (plan) {
                 CHECK(has_edge(*plan, 2, 0, rg::dependency_reason::explicit_order));
+            }
         }
         {
             rg::builder b;
@@ -208,8 +211,9 @@ namespace {
             b.export_resource(previous);
             auto deep = b.compile();
             CHECK(deep && deep->execution_order.size() == 20000 && deep->execution_order.front() == 0 && deep->execution_order.back() == 19999);
-            if (deep)
+            if (deep) {
                 CHECK(deep->resources.back().last_producer == 19999 && deep->reads.back().producer == 19998);
+            }
         }
     }
 } // namespace
@@ -231,7 +235,7 @@ int main(int argc, char** argv) {
     CHECK(!empty.compile());
     CHECK(!empty.import_texture({1, 1}, rg::initial_contents::defined, "late"));
     rg::builder b, other;
-    char name[] = "owned";
+    char name[] = "fixture";
     auto image = b.import_texture({1, 7}, rg::initial_contents::defined, name);
     CHECK(image.has_value());
     name[0] = 'x';
@@ -240,8 +244,8 @@ int main(int argc, char** argv) {
     CHECK(!b.import_texture({1, 7}, rg::initial_contents::undefined, "conflict"));
     CHECK(!b.import_buffer({1, 7}, rg::initial_contents::defined, "wrong kind"));
     CHECK(!b.import_texture({0, 7}, rg::initial_contents::defined, "zero"));
-    CHECK(b.import_texture({2, 7}, rg::initial_contents::defined, "owned"));
-    CHECK(b.import_texture({1, 8}, rg::initial_contents::defined, "owned"));
+    CHECK(b.import_texture({2, 7}, rg::initial_contents::defined, "fixture"));
+    CHECK(b.import_texture({1, 8}, rg::initial_contents::defined, "fixture"));
     CHECK(!other.export_resource(*image));
     CHECK(!b.export_resource(rg::texture_ref{}));
     auto foreign = other.import_texture({1, 7}, rg::initial_contents::defined, "foreign");
@@ -256,7 +260,7 @@ int main(int argc, char** argv) {
     auto plan = b.compile();
     CHECK(plan && plan->resources.size() == 3 && plan->passes.size() == 1);
     if (plan) {
-        CHECK(plan->resources[0].name == "owned");
+        CHECK(plan->resources[0].name == "fixture");
         CHECK(plan->passes[0].accesses.size() == 1);
     }
     content_tests();

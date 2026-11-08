@@ -1,13 +1,14 @@
 #pragma once
 // Included in the primary module after imports; these are private module-owned types.
 namespace deren::engine::subtilis::builder_detail {
-    template<class T> using vector = deren::utility::vessel::vector<T>;
+    template <class T>
+    using vector = deren::utility::vessel::vector<T>;
     struct source {
         vector<std::uint8_t> vertices;
         vector<std::uint32_t> indices;
-        vector<std::array<float,3>> positions;
-        vector<std::array<float,5>> attributes;
-        std::array<double,3> origin{};
+        vector<std::array<float, 3>> positions;
+        vector<std::array<float, 5>> attributes;
+        std::array<double, 3> origin{};
         double scale = 0;
     };
     struct topology {
@@ -15,7 +16,7 @@ namespace deren::engine::subtilis::builder_detail {
         vector<std::uint8_t> seams, unsafe_triangles;
     };
     struct region {
-        vector<std::array<std::uint32_t,2>> boundary, class_components;
+        vector<std::array<std::uint32_t, 2>> boundary, class_components;
         vector<std::uint32_t> boundary_classes, components;
         bool valid = false;
     };
@@ -33,4 +34,4 @@ namespace deren::engine::subtilis::builder_detail {
     std::expected<meshlet, build_error> make_record(source const&, std::span<std::uint32_t const>, std::uint32_t first);
     std::expected<void, build_error> simplify(source const&, vector<logical_node>&, vector<std::uint32_t>&,
                                               build_statistics&, build_options const&);
-}
+} // namespace deren::engine::subtilis::builder_detail

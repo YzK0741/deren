@@ -66,23 +66,25 @@ int main(int argc, char** argv) {
     if (argc > 1) {
         deren::utility::vessel::string output;
         auto mode = std::string_view(argv[1]);
-        if (mode == "--sample-json")
+        if (mode == "--sample-json") {
             output = rg::dump_json(sample());
-        else if (mode == "--sample-text")
+        } else if (mode == "--sample-text") {
             output = rg::dump_text(sample());
-        else if (mode == "--error-json")
+        } else if (mode == "--error-json") {
             output = rg::dump_json(sample_error());
-        else if (mode == "--empty-json")
+        } else if (mode == "--empty-json") {
             output = rg::dump_json(rg::compiled_graph{});
-        else if (mode == "--unicode-json") {
+        } else if (mode == "--unicode-json") {
             auto error = sample_error();
             error.resource_name.clear();
-            for (unsigned i = 0; i < 256; ++i)
+            for (unsigned i = 0; i < 256; ++i) {
                 error.resource_name.push_back(static_cast<char>(i));
+            }
             error.resource_name.append("\xc2\xa2\xe6\xb5\x8b\xf0\x90\x80\x80\xc0\xaf\xed\xa0\x80\xf4\x90\x80\x80\xe2");
             output = rg::dump_json(error);
-        } else
+        } else {
             return 2;
+        }
         std::fwrite(output.data(), 1, output.size(), stdout);
         return 0;
     }

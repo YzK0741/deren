@@ -314,11 +314,13 @@ export namespace deren::engine::render_graph::execution {
         /// Partition one compiled schedule at a named pass, retaining its compiled barriers and owners.
         /// Record prefix then suffix in order; intervening submission must preserve resource contents.
         rhi::error partition_before(std::uint32_t pass, prepared_graph& prefix, prepared_graph& suffix) const noexcept {
-            if (!state_ || &prefix == &suffix || &prefix == this || &suffix == this)
+            if (!state_ || &prefix == &suffix || &prefix == this || &suffix == this) {
                 return rhi::error::invalid_argument;
+            }
             for (std::size_t i = first_; i < state_->graph.execution_order.size() && i < last_; ++i) {
-                if (state_->graph.execution_order[i] != pass)
+                if (state_->graph.execution_order[i] != pass) {
                     continue;
+                }
                 prefix = *this;
                 suffix = *this;
                 prefix.last_ = i;

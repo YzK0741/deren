@@ -295,9 +295,10 @@ namespace {
 
         rhi::unique_object<rhi::acceleration_structure> create_acceleration_structure(rhi::acceleration_structure_desc const& desc) override {
 
-            if (++structure_calls == fail_structure_at)
+            if (++structure_calls == fail_structure_at) {
 
                 return nullptr;
+            }
 
             return rhi::unique_object<rhi::acceleration_structure>{new managed_structure{structure_releases, desc.instance_capacity}};
         }
@@ -309,19 +310,19 @@ namespace {
 
         if constexpr (requires { buffer.lease(); }) {
 
-            auto owner = buffer.lease();
+            auto parent = buffer.lease();
 
-            std::weak_ptr<void const> retained = owner;
+            std::weak_ptr<void const> retained = parent;
 
             auto* raw = buffer.get();
 
-            CHECK(owner && raw);
+            CHECK(parent && raw);
 
             buffer.reset();
 
             CHECK(!buffer && !retained.expired());
 
-            owner.reset();
+            parent.reset();
 
             CHECK(retained.expired());
 
@@ -500,7 +501,7 @@ namespace {
 
         CHECK(storage.size() == 2 && top->resources(0).size() == 0);
 
-        levels.reset(); // The legacy BLAS owner releases while its external core is still alive.
+        levels.reset(); // The legacy BLAS parent releases while its external core is still alive.
 
         top.reset();
 
@@ -549,9 +550,10 @@ namespace {
 
         CHECK(entry->description.structure.flags == rhi::to_bits(rhi::acceleration_structure_flag::allow_update));
 
-        for (int i = 0; i < 20; ++i)
+        for (int i = 0; i < 20; ++i) {
 
             CHECK(levels->add(source));
+        }
 
         CHECK(levels->resources(1).same(storage) && levels->structure(1) == entry->objects[0].structure.get());
 
@@ -625,11 +627,11 @@ namespace {
 
         inputs.mask_bake = true;
 
-        inputs.hooks.owner = &recorded;
+        inputs.hooks.parent = &recorded;
 
         inputs.hooks.mask_ready = [](void*) { return true; };
 
-        inputs.hooks.record_mask_bake = [](void* owner, rhi::command_buffer&, deren::engine::pass::mask_bake_request const&) { ++*static_cast<int*>(owner); };
+        inputs.hooks.record_mask_bake = [](void* parent, rhi::command_buffer&, deren::engine::pass::mask_bake_request const&) { ++*static_cast<int*>(parent); };
 
         raster_test::raster_probe_commands commands;
 
@@ -932,9 +934,10 @@ namespace {
 
         CHECK(prepared == rhi::error::ok);
 
-        if (prepared != rhi::error::ok)
+        if (prepared != rhi::error::ok) {
 
             return;
+        }
 
         auto original = registry.snapshot();
 
@@ -1452,9 +1455,9 @@ int main(int const argc, char** const argv) {
 
     as::bottom_level_structures levels{*core, core};
 
-    rhi::unique_object<rhi::micromap> micromap_owner;
+    rhi::unique_object<rhi::micromap> micromap_handle;
 
-    rhi::unique_object<rhi::acceleration_structure> shaded_owner;
+    rhi::unique_object<rhi::acceleration_structure> shaded_handle;
 
     rhi::unique_object<rhi::acceleration_structure> triangle_soup;
 
@@ -1564,7 +1567,7 @@ int main(int const argc, char** const argv) {
 
             if (micromap != nullptr) {
 
-                micromap_owner = std::move(micromap);
+                micromap_handle = std::move(micromap);
 
                 rhi::acceleration_structure_geometry const with_micromap{
 
@@ -1580,7 +1583,7 @@ int main(int const argc, char** const argv) {
 
                     .index_count = triangle_vertices,
 
-                    .opacity_micromap = micromap_owner.get(),
+                    .opacity_micromap = micromap_handle.get(),
 
                 };
 
@@ -1598,9 +1601,9 @@ int main(int const argc, char** const argv) {
 
                 if (shaded != nullptr) {
 
-                    shaded_owner = std::move(shaded);
+                    shaded_handle = std::move(shaded);
 
-                    CHECK(commands->build_micromap(*micromap_owner) == rhi::error::ok); // ... the micromap FIRST
+                    CHECK(commands->build_micromap(*micromap_handle) == rhi::error::ok); // ... the micromap FIRST
 
                     CHECK(commands->barrier(rhi::barrier_group{
 
@@ -1610,7 +1613,7 @@ int main(int const argc, char** const argv) {
 
                           }) == rhi::error::ok);
 
-                    CHECK(commands->build_acceleration_structure(*shaded_owner) == rhi::error::ok);
+                    CHECK(commands->build_acceleration_structure(*shaded_handle) == rhi::error::ok);
                 }
             }
 

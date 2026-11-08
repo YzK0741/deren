@@ -46,17 +46,20 @@ int main() {
     }
     for (std::uint32_t x : {0u, 1u, 255u, 256u, (1u << 21) - 1, 1u << 21, 0xffffffffu}) {
         for (std::uint32_t y : {0u, 1u, 0xffffffffu}) {
-            for (std::uint32_t z : {0u, 1u, 0xffffffffu})
+            for (std::uint32_t z : {0u, 1u, 0xffffffffu}) {
                 compare({x, y, z});
+            }
         }
     }
     std::mt19937 random(0x4d6f7274);
     std::vector<bytes> expected, actual;
     for (unsigned i = 0; i < 100000; ++i) {
         point p{static_cast<std::uint32_t>(random()), static_cast<std::uint32_t>(random()), static_cast<std::uint32_t>(random())};
-        if ((i & 1u) != 0)
-            for (auto& axis : p)
+        if ((i & 1u) != 0) {
+            for (auto& axis : p) {
                 axis &= (1u << 21) - 1;
+            }
+        }
         compare(p);
         if (i < 10000) {
             expected.push_back(reference(p));

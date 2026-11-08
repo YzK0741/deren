@@ -32,9 +32,9 @@ namespace deren::engine::pass {
         if (this->resolve_pipeline.has_value()) {
             return; // already built for this device
         }
-        std::span<std::uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.owner, shader_name) : std::span<std::uint8_t const>{};
+        std::span<std::uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.parent, shader_name) : std::span<std::uint8_t const>{};
         if (spirv.empty()) {
-            deren::utility::log("visibility resolve disabled: the owner has no {}", shader_name);
+            deren::utility::log("visibility resolve disabled: the parent has no {}", shader_name);
             return;
         }
         // A HEAP-NATIVE COMPUTE PIPELINE: no layout, no set - every descriptor it samples or writes is a heap slot.
@@ -63,8 +63,9 @@ namespace deren::engine::pass {
         }
         // Preserve the endpoint's third word (software/hybrid visibility). Feedback has its own word.
         auto status = io.list->push_constants(12, std::as_bytes(std::span(&mip_feedback_slot, 1)));
-        if (status != rhi::error::ok)
+        if (status != rhi::error::ok) {
             return status;
+        }
         // ONE THREAD PER PIXEL, rounded up: the shader returns early for the threads past the right/bottom edge,
         // and the extent it derives comes from the storage image, which the declaration's `full` rule makes the
         // render extent - so a resize needs nothing newer than the frame.

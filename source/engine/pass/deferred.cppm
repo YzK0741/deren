@@ -33,7 +33,7 @@ import deren.promise.rhi;
 
 import deren.engine.pass;
 import deren.engine.render_resource;
-import deren.engine.pipelines; // vk_pipeline: the RAII owner of the pipeline this pass builds
+import deren.engine.pipelines; // vk_pipeline: the RAII parent of the pipeline this pass builds
 
 export namespace deren::engine::pass {
 
@@ -137,7 +137,7 @@ export namespace deren::engine::pass {
             .pipelines = pipeline_names,
             .resync_viewport = true, // the record step sets the viewport and scissor from io.extent
         };
-        void release_owned() noexcept;
+        void release_contract() noexcept;
         deren::promise::rhi::api_core* built_against = nullptr;
         // called pass_pipeline, not pipeline: the class declares pipeline_handle() and a member of that name
         // would duplicate it and hide the override.

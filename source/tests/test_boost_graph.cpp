@@ -40,8 +40,9 @@ struct graph_probe_parameters {
 static std::atomic_size_t ordinary_new{0};
 void* operator new(std::size_t n) {
     ++ordinary_new;
-    if (auto p = std::malloc(n == 0 ? 1 : n))
+    if (auto p = std::malloc(n == 0 ? 1 : n)) {
         return p;
+    }
     std::abort();
 }
 void* operator new[](std::size_t n) {
@@ -134,8 +135,9 @@ int main(int argc, char** argv) {
         CHECK(stable_order(empty, {none.data()})->empty());
         // No recursive DFS: large chains use explicit project-owned workspace.
         graph deep(20000);
-        for (vertex i = 1; i < 20000; ++i)
+        for (vertex i = 1; i < 20000; ++i) {
             boost::add_edge(i - 1, i, deep);
+        }
         vertex deep_root[] = {19999};
         auto deep_live = reachable(deep, deep_root);
         auto deep_order = stable_order(deep, {deep_live.data()});

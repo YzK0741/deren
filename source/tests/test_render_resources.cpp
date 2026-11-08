@@ -51,7 +51,7 @@ namespace {
     /// a well-formed own binding, the starting point of every malformed one below
     constexpr rr::pass_binding good_binding = {
         .binding = 0,
-        .owner = rr::binding_owner::own,
+        .parent = rr::binding_scope::local,
         .kind = rr::binding_kind::sampled_image,
         .resource = rr::resource_id::taa_history,
         .element = 0,
@@ -238,7 +238,7 @@ int32_t main() {
             // One of the SCENE's resources, reached through the frame's heap rather than owned - deliberately
             // numbered 4, which would be a contiguity error if it were an `own` binding
             {.binding = 4,
-             .owner = rr::binding_owner::shared,
+             .parent = rr::binding_scope::shared,
              .kind = rr::binding_kind::sampled_image,
              .resource = rr::resource_id::scene_textures,
              .access = rr::binding_access::read,
@@ -250,7 +250,7 @@ int32_t main() {
                                 .push = rr::push_block{.offset = 0, .size = 56, .stages = rr::stage_flag::compute}};
         CHECK(rr::validate(io).has_value());
         // ... and the SAME pair with the shared binding marked `own` is refused, because 0,4 is not contiguous
-        deren::utility::vessel::array<rr::pass_binding, 2> const not_contiguous = {good_binding, {.binding = 4, .owner = rr::binding_owner::own, .kind = rr::binding_kind::sampled_image, .resource = rr::resource_id::scene_textures, .access = rr::binding_access::read, .sampler = rr::sampler_hint::post}};
+        deren::utility::vessel::array<rr::pass_binding, 2> const not_contiguous = {good_binding, {.binding = 4, .parent = rr::binding_scope::local, .kind = rr::binding_kind::sampled_image, .resource = rr::resource_id::scene_textures, .access = rr::binding_access::read, .sampler = rr::sampler_hint::post}};
         rr::pass_io const gap = {.name = "shared-like", .bindings = not_contiguous, .targets = {}, .push = std::nullopt};
         CHECK(!rr::validate(gap).has_value());
     }
@@ -394,7 +394,7 @@ int32_t main() {
         CHECK(rr::validate(rr::taa_io).has_value());
         CHECK(rr::taa_io.bindings.size() == 4);
         for (rr::pass_binding const& b : rr::taa_io.bindings) {
-            CHECK(b.owner == rr::binding_owner::own);
+            CHECK(b.parent == rr::binding_scope::local);
             CHECK(b.kind == rr::binding_kind::sampled_image);
             CHECK(b.sampler == rr::sampler_hint::taa);
             // THE STAGE FLAGS COME FROM THE DECLARATION, so a fragment binding declared compute would be one the
@@ -415,7 +415,7 @@ int32_t main() {
         }
         CHECK(descriptors == 4);
         // nothing is shared: the resolve's four inputs are all its own
-        CHECK(std::none_of(rr::taa_io.bindings.begin(), rr::taa_io.bindings.end(), [](rr::pass_binding const& b) { return b.owner != rr::binding_owner::own; }));
+        CHECK(std::none_of(rr::taa_io.bindings.begin(), rr::taa_io.bindings.end(), [](rr::pass_binding const& b) { return b.parent != rr::binding_scope::local; }));
     }
 
     // ---- the THIRD declaration: the scene pass, the first one with NO own bindings (everything it reads is a
@@ -443,12 +443,12 @@ int32_t main() {
     }
     {
         // The two cases that stood here - a set declared as both its own and a shared one, and the same shared
-        // set declared twice - went with the set vocabulary. Their surviving subject is covered: `binding_owner`
+        // set declared twice - went with the set vocabulary. Their surviving subject is covered: `binding_scope`
         // exemption from contiguity above, and duplicate binding numbers just below.
-        deren::utility::vessel::array<rr::pass_binding, 2> const twice = {rr::pass_binding{.binding = 2, .owner = rr::binding_owner::shared, .kind = rr::binding_kind::storage_buffer, .resource = rr::resource_id::cluster_counts, .access = rr::binding_access::write},
-                                                                          rr::pass_binding{.binding = 2, .owner = rr::binding_owner::shared, .kind = rr::binding_kind::storage_buffer, .resource = rr::resource_id::cluster_indices, .access = rr::binding_access::write}};
+        deren::utility::vessel::array<rr::pass_binding, 2> const twice = {rr::pass_binding{.binding = 2, .parent = rr::binding_scope::shared, .kind = rr::binding_kind::storage_buffer, .resource = rr::resource_id::cluster_counts, .access = rr::binding_access::write},
+                                                                          rr::pass_binding{.binding = 2, .parent = rr::binding_scope::shared, .kind = rr::binding_kind::storage_buffer, .resource = rr::resource_id::cluster_indices, .access = rr::binding_access::write}};
         rr::pass_io const io = {.name = "scene", .bindings = twice, .targets = {}, .push = std::nullopt};
-        CHECK(!rr::validate(io).has_value()); // two bindings may not share a number, whatever their owner
+        CHECK(!rr::validate(io).has_value()); // two bindings may not share a number, whatever their parent
     }
 
     // The GI tracer's declaration was asserted here (two shared sets, no own binding, twelve barrier images).
@@ -498,8 +498,9 @@ int32_t main() {
         CHECK(rr::cluster_io.bindings.empty()); // it reaches the shared scene resources through the heap
         CHECK(rr::cluster_io.targets.empty());  // a compute pass
         CHECK(rr::cluster_io.push.has_value()); // heap frame/image indices used by the compute shader
-        if (rr::cluster_io.push)
+        if (rr::cluster_io.push) {
             CHECK(rr::cluster_io.push->offset == 0 && rr::cluster_io.push->size == 8);
+        }
         CHECK(rr::cluster_io.barrier_images.empty()); // it moves no image
         CHECK(rr::cluster_io.barrier_buffers.size() == 2);
         CHECK(rr::cluster_io.barrier_buffers[0].resource == rr::resource_id::cluster_counts);

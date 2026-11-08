@@ -2,26 +2,31 @@
 // Include after document.hpp and vk_test.h. Shared generated document fixtures.
 namespace subtilis_document_fixture {
     inline void put(sub::vector<std::byte>& bytes, std::uint32_t value) {
-        for (unsigned i = 0; i < 4; ++i)
+        for (unsigned i = 0; i < 4; ++i) {
             bytes.push_back(std::byte((value >> (i * 8)) & 255));
+        }
     }
     inline std::uint32_t get(sub::vector<std::byte> const& bytes, size_t at) {
         std::uint32_t value = 0;
-        for (unsigned i = 0; i < 4; ++i)
+        for (unsigned i = 0; i < 4; ++i) {
             value |= std::uint32_t(std::to_integer<unsigned>(bytes[at + i])) << (i * 8);
+        }
         return value;
     }
     inline void replace(sub::string& text, std::string_view from, std::string_view to) {
         auto at = text.find(from);
         CHECK(at != sub::string::npos);
-        if (at != sub::string::npos)
+        if (at != sub::string::npos) {
             text.replace(at, from.size(), to);
+        }
     }
     inline sub::vector<std::byte> glb(sub::string json, sub::vector<std::byte> bin) {
-        while (json.size() % 4)
+        while (json.size() % 4) {
             json += ' ';
-        while (bin.size() % 4)
+        }
+        while (bin.size() % 4) {
             bin.push_back(std::byte{0});
+        }
         sub::vector<std::byte> bytes;
         put(bytes, 0x46546c67);
         put(bytes, 2);
@@ -63,19 +68,27 @@ namespace subtilis_document_fixture {
     // for the preservation/refusal arms that exercise an unknown optional extension.
     inline fixture make_fixture(sub::source_geometry const& s, bool with_unknown_extension = false) {
         fixture f;
-        for (auto const& row : s.positions)
-            for (float v : row)
+        for (auto const& row : s.positions) {
+            for (float v : row) {
                 put(f.bin, std::bit_cast<std::uint32_t>(v));
-        for (auto const& row : s.normals)
-            for (float v : row)
+            }
+        }
+        for (auto const& row : s.normals) {
+            for (float v : row) {
                 put(f.bin, std::bit_cast<std::uint32_t>(v));
-        for (auto const& row : s.uv0)
-            for (float v : row)
+            }
+        }
+        for (auto const& row : s.uv0) {
+            for (float v : row) {
                 put(f.bin, std::bit_cast<std::uint32_t>(v));
-        for (auto v : s.indices)
+            }
+        }
+        for (auto v : s.indices) {
             put(f.bin, v);
+        }
         f.json = R"({"asset":{"version":"2.0"},"buffers":[{"byteLength":@B@}],"bufferViews":[{"buffer":0,"byteLength":@P@},{"buffer":0,"byteOffset":@P@,"byteLength":@P@},{"buffer":0,"byteOffset":@N@,"byteLength":@U@},{"buffer":0,"byteOffset":@I@,"byteLength":@L@}],"accessors":[{"bufferView":0,"componentType":5126,"count":@V@,"type":"VEC3","min":[0,0,0],"max":[2,2,0]},{"bufferView":1,"componentType":5126,"count":@V@,"type":"VEC3"},{"bufferView":2,"componentType":5126,"count":@V@,"type":"VEC2"},{"bufferView":3,"componentType":5125,"count":@C@,"type":"SCALAR"}],"meshes":[{"primitives":[{"attributes":{"POSITION":0,"NORMAL":1,"TEXCOORD_0":2},"indices":3,"material":0}]}],"materials":[{}],"nodes":[{"mesh":0,"translation":[3,0,0]},{"mesh":0,"scale":[2,2,2]}],"scenes":[{"nodes":[0,1]}],"scene":0,"extensionsUsed":["VENDOR_metadata"],"extensions":{"VENDOR_metadata":{"nested":{"u":18446744073709551615,"text":"keep me"}}},"extras":{"custom":[true,null,{"x":7}]}})";
-        auto substitute = [&](std::string_view token, size_t value) { auto text=deren::utility::vessel::to_string(value); while(f.json.find(token)!=sub::string::npos) replace(f.json,token,text); };
+        auto substitute = [&](std::string_view token, size_t value) { auto text=deren::utility::vessel::to_string(value); while(f.json.find(token)!=sub::string::npos){ replace(f.json,token,text);
+} };
         substitute("@B@", f.bin.size());
         substitute("@P@", s.positions.size() * 12);
         substitute("@N@", s.positions.size() * 24);
@@ -84,11 +97,12 @@ namespace subtilis_document_fixture {
         substitute("@L@", s.indices.size() * 4);
         substitute("@V@", s.positions.size());
         substitute("@C@", s.indices.size());
-        if (!with_unknown_extension)
+        if (!with_unknown_extension) {
             f.json = edit_json(f.json, [](auto*, auto* root) {
                 yyjson_mut_obj_remove_key(root, "extensions");
                 yyjson_mut_obj_remove_key(root, "extensionsUsed");
             });
+        }
         return f;
     }
 } // namespace subtilis_document_fixture

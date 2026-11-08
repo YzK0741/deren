@@ -33,7 +33,7 @@ namespace deren::vulkan {
         VkDevice device = VK_NULL_HANDLE;
         VkCommandPool command_pool = VK_NULL_HANDLE;
         /// whether THIS wrapper created command_pool and must destroy it (see make_command_buffer)
-        bool owns_pool = false;
+        bool destroys_pool = false;
 
     public:
         /// THE EMPTY HANDLE, for an owner that fills it in later: the backend's owned command buffer
@@ -42,7 +42,7 @@ namespace deren::vulkan {
         [[nodiscard]] VkCommandBuffer const& get() const noexcept;
         [[nodiscard]] VkCommandBuffer const& operator*() const noexcept;
         void release() noexcept;
-        explicit vk_command_buffer(VkCommandBuffer command_buffer, VkDevice device, VkCommandPool pool, bool owns_pool) noexcept;
+        explicit vk_command_buffer(VkCommandBuffer command_buffer, VkDevice device, VkCommandPool pool, bool destroys_pool) noexcept;
         ~vk_command_buffer() noexcept;
 
         explicit vk_command_buffer(vk_command_buffer& command_buffer) = delete ("vk_command_buffer owns a Vulkan handle; construct a distinct handle or move it with std::move");

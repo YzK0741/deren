@@ -52,8 +52,9 @@ namespace deren::utility::memory {
     }
 
     void deallocate(void* pointer) noexcept {
-        if (!pointer)
+        if (!pointer) {
             return;
+        }
         auto bytes = static_cast<std::uint64_t>(mi_usable_size(pointer));
         live_bytes.fetch_sub(bytes, std::memory_order_relaxed);
         live_allocations.fetch_sub(1, std::memory_order_relaxed);

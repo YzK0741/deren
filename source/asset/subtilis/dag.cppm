@@ -18,8 +18,8 @@ export namespace deren::asset::subtilis {
     public:
         validated_asset(validated_asset&&) noexcept = default;
         validated_asset& operator=(validated_asset&&) noexcept = default;
-        validated_asset(validated_asset const&) = delete("validated_asset is non-copyable: pass it by reference or construct a new instance");
-        validated_asset& operator=(validated_asset const&) = delete("validated_asset is non-copyable: modify the existing instance instead");
+        validated_asset(validated_asset const&) = delete ("validated_asset is non-copyable: pass it by reference or construct a new instance");
+        validated_asset& operator=(validated_asset const&) = delete ("validated_asset is non-copyable: modify the existing instance instead");
         source_geometry const& geometry() const noexcept {
             return geometry_;
         }

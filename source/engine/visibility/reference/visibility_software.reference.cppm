@@ -173,8 +173,9 @@ export namespace deren::engine::visibility::software {
                         if (!usable || visibility::triangle_twice_area(screen[0], screen[1], screen[2]) == 0.0f) {
                             continue; // degenerate or clipped: covers no pixel
                         }
-                        if (!item->double_sided && visibility::triangle_twice_area(screen[0], screen[1], screen[2]) >= 0.0f)
+                        if (!item->double_sided && visibility::triangle_twice_area(screen[0], screen[1], screen[2]) >= 0.0f) {
                             continue;
+                        }
                         float const min_x = std::min({screen[0][0], screen[1][0], screen[2][0]});
                         float const max_x = std::max({screen[0][0], screen[1][0], screen[2][0]});
                         float const min_y = std::min({screen[0][1], screen[1][1], screen[2][1]});

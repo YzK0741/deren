@@ -13,8 +13,9 @@ int main(int argc, char** argv) {
         return 0;
     }
     deren::tools::subtilis::vector<std::string_view> arguments;
-    for (int i = 1; i < argc; ++i)
+    for (int i = 1; i < argc; ++i) {
         arguments.push_back(argv[i]);
+    }
     auto parsed = deren::tools::subtilis::parse_arguments(arguments);
     if (!parsed) {
         std::fprintf(stderr, "deren-subtilis: %s\n", parsed.error().context.c_str());

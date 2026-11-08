@@ -127,8 +127,9 @@ int main() {
     std::swap(leaves[0], leaves[3]);
     auto reordered = make();
     CHECK(reordered);
-    if (reordered)
+    if (reordered) {
         CHECK(reordered->lod0_clusters()[0].first_index == 0);
+    }
     // The asset layer does not impose the packed item's 4096-record admission
     // limit. Runtime import makes that separate fallback decision later.
     deren::utility::vessel::vector<sub::dag_cluster> many(4097);
@@ -163,7 +164,8 @@ int main() {
     std::array<uint32_t, 1> summit{5};
     auto tiered_asset = sub::dag_asset::make(tiered, tiers, layers, lowered, summit, 9, 18);
     CHECK(tiered_asset);
-    if (tiered_asset)
+    if (tiered_asset) {
         CHECK(tiered_asset->maximum_selected_bound() == 6);
+    }
     return deren::vk_test::finish("subtilis_dag_asset");
 }

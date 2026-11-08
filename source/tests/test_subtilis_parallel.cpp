@@ -35,33 +35,37 @@ namespace {
     // ------------------------------------------------------------------ fixtures
     sub::source_geometry curved_grid(unsigned width) {
         sub::source_geometry s;
-        for (unsigned y = 0; y <= width; ++y)
+        for (unsigned y = 0; y <= width; ++y) {
             for (unsigned x = 0; x <= width; ++x) {
                 s.positions.push_back({float(x) / width, float(y) / width, .02f * std::sin(float(x) * .2f) * std::cos(float(y) * .2f)});
                 s.normals.push_back({0, 0, 1});
                 s.uv0.push_back({float(x) / width, float(y) / width});
             }
-        for (unsigned y = 0; y < width; ++y)
+        }
+        for (unsigned y = 0; y < width; ++y) {
             for (unsigned x = 0; x < width; ++x) {
                 auto a = y * (width + 1) + x, b = a + 1, c = a + width + 1, d = c + 1;
                 s.indices.insert(s.indices.end(), {a, b, d, a, d, c});
             }
+        }
         return s;
     }
     // Flat 0..2 grid so make_fixture's fixed accessor min/max [0,0,0]-[2,2,0] stays exact.
     sub::source_geometry document_grid(unsigned width) {
         sub::source_geometry s;
-        for (unsigned y = 0; y <= width; ++y)
+        for (unsigned y = 0; y <= width; ++y) {
             for (unsigned x = 0; x <= width; ++x) {
                 s.positions.push_back({2.f * float(x) / width, 2.f * float(y) / width, 0});
                 s.normals.push_back({0, 0, 1});
                 s.uv0.push_back({float(x) / width, float(y) / width});
             }
-        for (unsigned y = 0; y < width; ++y)
+        }
+        for (unsigned y = 0; y < width; ++y) {
             for (unsigned x = 0; x < width; ++x) {
                 auto a = y * (width + 1) + x, b = a + 1, c = a + width + 1, d = c + 1;
                 s.indices.insert(s.indices.end(), {a, b, d, a, d, c});
             }
+        }
         return s;
     }
     // Curved grid plus one far-away single-triangle island: the island candidate can only be
@@ -84,11 +88,14 @@ namespace {
         return bytes ? std::move(*bytes) : sub::vector<std::byte>{};
     }
     bool same_deterministic_report(sub::build_report const& a, sub::build_report const& b) {
-        if (a.levels.size() != b.levels.size() || a.rejected != b.rejected || a.rounds != b.rounds || a.cross_group_repartitions != b.cross_group_repartitions || a.lod0_only != b.lod0_only || a.known_work_peak_bytes != b.known_work_peak_bytes)
+        if (a.levels.size() != b.levels.size() || a.rejected != b.rejected || a.rounds != b.rounds || a.cross_group_repartitions != b.cross_group_repartitions || a.lod0_only != b.lod0_only || a.known_work_peak_bytes != b.known_work_peak_bytes) {
             return false;
-        for (size_t i = 0; i < a.levels.size(); ++i)
-            if (a.levels[i].triangles != b.levels[i].triangles || a.levels[i].clusters != b.levels[i].clusters || a.levels[i].groups != b.levels[i].groups || a.levels[i].roots != b.levels[i].roots)
+        }
+        for (size_t i = 0; i < a.levels.size(); ++i) {
+            if (a.levels[i].triangles != b.levels[i].triangles || a.levels[i].clusters != b.levels[i].clusters || a.levels[i].groups != b.levels[i].groups || a.levels[i].roots != b.levels[i].roots) {
                 return false;
+            }
+        }
         return true;
     }
     std::string_view text_of(sub::string const& text) {
@@ -96,15 +103,18 @@ namespace {
     }
     constexpr std::array<std::string_view, 11> stage_names{"sourceFingerprint", "leafCluster", "topology", "partition", "boundary", "simplify", "recluster", "candidate", "commit", "validate", "encode"};
     sub::stage_profile const* stage_of(sub::build_report const& report, std::string_view name) {
-        for (auto const& stage : report.stages)
-            if (text_of(stage.name) == name)
+        for (auto const& stage : report.stages) {
+            if (text_of(stage.name) == name) {
                 return &stage;
+            }
+        }
         return nullptr;
     }
     uint64_t rejected_total(sub::build_report const& report) {
         uint64_t total = 0;
-        for (size_t i = 1; i < report.rejected.size(); ++i)
+        for (size_t i = 1; i < report.rejected.size(); ++i) {
             total += report.rejected[i];
+        }
         return total;
     }
     // Structural stage-profile audit: completeness, non-negative/finite values, inclusive flags,
@@ -124,12 +134,14 @@ namespace {
         for (auto name : stage_names) {
             auto* stage = stage_of(report, name);
             CHECK(stage != nullptr);
-            if (!stage)
+            if (!stage) {
                 continue;
+            }
             CHECK(std::isfinite(stage->cpu_ms) && stage->cpu_ms >= 0);
             CHECK(stage->inclusive == (name == "candidate"));
-            if (!stage->inclusive)
+            if (!stage->inclusive) {
                 exclusive += stage->cpu_ms;
+            }
         }
         CHECK(std::abs(report.accumulated_ms - exclusive) <= 1e-9 * std::max(1.0, exclusive));
         auto count_of = [&](std::string_view name) -> uint64_t {auto* s=stage_of(report, name);return s ? s->count : 0; };
@@ -147,8 +159,9 @@ namespace {
             auto* boundary = stage_of(report, "boundary");
             auto* simplify = stage_of(report, "simplify");
             auto* recluster = stage_of(report, "recluster");
-            if (candidate && boundary && simplify && recluster)
+            if (candidate && boundary && simplify && recluster) {
                 CHECK(candidate->cpu_ms + 1e-9 >= boundary->cpu_ms + simplify->cpu_ms + recluster->cpu_ms); // children are a subset
+            }
         }
     }
     tool::path unique_directory() {
@@ -170,8 +183,9 @@ namespace {
     sub::vector<std::byte> read_file(tool::path const& file) {
         auto text = read_text(file);
         sub::vector<std::byte> bytes(text.size());
-        for (size_t i = 0; i < text.size(); ++i)
+        for (size_t i = 0; i < text.size(); ++i) {
             bytes[i] = static_cast<std::byte>(static_cast<unsigned char>(text[i]));
+        }
         return bytes;
     }
     // ------------------------------------------------------------------ scheduler: forced out-of-order completion
@@ -241,8 +255,9 @@ namespace {
             };
             auto outcome = bd::run_ordered(3, 2, estimates, size_t(1) << 40, prepare, commit);
             CHECK(!outcome);
-            if (!outcome)
+            if (!outcome) {
                 CHECK(text_of(outcome.error().context) == "prepare-failed-0"); // lowest index wins, like the serial loop
+            }
             CHECK(commits.empty());
         }
     }
@@ -391,8 +406,9 @@ namespace {
         sub::build_limits limits;
         auto serial = sub::build_serial(source, options, limits);
         CHECK(serial);
-        if (!serial)
+        if (!serial) {
             return;
+        }
         auto reference = encode_payload(*serial);
         CHECK(!reference.empty());
         CHECK(same_deterministic_report(serial->report, serial->report));
@@ -404,8 +420,9 @@ namespace {
             execution.limits = limits;
             auto built = sub::build(source, options, execution);
             CHECK(built);
-            if (!built)
+            if (!built) {
                 continue;
+            }
             auto bytes = encode_payload(*built);
             CHECK(bytes == reference);
             CHECK(built->asset.data().source_hash == serial->asset.data().source_hash);
@@ -434,8 +451,9 @@ namespace {
         again_options.limits = limits;
         auto again = sub::build(source, options, again_options);
         CHECK(again);
-        if (again)
+        if (again) {
             CHECK(encode_payload(*again) == reference);
+        }
         deren::vk_test::write_line("threads 1/2/12: byte-identical payload, {} groups, {} rounds", serial->asset.data().groups.size(), serial->report.rounds);
         // A 1000-thread request is accepted and budgeted down to the task count; payloads still match.
         sub::execution_options many;
@@ -455,8 +473,9 @@ namespace {
         sub::build_options options;
         auto serial = sub::build_serial(source, options, {});
         CHECK(serial);
-        if (!serial)
+        if (!serial) {
             return;
+        }
         CHECK(rejected_total(serial->report) > 0);
         auto reference = encode_payload(*serial);
         for (uint32_t threads : {2u, 12u}) {
@@ -464,8 +483,9 @@ namespace {
             execution.threads = threads;
             auto built = sub::build(source, options, execution);
             CHECK(built);
-            if (!built)
+            if (!built) {
                 continue;
+            }
             CHECK(encode_payload(*built) == reference);
             CHECK(built->report.rejected == serial->report.rejected);
             CHECK(built->asset.data().clusters.size() == serial->asset.data().clusters.size());
@@ -480,8 +500,9 @@ namespace {
         sub::build_options options;
         auto serial = sub::build_serial(source, options, {});
         CHECK(serial);
-        if (!serial)
+        if (!serial) {
             return;
+        }
         auto reference = encode_payload(*serial);
         // Deterministic base known-work (source records + fixed overhead) as recorded by build_serial.
         CHECK(serial->report.known_work_peak_bytes >= 65536);
@@ -503,10 +524,12 @@ namespace {
             witnessed.push_back(built->report.planned_concurrency);
         }
         CHECK(witnessed.size() >= 2);
-        for (size_t i = 1; i < witnessed.size(); ++i)
+        for (size_t i = 1; i < witnessed.size(); ++i) {
             CHECK(witnessed[i] >= witnessed[i - 1]); // more workspace never lowers the planned concurrency
-        if (witnessed.size() >= 2)
+        }
+        if (witnessed.size() >= 2) {
             CHECK(witnessed.back() > witnessed.front()); // shrink genuinely reduces concurrency
+        }
         // Too small to hold even one reduction task or the initial payload: whole-primitive capacity
         // rejection, never a partial asset.
         for (uint64_t tiny : {uint64_t(1), base + 1}) {
@@ -524,8 +547,9 @@ namespace {
         auto source = curved_grid(40);
         auto built = sub::build_serial(source, options, {});
         CHECK(built);
-        if (!built)
+        if (!built) {
             return;
+        }
         check_stage_profile(built->report, 1, {}, &built->asset.data());
         CHECK(built->report.stages.size() == stage_names.size());
         auto minimum = sub::source_geometry{};
@@ -535,8 +559,9 @@ namespace {
         minimum.indices = {0, 1, 2};
         auto unchanged = sub::build_serial(minimum, options, {});
         CHECK(unchanged && unchanged->report.lod0_only);
-        if (unchanged)
+        if (unchanged) {
             check_stage_profile(unchanged->report, 1, {}, &unchanged->asset.data());
+        }
         deren::vk_test::write_line("stage profile: {} stages, accumulated {:.6f} ms, wall {:.6f} ms", built->report.stages.size(), built->report.accumulated_ms, built->report.wall_ms);
     }
     // ------------------------------------------------------------------ builder: invalid thread requests and repeatability
@@ -553,13 +578,15 @@ namespace {
             execution.threads = repeat % 2 ? 2u : 12u;
             auto built = sub::build(source, options, execution);
             CHECK(built);
-            if (!built)
+            if (!built) {
                 continue;
+            }
             auto bytes = encode_payload(*built);
-            if (!reference)
+            if (!reference) {
                 reference = std::move(bytes);
-            else
+            } else {
                 CHECK(bytes == *reference);
+            }
             // A failing build in between must not leak state into the next successful build.
             sub::execution_options failing = execution;
             failing.limits.max_known_work_bytes = 1;
@@ -601,11 +628,13 @@ namespace {
             }
         }
         CHECK(multi_outputs.size() == 3);
-        for (size_t i = 1; i < multi_outputs.size(); ++i)
+        for (size_t i = 1; i < multi_outputs.size(); ++i) {
             CHECK(multi_outputs[i] == multi_outputs[0]);
+        }
         CHECK(single_outputs.size() == 3);
-        for (size_t i = 1; i < single_outputs.size(); ++i)
+        for (size_t i = 1; i < single_outputs.size(); ++i) {
             CHECK(single_outputs[i] == single_outputs[0]);
+        }
         CHECK(!multi_outputs.empty() && multi_outputs[0] != single_outputs[0]);
         deren::vk_test::write_line("converter parallel: 3-primitive and same-mesh 2-instance GLBs byte-identical for threads 1/2/12");
     }
@@ -619,8 +648,9 @@ namespace {
         std::array<std::string_view, 8> threaded_args{"build", input, "-o", threaded_output, "--threads", "12", "--report", threaded_report};
         auto threaded = tool::parse_arguments(threaded_args);
         CHECK(threaded);
-        if (!threaded)
+        if (!threaded) {
             return;
+        }
         CHECK(std::get<tool::build_command>(*threaded).execution.threads == 12);
         CHECK(tool::run(*threaded) == 0);
         {
@@ -651,8 +681,9 @@ namespace {
                     for (size_t i = 0; i < yyjson_arr_size(stages); ++i) {
                         auto* stage = yyjson_arr_get(stages, i);
                         auto* stage_name = yyjson_obj_get(stage, "name");
-                        if (stage_name && yyjson_is_str(stage_name) && std::string_view(yyjson_get_str(stage_name)) == name)
+                        if (stage_name && yyjson_is_str(stage_name) && std::string_view(yyjson_get_str(stage_name)) == name) {
                             found = true;
+                        }
                     }
                     CHECK(found);
                 }
@@ -666,8 +697,9 @@ namespace {
         std::array<std::string_view, 6> default_args{"build", input, "-o", default_output, "--report", default_report};
         auto defaults = tool::parse_arguments(default_args);
         CHECK(defaults);
-        if (!defaults)
+        if (!defaults) {
             return;
+        }
         auto default_threads = std::get<tool::build_command>(*defaults).execution.threads;
         CHECK(default_threads >= 1 && default_threads <= 12);
         CHECK(tool::run(*defaults) == 0);
@@ -709,7 +741,7 @@ int main() {
         std::array<std::optional<sub::vector<std::byte>>, builders> payloads;
         std::vector<std::thread> threads;
         auto source = curved_grid(32);
-        for (size_t i = 0; i < builders; ++i)
+        for (size_t i = 0; i < builders; ++i) {
             threads.emplace_back([&, i] {
                 {
                     std::unique_lock lock(mutex);
@@ -718,24 +750,30 @@ int main() {
                     cv.wait(lock, [&] { return go; });
                 }
                 auto built = sub::build_serial(source, sub::build_options{}, {});
-                if (!built)
+                if (!built) {
                     return;
+                }
                 auto bytes = sub::encode(built->asset.data(), {});
-                if (bytes)
+                if (bytes) {
                     payloads[i] = std::move(*bytes);
+                }
             });
+        }
         {
             std::unique_lock lock(mutex);
             cv.wait(lock, [&] { return ready == builders; });
             go = true;
             cv.notify_all();
         }
-        for (auto& thread : threads)
+        for (auto& thread : threads) {
             thread.join();
-        for (size_t i = 0; i < builders; ++i)
+        }
+        for (size_t i = 0; i < builders; ++i) {
             CHECK(payloads[i].has_value());
-        for (size_t i = 1; i < builders; ++i)
+        }
+        for (size_t i = 1; i < builders; ++i) {
             CHECK(payloads[i] == payloads[0]);
+        }
         deren::vk_test::write_line("concurrent first builds: {} builders, identical payloads", builders);
     }
     ordered_commit_uses_id_order_not_completion_order();

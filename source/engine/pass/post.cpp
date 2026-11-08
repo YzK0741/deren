@@ -26,10 +26,10 @@ namespace deren::engine::pass {
     // =============================================================================================
 
     post_composite_pass::~post_composite_pass() {
-        this->release_owned();
+        this->release_contract();
     }
 
-    void post_composite_pass::release_owned() noexcept {
+    void post_composite_pass::release_contract() noexcept {
         this->composite.reset();
         this->hdr.reset();
     }
@@ -56,16 +56,16 @@ namespace deren::engine::pass {
             return;
         }
         if (this->built_against != nullptr && this->built_against != context.face) {
-            this->release_owned();
+            this->release_contract();
         }
         this->built_against = context.face;
         if (this->composite.has_value()) {
             return; // already built for this device
         }
-        std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.owner, vertex_shader_name) : std::span<uint8_t const>{};
-        std::span<uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.owner, fragment_shader_name) : std::span<uint8_t const>{};
+        std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.parent, vertex_shader_name) : std::span<uint8_t const>{};
+        std::span<uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.parent, fragment_shader_name) : std::span<uint8_t const>{};
         if (vertex_spirv.empty() || fragment_spirv.empty()) {
-            deren::utility::log("post chain disabled: the owner has no {} or {}", vertex_shader_name, fragment_shader_name);
+            deren::utility::log("post chain disabled: the parent has no {} or {}", vertex_shader_name, fragment_shader_name);
             return;
         }
         // The SURFACE's format is one of the two pipelines' (the other renders into R16F bloom levels and into
@@ -74,7 +74,7 @@ namespace deren::engine::pass {
         auto built = pipelines::build_post(*context.face, context.swap_chain_format, vertex_spirv, fragment_spirv);
         if (!built) {
             deren::utility::log("post chain disabled: {}", built.error());
-            this->release_owned();
+            this->release_contract();
             return;
         }
         this->composite = std::move(built->composite);
@@ -102,10 +102,10 @@ namespace deren::engine::pass {
         return this->composite.has_value() ? this->composite->contract : nullptr;
     }
 
-    owned_pipeline post_composite_pass::named_pipeline(std::string_view const name) const noexcept {
+    pipeline_ref post_composite_pass::named_pipeline(std::string_view const name) const noexcept {
         // THE ONE NAME THIS PASS PUBLISHES TO ITS SIBLINGS: the bloom levels' `post_hdr` (see the class note and
         // frame_pass::named_pipeline). Its own name is answered by `pipeline_handle()` above.
-        return name == bloom_pipeline_name ? owned_pipeline{.contract = this->hdr.has_value() ? this->hdr->contract : nullptr} : owned_pipeline{};
+        return name == bloom_pipeline_name ? pipeline_ref{.contract = this->hdr.has_value() ? this->hdr->contract : nullptr} : pipeline_ref{};
     }
 
     deren::promise::rhi::pipeline* post_composite_pass::composite_pipeline() const noexcept {
@@ -239,7 +239,7 @@ namespace deren::engine::pass {
             auto const overlay_begin = pass::make_overlay_begin(
                 rendering_info, io.targets[0].image_handle != nullptr ? io.targets[0].image_handle->format()
                                                                       : deren::promise::rhi::image_format::unknown);
-            this->pass_frame.after_draw.record(this->pass_frame.after_draw.owner, *io.cmd, overlay_begin.begin);
+            this->pass_frame.after_draw.record(this->pass_frame.after_draw.parent, *io.cmd, overlay_begin.begin);
         }
         io.list->end_rendering();
         if (this->pass_frame.after_draw.valid() && this->pass_frame.after_draw.finish != nullptr) {

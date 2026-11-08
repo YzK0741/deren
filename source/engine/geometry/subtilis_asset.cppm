@@ -99,7 +99,7 @@ export namespace deren::engine::subtilis {
             asset result;
             result.clusters_.assign(input.clusters.begin(), input.clusters.end());
             result.groups_.reserve(input.groups.size());
-            deren::utility::vessel::vector<uint8_t> cluster_owner(input.clusters.size(), 0);
+            deren::utility::vessel::vector<uint8_t> cluster_handle(input.clusters.size(), 0);
             deren::utility::vessel::vector<uint8_t> parent(input.groups.size(), 0);
             deren::utility::vessel::vector<uint8_t> root_seen(input.groups.size(), 0);
             deren::utility::vessel::vector<cluster_range> finest;
@@ -133,7 +133,7 @@ export namespace deren::engine::subtilis {
                 };
                 for (std::uint32_t j = 0; j < g.coarse.count; ++j) {
                     auto index = g.coarse.first + j;
-                    if (cluster_owner[index]++) {
+                    if (cluster_handle[index]++) {
                         return std::unexpected(asset_error::invalid_cluster_range);
                     }
                     auto const& c = input.clusters[index];
@@ -181,7 +181,7 @@ export namespace deren::engine::subtilis {
                 }
                 result.groups_.push_back(node);
             }
-            if (std::find(cluster_owner.begin(), cluster_owner.end(), 0) != cluster_owner.end()) {
+            if (std::find(cluster_handle.begin(), cluster_handle.end(), 0) != cluster_handle.end()) {
                 return std::unexpected(asset_error::invalid_cluster_range);
             }
             for (auto root : input.roots) {

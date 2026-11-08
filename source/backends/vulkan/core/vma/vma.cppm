@@ -679,30 +679,34 @@ namespace {
 
 namespace deren::vulkan {
     void vma_allocator::account_allocation(bool image, VmaAllocation allocation, bool adding) noexcept {
-        if (!allocation)
+        if (!allocation) {
             return;
+        }
         VmaAllocationInfo info{};
         vmaGetAllocationInfo(allocator, allocation, &info);
         VkMemoryPropertyFlags properties = 0;
         vmaGetMemoryTypeProperties(allocator, info.memoryType, &properties);
         bool local = (properties & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0;
-        if (adding)
+        if (adding) {
             memory_tracker.add(image, info.size, local);
-        else
+        } else {
             memory_tracker.remove(image, info.size, local);
+        }
     }
     VkResult vma_allocator::allocate_buffer(VkBufferCreateInfo const* info, VmaAllocationCreateInfo const* options,
                                             VkBuffer* buffer, VmaAllocation* allocation, VmaAllocationInfo* detail) {
         auto result = vmaCreateBuffer(allocator, info, options, buffer, allocation, detail);
-        if (result == VK_SUCCESS)
+        if (result == VK_SUCCESS) {
             account_allocation(false, *allocation, true);
+        }
         return result;
     }
     VkResult vma_allocator::allocate_image(VkImageCreateInfo const* info, VmaAllocationCreateInfo const* options,
                                            VkImage* image, VmaAllocation* allocation, VmaAllocationInfo* detail) {
         auto result = vmaCreateImage(allocator, info, options, image, allocation, detail);
-        if (result == VK_SUCCESS)
+        if (result == VK_SUCCESS) {
             account_allocation(true, *allocation, true);
+        }
         return result;
     }
     void vma_allocator::destroy_buffer(VkBuffer buffer, VmaAllocation allocation) {
@@ -714,8 +718,9 @@ namespace deren::vulkan {
         vmaDestroyImage(allocator, image, allocation);
     }
     deren::promise::rhi::resource_memory_statistics vma_allocator::memory_statistics() const noexcept {
-        if (!allocator)
+        if (!allocator) {
             return {};
+        }
         auto result = memory_tracker.snapshot();
         result.supported = true;
         VmaTotalStatistics totals{};
@@ -723,12 +728,14 @@ namespace deren::vulkan {
         result.allocator_allocation_bytes = totals.total.statistics.allocationBytes;
         result.allocator_reserved_bytes = totals.total.statistics.blockBytes;
         for (unsigned type = 0; type < VK_MAX_MEMORY_TYPES; ++type) {
-            if (!totals.memoryType[type].statistics.blockCount)
+            if (!totals.memoryType[type].statistics.blockCount) {
                 continue;
+            }
             VkMemoryPropertyFlags flags = 0;
             vmaGetMemoryTypeProperties(allocator, type, &flags);
-            if (flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+            if (flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) {
                 result.allocator_device_local_reserved_bytes += totals.memoryType[type].statistics.blockBytes;
+            }
         }
         return result;
     }
@@ -830,8 +837,9 @@ namespace deren::vulkan {
         VkFence fence = VK_NULL_HANDLE;
 
         VkFenceCreateInfo fence_create_info = make_fence_info();
-        if (vkCreateFence(this->logical_device, &fence_create_info, nullptr, &fence) != VK_SUCCESS)
+        if (vkCreateFence(this->logical_device, &fence_create_info, nullptr, &fence) != VK_SUCCESS) {
             return VK_NULL_HANDLE;
+        }
 
         return fence;
     }
@@ -915,8 +923,9 @@ namespace deren::vulkan {
         if (staging_info.pMappedData) {
             memcpy(staging_info.pMappedData, data, size);
             if (!this->is_host_coherent(staging_info.memoryType)) {
-                if (vmaFlushAllocation(this->allocator, staging_allocation, 0, size) != VK_SUCCESS)
+                if (vmaFlushAllocation(this->allocator, staging_allocation, 0, size) != VK_SUCCESS) {
                     return false;
+                }
             }
         } else {
             return false;
@@ -944,10 +953,12 @@ namespace deren::vulkan {
         VkCommandBuffer command_buffer = command_pair.second;
 
         auto discard = [&]() {
-            if (fence)
+            if (fence) {
                 vkDestroyFence(this->logical_device, fence, nullptr);
-            if (command_pair.first)
+            }
+            if (command_pair.first) {
                 vkDestroyCommandPool(this->logical_device, command_pair.first, nullptr);
+            }
         };
         if (!command_pair.first || !command_buffer || !fence) {
             discard();
@@ -962,8 +973,9 @@ namespace deren::vulkan {
             [&] { std::lock_guard guard(this->queue_mutex); return vkQueueSubmit(this->upload_queue, 1, &submit_info, fence); },
             [&] { return vkWaitForFences(this->logical_device, 1, &fence, VK_TRUE, UINT64_MAX); },
             [&] { auto reset = vkResetFences(this->logical_device, 1, &fence); return reset == VK_SUCCESS ? vkResetCommandBuffer(command_buffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT) : reset; });
-        if (result.may_be_pending)
+        if (result.may_be_pending) {
             deren::utility::fast_panic("upload wait failed with GPU completion unknown");
+        }
         if (result.status != VK_SUCCESS) {
             deren::utility::error("buffer upload failed: {}", static_cast<int32_t>(result.status));
             discard();
@@ -1043,10 +1055,12 @@ namespace deren::vulkan {
         bool reusable = true;
         auto const release_pair = [&]() {
             if (!reusable) {
-                if (fence)
+                if (fence) {
                     vkDestroyFence(this->logical_device, fence, nullptr);
-                if (command_pair.first)
+                }
+                if (command_pair.first) {
                     vkDestroyCommandPool(this->logical_device, command_pair.first, nullptr);
+                }
                 return;
             }
             std::lock_guard guard(this->cache_mutex);
@@ -1089,8 +1103,9 @@ namespace deren::vulkan {
                 [&] { std::lock_guard guard(this->queue_mutex); return vkQueueSubmit(this->upload_queue, 1, &submit_info, fence); },
                 [&] { return vkWaitForFences(this->logical_device, 1, &fence, VK_TRUE, UINT64_MAX); },
                 [&] { auto reset = vkResetFences(this->logical_device, 1, &fence); return reset == VK_SUCCESS ? vkResetCommandBuffer(command_buffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT) : reset; });
-            if (result.may_be_pending)
+            if (result.may_be_pending) {
                 deren::utility::fast_panic("image upload wait failed with GPU completion unknown");
+            }
             if (result.status != VK_SUCCESS) {
                 reusable = false;
                 deren::utility::error("image upload barrier failed: {}", static_cast<int32_t>(result.status));
@@ -1168,7 +1183,7 @@ namespace deren::vulkan {
     vk_buffer vma_allocator::create_buffer(uint8_t const* data, uint64_t const size_byte, buffer_type const type, VkBufferUsageFlags const extra_usage) {
         // the returned owner carries lambdas that call back into this allocator; they are
         // created here (a member function), so they may call the private free/retain below
-        auto const make_owner = [this](uint64_t const handle) {
+        auto const make_handle = [this](uint64_t const handle) {
             return vk_buffer{handle,
                              [this](uint64_t const h) { this->retain_buffer(h); },
                              [this](uint64_t const h) { this->free_buffer(h); }};
@@ -1255,13 +1270,13 @@ namespace deren::vulkan {
             detail.allocation_info = alloc_info;
             this->buffers.emplace(handle, std::move(detail));
         }
-        return make_owner(handle);
+        return make_handle(handle);
     }
 
     vk_image vma_allocator::create_image(uint8_t const* data, uint64_t const size_byte, image_create_info const& create_info, image_type const type) {
         // the returned owner carries lambdas that call back into this allocator; they are
         // created here (a member function), so they may call the private free/retain below
-        auto const make_owner = [this](uint64_t const handle) {
+        auto const make_handle = [this](uint64_t const handle) {
             return vk_image{handle,
                             [this](uint64_t const h) { this->retain_image(h); },
                             [this](uint64_t const h) { this->free_image(h); }};
@@ -1288,7 +1303,7 @@ namespace deren::vulkan {
             for (auto& [existing_handle, detail] : this->images) {
                 if (detail.type == type && detail.create_info == create_info && detail.digest == digest) {
                     detail.use_count.fetch_add(1); // shared: bump the reference count and reuse
-                    return make_owner(existing_handle);
+                    return make_handle(existing_handle);
                 }
             }
         }
@@ -1390,7 +1405,7 @@ namespace deren::vulkan {
             detail.type = type;
             this->images.emplace(handle, std::move(detail));
         }
-        return make_owner(handle);
+        return make_handle(handle);
     }
 
     buffer_detail const* vma_allocator::get_buffer_detail(uint64_t const handle) {
@@ -1482,7 +1497,7 @@ namespace deren::vulkan {
         std::lock_guard guard(this->access_mutex);
         auto const it = this->buffers.find(handle);
         if (it != this->buffers.end()) {
-            it->second.use_count.fetch_add(1); // one more shared owner
+            it->second.use_count.fetch_add(1); // one more shared parent
         }
     }
 
@@ -1490,7 +1505,7 @@ namespace deren::vulkan {
         std::lock_guard guard(this->access_mutex);
         auto const it = this->images.find(handle);
         if (it != this->images.end()) {
-            it->second.use_count.fetch_add(1); // one more shared owner
+            it->second.use_count.fetch_add(1); // one more shared parent
         }
     }
 

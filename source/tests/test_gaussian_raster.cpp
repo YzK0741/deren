@@ -33,7 +33,7 @@ namespace {
     gs::geometry_record geometry() {
         return {{0, 0, -2, 0.5f}, {0.01f, 0, 0, 0}, {0.04f, 0, 0.01f, 0}};
     }
-    void test_immutable_owners() {
+    void test_immutable_handles() {
         CHECK(!std::is_copy_constructible_v<gs::raster_asset>);
         CHECK(!std::is_copy_assignable_v<gs::raster_asset>);
         CHECK(!std::is_move_constructible_v<gs::raster_asset>);
@@ -57,8 +57,9 @@ namespace {
         auto g = geometry();
         auto f = gs::validate_raster_camera(c);
         CHECK(f);
-        if (f)
+        if (f) {
             CHECK(near(f->forward.z, -1));
+        }
         auto p = gs::project_splat(g, glm::mat4{1}, c);
         CHECK(p);
         if (p) {
@@ -79,43 +80,50 @@ namespace {
         g = geometry();
         p = gs::project_splat(g, glm::scale(glm::mat4{1}, glm::vec3{2}), c);
         CHECK(p);
-        if (p)
+        if (p) {
             CHECK(near(p->covariance.x, 25.3f) && near(p->covariance.z, 100.3f));
+        }
         p = gs::project_splat(g, glm::rotate(glm::mat4{1}, glm::radians(45.0f), glm::vec3{0, 0, 1}), c);
         CHECK(p);
-        if (p)
+        if (p) {
             CHECK(near(p->covariance.x, 62.8f) && near(p->covariance.y, 37.5f) && near(p->covariance.z, 62.8f));
+        }
         g = geometry();
         g.center_opacity[2] = -0.2f;
         p = gs::project_splat(g, glm::mat4{1}, c);
         CHECK(p);
-        if (p)
+        if (p) {
             CHECK(p->visibility == gs::projection_visibility::near_omitted);
+        }
         g = geometry();
         g.center_opacity[2] = 2;
         p = gs::project_splat(g, glm::mat4{1}, c);
         CHECK(p);
-        if (p)
+        if (p) {
             CHECK(p->visibility == gs::projection_visibility::outside);
+        }
         g = geometry();
         g.center_opacity[0] = 5;
         p = gs::project_splat(g, glm::mat4{1}, c);
         CHECK(p);
-        if (p)
+        if (p) {
             CHECK(p->visibility == gs::projection_visibility::outside);
+        }
         g = geometry();
         g.center_opacity[0] = 2.1f;
         p = gs::project_splat(g, glm::mat4{1}, c);
         CHECK(p);
-        if (p)
+        if (p) {
             CHECK(p->visibility == gs::projection_visibility::visible);
+        }
         g = geometry();
         g.covariance_x[0] = 0;
         g.covariance_yz = {0, 0, 0, 0};
         p = gs::project_splat(g, glm::mat4{1}, c);
         CHECK(p);
-        if (p)
+        if (p) {
             CHECK(near(p->covariance.x, 0.3f) && near(p->covariance.z, 0.3f));
+        }
         // A tolerated input eigenvalue error can become a negative screen-space variance.
         g = {{0, -20, -20, 0.5f}, {1e8f, 0, 0, 0}, {10, 10.5f, 10, 0}};
         CHECK(!gs::project_splat(g, glm::mat4{1}, camera()));
@@ -279,42 +287,49 @@ namespace {
         sh.coefficients[2] = 0.2f / c0;
         auto rgb = gs::evaluate_sh(sh, 0, {0, 0, -1});
         CHECK(rgb);
-        if (rgb)
+        if (rgb) {
             CHECK(near(rgb->x, 2) && near(rgb->y, 0) && near(rgb->z, 0.7f));
+        }
         sh = {};
         sh.coefficients[6] = 1;
         rgb = gs::evaluate_sh(sh, 1, {0, 0, 1});
         CHECK(rgb);
-        if (rgb)
+        if (rgb) {
             CHECK(near(rgb->x, 0.9886025f));
+        }
         rgb = gs::evaluate_sh(sh, 1, {0, 0, -1});
         CHECK(rgb);
-        if (rgb)
+        if (rgb) {
             CHECK(near(rgb->x, 0.0113975f));
+        }
         sh = {};
         sh.coefficients[3] = 1;
         rgb = gs::evaluate_sh(sh, 1, {0, 1, 0});
         CHECK(rgb);
-        if (rgb)
+        if (rgb) {
             CHECK(near(rgb->x, 0.0113975f));
+        }
         sh = {};
         sh.coefficients[9] = 1;
         rgb = gs::evaluate_sh(sh, 1, {1, 0, 0});
         CHECK(rgb);
-        if (rgb)
+        if (rgb) {
             CHECK(near(rgb->x, 0.0113975f));
+        }
         sh = {};
         sh.coefficients[18] = 1;
         rgb = gs::evaluate_sh(sh, 2, {0, 0, 1});
         CHECK(rgb);
-        if (rgb)
+        if (rgb) {
             CHECK(near(rgb->x, 1.1307831f));
+        }
         sh = {};
         sh.coefficients[36] = 1;
         rgb = gs::evaluate_sh(sh, 3, {0, 0, 1});
         CHECK(rgb);
-        if (rgb)
+        if (rgb) {
             CHECK(near(rgb->x, 1.2463527f));
+        }
         CHECK(!gs::evaluate_sh(sh, 4, {0, 0, 1}));
         CHECK(!gs::evaluate_sh(sh, 3, {0, 0, 0}));
         sh.coefficients[47] = std::numeric_limits<float>::quiet_NaN();
@@ -479,8 +494,9 @@ namespace {
         deren::utility::vessel::array<gs::raster_instance, 1> one{gs::raster_instance{*asset, glm::mat4{1}, 1}};
         auto frame = gs::prepare_raster_frame(*leased, one, camera(), {}, nullptr, rhi::shared_object<rhi::api_core>{leased});
         CHECK(frame);
-        if (!frame)
+        if (!frame) {
             return;
+        }
         auto* reuse = const_cast<gs::raster_frame*>(frame->get());
         auto old = reuse->resources();
         auto push = reuse->params();
@@ -516,8 +532,9 @@ namespace {
         deren::utility::vessel::array<gs::raster_instance, 1> one{gs::raster_instance{*asset, glm::mat4{1}, 1}};
         auto frame = gs::prepare_raster_frame(*leased, one, camera(), {}, nullptr, leased);
         CHECK(frame);
-        if (!frame)
+        if (!frame) {
             return;
+        }
         auto* reuse = const_cast<gs::raster_frame*>(frame->get());
         auto old = reuse->resources();
         auto promoted = gs::prepare_raster_frame(*leased, one, camera(), {}, reuse, rhi::shared_object<rhi::api_core>{leased});
@@ -560,8 +577,8 @@ namespace {
         bool refused = false;
         deren::utility::vessel::vector<std::byte> bytes;
     };
-    bool push_frame(void* owner, rhi::command_buffer&, std::span<std::byte const> bytes, std::uint32_t) {
-        auto& out = *static_cast<push_probe*>(owner);
+    bool push_frame(void* parent, rhi::command_buffer&, std::span<std::byte const> bytes, std::uint32_t) {
+        auto& out = *static_cast<push_probe*>(parent);
         out.bytes.assign(bytes.begin(), bytes.end());
         return !out.refused;
     }
@@ -571,7 +588,7 @@ namespace {
         auto lease = test_lease(core);
         pass::gaussian_splatting_pass p;
         deren::utility::vessel::array<std::uint8_t, 4> shader = {3, 2, 35, 7};
-        pass::pass_context context{.face = &core, .shader = [](void* owner, std::string_view) { return std::span<std::uint8_t const>{*static_cast<deren::utility::vessel::array<std::uint8_t, 4>*>(owner)}; }, .depth_format = rhi::image_format::depth, .owner = &shader};
+        pass::pass_context context{.face = &core, .shader = [](void* parent, std::string_view) { return std::span<std::uint8_t const>{*static_cast<deren::utility::vessel::array<std::uint8_t, 4>*>(parent)}; }, .depth_format = rhi::image_format::depth, .parent = &shader};
         p.create(context);
         CHECK(p.ready());
         CHECK(core.first_stage == rhi::shader_stage::vertex);
@@ -599,7 +616,7 @@ namespace {
         io.target_storage[1] = {.image_handle = reinterpret_cast<rhi::image*>(std::uintptr_t{3}), .view_handle = reinterpret_cast<rhi::image_view*>(std::uintptr_t{4})};
         io.targets = std::span{io.target_storage}.first(2);
         io.push_block = {&push, push_frame};
-        p.record_owned(io);
+        p.record(io);
         CHECK(p.last_error() == rhi::error::ok);
         CHECK(commands.draws == 1 && commands.vertices == 6 && commands.instances == 2);
         CHECK(commands.color_load == rhi::load_op::load && commands.depth_load == rhi::load_op::load);
@@ -612,24 +629,24 @@ namespace {
         }
         commands.reset();
         push.refused = true;
-        p.record_owned(io);
+        p.record(io);
         CHECK(commands.draws == 0 && commands.barriers == 0 && p.last_error() != rhi::error::ok);
         push.refused = false;
         commands.reset();
         commands.fail_bind = true;
-        p.record_owned(io);
+        p.record(io);
         CHECK(commands.draws == 0 && commands.barriers == 0);
         commands.reset();
         commands.fail_begin = true;
-        p.record_owned(io);
+        p.record(io);
         CHECK(commands.draws == 0 && commands.begins == 1 && commands.ends == 0 && commands.barriers == 2);
         commands.reset();
         commands.fail_barrier = 1;
-        p.record_owned(io);
+        p.record(io);
         CHECK(commands.draws == 0 && commands.begins == 0);
         p.set_frame({});
         commands.reset();
-        p.record_owned(io);
+        p.record(io);
         CHECK(commands.draws == 0 && commands.barriers == 0);
     }
 } // namespace
@@ -655,7 +672,7 @@ int main() {
         auto limited = gs::prepare_gpu_frame(core, items, camera(), {.max_references = 0u});
         CHECK(!limited && limited.error().code == gs::error_code::limit_exceeded);
     }
-    test_immutable_owners();
+    test_immutable_handles();
     test_layout();
     test_projection();
     test_plane_agreement();

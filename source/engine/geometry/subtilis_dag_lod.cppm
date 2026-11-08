@@ -19,12 +19,15 @@ export namespace deren::engine::subtilis {
     };
     namespace dag_lod_detail {
         inline int32_t projection_type(std::array<float, 16> const& p) {
-            if (!lod_detail::finite(p) || p[0] <= 0 || p[5] == 0 || p[1] != 0 || p[2] != 0 || p[3] != 0 || p[4] != 0 || p[6] != 0 || p[7] != 0 || p[14] >= 0)
+            if (!lod_detail::finite(p) || p[0] <= 0 || p[5] == 0 || p[1] != 0 || p[2] != 0 || p[3] != 0 || p[4] != 0 || p[6] != 0 || p[7] != 0 || p[14] >= 0) {
                 return 0;
-            if (p[11] == -1 && p[15] == 0 && p[10] <= -1 && p[12] == 0 && p[13] == 0)
+            }
+            if (p[11] == -1 && p[15] == 0 && p[10] <= -1 && p[12] == 0 && p[13] == 0) {
                 return 1;
-            if (p[11] == 0 && p[15] == 1 && p[10] < 0 && p[8] == 0 && p[9] == 0)
+            }
+            if (p[11] == 0 && p[15] == 1 && p[10] < 0 && p[8] == 0 && p[9] == 0) {
                 return 2;
+            }
             return 0;
         }
         inline double scale_bound(lod_detail::matrix const& m) {
@@ -64,8 +67,9 @@ export namespace deren::engine::subtilis {
         auto clusters = geometry.clusters();
         for (uint32_t id = 0; id < geometry.groups().size(); ++id) {
             ++stats.groups_visited;
-            if (force)
+            if (force) {
                 continue;
+            }
             auto const& g = geometry.groups()[id];
             double depth = -(camera[2] * g.lod.x + camera[6] * g.lod.y + camera[10] * g.lod.z + camera[14]);
             double closest = depth - double(g.lod.radius) * scale;
@@ -75,15 +79,17 @@ export namespace deren::engine::subtilis {
             }
             double metric = g.error;
             metric *= scale * pixels;
-            if (kind == 1)
+            if (kind == 1) {
                 metric /= closest;
+            }
             if (!std::isfinite(metric)) {
                 stats.forced_finest = true;
                 continue;
             }
             double threshold = view.target_error_px;
-            if (history && !(previous && history->decisions[id]))
+            if (history && !(previous && history->decisions[id])) {
                 threshold *= .8;
+            }
             coarsen[id] = metric <= threshold;
         }
         // Close every dependency decision before inspecting output clusters.
@@ -94,8 +100,9 @@ export namespace deren::engine::subtilis {
             if ((c.producer == dag_none || coarsen[c.producer]) && (c.consumer == dag_none || !coarsen[c.consumer])) {
                 if (out.size() >= capacity) {
                     out.clear();
-                    if (history)
+                    if (history) {
                         history->reset();
+                    }
                     return std::unexpected(cut_error::capacity);
                 }
                 out.push_back(c.record);

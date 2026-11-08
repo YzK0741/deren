@@ -82,7 +82,7 @@ export namespace deren::engine::pass {
             .pipelines = pipeline_names,
             .resync_viewport = false,
         };
-        void release_owned() noexcept;
+        void release_contract() noexcept;
         deren::promise::rhi::api_core* built_against = nullptr;
         std::optional<pipelines::pipeline_handle> pass_pipeline = std::nullopt;
         deren::promise::rhi::shader_binding_table_region raygen_region = {};

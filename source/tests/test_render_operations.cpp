@@ -19,8 +19,9 @@ int main() {
     CHECK(written.size() == 2);
     deren::vulkan::detail::merge_push_range(written, 12, 16);
     CHECK(written.size() == 1 && written[0].first == 8 && written[0].second == 24);
-    for (unsigned i = 0; i < 4096; ++i)
+    for (unsigned i = 0; i < 4096; ++i) {
         deren::vulkan::detail::merge_push_range(written, 12, 8);
+    }
     CHECK(written.size() == 1);
     deren::vulkan::detail::merge_push_range(written, 0, 0);
     CHECK(written.size() == 1);
@@ -31,13 +32,15 @@ int main() {
         range_seed = range_seed * 1664525u + 1013904223u;
         auto offset = range_seed % 240;
         auto size = (range_seed >> 24) % 16 + 1;
-        for (auto byte = offset; byte < offset + size; ++byte)
+        for (auto byte = offset; byte < offset + size; ++byte) {
             written_reference[byte] = true;
+        }
         deren::vulkan::detail::merge_push_range(written, offset, size);
         for (unsigned byte = 0; byte < written_reference.size(); ++byte) {
             bool covered = false;
-            for (auto [start, length] : written)
+            for (auto [start, length] : written) {
                 covered |= byte >= start && byte < start + length;
+            }
             CHECK(covered == written_reference[byte]);
         }
     }
@@ -132,8 +135,9 @@ int main() {
     stream.simplify_into(selection, true);
     auto refused = deren::utility::memory::try_allocate(1);
     CHECK(!refused); // the injected failure must still be available after simplification
-    if (refused)
+    if (refused) {
         deren::utility::memory::deallocate(*refused);
+    }
     CHECK(selection.size() == 3);
     CHECK(selection[0]->bytes[0] == std::byte{1});
     CHECK(selection[1]->data[0] == 4 && selection[2]->is_unique());
@@ -192,14 +196,18 @@ int main() {
             std::array<std::uint64_t, 3> state{};
             deren::utility::vessel::vector<std::array<std::uint64_t, 4>> observations;
             for (auto* op : operations) {
-                if (op->kind() == rec::operation_kind::vertex)
+                if (op->kind() == rec::operation_kind::vertex) {
                     state[0] = op->data[0];
-                if (op->kind() == rec::operation_kind::index)
+                }
+                if (op->kind() == rec::operation_kind::index) {
                     state[1] = op->data[0];
-                if (op->kind() == rec::operation_kind::pipeline)
+                }
+                if (op->kind() == rec::operation_kind::pipeline) {
                     state[2] = op->data[0];
-                if (op->kind() == rec::operation_kind::draw_indexed)
+                }
+                if (op->kind() == rec::operation_kind::draw_indexed) {
                     observations.push_back({state[0], state[1], state[2], op->data[0]});
+                }
             }
             return observations;
         };

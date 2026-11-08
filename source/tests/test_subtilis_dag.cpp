@@ -20,8 +20,9 @@ int main() {
     CHECK(sub::validate_structure(input.data, {}));
     auto asset = sub::make_asset(input.source, input.data, {});
     CHECK(asset);
-    if (!asset)
+    if (!asset) {
         return deren::vk_test::finish("subtilis_dag");
+    }
     sub::cut_parameters p;
     auto want = [&](sub::vector<uint32_t> expected) { auto cut=sub::select_cut(*asset,p); CHECK(cut && *cut==expected); };
     p.threshold = 0;
@@ -54,10 +55,12 @@ int main() {
     reject([](auto& x) { x.data.leaves[1] = 0; });
     reject([](auto& x) { x.data.references.push_back(UINT32_MAX); }); // even unused reference cells carry cluster IDs
     reject([](auto& x) { x.data.groups[0].error = std::numeric_limits<float>::quiet_NaN(); });
-    reject([](auto& x) { for(auto& c:x.data.clusters) c.geometry.radius=std::sqrt(2.f); }); // f32 sqrt rounds inward
+    reject([](auto& x) { for(auto& c:x.data.clusters){ c.geometry.radius=std::sqrt(2.f);
+} }); // f32 sqrt rounds inward
     auto outward = cross_dag();
-    for (auto& c : outward.data.clusters)
+    for (auto& c : outward.data.clusters) {
         c.geometry.radius = std::nextafter(std::sqrt(2.f), std::numeric_limits<float>::infinity());
+    }
     CHECK(sub::make_asset(std::move(outward.source), std::move(outward.data), {}));
 
     // Break symmetric errors to make an independently derived mixed cut.

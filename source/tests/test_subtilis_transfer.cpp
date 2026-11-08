@@ -27,15 +27,19 @@ namespace {
     std::shared_ptr<sub::built_geometry const> geometry(unsigned side) {
         std::vector<std::array<float, 8>> vertices;
         std::vector<std::uint32_t> indices;
-        for (unsigned y = 0; y < side; ++y)
-            for (unsigned x = 0; x < side; ++x)
+        for (unsigned y = 0; y < side; ++y) {
+            for (unsigned x = 0; x < side; ++x) {
                 vertices.push_back({float(x), float(y), 0, 0, 0, 1, float(x) / side, float(y) / side});
-        for (unsigned y = 0; y + 1 < side; ++y)
+            }
+        }
+        for (unsigned y = 0; y + 1 < side; ++y) {
             for (unsigned x = 0; x + 1 < side; ++x) {
                 auto a = y * side + x;
-                for (auto i : {a, a + 1, a + side, a + 1, a + side + 1, a + side})
+                for (auto i : {a, a + 1, a + side, a + 1, a + side + 1, a + side}) {
                     indices.push_back(i);
+                }
             }
+        }
         auto result = sub::build({{bytes(std::span(vertices)), 32, unsigned(vertices.size()), bytes(std::span(indices)), 4, 0, unsigned(indices.size()), 0}}, {.max_depth = 1});
         CHECK(result);
         return result ? std::make_shared<sub::built_geometry const>(std::move(*result)) : nullptr;
@@ -44,14 +48,16 @@ namespace {
         auto* submission = rhi::query_extension<rhi::command_submission>(core);
         auto commands = core.commands->make_command_buffer({});
         CHECK(commands && submission);
-        if (!commands || !submission)
+        if (!commands || !submission) {
             return 0;
+        }
         CHECK(commands->begin_recording({}) == rhi::error::ok);
         CHECK(commands->end_recording() == rhi::error::ok);
         auto receipt = submission->submit(*commands);
         CHECK(receipt);
-        if (!receipt)
+        if (!receipt) {
             return 0;
+        }
         CHECK(submission->wait(*receipt, UINT64_MAX) == rhi::error::ok);
         return receipt->sequence;
     }
@@ -60,14 +66,16 @@ namespace {
         auto* capabilities = rhi::query_extension<rhi::device_capabilities>(*core);
         bool const build_supported = capabilities && capabilities->ray_query();
         auto flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::transfer_source);
-        if (build_supported)
+        if (build_supported) {
             flags |= rhi::to_bits(rhi::buffer_flag::acceleration_structure_input);
+        }
         auto result = sub::upload_geometry(core, source, flags, mode);
         CHECK(result);
         auto after = stamp(*core);
         CHECK(after - before == (mode == sub::geometry_upload_mode::synchronous ? 1u : 2u));
-        if (!result)
+        if (!result) {
             return;
+        }
         engine::buffer_transfer_service transfers(core);
         auto batch = transfers.make_batch();
         rhi::buffer* buffers[] = {(*result)->vertices(), (*result)->indices()};
@@ -80,8 +88,9 @@ namespace {
         }
         auto receipt = transfers.submit(std::move(batch));
         CHECK(receipt);
-        if (!receipt)
+        if (!receipt) {
             return;
+        }
         CHECK(receipt->wait(UINT64_MAX) == rhi::error::ok);
         for (unsigned i = 0; i < 2; ++i) {
             auto output = receipt->readback(i);
@@ -90,8 +99,9 @@ namespace {
         if (build_supported) {
             auto* addresses = rhi::query_extension<rhi::device_address>(*core);
             CHECK(addresses);
-            if (!addresses)
+            if (!addresses) {
                 return;
+            }
             rhi::acceleration_structure_geometry input{
                 .vertex_address = addresses->buffer_address(*buffers[0], 0),
                 .vertex_stride = source->vertex_stride(),
@@ -102,8 +112,9 @@ namespace {
             auto structure = core->resources->create_acceleration_structure({.geometries = &input, .geometry_count = 1});
             auto commands = core->commands->make_command_buffer({});
             CHECK(structure && commands);
-            if (!structure || !commands)
+            if (!structure || !commands) {
                 return;
+            }
             auto* space = rhi::query_extension<rhi::descriptor_space>(*core);
             CHECK(space && space->fixed_slots().count);
             if (space && space->fixed_slots().count) {
@@ -116,22 +127,25 @@ namespace {
             auto* submission = rhi::query_extension<rhi::command_submission>(*core);
             auto built = submission->submit(*commands);
             CHECK(built);
-            if (built)
+            if (built) {
                 CHECK(submission->wait(*built, UINT64_MAX) == rhi::error::ok);
+            }
         }
     }
     void benchmark(rhi::create_info desc) {
         desc.validation_layers = false;
         auto core = engine::load_api_core(desc);
         CHECK(core);
-        if (!core)
+        if (!core) {
             return;
+        }
         for (unsigned side : {17u, 129u, 257u}) {
             auto source = geometry(side);
-            if (!source)
+            if (!source) {
                 return;
+            }
             std::array<std::vector<double>, 2> times;
-            for (unsigned trial = 0; trial < 16; ++trial)
+            for (unsigned trial = 0; trial < 16; ++trial) {
                 for (unsigned order = 0; order < 2; ++order) {
                     auto lane = (trial + order) % 2;
                     auto mode = lane ? sub::geometry_upload_mode::batched : sub::geometry_upload_mode::synchronous;
@@ -139,13 +153,16 @@ namespace {
                     auto result = sub::upload_geometry(core, source, rhi::to_bits(rhi::buffer_flag::device_address), mode);
                     auto stop = std::chrono::steady_clock::now();
                     CHECK(result);
-                    if (!result)
+                    if (!result) {
                         return;
-                    if (trial >= 4)
+                    }
+                    if (trial >= 4) {
                         times[lane].push_back(std::chrono::duration<double, std::micro>(stop - start).count());
+                    }
                     // Drop outside the measured region; do not retain an identical-content generation
                     // that would turn the synchronous path into a native content-cache hit.
                 }
+            }
             auto median = [](std::vector<double> values) { std::sort(values.begin(), values.end()); return (values[5] + values[6]) * .5; };
             auto payload = source->vertices().size() + source->indices().size_bytes();
             std::printf("UPLOAD_BENCH side=%u bytes=%zu samples=12 synchronous_us=%.3f batched_us=%.3f\n", side, payload, median(times[0]), median(times[1]));
@@ -158,22 +175,27 @@ int main(int argc, char** argv) {
         device |= std::string_view(argv[i]) == "--with-device";
         timed |= std::string_view(argv[i]) == "--benchmark";
     }
-    if (!device && !timed)
+    if (!device && !timed) {
         return deren::vk_test::skip("test_subtilis_transfer", "--with-device and --benchmark were both absent: the device lane did not run");
+    }
     rhi::create_info desc{};
     desc.window_width = desc.window_height = 64;
     desc.window_visible = false;
     desc.validation_layers = true;
     auto core = engine::load_api_core(desc);
     CHECK(core);
-    if (!core)
+    if (!core) {
         return deren::vk_test::finish("test_subtilis_transfer");
+    }
     auto source = geometry(17);
-    if (!source)
+    if (!source) {
         return deren::vk_test::finish("test_subtilis_transfer");
-    for (auto mode : {sub::geometry_upload_mode::synchronous, sub::geometry_upload_mode::batched, sub::geometry_upload_mode::automatic})
+    }
+    for (auto mode : {sub::geometry_upload_mode::synchronous, sub::geometry_upload_mode::batched, sub::geometry_upload_mode::automatic}) {
         verify(core, source, mode);
-    if (timed)
+    }
+    if (timed) {
         benchmark(desc);
+    }
     return deren::vk_test::finish("test_subtilis_transfer");
 }

@@ -121,14 +121,14 @@ export namespace deren::engine::render_resource::instances {
         }
     };
     class resource_registry {
-        rhi::shared_object<rhi::api_core> device_owner;
+        rhi::shared_object<rhi::api_core> device_handle;
         std::shared_ptr<resource_set const> active;
         uint64_t next_version = 1;
 
     public:
         void drain() const {
-            if (device_owner) {
-                (void)device_owner->wait_idle();
+            if (device_handle) {
+                (void)device_handle->wait_idle();
             }
         }
         resource_snapshot snapshot() const {
@@ -293,10 +293,10 @@ export namespace deren::engine::render_resource::instances {
                     return result;
                 }
             }
-            if (active && device_owner == device && active->entries == next->entries && frame_slots == context.frame_slots) {
+            if (active && device_handle == device && active->entries == next->entries && frame_slots == context.frame_slots) {
                 return rhi::error::ok;
             }
-            device_owner = device;
+            device_handle = device;
             frame_slots = context.frame_slots;
             active = std::move(next);
             return rhi::error::ok;

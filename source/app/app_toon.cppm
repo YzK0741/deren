@@ -40,9 +40,9 @@ export namespace deren::app::detail {
     };
 
     void bake_toon_textures(toon_lookup_state& state);
-    deren::engine::texture_input toon_texture_callback(void* owner, std::string_view material_name, deren::engine::toon_slot lane);
-    glm::vec4 toon_colour_callback(void* owner, std::string_view material_name, deren::engine::toon_colour_lane lane);
-    float toon_scalar_callback(void* owner, std::string_view material_name, std::string_view row, float fallback);
+    deren::engine::texture_input toon_texture_callback(void* parent, std::string_view material_name, deren::engine::toon_slot lane);
+    glm::vec4 toon_colour_callback(void* parent, std::string_view material_name, deren::engine::toon_colour_lane lane);
+    float toon_scalar_callback(void* parent, std::string_view material_name, std::string_view row, float fallback);
     void log_toon_sidecar(deren::gltf::scenes const& scenes, deren::toon::sidecar const& sidecar);
 
 } // namespace deren::app::detail

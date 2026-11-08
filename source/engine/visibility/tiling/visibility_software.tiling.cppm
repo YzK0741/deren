@@ -247,8 +247,9 @@ export namespace deren::engine::visibility::software {
 
     [[nodiscard]] inline std::expected<deren::utility::vessel::vector<tile_entry>, software_error>
     triangle_dispatch_entries(software_tile_lists const& lists) {
-        if (lists.overflow || lists.entry_count != lists.entries.size() || lists.entry_count > software_entry_budget)
+        if (lists.overflow || lists.entry_count != lists.entries.size() || lists.entry_count > software_entry_budget) {
             return std::unexpected(software_error::invalid_reference);
+        }
         auto entries = lists.entries;
         auto less = [](tile_entry const& a, tile_entry const& b) {
             return a.item_index < b.item_index || (a.item_index == b.item_index && a.meshlet_id < b.meshlet_id);
@@ -284,21 +285,26 @@ export namespace deren::engine::visibility::software {
             if (item.item_index >= lookup.size() || lookup[item.item_index] >= 0 || item.candidates.size() > visibility::id_meshlet_capacity ||
                 item.flags.size() != item.candidates.size() || item.primary_count > item.candidates.size() ||
                 item.recovery_count > item.candidates.size() - item.primary_count ||
-                item.hardware.size() < item.primary_count + item.recovery_count)
+                item.hardware.size() < item.primary_count + item.recovery_count) {
                 return false;
-            for (auto flag : item.flags)
-                if (flag != 0u && flag != 1u && flag != 3u)
+            }
+            for (auto flag : item.flags) {
+                if (flag != 0u && flag != 1u && flag != 3u) {
                     return false;
+                }
+            }
             lookup[item.item_index] = static_cast<int32_t>(i);
             masks[i].resize(item.candidates.size(), 0u);
         }
         for (auto const& entry : software) {
-            if (entry.item_index >= lookup.size() || lookup[entry.item_index] < 0)
+            if (entry.item_index >= lookup.size() || lookup[entry.item_index] < 0) {
                 return false;
+            }
             auto const i = static_cast<std::size_t>(lookup[entry.item_index]);
             auto const& item = items[i];
-            if (entry.meshlet_id >= item.candidates.size() || masks[i][entry.meshlet_id] || item.flags[entry.meshlet_id] == 1u)
+            if (entry.meshlet_id >= item.candidates.size() || masks[i][entry.meshlet_id] || item.flags[entry.meshlet_id] == 1u) {
                 return false;
+            }
             masks[i][entry.meshlet_id] = 1u;
         }
         for (std::size_t i = 0u; i < items.size(); ++i) {
@@ -308,15 +314,18 @@ export namespace deren::engine::visibility::software {
                 auto const expected = phase == 0u ? item.primary_count : item.recovery_count;
                 std::uint32_t count = 0u;
                 for (std::size_t c = 0u; c < item.candidates.size(); ++c) {
-                    if (item.flags[c] != phase || masks[i][c])
+                    if (item.flags[c] != phase || masks[i][c]) {
                         continue;
+                    }
                     if (count >= expected || std::bit_cast<std::array<std::uint32_t, 12>>(item.hardware[offset + count]) !=
-                                                 std::bit_cast<std::array<std::uint32_t, 12>>(item.candidates[c]))
+                                                 std::bit_cast<std::array<std::uint32_t, 12>>(item.candidates[c])) {
                         return false;
+                    }
                     ++count;
                 }
-                if (count != expected)
+                if (count != expected) {
                     return false;
+                }
             }
         }
         return true;
@@ -328,37 +337,47 @@ export namespace deren::engine::visibility::software {
                                                        std::span<projected_record const> projections, deren::utility::vessel::vector<tile_entry>& output,
                                                        std::uint32_t budget = software_entry_budget) {
         if (budget == 0u || budget > software_entry_budget || output.size() > budget ||
-            split.hardware_count > split.record_count || split.software_count != split.record_count - split.hardware_count)
+            split.hardware_count > split.record_count || split.software_count != split.record_count - split.hardware_count) {
             return false;
-        if (split.software_count == 0u)
+        }
+        if (split.software_count == 0u) {
             return true; // includes oversized all-hardware runs
+        }
         if (split.item_index >= visibility::id_item_capacity || split.record_count > visibility::id_meshlet_capacity ||
-            order.size() != split.record_count || projections.size() != split.record_count)
+            order.size() != split.record_count || projections.size() != split.record_count) {
             return false;
+        }
         std::array<std::uint64_t, visibility::id_meshlet_capacity / 64u> seen{};
         std::uint32_t needed = 0u;
         for (std::uint32_t position = 0u; position < split.record_count; ++position) {
             auto const original = order[position];
-            if (original >= split.record_count)
+            if (original >= split.record_count) {
                 return false;
+            }
             auto const mask = std::uint64_t{1u} << (original % 64u);
-            if ((seen[original / 64u] & mask) != 0u)
+            if ((seen[original / 64u] & mask) != 0u) {
                 return false;
+            }
             seen[original / 64u] |= mask;
             if (position >= split.hardware_count) {
                 auto const& projection = projections[original];
-                if (!projection.finite || !projection.front_of_near)
+                if (!projection.finite || !projection.front_of_near) {
                     return false;
-                if (projection.on_screen)
+                }
+                if (projection.on_screen) {
                     ++needed;
+                }
             }
         }
-        if (needed > budget - output.size())
+        if (needed > budget - output.size()) {
             return false;
+        }
         output.reserve(output.size() + needed);
-        for (std::uint32_t position = split.hardware_count; position < split.record_count; ++position)
-            if (projections[order[position]].on_screen)
+        for (std::uint32_t position = split.hardware_count; position < split.record_count; ++position) {
+            if (projections[order[position]].on_screen) {
                 output.push_back({.item_index = split.item_index, .meshlet_id = position});
+            }
+        }
         return true;
     }
 
@@ -368,11 +387,14 @@ export namespace deren::engine::visibility::software {
         auto const offset = software_tiles_entries_word(list.grid.tile_count());
         if (list.overflow || list.entry_budget == 0u || list.entry_budget > software_entry_budget ||
             list.entry_count != list.entries.size() || list.entry_count > list.entry_budget ||
-            static_cast<std::uint64_t>(offset) + list.entry_count * 2ull > lane.size())
+            static_cast<std::uint64_t>(offset) + list.entry_count * 2ull > lane.size()) {
             return false;
-        for (auto const& entry : list.entries)
-            if (entry.item_index >= visibility::id_item_capacity || entry.meshlet_id >= visibility::id_meshlet_capacity)
+        }
+        for (auto const& entry : list.entries) {
+            if (entry.item_index >= visibility::id_item_capacity || entry.meshlet_id >= visibility::id_meshlet_capacity) {
                 return false;
+            }
+        }
         lane[0] = list.grid.tiles_x;
         lane[1] = list.grid.tiles_y;
         lane[2] = list.entry_count;
@@ -403,7 +425,7 @@ export namespace deren::engine::visibility::software {
             struct filed_item {
                 item_split split{};
                 deren::utility::vessel::vector<std::uint8_t> software;
-                deren::utility::vessel::vector<projected_record> owned_projections;
+                deren::utility::vessel::vector<projected_record> projection_storage;
                 std::span<projected_record const> projections; // indexed by ORIGINAL record index
             };
             deren::utility::vessel::vector<filed_item> filed;
@@ -419,8 +441,8 @@ export namespace deren::engine::visibility::software {
                 split.record_count = static_cast<std::uint32_t>(item.records.size());
                 entry_set.software.assign(item.records.size(), 0u);
                 if (item.cached_projections.empty()) {
-                    entry_set.owned_projections.resize(item.records.size());
-                    entry_set.projections = entry_set.owned_projections;
+                    entry_set.projection_storage.resize(item.records.size());
+                    entry_set.projections = entry_set.projection_storage;
                 } else {
                     entry_set.projections = item.cached_projections;
                 }
@@ -441,8 +463,9 @@ export namespace deren::engine::visibility::software {
                     bool const subpixel = projection.finite && projection.front_of_near &&
                                           (metric == routing_metric::triangle_edge ? projection.triangle_edge_upper_px : projection.diameter_upper_px) < static_cast<double>(threshold_px);
                     entry_set.software[index] = subpixel ? 1u : 0u;
-                    if (item.cached_projections.empty())
-                        entry_set.owned_projections[index] = projection;
+                    if (item.cached_projections.empty()) {
+                        entry_set.projection_storage[index] = projection;
+                    }
                     if (subpixel) {
                         ++split.software_count;
                         split.software_triangles += item.records[index].index_count / 3u;

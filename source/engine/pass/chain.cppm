@@ -71,7 +71,7 @@ export namespace deren::engine::pass {
          * (the running order) the same thing as the lifetime order. `emplace` is how a renderer hands a pass
          * over; `add` still takes a pass it does NOT own, for a test or for a pass that lives elsewhere.
          */
-        deren::utility::vessel::vector<std::unique_ptr<frame_pass>> owned = {};
+        deren::utility::vessel::vector<std::unique_ptr<frame_pass>> pass_storage = {};
         // and MSVC /W4 reports C4458 (an error under /WX).
 
     public:
@@ -140,7 +140,7 @@ export namespace deren::engine::pass {
         PassT& emplace(Args&&... args) {
             std::unique_ptr<PassT> pass = std::make_unique<PassT>(std::forward<Args>(args)...);
             PassT& reference = *pass;
-            this->owned.push_back(std::move(pass));
+            this->pass_storage.push_back(std::move(pass));
             this->passes.push_back(&reference);
             return reference;
         }

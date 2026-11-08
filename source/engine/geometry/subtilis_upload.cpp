@@ -64,7 +64,7 @@ namespace deren::engine::subtilis {
             return std::unexpected(upload_rhi::error::invalid_argument);
         }
         auto* scopes = upload_rhi::query_extension<upload_rhi::scoped_synchronization>(*device);
-        bool const available = device.owns_lifetime() && scopes && upload_rhi::query_extension<upload_rhi::command_submission>(*device);
+        bool const available = device.retains_lifetime() && scopes && upload_rhi::query_extension<upload_rhi::command_submission>(*device);
         if (mode == geometry_upload_mode::batched && !available) {
             return std::unexpected(upload_rhi::error::unsupported);
         }

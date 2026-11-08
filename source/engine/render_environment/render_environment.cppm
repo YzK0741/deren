@@ -38,7 +38,7 @@ namespace deren::engine {
      *   pipeline for the shadow pass) - the fallback a default-semantics primitive wants
      * - bind: injected binding action; takes the pipeline name and records the real
      *   vkCmdBindPipeline (+ any per-bind dynamic state) on this session's command buffer
-     * - push_owner / push_block: how a draw sends its push block, which travels as DATA
+     * - push_source / push_block: how a draw sends its push block, which travels as DATA
      *   through vkCmdPushDataEXT because no heap-native pipeline has a layout
      * - bound: the pipeline name currently bound in this session (empty = nothing bound yet)
      * - two_sided: force two-sided rasterization on this session (the shadow pass; see below)
@@ -154,8 +154,8 @@ namespace deren::engine {
          * `push_stage_block` - derives the raw handle it needs through the escape itself. A native parameter here
          * would put that conversion in `primitive.cpp`, which is exactly where the contract does not belong.
          */
-        void* push_owner = nullptr;
-        bool (*push_block)(void* owner, recording_target const& target, std::span<std::byte const> bytes, uint32_t extra_lane) = nullptr;
+        void* push_source = nullptr;
+        bool (*push_block)(void* parent, recording_target const& target, std::span<std::byte const> bytes, uint32_t extra_lane) = nullptr;
         /**
          * THE ONE LANE A PASS MAY ADD TO ITS PUSH BLOCK (see `surface.slang`'s `PushConstants::spare_lane`).
          *
@@ -209,11 +209,11 @@ namespace deren::engine {
         bool meshlet_culled = false;
         /// the camera's `proj * view` as 16 floats, column-major, for the host-side cull; null means the session
         /// cannot cull and falls back to dispatching the whole run, which is always correct
-        bool (*meshlet_view_proj)(void* owner, float* out16) = nullptr;
+        bool (*meshlet_view_proj)(void* parent, float* out16) = nullptr;
         /// write this frame's compacted run of a primitive's meshlets: @p records are the survivors, @p base is where
         /// the run starts in the table (the primitive's `meshlet_base`), and they go into the frame's own lane of the
         /// culled table. Answers false when the run does not fit, which the caller answers by not culling.
-        bool (*meshlet_culled_write)(void* owner, uint32_t base, std::span<std::byte const> records) = nullptr;
+        bool (*meshlet_culled_write)(void* parent, uint32_t base, std::span<std::byte const> records) = nullptr;
         /**
          * WHERE THIS SESSION'S STAGE BLOCK STARTS RECEIVING THE GEOMETRY LANES, in bytes - i.e. the end of the last
          * member the block's earlier pushes covered (see deren::engine::primitive's `mesh_geometry_push_offset_*` and
@@ -237,9 +237,9 @@ namespace deren::engine {
         /// one - i.e. to keep reaching into the backend for exactly the thing the migration removes. The
         /// `owner` void* is the runtime's own state, and the address comes back through
         /// `device_address::buffer_address()` on that side (no native buffer handle is involved).
-        std::uintptr_t (*buffer_address)(void* owner, deren::promise::rhi::buffer const& buffer) = nullptr;
-        bool (*push_at)(void* owner, recording_target const& target, uint32_t offset, std::span<std::byte const> bytes) = nullptr;
-        bool (*draw_mesh_tasks)(void* owner, recording_target const& target, uint32_t groups_x, uint32_t groups_y, uint32_t groups_z) = nullptr;
+        std::uintptr_t (*buffer_address)(void* parent, deren::promise::rhi::buffer const& buffer) = nullptr;
+        bool (*push_at)(void* parent, recording_target const& target, uint32_t offset, std::span<std::byte const> bytes) = nullptr;
+        bool (*draw_mesh_tasks)(void* parent, recording_target const& target, uint32_t groups_x, uint32_t groups_y, uint32_t groups_z) = nullptr;
         /**
          * THE SAME DISPATCH, WITH ITS COUNTS IN A BUFFER (docs/mesh_shaders.md step 3, second mechanism). `slot` is
          * the primitive's own command record - its `meshlet_base` - so a COMPUTE culling pass can rewrite that
@@ -247,7 +247,7 @@ namespace deren::engine {
          * `draw_mesh_tasks` wherever a mesh session is built; null means the device has no indirect entry point, and
          * the dispatch then goes through the direct call (which the runtime logs once rather than hiding).
          */
-        bool (*draw_mesh_tasks_indirect)(void* owner, recording_target const& target, uint32_t slot, uint32_t groups_x, uint32_t groups_y, uint32_t groups_z) = nullptr;
+        bool (*draw_mesh_tasks_indirect)(void* parent, recording_target const& target, uint32_t slot, uint32_t groups_x, uint32_t groups_y, uint32_t groups_z) = nullptr;
         std::string_view bound = {}; // currently bound name
         // injected cull-mode setter (core dynamic state since Vulkan 1.3, so one pipeline serves
         // single- and double-sided materials)

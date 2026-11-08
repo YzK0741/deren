@@ -75,8 +75,8 @@ namespace {
         rhi::pipeline* pipeline_handle() const noexcept override {
             return const_cast<pipeline*>(&state);
         }
-        pass::owned_pipeline named_pipeline(std::string_view name) const noexcept override {
-            return composite && name == "post_hdr" ? pass::owned_pipeline{.contract = const_cast<pipeline*>(&state)} : pass::owned_pipeline{};
+        pass::pipeline_ref named_pipeline(std::string_view name) const noexcept override {
+            return composite && name == "post_hdr" ? pass::pipeline_ref{.contract = const_cast<pipeline*>(&state)} : pass::pipeline_ref{};
         }
     };
     std::shared_ptr<sub::built_geometry const> source() {
@@ -120,8 +120,9 @@ int exercise(bool adopted) {
             if (asset) {
                 auto built = sub::built_geometry::adopt_imported(std::make_shared<sub::imported_asset const>(std::move(*asset)));
                 CHECK(built);
-                if (built)
+                if (built) {
                     cpu = std::make_shared<sub::built_geometry const>(std::move(*built));
+                }
             }
         }
     }
@@ -155,13 +156,13 @@ int exercise(bool adopted) {
         pass::character_forward_pass* character;
     } context{&scene_pass, &character};
     deren::engine::runtime::chain_wiring wiring{};
-    wiring.owner = &context;
+    wiring.parent = &context;
     wiring.feature_active = [](void*, auto const& facts, std::string_view name) { return (name == "scene" && facts.gbuffer_pipeline) || (name == "character_forward" && facts.character_forward_pending); };
-    wiring.prepare = [](void* owner, auto const& services, std::string_view name) {
+    wiring.prepare = [](void* parent, auto const& services, std::string_view name) {
         if (name == "scene") {
-            static_cast<struct context*>(owner)->scene->set_frame(services.make_scene_frame(services.owner));
+            static_cast<struct context*>(parent)->scene->set_frame(services.make_scene_frame(services.parent));
         } else if (name == "character_forward") {
-            static_cast<struct context*>(owner)->character->set_frame(services.make_character_forward_frame(services.owner));
+            static_cast<struct context*>(parent)->character->set_frame(services.make_character_forward_frame(services.parent));
         }
     };
     runtime.set_pass_chain(chain, wiring);
@@ -360,19 +361,22 @@ int exercise(bool adopted) {
         CHECK(row_at(conflict, 0).meshlet_table == 1 && row_at(conflict, 1).meshlet_table == 0);
     }
     deren::utility::wait_log_all();
-    if (adopted)
+    if (adopted) {
         CHECK(hzb_observations > 0);
+    }
     if (adopted) {
         // Use the real upload cursor, not the pure admission helper. The large
         // filler is offscreen; only the overflowing object must reject the frame.
         uint32_t used = 0;
-        for (auto const& root : scene.roots)
+        for (auto const& root : scene.roots) {
             used += static_cast<deren::engine::primitive*>(root.primitive_leaf.get())->meshlet_count;
+        }
         std::array<std::array<float, 20>, 3> vertices{};
         vertices[1][0] = vertices[2][1] = 1;
         deren::utility::vessel::vector<uint32_t> indices(size_t(deren::engine::meshlet_capacity - used - 1) * deren::engine::meshlet_max_indices);
-        for (size_t i = 0; i < indices.size(); ++i)
+        for (size_t i = 0; i < indices.size(); ++i) {
             indices[i] = static_cast<uint32_t>(i % 3);
+        }
         deren::engine::primitive_create_info raw{};
         raw.vertex_data = {reinterpret_cast<uint8_t const*>(vertices.data()), sizeof(vertices)};
         raw.vertex_stride = 80;
@@ -405,8 +409,9 @@ int exercise(bool adopted) {
         if (!fallback_frame.segments.empty()) {
             auto env = runtime.make_scene_environment(&runtime, deren::engine::recording_target{fallback_frame.segments.front().buffer}, true);
             env.push_at = [](void*, deren::engine::recording_target const&, uint32_t offset, std::span<std::byte const> bytes) {
-                if (offset == deren::engine::mesh_geometry_push_offset_scene && bytes.size() == deren::engine::mesh_stage_block_size - offset)
+                if (offset == deren::engine::mesh_geometry_push_offset_scene && bytes.size() == deren::engine::mesh_stage_block_size - offset) {
                     std::memcpy(&fallback_lanes, bytes.data() + deren::engine::mesh_geometry_lanes_offset - offset, sizeof(fallback_lanes));
+                }
                 return true;
             };
             overflow->draw(env);

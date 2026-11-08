@@ -214,10 +214,11 @@ namespace {
             auto const key = arg.substr(0, arg.find('='));
             if (key == "--capture-radiance-cube" || key == "--probe-position" || key == "--probe-size" || key == "--probe-near" || key == "--probe-far") {
                 auto value = take_value(i, arg, key);
-                if (!value)
+                if (!value) {
                     options.radiance.invalid = true;
-                else
+                } else {
                     deren::app::radiance_capture::parse_option(options.radiance, key, *value);
+                }
                 continue;
             }
             if (arg == "--capture-windowed") {
@@ -399,7 +400,7 @@ namespace deren::app {
         glfw_window_host const window{settings.render.window_width, settings.render.window_height,
                                       settings.render.window_title.c_str(), capture.frames == 0, offscreen};
         deren::app::startup_splash splash{capture.frames == 0 && !settings.render.offscreen};
-        splash.attach_owner(window.window);
+        splash.attach_window(window.window);
 
         // startup banner: version (single source: project(VERSION) in CMakeLists.txt)
         deren::utility::log("deren {}.{}.{}", DEREN_VERSION_MAJOR, DEREN_VERSION_MINOR, DEREN_VERSION_PATCH);
@@ -678,10 +679,13 @@ namespace deren::app {
         }
         if (probe.enabled) {
             bool dynamic = gaussian_only || !scenes->animations.empty() || !scenes->skins.empty();
-            for (auto const& [id, node] : scenes->node_by_source)
-                for (auto const& mesh : node->meshes)
-                    for (auto const& primitive : mesh.primitives)
+            for (auto const& [id, node] : scenes->node_by_source) {
+                for (auto const& mesh : node->meshes) {
+                    for (auto const& primitive : mesh.primitives) {
                         dynamic |= !primitive.targets.empty();
+                    }
+                }
+            }
             if (dynamic) {
                 deren::utility::error("radiance capture refuses animation, skins, morph targets and PLY");
                 return 2;
@@ -1190,8 +1194,9 @@ namespace deren::app {
         auto const stage2_done = std::chrono::steady_clock::now();
         deren::utility::log("  IBL (prefilter/irradiance/BRDF LUT) + material resolve, parallel wall: {:.1f} ms", std::chrono::duration<double, std::milli>(stage2_done - stage2_start).count());
 
-        if (!deren::engine::environment_detail::valid_half_radiance(prefiltered) || !deren::engine::environment_detail::valid_half_radiance(irradiance))
+        if (!deren::engine::environment_detail::valid_half_radiance(prefiltered) || !deren::engine::environment_detail::valid_half_radiance(irradiance)) {
             deren::utility::panic(std::source_location::current(), "IBL exceeds finite half-float radiance; reduce environment_intensity");
+        }
         deren::utility::vessel::vector<uint8_t> const env_bytes = deren::engine::to_half_rgba(prefiltered);
         deren::utility::vessel::vector<uint8_t> const irr_bytes = deren::engine::to_half_rgba(irradiance);
         deren::utility::vessel::vector<uint8_t> const lut_bytes = deren::engine::to_half_rg(brdf_lut);
@@ -1382,8 +1387,9 @@ namespace deren::app {
                                 runtime.camera.target.z);
         };
 
-        if (probe.enabled)
+        if (probe.enabled) {
             deren::utility::log("radiance world position ({},{},{}), scene import shift ({},{},{})", probe.position.x, probe.position.y, probe.position.z, scene_import_shift.x, scene_import_shift.y, scene_import_shift.z);
+        }
 
         // THE TOON LOOKUP joins the loader's sidecar/extras data with the runtime's lookup contract. Its
         // tables, procedural bakes and three callbacks are defined after main(), at the end of this file;
@@ -1495,7 +1501,7 @@ namespace deren::app {
             deren::gltf::scene_node_iterator const copy_node_last;
             deren::gltf::drawable_iterator const copy_first(*asset.scenes, *asset.materials);
             deren::gltf::drawable_iterator const copy_scene_last;
-            runtime.set_toon_lookup(deren::engine::runtime::toon_lookup{.owner = &asset.lookup,
+            runtime.set_toon_lookup(deren::engine::runtime::toon_lookup{.parent = &asset.lookup,
                                                                         .texture = toon_texture_callback,
                                                                         .colour = toon_colour_callback,
                                                                         .scalar = toon_scalar_callback});
@@ -2338,8 +2344,9 @@ namespace deren::app {
         gui.environment_names.push_back("Procedural sky");
         if (!settings.lighting.environment_hdr.empty()) {
             std::filesystem::path path(settings.lighting.environment_hdr);
-            if (path.is_relative())
+            if (path.is_relative()) {
                 path = deren::utility::executable_directory() / path;
+            }
             environment_paths.push_back(path);
             gui.environment_names.push_back(deren::utility::vessel::string(path.filename().string()));
             gui.environment_index = 1;
@@ -2349,13 +2356,15 @@ namespace deren::app {
         for (auto const& item : std::filesystem::directory_iterator(deren::utility::executable_directory() / "environments", environment_scan_error)) {
             auto extension = item.path().extension().string();
             std::ranges::transform(extension, extension.begin(), [](unsigned char c) { return char(std::tolower(c)); });
-            if (extension == ".hdr" && item.is_regular_file(environment_scan_error))
+            if (extension == ".hdr" && item.is_regular_file(environment_scan_error)) {
                 discovered.push_back(item.path());
+            }
         }
         std::ranges::sort(discovered);
         for (auto const& path : discovered) {
-            if (std::ranges::find(environment_paths, path) != environment_paths.end())
+            if (std::ranges::find(environment_paths, path) != environment_paths.end()) {
                 continue;
+            }
             environment_paths.push_back(path);
             gui.environment_names.push_back(deren::utility::vessel::string(path.filename().string()));
         }
@@ -2585,21 +2594,24 @@ namespace deren::app {
             auto const& r = settings.reflection_probe;
             auto vec = [](auto const& a) { return glm::vec3(a[0], a[1], a[2]); };
             auto path = std::filesystem::path(r.asset.c_str());
-            if (path.is_relative())
+            if (path.is_relative()) {
                 path = deren::utility::executable_directory() / path;
+            }
             std::error_code ec;
             auto length = std::filesystem::file_size(path, ec);
             std::optional<deren::engine::probe_detail::asset> asset;
             if (!ec && length <= 32 + uint64_t(6) * 512 * 512 * 8 * 2) {
                 std::vector<std::byte> bytes(length);
                 std::ifstream file(path, std::ios::binary);
-                if (file.read(reinterpret_cast<char*>(bytes.data()), bytes.size()))
+                if (file.read(reinterpret_cast<char*>(bytes.data()), bytes.size())) {
                     asset = deren::engine::probe_detail::decode(bytes);
+                }
             }
-            if (!asset || !runtime.set_local_probe(asset->half, asset->size, asset->mips, vec(r.position), vec(r.minimum), vec(r.maximum), r.fade, r.gain))
+            if (!asset || !runtime.set_local_probe(asset->half, asset->size, asset->mips, vec(r.position), vec(r.minimum), vec(r.maximum), r.fade, r.gain)) {
                 deren::utility::log("local probe: invalid asset/config/upload; using global IBL ({})", path.string());
-            else
+            } else {
                 deren::utility::log("local probe loaded: {} ({}px, {} mips), position ({},{},{})", path.string(), asset->size, asset->mips, r.position[0], r.position[1], r.position[2]);
+            }
         }
         int32_t captured_frames = 0; // presented frames so far (scripted capture; see --capture-frames)
         // Capture-only transition probe: exercise progressive restoration while uploads are in flight.
@@ -2611,8 +2623,9 @@ namespace deren::app {
         auto trace_previous = std::chrono::steady_clock::now();
         auto const trace_origin = trace_previous;
         double const trace_unix_ms = std::chrono::duration<double, std::milli>(std::chrono::system_clock::now().time_since_epoch()).count();
-        if (frame_trace_path)
+        if (frame_trace_path) {
             frame_trace.reserve(4096);
+        }
         // Resource queries walk allocator metadata: enable only in separate memory captures.
         char const* const resource_trace_path = std::getenv("DEREN_BENCH_RESOURCE_TRACE");
         struct memory_sample {
@@ -2776,13 +2789,14 @@ namespace deren::app {
                         gui.environment_status = prepared.error.empty() ? "Environment upload failed; previous environment retained" : prepared.error;
                         deren::utility::log("environment switch refused: {}", gui.environment_status);
                     }
-                } else
+                } else {
                     gui.environment_status = "Environment ready: " + gui.environment_names[applied_environment];
+                }
             }
             if (!environment_job.valid() && gui.environment_index != applied_environment) {
-                if (gui.environment_index < 0 || std::size_t(gui.environment_index) >= environment_paths.size())
+                if (gui.environment_index < 0 || std::size_t(gui.environment_index) >= environment_paths.size()) {
                     gui.environment_index = applied_environment;
-                else {
+                } else {
                     requested_environment = gui.environment_index;
                     auto path = environment_paths[requested_environment];
                     float scale = settings.lighting.environment_intensity;
@@ -3042,8 +3056,9 @@ namespace deren::app {
             }
             // A frame was presented: publish its stamp for cheap readers (frame_clock)
             ++resource_frame;
-            if (resource_trace_path && (resource_frame % 10 == 0 || resource_frame == static_cast<std::uint64_t>(capture.frames)))
+            if (resource_trace_path && (resource_frame % 10 == 0 || resource_frame == static_cast<std::uint64_t>(capture.frames))) {
                 sample_resources();
+            }
             if (frame_trace_path) {
                 auto const boundary = std::chrono::steady_clock::now();
                 frame_trace.emplace_back(std::chrono::duration<double, std::milli>(boundary - trace_origin).count(),
@@ -3221,22 +3236,26 @@ namespace deren::app {
         if (resource_trace_path) {
             std::ofstream trace(resource_trace_path, std::ios::binary | std::ios::out);
             trace << "frame,supported,gpu_buffer_local,gpu_image_local,gpu_total_local,gpu_peak_local,gpu_total,gpu_reserved,gpu_reserved_local,cpu_current,cpu_peak\n";
-            for (auto const& sample : resource_trace)
+            for (auto const& sample : resource_trace) {
                 trace << deren::utility::vessel::format("{},{},{},{},{},{},{},{},{},{},{}\n", sample.frame, sample.gpu.supported ? 1 : 0,
                                                         sample.gpu.buffers.current_device_local_bytes, sample.gpu.images.current_device_local_bytes,
                                                         sample.gpu.total.current_device_local_bytes, sample.gpu.total.peak_device_local_bytes, sample.gpu.total.current_bytes,
                                                         sample.gpu.allocator_reserved_bytes, sample.gpu.allocator_device_local_reserved_bytes,
                                                         sample.cpu.current_bytes, sample.cpu.peak_bytes);
-            if (!trace)
+            }
+            if (!trace) {
                 deren::utility::error("benchmark resource trace could not be written");
+            }
         }
         if (frame_trace_path) {
             std::ofstream trace(frame_trace_path, std::ios::binary | std::ios::out);
             trace << "frame,unix_ms,interval_ms\n";
-            for (std::size_t i = 0; i < frame_trace.size(); ++i)
+            for (std::size_t i = 0; i < frame_trace.size(); ++i) {
                 trace << deren::utility::vessel::format("{},{:.6f},{:.6f}\n", i + 1, trace_unix_ms + frame_trace[i].first, frame_trace[i].second);
-            if (!trace)
+            }
+            if (!trace) {
                 deren::utility::error("benchmark frame trace could not be written");
+            }
         }
         deren::utility::log("render loop finished");
         return probe.enabled && !probe_done ? 3 : 0;

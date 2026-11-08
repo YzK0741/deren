@@ -41,7 +41,7 @@ class BoundaryTests(unittest.TestCase):
 
     def write_baseline(self, symbols):
         self.baseline.write_text(json.dumps({"count": len(symbols), "cross_boundary_symbols": symbols,
-                                             "owning_stl_count": 0, "owning_stl_symbols": []}), encoding="utf-8")
+                                             "stl_container_count": 0, "stl_container_symbols": []}), encoding="utf-8")
 
     def write_whitelist(self, entries):
         """(symbol, reason) pairs; the flip gate's shrink-only exception list."""

@@ -259,8 +259,9 @@ namespace deren::vulkan {
                 if (resource.heap_grid_offset != VK_WHOLE_SIZE) {
                     VkDeviceSize const base = VkDeviceSize(texture_group_state::table_slot) * 64u;
                     auto const offset = resource.descriptor_heaps.reserve_bytes(2049u * 64u, base);
-                    if (offset == base)
+                    if (offset == base) {
                         resource.texture_groups.reserved_offset = offset;
+                    }
                 }
                 this->resource.heap_texture_array_offset = this->resource.descriptor_heaps.reserve(scene_texture_capacity, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
                 this->resource.heap_material_table_offset = this->resource.descriptor_heaps.reserve(1u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
@@ -297,31 +298,31 @@ namespace deren::vulkan {
         // once and reused every frame - and the runtime still begins, ends and submits them; what
         // changed is who owns the RAII objects, which is what lets `begin_commands()` hand out the
         // frame's list.
-        this->frame.commands_view.owner = this;
-        this->command.scoped_sync.owner = this;
-        this->frame.frame_resources.owner = this;
-        this->frame.frame_image_view.owner = this;
-        this->frame.readback_slot_view.owner = this;
+        this->frame.commands_view.parent = this;
+        this->command.scoped_sync.parent = this;
+        this->frame.frame_resources.parent = this;
+        this->frame.frame_image_view.parent = this;
+        this->frame.readback_slot_view.parent = this;
         // THE FRAME FACE'S VIEWS (abi 13) - `owner` SET HERE, in the constructor, on purpose: a view
         // handed out with a null owner dereferences null on its first call (the `resource.address_view`
         // lesson, measured by the spike as 2 FAILs before anything else could look at it).
-        this->frame.frames_view.owner = this;
-        this->frame.profiler_view.owner = this;
-        this->frame.presentation_surface.owner = this;
-        this->resource.heap_view.owner = this;
-        this->resource.descriptor_space_view.owner = this;
-        this->resource.address_view.owner = this;
-        this->resource.sorting_view.owner = this;
-        this->command.completion_view.owner = this;
-        this->command.checkpoint_view.owner = this;
-        this->frame.async_presentation_view.owner = this;
-        this->resource.host_copy_view.owner = this;
+        this->frame.frames_view.parent = this;
+        this->frame.profiler_view.parent = this;
+        this->frame.presentation_surface.parent = this;
+        this->resource.heap_view.parent = this;
+        this->resource.descriptor_space_view.parent = this;
+        this->resource.address_view.parent = this;
+        this->resource.sorting_view.parent = this;
+        this->command.completion_view.parent = this;
+        this->command.checkpoint_view.parent = this;
+        this->frame.async_presentation_view.parent = this;
+        this->resource.host_copy_view.parent = this;
         // THE DEVICE-CAPABILITY VIEW READS THIS CORE'S CACHED FACTS, so it needs the owner exactly as the views
         // above do - and the omission is not silent: with no owner every method answers its zero/false default,
         // which gated the MESH path off (measured: 'pipeline pbr has no mesh stage to build from' - the vertex
         // form is gone, so the app cannot start at all).
-        this->device.capabilities_view.owner = this;
-        this->resource.shader_groups_view.owner = this;
+        this->device.capabilities_view.parent = this;
+        this->resource.shader_groups_view.parent = this;
         this->frame.frame_command_buffers.reserve(static_cast<std::size_t>(frame.frames_in_flight));
         for (int32_t slot = 0; slot < frame.frames_in_flight; ++slot) {
             // EACH ONE BRINGS ITS OWN POOL: make_command_buffer() creates a pool per buffer (see

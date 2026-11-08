@@ -423,8 +423,9 @@ namespace deren::utility {
         });
     }
     void log_sink::wait_prefix_for(std::chrono::milliseconds budget) noexcept {
-        if (this->worker_id.load(std::memory_order_relaxed) == std::this_thread::get_id())
+        if (this->worker_id.load(std::memory_order_relaxed) == std::this_thread::get_id()) {
             return;
+        }
         auto const target = this->submitted.load(std::memory_order_acquire);
         auto const deadline = std::chrono::steady_clock::now() + budget;
         while (this->completed.load(std::memory_order_acquire) < target &&
@@ -457,8 +458,9 @@ namespace deren::utility {
 
     [[noreturn]] void panic(std::string_view const msg, std::source_location const source_location) noexcept {
         static thread_local bool reporting = false;
-        if (reporting)
+        if (reporting) {
             fast_panic("recursive panic");
+        }
         reporting = true;
         detail::trace_native::write_panic_header(msg.data(), msg.size(), source_location.file_name(),
                                                  source_location.function_name(), source_location.line());

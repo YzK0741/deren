@@ -111,9 +111,10 @@ namespace {
 
                 // The Vulkan driver may create its own temporary D3D HWND.
 
-                if (std::string_view{name} == "GLFW30")
+                if (std::string_view{name} == "GLFW30") {
 
                     ++*reinterpret_cast<unsigned*>(state);
+                }
             }
 
             return TRUE;
@@ -372,9 +373,10 @@ int main(int const argc, char** const argv) {
 
             auto invalid_desc = parent_desc;
 
-            if (shape == 0)
+            if (shape == 0) {
 
                 invalid_desc.array_layers = 2;
+            }
 
             if (shape == 1) {
 
@@ -383,9 +385,10 @@ int main(int const argc, char** const argv) {
                 invalid_desc.flags |= rhi::to_bits(rhi::image_flag::cube_compatible);
             }
 
-            if (shape == 2)
+            if (shape == 2) {
 
                 invalid_desc.flags = rhi::to_bits(rhi::image_flag::storage);
+            }
 
             rhi::unique_object<rhi::image> invalid{face.resources->create_image(invalid_desc)};
 
@@ -520,13 +523,13 @@ int main(int const argc, char** const argv) {
 
             auto* const identity = original.get();
 
-            auto first_owner = original->share();
+            auto first_handle = original->share();
 
-            CHECK(first_owner != nullptr);
+            CHECK(first_handle != nullptr);
 
-            rhi::shared_object<rhi::image>::weak first_lifetime = first_owner;
+            rhi::shared_object<rhi::image>::weak first_lifetime = first_handle;
 
-            first_owner.reset();
+            first_handle.reset();
 
             CHECK(first_lifetime.expired());
 
@@ -629,8 +632,9 @@ int main(int const argc, char** const argv) {
 
             auto unrecorded = face.commands->make_command_buffer({});
             CHECK(unrecorded);
-            if (unrecorded)
+            if (unrecorded) {
                 CHECK(unrecorded->push_constants(0u, short_input.first(4)) == rhi::error::not_ready);
+            }
         }
 
         rhi::ability_bits const abilities = face.abilities();
@@ -704,9 +708,10 @@ int main(int const argc, char** const argv) {
 
         for (unsigned frame = 0; frame < 6; ++frame) {
 
-            if (frame != 0)
+            if (frame != 0) {
 
                 (void)face.frames->walk_frames()->wait_and_acquire();
+            }
 
             auto* const recording = face.frames->begin_commands();
 

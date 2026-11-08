@@ -26,9 +26,9 @@ namespace deren::engine::pass {
         if (this->cull_pipeline.has_value()) {
             return; // already built for this device
         }
-        std::span<std::uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.owner, hzb_cull_shader_name) : std::span<std::uint8_t const>{};
+        std::span<std::uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.parent, hzb_cull_shader_name) : std::span<std::uint8_t const>{};
         if (spirv.empty()) {
-            deren::utility::log("hzb cull disabled: the owner has no {}", hzb_cull_shader_name);
+            deren::utility::log("hzb cull disabled: the parent has no {}", hzb_cull_shader_name);
             return;
         }
         auto built = pipelines::build_hzb_cull(*context.face, spirv);

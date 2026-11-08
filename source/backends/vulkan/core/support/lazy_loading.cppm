@@ -28,14 +28,18 @@ namespace deren::vulkan::detail {
         template <class Release>
         [[nodiscard]] Error unload(Release&& release) noexcept {
             std::unique_lock lock(mutex, std::try_to_lock);
-            if (!lock.owns_lock())
+            if (!lock.owns_lock()) {
                 return Error::not_ready;
-            if (state() == State::unloaded)
+            }
+            if (state() == State::unloaded) {
                 return Error::ok;
-            if (state() == State::failed)
+            }
+            if (state() == State::failed) {
                 return failure;
-            if (users.load(std::memory_order_acquire) != 0)
+            }
+            if (users.load(std::memory_order_acquire) != 0) {
                 return Error::not_ready;
+            }
             release();
             value.store(State::unloaded, std::memory_order_release);
             return Error::ok;
@@ -43,10 +47,12 @@ namespace deren::vulkan::detail {
         template <class Work>
         [[nodiscard]] Error run(Work&& work) noexcept {
             std::lock_guard lock(mutex);
-            if (state() == State::ready)
+            if (state() == State::ready) {
                 return Error::ok;
-            if (state() == State::failed)
+            }
+            if (state() == State::failed) {
                 return failure;
+            }
             value.store(State::loading, std::memory_order_release);
             failure = work();
             value.store(failure == Error::ok ? State::ready : State::failed, std::memory_order_release);

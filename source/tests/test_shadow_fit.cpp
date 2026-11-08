@@ -107,7 +107,7 @@ namespace {
     // because both are natural mistakes: the scene CENTRE (a point at one depth, which legitimately
     // falls outside a slice that does not cover it) and the ENTIRE camera frustum (whose far corners
     // are 100 units away, nowhere near the near cascade's slice).
-    void test_each_cascade_contains_its_own_depth_slice() {
+    void test_each_cascade_contains_its_depth_slice() {
         deren::engine::shadow_fit::fit_params params = make_params(3, 1.5f);
         deren::utility::vessel::vector<std::pair<glm::vec3, glm::vec3>> const casters = {box_at(glm::vec3(0.0f, 0.0f, -5.0f), 1.0f)};
         bool unbounded = false;
@@ -276,14 +276,15 @@ namespace {
                 params.view = glm::lookAt(params.camera_pos, glm::vec3(0, 0, -5), glm::vec3(0, 1, 0));
                 auto const rotated = deren::engine::shadow_fit::fit(params);
                 CHECK(rotated.valid);
-                for (uint32_t i = 0; i < count; ++i)
+                for (uint32_t i = 0; i < count; ++i) {
                     CHECK(rotated.cascade_texel_world[i] == base.cascade_texel_world[i]);
+                }
             }
         }
     }
 
     void test_cascade_blend_receivers_are_covered() {
-        for (uint32_t count = 2; count <= 4; ++count)
+        for (uint32_t count = 2; count <= 4; ++count) {
             for (float blend : {0.0f, 0.1f, 0.5f}) {
                 auto params = make_params(count, 5.0f);
                 params.cascade_blend = blend;
@@ -308,6 +309,7 @@ namespace {
                     }
                 }
             }
+        }
     }
 
 } // namespace
@@ -319,7 +321,7 @@ int32_t main() {
     test_texel_size_grows_with_distance();
     test_splits_are_monotonic_and_end_at_the_usable_far();
     test_far_split_follows_the_scene_not_the_camera();
-    test_each_cascade_contains_its_own_depth_slice();
+    test_each_cascade_contains_its_depth_slice();
     test_distant_caster_does_not_coarsen_the_cascade();
     test_unbounded_caster_extends_only_the_depth_range();
     test_unused_cascade_lanes_repeat_the_last_fit();

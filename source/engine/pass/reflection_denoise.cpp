@@ -29,9 +29,9 @@ namespace deren::engine::pass {
             return;
         }
         std::string_view const shader_name = reflection_denoise_shader_name(this->stage_);
-        std::span<std::uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.owner, shader_name) : std::span<std::uint8_t const>{};
+        std::span<std::uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.parent, shader_name) : std::span<std::uint8_t const>{};
         if (spirv.empty()) {
-            deren::utility::log("reflection denoise disabled: the owner has no {}", shader_name);
+            deren::utility::log("reflection denoise disabled: the parent has no {}", shader_name);
             return;
         }
         auto built = pipelines::build_reflection_denoise(*context.face, spirv, reflection_denoise_pass_name(this->stage_).data());

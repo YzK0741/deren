@@ -91,8 +91,8 @@ namespace {
             static pass::behaviour const value{};
             return value;
         }
-        pass::owned_pipeline named_pipeline(std::string_view name) const noexcept override {
-            return name == "post_hdr" ? pass::owned_pipeline{.contract = shared} : pass::owned_pipeline{};
+        pass::pipeline_ref named_pipeline(std::string_view name) const noexcept override {
+            return name == "post_hdr" ? pass::pipeline_ref{.contract = shared} : pass::pipeline_ref{};
         }
         std::string_view feature() const noexcept override {
             return {};
@@ -106,10 +106,11 @@ namespace {
     namespace managed = deren::engine::render_resource::instances;
     template <typename Chain>
     rhi::error upload_slot(Chain& chain, uint32_t slot, deren::engine::render_resource::resource_id id, std::span<std::byte const> bytes) {
-        if constexpr (requires { chain.write_frame_buffer(slot, id, bytes); })
+        if constexpr (requires { chain.write_frame_buffer(slot, id, bytes); }) {
             return chain.write_frame_buffer(slot, id, bytes);
-        else
+        } else {
             return rhi::error::unsupported;
+        }
     }
     struct resource_provider : shared_pipeline_provider {
         managed::request need;
@@ -239,16 +240,18 @@ namespace {
         rhi::create_info options{};
         rhi::shared_object<rhi::api_core> core = deren::vk_test::probe_make_core(options, rhi::abi_version, true);
         CHECK(core != nullptr);
-        if (core == nullptr)
+        if (core == nullptr) {
             return;
+        }
         rhi::image_desc image_desc{};
         image_desc.extent = {.width = 4, .height = 4, .depth = 1};
         image_desc.format = rhi::image_format::rgba8_unorm;
         image_desc.flags = rhi::to_bits(rhi::image_flag::sampled);
         rhi::unique_object<rhi::image> image = core->resources->create_image(image_desc);
         CHECK(image);
-        if (!image)
+        if (!image) {
             return;
+        }
         rhi::texture_group_info info{};
         info.textures[2] = image.get();
         rhi::error assign_error = rhi::error::ok;
@@ -289,15 +292,15 @@ namespace {
     void check_texture_input_contract(rhi::create_info const& creation) {
         using texture_bytes = deren::utility::vessel::vector<std::uint8_t>;
         auto pixels = std::make_shared<texture_bytes const>(64, std::uint8_t{37});
-        struct owned_image {
+        struct mock_image {
             std::span<std::uint8_t const> data;
             std::uint32_t width = 4, height = 4, mip_levels = 1;
             bool valid = true;
-            std::shared_ptr<texture_bytes const> owner;
+            std::shared_ptr<texture_bytes const> parent;
         };
-        owned_image image{.data = std::span(*pixels), .owner = pixels};
+        mock_image image{.data = std::span(*pixels), .parent = pixels};
         auto input = deren::engine::texture_input_from(image, rhi::image_format::rgba8_srgb);
-        CHECK(input.owner == pixels && input.data.data() == pixels->data());
+        CHECK(input.parent == pixels && input.data.data() == pixels->data());
         auto retained = deren::engine::share_texture_source(input);
         CHECK(retained == pixels);
         input.data = input.data.subspan(4, 8);
@@ -310,21 +313,21 @@ namespace {
         };
         texture_bytes borrowed(64, 23);
         struct weak_image : borrowed_image {
-            std::weak_ptr<texture_bytes const> owner;
+            std::weak_ptr<texture_bytes const> parent;
         };
         weak_image weak_source;
         weak_source.data = std::span(*pixels);
-        weak_source.owner = pixels;
-        CHECK(!deren::engine::texture_input_from(weak_source, rhi::image_format::rgba8_unorm).owner);
+        weak_source.parent = pixels;
+        CHECK(!deren::engine::texture_input_from(weak_source, rhi::image_format::rgba8_unorm).parent);
         struct mutable_image : borrowed_image {
-            std::shared_ptr<texture_bytes> owner;
+            std::shared_ptr<texture_bytes> parent;
         };
         auto mutable_pixels = std::make_shared<texture_bytes>(64, 55);
         mutable_image mutable_source;
         mutable_source.data = std::span(*mutable_pixels);
-        mutable_source.owner = mutable_pixels;
+        mutable_source.parent = mutable_pixels;
         auto mutable_input = deren::engine::texture_input_from(mutable_source, rhi::image_format::rgba8_unorm);
-        CHECK(!mutable_input.owner); // pre-existing mutable sources keep snapshot semantics
+        CHECK(!mutable_input.parent); // pre-existing mutable sources keep snapshot semantics
         auto mutable_snapshot = deren::engine::share_texture_source(mutable_input);
         (*mutable_pixels)[0] = 99;
         CHECK(mutable_snapshot->front() == 55);
@@ -410,44 +413,46 @@ int main(int const argc, char** const argv) {
         if (io.list == nullptr) {
             return deren::vk_test::finish("post_resources");
         }
-        // record_owned normally runs after the host binds its pipeline. Mirror that precondition
+        // record normally runs after the host binds its pipeline. Mirror that precondition
         // in this direct pass probe now that application validates deferred consumers.
         deren::vk_test::probe_graphics_enabled(*device, true);
         auto fixture_pipeline = device->resources->create_pipeline({});
         deren::vk_test::probe_graphics_enabled(*device, false);
         CHECK(fixture_pipeline);
-        if (fixture_pipeline)
+        if (fixture_pipeline) {
             CHECK(io.list->bind_pipeline(*fixture_pipeline) == rhi::error::ok);
+        }
         // Mirror the host's two views of the same frame-owned recording object.
         io.cmd = io.list;
         io.frame.image_count = rhi::max_swapchain_images;
         io.frame.image_index = 0;
         io.extent = {.width = 4, .height = 4, .depth = 1};
-        deren::utility::vessel::array<pass::resolved_binding, 4> own{};
-        io.own = own;
-        own[0].image_handle = const_cast<rhi::image*>(deren::vk_test::probe_heap_image(*device, layout::heap_slot_offset(layout::heap_slots::taa_current)));
-        own[1].image_handle = history->objects[0].image.get();
-        own[2].image_handle = const_cast<rhi::image*>(deren::vk_test::probe_heap_image(*device, layout::heap_slot_offset(layout::heap_slots::gbuffer_velocity)));
-        own[3].image_handle = const_cast<rhi::image*>(deren::vk_test::probe_heap_image(*device, layout::heap_slot_offset(layout::heap_slots::gbuffer_depth)));
+        deren::utility::vessel::array<pass::resolved_binding, 4> local_bindings{};
+        io.local = local_bindings;
+        local_bindings[0].image_handle = const_cast<rhi::image*>(deren::vk_test::probe_heap_image(*device, layout::heap_slot_offset(layout::heap_slots::taa_current)));
+        local_bindings[1].image_handle = history->objects[0].image.get();
+        local_bindings[2].image_handle = const_cast<rhi::image*>(deren::vk_test::probe_heap_image(*device, layout::heap_slot_offset(layout::heap_slots::gbuffer_velocity)));
+        local_bindings[3].image_handle = const_cast<rhi::image*>(deren::vk_test::probe_heap_image(*device, layout::heap_slot_offset(layout::heap_slots::gbuffer_depth)));
         auto* hdr = const_cast<rhi::image*>(deren::vk_test::probe_heap_image(*device, layout::heap_slot_offset(layout::heap_slots::post_color)));
         rhi::unique_object<rhi::image_view> hdr_view{hdr->make_view({})};
         deren::utility::vessel::array<pass::resolved_binding, 1> targets{pass::resolved_binding{.image_handle = hdr, .view_handle = hdr_view.get()}};
         io.targets = targets;
-        io.push_block.owner = &observed_history;
-        io.push_block.push = [](void* owner, rhi::command_buffer&, std::span<std::byte const> bytes, uint32_t) {
+        io.push_block.parent = &observed_history;
+        io.push_block.push = [](void* parent, rhi::command_buffer&, std::span<std::byte const> bytes, uint32_t) {
             pass::taa_pass::push_constants value{};
-            if (bytes.size() < sizeof(value))
+            if (bytes.size() < sizeof(value)) {
                 return false;
+            }
             std::memcpy(&value, bytes.data(), sizeof(value));
-            *static_cast<float*>(owner) = value.history_valid;
+            *static_cast<float*>(parent) = value.history_valid;
             return true;
         };
-        taa.record_owned(io);
+        taa.record(io);
         CHECK(taa.wrote_history() && observed_history == 0);
         managed::resource_context context{.output_images = rhi::max_swapchain_images, .render_extent = {.width = 4, .height = 4, .depth = 1}};
         CHECK(application.prepare_resources(device, context) == rhi::error::ok);
         CHECK(taa.wrote_history()); // rebinding an unchanged generation must preserve state
-        taa.record_owned(io);
+        taa.record(io);
         CHECK(taa.wrote_history() && observed_history == 1);
         pass::pass_chain replacement;
         auto& outputs = replacement.emplace<pass::output_targets_pass>();
@@ -456,11 +461,11 @@ int main(int const argc, char** const argv) {
         CHECK(new_history != history);
         taa.bind_resources(outputs.resources());
         CHECK(!taa.wrote_history());
-        own[1].image_handle = new_history->objects[0].image.get();
-        taa.record_owned(io);
+        local_bindings[1].image_handle = new_history->objects[0].image.get();
+        taa.record(io);
         CHECK(taa.wrote_history() && observed_history == 0);
         taa.bind_resources(outputs.resources());
-        taa.record_owned(io);
+        taa.record(io);
         CHECK(taa.wrote_history() && observed_history == 1);
         CHECK(engine.end_recording() == deren::engine::frame_status::proceed);
         CHECK(engine.submit_and_present() == deren::engine::frame_status::proceed);
@@ -569,8 +574,9 @@ int main(int const argc, char** const argv) {
             bool const per_slot = pass::output_targets_pass::ids[family] == rr::resource_id::rt_shadow_visibility;
             CHECK(value->description.scope == (per_slot ? rr::resource_scope::per_frame_slot : rr::resource_scope::per_swapchain_image));
             CHECK(value->objects.size() == (per_slot ? rhi::max_frames_in_flight : rhi::max_swapchain_images));
-            for (size_t i = 0; i < value->objects.size(); ++i)
+            for (size_t i = 0; i < value->objects.size(); ++i) {
                 CHECK(deren::vk_test::probe_heap_image(*device, layout::heap_slot_offset(pass::output_targets_pass::heap_slots[family] + i)) == value->objects[i].image.get());
+            }
         }
         CHECK(selected.find(rr::resource_id::software_depth) == nullptr);
         CHECK(selected.find(rr::resource_id::software_id) == nullptr);
@@ -696,10 +702,12 @@ int main(int const argc, char** const argv) {
             CHECK(table->find(rr::resource_id::ibl_env, 0, 0).image_handle == heap(layout::heap_slots::env_cube));
             CHECK(table->find(rr::resource_id::ibl_irradiance, 0, 0).image_handle == heap(layout::heap_slots::irradiance_cube));
             CHECK(table->find(rr::resource_id::brdf_lut, 0, 0).image_handle == heap(layout::heap_slots::brdf_lut));
-            if (heap(layout::heap_slots::post_lut))
+            if (heap(layout::heap_slots::post_lut)) {
                 CHECK(table->find(rr::resource_id::post_lut, 0, 0).image_handle == heap(layout::heap_slots::post_lut));
-            if (heap(layout::heap_slots::goo_fgd_lut))
+            }
+            if (heap(layout::heap_slots::goo_fgd_lut)) {
                 CHECK(table->find(rr::resource_id::goo_fgd_lut, 0, 0).image_handle == heap(layout::heap_slots::goo_fgd_lut));
+            }
             engine.record_main_drawcalls();
             CHECK(engine.end_recording() == deren::engine::frame_status::proceed);
             CHECK(engine.submit_and_present() == deren::engine::frame_status::proceed);
@@ -744,8 +752,9 @@ int main(int const argc, char** const argv) {
         engine.set_ibl(input);
         auto const refused = engine.pace_and_acquire();
         CHECK(refused == deren::engine::frame_status::acquire_failed);
-        if (refused != deren::engine::frame_status::acquire_failed)
+        if (refused != deren::engine::frame_status::acquire_failed) {
             return deren::vk_test::finish("shared_assets");
+        }
         CHECK(heap(layout::heap_slots::env_cube)->extent().width == 1); // Partial publication stays owned while rendering is refused.
         deren::vk_test::probe_heap_image_failure(*device, -1);
         engine.set_ibl(input);
@@ -768,12 +777,14 @@ int main(int const argc, char** const argv) {
         deren::utility::vessel::array<deren::utility::vessel::vector<std::byte>, pass::scene_tables_pass::resource_count> table_bytes;
         for (size_t i = 0; i < table_bytes.size(); ++i) {
             auto slot = pass::scene_tables_pass::heap_slots[i];
-            if (slot == 0)
+            if (slot == 0) {
                 continue;
+            }
             auto bytes = deren::vk_test::probe_heap_buffer(*device, layout::heap_slot_offset(slot));
             CHECK(!bytes.empty());
-            if (i != 0)
+            if (i != 0) {
                 bytes.back() = std::byte{53}; // unused tail/counter data must survive handover
+            }
             table_bytes[i].assign(bytes.begin(), bytes.end());
         }
         auto application = std::make_unique<pass::pass_chain>();
@@ -892,8 +903,9 @@ int main(int const argc, char** const argv) {
             for (auto base : {layout::heap_slots::previous_transforms, layout::heap_slots::skin_matrices_previous}) {
                 auto bytes = deren::vk_test::probe_heap_buffer(*device, layout::heap_slot_offset(base + slot));
                 CHECK(bytes.size() >= 7 * sizeof(marker));
-                if (bytes.size() >= 7 * sizeof(marker))
+                if (bytes.size() >= 7 * sizeof(marker)) {
                     std::memcpy(bytes.data() + 6 * sizeof(marker), &marker, sizeof(marker));
+                }
             }
         }
         auto application = std::make_unique<pass::pass_chain>();
@@ -920,8 +932,9 @@ int main(int const argc, char** const argv) {
             auto generation = snapshot.find(ids[i]);
             CHECK(generation != nullptr);
             CHECK(generation->objects.size() == rhi::max_frames_in_flight);
-            for (uint32_t slot = 0; slot < rhi::max_frames_in_flight; ++slot)
+            for (uint32_t slot = 0; slot < rhi::max_frames_in_flight; ++slot) {
                 CHECK(deren::vk_test::probe_heap_buffer(*device, layout::heap_slot_offset(slots[i] + slot)).data() == generation->objects[slot].buffer->mapped().data());
+            }
         }
         auto check_morph = [&] {
             for (uint32_t slot = 0; slot < rhi::max_frames_in_flight; ++slot) {
@@ -1026,8 +1039,9 @@ int main(int const argc, char** const argv) {
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
         auto camera = producer.resources().find(rr::resource_id::camera_ubo);
         CHECK(camera != nullptr);
-        if (!camera)
+        if (!camera) {
             return deren::vk_test::finish("camera_resources");
+        }
         CHECK(camera->description.scope == rr::resource_scope::per_frame_slot);
         CHECK(camera->description.life == managed::lifetime::frame_slot);
         CHECK(!camera->description.zero_on_frame);
@@ -1130,14 +1144,16 @@ int main(int const argc, char** const argv) {
         CHECK(chain.prepare_resources(root, context) == rhi::error::ok);
         auto generation = chain.resources().snapshot().find(request.id);
         CHECK(generation != nullptr);
-        if (!generation)
+        if (!generation) {
             return deren::vk_test::finish("scene_constants");
+        }
         deren::engine::light_ubo value{};
         value.light_count = glm::vec4(7, 1.25f, 0, 0);
         auto const result = upload_slot(chain, 0, request.id, std::as_bytes(std::span(&value, 1)));
         CHECK(result == rhi::error::ok);
-        if (result != rhi::error::ok)
+        if (result != rhi::error::ok) {
             return deren::vk_test::finish("scene_constants");
+        }
         deren::engine::light_ubo a{}, b{};
         std::memcpy(&a, generation->objects[0].buffer->mapped().data(), sizeof(a));
         std::memcpy(&b, generation->objects[1].buffer->mapped().data(), sizeof(b));
@@ -1173,16 +1189,18 @@ int main(int const argc, char** const argv) {
             deren::engine::light_ubo result{};
             auto bytes = deren::vk_test::probe_heap_buffer(*device, layout::heap_slot_offset(layout::heap_slots::scene_light + slot));
             CHECK(bytes.size() >= sizeof(result));
-            if (bytes.size() >= sizeof(result))
+            if (bytes.size() >= sizeof(result)) {
                 std::memcpy(&result, bytes.data(), sizeof(result));
+            }
             return result;
         };
         auto read_head = [&](uint32_t slot) {
             deren::engine::head_ubo result{};
             auto bytes = deren::vk_test::probe_heap_buffer(*device, layout::heap_slot_offset(layout::heap_slots::scene_head + slot));
             CHECK(bytes.size() >= sizeof(result));
-            if (bytes.size() >= sizeof(result))
+            if (bytes.size() >= sizeof(result)) {
                 std::memcpy(&result, bytes.data(), sizeof(result));
+            }
             return result;
         };
         auto finish_frame = [&] {
@@ -1203,11 +1221,11 @@ int main(int const argc, char** const argv) {
         CHECK(read_light(first).light_count.x == 1 && read_light(first).light_count.y == 2.5f);
         CHECK(read_head(first).center == head.center);
         CHECK(read_head(second).front == deren::engine::head_ubo{}.front); // preserve initialized fallback axes
-        auto owned_light = producer.resources().find(rr::resource_id::light_ubo);
-        auto owned_head = producer.resources().find(rr::resource_id::head_ubo);
-        CHECK(owned_light != nullptr && owned_head != nullptr);
-        CHECK(!owned_light->description.zero_on_frame && !owned_head->description.zero_on_frame);
-        CHECK(deren::vk_test::probe_heap_buffer(*device, layout::heap_slot_offset(layout::heap_slots::scene_light + first)).data() == owned_light->objects[first].buffer->mapped().data());
+        auto fixture_light = producer.resources().find(rr::resource_id::light_ubo);
+        auto fixture_head = producer.resources().find(rr::resource_id::head_ubo);
+        CHECK(fixture_light != nullptr && fixture_head != nullptr);
+        CHECK(!fixture_light->description.zero_on_frame && !fixture_head->description.zero_on_frame);
+        CHECK(deren::vk_test::probe_heap_buffer(*device, layout::heap_slot_offset(layout::heap_slots::scene_light + first)).data() == fixture_light->objects[first].buffer->mapped().data());
         finish_frame();
         engine.set_exposure(0.5f);
         head.center = glm::vec4(4, 5, 6, 1);
@@ -1219,14 +1237,14 @@ int main(int const argc, char** const argv) {
         CHECK(read_head(second).center == head.center);
         CHECK(read_light(first).light_count.y == 2.5f && read_head(first).center == glm::vec4(1, 2, 3, 1));
         finish_frame();
-        std::weak_ptr<managed::generation const> prior_light = owned_light;
+        std::weak_ptr<managed::generation const> prior_light = fixture_light;
         pass::pass_chain replacement;
         auto& partial = replacement.emplace<pass::scene_constants_pass>();
         partial.select_resources(false, true); // head in application; light supplied by compatibility chain
         engine.set_pass_chain(replacement, {});
-        owned_light.reset();
-        owned_head.reset();
-        application.reset(); // no remembered owner pointer may survive the handover
+        fixture_light.reset();
+        fixture_head.reset();
+        application.reset(); // no remembered parent pointer may survive the handover
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
         CHECK(!replacement.resources().snapshot().find(rr::resource_id::light_ubo));
         CHECK(read_light(first).light_count.y == 0.5f && read_head(first).center == head.center);
@@ -1262,8 +1280,9 @@ int main(int const argc, char** const argv) {
         auto indices = snapshot.find(rr::resource_id::cluster_indices);
         CHECK(counts != nullptr);
         CHECK(indices != nullptr);
-        if (!counts || !indices)
+        if (!counts || !indices) {
             return deren::vk_test::finish("cluster_resources");
+        }
         uint64_t const count_bytes = uint64_t(deren::engine::max_cluster_count) * sizeof(uint32_t);
         CHECK(counts->description.buffer.size == count_bytes);
         CHECK(indices->description.buffer.size == count_bytes * deren::engine::cluster_light_capacity);
@@ -1316,8 +1335,9 @@ int main(int const argc, char** const argv) {
             auto count_generation = view.find(rr::resource_id::cluster_counts);
             auto index_generation = view.find(rr::resource_id::cluster_indices);
             CHECK(count_generation != nullptr && index_generation != nullptr);
-            if (!count_generation || !index_generation)
+            if (!count_generation || !index_generation) {
                 return;
+            }
             for (uint32_t slot = 0; slot < 2; ++slot) {
                 CHECK(deren::vk_test::probe_heap_buffer(*device, layout::heap_slot_offset(layout::heap_slots::cluster_counts + slot)).data() == count_generation->objects[slot].buffer->mapped().data());
                 CHECK(deren::vk_test::probe_heap_buffer(*device, layout::heap_slot_offset(layout::heap_slots::cluster_indices + slot)).data() == index_generation->objects[slot].buffer->mapped().data());
@@ -1387,8 +1407,9 @@ int main(int const argc, char** const argv) {
         auto first = producer.bound;
         auto old = first.find(rr::resource_id::shadow_map);
         CHECK(old != nullptr);
-        if (!old)
+        if (!old) {
             return deren::vk_test::finish("managed_resources");
+        }
         CHECK(consumer.bound.find(rr::resource_id::shadow_map) == old);
         CHECK(old->objects.size() == 2);
         CHECK(old->objects[0].layers.size() == 2);
@@ -1425,8 +1446,9 @@ int main(int const argc, char** const argv) {
         CHECK(chain.prepare_resources(root, context) == rhi::error::ok);
         auto allocated = scratch.bound.find(buffer.id);
         CHECK(allocated != nullptr);
-        if (!allocated)
+        if (!allocated) {
             return deren::vk_test::finish("managed_resources");
+        }
         auto a = allocated->objects[0].buffer->mapped(), b = allocated->objects[1].buffer->mapped();
         std::fill(a.begin(), a.end(), std::byte{42});
         std::fill(b.begin(), b.end(), std::byte{43});
@@ -1521,8 +1543,9 @@ int main(int const argc, char** const argv) {
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
         auto allocated = provider.bound.find(request.id);
         CHECK(allocated != nullptr);
-        if (!allocated)
+        if (!allocated) {
             return deren::vk_test::finish("managed_frames");
+        }
         uint32_t const first = root->frames->walk_frames()->position();
         std::fill(allocated->objects[first].buffer->mapped().begin(), allocated->objects[first].buffer->mapped().end(), std::byte{9});
         finish_frame();
@@ -1547,7 +1570,7 @@ int main(int const argc, char** const argv) {
         pass::pass_chain replacement;
         auto& replacement_provider = replacement.emplace<resource_provider>(request);
         engine.set_pass_chain(replacement, {});
-        old_chain.reset(); // no resource-owner pointer may remain in runtime
+        old_chain.reset(); // no resource-parent pointer may remain in runtime
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
         CHECK(replacement_provider.bound.find(request.id) != nullptr);
         finish_frame();
@@ -1564,8 +1587,9 @@ int main(int const argc, char** const argv) {
         CHECK(expanded != original_shadow);
         CHECK(expanded->description.image.array_layers == 4);
         namespace layout = deren::engine::render_layout;
-        for (uint32_t index = 0; index < 2; ++index)
+        for (uint32_t index = 0; index < 2; ++index) {
             CHECK(deren::vk_test::probe_heap_image(*root, layout::heap_slot_offset(layout::heap_slots::shadow_map + index)) == expanded->objects[index].image.get());
+        }
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
         finish_frame();
         engine.set_shadow_cascades(1);
@@ -1646,8 +1670,9 @@ int main(int const argc, char** const argv) {
         CHECK(engine.begin_recording() == deren::engine::frame_status::proceed);
         auto previous = buffer(layout::heap_slots::skin_matrices_previous, first);
         CHECK(!previous.empty());
-        if (previous.empty())
+        if (previous.empty()) {
             return deren::vk_test::finish("skin_history");
+        }
         CHECK_MSG(matrix(previous, 0) == glm::mat4(0.0f), "a frame with no skin uploads must leave the previous buffer untouched");
         finish_frame();
 

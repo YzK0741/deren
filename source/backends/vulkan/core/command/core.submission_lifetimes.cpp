@@ -7,12 +7,12 @@ import deren.utility.shared;
 import :declarations;
 
 namespace deren::vulkan {
-    std::shared_ptr<core::owned_command_buffer> core::retain_command(owned_command_buffer& command, bool recorded_secondary) {
+    std::shared_ptr<core::command_buffer> core::retain_command(core::command_buffer& command, bool recorded_secondary) {
         command.references.fetch_add(1, std::memory_order_relaxed);
         if (recorded_secondary) {
             command.recording_users.fetch_add(1, std::memory_order_relaxed);
         }
-        return std::shared_ptr<owned_command_buffer>(&command, [recorded_secondary](owned_command_buffer* value) {
+        return std::shared_ptr<core::command_buffer>(&command, [recorded_secondary](core::command_buffer* value) {
             if (recorded_secondary) {
                 value->recording_users.fetch_sub(1, std::memory_order_acq_rel);
             }
@@ -24,11 +24,11 @@ namespace deren::vulkan {
 
     std::expected<deren::promise::rhi::submission_token, deren::promise::rhi::error>
     core::command_submission_view::submit(deren::promise::rhi::command_buffer& commands) {
-        if (!owner) {
+        if (!parent) {
             return std::unexpected(rhi::error::not_ready);
         }
         rhi::submission_token token{};
-        auto result = owner->submit_commands(commands, &token);
+        auto result = parent->submit_commands(commands, &token);
         if (result != rhi::error::ok) {
             return std::unexpected(result);
         }
@@ -36,21 +36,21 @@ namespace deren::vulkan {
     }
     std::expected<deren::promise::rhi::submission_token, deren::promise::rhi::error>
     core::command_submission_view::submit(std::span<deren::promise::rhi::mergeable_command_buffer_ref const> batch) {
-        if (!owner) {
+        if (!parent) {
             return std::unexpected(rhi::error::not_ready);
         }
         rhi::submission_token token{};
-        auto result = owner->submit_batch(batch, &token);
+        auto result = parent->submit_batch(batch, &token);
         if (result != rhi::error::ok) {
             return std::unexpected(result);
         }
         return token;
     }
     rhi::error core::command_submission_view::poll(rhi::submission_token token) noexcept {
-        return owner ? owner->check_completion(token, false, 0) : rhi::error::not_ready;
+        return parent ? parent->check_completion(token, false, 0) : rhi::error::not_ready;
     }
     rhi::error core::command_submission_view::wait(rhi::submission_token token, std::uint64_t timeout_ns) noexcept {
-        return owner ? owner->check_completion(token, true, timeout_ns) : rhi::error::not_ready;
+        return parent ? parent->check_completion(token, true, timeout_ns) : rhi::error::not_ready;
     }
     rhi::error core::check_completion(rhi::submission_token token, bool wait, std::uint64_t timeout_ns) noexcept {
         VkSemaphore timeline;
@@ -113,7 +113,7 @@ namespace deren::vulkan {
             primary->pending.fetch_sub(1, std::memory_order_acq_rel);
         }
         if (fence != VK_NULL_HANDLE) {
-            vkDestroyFence(owner->device.logical_device, fence, nullptr);
+            vkDestroyFence(parent->device.logical_device, fence, nullptr);
         }
     }
 

@@ -22,8 +22,9 @@ using timer = std::chrono::steady_clock;
 
 namespace {
     void require(bool value, char const* message) {
-        if (!value)
+        if (!value) {
             deren::utility::fast_panic(message);
+        }
     }
     void check(VkResult result, char const* operation) {
         require(result == VK_SUCCESS, operation);
@@ -99,13 +100,15 @@ namespace {
             require(host_transition != nullptr, "benchmark host transition entry point");
         }
         void release(buffer& value) {
-            if (value.handle)
+            if (value.handle) {
                 vmaDestroyBuffer(allocator, value.handle, value.allocation);
+            }
             value = {};
         }
         void ensure(buffer& value, VkDeviceSize size, bool download = false) {
-            if (value.capacity >= size)
+            if (value.capacity >= size) {
                 return;
+            }
             release(value);
             VkBufferCreateInfo create{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
             create.size = size;
@@ -156,14 +159,17 @@ namespace {
             request.type = VK_IMAGE_TYPE_2D;
             request.tiling = VK_IMAGE_TILING_OPTIMAL;
             request.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-            if (method != route::staging)
+            if (method != route::staging) {
                 request.usage |= VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT;
-            if (test.layers == 6)
+            }
+            if (test.layers == 6) {
                 request.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+            }
             VkHostImageCopyDevicePerformanceQueryEXT performance{VK_STRUCTURE_TYPE_HOST_IMAGE_COPY_DEVICE_PERFORMANCE_QUERY_EXT};
             VkImageFormatProperties2 result{VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2};
-            if (method != route::staging)
+            if (method != route::staging) {
                 result.pNext = &performance;
+            }
             auto status = vkGetPhysicalDeviceImageFormatProperties2(main.physical_device, &request, &result);
             optimal = performance.optimalDeviceAccess;
             identical = performance.identicalMemoryLayout;
@@ -207,10 +213,12 @@ namespace {
             create.samples = VK_SAMPLE_COUNT_1_BIT;
             create.tiling = VK_IMAGE_TILING_OPTIMAL;
             create.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-            if (method != route::staging)
+            if (method != route::staging) {
                 create.usage |= VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT;
-            if (test.layers == 6)
+            }
+            if (test.layers == 6) {
                 create.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+            }
             VmaAllocationCreateInfo allocation{};
             allocation.usage = VMA_MEMORY_USAGE_GPU_ONLY;
             auto start = timer::now();
@@ -268,8 +276,9 @@ namespace {
             measured.upload = elapsed(start);
             measured.total = elapsed(total);
             // Data generation, readback and object destruction are deliberately outside timings.
-            if (validate)
+            if (validate) {
                 verify(image, test, regions, bytes);
+            }
             release(cold);
             vmaDestroyImage(allocator, image, memory);
             return measured;
@@ -277,12 +286,15 @@ namespace {
         ~context() {
             release(warm_staging);
             release(readback);
-            if (fence)
+            if (fence) {
                 vkDestroyFence(main.device, fence, nullptr);
-            if (pool)
+            }
+            if (pool) {
                 vkDestroyCommandPool(main.device, pool, nullptr);
-            if (allocator)
+            }
+            if (allocator) {
                 vmaDestroyAllocator(allocator);
+            }
         }
     };
 } // namespace
@@ -293,27 +305,30 @@ int main(int argc, char** argv) {
     std::filesystem::path output = "image-upload.csv";
     for (int i = 1; i < argc; ++i) {
         std::string_view arg(argv[i]);
-        if (arg == "--validation")
+        if (arg == "--validation") {
             validation = true;
-        else if (arg == "--quick")
+        } else if (arg == "--quick") {
             quick = true;
-        else if (arg == "--out" && i + 1 < argc)
+        } else if (arg == "--out" && i + 1 < argc) {
             output = argv[++i];
-        else if ((arg == "--samples" || arg == "--warmups") && i + 1 < argc) {
+        } else if ((arg == "--samples" || arg == "--warmups") && i + 1 < argc) {
             int value = 0;
             std::string_view text(argv[++i]);
             auto parsed = std::from_chars(text.data(), text.data() + text.size(), value);
             require(parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size() && value > 0 && value <= 1000, "benchmark sample count");
-            if (arg == "--samples")
+            if (arg == "--samples") {
                 samples = value;
-            else
+            } else {
                 warmups = value;
-        } else
+            }
+        } else {
             require(false, "benchmark invalid argument");
+        }
     }
     std::error_code error;
-    if (!output.parent_path().empty())
+    if (!output.parent_path().empty()) {
         std::filesystem::create_directories(output.parent_path(), error);
+    }
     require(!error, "benchmark output directory");
     std::ofstream csv(output);
     require(static_cast<bool>(csv), "benchmark CSV output");
@@ -337,33 +352,41 @@ int main(int argc, char** argv) {
              << "\nvalidation=" << validation << "\nsamples=" << samples << "\nwarmups=" << warmups << '\n';
     VkPhysicalDeviceMemoryProperties memory_properties{};
     vkGetPhysicalDeviceMemoryProperties(native->physical_device, &memory_properties);
-    for (uint32_t i = 0; i < memory_properties.memoryTypeCount; ++i)
+    for (uint32_t i = 0; i < memory_properties.memoryTypeCount; ++i) {
         metadata << "memory_type_" << i << "_flags=" << memory_properties.memoryTypes[i].propertyFlags
                  << " heap=" << memory_properties.memoryTypes[i].heapIndex << '\n';
-    for (uint32_t i = 0; i < memory_properties.memoryHeapCount; ++i)
+    }
+    for (uint32_t i = 0; i < memory_properties.memoryHeapCount; ++i) {
         metadata << "heap_" << i << "_bytes=" << memory_properties.memoryHeaps[i].size << '\n';
+    }
     vessel::vector<shape> cases;
-    for (uint32_t side : {16u, 32u, 64u, 128u, 256u, 512u, 1024u, 2048u, 4096u})
-        if (!quick || side == 16 || side == 256 || side == 1024)
+    for (uint32_t side : {16u, 32u, 64u, 128u, 256u, 512u, 1024u, 2048u, 4096u}) {
+        if (!quick || side == 16 || side == 256 || side == 1024) {
             cases.push_back({"rgba8", VK_FORMAT_R8G8B8A8_UNORM, side, 1, 1});
+        }
+    }
     for (uint32_t side : {64u, 257u, 1024u, 2048u}) {
-        if (quick && side != 257)
+        if (quick && side != 257) {
             continue;
+        }
         cases.push_back({"rgba8_mips", VK_FORMAT_R8G8B8A8_UNORM, side, 1, static_cast<uint32_t>(std::bit_width(side))});
     }
     for (uint32_t side : {64u, 256u, 1024u, 4096u}) {
-        if (quick && side != 256)
+        if (quick && side != 256) {
             continue;
+        }
         cases.push_back({"bc7_mips", VK_FORMAT_BC7_UNORM_BLOCK, side, 1, static_cast<uint32_t>(std::bit_width(side))});
     }
     for (uint32_t side : {64u, 256u, 1024u, 2048u}) {
-        if (quick && side != 256)
+        if (quick && side != 256) {
             continue;
+        }
         cases.push_back({"rgba16f", VK_FORMAT_R16G16B16A16_SFLOAT, side, 1, 1});
     }
     for (uint32_t side : {64u, 256u, 1024u}) {
-        if (quick && side != 64)
+        if (quick && side != 64) {
             continue;
+        }
         cases.push_back({"rgba8_cube_mips", VK_FORMAT_R8G8B8A8_UNORM, side, 6, static_cast<uint32_t>(std::bit_width(side))});
     }
     unsigned verified = 0, skipped = 0;
@@ -371,11 +394,14 @@ int main(int argc, char** argv) {
         auto packed = deren::vulkan::detail::packed_image_size(test.format, test.side, test.side, test.layers, test.mips);
         require(packed.has_value(), "benchmark packed size");
         vessel::vector<uint8_t> bytes(static_cast<std::size_t>(*packed));
-        for (std::size_t i = 0; i < bytes.size(); ++i)
+        for (std::size_t i = 0; i < bytes.size(); ++i) {
             bytes[i] = static_cast<uint8_t>((i * 31 + test.side) % 251);
-        if (test.format == VK_FORMAT_BC7_UNORM_BLOCK)
-            for (std::size_t i = 0; i < bytes.size(); i += 16)
+        }
+        if (test.format == VK_FORMAT_BC7_UNORM_BLOCK) {
+            for (std::size_t i = 0; i < bytes.size(); i += 16) {
                 bytes[i] = 0x40; // valid BC7 mode6
+            }
+        }
         vessel::vector<VkBufferImageCopy> regions;
         vessel::vector<VkMemoryToImageCopyEXT> host_regions;
         VkDeviceSize offset = 0;
@@ -395,8 +421,9 @@ int main(int argc, char** argv) {
         }
         require(offset == bytes.size(), "benchmark packed region size");
         for (bool warm : {false, true}) {
-            if (warm)
+            if (warm) {
                 gpu.ensure(gpu.warm_staging, bytes.size());
+            }
             for (int sample = -warmups; sample < samples; ++sample) {
                 for (unsigned n = 0; n < 4; ++n) {
                     auto method = static_cast<route>((n + static_cast<unsigned>(sample + warmups)) % 4);
@@ -408,8 +435,9 @@ int main(int argc, char** argv) {
                     bool const validate_bytes = sample == -warmups || sample == samples - 1;
                     auto measured = gpu.upload(test, method, warm, bytes, regions, host_regions, validate_bytes);
                     verified += validate_bytes;
-                    if (sample < 0)
+                    if (sample < 0) {
                         continue;
+                    }
                     csv << test.name << ',' << static_cast<int>(test.format) << ',' << test.side << ',' << test.layers << ',' << test.mips << ',' << bytes.size()
                         << ',' << (warm ? "warm" : "cold") << ',' << name(method) << ',' << sample << ',' << measured.allocation << ',' << measured.prepare
                         << ',' << measured.host_copy << ',' << measured.submit << ',' << measured.wait << ',' << measured.upload << ',' << measured.total

@@ -29,9 +29,9 @@ namespace deren::engine::pass {
         if (this->build_pipeline.has_value()) {
             return; // already built for this device
         }
-        std::span<std::uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.owner, hzb_build_shader_name) : std::span<std::uint8_t const>{};
+        std::span<std::uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.parent, hzb_build_shader_name) : std::span<std::uint8_t const>{};
         if (spirv.empty()) {
-            deren::utility::log("hzb build disabled: the owner has no {}", hzb_build_shader_name);
+            deren::utility::log("hzb build disabled: the parent has no {}", hzb_build_shader_name);
             return;
         }
         auto built = pipelines::build_hzb_build(*context.face, spirv);

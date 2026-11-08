@@ -90,12 +90,14 @@ namespace {
             return {.scene = &tree,
                     .morph_scratch_active = [this] { return scratch[slot].data(); },
                     .set_skin_matrices_active = [this](std::span<glm::mat4 const> m, uint32_t base) {
-                        if (matrices.size() < base + m.size()) matrices.resize(base + m.size(), glm::mat4(0.0f));
+                        if (matrices.size() < base + m.size()){ matrices.resize(base + m.size(), glm::mat4(0.0f));
+}
                         std::ranges::copy(m, matrices.begin() + base); },
                     .morph_scratch_slot = [this](uint32_t s) { return scratch[s].data(); },
                     .set_skin_matrices_slot = [](std::span<glm::mat4 const>, uint32_t) {},
                     .scene_changed = [this] { ++scene_changes; },
-                    .run_tasks = [](std::span<std::function<void()>> tasks) { for (auto& task : tasks) task(); },
+                    .run_tasks = [](std::span<std::function<void()>> tasks) { for (auto& task : tasks){ task();
+} },
                     .task_worker_count = [] { return 1; }};
         }
         void add_node(std::size_t index, float x, bool leaf = false) {
@@ -167,8 +169,9 @@ namespace {
         controller_host h;
         h.add_node(0, 0.0f);
         h.add_node(0, 0.0f);
-        for (auto& node : h.tree.roots)
+        for (auto& node : h.tree.roots) {
             node.import_instance = 1;
+        }
         test_node model;
         test_source src;
         src.node_by_source.emplace(0, &model);
@@ -257,8 +260,9 @@ namespace {
         h.add_node(1, -7.0f, true);
         h.add_node(2, 12.0f);
         h.add_node(0, 25.0f, true); // another runtime instance of the first mesh source
-        for (auto& node : h.tree.roots)
+        for (auto& node : h.tree.roots) {
             node.import_instance = 1;
+        }
         h.add_node(2, 80.0f); // background joint index collides, but is a different import
         h.tree.roots.back().import_instance = 2;
         test_node mesh1, mesh2, joint;
@@ -278,13 +282,15 @@ namespace {
             c.update(0.0f);
             auto const joint_world = c.joint_world(1, 0);
             CHECK(joint_world.has_value());
-            if (joint_world)
+            if (joint_world) {
                 CHECK(std::fabs((*joint_world)[3].x - 12.0f) < 1e-4f);
+            }
             for (std::size_t mesh : {std::size_t(0), std::size_t(1), std::size_t(3)}) {
                 auto const* leaf = static_cast<deren::engine::primitive*>(h.tree.roots[mesh].primitive_leaf.get());
                 CHECK(leaf->push.skin_base < h.matrices.size());
-                if (leaf->push.skin_base >= h.matrices.size())
+                if (leaf->push.skin_base >= h.matrices.size()) {
                     continue;
+                }
                 // This is the shader's actual mesh-world * skin * position chain.
                 glm::vec4 const world = h.tree.roots[mesh].local * h.matrices[leaf->push.skin_base] * glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
                 CHECK(std::fabs(world.x - 11.0f) < 1e-4f);

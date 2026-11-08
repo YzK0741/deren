@@ -24,13 +24,14 @@ namespace {
             auto camera = deren::engine::make_cube_capture_camera(position, face, .05f, 50.0f);
             CHECK(glm::length(camera.camera_pos - position) < 1e-6f);
             auto inv = glm::inverse(camera.proj * camera.view);
-            for (float u : {-.75f, 0.0f, .75f})
+            for (float u : {-.75f, 0.0f, .75f}) {
                 for (float v : {-.75f, 0.0f, .75f}) {
                     auto p = inv * glm::vec4(-u, v, 1, 1);
                     auto ray = glm::normalize(glm::vec3(p) / p.w - position);
                     auto expected = cube_direction(face, u, v);
                     CHECK(glm::length(ray - glm::normalize(glm::vec3(expected.x, expected.y, expected.z))) < 2e-4f);
                 }
+            }
             auto near_point = inv * glm::vec4(0, 0, 0, 1), far_point = inv * glm::vec4(0, 0, 1, 1);
             CHECK(std::abs(glm::length(glm::vec3(near_point) / near_point.w - position) - .05f) < 1e-5f);
             CHECK(std::abs(glm::length(glm::vec3(far_point) / far_point.w - position) - 50.0f) < .05f);
@@ -72,8 +73,8 @@ namespace {
                 return cube_vector{float(face + 1), 3.0f * face + (x + .5f) / size, .3f * face + (y + .5f) / size};
             };
             float edge_error = 0, corner_error = 0;
-            for (int face = 0; face < 6; ++face)
-                for (int edge = 0; edge < 4; ++edge)
+            for (int face = 0; face < 6; ++face) {
+                for (int edge = 0; edge < 4; ++edge) {
                     for (float along : {-.99f, -.5f, 0.0f, .5f, .99f}) {
                         float u = edge == 0 ? -1.0f : edge == 1 ? 1.0f
                                                                 : along;
@@ -83,20 +84,24 @@ namespace {
                         auto b = cube_direction(face, edge < 2 ? u * (1 + 1e-6f) : u, edge >= 2 ? v * (1 + 1e-6f) : v);
                         edge_error = std::max(edge_error, max_delta(cube_sample_level(fetch, size, a), cube_sample_level(fetch, size, b)));
                     }
-            for (float sx : {-1.0f, 1.0f})
-                for (float sy : {-1.0f, 1.0f})
+                }
+            }
+            for (float sx : {-1.0f, 1.0f}) {
+                for (float sy : {-1.0f, 1.0f}) {
                     for (float sz : {-1.0f, 1.0f}) {
                         auto a = cube_sample_level(fetch, size, cube_vector{sx * (1 + 1e-6f), sy, sz});
                         auto b = cube_sample_level(fetch, size, cube_vector{sx, sy * (1 + 1e-6f), sz});
                         auto c = cube_sample_level(fetch, size, cube_vector{sx, sy, sz * (1 + 1e-6f)});
                         corner_error = std::max({corner_error, max_delta(a, b), max_delta(b, c), max_delta(c, a)});
                     }
+                }
+            }
             CHECK_MSG(edge_error < .002f, "all twelve cube edges remain continuous when the selected major face changes");
             CHECK_MSG(corner_error < .002f, "all eight cube corners have the same three-face limit");
             CHECK(bounded);
             float orientation_error = 0, center_error = 0, constant_error = 0;
-            for (int face = 0; face < 6; ++face)
-                for (int edge = 0; edge < 4; ++edge)
+            for (int face = 0; face < 6; ++face) {
+                for (int edge = 0; edge < 4; ++edge) {
                     for (int i = 0; i < size; ++i) {
                         int x = edge == 0 ? -1 : edge == 1 ? size
                                                            : i;
@@ -110,14 +115,18 @@ namespace {
                                                                : along;
                         orientation_error = std::max(orientation_error, max_delta(cube_border_texel(fetch, size, face, x, y), fetch(m.face, nx, ny)));
                     }
+                }
+            }
             auto constant = [](int, int, int) { return cube_vector{.25f, 1, 4}; };
-            for (int face = 0; face < 6; ++face)
-                for (int y = 0; y < size; ++y)
+            for (int face = 0; face < 6; ++face) {
+                for (int y = 0; y < size; ++y) {
                     for (int x = 0; x < size; ++x) {
                         auto d = cube_direction(face, (x + .5f) / size * 2 - 1, (y + .5f) / size * 2 - 1);
                         center_error = std::max(center_error, max_delta(cube_sample_level(fetch, size, d), fetch(face, x, y)));
                         constant_error = std::max(constant_error, max_delta(cube_sample_level(constant, size, d), {.25f, 1, 4}));
                     }
+                }
+            }
             CHECK(orientation_error < 1e-6f);
             CHECK(center_error < 1e-5f);
             CHECK(constant_error < 1e-6f);

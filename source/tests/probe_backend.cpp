@@ -238,7 +238,7 @@ namespace {
     /// shape the face exists to end cannot exist even here. (The bodies live below `impl`, which
     /// they reach through.)
     struct probe_frame_walker final : rhi::frame_walker {
-        impl* owner = nullptr;
+        impl* parent = nullptr;
 
         [[nodiscard]] std::uint32_t slot_count() const noexcept override;
         [[nodiscard]] std::uint32_t position() const noexcept override;
@@ -287,7 +287,7 @@ namespace {
         }
         probe_command_buffer() noexcept = default;
         [[nodiscard]] rhi::error push_constants(std::uint32_t, std::span<std::byte const>) noexcept override;
-        impl* owner = nullptr;
+        impl* parent = nullptr;
         rhi::command_buffer_kind kind_echo = rhi::command_buffer_kind::primary;
         rhi::command_buffer_flags usage_echo = rhi::no_command_buffer_flags;
         std::uint32_t executions = 0;
@@ -322,8 +322,9 @@ namespace {
         [[nodiscard]] rhi::error use(rhi::image const&, rhi::image_use const from, rhi::image_use const to) noexcept override {
             if (recording && !replaying) {
                 auto result = apply_operations();
-                if (result != rhi::error::ok)
+                if (result != rhi::error::ok) {
                     return result;
+                }
             }
             if (!this->frame_scoped) {
                 return rhi::error::not_ready; // the frame's image is not in this buffer (the frame-scoped rule)
@@ -378,12 +379,14 @@ namespace {
         // visible" shape the members below follow); nothing is faked and nothing is dropped, because
         // a silent verb is exactly what the answering rule exists to refuse.
         [[nodiscard]] rhi::error begin_rendering(rhi::rendering_info const& info) noexcept override {
-            if (!recording || rendering_active)
+            if (!recording || rendering_active) {
                 return rhi::error::not_ready;
+            }
             if (recording && !replaying) {
                 auto result = apply_operations();
-                if (result != rhi::error::ok)
+                if (result != rhi::error::ok) {
                     return result;
+                }
             }
             this->rendering_active = true;
             this->begun_renderings += 1;
@@ -393,21 +396,24 @@ namespace {
         }
 
         void end_rendering() noexcept override {
-            if (!recording || recording_error != rhi::error::ok)
+            if (!recording || recording_error != rhi::error::ok) {
                 return;
+            }
             if (!rendering_active || rendering_inherited) {
                 recording_error = rhi::error::invalid_argument;
                 return;
             }
-            if (recording && !replaying)
+            if (recording && !replaying) {
                 static_cast<void>(apply_operations());
+            }
             this->rendering_active = false;
             this->ended_renderings += 1;
         }
 
         [[nodiscard]] rhi::error bind_pipeline(rhi::pipeline const& handle) noexcept override {
-            if (recording_error != rhi::error::ok)
+            if (recording_error != rhi::error::ok) {
                 return recording_error;
+            }
             if (recording && !replaying) {
                 desired_pipeline = &handle;
                 operations.append<rhi::recording::operation_kind::pipeline>({reinterpret_cast<std::uintptr_t>(&handle)});
@@ -419,8 +425,9 @@ namespace {
         }
 
         [[nodiscard]] rhi::error bind_vertex_buffer(rhi::buffer const& handle, std::uint64_t const offset) noexcept override {
-            if (recording_error != rhi::error::ok)
+            if (recording_error != rhi::error::ok) {
                 return recording_error;
+            }
             if (recording && !replaying) {
                 operations.append<rhi::recording::operation_kind::vertex>({reinterpret_cast<std::uintptr_t>(&handle), offset});
                 return rhi::error::ok;
@@ -431,8 +438,9 @@ namespace {
         }
 
         [[nodiscard]] rhi::error bind_index_buffer(rhi::buffer const& handle, std::uint64_t const offset, rhi::index_type const type) noexcept override {
-            if (recording_error != rhi::error::ok)
+            if (recording_error != rhi::error::ok) {
                 return recording_error;
+            }
             if (recording && !replaying) {
                 operations.append<rhi::recording::operation_kind::index>({reinterpret_cast<std::uintptr_t>(&handle), offset, static_cast<std::uint64_t>(type)});
                 return rhi::error::ok;
@@ -444,8 +452,9 @@ namespace {
         }
 
         void draw(std::uint32_t const vertex_count, std::uint32_t const instance_count, std::uint32_t const first_vertex, std::uint32_t const first_instance) noexcept override {
-            if (!recording || recording_error != rhi::error::ok)
+            if (!recording || recording_error != rhi::error::ok) {
                 return;
+            }
             if (!rendering_active) {
                 recording_error = rhi::error::invalid_argument;
                 return;
@@ -458,8 +467,9 @@ namespace {
         }
 
         void draw_indexed(std::uint32_t const index_count, std::uint32_t const instance_count, std::uint32_t const first_index, std::int32_t const vertex_offset, std::uint32_t const first_instance) noexcept override {
-            if (!recording || recording_error != rhi::error::ok)
+            if (!recording || recording_error != rhi::error::ok) {
                 return;
+            }
             if (!rendering_active) {
                 recording_error = rhi::error::invalid_argument;
                 return;
@@ -472,8 +482,9 @@ namespace {
         }
 
         void dispatch(std::uint32_t const groups_x, std::uint32_t const groups_y, std::uint32_t const groups_z) noexcept override {
-            if (!recording || recording_error != rhi::error::ok)
+            if (!recording || recording_error != rhi::error::ok) {
                 return;
+            }
             if (rendering_active) {
                 recording_error = rhi::error::invalid_argument;
                 return;
@@ -486,8 +497,9 @@ namespace {
         }
 
         void draw_mesh_tasks(std::uint32_t const groups_x, std::uint32_t const groups_y, std::uint32_t const groups_z) noexcept override {
-            if (!recording || recording_error != rhi::error::ok)
+            if (!recording || recording_error != rhi::error::ok) {
                 return;
+            }
             if (!rendering_active) {
                 recording_error = rhi::error::invalid_argument;
                 return;
@@ -503,8 +515,9 @@ namespace {
             return rhi::error::unsupported;
         }
         [[nodiscard]] rhi::error draw_mesh_tasks_indirect(rhi::buffer const& handle, std::uint64_t const offset, std::uint32_t const count, std::uint32_t const stride) noexcept override {
-            if (recording_error != rhi::error::ok)
+            if (recording_error != rhi::error::ok) {
                 return recording_error;
+            }
             if (recording && !replaying) {
                 operations.append<rhi::recording::operation_kind::mesh_indirect>({reinterpret_cast<std::uintptr_t>(&handle), offset, count, stride});
                 return rhi::error::ok;
@@ -562,8 +575,9 @@ namespace {
         [[nodiscard]] rhi::error barrier(rhi::barrier_group const& group) noexcept override {
             if (recording && !replaying) {
                 auto result = apply_operations();
-                if (result != rhi::error::ok)
+                if (result != rhi::error::ok) {
                     return result;
+                }
             }
             this->barrier_groups += 1;
             this->last_group_images = group.images.size();
@@ -574,8 +588,9 @@ namespace {
         [[nodiscard]] rhi::error barrier(rhi::image_barrier const& one) noexcept override {
             if (recording && !replaying) {
                 auto result = apply_operations();
-                if (result != rhi::error::ok)
+                if (result != rhi::error::ok) {
                     return result;
+                }
             }
             this->single_barriers += 1;
             this->last_single_barrier_to = one.to;
@@ -585,8 +600,9 @@ namespace {
         [[nodiscard]] rhi::error copy_image(rhi::image_copy const& copy) noexcept override {
             if (recording && !replaying) {
                 auto result = apply_operations();
-                if (result != rhi::error::ok)
+                if (result != rhi::error::ok) {
                     return result;
+                }
             }
             this->last_image_copy = &copy;
             return rhi::error::ok;
@@ -595,8 +611,9 @@ namespace {
         [[nodiscard]] rhi::error copy_buffer(rhi::buffer& destination, rhi::buffer const& source, std::uint64_t const size, std::uint64_t const source_offset, std::uint64_t const destination_offset) noexcept override {
             if (recording && !replaying) {
                 auto result = apply_operations();
-                if (result != rhi::error::ok)
+                if (result != rhi::error::ok) {
                     return result;
+                }
             }
             this->last_buffer_copy = {&destination, &source, size, source_offset, destination_offset};
             return rhi::error::ok;
@@ -605,8 +622,9 @@ namespace {
         [[nodiscard]] rhi::error clear_color_image(rhi::image const& target, deren::utility::vessel::array<float, 4> const& color, rhi::subresource_range const& range) noexcept override {
             if (recording && !replaying) {
                 auto result = apply_operations();
-                if (result != rhi::error::ok)
+                if (result != rhi::error::ok) {
                     return result;
+                }
             }
             this->last_cleared_image = &target;
             this->last_clear_color = color;
@@ -695,7 +713,7 @@ namespace {
             return tag;
         }
         probe_mergeable_command_buffer() noexcept = default;
-        impl* owner = nullptr;
+        impl* parent = nullptr;
         probe_command_buffer inner;
         [[nodiscard]] rhi::error apply_operations() noexcept override {
             return inner.apply_operations();
@@ -819,7 +837,7 @@ namespace {
             return tag;
         }
         probe_swapchain() noexcept = default;
-        impl* owner = nullptr;
+        impl* parent = nullptr;
 
         /// A BORROWED view: this surface is a static member of the probe, so there is no reference to
         /// drop - the call is counted, and the count is what makes "the call arrived" observable.
@@ -889,14 +907,18 @@ namespace {
             default:
                 break;
             }
-            if (rhi::has_flag(desc.flags, rhi::buffer_flag::storage))
+            if (rhi::has_flag(desc.flags, rhi::buffer_flag::storage)) {
                 usage_mask |= usage_bit(rhi_sync::usage::storage);
-            if (rhi::has_flag(desc.flags, rhi::buffer_flag::indirect))
+            }
+            if (rhi::has_flag(desc.flags, rhi::buffer_flag::indirect)) {
                 usage_mask |= usage_bit(rhi_sync::usage::indirect_buffer);
-            if (rhi::has_flag(desc.flags, rhi::buffer_flag::transfer_source))
+            }
+            if (rhi::has_flag(desc.flags, rhi::buffer_flag::transfer_source)) {
                 usage_mask |= usage_bit(rhi_sync::usage::transfer_source);
-            if (rhi::has_flag(desc.flags, rhi::buffer_flag::transfer_destination))
+            }
+            if (rhi::has_flag(desc.flags, rhi::buffer_flag::transfer_destination)) {
                 usage_mask |= usage_bit(rhi_sync::usage::transfer_destination);
+            }
             bool const host = desc.usage == rhi::buffer_usage::uniform_coherent ||
                               desc.usage == rhi::buffer_usage::uniform_cached ||
                               desc.usage == rhi::buffer_usage::storage_coherent ||
@@ -940,7 +962,7 @@ namespace {
         [[nodiscard]] std::string_view get_tag() const noexcept override {
             return tag;
         }
-        impl* owner = nullptr;
+        impl* parent = nullptr;
         rhi::shared_object<rhi::api_core> keep_alive;
         rhi::shared_object<cpu_frame_snapshot>::weak self;
         std::shared_ptr<cpu_resource_registry> registry;
@@ -974,8 +996,9 @@ namespace {
         }
         bool current() const noexcept;
         rhi::unique_object<rhi::image_view> make_view(rhi::image_view_desc const& desc) override {
-            if (!current() || desc.base_layer != 0 || desc.base_mip != 0 || desc.layer_count > 1 || desc.mip_count > 1)
+            if (!current() || desc.base_layer != 0 || desc.base_mip != 0 || desc.layer_count > 1 || desc.mip_count > 1) {
                 return nullptr;
+            }
             auto view = std::make_unique<cpu_image_view>();
             view->parent = this->self.lock();
             return rhi::unique_object<rhi::image_view>{view.release()};
@@ -986,7 +1009,7 @@ namespace {
         [[nodiscard]] std::string_view get_tag() const noexcept override {
             return tag;
         }
-        impl* owner = nullptr;
+        impl* parent = nullptr;
         rhi::shared_object<cpu_frame_snapshot>::weak cached;
         cpu_frame_resources() noexcept = default;
         rhi::shared_object<rhi::image> retain_image() noexcept override;
@@ -1009,20 +1032,27 @@ namespace {
             , pixel_format(desc.format)
             , layers(desc.array_layers)
             , mips(desc.mip_levels != 0 ? desc.mip_levels : std::bit_width(std::max(desc.extent.width, desc.extent.height))) {
-            if (rhi::has_flag(desc.flags, rhi::image_flag::sampled))
+            if (rhi::has_flag(desc.flags, rhi::image_flag::sampled)) {
                 usage_mask |= usage_bit(rhi_sync::usage::sampled);
-            if (rhi::has_flag(desc.flags, rhi::image_flag::storage))
+            }
+            if (rhi::has_flag(desc.flags, rhi::image_flag::storage)) {
                 usage_mask |= usage_bit(rhi_sync::usage::storage);
-            if (rhi::has_flag(desc.flags, rhi::image_flag::color_attachment))
+            }
+            if (rhi::has_flag(desc.flags, rhi::image_flag::color_attachment)) {
                 usage_mask |= usage_bit(rhi_sync::usage::color_attachment);
-            if (rhi::has_flag(desc.flags, rhi::image_flag::depth_attachment))
+            }
+            if (rhi::has_flag(desc.flags, rhi::image_flag::depth_attachment)) {
                 usage_mask |= usage_bit(rhi_sync::usage::depth_stencil_attachment) | usage_bit(rhi_sync::usage::depth_stencil_read);
-            if (rhi::has_flag(desc.flags, rhi::image_flag::sampled) && pixel_format == rhi::image_format::depth)
+            }
+            if (rhi::has_flag(desc.flags, rhi::image_flag::sampled) && pixel_format == rhi::image_format::depth) {
                 usage_mask |= usage_bit(rhi_sync::usage::depth_stencil_read);
-            if (rhi::has_flag(desc.flags, rhi::image_flag::transfer_source))
+            }
+            if (rhi::has_flag(desc.flags, rhi::image_flag::transfer_source)) {
                 usage_mask |= usage_bit(rhi_sync::usage::transfer_source);
-            if (rhi::has_flag(desc.flags, rhi::image_flag::transfer_destination))
+            }
+            if (rhi::has_flag(desc.flags, rhi::image_flag::transfer_destination)) {
                 usage_mask |= usage_bit(rhi_sync::usage::transfer_destination);
+            }
             std::lock_guard lock(registry->mutex);
             registry->images.push_back(this);
             ++live_cpu_images;
@@ -1047,8 +1077,9 @@ namespace {
         rhi::unique_object<rhi::image_view> make_view(rhi::image_view_desc const& desc) override {
             if (desc.base_layer >= layers || desc.base_mip >= mips ||
                 (desc.layer_count != 0 && desc.layer_count > layers - desc.base_layer) ||
-                (desc.mip_count != 0 && desc.mip_count > mips - desc.base_mip))
+                (desc.mip_count != 0 && desc.mip_count > mips - desc.base_mip)) {
                 return nullptr;
+            }
             return rhi::unique_object<rhi::image_view>{new cpu_image_view};
         }
     };
@@ -1127,22 +1158,26 @@ namespace {
             return {};
         }
         rhi::error write_image(rhi::heap_image_write_info const& info) noexcept override {
-            if (info.resource == nullptr || info.view == nullptr || info.offset % 64 != 0)
+            if (info.resource == nullptr || info.view == nullptr || info.offset % 64 != 0) {
                 return rhi::error::invalid_argument;
+            }
             if (image_writes_until_failure == 0) {
-                if (!persistent_image_failure)
+                if (!persistent_image_failure) {
                     image_writes_until_failure = -1;
+                }
                 return rhi::error::unsupported;
             }
-            if (image_writes_until_failure > 0)
+            if (image_writes_until_failure > 0) {
                 --image_writes_until_failure;
+            }
             ++image_writes;
             written_images.emplace_back(info.offset, info.resource);
             return rhi::error::ok;
         }
         rhi::error write_buffer(rhi::heap_buffer_write_info const& info) noexcept override {
-            if (info.address == 0 || info.size == 0 || info.offset % 64 != 0)
+            if (info.address == 0 || info.size == 0 || info.offset % 64 != 0) {
                 return rhi::error::invalid_argument;
+            }
             ++buffer_writes;
             written_buffers.push_back(info);
             return rhi::error::ok;
@@ -1173,24 +1208,29 @@ namespace {
         }
         rhi::error write_image(rhi::descriptor_image_write const& info) noexcept override {
             auto status = rhi::validate_structure(info.header, rhi::structure_type::descriptor_image_write, sizeof(info), false);
-            if (status != rhi::error::ok)
+            if (status != rhi::error::ok) {
                 return status;
-            if (!valid_slot(info.space, info.slot))
+            }
+            if (!valid_slot(info.space, info.slot)) {
                 return rhi::error::invalid_argument;
+            }
             return fixed_heap->write_image({.offset = std::uint64_t(info.slot) * 64, .resource = info.resource, .view = info.view, .type = info.type});
         }
         rhi::error write_buffer(rhi::descriptor_buffer_write const& info) noexcept override {
             auto status = rhi::validate_structure(info.header, rhi::structure_type::descriptor_buffer_write, sizeof(info), false);
-            if (status != rhi::error::ok)
+            if (status != rhi::error::ok) {
                 return status;
-            if (!valid_slot(info.space, info.slot) || !info.resource || !info.size || info.offset >= info.resource->size() || info.size > info.resource->size() - info.offset)
+            }
+            if (!valid_slot(info.space, info.slot) || !info.resource || !info.size || info.offset >= info.resource->size() || info.size > info.resource->size() - info.offset) {
                 return rhi::error::invalid_argument;
+            }
             return fixed_heap->write_buffer({.offset = std::uint64_t(info.slot) * 64, .address = reinterpret_cast<std::uintptr_t>(info.resource) + info.offset, .size = info.size, .type = info.type});
         }
         rhi::error bind(rhi::descriptor_bind_info const& info) noexcept override {
             auto status = rhi::validate_structure(info.header, rhi::structure_type::descriptor_bind, sizeof(info), false);
-            if (status != rhi::error::ok)
+            if (status != rhi::error::ok) {
                 return status;
+            }
             return fixed_heap ? fixed_heap->bind({.commands = info.commands}) : rhi::error::unsupported;
         }
         struct entry {
@@ -1211,35 +1251,44 @@ namespace {
         [[nodiscard]] rhi::descriptor_position position(rhi::texture_group const& group) const noexcept override {
             std::lock_guard lock(mutex);
             for (auto const& one : live) {
-                if (one.group == &group)
+                if (one.group == &group) {
                     return one.position;
+                }
             }
             return {};
         }
         [[nodiscard]] rhi::error write(rhi::descriptor_write const& info) noexcept override {
-            if (rhi::validate_structure(info.header, rhi::structure_type::descriptor_write, sizeof(info), false) != rhi::error::ok)
+            if (rhi::validate_structure(info.header, rhi::structure_type::descriptor_write, sizeof(info), false) != rhi::error::ok) {
                 return rhi::error::invalid_argument;
+            }
             if (info.where.space != 0u || info.where.count != rhi::texture_group_capacity || info.where.base == 0u ||
-                info.where.generation == 0u)
+                info.where.generation == 0u) {
                 return rhi::error::invalid_argument;
-            if (info.index >= info.where.count)
+            }
+            if (info.index >= info.where.count) {
                 return rhi::error::invalid_argument;
-            if (info.type != rhi::descriptor_type::sampled_image && info.type != rhi::descriptor_type::combined_image_sampler)
+            }
+            if (info.type != rhi::descriptor_type::sampled_image && info.type != rhi::descriptor_type::combined_image_sampler) {
                 return rhi::error::unsupported;
-            if (info.resource == nullptr)
+            }
+            if (info.resource == nullptr) {
                 return rhi::error::invalid_argument;
+            }
             if (info.view != nullptr) {
                 auto const& view = *info.view;
                 if (view.struct_size < sizeof(rhi::image_view_desc) || view.role != rhi::view_role::sampled ||
-                    view.base_mip != 0u || view.mip_count != 0u || view.base_layer != 0u || view.layer_count > 1u)
+                    view.base_mip != 0u || view.mip_count != 0u || view.base_layer != 0u || view.layer_count > 1u) {
                     return rhi::error::unsupported;
+                }
             }
             std::lock_guard lock(mutex);
             for (auto const& one : live) {
-                if (one.position.base != info.where.base)
+                if (one.position.base != info.where.base) {
                     continue;
-                if (one.position.generation != info.where.generation)
+                }
+                if (one.position.generation != info.where.generation) {
                     return rhi::error::invalid_argument; // stale: the token was reused
+                }
                 ++writes;
                 return rhi::error::ok;
             }
@@ -1263,12 +1312,13 @@ namespace {
             return tag;
         }
         cpu_descriptor_space* space = nullptr;
-        explicit cpu_texture_group(cpu_descriptor_space* const owner) noexcept
-            : space(owner) {
+        explicit cpu_texture_group(cpu_descriptor_space* const parent) noexcept
+            : space(parent) {
         }
         void release() noexcept override {
-            if (space != nullptr)
+            if (space != nullptr) {
                 space->forget_group(*this);
+            }
             delete this;
         }
     };
@@ -1289,7 +1339,7 @@ namespace {
         [[nodiscard]] std::string_view get_tag() const noexcept override {
             return tag;
         }
-        impl* owner = nullptr;
+        impl* parent = nullptr;
         std::shared_ptr<cpu_resource_registry> registry;
         bool enabled = true;
         uint32_t stage_mask = 255;
@@ -1304,24 +1354,27 @@ namespace {
             std::lock_guard lock(registry->mutex);
             if (std::find(registry->frame_images.begin(), registry->frame_images.end(), &resource) != registry->frame_images.end()) {
                 auto const& image = static_cast<cpu_frame_snapshot const&>(resource);
-                if (!image.current())
+                if (!image.current()) {
                     return rhi::error::invalid_argument;
+                }
                 info = {1, 1, rhi_sync::aspect::color,
                         usage_bit(rhi_sync::usage::color_attachment) | usage_bit(rhi_sync::usage::present) |
                             usage_bit(rhi_sync::usage::sampled) | usage_bit(rhi_sync::usage::transfer_source),
                         reinterpret_cast<std::uintptr_t>(&resource)};
                 return rhi::error::ok;
             }
-            if (std::find(registry->images.begin(), registry->images.end(), &resource) == registry->images.end())
+            if (std::find(registry->images.begin(), registry->images.end(), &resource) == registry->images.end()) {
                 return rhi::error::invalid_argument;
+            }
             auto const& image = static_cast<cpu_image const&>(resource);
             info = {image.mips, image.layers, image.pixel_format == rhi::image_format::depth ? rhi_sync::aspect::depth : rhi_sync::aspect::color, image.usage_mask, image.canonical_object != 0 ? image.canonical_object : reinterpret_cast<std::uintptr_t>(&resource)};
             return rhi::error::ok;
         }
         rhi::error describe(rhi::buffer const& resource, rhi::scoped_buffer_info& info) const noexcept override {
             std::lock_guard lock(registry->mutex);
-            if (std::find(registry->buffers.begin(), registry->buffers.end(), &resource) == registry->buffers.end())
+            if (std::find(registry->buffers.begin(), registry->buffers.end(), &resource) == registry->buffers.end()) {
                 return rhi::error::invalid_argument;
+            }
             auto const& buffer = static_cast<cpu_buffer const&>(resource);
             info = {buffer.bytes, buffer.usage_mask, reinterpret_cast<std::uintptr_t>(&resource)};
             return rhi::error::ok;
@@ -1331,8 +1384,9 @@ namespace {
             return (stages & ~stage_mask) == 0 && (accesses & ~3u) == 0 && (accesses == 0 || stages != 0);
         }
         bool valid_state(rhi_sync::image_state state, rhi::scoped_image_info const& info, bool destination) const noexcept {
-            if (!valid_scope(state.scope))
+            if (!valid_scope(state.scope)) {
                 return false;
+            }
             std::uint32_t required = 0;
             switch (state.layout) {
             case rhi_sync::image_layout::undefined:
@@ -1340,23 +1394,27 @@ namespace {
             case rhi_sync::image_layout::general:
                 break;
             case rhi_sync::image_layout::shader_read_only:
-                if (destination && (static_cast<std::uint32_t>(state.scope.accesses) & 2u) != 0)
+                if (destination && (static_cast<std::uint32_t>(state.scope.accesses) & 2u) != 0) {
                     return false;
+                }
                 required = usage_bit(rhi_sync::usage::sampled);
                 break;
             case rhi_sync::image_layout::color_attachment:
-                if (info.aspects != rhi_sync::aspect::color)
+                if (info.aspects != rhi_sync::aspect::color) {
                     return false;
+                }
                 required = usage_bit(rhi_sync::usage::color_attachment);
                 break;
             case rhi_sync::image_layout::depth_stencil_attachment:
-                if (info.aspects == rhi_sync::aspect::color)
+                if (info.aspects == rhi_sync::aspect::color) {
                     return false;
+                }
                 required = usage_bit(rhi_sync::usage::depth_stencil_attachment);
                 break;
             case rhi_sync::image_layout::depth_stencil_read_only:
-                if (info.aspects == rhi_sync::aspect::color || (destination && (static_cast<std::uint32_t>(state.scope.accesses) & 2u) != 0))
+                if (info.aspects == rhi_sync::aspect::color || (destination && (static_cast<std::uint32_t>(state.scope.accesses) & 2u) != 0)) {
                     return false;
+                }
                 required = usage_bit(rhi_sync::usage::depth_stencil_read);
                 break;
             case rhi_sync::image_layout::transfer_source:
@@ -1366,8 +1424,9 @@ namespace {
                 required = usage_bit(rhi_sync::usage::transfer_destination);
                 break;
             case rhi_sync::image_layout::present:
-                if (state.scope.stages != rhi_sync::stage::none || state.scope.accesses != rhi_sync::access::none)
+                if (state.scope.stages != rhi_sync::stage::none || state.scope.accesses != rhi_sync::access::none) {
                     return false;
+                }
                 required = usage_bit(rhi_sync::usage::present);
                 break;
             default:
@@ -1376,30 +1435,36 @@ namespace {
             return required == 0 || (info.usage_mask & required) == required;
         }
         rhi::error validate(std::span<rhi::scoped_image_barrier const> images, std::span<rhi::scoped_buffer_barrier const> buffers) const noexcept override {
-            if (!enabled)
+            if (!enabled) {
                 return rhi::error::unsupported;
+            }
             if (validations_until_failure == 0) {
                 validations_until_failure = -1;
                 return rhi::error::operation_failed;
             }
-            if (validations_until_failure > 0)
+            if (validations_until_failure > 0) {
                 --validations_until_failure;
+            }
             for (auto const& barrier : images) {
                 rhi::scoped_image_info info{};
-                if (!barrier.resource || describe(*barrier.resource, info) != rhi::error::ok)
+                if (!barrier.resource || describe(*barrier.resource, info) != rhi::error::ok) {
                     return rhi::error::invalid_argument;
+                }
                 auto const& range = barrier.transition.range;
                 auto aspects = static_cast<std::uint32_t>(range.aspects);
-                if (range.mip_count == 0 || range.layer_count == 0 || range.base_mip >= info.mip_levels || range.mip_count > info.mip_levels - range.base_mip || range.base_layer >= info.array_layers || range.layer_count > info.array_layers - range.base_layer || aspects == 0 || (aspects & ~static_cast<std::uint32_t>(info.aspects)) != 0 || !valid_state(barrier.transition.before, info, false) || !valid_state(barrier.transition.after, info, true))
+                if (range.mip_count == 0 || range.layer_count == 0 || range.base_mip >= info.mip_levels || range.mip_count > info.mip_levels - range.base_mip || range.base_layer >= info.array_layers || range.layer_count > info.array_layers - range.base_layer || aspects == 0 || (aspects & ~static_cast<std::uint32_t>(info.aspects)) != 0 || !valid_state(barrier.transition.before, info, false) || !valid_state(barrier.transition.after, info, true)) {
                     return rhi::error::invalid_argument;
+                }
             }
             for (auto const& barrier : buffers) {
                 rhi::scoped_buffer_info info{};
-                if (!barrier.resource || describe(*barrier.resource, info) != rhi::error::ok)
+                if (!barrier.resource || describe(*barrier.resource, info) != rhi::error::ok) {
                     return rhi::error::invalid_argument;
+                }
                 auto const& transition = barrier.transition;
-                if (transition.size == 0 || transition.offset >= info.byte_size || transition.size > info.byte_size - transition.offset || !valid_scope(transition.before) || !valid_scope(transition.after))
+                if (transition.size == 0 || transition.offset >= info.byte_size || transition.size > info.byte_size - transition.offset || !valid_scope(transition.before) || !valid_scope(transition.after)) {
                     return rhi::error::invalid_argument;
+                }
             }
             return rhi::error::ok;
         }
@@ -1412,9 +1477,9 @@ namespace {
         }
         push_capture pushes;
         /// the probe root's own control block (the entry hands it out as a shared_object)
-        rhi::shared_object<rhi::api_core>::weak self_owner;
+        rhi::shared_object<rhi::api_core>::weak self;
         void attach_self(rhi::shared_object<rhi::api_core> const& root) noexcept {
-            this->self_owner = root;
+            this->self = root;
         }
         void release() noexcept override {
             delete this;
@@ -1435,8 +1500,9 @@ namespace {
         }
 
         [[nodiscard]] rhi::ability_bits abilities() const noexcept override {
-            if (portable_mode)
+            if (portable_mode) {
                 return rhi::to_bits(rhi::extension_kind::frame_resources) | (async_present.completion.valid() ? rhi::to_bits(rhi::extension_kind::async_presentation) : 0u) | (scoped_sync.enabled ? rhi::to_bits(rhi::extension_kind::scoped_synchronization) : 0u) | rhi::to_bits(rhi::extension_kind::device_address) | rhi::to_bits(rhi::extension_kind::device_capabilities) | rhi::to_bits(rhi::extension_kind::descriptor_heap) | rhi::to_bits(rhi::extension_kind::descriptor_space);
+            }
             // `device_address` alone (abi 43 removed the escape): the engine's injected-root path asks for
             // buffer addresses, and every announced bit answers with an object whose kind matches - the
             // contract's two-way invariant, walked in test_dynamic_link.
@@ -1453,8 +1519,9 @@ namespace {
             case rhi::extension_kind::async_presentation:
                 return portable_mode && async_present.completion.valid() ? &async_present : nullptr;
             case rhi::extension_kind::device_address:
-                if (portable_mode)
+                if (portable_mode) {
                     return &cpu_address;
+                }
                 return &this->address;
             case rhi::extension_kind::device_capabilities:
                 return portable_mode ? &cpu_caps : nullptr;
@@ -1468,14 +1535,17 @@ namespace {
         }
 
         [[nodiscard]] rhi::unique_object<rhi::buffer> create_buffer(rhi::buffer_desc const& desc) override {
-            if (!accept_resource_creation())
+            if (!accept_resource_creation()) {
                 return nullptr;
-            if (rhi::validate_buffer_initialization(desc.size, desc.initial_bytes.size()) != rhi::error::ok)
+            }
+            if (rhi::validate_buffer_initialization(desc.size, desc.initial_bytes.size()) != rhi::error::ok) {
                 return nullptr;
+            }
             if (portable_mode) {
                 auto* result = new cpu_buffer(desc, resource_registry);
-                if (desc.initial_bytes.empty())
+                if (desc.initial_bytes.empty()) {
                     std::fill(result->content.begin(), result->content.end(), std::byte{buffer_allocation_fill});
+                }
                 return rhi::unique_object<rhi::buffer>{result};
             }
             this->buffer.size_bytes = desc.size;
@@ -1483,8 +1553,9 @@ namespace {
         }
 
         [[nodiscard]] rhi::unique_object<rhi::image> create_image(rhi::image_desc const& desc) override {
-            if (!accept_resource_creation())
+            if (!accept_resource_creation()) {
                 return nullptr;
+            }
             return rhi::unique_object<rhi::image>{portable_mode && desc.extent.width != 0 && desc.extent.height != 0 && desc.array_layers != 0 && desc.format != rhi::image_format::unknown ? new cpu_image(desc, resource_registry) : nullptr};
         }
 
@@ -1502,8 +1573,9 @@ namespace {
         }
 
         [[nodiscard]] rhi::unique_object<rhi::sampler> create_sampler(rhi::sampler_desc const& desc) override {
-            if (portable_mode)
+            if (portable_mode) {
                 return rhi::unique_object<rhi::sampler>{new cpu_sampler};
+            }
             // abi 16: the descriptor's new fields have to CROSS, so the probe keeps it and the test reads it
             // back (a nullptr answer would make the crossing untestable - the same reason create_buffer
             // returns its stand-in rather than nothing).
@@ -1533,23 +1605,29 @@ namespace {
         /// texture is REGISTERED in the CPU space and gets a position; an empty group is a valid object
         /// with no position (the real backend answers the same: nothing to reference).
         [[nodiscard]] rhi::texture_group_ref assign_texture_group(rhi::texture_group_info const& info, rhi::error* result) override {
-            if (result != nullptr)
+            if (result != nullptr) {
                 *result = rhi::error::invalid_argument;
-            if (info.struct_size < sizeof(info))
+            }
+            if (info.struct_size < sizeof(info)) {
                 return {};
+            }
             auto* answer = new (std::nothrow) cpu_texture_group(&this->descriptor_space);
             if (answer == nullptr) {
-                if (result != nullptr)
+                if (result != nullptr) {
                     *result = rhi::error::out_of_host_memory;
+                }
                 return {};
             }
             bool any = false;
-            for (auto const& slot : info.textures)
+            for (auto const& slot : info.textures) {
                 any = any || slot.value_or(nullptr) != nullptr;
-            if (any)
+            }
+            if (any) {
                 this->descriptor_space.register_group(*answer);
-            if (result != nullptr)
+            }
+            if (result != nullptr) {
                 *result = rhi::error::ok;
+            }
             return rhi::texture_group_ref(answer);
         }
 
@@ -1560,8 +1638,8 @@ namespace {
             if (answer == nullptr) {
                 return {};
             }
-            answer->owner = this;
-            answer->inner.owner = this;
+            answer->parent = this;
+            answer->inner.parent = this;
             answer->inner.frame_scoped = false;
             answer->inner.kind_echo = rhi::command_buffer_kind::secondary;
             this->mergeable_buffers.push_back(answer);
@@ -1580,14 +1658,14 @@ namespace {
                 if (handle == nullptr) {
                     return rhi::error::invalid_argument;
                 }
-                auto const& owned = static_cast<probe_mergeable_command_buffer const&>(*handle);
-                if (std::find(this->mergeable_buffers.begin(), this->mergeable_buffers.end(), &owned) == this->mergeable_buffers.end()) {
+                auto const& concrete = static_cast<probe_mergeable_command_buffer const&>(*handle);
+                if (std::find(this->mergeable_buffers.begin(), this->mergeable_buffers.end(), &concrete) == this->mergeable_buffers.end()) {
                     return rhi::error::invalid_argument; // a handle this probe did not hand out
                 }
-                if (owned.submitted) {
+                if (concrete.submitted) {
                     return rhi::error::invalid_argument; // one batch per recording
                 }
-                if (owned.inner.recording || owned.inner.released || !owned.inner.executable) {
+                if (concrete.inner.recording || concrete.inner.released || !concrete.inner.executable) {
                     return rhi::error::not_ready; // still recording, or the one reference was dropped
                 }
                 for (std::size_t j = 0; j < i; ++j) {
@@ -1722,10 +1800,12 @@ namespace {
         std::uint8_t buffer_allocation_fill = 0;
         std::int32_t resource_creations_until_failure = -1;
         bool accept_resource_creation() {
-            if (resource_creations_until_failure < 0)
+            if (resource_creations_until_failure < 0) {
                 return true;
-            if (resource_creations_until_failure-- > 0)
+            }
+            if (resource_creations_until_failure-- > 0) {
                 return true;
+            }
             return false;
         }
         cpu_capabilities cpu_caps;
@@ -1735,7 +1815,7 @@ namespace {
         cpu_async_presentation async_present;
         probe_buffer buffer{};
         probe_sampler sampler{};                  ///< abi 16: the descriptor echo the sampler test reads
-        probe_frame_image borrowed_frame_image{}; ///< abi 16 (item B): the borrowed frame image and its owned view
+        probe_frame_image borrowed_frame_image{}; ///< abi 16 (item B): the borrowed frame image and its concrete view
         probe_device_address address{};
         /// abi 15: the command buffer `create_command_buffer()` hands out. ONE object, reset on every
         /// creation - the same "statically allocated stand-in" shape `buffer` has, and the reason a
@@ -1775,13 +1855,13 @@ namespace {
             bind_views(*this, *this, *this);
             // THE OWNER IS SET IN THE CONSTRUCTOR - the same lesson the real backend's constructor
             // states: a view handed out with a null owner dereferences null on its first call.
-            this->frame_commands.owner = this;
-            this->scoped_sync.owner = this;
-            this->frame_resources.owner = this;
+            this->frame_commands.parent = this;
+            this->scoped_sync.parent = this;
+            this->frame_resources.parent = this;
             this->scoped_sync.registry = this->resource_registry;
-            this->walker.owner = this;
-            this->swapchain_view.owner = this;
-            this->command_buffer.owner = this;
+            this->walker.parent = this;
+            this->swapchain_view.parent = this;
+            this->command_buffer.parent = this;
             // ITS list is NOT the frame's: the frame-scoped verbs must refuse it (abi 15's rule the
             // real backend applies, mirrored here so the test can measure it without a GPU).
             this->command_buffer.frame_scoped = false;
@@ -1789,19 +1869,22 @@ namespace {
     };
 
     bool cpu_frame_snapshot::current() const noexcept {
-        return owner->frame_open && owner->frame_serial == serial;
+        return parent->frame_open && parent->frame_serial == serial;
     }
     rhi::shared_object<rhi::image> cpu_frame_resources::retain_image() noexcept {
-        if (!owner->frame_open)
+        if (!parent->frame_open) {
             return {};
-        if (auto image = cached.lock(); image && image->current())
+        }
+        if (auto image = cached.lock(); image && image->current()) {
             return image;
-        auto keep = owner->self_owner.lock();
-        if (!keep)
+        }
+        auto keep = parent->self.lock();
+        if (!keep) {
             return {};
+        }
         rhi::shared_object<cpu_frame_snapshot> image{new cpu_frame_snapshot(
-            owner->resource_registry, owner->frame_serial, owner->borrowed_frame_image.extent(), owner->borrowed_frame_image.format())};
-        image->owner = owner;
+            parent->resource_registry, parent->frame_serial, parent->borrowed_frame_image.extent(), parent->borrowed_frame_image.format())};
+        image->parent = parent;
         image->keep_alive = keep;
         image->self = image;
         cached = image;
@@ -1810,28 +1893,35 @@ namespace {
 
     // The frame walker's bodies, where `impl` is complete (they answer through its cursor).
     rhi::error cpu_scoped_synchronization::record(rhi::command_recorder& commands, std::span<rhi::scoped_image_barrier const> images, std::span<rhi::scoped_buffer_barrier const> buffers) const noexcept {
-        probe_command_buffer const* owned = nullptr;
-        if (&commands == static_cast<rhi::command_buffer*>(&owner->frame_commands))
-            owned = &owner->frame_commands;
-        else if (&commands == static_cast<rhi::command_buffer*>(&owner->command_buffer))
-            owned = &owner->command_buffer;
-        else
+        probe_command_buffer const* concrete = nullptr;
+        if (&commands == static_cast<rhi::command_buffer*>(&parent->frame_commands)) {
+            concrete = &parent->frame_commands;
+        } else if (&commands == static_cast<rhi::command_buffer*>(&parent->command_buffer)) {
+            concrete = &parent->command_buffer;
+        } else {
             return rhi::error::invalid_argument;
-        if (owned->released || owned->rendering_active || (owned->frame_scoped ? !owner->frame_open : !owned->recording))
+        }
+        if (concrete->released || concrete->rendering_active || (concrete->frame_scoped ? !parent->frame_open : !concrete->recording)) {
             return rhi::error::not_ready;
-        if (!owned->frame_scoped) {
+        }
+        if (!concrete->frame_scoped) {
             std::lock_guard lock(registry->mutex);
-            for (auto const& barrier : images)
-                if (std::find(registry->frame_images.begin(), registry->frame_images.end(), barrier.resource) != registry->frame_images.end())
+            for (auto const& barrier : images) {
+                if (std::find(registry->frame_images.begin(), registry->frame_images.end(), barrier.resource) != registry->frame_images.end()) {
                     return rhi::error::invalid_argument;
+                }
+            }
         }
         auto result = validate(images, buffers);
-        if (result != rhi::error::ok)
+        if (result != rhi::error::ok) {
             return result;
+        }
         ++records;
-        for (auto const& barrier : images)
-            if (barrier.transition.before.layout == rhi_sync::image_layout::undefined)
+        for (auto const& barrier : images) {
+            if (barrier.transition.before.layout == rhi_sync::image_layout::undefined) {
                 ++undefined_transitions;
+            }
+        }
         return rhi::error::ok;
     }
     std::uint32_t probe_frame_walker::slot_count() const noexcept {
@@ -1839,23 +1929,23 @@ namespace {
     }
 
     std::uint32_t probe_frame_walker::position() const noexcept {
-        return this->owner->current_slot;
+        return this->parent->current_slot;
     }
 
     rhi::frame_open_info probe_frame_walker::wait_and_acquire() {
-        ++this->owner->frame_serial;
+        ++this->parent->frame_serial;
         // THE BY-VALUE POD, part two: `frame_open_info` crosses the boundary like `submit_info` does
         // - decision and frame together - and the slot it reports is the cursor's.
         // Opening a frame here IS opening the recording window: `begin_commands()` and abi 14's
         // timing verbs answer in it, exactly as they do after the real backend's acquire.
-        this->owner->frame_open = true;
-        this->owner->frame_commands.rendering_active = false;
-        this->owner->frame_acquired = true;
-        return {.frame = {.frame_index = this->owner->current_slot, .image_index = this->owner->portable_mode ? 0u : this->owner->creation_window_width}, .result = {}};
+        this->parent->frame_open = true;
+        this->parent->frame_commands.rendering_active = false;
+        this->parent->frame_acquired = true;
+        return {.frame = {.frame_index = this->parent->current_slot, .image_index = this->parent->portable_mode ? 0u : this->parent->creation_window_width}, .result = {}};
     }
 
     void probe_frame_walker::walk_to_next() noexcept {
-        this->owner->current_slot = (this->owner->current_slot + 1u) % this->slot_count();
+        this->parent->current_slot = (this->parent->current_slot + 1u) % this->slot_count();
     }
 
     // The swapchain view's bodies, where `impl` and its descriptor echo are complete.
@@ -1868,11 +1958,11 @@ namespace {
         // A ZERO-SIZED DESCRIPTOR IS THE DEFERRED STATE, not a failure: the probe has no window, so
         // the "current size" it re-derives is the creation descriptor, and a 0 x 0 one answers
         // `not_ready` - the contract's own rule for a window that has not been sized yet.
-        return this->owner->creation_window_width != 0u && this->owner->creation_window_height != 0u ? rhi::error::ok : rhi::error::not_ready;
+        return this->parent->creation_window_width != 0u && this->parent->creation_window_height != 0u ? rhi::error::ok : rhi::error::not_ready;
     }
 
     rhi::image_extent probe_swapchain::extent() const noexcept {
-        return {.width = this->owner->creation_window_width, .height = this->owner->creation_window_height, .depth = 1u};
+        return {.width = this->parent->creation_window_width, .height = this->parent->creation_window_height, .depth = 1u};
     }
 
     // The command buffer's bodies, where `impl` is complete (the execute check reaches back to the one
@@ -1887,20 +1977,23 @@ namespace {
     }
 
     rhi::error probe_command_buffer::push_constants(std::uint32_t offset, std::span<std::byte const> data) noexcept {
-        if (!owner || released || !recording)
+        if (!parent || released || !recording) {
             return rhi::error::not_ready;
-        if (recording_error != rhi::error::ok)
+        }
+        if (recording_error != rhi::error::ok) {
             return recording_error;
+        }
         auto result = rhi::validate_push_constants_range(offset, data.size(), 256);
-        if (result != rhi::error::ok)
+        if (result != rhi::error::ok) {
             return result;
+        }
         if (recording && !replaying) {
             operations.append<rhi::recording::operation_kind::push>({offset}, data);
             return rhi::error::ok;
         }
         if (offset == 0) {
-            std::lock_guard lock(owner->pushes.mutex);
-            owner->pushes.values[data.size()].assign(data.begin(), data.end());
+            std::lock_guard lock(parent->pushes.mutex);
+            parent->pushes.values[data.size()].assign(data.begin(), data.end());
         }
         return rhi::error::ok;
     }
@@ -1923,15 +2016,18 @@ namespace {
     }
 
     rhi::error probe_command_buffer::apply_operations() noexcept {
-        if (!recording || released)
+        if (!recording || released) {
             return rhi::error::not_ready;
-        if (recording_error != rhi::error::ok)
+        }
+        if (recording_error != rhi::error::ok) {
             return recording_error;
+        }
         auto selected = operations.simplify(final_application);
         auto* pipeline = last_bound_pipeline;
         for (auto* op : selected) {
-            if (op->kind() == rhi::recording::operation_kind::pipeline)
+            if (op->kind() == rhi::recording::operation_kind::pipeline) {
                 pipeline = reinterpret_cast<rhi::pipeline const*>(op->data[0]);
+            }
             if (op->is_unique() && !pipeline) {
                 recording_error = rhi::error::invalid_argument;
                 return recording_error;
@@ -1996,28 +2092,31 @@ namespace {
     }
 
     rhi::error probe_command_buffer::end_recording() noexcept {
-        if (!recording || released)
+        if (!recording || released) {
             return rhi::error::not_ready;
+        }
         final_application = true;
         auto result = apply_operations();
         final_application = false;
-        if (rendering_active && !rendering_inherited && result == rhi::error::ok)
+        if (rendering_active && !rendering_inherited && result == rhi::error::ok) {
             result = rhi::error::invalid_argument;
+        }
         recording = rendering_active = false;
         executable = result == rhi::error::ok;
         return result;
     }
 
     rhi::error probe_command_buffer::execute(std::span<rhi::mergeable_command_buffer_ref const> batch) {
-        if (auto applied = apply_operations(); applied != rhi::error::ok)
+        if (auto applied = apply_operations(); applied != rhi::error::ok) {
             return applied;
+        }
         if (this->released) {
             return rhi::error::not_ready;
         }
         if (batch.empty()) {
             return rhi::error::invalid_argument;
         }
-        if (this->owner == nullptr) {
+        if (this->parent == nullptr) {
             return rhi::error::not_ready;
         }
         for (auto const& one : batch) {
@@ -2025,7 +2124,7 @@ namespace {
                 return rhi::error::invalid_argument;
             }
             auto const* const mergeable = static_cast<probe_mergeable_command_buffer const*>(one.get());
-            if (std::find(this->owner->mergeable_buffers.begin(), this->owner->mergeable_buffers.end(), mergeable) == this->owner->mergeable_buffers.end()) {
+            if (std::find(this->parent->mergeable_buffers.begin(), this->parent->mergeable_buffers.end(), mergeable) == this->parent->mergeable_buffers.end()) {
                 return rhi::error::invalid_argument;
             }
             if (mergeable->inner.recording || mergeable->inner.released || !mergeable->inner.executable) {
@@ -2037,8 +2136,8 @@ namespace {
     }
 
     void probe_mergeable_command_buffer::release() noexcept {
-        if (this->owner != nullptr) {
-            std::erase(this->owner->mergeable_buffers, this);
+        if (this->parent != nullptr) {
+            std::erase(this->parent->mergeable_buffers, this);
         }
         delete this;
     }
@@ -2123,8 +2222,9 @@ namespace deren::vk_test {
         std::lock_guard lock(registry->mutex);
         // A foreign object must never be cast to the CPU probe's concrete image type.
         if (std::find(registry->images.begin(), registry->images.end(), &alias) == registry->images.end() ||
-            std::find(registry->images.begin(), registry->images.end(), &canonical) == registry->images.end())
+            std::find(registry->images.begin(), registry->images.end(), &canonical) == registry->images.end()) {
             return;
+        }
         auto const& source = static_cast<cpu_image const&>(canonical);
         auto& target = const_cast<cpu_image&>(static_cast<cpu_image const&>(alias));
         target.canonical_object = source.canonical_object != 0 ? source.canonical_object : reinterpret_cast<std::uintptr_t>(&canonical);
@@ -2137,9 +2237,11 @@ namespace deren::vk_test {
     }
     deren::promise::rhi::image const* probe_heap_image(deren::promise::rhi::api_core& core, std::uint64_t offset) {
         auto const& images = static_cast<impl&>(core).heap.written_images;
-        for (auto i = images.rbegin(); i != images.rend(); ++i)
-            if (i->first == offset)
+        for (auto i = images.rbegin(); i != images.rend(); ++i) {
+            if (i->first == offset) {
                 return i->second;
+            }
+        }
         return nullptr;
     }
     void probe_buffer_allocation_fill(deren::promise::rhi::api_core& core, std::uint8_t value) {
@@ -2186,8 +2288,9 @@ namespace deren::vk_test {
     std::span<std::byte> probe_heap_buffer(deren::promise::rhi::api_core& core, std::uint64_t offset) {
         auto& probe = static_cast<impl&>(core);
         for (auto it = probe.heap.written_buffers.rbegin(); it != probe.heap.written_buffers.rend(); ++it) {
-            if (it->offset == offset)
+            if (it->offset == offset) {
                 return reinterpret_cast<rhi::buffer*>(it->address)->mapped();
+            }
         }
         return {};
     }

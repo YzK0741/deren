@@ -11,11 +11,11 @@ import deren.vulkan.constant_init;
 
 // vk_command_buffer
 namespace deren::vulkan {
-    vk_command_buffer::vk_command_buffer(VkCommandBuffer const command_buffer, VkDevice const device, VkCommandPool const pool, bool const owns_pool) noexcept { // NOLINT(*-misplaced-const)
+    vk_command_buffer::vk_command_buffer(VkCommandBuffer const command_buffer, VkDevice const device, VkCommandPool const pool, bool const destroys_pool) noexcept { // NOLINT(*-misplaced-const)
         this->command_buffer = command_buffer;
         this->device = device;
         this->command_pool = pool;
-        this->owns_pool = owns_pool;
+        this->destroys_pool = destroys_pool;
     }
 
     VkCommandBuffer const& vk_command_buffer::get() const noexcept {
@@ -28,7 +28,7 @@ namespace deren::vulkan {
 
     void vk_command_buffer::release() noexcept {
         if (this->device != VK_NULL_HANDLE && this->command_pool != VK_NULL_HANDLE) {
-            if (this->owns_pool) {
+            if (this->destroys_pool) {
                 // THE POOL FREES ITS BUFFERS: destroying it releases the command buffer with it, so
                 // calling vkFreeCommandBuffers first would free the same handle twice (validation
                 // VUID-vkFreeCommandBuffers-pCommandBuffers-00048-adjacent territory).
@@ -42,7 +42,7 @@ namespace deren::vulkan {
         this->device = VK_NULL_HANDLE;
         this->command_pool = VK_NULL_HANDLE;
         this->command_buffer = VK_NULL_HANDLE;
-        this->owns_pool = false;
+        this->destroys_pool = false;
     }
 
     vk_command_buffer::~vk_command_buffer() noexcept {
@@ -53,11 +53,11 @@ namespace deren::vulkan {
         this->command_buffer = other.command_buffer;
         this->device = other.device;
         this->command_pool = other.command_pool;
-        this->owns_pool = other.owns_pool;
+        this->destroys_pool = other.destroys_pool;
         other.device = VK_NULL_HANDLE;
         other.command_pool = VK_NULL_HANDLE;
         other.command_buffer = VK_NULL_HANDLE;
-        other.owns_pool = false;
+        other.destroys_pool = false;
     }
 
     vk_command_buffer& vk_command_buffer::operator=(vk_command_buffer&& other) noexcept {
@@ -69,11 +69,11 @@ namespace deren::vulkan {
         this->command_buffer = other.command_buffer;
         this->device = other.device;
         this->command_pool = other.command_pool;
-        this->owns_pool = other.owns_pool;
+        this->destroys_pool = other.destroys_pool;
         other.device = VK_NULL_HANDLE;
         other.command_pool = VK_NULL_HANDLE;
         other.command_buffer = VK_NULL_HANDLE;
-        other.owns_pool = false;
+        other.destroys_pool = false;
         return *this;
     }
 
@@ -96,7 +96,7 @@ namespace deren::vulkan {
             deren::utility::panic("failed to allocate command buffer");
         }
 
-        return vk_command_buffer(buffer, device, pool, /*owns_pool=*/true);
+        return vk_command_buffer(buffer, device, pool, /*destroys_pool=*/true);
     }
 } // namespace deren::vulkan
 

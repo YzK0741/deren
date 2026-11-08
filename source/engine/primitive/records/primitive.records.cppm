@@ -24,7 +24,7 @@ import deren.vstd;
 namespace deren::engine {
     export class geometry_buffer {
         deren::promise::rhi::buffer* view = nullptr;
-        std::shared_ptr<void const> owner;
+        std::shared_ptr<void const> parent;
 
     public:
         geometry_buffer() = default;
@@ -32,12 +32,12 @@ namespace deren::engine {
         geometry_buffer& operator=(geometry_buffer const&) = delete ("geometry_buffer is non-copyable: modify the existing instance instead");
         geometry_buffer(geometry_buffer&& other) noexcept
             : view(std::exchange(other.view, nullptr))
-            , owner(std::move(other.owner)) {
+            , parent(std::move(other.parent)) {
         }
         geometry_buffer& operator=(geometry_buffer&& other) noexcept {
             if (this != &other) {
                 view = std::exchange(other.view, nullptr);
-                owner = std::move(other.owner);
+                parent = std::move(other.parent);
             }
             return *this;
         }
@@ -48,11 +48,11 @@ namespace deren::engine {
         }
         void bind(deren::promise::rhi::buffer* value, std::shared_ptr<void const> lease) {
             view = lease ? value : nullptr;
-            owner = std::move(lease);
+            parent = std::move(lease);
         }
         void reset() noexcept {
             view = nullptr;
-            owner.reset();
+            parent.reset();
         }
         deren::promise::rhi::buffer* get() const noexcept {
             return view;
@@ -67,7 +67,7 @@ namespace deren::engine {
             return view != nullptr;
         }
         std::shared_ptr<void const> lease() const noexcept {
-            return owner;
+            return parent;
         }
     };
     /**
@@ -448,15 +448,16 @@ namespace deren::engine {
         ::deren::promise::rhi::image_format format = ::deren::promise::rhi::image_format::rgba8_unorm;
         bool valid = false;
         /// Optional immutable owner. All aliases must remain immutable while retained by the runtime.
-        std::shared_ptr<deren::utility::vessel::vector<uint8_t> const> owner = {};
+        std::shared_ptr<deren::utility::vessel::vector<uint8_t> const> parent = {};
         bool override_format = false; // Opt-in explicit colour/data encoding, otherwise lane default.
     };
 
     /// Reuse only an exact whole-vector owner; borrowed or partial spans need their own snapshot.
     export [[nodiscard]] inline std::shared_ptr<deren::utility::vessel::vector<uint8_t> const>
     share_texture_source(texture_input const& input) {
-        if (input.owner && input.data.data() == input.owner->data() && input.data.size() == input.owner->size())
-            return input.owner;
+        if (input.parent && input.data.data() == input.parent->data() && input.data.size() == input.parent->size()) {
+            return input.parent;
+        }
         return std::make_shared<deren::utility::vessel::vector<uint8_t> const>(input.data.begin(), input.data.end());
     }
 
@@ -538,8 +539,9 @@ namespace deren::engine {
     export template <image_source Image>
     [[nodiscard]] texture_input texture_input_from(Image const& image, ::deren::promise::rhi::image_format format) {
         texture_input out{};
-        if (!image.valid)
+        if (!image.valid) {
             return out;
+        }
         out.data = image.data;
         out.width = image.width;
         out.height = image.height;
@@ -548,8 +550,9 @@ namespace deren::engine {
         out.valid = true;
         // Converting a mutable shared_ptr to const does not prevent writes through other aliases.
         // Only an explicitly immutable owner opts into sharing; other inputs retain snapshot semantics.
-        if constexpr (requires { { image.owner } -> std::same_as<decltype(out.owner) const&>; })
-            out.owner = image.owner;
+        if constexpr (requires { { image.parent } -> std::same_as<decltype(out.parent) const&>; }) {
+            out.parent = image.parent;
+        }
         return out;
     }
 

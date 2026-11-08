@@ -99,8 +99,9 @@ export namespace deren::engine::pass {
             this->software_id_target = software_id_target;
         }
         [[nodiscard]] rhi::pipeline* pipeline_handle() const noexcept override {
-            if (this->triangle_frame)
+            if (this->triangle_frame) {
                 return this->triangle_pipeline ? this->triangle_pipeline->contract : nullptr;
+            }
             return this->visibility_pipeline.has_value() ? this->visibility_pipeline->contract : nullptr;
         }
 

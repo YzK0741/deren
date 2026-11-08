@@ -14,8 +14,9 @@ namespace deren::vk_test {
             for (std::size_t length : {0u, 8u, 16u, 20u}) {
                 auto buffer = core.resources->create_buffer({.size = 16, .usage = usage, .initial_bytes = std::span(bytes).first(length)});
                 CHECK(static_cast<bool>(buffer) == (length == 0 || length == 16));
-                if (buffer)
+                if (buffer) {
                     CHECK(buffer->size() == 16);
+                }
             }
         }
         auto mapped = core.resources->create_buffer({.size = 16, .usage = rhi::buffer_usage::storage_coherent, .initial_bytes = std::span(bytes).first(16)});
@@ -23,9 +24,11 @@ namespace deren::vk_test {
         if (mapped) {
             auto content = mapped->mapped();
             CHECK(content.size() == 16);
-            if (content.size() == 16)
-                for (auto byte : content)
+            if (content.size() == 16) {
+                for (auto byte : content) {
                     CHECK(byte == std::byte{0x53});
+                }
+            }
         }
     }
 } // namespace deren::vk_test

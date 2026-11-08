@@ -46,7 +46,7 @@ struct move_only {
         return rhi::error::ok;
     }
 };
-static_assert(ex::ownable<parameters> && !ex::ownable<parameters&> && !ex::ownable<parameters const>);
+static_assert(ex::storable_value<parameters> && !ex::storable_value<parameters&> && !ex::storable_value<parameters const>);
 static_assert(ex::pass_recorder<recorder, parameters> && ex::pass_recorder<move_only, parameters>);
 static_assert(!ex::pass_recorder<mutable_recorder, parameters>);
 static_assert(ex::graph_appender<decltype([](rg::builder&) noexcept -> std::expected<void, rg::graph_error> { return {}; })>);
@@ -91,25 +91,30 @@ int main() {
         auto passes = frame.append([](rg::builder& graph) noexcept -> std::expected<std::array<rg::pass_ref, 2>, rg::graph_error> {
             auto a = graph.add_pass("first", parameters{1}, {true});
             auto b = graph.add_pass("second", parameters{2}, {true});
-            if (!a)
+            if (!a) {
                 return std::unexpected(a.error());
-            if (!b)
+            }
+            if (!b) {
                 return std::unexpected(b.error());
+            }
             auto order = graph.order_after(*a, *b);
-            if (!order)
+            if (!order) {
                 return std::unexpected(order.error());
+            }
             auto dead = graph.add_pass("dead", parameters{3});
-            if (!dead)
+            if (!dead) {
                 return std::unexpected(dead.error());
+            }
             return std::array{*a, *b};
         });
         CHECK(passes);
-        for (auto ref : *passes)
+        for (auto ref : *passes) {
             CHECK(frame.bind_pass<parameters>(ref, [payload, &calls](parameters const& p, rhi::command_buffer&, ex::record_context const&) noexcept {
                 CHECK(*payload == 7 && p.tag == (calls == 0 ? 2 : 1));
                 ++calls;
                 return rhi::error::ok;
             }));
+        }
         auto result = frame.prepare();
         CHECK(!frame.prepare());
         return result;
@@ -140,8 +145,9 @@ int main() {
         } else if (failure == 4) {
             auto broken = frame.append([](rg::builder& graph) noexcept -> std::expected<void, rg::graph_error> {
                 auto orphan = graph.add_pass("orphan", parameters{9}, {true});
-                if (!orphan)
+                if (!orphan) {
                     return std::unexpected(orphan.error());
+                }
                 return std::unexpected(rg::graph_error{.code = rg::error_code::invalid_ref, .pass_name = {}, .resource_name = {}});
             });
             CHECK(!broken);
@@ -156,12 +162,12 @@ int main() {
         CHECK(void_append);
         auto pass = frame.append([](rg::builder& graph) noexcept { return graph.add_pass("boundary", std::span<rg::resource_access const>{}, {true}); });
         CHECK(frame.bind_barrier_only(*pass));
-        auto owner = std::make_shared<int>(1);
-        std::weak_ptr<int> weak_owner = owner;
-        CHECK(frame.retain(owner));
-        owner.reset();
+        auto parent = std::make_shared<int>(1);
+        std::weak_ptr<int> weak_handle = parent;
+        CHECK(frame.retain(parent));
+        parent.reset();
         auto ready = frame.prepare();
-        CHECK(ready && ready->record(*core->frames->begin_commands()) == rhi::error::ok && !weak_owner.expired());
+        CHECK(ready && ready->record(*core->frames->begin_commands()) == rhi::error::ok && !weak_handle.expired());
     }
     {
         ex::builder frame(core);

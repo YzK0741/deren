@@ -15,9 +15,9 @@ namespace deren::engine {
     // the application's view
     // =============================================================================================
 
-    user_filter::user_filter(deren::promise::rhi::shared_object<deren::promise::rhi::api_core> owner) noexcept
-        : owner_share(std::move(owner))
-        , core_face(this->owner_share.get()) {
+    user_filter::user_filter(deren::promise::rhi::shared_object<deren::promise::rhi::api_core> parent) noexcept
+        : core_reference(std::move(parent))
+        , core_face(this->core_reference.get()) {
     }
 
     void user_filter::wait_idle() const noexcept {
@@ -52,7 +52,7 @@ namespace deren::engine {
                 return handles;
             }
         }
-        return {}; // the owner has none: a pass's "cannot build" branch, which every pass already has
+        return {}; // the parent has none: a pass's "cannot build" branch, which every pass already has
     }
 
 } // namespace deren::engine

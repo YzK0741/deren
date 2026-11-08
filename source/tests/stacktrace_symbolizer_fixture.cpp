@@ -11,8 +11,9 @@ int main(int argc, char** argv) {
     // arrives proves both that ordinary variables survive the filter and what a clean exit with
     // no output at all looks like (nothing decoded must not be reported as `ok`).
     if (char const* mode = std::getenv("STACKTRACE_FIXTURE_MODE")) {
-        if (std::strcmp(mode, "quiet") == 0)
+        if (std::strcmp(mode, "quiet") == 0) {
             return 0;
+        }
         // What THIS child actually received: the launcher must drop LLVM_SYMBOLIZER_OPTS while
         // ordinary variables (the one selecting this mode) survive.
         if (std::strcmp(mode, "env-probe") == 0) {
@@ -22,13 +23,15 @@ int main(int argc, char** argv) {
         }
     }
     bool inlines = false;
-    for (int i = 1; i < argc; ++i)
+    for (int i = 1; i < argc; ++i) {
         inlines = inlines || std::strcmp(argv[i], "--inlines") == 0;
+    }
     if (inlines) {
         char output[1024];
         std::memset(output, 'x', sizeof(output));
-        for (int i = 0; i < 128; ++i)
+        for (int i = 0; i < 128; ++i) {
             static_cast<void>(std::fwrite(output, 1, sizeof(output), stdout));
+        }
     } else {
 #if defined(_WIN32)
         Sleep(10000);

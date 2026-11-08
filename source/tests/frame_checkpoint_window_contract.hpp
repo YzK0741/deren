@@ -6,7 +6,10 @@ inline void check_window_checkpoints() {
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
     auto* window = glfwCreateWindow(32, 24, "checkpoint probe", nullptr, nullptr);
     CHECK(window);
-    if (!window) { glfwTerminate(); return; }
+    if (!window) {
+        glfwTerminate();
+        return;
+    }
     {
         rhi::create_info options{};
         options.native_window = window;
@@ -25,7 +28,9 @@ inline void check_window_checkpoints() {
                 }
                 auto opened = walker->wait_and_acquire();
                 CHECK(opened.result.code == rhi::error::ok);
-                if (opened.result.code != rhi::error::ok) break;
+                if (opened.result.code != rhi::error::ok) {
+                    break;
+                }
                 auto* commands = core->frames->begin_commands();
                 auto image = rhi::query_extension<rhi::frame_resources>(*core)->retain_image();
                 auto view = image->make_view({.role = rhi::view_role::color_attachment});

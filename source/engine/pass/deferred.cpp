@@ -23,10 +23,10 @@ namespace rhi = deren::promise::rhi;
 namespace deren::engine::pass {
 
     deferred_pass::~deferred_pass() {
-        this->release_owned();
+        this->release_contract();
     }
 
-    void deferred_pass::release_owned() noexcept {
+    void deferred_pass::release_contract() noexcept {
         this->pass_pipeline.reset();
     }
 
@@ -65,16 +65,16 @@ namespace deren::engine::pass {
             return;
         }
         if (this->built_against != nullptr && this->built_against != context.face) {
-            this->release_owned();
+            this->release_contract();
         }
         this->built_against = context.face;
         if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
-        std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.owner, vertex_shader_name) : std::span<uint8_t const>{};
-        std::span<uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.owner, fragment_shader_name) : std::span<uint8_t const>{};
+        std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.parent, vertex_shader_name) : std::span<uint8_t const>{};
+        std::span<uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.parent, fragment_shader_name) : std::span<uint8_t const>{};
         if (vertex_spirv.empty() || fragment_spirv.empty()) {
-            deren::utility::log("deferred lighting disabled: the owner has no {} or {}", vertex_shader_name, fragment_shader_name);
+            deren::utility::log("deferred lighting disabled: the parent has no {} or {}", vertex_shader_name, fragment_shader_name);
             return;
         }
         // The blend state is the stage's own: the attachment is LOADed and the lighting ADDS to the emissive the
@@ -84,7 +84,7 @@ namespace deren::engine::pass {
                                                std::span<rhi::blend_mode const>(blend), vertex_spirv, fragment_spirv);
         if (!built) {
             deren::utility::log("deferred lighting disabled: {}", built.error());
-            this->release_owned();
+            this->release_contract();
             return;
         }
         this->pass_pipeline = std::move(built->lighting);

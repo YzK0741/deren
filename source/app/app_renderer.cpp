@@ -26,7 +26,7 @@ namespace deren::app {
     namespace pass = deren::engine::pass;
 
     std::size_t app_renderer::attach(runtime& self) noexcept {
-        this->runtime_owner = &self;
+        this->runtime_handle = &self;
         // ---- THE CHAIN, CONSTRUCTED HERE ----
         // The same passes the renderer used to construct for itself, in the order their create step must run in (the
         // chain's order IS that order). THE G-BUFFER DEBUG VIEW COMES FIRST, which used to be a CREATE-ORDER
@@ -157,13 +157,13 @@ namespace deren::app {
         return found;
     }
 
-    void app_renderer::prepare(void* const owner, runtime::frame_services const& services, std::string_view const stage) {
-        app_renderer& self = *static_cast<app_renderer*>(owner);
+    void app_renderer::prepare(void* const parent, runtime::frame_services const& services, std::string_view const stage) {
+        app_renderer& self = *static_cast<app_renderer*>(parent);
         // THE FLAT RENDER MODE is the one fact the renderer's policy reads about a pass it no longer holds: a
         // screen-space effect is pointless on such a frame. Published per stage because it is one bool the app
         // can flip between frames.
-        if (self.runtime_owner != nullptr && self.deferred != nullptr) {
-            self.runtime_owner->set_scene_unlit(self.deferred->unlit());
+        if (self.runtime_handle != nullptr && self.deferred != nullptr) {
+            self.runtime_handle->set_scene_unlit(self.deferred->unlit());
         }
         // THE FRAMES ONLY THE RUNTIME CAN BUILD are handed over here (see frame_services): the scene, shadow and
         // transparent frames carry the runtime's own recording machinery (per-slot secondaries, per-cascade
@@ -173,37 +173,37 @@ namespace deren::app {
         // touches an image. Every other frame is the pass's own (see frame_pass::prepare_frame).
         if (stage == "shadow") {
             if (self.shadow != nullptr) {
-                self.shadow->set_frame(services.make_shadow_frame(services.owner));
+                self.shadow->set_frame(services.make_shadow_frame(services.parent));
             }
         } else if (stage == "scene") {
             if (self.scene != nullptr) {
-                self.scene->set_frame(services.make_scene_frame(services.owner));
+                self.scene->set_frame(services.make_scene_frame(services.parent));
             }
         } else if (stage == "transparent") {
             if (self.transparent != nullptr) {
-                self.transparent->set_frame(services.make_transparent_frame(services.owner));
+                self.transparent->set_frame(services.make_transparent_frame(services.parent));
             }
         } else if (stage == "gaussian") {
             if (self.gaussian != nullptr) {
                 if (services.gaussian_timing) {
-                    self.gaussian->set_timing(services.gaussian_timing(services.owner));
+                    self.gaussian->set_timing(services.gaussian_timing(services.parent));
                 }
-                auto gpu = services.make_gaussian_gpu_frame ? services.make_gaussian_gpu_frame(services.owner, self.gaussian->gpu_ready()) : nullptr;
+                auto gpu = services.make_gaussian_gpu_frame ? services.make_gaussian_gpu_frame(services.parent, self.gaussian->gpu_ready()) : nullptr;
                 if (gpu) {
                     self.gaussian->set_gpu_frame(std::move(gpu));
                 } else {
-                    self.gaussian->set_frame(services.make_gaussian_frame(services.owner));
+                    self.gaussian->set_frame(services.make_gaussian_frame(services.parent));
                 }
             }
         } else if (stage == "character_forward") {
             if (self.character_forward != nullptr) {
-                self.character_forward->set_frame(services.make_character_forward_frame(services.owner));
+                self.character_forward->set_frame(services.make_character_forward_frame(services.parent));
             }
         }
     }
 
-    void app_renderer::collect(void* const owner, std::string_view const stage, runtime::frame_results& out) {
-        app_renderer& self = *static_cast<app_renderer*>(owner);
+    void app_renderer::collect(void* const parent, std::string_view const stage, runtime::frame_results& out) {
+        app_renderer& self = *static_cast<app_renderer*>(parent);
         if (stage == "gaussian") {
             out.gaussian_record_error = self.gaussian ? self.gaussian->last_error() : deren::promise::rhi::error::ok;
             return;
@@ -222,12 +222,13 @@ namespace deren::app {
     // lives in the pass that owns it rather than in the setter below.
 
     void app_renderer::reset_temporal_history() noexcept {
-        if (this->taa)
+        if (this->taa) {
             this->taa->reset_history();
+        }
     }
 
     void app_renderer::set_taa(bool const enabled, float const blend_static, float const blend_min) noexcept {
-        bool const turned_on = this->runtime_owner != nullptr && this->runtime_owner->set_taa_enabled(enabled);
+        bool const turned_on = this->runtime_handle != nullptr && this->runtime_handle->set_taa_enabled(enabled);
         if (this->taa == nullptr) {
             return;
         }
@@ -246,8 +247,9 @@ namespace deren::app {
     }
 
     void app_renderer::set_radiance_capture(bool enabled) noexcept {
-        if (this->deferred)
+        if (this->deferred) {
             this->deferred->set_radiance_capture(enabled);
+        }
     }
 
     void app_renderer::set_unlit(bool const unlit) noexcept {
@@ -256,8 +258,8 @@ namespace deren::app {
         }
         // ... and the renderer's own policy reads it (see set_scene_unlit): publish it here as well as per stage, so
         // a toggle that arrives between two frames is not one frame late.
-        if (this->runtime_owner != nullptr) {
-            this->runtime_owner->set_scene_unlit(unlit);
+        if (this->runtime_handle != nullptr) {
+            this->runtime_handle->set_scene_unlit(unlit);
         }
     }
 
@@ -285,8 +287,8 @@ namespace deren::app {
         if (this->deferred != nullptr) {
             this->deferred->set_ssao(enabled, radius, intensity, samples);
         }
-        if (enabled && this->runtime_owner != nullptr && !this->runtime_owner->feature_active("deferred")) {
-            this->runtime_owner->warn_missing_feature("ssao", "screen-space AO has no effect: the G-buffer pass or its lighting stage was not created (see the startup log)");
+        if (enabled && this->runtime_handle != nullptr && !this->runtime_handle->feature_active("deferred")) {
+            this->runtime_handle->warn_missing_feature("ssao", "screen-space AO has no effect: the G-buffer pass or its lighting stage was not created (see the startup log)");
         }
     }
 
@@ -297,8 +299,8 @@ namespace deren::app {
     // hands over, and `this->pass_ready("name")` became a question to the typed reference this demo found - so the
     // composition is unchanged and the two inputs it is made of now sit on their own sides of the seam.
 
-    bool app_renderer::feature_active(void* const owner, runtime::feature_facts const& facts, std::string_view const name) {
-        app_renderer& self = *static_cast<app_renderer*>(owner);
+    bool app_renderer::feature_active(void* const parent, runtime::feature_facts const& facts, std::string_view const name) {
+        app_renderer& self = *static_cast<app_renderer*>(parent);
         // the composed answers, each read by more than one branch below
         bool const gbuffer_debug = facts.gbuffer_debug && facts.gbuffer_pipeline && self.gbuffer_debug_pass != nullptr && self.gbuffer_debug_pass->ready();
         bool const shaded_scene = !gbuffer_debug && self.deferred != nullptr && self.deferred->ready() && facts.gbuffer_pipeline;
@@ -324,7 +326,7 @@ namespace deren::app {
             // a cloud the stage would resolve its targets and record nothing, and the frozen capture scenarios
             // must not see even that. The asset half is the runtime's answer (`gaussian_active`), so the gate
             // cannot drift from what the frame's snapshot would contain.
-            return self.gaussian != nullptr && self.gaussian->ready() && self.runtime_owner != nullptr && self.runtime_owner->gaussian_active();
+            return self.gaussian != nullptr && self.gaussian->ready() && self.runtime_handle != nullptr && self.runtime_handle->gaussian_active();
         }
         if (name == "character_forward") {
             // THE RUNTIME'S COMPOSED PREDICATE (the knob AND this frame's opaque leaf list, see
@@ -352,7 +354,7 @@ namespace deren::app {
             // IT USED TO BE COMPUTED AND LEFT UNUSED HERE (`[[maybe_unused]]`), which is precisely the "two rims"
             // defect the paragraph above describes: with `[render] game_toon = true` the article's contour kept
             // drawing on the game-shaded character. It is now the last term of the answer.
-            bool const game_toon_active = self.runtime_owner != nullptr && self.runtime_owner->game_toon_active();
+            bool const game_toon_active = self.runtime_handle != nullptr && self.runtime_handle->game_toon_active();
             return facts.character_forward_pending && self.toon_screen_rim != nullptr && self.toon_screen_rim->ready() &&
                    !game_toon_active;
         }
@@ -413,11 +415,11 @@ namespace deren::app {
         return false;
     }
 
-    bool app_renderer::feature_available(void* const owner, runtime::feature_facts const& facts, std::string_view const name) {
+    bool app_renderer::feature_available(void* const parent, runtime::feature_facts const& facts, std::string_view const name) {
         // "CAN this feature run at all this session", which the overlay's menu and `log_feature_status()` ask - the
         // different question from `feature_active` above, and the one whose absent branch was a bound bug (the SSAO
         // group was never offered because `deferred` answered false).
-        app_renderer& self = *static_cast<app_renderer*>(owner);
+        app_renderer& self = *static_cast<app_renderer*>(parent);
         if (name == "gbuffer-debug") {
             return facts.gbuffer_pipeline && self.gbuffer_debug_pass != nullptr && self.gbuffer_debug_pass->ready();
         }
@@ -436,7 +438,7 @@ namespace deren::app {
             // second half is the one that can be false - the pipeline needs the mesh stage, so a device without
             // VK_EXT_mesh_shader creates none - and an offered switch that would do nothing is exactly the bug
             // this function's header records.
-            return self.character_forward != nullptr && self.character_forward->ready() && self.runtime_owner != nullptr && self.runtime_owner->character_forward_ready();
+            return self.character_forward != nullptr && self.character_forward->ready() && self.runtime_handle != nullptr && self.runtime_handle->character_forward_ready();
         }
         if (name == "shadow") {
             return self.shadow != nullptr && self.shadow->ready();
@@ -449,14 +451,14 @@ namespace deren::app {
             // VK_EXT_mesh_shader, and the resolve a compute pipeline the device refused only for a shader error).
             // The two typed pointers are the runtime's (this demo does not hold them): whether the path is ON is the
             // switch, and whether THIS frame takes it is the admission verdict - three questions, three answers.
-            return self.runtime_owner != nullptr && self.runtime_owner->visibility_available();
+            return self.runtime_handle != nullptr && self.runtime_handle->visibility_available();
         }
         return false;
     }
 
     // =================================================================================================
 
-    void app_renderer::recreated([[maybe_unused]] void* const owner) {
+    void app_renderer::recreated([[maybe_unused]] void* const parent) {
         // This demo keeps no descriptor family of its own: every pass in the chain retires its own, which the
         // record step does through recreate_stage, so there is nothing left here to reset.
     }

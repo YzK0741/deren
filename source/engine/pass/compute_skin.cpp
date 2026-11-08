@@ -18,10 +18,10 @@ import deren.utility;
 namespace deren::engine::pass {
 
     compute_skin_job::~compute_skin_job() {
-        this->release_owned();
+        this->release_contract();
     }
 
-    void compute_skin_job::release_owned() noexcept {
+    void compute_skin_job::release_contract() noexcept {
         this->pass_pipeline.reset();
     }
 
@@ -34,12 +34,12 @@ namespace deren::engine::pass {
             return std::unexpected(deren::utility::vessel::string("compute skin: no device"));
         }
         if (this->built_against != nullptr && this->built_against != context.face) {
-            this->release_owned();
+            this->release_contract();
         }
         this->built_against = context.face;
-        std::span<uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.owner, shader_name) : std::span<uint8_t const>{};
+        std::span<uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.parent, shader_name) : std::span<uint8_t const>{};
         if (spirv.empty()) {
-            return std::unexpected(deren::utility::vessel::string("compute skin: the owner has no ") + deren::utility::vessel::string(shader_name));
+            return std::unexpected(deren::utility::vessel::string("compute skin: the parent has no ") + deren::utility::vessel::string(shader_name));
         }
         // The per-joint matrices the dispatch reads are a heap slot the shader names itself (see the header), so
         // nothing about the renderer's buffers is handed in and the pipeline is all this job builds.
@@ -52,8 +52,8 @@ namespace deren::engine::pass {
         return {};
     }
 
-    bool compute_skin_job::record(deren::promise::rhi::command_buffer& commands, std::span<compute_skin_request const> const requests, void* const push_owner,
-                                  bool (*push_indices)(void* owner, deren::promise::rhi::command_buffer& commands, std::span<std::byte const> bytes, uint32_t extra_lane)) const noexcept {
+    bool compute_skin_job::record(deren::promise::rhi::command_buffer& commands, std::span<compute_skin_request const> const requests, void* const push_source,
+                                  bool (*push_indices)(void* parent, deren::promise::rhi::command_buffer& commands, std::span<std::byte const> bytes, uint32_t extra_lane)) const noexcept {
         if (!this->ready() || requests.empty() || push_indices == nullptr) {
             return false;
         }
@@ -86,7 +86,7 @@ namespace deren::engine::pass {
                 .vertex_count = request.vertex_count,
                 .skin_base = request.skin_base,
             };
-            [[maybe_unused]] bool const pushed = push_indices(push_owner, commands, std::as_bytes(std::span(&push, 1)), 0u);
+            [[maybe_unused]] bool const pushed = push_indices(push_source, commands, std::as_bytes(std::span(&push, 1)), 0u);
             commands.dispatch((push.vertex_count + group_size - 1u) / group_size, 1, 1);
             recorded = true;
         }

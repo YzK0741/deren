@@ -18,10 +18,10 @@ import deren.utility;
 namespace deren::engine::pass {
 
     mask_bake_job::~mask_bake_job() {
-        this->release_owned();
+        this->release_contract();
     }
 
-    void mask_bake_job::release_owned() noexcept {
+    void mask_bake_job::release_contract() noexcept {
         this->pass_pipeline.reset();
     }
 
@@ -34,12 +34,12 @@ namespace deren::engine::pass {
             return std::unexpected(deren::utility::vessel::string("mask bake: no device"));
         }
         if (this->built_against != nullptr && this->built_against != context.face) {
-            this->release_owned();
+            this->release_contract();
         }
         this->built_against = context.face;
-        std::span<uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.owner, shader_name) : std::span<uint8_t const>{};
+        std::span<uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.parent, shader_name) : std::span<uint8_t const>{};
         if (spirv.empty()) {
-            return std::unexpected(deren::utility::vessel::string("mask bake: the owner has no ") + deren::utility::vessel::string(shader_name));
+            return std::unexpected(deren::utility::vessel::string("mask bake: the parent has no ") + deren::utility::vessel::string(shader_name));
         }
         // Everything the bake reads is a heap slot the shader names itself: the material table (the alpha
         // texture's index, the base colour factor's alpha, the cutoff) and the bindless texture array.
@@ -52,8 +52,8 @@ namespace deren::engine::pass {
         return {};
     }
 
-    void mask_bake_job::record(deren::promise::rhi::command_buffer& commands, mask_bake_request const& request, void* const push_owner,
-                               bool (*push_raw)(void* owner, deren::promise::rhi::command_buffer& commands, std::span<std::byte const> bytes)) const noexcept {
+    void mask_bake_job::record(deren::promise::rhi::command_buffer& commands, mask_bake_request const& request, void* const push_source,
+                               bool (*push_raw)(void* parent, deren::promise::rhi::command_buffer& commands, std::span<std::byte const> bytes)) const noexcept {
         if (!this->ready() || request.triangle_count == 0) {
             return;
         }
@@ -86,7 +86,7 @@ namespace deren::engine::pass {
         // set is no longer bound either: the material table and the bindless textures are heap slots the shader
         // names itself, and a set bound to a layout-less pipeline is invalid.
         if (push_raw != nullptr) {
-            [[maybe_unused]] bool const pushed = push_raw(push_owner, commands, std::as_bytes(std::span(&bake, 1)));
+            [[maybe_unused]] bool const pushed = push_raw(push_source, commands, std::as_bytes(std::span(&bake, 1)));
         }
         commands.dispatch((bake.triangle_count + group_size - 1u) / group_size, 1, 1);
     }

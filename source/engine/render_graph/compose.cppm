@@ -5,14 +5,14 @@ export import deren.vstd;
 export import deren.engine.render_graph.execute;
 export namespace deren::engine::render_graph::execution {
     template <class T>
-    concept ownable = std::is_object_v<T> && std::same_as<T, std::remove_cvref_t<T>> &&
-                      std::is_nothrow_move_constructible_v<T> && std::is_nothrow_destructible_v<T>;
+    concept storable_value = std::is_object_v<T> && std::same_as<T, std::remove_cvref_t<T>> &&
+                             std::is_nothrow_move_constructible_v<T> && std::is_nothrow_destructible_v<T>;
     namespace detail {
         template <class T>
         struct graph_append_result : std::false_type {};
         template <class T>
         struct graph_append_result<std::expected<T, graph_error>>
-            : std::bool_constant<std::is_void_v<T> || ownable<T>> {};
+            : std::bool_constant<std::is_void_v<T> || storable_value<T>> {};
     } // namespace detail
     template <class F>
     concept graph_appender = requires(F& fn, render_graph::builder& graph) {
@@ -20,7 +20,7 @@ export namespace deren::engine::render_graph::execution {
         requires detail::graph_append_result<decltype(std::invoke(fn, graph))>::value;
     };
     template <class F, class Parameters>
-    concept pass_recorder = ownable<F> && ownable<Parameters> && pass_parameters<Parameters> &&
+    concept pass_recorder = storable_value<F> && storable_value<Parameters> && pass_parameters<Parameters> &&
                             requires(F const& fn, Parameters const& parameters, rhi::command_buffer& commands, record_context const& context) {
                                 { std::invoke(fn, parameters, commands, context) } noexcept -> std::same_as<rhi::error>;
                             };
@@ -257,26 +257,26 @@ export namespace deren::engine::render_graph::execution {
         }
         template <class T>
             requires std::convertible_to<std::shared_ptr<T>, std::shared_ptr<void const>>
-        std::expected<void, build_error> retain(std::shared_ptr<T> owner) {
+        std::expected<void, build_error> retain(std::shared_ptr<T> parent) {
             if (auto error = blocked()) {
                 return std::unexpected(*error);
             }
-            if (!owner) {
+            if (!parent) {
                 return std::unexpected(latch({.code = build_error_code::invalid_argument}));
             }
-            retained_.push_back(std::move(owner));
+            retained_.push_back(std::move(parent));
             return {};
         }
         /// a SHARED RHI HANDLE is retained too (the post chain keeps the LUT view alive this way)
         template <typename T>
-        std::expected<void, build_error> retain(deren::promise::rhi::shared_object<T> owner) {
+        std::expected<void, build_error> retain(deren::promise::rhi::shared_object<T> parent) {
             if (auto error = blocked()) {
                 return std::unexpected(*error);
             }
-            if (!owner) {
+            if (!parent) {
                 return std::unexpected(latch({.code = build_error_code::invalid_argument}));
             }
-            retained_.push_back(std::make_shared<deren::promise::rhi::shared_object<T>>(std::move(owner)));
+            retained_.push_back(std::make_shared<deren::promise::rhi::shared_object<T>>(std::move(parent)));
             return {};
         }
         std::expected<prepared_graph, build_error> prepare() {

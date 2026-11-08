@@ -28,6 +28,9 @@ AccessModifierOffset: -4
 # 花括号：贴在语句末尾（K&R 风格，与多数现有代码一致）
 BreakBeforeBraces: Attach
 
+# 单行语句体也补花括号，避免同一函数内风格混用
+InsertBraces: true
+
 # 函数体不压成单行
 AllowShortFunctionsOnASingleLine: None
 AllowShortIfStatementsOnASingleLine: Never

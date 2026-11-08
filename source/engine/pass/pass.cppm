@@ -171,7 +171,7 @@ export namespace deren::engine::pass {
     /**
      * @brief how many own bindings one pass may resolve (the most any pass declares today)
      */
-    inline constexpr uint32_t max_own_bindings = 16;
+    inline constexpr uint32_t max_local_bindings = 16;
     /// @brief how many pipelines one pass may name (the post chain's five are the most today)
     inline constexpr uint32_t max_pass_pipelines = 8;
     /// @brief how many images one pass may render into (one fullscreen pass has one; the deferred scene has five,
@@ -216,11 +216,11 @@ export namespace deren::engine::pass {
         /// owner above supplies lifetime; the borrowed list records both rendering and push_constants.
         deren::promise::rhi::command_buffer* list = nullptr;
         /// the storage `own` views
-        deren::utility::vessel::array<resolved_binding, max_own_bindings> own_storage = {};
+        deren::utility::vessel::array<resolved_binding, max_local_bindings> local_storage = {};
         /// the pass's own binding number -> the handles that binding's resource is (exactly one is set)
-        std::span<resolved_binding const> own = {};
+        std::span<resolved_binding const> local = {};
         /**
-         * The same own bindings, ONE VIEW PER SWAPCHAIN IMAGE: `own_per_image[k][image]` is the view binding @c k
+         * The same own bindings, ONE VIEW PER SWAPCHAIN IMAGE: `local_per_image[k][image]` is the view binding @c k
          * has for swapchain image @c image (each span is `frame.image_count` long, or empty where the host filled
          * nothing).
          *
@@ -229,7 +229,7 @@ export namespace deren::engine::pass {
          * reaches into the core for this (`core_face.gi_images[i]` and friends); a pass
          * cannot - the failure mode this guards against is reaching an image that belongs to another generation.
          */
-        deren::utility::vessel::array<std::span<deren::promise::rhi::image_view* const>, max_own_bindings> own_per_image = {};
+        deren::utility::vessel::array<std::span<deren::promise::rhi::image_view* const>, max_local_bindings> local_per_image = {};
         /**
          * @brief HOW A PASS SENDS ITS PUSH BLOCK NOW THAT NO PIPELINE HAS A LAYOUT
          *
@@ -245,15 +245,15 @@ export namespace deren::engine::pass {
          * and source/shaders/heap_slots.glsl.
          */
         struct push_endpoint {
-            void* owner = nullptr;
-            bool (*push)(void* owner, deren::promise::rhi::command_buffer& command_buffer, std::span<std::byte const> bytes, uint32_t extra_lane) = nullptr;
+            void* parent = nullptr;
+            bool (*push)(void* parent, deren::promise::rhi::command_buffer& command_buffer, std::span<std::byte const> bytes, uint32_t extra_lane) = nullptr;
 
             /// @param command_buffer the command buffer the block is sent on
             /// @param bytes the stage's push block, with the heap index lanes already appended
             /// @param extra_lane the POST chain's own source slot, which only that chain's passes can name; every
             ///        other stage leaves it 0 and its shader does not declare the third field at all.
             [[nodiscard]] bool operator()(deren::promise::rhi::command_buffer& command_buffer, std::span<std::byte const> bytes, uint32_t extra_lane = 0u) const {
-                return this->push != nullptr && this->push(this->owner, command_buffer, bytes, extra_lane);
+                return this->push != nullptr && this->push(this->parent, command_buffer, bytes, extra_lane);
             }
         };
         push_endpoint push_block = {};
@@ -359,7 +359,7 @@ export namespace deren::engine::pass {
      * exactly one remaining user, the record step's fallback bind, and that fallback is gone with it. Deleting it is
      * also what lets a pass FILE stop naming a Vulkan type at all (see the include sweep, note section 8).
      */
-    struct owned_pipeline {
+    struct pipeline_ref {
         deren::promise::rhi::pipeline* contract = nullptr;
     };
 
@@ -417,11 +417,11 @@ export namespace deren::engine::pass {
          * The extent of a resource element the behaviour named (`extent_rule::resource`), or {0,0} for an
          * element the owner does not have - only the owner knows its own images' sizes
          */
-        deren::promise::rhi::image_extent (*extent_of)(void* owner, render_resource::resource_id id, uint32_t element) = nullptr;
+        deren::promise::rhi::image_extent (*extent_of)(void* parent, render_resource::resource_id id, uint32_t element) = nullptr;
         /// the pipeline a `behaviour::pipelines` NAME refers to, or all-null when the owner has none
-        owned_pipeline (*pipeline)(void* owner, std::string_view name) = nullptr;
+        pipeline_ref (*pipeline)(void* parent, std::string_view name) = nullptr;
         /// what every lookup above is called with
-        void* owner = nullptr;
+        void* parent = nullptr;
     };
 
     // =============================================================================================
@@ -468,7 +468,7 @@ export namespace deren::engine::pass {
          * this renderer the app loads them and hands them over), which keeps a path and a file format out of
          * this framework.
          */
-        std::span<uint8_t const> (*shader)(void* owner, std::string_view name) = nullptr;
+        std::span<uint8_t const> (*shader)(void* parent, std::string_view name) = nullptr;
         /**
          * The three numbers a SHADER BINDING TABLE is built against: the handle size, the base alignment of a
          * region's device address and the alignment of a handle inside a region. THEY ARE THE CONTRACT'S TYPE
@@ -497,7 +497,7 @@ export namespace deren::engine::pass {
          * when the owner could not create the buffer, which is the same "named failure" the flags mapping used to
          * raise.
          */
-        deren::promise::rhi::buffer* (*create_upload_buffer)(void* owner, void const* data, uint64_t bytes, deren::promise::rhi::buffer_flags flags,
+        deren::promise::rhi::buffer* (*create_upload_buffer)(void* parent, void const* data, uint64_t bytes, deren::promise::rhi::buffer_flags flags,
                                                              uint64_t* out_address) = nullptr;
         /**
          * The SURFACE's format, which is a session-stable device fact rather than a frame's.
@@ -547,11 +547,11 @@ export namespace deren::engine::pass {
          * THE LIFETIME RULE IS THE SAME ONE `resolved_io` FOLLOWS PER FRAME: what arrives here is a
          * session-stable handle (the runtime's material table, its texture array, a per-frame-SLOT buffer). A
          * per-swapchain-image VIEW is not stable - it is rebuilt with every generation - and those keep arriving
-         * per frame through `own` / `own_per_image` / `barrier_images`, which is the channel that was added for
+         * per frame through `own` / `local_per_image` / `barrier_images`, which is the channel that was added for
          * exactly that reason. A pass that cached one of those here would be storing a handle its own
          * `on_swapchain_recreated` cannot repair.
          */
-        resolved_binding (*resource)(void* owner, render_resource::resource_id id, uint32_t element) = nullptr;
+        resolved_binding (*resource)(void* parent, render_resource::resource_id id, uint32_t element) = nullptr;
         /**
          * How many frames the owner has in flight - the number of per-frame-slot resources it will publish.
          *
@@ -561,7 +561,7 @@ export namespace deren::engine::pass {
          */
         uint32_t frames_in_flight = 0;
         /// what the lookups above are called with (the renderer passes itself)
-        void* owner = nullptr;
+        void* parent = nullptr;
     };
 
     /**
@@ -665,19 +665,19 @@ export namespace deren::engine::pass {
         /// of the rendering instance the pass has OPEN: the overlay records its OWN mergeable segment under
         /// it here; EXECUTION is the other half (`finish`), because a secondary-contents instance may not
         /// share a pass's inline instance.
-        void (*record)(void* owner, deren::promise::rhi::command_buffer& command_buffer,
+        void (*record)(void* parent, deren::promise::rhi::command_buffer& command_buffer,
                        deren::promise::rhi::command_buffer_begin_info const& begin) = nullptr;
         /// THE EXECUTION HALF, called AFTER the pass's own rendering instance ended: the host begins a
         /// secondary-contents rendering instance over the same attachments (LOAD, no clear), executes the
         /// segment recorded by @c record and ends it. The split is Vulkan's: a render instance begun with
         /// CONTENTS_SECONDARY_COMMAND_BUFFERS may contain no primary draws, so the overlay cannot share the
         /// pass's instance once its draw goes into a segment.
-        deren::promise::rhi::error (*finish)(void* owner, deren::promise::rhi::command_buffer& command_buffer,
+        deren::promise::rhi::error (*finish)(void* parent, deren::promise::rhi::command_buffer& command_buffer,
                                              deren::promise::rhi::rendering_info const& rendering) = nullptr;
         /// what it is called with (the host's own context)
-        void* owner = nullptr;
+        void* parent = nullptr;
         /// Optional live predicate, queried after recording to skip an empty overlay.
-        bool (*has_recording)(void* owner) noexcept = nullptr;
+        bool (*has_recording)(void* parent) noexcept = nullptr;
 
         /// @brief whether there is anything to call
         [[nodiscard]] bool valid() const noexcept {
@@ -687,7 +687,7 @@ export namespace deren::engine::pass {
             deren::promise::rhi::command_buffer& commands, deren::promise::rhi::image& target,
             deren::promise::rhi::rendering_info const& rendering) const noexcept {
             namespace rhi = deren::promise::rhi;
-            if (!valid() || !finish || (has_recording && !has_recording(owner))) {
+            if (!valid() || !finish || (has_recording && !has_recording(parent))) {
                 return rhi::error::ok;
             }
             auto error = commands.barrier(rhi::image_barrier{.resource = &target,
@@ -696,7 +696,7 @@ export namespace deren::engine::pass {
             if (error != rhi::error::ok) {
                 return error;
             }
-            return finish(owner, commands, rendering);
+            return finish(parent, commands, rendering);
         }
     };
 
@@ -868,9 +868,9 @@ export namespace deren::engine::pass {
          * asks this on every pass of the chain, taking the first answer - which is what keeps the resolution
          * chain-agnostic: the renderer does not know, and does not need to know, which pass owns what.
          * @param name one of this pass's own `behaviour::pipelines` names, or a sibling's
-         * @return the pipeline, or an empty `owned_pipeline` when this pass owns nothing by that name
+         * @return the pipeline, or an empty `pipeline_ref` when this pass owns nothing by that name
          */
-        [[nodiscard]] virtual owned_pipeline named_pipeline([[maybe_unused]] std::string_view name) const noexcept {
+        [[nodiscard]] virtual pipeline_ref named_pipeline([[maybe_unused]] std::string_view name) const noexcept {
             return {};
         }
         /**
@@ -1050,7 +1050,7 @@ export namespace deren::engine::pass {
          *
          * WHY THIS EXISTS ON TOP OF `publish`: a family the owner already holds as one contiguous array (every
          * per-swapchain-image family `deren.vulkan.core` creates) is both cheaper and MORE USEFUL published as the
-         * spans it already is - the per-image channel (`resolved_io::own_per_image`) needs exactly that contiguous
+         * spans it already is - the per-image channel (`resolved_io::local_per_image`) needs exactly that contiguous
          * run of views, and a per-instance copy would make the table the source of a second array that can drift
          * from the first. The spans are stored, not copied: they point at the owner's own storage, which outlives
          * the frame the table describes.
@@ -1172,7 +1172,7 @@ export namespace deren::engine::pass {
         ///
         /// THE CONTRACT HANDLES ARE CARRIED HERE TOO, beside the native ones. The `entries` path already
         /// publishes them for the resources a frame publishes one by one, and the per-instance
-        /// `owned_family` publisher fills them as well - but a family registered by the SPAN path used to
+        /// `family` publisher fills them as well - but a family registered by the SPAN path used to
         /// reach `find()`'s family fallback with NATIVE handles only, so a pass that resolved such a
         /// binding got a null contract handle and every recording verb refused it (the failure that
         /// `source/engine/pass/taa.cpp` was the first to hit: a refused barrier, a silent early return, and a
@@ -1220,7 +1220,7 @@ export namespace deren::engine::pass {
         case extent_rule::half:
             return deren::promise::rhi::image_extent{std::max(1u, context.frame.extent.width / 2u), std::max(1u, context.frame.extent.height / 2u)};
         case extent_rule::resource:
-            return context.extent_of == nullptr ? deren::promise::rhi::image_extent{} : context.extent_of(context.owner, how.extent_of, how.extent_of_element);
+            return context.extent_of == nullptr ? deren::promise::rhi::image_extent{} : context.extent_of(context.parent, how.extent_of, how.extent_of_element);
         case extent_rule::none:
             // "I SIZE MY OWN WORK" IS 0x0, NOT THE TYPE'S DEFAULT: `rhi::image_extent{}` is {0, 1, 1} (the
             // contract's "a 2D image has one row at least"), and a pass that declared `none` reads this field to
@@ -1249,9 +1249,9 @@ export namespace deren::engine::pass {
             // stages may share one pipeline (the post chain's four bloom levels record with the composite's R16F
             // variant), and only a pass of that chain can say which object a name is. It was declared and
             // overridden but never consulted before this batch.
-            owned_pipeline found = pass.named_pipeline(names[i]);
+            pipeline_ref found = pass.named_pipeline(names[i]);
             if (found.contract == nullptr) {
-                found = context.pipeline != nullptr ? context.pipeline(context.owner, names[i]) : owned_pipeline{};
+                found = context.pipeline != nullptr ? context.pipeline(context.parent, names[i]) : pipeline_ref{};
             }
             if (found.contract == nullptr) {
                 return false; // the frame cannot bind a pipeline the pass declared: do not record it
@@ -1278,7 +1278,7 @@ export namespace deren::engine::pass {
      *  - a PIPELINE is asked for BY THE NAME `behaviour::pipelines` declares;
      *  - the EXTENT comes from the behaviour's rule (resolve_extent).
      *
-     * WHAT IT DELIBERATELY LEAVES ALONE: `own_per_image` (the per-image channel a pass that owns per-image
+     * WHAT IT DELIBERATELY LEAVES ALONE: `local_per_image` (the per-image channel a pass that owns per-image
      * state reads) and `push` (a push block's values are the pass's own parameters and this frame's
      * constants, so the pass composes it).
      *
@@ -1298,37 +1298,37 @@ export namespace deren::engine::pass {
         out.push = {}; // a push block is composed by the pass that pushes it
 
         // ---- the pass's own bindings, indexed by their own binding number ----
-        uint32_t own_count = 0;
+        uint32_t local_count = 0;
         for (render_resource::pass_binding const& binding : declaration.bindings) {
-            if (binding.owner != render_resource::binding_owner::own) {
+            if (binding.parent != render_resource::binding_scope::local) {
                 continue;
             }
             render_resource::resource_info const* const info = render_resource::find(binding.resource);
-            if (info == nullptr || binding.binding >= out.own_storage.size()) {
+            if (info == nullptr || binding.binding >= out.local_storage.size()) {
                 return false; // not a resource the schema knows, or not the contiguous own bindings the validator requires
             }
             resolved_binding const handles = context.resources->find(binding.resource, binding.element, instance_for(info->scope, context.frame));
             if (handles.view_handle == nullptr && handles.buffer_handle == nullptr && handles.image_handle == nullptr && handles.structure_handle == nullptr) {
                 return false; // this frame does not have it: do not record the pass at all
             }
-            out.own_storage[binding.binding] = handles;
-            own_count = std::max(own_count, static_cast<uint32_t>(binding.binding) + 1u);
+            out.local_storage[binding.binding] = handles;
+            local_count = std::max(local_count, static_cast<uint32_t>(binding.binding) + 1u);
         }
-        out.own = std::span<resolved_binding const>(out.own_storage.data(), own_count);
+        out.local = std::span<resolved_binding const>(out.local_storage.data(), local_count);
         // THE PER-IMAGE CHANNEL: for an own binding whose resource is per SWAPCHAIN IMAGE, every image's view -
         // what a pass that works per image reads to reach the generation's other images (see
-        // resolved_io::own_per_image), and the only channel through which a pass can name a generation's views
+        // resolved_io::local_per_image), and the only channel through which a pass can name a generation's views
         // without the renderer publishing them itself. Empty for every other binding, which is the shape the
         // consumer reads: it checks each span's length before indexing it.
         for (render_resource::pass_binding const& binding : declaration.bindings) {
-            if (binding.owner != render_resource::binding_owner::own || binding.binding >= out.own_per_image.size()) {
+            if (binding.parent != render_resource::binding_scope::local || binding.binding >= out.local_per_image.size()) {
                 continue;
             }
             render_resource::resource_info const* const info = render_resource::find(binding.resource);
             if (info == nullptr || info->scope != render_resource::resource_scope::per_swapchain_image) {
                 continue;
             }
-            out.own_per_image[binding.binding] = context.resources->views_of(binding.resource, binding.element);
+            out.local_per_image[binding.binding] = context.resources->views_of(binding.resource, binding.element);
         }
 
         // ---- the targets, in declaration order, a RUN expanding to one slot per element ----

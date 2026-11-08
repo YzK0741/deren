@@ -6,8 +6,9 @@ namespace deren::vk_test {
         namespace rhi = deren::promise::rhi;
         auto commands = core.commands->create_command_buffer({});
         CHECK(commands);
-        if (!commands)
+        if (!commands) {
             return;
+        }
         CHECK(commands->begin_recording({}) == rhi::error::ok);
         rhi::rendering_info scope{};
         scope.area.width = scope.area.height = 4;
@@ -24,8 +25,9 @@ namespace deren::vk_test {
 
         auto inherited = core.commands->make_mergeable_command_buffer({});
         CHECK(inherited);
-        if (!inherited)
+        if (!inherited) {
             return;
+        }
         rhi::command_buffer_inheritance_info inheritance{};
         CHECK(inherited->begin_recording({.usage = rhi::to_bits(rhi::command_buffer_usage::render_pass_continue), .next = &inheritance.header}) == rhi::error::ok);
         inherited->end_rendering(); // the inherited scope belongs to the primary.
