@@ -238,11 +238,11 @@ if(MSVC)
             # symbol WinMain ... referenced in function __scrt_common_main_seh" + "deren.exe :
             # fatal error LNK1120: 1 unresolved externals". WinMainCRTStartup also calls the CRT
             # initialiser, so the MSVC spelling of the MinGW behaviour is to name the other CRT
-            # entry - mainCRTStartup calls main() and keeps /SUBSYSTEM:WINDOWS, so Release still
-            # runs with no console window. Debug's default entry already is mainCRTStartup, which is
-            # why this is Release-only. (The exe logs to deren-debug.log, so no console is needed to see
-            # its output - README.md, "Release builds are Windows GUI-subsystem executables".)
-            $<$<CONFIG:Release>:/ENTRY:mainCRTStartup>
+            # entry - mainCRTStartup calls main() and keeps /SUBSYSTEM:WINDOWS. Every configuration
+            # is GUI-subsystem now, so every configuration names that entry. (The exe logs to
+            # deren-debug.log, so no console is needed to see its output - README.md,
+            # "All Windows builds are GUI-subsystem executables".)
+            /ENTRY:mainCRTStartup
     )
 else()
     target_link_options(${PROJECT_NAME} PRIVATE
