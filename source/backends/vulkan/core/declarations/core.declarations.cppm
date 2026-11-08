@@ -340,8 +340,8 @@ namespace deren::vulkan {
         // through the facet. `device_facet` has no RHI interface: it is the internal owner/producer of
         // the opaque main-context view, not a fourth public face.
         //
-        // The reference is called `full_core`, not `owner`: the borrowed views already spell their
-        // non-owning origin `owner`, and these facets neither own the root nor may be null.
+        // The reference is called `full_core`: the borrowed views spell their non-owning origin `parent`, and
+        // these facets neither own the root nor may be null, so the back-reference keeps its own name.
         // creation options this core was built with (window size, vsync); the window and the
         // swap chain honor them
         deren::promise::rhi::create_info create_options = {};
@@ -1334,6 +1334,9 @@ namespace deren::vulkan {
             static constexpr std::uint32_t texture_capacity = 2048;
             static constexpr std::uint32_t group_record_bytes = 80;
             static constexpr std::uint32_t texture_slot_bytes = 64;
+            static constexpr std::uint32_t bitmap_word_bits = 64;
+            static constexpr std::uint32_t group_bitmap_words = (group_capacity + bitmap_word_bits - 1) / bitmap_word_bits;
+            static constexpr std::uint32_t texture_bitmap_words = (texture_capacity + bitmap_word_bits - 1) / bitmap_word_bits;
             std::mutex mutex;
             bool gpu_ready = false;
             /// live groups BY TOKEN (`allocation + 1`, the shader-facing identity a `descriptor_position`
@@ -1351,9 +1354,60 @@ namespace deren::vulkan {
             deren::promise::rhi::unique_object<deren::promise::rhi::buffer> records;
             deren::promise::rhi::unique_object<deren::promise::rhi::image> dummy_image;
             deren::promise::rhi::unique_object<deren::promise::rhi::image_view> dummy_view;
-            deren::utility::vessel::array<bool, group_capacity> groups{};
+            /// One bit per occupied group slot. A word bitmap keeps the 1024-slot table at 128 bytes instead
+            /// of 1024 bytes; every access is still mutex-protected, exactly like the old bool arrays.
+            deren::utility::vessel::array<std::uint64_t, group_bitmap_words> groups{};
             // Slot 0 is reserved for the dummy descriptor.
-            deren::utility::vessel::array<bool, texture_capacity> views{};
+            deren::utility::vessel::array<std::uint64_t, texture_bitmap_words> views{};
+
+            [[nodiscard]] bool group_live(std::uint32_t index) const noexcept {
+                return (groups[index / bitmap_word_bits] & (std::uint64_t{1} << (index % bitmap_word_bits))) != 0;
+            }
+            void set_group_live(std::uint32_t index, bool live) noexcept {
+                auto& word = groups[index / bitmap_word_bits];
+                auto const mask = std::uint64_t{1} << (index % bitmap_word_bits);
+                word = live ? (word | mask) : (word & ~mask);
+            }
+            [[nodiscard]] std::uint32_t first_free_group() const noexcept {
+                for (std::uint32_t word_index = 0; word_index < group_bitmap_words; ++word_index) {
+                    auto free_bits = ~groups[word_index];
+                    if (word_index + 1 == group_bitmap_words) {
+                        auto const used_bits = group_capacity - word_index * bitmap_word_bits;
+                        if (used_bits < bitmap_word_bits) {
+                            free_bits &= (std::uint64_t{1} << used_bits) - 1;
+                        }
+                    }
+                    for (std::uint32_t bit = 0; bit < bitmap_word_bits; ++bit) {
+                        if ((free_bits & (std::uint64_t{1} << bit)) != 0) {
+                            return word_index * bitmap_word_bits + bit;
+                        }
+                    }
+                }
+                return group_capacity;
+            }
+
+            [[nodiscard]] bool texture_slot_live(std::uint32_t index) const noexcept {
+                return (views[index / bitmap_word_bits] & (std::uint64_t{1} << (index % bitmap_word_bits))) != 0;
+            }
+            void set_texture_slot_live(std::uint32_t index, bool live) noexcept {
+                auto& word = views[index / bitmap_word_bits];
+                auto const mask = std::uint64_t{1} << (index % bitmap_word_bits);
+                word = live ? (word | mask) : (word & ~mask);
+            }
+            [[nodiscard]] std::uint32_t first_free_texture_slot() const noexcept {
+                for (std::uint32_t word_index = 0; word_index < texture_bitmap_words; ++word_index) {
+                    auto free_bits = ~views[word_index];
+                    if (word_index == 0) {
+                        free_bits &= ~std::uint64_t{1}; // slot 0 is the reserved dummy descriptor
+                    }
+                    for (std::uint32_t bit = 0; bit < bitmap_word_bits; ++bit) {
+                        if ((free_bits & (std::uint64_t{1} << bit)) != 0) {
+                            return word_index * bitmap_word_bits + bit;
+                        }
+                    }
+                }
+                return texture_capacity;
+            }
             struct sampled_view_lease {
                 texture_group_state* state = nullptr;
                 std::uint32_t slot = 0;

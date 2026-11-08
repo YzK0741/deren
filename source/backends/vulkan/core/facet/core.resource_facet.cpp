@@ -1577,12 +1577,11 @@ namespace deren::vulkan {
             std::lock_guard lock(this->texture_groups.mutex);
             std::erase_if(this->texture_groups.cache, [](auto const& item) { return item.second.expired(); });
             if (std::any_of(images.begin(), images.end(), [](auto const& image) { return bool(image); })) {
-                auto free = std::find(this->texture_groups.groups.begin(), this->texture_groups.groups.end(), false);
-                if (free == this->texture_groups.groups.end()) {
+                answer->allocation = this->texture_groups.first_free_group();
+                if (answer->allocation == texture_group_state::group_capacity) {
                     status = rhi::error::out_of_device_memory;
                 } else {
-                    answer->allocation = static_cast<std::uint32_t>(free - this->texture_groups.groups.begin());
-                    *free = true;
+                    this->texture_groups.set_group_live(answer->allocation, true);
                 }
             }
             for (std::size_t i = 0; status == rhi::error::ok && i < images.size(); ++i) {
@@ -1591,7 +1590,7 @@ namespace deren::vulkan {
                 }
                 status = this->full_core.write_group_texture_locked(*answer, static_cast<std::uint32_t>(i), *images[i]);
             }
-            if (status == rhi::error::ok && answer->allocation < this->texture_groups.groups.size()) {
+            if (status == rhi::error::ok && answer->allocation < texture_group_state::group_capacity) {
                 // THE POSITION BECOMES REFERENCEABLE only after every slot it covers was written: the token
                 // and its generation enter the map together, so `descriptor_space::write` cannot see a
                 // half-filled group.

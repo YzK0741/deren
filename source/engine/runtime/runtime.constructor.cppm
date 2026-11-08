@@ -2370,9 +2370,9 @@ namespace deren::engine {
         }
         probe_image = std::move(created.first);
         probe_view = std::move(created.second);
-        light_state.probe_position_gain = {position, gain};
-        light_state.probe_min_fade = {minimum, fade};
-        light_state.probe_max_enabled = {maximum, 1};
+        light_state->probe_position_gain = {position, gain};
+        light_state->probe_min_fade = {minimum, fade};
+        light_state->probe_max_enabled = {maximum, 1};
         return true;
     }
     bool runtime::set_ibl(ibl_input const& info) {

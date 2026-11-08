@@ -527,7 +527,7 @@ namespace deren::engine {
         std::array<deren::utility::vessel::vector<rhi::shared_object<rhi::image>>, 2> texture_bank_images;
         std::array<deren::utility::vessel::vector<std::uint64_t>, 2> texture_bank_bytes;
         texture_residency::feedback progressive_feedback{};
-        texture_residency::mip_feedback progressive_mip_feedback{};
+        std::unique_ptr<texture_residency::mip_feedback> progressive_mip_feedback = std::make_unique<texture_residency::mip_feedback>();
         std::ofstream progressive_trace;
         [[nodiscard]] rhi::error update_progressive_textures(bool all);
         [[nodiscard]] rhi::error publish_texture_bank();
@@ -1876,7 +1876,7 @@ namespace deren::engine {
         // never touch mapped memory directly.
         deren::utility::vessel::vector<render_resource::instances::borrowed<rhi::buffer>> light_buffers = {};
         render_resource::instances::resource_snapshot light_resource_view;
-        light_ubo light_state = {};
+        std::unique_ptr<light_ubo> light_state = std::make_unique<light_ubo>();
         // THE HEAD FRAMES (scene block slot 749), the same per-frame-slot arrangement as the light UBO above and
         // for the same reason: on a model whose head TURNS these three vectors change every frame, so a frame in
         // flight must not read a buffer the next frame is rewriting. `head_states` is the CPU-side value and
@@ -4774,7 +4774,7 @@ namespace deren::engine {
         bool set_ibl(uint32_t environment_slot, ibl_input const& info);
         bool set_local_probe(std::span<uint8_t const> half, uint32_t size, uint32_t mips, glm::vec3 position, glm::vec3 minimum, glm::vec3 maximum, float fade, float gain);
         void disable_local_probe() noexcept {
-            light_state.probe_max_enabled.w = 0;
+            light_state->probe_max_enabled.w = 0;
         }
 
         /**

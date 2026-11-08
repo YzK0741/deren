@@ -78,7 +78,7 @@ namespace deren::engine {
             std::memcpy(&progressive_feedback, texture_feedback_readback_slots[slot]->mapped().data(), sizeof(progressive_feedback));
             texture_feedback_pending[slot] = false;
             if (progressive_mips) {
-                std::memcpy(&progressive_mip_feedback, mip_feedback_readback_slots[slot]->mapped().data(), sizeof(progressive_mip_feedback));
+                std::memcpy(progressive_mip_feedback.get(), mip_feedback_readback_slots[slot]->mapped().data(), sizeof(*progressive_mip_feedback));
             }
         }
         if (progressive_textures) {
@@ -261,7 +261,7 @@ namespace deren::engine {
                     continue;
                 }
                 for (auto index : material_texture_edges[material]) {
-                    requested[index] = std::max(requested[index], progressive_mip_feedback.requested_extent[material]);
+                    requested[index] = std::max(requested[index], progressive_mip_feedback->requested_extent[material]);
                 }
             }
         }
