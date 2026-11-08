@@ -24,7 +24,7 @@
 //     shaders' constants. A renamed slot leaves the documents describing a resource that does not
 //     exist, and a heap has no reflection to notice: those constants ARE the source of truth (which is
 //     the same reason test_render_resources compares the two files that hold them).
-//  6. THE CI WORKFLOW'S TEST LIST EQUALS THE CMake SOURCES' `VR_TEST_TARGETS`. The workflow says so in a
+//  6. THE CI WORKFLOW'S TEST LIST EQUALS THE GENERATED TARGET MANIFEST'S TEST TARGETS. The workflow says so in a
 //     comment and the comment is right about why: a target missing from the `--target` list is an
 //     executable ctest cannot find, and the job goes red as "Not Run". MEASURED: it had already
 //     drifted - ten targets in CMake, nine in the ASan job (`test_meshlet` missing) - which is the
@@ -47,6 +47,10 @@
 #include <vector>
 
 import deren.utility.shared;
+
+#ifndef VR_TARGET_MANIFEST
+#define VR_TARGET_MANIFEST "target_manifest.txt"
+#endif
 
 namespace {
     /// `docs/*.md` that is deliberately NOT in Doxyfile's INPUT, with the reason it is not. Empty on
@@ -77,22 +81,6 @@ namespace {
         return buffer.str();
     }
 
-    deren::utility::vessel::string read_cmake_sources(std::filesystem::path const& root) {
-        deren::utility::vessel::string text = read_text(root / "CMakeLists.txt");
-        deren::utility::vessel::vector<std::filesystem::path> fragments;
-        for (auto const& entry : std::filesystem::recursive_directory_iterator(root / "source")) {
-            if (entry.is_regular_file() && entry.path().extension() == ".cmake") {
-                fragments.push_back(entry.path());
-            }
-        }
-        std::sort(fragments.begin(), fragments.end());
-        for (auto const& fragment : fragments) {
-            text += "\n";
-            text += read_text(fragment);
-        }
-        return text;
-    }
-
     deren::utility::vessel::vector<deren::utility::vessel::string> read_lines(std::filesystem::path const& path) {
         deren::utility::vessel::vector<deren::utility::vessel::string> lines;
         deren::utility::vessel::istringstream stream(read_text(path));
@@ -104,6 +92,32 @@ namespace {
             lines.push_back(line);
         }
         return lines;
+    }
+
+    struct target_manifest {
+        deren::utility::vessel::set<deren::utility::vessel::string> test_targets;
+        deren::utility::vessel::set<deren::utility::vessel::string> device_targets;
+        deren::utility::vessel::set<deren::utility::vessel::string> executables;
+    };
+
+    /// The manifest CMake writes at configure time. It is the only source of target metadata here:
+    /// reading the .cmake fragments directly made a moved target a parse change in two tests.
+    target_manifest read_target_manifest(std::filesystem::path const& path) {
+        target_manifest manifest;
+        for (deren::utility::vessel::string const& line : read_lines(path)) {
+            deren::utility::vessel::istringstream stream(line);
+            deren::utility::vessel::string kind;
+            deren::utility::vessel::string name;
+            stream >> kind >> name;
+            if (kind == "test_target") {
+                manifest.test_targets.insert(name);
+            } else if (kind == "device_target") {
+                manifest.device_targets.insert(name);
+            } else if (kind == "executable") {
+                manifest.executables.insert(name);
+            }
+        }
+        return manifest;
     }
 
     deren::utility::vessel::string trim(deren::utility::vessel::string text) {
@@ -192,37 +206,6 @@ namespace {
         return tokens;
     }
 
-    /// the `test_*` targets CMakeLists' VR_TEST_TARGETS declares
-    deren::utility::vessel::set<deren::utility::vessel::string> vr_test_targets(deren::utility::vessel::string const& cmake_text) {
-        deren::utility::vessel::set<deren::utility::vessel::string> targets;
-        deren::utility::vessel::istringstream stream(cmake_text);
-        deren::utility::vessel::string line;
-        while (std::getline(stream, line)) {
-            std::size_t const at = line.find("VR_TEST_TARGETS");
-            if (at == deren::utility::vessel::string::npos || line.find("set(", at == 0 ? 0u : at - 4u) == deren::utility::vessel::string::npos) {
-                continue;
-            }
-            std::size_t token = line.find("test_", at);
-            while (token != deren::utility::vessel::string::npos) {
-                std::size_t end = token;
-                while (end < line.size()) {
-                    char const c = line[end];
-                    if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_') {
-                        ++end;
-                    } else {
-                        break;
-                    }
-                }
-                targets.insert(line.substr(token, end - token));
-                token = line.find("test_", end);
-            }
-            if (!targets.empty()) {
-                break;
-            }
-        }
-        return targets;
-    }
-
     /// the `test_*` targets the CI workflow builds: EVERY `--target` block's value, merged. Merging rather than
     /// taking the first is the fix for a measured own-goal: the workflow's FIRST `--target` is the clang-format
     /// job's (`cmake --build build --target clang-format-check`), whose value is on its own line and ends the
@@ -271,65 +254,6 @@ namespace {
                     break;
                 }
                 collect(trimmed);
-            }
-        }
-        return targets;
-    }
-
-    /// the `test_*` executables CMakeLists creates with a literal name (the VR_TEST_TARGETS loop's
-    /// `add_executable(${test_target} ...)` is not a name and is not matched).
-    deren::utility::vessel::set<deren::utility::vessel::string> literal_test_executables(deren::utility::vessel::string const& cmake_text) {
-        deren::utility::vessel::set<deren::utility::vessel::string> targets;
-        deren::utility::vessel::istringstream stream(cmake_text);
-        deren::utility::vessel::string line;
-        while (std::getline(stream, line)) {
-            std::size_t const at = line.find("add_executable(");
-            if (at == deren::utility::vessel::string::npos) {
-                continue;
-            }
-            std::size_t const start = at + deren::utility::vessel::string("add_executable(").size();
-            std::size_t end = start;
-            while (end < line.size() && line[end] != ' ' && line[end] != ')') {
-                ++end;
-            }
-            deren::utility::vessel::string const name = line.substr(start, end - start);
-            if (name.find("test_") == 0u) {
-                targets.insert(name);
-            }
-        }
-        return targets;
-    }
-
-    /// the device lane's targets: CMakeLists' `set(VR_DEVICE_TEST_TARGETS ...)` list (one item per line).
-    deren::utility::vessel::set<deren::utility::vessel::string> device_test_targets(deren::utility::vessel::string const& cmake_text) {
-        deren::utility::vessel::set<deren::utility::vessel::string> targets;
-        deren::utility::vessel::istringstream stream(cmake_text);
-        deren::utility::vessel::string line;
-        bool in_list = false;
-        while (std::getline(stream, line)) {
-            if (!in_list) {
-                in_list = line.find("set(VR_DEVICE_TEST_TARGETS") != deren::utility::vessel::string::npos;
-                if (!in_list) {
-                    continue;
-                }
-            }
-            std::size_t token = line.find("test_");
-            while (token != deren::utility::vessel::string::npos) {
-                std::size_t end = token;
-                while (end < line.size()) {
-                    char const c = line[end];
-                    if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_') {
-                        ++end;
-                    } else {
-                        break;
-                    }
-                }
-                targets.insert(line.substr(token, end - token));
-                token = line.find("test_", end);
-            }
-            if (line.find("set(VR_DEVICE_TEST_TARGETS") == deren::utility::vessel::string::npos &&
-                line.find(')') != deren::utility::vessel::string::npos) {
-                break;
             }
         }
         return targets;
@@ -542,33 +466,34 @@ int32_t main() {
     }
     CHECK_MSG(checked_anchors >= 1u, "the documents contain at least one markdown anchor link to check");
 
-    // ---- 6. the CI workflow builds every target CMake registers (and nothing CMake does not) ----
+    // ---- 6. the CI workflow builds every target the manifest registers (and nothing it does not) ----
     {
-        deren::utility::vessel::set<deren::utility::vessel::string> const registered = vr_test_targets(read_cmake_sources(root));
+        target_manifest const manifest = read_target_manifest(VR_TARGET_MANIFEST);
+        deren::utility::vessel::set<deren::utility::vessel::string> const& registered = manifest.test_targets;
         deren::utility::vessel::set<deren::utility::vessel::string> const built = ci_built_targets(read_text((root / ".github" / "workflows" / "ci.yml").string()));
-        CHECK_MSG(registered.size() >= 10u, "VR_TEST_TARGETS parses as the full list of targets");
+        CHECK_MSG(registered.size() >= 10u, "the generated target manifest lists the full test set");
         CHECK_MSG(!built.empty(), "the CI workflow's --target list parses");
         for (deren::utility::vessel::string const& target : registered) {
-            CHECK_MSG(built.contains(target), ("a test target CMake registers is not built by the CI workflow, so ctest there reports it as Not Run: " + target).c_str());
+            CHECK_MSG(built.contains(target), ("a test target the manifest registers is not built by the CI workflow, so ctest there reports it as Not Run: " + target).c_str());
         }
         for (deren::utility::vessel::string const& target : built) {
-            CHECK_MSG(registered.contains(target), ("the CI workflow builds a test target CMake does not register: " + target).c_str());
+            CHECK_MSG(registered.contains(target), ("the CI workflow builds a test target the manifest does not register: " + target).c_str());
         }
     }
 
-    // ---- 7. every literal test executable CMakeLists creates is registered, headless or device ----
+    // ---- 7. every literal test executable the manifest lists is registered, headless or device ----
     //
     // The failure this exists for is not hypothetical: `add_executable(test_radiance_capture)` sat behind an
     // `if(EXISTS ...)` guard, the source was dropped, and the suite silently became one test smaller with no
     // failure anywhere. A test executable is now either on the headless list, on the device lane's list, or a
     // named exception - never invisible.
     {
-        deren::utility::vessel::string const cmake_text = read_cmake_sources(root);
-        deren::utility::vessel::set<deren::utility::vessel::string> const device = device_test_targets(cmake_text);
-        CHECK_MSG(!device.empty(), "CMakeLists' VR_DEVICE_TEST_TARGETS parses as the device lane's list");
-        deren::utility::vessel::set<deren::utility::vessel::string> const literal = literal_test_executables(cmake_text);
-        CHECK_MSG(literal.size() >= 7u, "CMakeLists' literal `add_executable(test_*)` lines parse");
-        deren::utility::vessel::set<deren::utility::vessel::string> registered = vr_test_targets(cmake_text);
+        target_manifest const manifest = read_target_manifest(VR_TARGET_MANIFEST);
+        deren::utility::vessel::set<deren::utility::vessel::string> const& device = manifest.device_targets;
+        CHECK_MSG(!device.empty(), "the generated target manifest lists the device lane");
+        deren::utility::vessel::set<deren::utility::vessel::string> const& literal = manifest.executables;
+        CHECK_MSG(literal.size() >= 7u, "the generated target manifest lists the literal test executables");
+        deren::utility::vessel::set<deren::utility::vessel::string> registered = manifest.test_targets;
         for (deren::utility::vessel::string const& target : device) {
             registered.insert(target);
         }
@@ -577,7 +502,7 @@ int32_t main() {
         registered.insert("test_backend_boundary_spike");
         for (deren::utility::vessel::string const& target : literal) {
             CHECK_MSG(registered.contains(target),
-                      ("CMakeLists creates a test executable that is in neither VR_TEST_TARGETS nor VR_DEVICE_TEST_TARGETS: " + target).c_str());
+                      ("the generated target manifest lists a test executable that is in neither the headless nor the device set: " + target).c_str());
         }
     }
 
