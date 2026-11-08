@@ -8,6 +8,7 @@ module;
 module deren.vulkan.core;
 import deren.vstd;
 import deren.utility.shared;
+import deren.vulkan.constant_init;
 import :declarations;
 
 namespace deren::vulkan {
@@ -47,12 +48,7 @@ namespace deren::vulkan {
             return rhi::error::operation_failed;
         }
         auto const& image = *static_cast<core::image const*>(dummy.get());
-        VkImageViewCreateInfo info{};
-        info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        info.image = image.native_handle;
-        info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        info.format = image.resolved_format;
-        info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        VkImageViewCreateInfo const info = make_image_view_info(image.native_handle, image.resolved_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 1, 1);
         if (!resource.descriptor_heaps.write_image(VkDeviceSize(texture_group_state::texture_base) * 64, info, VK_IMAGE_LAYOUT_GENERAL) ||
             !resource.descriptor_heaps.write_buffer(base, resource.address_view.buffer_address(*records, 0), records->size(), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
             return rhi::error::operation_failed;
@@ -174,12 +170,7 @@ namespace deren::vulkan {
             }
             fresh->slot = static_cast<std::uint32_t>(free - resource.texture_groups.views.begin());
             auto const& image = static_cast<core::image const&>(texture);
-            VkImageViewCreateInfo view_info{};
-            view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-            view_info.image = image.native_handle;
-            view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-            view_info.format = image.resolved_format;
-            view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, image.mip_levels, 0, 1};
+            VkImageViewCreateInfo const view_info = make_image_view_info(image.native_handle, image.resolved_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, image.mip_levels, 1);
             if (!resource.descriptor_heaps.write_image((VkDeviceSize(texture_group_state::texture_base) + fresh->slot) * 64,
                                                        view_info, VK_IMAGE_LAYOUT_GENERAL)) {
                 return rhi::error::operation_failed;

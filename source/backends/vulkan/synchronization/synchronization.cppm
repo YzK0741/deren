@@ -4,6 +4,7 @@ module;
 export module deren.vulkan.synchronization;
 export import deren.vstd;
 export import deren.promise.rhi.synchronization;
+import deren.vulkan.constant_init;
 export namespace deren::vulkan::synchronization {
     namespace contract = deren::promise::rhi::synchronization;
     /// Current backend policy: every ordinary abstract state uses GENERAL.
@@ -128,15 +129,6 @@ export namespace deren::vulkan::synchronization {
         if (!before || !after || !source || !destination || !source_access || !destination_access) {
             return std::unexpected(contract::error::unsupported);
         }
-        VkImageMemoryBarrier2 result{};
-        result.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        result.srcStageMask = *source;
-        result.dstStageMask = *destination;
-        result.srcAccessMask = *source_access;
-        result.dstAccessMask = *destination_access;
-        result.oldLayout = *before;
-        result.newLayout = *after;
-        result.srcQueueFamilyIndex = result.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         VkImageAspectFlags native_aspects = 0;
         if (aspects & 1) {
             native_aspects |= VK_IMAGE_ASPECT_COLOR_BIT;
@@ -147,8 +139,9 @@ export namespace deren::vulkan::synchronization {
         if (aspects & 4) {
             native_aspects |= VK_IMAGE_ASPECT_STENCIL_BIT;
         }
-        result.subresourceRange = {native_aspects, range.base_mip, range.mip_count, range.base_layer, range.layer_count};
-        return result;
+        return make_image_memory_barrier_2(
+            *source, *source_access, *destination, *destination_access, *before, *after, VK_NULL_HANDLE,
+            {native_aspects, range.base_mip, range.mip_count, range.base_layer, range.layer_count});
     }
     constexpr std::expected<VkBufferMemoryBarrier2, contract::error> map_buffer(contract::buffer_transition const& input) noexcept {
         if (!input.size || input.size > UINT64_MAX - input.offset || !detail::valid_scope(input.before) || !detail::valid_scope(input.after)) {
@@ -162,15 +155,7 @@ export namespace deren::vulkan::synchronization {
         if (!source || !destination || !source_access || !destination_access) {
             return std::unexpected(contract::error::unsupported);
         }
-        VkBufferMemoryBarrier2 result{};
-        result.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
-        result.srcStageMask = *source;
-        result.dstStageMask = *destination;
-        result.srcAccessMask = *source_access;
-        result.dstAccessMask = *destination_access;
-        result.srcQueueFamilyIndex = result.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        result.offset = input.offset;
-        result.size = input.size;
-        return result;
+        return make_buffer_memory_barrier_2(
+            *source, *source_access, *destination, *destination_access, VK_NULL_HANDLE, input.offset, input.size);
     }
 } // namespace deren::vulkan::synchronization

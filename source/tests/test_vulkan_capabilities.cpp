@@ -15,6 +15,7 @@
 // Only driver entry points are doubled. The generated header contains the actual
 // production bodies, not a model of how their pNext chains ought to work.
 import deren.utility.shared;
+import deren.vulkan.constant_init;
 
 namespace deren::utility {
     template <class... Args>

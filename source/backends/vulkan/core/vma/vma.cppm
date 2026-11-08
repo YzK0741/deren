@@ -1132,19 +1132,10 @@ namespace deren::vulkan {
             uint32_t const mip_width = std::max(1u, info.width >> mip);
             uint32_t const mip_height = std::max(1u, info.height >> mip);
 
-            VkMemoryToImageCopyEXT region = {};
-            region.sType = VK_STRUCTURE_TYPE_MEMORY_TO_IMAGE_COPY_EXT;
-            region.pNext = nullptr;
-            region.pHostPointer = static_cast<uint8_t const*>(data) + memory_offset;
-            region.memoryRowLength = 0; // 0 means tightly packed
-            region.memoryImageHeight = 0;
-            region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            region.imageSubresource.mipLevel = mip;
-            region.imageSubresource.baseArrayLayer = 0;
-            region.imageSubresource.layerCount = info.array_layers;
-            region.imageOffset = {0, 0, 0};
-            region.imageExtent = {mip_width, mip_height, 1};
-            regions.push_back(region);
+            regions.push_back(make_memory_to_image_copy(
+                static_cast<uint8_t const*>(data) + memory_offset,
+                make_image_subresource_layers(VK_IMAGE_ASPECT_COLOR_BIT, mip, 0, info.array_layers),
+                {0, 0, 0}, {mip_width, mip_height, 1}));
 
             memory_offset += *detail::packed_mip_size(info.format, mip_width, mip_height, info.array_layers);
         }
@@ -1156,13 +1147,8 @@ namespace deren::vulkan {
             return false;
         }
 
-        VkCopyMemoryToImageInfoEXT const copy_info = {.sType = VK_STRUCTURE_TYPE_COPY_MEMORY_TO_IMAGE_INFO_EXT,
-                                                      .pNext = nullptr,
-                                                      .flags = 0,
-                                                      .dstImage = dst_image,
-                                                      .dstImageLayout = VK_IMAGE_LAYOUT_GENERAL,
-                                                      .regionCount = static_cast<uint32_t>(regions.size()),
-                                                      .pRegions = regions.data()};
+        VkCopyMemoryToImageInfoEXT const copy_info = make_copy_memory_to_image_info(
+            dst_image, VK_IMAGE_LAYOUT_GENERAL, static_cast<uint32_t>(regions.size()), regions.data());
         VkResult const copied = this->copy_memory_to_image(this->logical_device, &copy_info);
         if (copied != VK_SUCCESS) {
             deren::utility::error("host image upload: vkCopyMemoryToImageEXT failed (VkResult {})", static_cast<int32_t>(copied));

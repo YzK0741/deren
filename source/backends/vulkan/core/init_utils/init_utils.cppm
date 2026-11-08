@@ -84,7 +84,7 @@ export struct device_capabilities {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
 #endif
-    VkPhysicalDeviceFeatures2 features_2 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+    VkPhysicalDeviceFeatures2 features_2 = deren::vulkan::make_features_2();
     VkPhysicalDeviceVulkan11Features features_1_1 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
     VkPhysicalDeviceVulkan12Features features_1_2 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
     VkPhysicalDeviceVulkan13Features features_1_3 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
@@ -100,7 +100,7 @@ export struct device_capabilities {
     //      requires it (the build commands are specified in terms of it), not because this engine
     //      builds asynchronously - it builds on the frame thread and waits. ----
     VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure_features = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR};
-    VkPhysicalDeviceRayQueryFeaturesKHR ray_query_features = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR};
+    VkPhysicalDeviceRayQueryFeaturesKHR ray_query_features = deren::vulkan::make_ray_query_features();
     // ---- Ray tracing, the rest of it: the RT PIPELINE (with its maintenance1 features) and the OPACITY
     //      MICROMAP. Both are chained AFTER ray query and only when their own extensions are advertised,
     //      so "is it linked" is again the availability flag (see the note above). The pipeline is what
@@ -119,11 +119,11 @@ export struct device_capabilities {
     /// shaderGroupHandleAlignment is what a handle's address inside a region must be. A region whose
     /// stride is the handle size alone is invalid on a device whose handle alignment is larger - the
     /// classic first-attempt VUID - so the stride is this struct's business, not the pass's.
-    VkPhysicalDeviceRayTracingPipelinePropertiesKHR ray_tracing_pipeline_properties = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR};
+    VkPhysicalDeviceRayTracingPipelinePropertiesKHR ray_tracing_pipeline_properties = deren::vulkan::make_ray_tracing_pipeline_properties();
     // The two limits the builder needs are in here, next to the features that gate them:
     // minAccelerationStructureScratchOffsetAlignment (a scratch buffer's device address must be a
     // multiple of it) and maxInstanceCount/maxGeometryCount (what fits in one level).
-    VkPhysicalDeviceAccelerationStructurePropertiesKHR acceleration_structure_properties = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR};
+    VkPhysicalDeviceAccelerationStructurePropertiesKHR acceleration_structure_properties = deren::vulkan::make_acceleration_structure_properties();
     /**
      * @brief whether the device has the acceleration-structure and ray-query extensions AND both
      *        features, i.e. whether the two structs above are in the query/device chains
@@ -196,7 +196,7 @@ export struct device_capabilities {
      *       device fails on: "output vertices count exceeds the maxMeshOutputVertices of 0" (VUID
      *       07115/07116) - measured, on the heap-native probe before this feature was enabled.
      */
-    VkPhysicalDeviceMeshShaderFeaturesEXT mesh_shader_features = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT};
+    VkPhysicalDeviceMeshShaderFeaturesEXT mesh_shader_features = deren::vulkan::make_mesh_shader_features();
     VkPhysicalDeviceMeshShaderPropertiesEXT mesh_shader_properties = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT};
     /// @brief whether the device has VK_EXT_mesh_shader AND its meshShader feature (taskShader is reported
     ///        separately by mesh_shader_features.taskShader, which is what a task shader must be gated on)
@@ -244,7 +244,7 @@ export struct device_capabilities {
     bool host_image_copy_upload_available = false;
 
     // ---- Property chain (query only, for renderer decisions/diagnostics) ----
-    VkPhysicalDeviceProperties2 properties_2 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+    VkPhysicalDeviceProperties2 properties_2 = deren::vulkan::make_properties_2();
     VkPhysicalDeviceDriverProperties driver_properties = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES};
     VkPhysicalDeviceSubgroupProperties subgroup_properties = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES};
     VkPhysicalDeviceDescriptorIndexingProperties descriptor_indexing_properties = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES};
@@ -1077,11 +1077,7 @@ logical_device create_logical_device(
         .pNext = nullptr,
         .presentModeFifoLatestReady = VK_FALSE,
     };
-    VkPhysicalDeviceFeatures2 probe_features = {
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-        .pNext = &fifo_latest_ready_features,
-        .features = {},
-    };
+    VkPhysicalDeviceFeatures2 probe_features = deren::vulkan::make_features_2(&fifo_latest_ready_features);
     vkGetPhysicalDeviceFeatures2(physical_device, &probe_features);
 
     // Create the device

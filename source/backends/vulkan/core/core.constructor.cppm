@@ -572,9 +572,7 @@ namespace deren::vulkan {
         VkPhysicalDevicePushDescriptorPropertiesKHR push{};
         push.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PUSH_DESCRIPTOR_PROPERTIES_KHR;
         subgroup.pNext = &push;
-        VkPhysicalDeviceProperties2 sort_properties{};
-        sort_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-        sort_properties.pNext = &subgroup;
+        VkPhysicalDeviceProperties2 sort_properties = make_properties_2(&subgroup);
         vkGetPhysicalDeviceProperties2(this->device.physical_device, &sort_properties);
         VkSubgroupFeatureFlags const required_ops = VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_BALLOT_BIT | VK_SUBGROUP_FEATURE_ARITHMETIC_BIT | VK_SUBGROUP_FEATURE_SHUFFLE_BIT;
         this->resource.gpu_sorting_available = check_device_extension_support(this->device.physical_device, deren::utility::vessel::vector<char const*>{VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME}) &&

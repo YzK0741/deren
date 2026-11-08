@@ -450,21 +450,10 @@ namespace deren::vulkan {
     }
 
     void descriptor_heap::bind_infos(VkBindHeapInfoEXT& resource, VkBindHeapInfoEXT& sampler) const noexcept {
-        resource = {};
-        resource.sType = VK_STRUCTURE_TYPE_BIND_HEAP_INFO_EXT;
-        resource.heapRange.address = this->resource_heap_address;
-        resource.heapRange.size = this->resource_heap_size;
-        resource.reservedRangeOffset = 0;
-        resource.reservedRangeSize = this->configured_limits.resource_reserved;
-
-        sampler = {};
-        sampler.sType = VK_STRUCTURE_TYPE_BIND_HEAP_INFO_EXT;
-        sampler.heapRange.address = this->sampler_heap_address;
-        sampler.heapRange.size = this->sampler_heap_size;
-        sampler.reservedRangeOffset = 0;
+        resource = make_bind_heap_info(this->resource_heap_address, this->resource_heap_size, 0, this->configured_limits.resource_reserved);
         // The reserved window is the reason a combined image sampler can live in the resource heap with its
         // sampler taken from here: minSamplerHeapReservedRangeWithEmbedded is the floor for exactly that.
-        sampler.reservedRangeSize = this->configured_limits.sampler_reserved_with_embedded;
+        sampler = make_bind_heap_info(this->sampler_heap_address, this->sampler_heap_size, 0, this->configured_limits.sampler_reserved_with_embedded);
     }
 
     void descriptor_heap::record_bind(VkCommandBuffer const command_buffer) const noexcept {

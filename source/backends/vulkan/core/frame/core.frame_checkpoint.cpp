@@ -6,6 +6,7 @@ import deren.vstd;
 import deren.promise.rhi;
 import deren.utility.shared;
 import deren.vulkan.error_tables;
+import deren.vulkan.constant_init;
 import :declarations;
 
 namespace deren::vulkan {
@@ -25,8 +26,7 @@ namespace deren::vulkan {
         // Allocate completion storage before closing the recording, so allocation failure is retryable.
         auto submission = std::make_unique<pending_submission>();
         submission->parent = parent;
-        VkFenceCreateInfo create{};
-        create.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        VkFenceCreateInfo const create = make_fence_info();
         auto status = vkCreateFence(parent->device.logical_device, &create, nullptr, &submission->fence);
         if (status != VK_SUCCESS) {
             return generic_error(status);
@@ -42,7 +42,10 @@ namespace deren::vulkan {
         VkPipelineStageFlags stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
         bool const acquire = parent->create_options.native_window && !parent->frame.frame_acquire_consumed;
         auto const slot = static_cast<std::uint32_t>(parent->frame.current_frame);
-        VkSubmitInfo submit{.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .pNext = nullptr, .waitSemaphoreCount = acquire ? 1u : 0u, .pWaitSemaphores = &parent->frame.image_available_semaphores[slot], .pWaitDstStageMask = &stage, .commandBufferCount = 1, .pCommandBuffers = &native, .signalSemaphoreCount = 0, .pSignalSemaphores = nullptr};
+        VkSubmitInfo submit = make_submit_info(&native);
+        submit.waitSemaphoreCount = acquire ? 1u : 0u;
+        submit.pWaitSemaphores = &parent->frame.image_available_semaphores[slot];
+        submit.pWaitDstStageMask = &stage;
         {
             std::lock_guard lock(parent->command.submissions_mutex);
             for (auto const& secondary : submission->secondaries) {

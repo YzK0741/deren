@@ -7,6 +7,7 @@
 #include <vector>
 
 import deren.utility.shared;
+import deren.vulkan.constant_init;
 #include "texture_regions_fixture.h"
 
 int main() {
