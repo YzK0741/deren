@@ -52,7 +52,7 @@ if(VR_BUILD_TESTS)
                 -s "${CMAKE_CURRENT_SOURCE_DIR}/source/tests" -p "test_*boundary.py" -v)
     set_tests_properties(test_backend_boundary PROPERTIES
         WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run"
-        ENVIRONMENT "TMP=${CMAKE_CURRENT_BINARY_DIR}/test-run;TEMP=${CMAKE_CURRENT_BINARY_DIR}/test-run")
+        ENVIRONMENT "TMP=${CMAKE_CURRENT_BINARY_DIR}/test-run;TEMP=${CMAKE_CURRENT_BINARY_DIR}/test-run;VR_TARGET_MANIFEST=${CMAKE_BINARY_DIR}/target_manifest.txt")
     # 完整产品先构建，再量 main/app_support/引擎归档，避免半构建产生假性下降。
     add_custom_target(check-backend-boundary
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/checks/check_backend_boundary.py"
@@ -130,9 +130,11 @@ if(VR_BUILD_TESTS)
     add_test(NAME test_motion_converter
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/source/tests/test_motion_converter.py")
     # test_docs parses the WRITTEN artifacts the manual and CI are built from - Doxyfile's INPUT, the
-    # documents themselves, CMakeLists' VR_TEST_TARGETS and the workflow that mirrors it - so it needs
-    # the source root and no library at all (see the test's header for the invariants).
-    target_compile_definitions(test_docs PRIVATE VR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    # documents themselves, the generated target manifest and the workflow that mirrors it - so it needs
+    # the source root and the manifest path, but no library at all (see the test's header for the invariants).
+    target_compile_definitions(test_docs PRIVATE
+            VR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+            VR_TARGET_MANIFEST="${CMAKE_BINARY_DIR}/target_manifest.txt")
     # deren.engine.meshlet is pure CPU alongside vulkan.math: the split's coverage/bounds/determinism checks need no
     # device, which is the only way they can run in CI (the capture gate's references are machine-specific).
     target_link_libraries(test_meshlet
