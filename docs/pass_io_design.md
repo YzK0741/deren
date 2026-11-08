@@ -361,6 +361,6 @@ worth what the instrument can decide: the capture gate is a RELEASE instrument. 
 or ASan+UBSan build, two runs of the SAME binary differ - measured on `sponza_gi` and on `deferred_ssao_off`,
 which runs none of the GI chain at all - so those builds are not deterministic here and cannot be gated against
 the Release references. That is why every acceptance number in this sequence comes from the Release build, and
-why Debug/ASan+UBSan are held to "clean build, ctest 43/43, and a run that reports no validation or sanitizer
+why Debug/ASan+UBSan are held to "clean build, ctest 85/85 (7 device-labelled skipped), and a run that reports no validation or sanitizer
 finding" instead.
 

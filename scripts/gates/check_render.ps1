@@ -23,11 +23,11 @@
 # Check mode runs every scenario TWICE and requires the two runs to agree before comparing against the
 # reference, so "flaky" is reported as flaky instead of as a regression.
 #
-#  3. WHICH SCENARIOS RUN: the DEFAULT run is the CORE set - five of the fourteen scenarios defined below,
+#  3. WHICH SCENARIOS RUN: the DEFAULT run is the CORE set - five of the sixteen scenarios defined below,
 #     one per pipeline family a wiring change can break - because every scenario is TWO runs (the
 #     determinism check below), so the full list costs 28 renders a round and the extra nine mostly
 #     answer questions the core five also answer. A core round is 5 x 2 = 10 renders. The nine that
-#     are `tier = "extra"` are still checked on demand: `-Full` runs all fourteen, `-Only <name>` runs one.
+#     are `tier = "extra"` are still checked on demand: `-Full` runs all fifteen non-visibility scenarios, `-Only <name>` runs one.
 #     They are worth naming here so the choice to skip them is deliberate: `deferred_taa_fxaa` is the
 #     AA stage, `deferred_ssao_off` and `shadow_single` vary one optional stage each,
 #     `metal_rough_glossy` / `glossy_motion` are the material sweep (the second one with a MOVING
@@ -67,10 +67,10 @@
 #
 # -Visibility is the ONE selection that runs a scenario whose frozen reference describes the VISIBILITY
 # buffer's lanes instead of the geometry lane (visibility-buffer plan v0.7). -Full deliberately does not run
-# them: a -Full round's verdict is "15/15 against docs/reviews/2026-10-17-render-graph-gate/legacy-hashes.txt",
-# and that file describes the old path. The visibility scenario's reference is
-# docs/reviews/2026-10-18-visibility-buffer/vis-hashes.txt, compared with
-# `-Visibility -Compare <that file>`; the scenario config is the deferred one plus `visibility_buffer = true`,
+# them: a -Full round's verdict is "15/15 against the frozen legacy-hash list" (that file described the old
+# path and was retired with docs/reviews/ in 455f38ae; recover it from 455f38ae^). The visibility
+# scenario's reference was retired the same way, and is compared with
+# `-Visibility -Compare <recovered file>`; the scenario config is the deferred one plus `visibility_buffer = true`,
 # so the two rounds' hashes on that scenario ARE the A/B on one frame.
 #
 # References live OUTSIDE the repository (they are machine-specific; committing them would be red for
@@ -199,8 +199,8 @@ $scenarios = @(
     # i.e. the one scenario whose frozen hash describes the raster+resolve lanes instead of the geometry lane.
     # The SAME model/camera/frames as `deferred` and one key different, so the two rounds' hashes on this
     # scenario ARE the A/B on one frame. tier = "visibility" keeps it out of -Full on purpose: -Full's verdict
-    # is 15/15 against the legacy-path file, and this scenario's reference lives in
-    # docs/reviews/2026-10-18-visibility-buffer/vis-hashes.txt (`-Visibility -Compare <that file>`).
+    # is 15/15 against the legacy-path list (retired with docs/reviews/ in 455f38ae; recover from
+    # 455f38ae^), and this scenario's reference is the retired visibility list (`-Visibility -Compare <file>`).
     @{ name = "deferred_visibility"; desc = "deferred through the VISIBILITY raster+resolve lanes"; tier = "visibility";
        extra = @{ visibility_buffer = "true" } }
     @{ name = "deferred_taa_fxaa"; desc = "deferred + TAA + FXAA (the AA path)";         tier = "extra"; extra = @{ taa = "true"; fxaa = "true" } }
@@ -346,7 +346,7 @@ if ($List) {
     $coreCount = @($scenarios | Where-Object { $_.tier -eq "core" }).Count
     Write-Host "scenarios ($($scenarios.Count), of which $coreCount core - the default run):"
     foreach ($s in $scenarios) { "  {0,-26} {1,-6} {2}" -f $s.name, $s.tier, $s.desc }
-    Write-Host "`n  -Full runs all $($scenarios.Count); -Only <name> runs one whatever its tier"
+    Write-Host "`n  -Full runs every non-visibility scenario; -Only <name> runs one whatever its tier"
     Write-Host "`nreferences: $baseDir"
     exit 0
 }
@@ -606,7 +606,7 @@ if ($missingAssets.Count -gt 0) {
     }
     Write-Host @"
 WHY THIS IS FATAL RATHER THAN A NOTE: without these files the scenarios that use them do not fail - they
-render a DIFFERENT picture (or abort), and the summary then says CHANGED for two of fourteen scenarios,
+render a DIFFERENT picture (or abort), and the summary then says CHANGED for two of sixteen scenarios,
 which is exactly how a rendering regression reads. Fix it by putting the two build-local trees beside
 this build directory (`chars\` and `deren-ab\`, copied from the directory the migration's gates were
 baselined in), pointing `-ModelRoot` (or setting DEREN_MODEL_ROOT) at the glTF-Sample-Assets `Models/`
@@ -707,9 +707,9 @@ Write-Host "  actual hashes written to: $hashesFile"
 if ($ran -eq 0) { Write-Host "  ERROR: no scenario ran, so NOTHING was verified (check -Only / the scenario names)" -ForegroundColor Red; exit 1 }
 if ($missing -gt 0 -and -not $Compare) { Write-Host "  ERROR: $missing scenario(s) have no reference - run with -Update once to seed them" -ForegroundColor Red; exit 1 }
 # A default (core) round says so, because "changed : 0" over five scenarios is NOT the same statement as
-# "changed : 0" over all fourteen - the other nine only ran if -Full asked for them.
+# "changed : 0" over all fifteen - the others only ran if -Full asked for them.
 if (-not $Full -and -not $Visibility -and $onlyNames.Count -eq 0 -and $skipped -gt 0) {
-    Write-Host "  note     : $($skipped) extra scenario(s) NOT run - `-Full runs all $($scenarios.Count)" -ForegroundColor DarkGray
+    Write-Host "  note     : $($skipped) extra scenario(s) NOT run - `-Full runs the non-visibility scenarios" -ForegroundColor DarkGray
 }
 
 # ---- THE STANDARD COMPARISON (G2): the ACTUAL hashes, not this script's exit code --------------------

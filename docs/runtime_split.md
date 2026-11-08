@@ -213,7 +213,7 @@ TWO THINGS TO SETTLE BEFORE COMMITTING TO IT, both cheap:
 Every step is a MOVE, so its acceptance is the strongest control this project has:
 
 * `scripts/gates/check_render.ps1`: the core set, 5 scenarios x 2, **0 changed**, 0 flaky; Release, Debug and ASan+UBSan
-  clean; `ctest` 43/43; `doxygen Doxyfile` exit 0 with an empty warning stream; every run validation clean.
+  clean; `ctest` 85/85 (7 device-labelled tests skipped, CI runs 78); `doxygen Doxyfile` exit 0 with an empty warning stream; every run validation clean.
 * IF A MOVE CHANGES A FRAME, the reason is found and stated before anything is re-seeded. Re-seeding a reference
   to make a refactor pass is how a refactor hides a behaviour change.
 

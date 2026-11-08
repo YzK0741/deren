@@ -100,8 +100,9 @@ Neither fix changes the host UBO layout or the RHI ABI.
 
 ## Scene constant migration
 
-`scene_constants_pass` describes the camera block (272 bytes), light block (8608 bytes) and head block (64 bytes), each with
-frame-slot scope and lifetime. They use coherent uniform memory with storage and device-address flags;
+`scene_constants_pass` describes the camera block (272 bytes), light block (8688 bytes) and head block (1024 bytes),
+each with frame-slot scope and lifetime. The head block is `sizeof(head_ubo) * max_game_toon_characters` - 64 bytes is
+one character record, and the configured maximum is 16 characters. They use coherent uniform memory with storage and device-address flags;
 the existing shader layouts and heap slots remain unchanged. They initialize once and never request
 `zero_on_frame`. Fresh camera blocks receive `camera_ubo{}`; fresh light blocks receive `light_ubo{}`; fresh head blocks receive `head_ubo{}`,
 including its nonzero default axes. Reused generations retain their contents.

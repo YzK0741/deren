@@ -9,9 +9,12 @@ architecture:
 | Slang | the compiler: one .slang file per family with an entry per stage, and the heap as a first-class capability | docs/slang_migration.md |
 | mesh shaders | the first consumer that NEEDS geometry to arrive as data, and the reason the per-meshlet culling exists at all | docs/mesh_shaders.md |
 
-Each one is a precondition for the next: a mesh stage has no input assembler, so its geometry must
-arrive as pushed data - which is only possible because no pipeline has a layout to push constants
-into; and a stage that reads the whole heap by index is only expressible because the compiler has a
+Each one is a precondition for the next: a mesh stage has no input assembler, so its geometry WINDOW
+must arrive as pushed data - the two 64-bit device addresses, the first index, the index count, the
+base vertex and the index width, 32 of the push block's 144 bytes (`MeshGeometryLanes`,
+`source/shaders/geometry/mesh_geometry.slang`) - which is only possible because no pipeline has a
+layout to push constants into. The vertex and index BYTES are then read by GPU address through the
+heap. And a stage that reads the whole heap by index is only expressible because the compiler has a
 descriptor-heap capability. This document is the cross-cutting account: what the three bought, what
 they cost, and - stated separately, because it is the part that is easiest to overclaim - **what has
 NOT been measured**.
@@ -48,8 +51,9 @@ NOT been measured**.
   reads it: a UNIFORM descriptor read through a `StorageBuffer` pointer returns ZEROS with no
   validation finding at all (docs/slang_migration.md, section 9).
 - **Slot numbering is positional.** Growing an array in place renumbers every array after it, which is
-  why the meshlet table, the counters and the culled table were appended at 745/746/747 rather than
-  inserted where they belonged.
+  why the meshlet table, the counters and the culled table were appended at 745/746/747 in the 1024-slot
+  grid of the time (they are `+1257/+1258/+1259` in the current 3072-slot grid) rather than inserted
+  where they belonged.
 - **A wrong slot is not an error, it is other memory.** Reading the wrong slot yields a defined read of
   a different resource: the heap probe exists because the difference between "the right slot" and
   "the wrong slot" is white versus black pixels, with nothing in between to warn you.
@@ -159,8 +163,9 @@ and the TESTS:
   them, anchors that resolve, fences that balance, and no document naming a heap slot that no file
   declares.
 
-That is why this project carries a document set and a 600-page manual: with no descriptor sets and
-no layouts, the reasoning IS the interface.
+That is why this project carries a document set and a manual of roughly 1,350 pages (about 230 pages
+of prose and the rest API reference): with no descriptor sets and no layouts, the reasoning IS the
+interface.
 
 ## 5. What is NOT claimed
 

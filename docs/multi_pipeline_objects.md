@@ -1,13 +1,108 @@
-# Multi-pipeline objects: Phase A and Phase B implementation
+# Multi-pipeline objects: per-object rendering paths
 
-Status: Phase A and Phase B are integrated on `master` (PR #28); the full
-local gate passed before the squash merge. Phase C is not started.
+Status: Phase A (per-object routing) and Phase B (multiple Gaussian objects) are
+integrated on `master` (PR #28); the full local gate passed before the squash
+merge. Phase C - one mixed-scene capture plus the remaining hardening tests - is
+not started. The quick start below is the supported v1 surface; sections 0-12
+are the implementation record.
 
-This document records the per-object rendering-path design and the Phase A/B
-implementation. The three pre-Phase-A gates were answered: raise the character
-cap to 16, land Phase A first, and keep the per-object asset work as the base.
-Phase B (multiple Gaussian objects) was approved separately by the user after
-Phase A. Phase C still needs its own design and review.
+This document starts with the user-facing configuration, then records the
+per-object rendering-path design and the Phase A/B implementation. The three
+pre-Phase-A gates were answered: raise the character cap to 16, land Phase A
+first, and keep the per-object asset work as the base. Phase B (multiple
+Gaussian objects) was approved separately by the user after Phase A. Phase C
+still needs its own design and review.
+
+## Quick start
+
+The block below is a complete `mixed.toml` scene: one deferred PBR mesh, one
+unlit mesh, one GameToon character and one Gaussian cloud. It uses the sample
+assets in this repository; replace the paths with your own.
+
+```toml
+model = "asset/DamagedHelmet/DamagedHelmet.gltf"
+
+[[scene.objects]]
+name = "helmet"
+position = [-1.5, 0.0, 0.0]
+pipeline = "pbr"
+
+[[scene.objects]]
+name = "unlit"
+model = "asset/FlightHelmet/FlightHelmet.gltf"
+position = [1.5, 0.0, 0.0]
+rotation = [0.0, 180.0, 0.0]
+pipeline = "unlit"
+
+[[scene.objects]]
+name = "toon"
+model = "asset/laevatain/laevatain_game_toon_preview.glb"
+position = [0.0, 0.0, -1.5]
+pipeline = "game_toon"
+
+[[scene.objects]]
+name = "cloud"
+model = "asset/flowers/flowers_1.ply"
+position = [0.0, 0.0, 1.8]
+scale = [0.35, 0.35, 0.35]
+pipeline = "gaussian"
+```
+
+Run it with:
+
+```powershell
+./build/deren --config mixed.toml
+```
+
+The first entry names no `model` or `asset`, so it reuses the top-level
+`model`; every other entry names its own file. Entries that name the same file
+share one load.
+
+### What the values mean
+
+| `pipeline` | Asset | Stage |
+| --- | --- | --- |
+| `default` | glTF/GLB | Deferred G-buffer; the pass default, which is ordinary PBR. |
+| `pbr` | glTF/GLB | Deferred G-buffer; ordinary PBR. |
+| `unlit` | glTF/GLB | Deferred G-buffer; flat base color through the material flag. |
+| `game_toon` | glTF/GLB plus its `.toon.tsv` sidecar | Character stage; the object gets its own head slot. |
+| `gaussian` | `.ply` | Splat stage; the object has no mesh leaf. |
+
+Rules the importer applies:
+
+- It reads at most 16 `[[scene.objects]]` entries; entries past the cap are
+  logged and ignored.
+- It allows at most 8 distinct model files (glTF scenes and PLY clouds),
+  including the top-level `model` when it is not one of the per-object files; a
+  ninth is a startup error.
+- A `.ply` file requires `pipeline = "gaussian"`; a mesh with `gaussian` is a
+  startup error. Every other pipeline requires a `.gltf` or `.glb`.
+- `game_toon` requires a usable sidecar next to the asset. There is no fallback
+  to another asset's material lanes or to a PBR look.
+- `default` and `pbr` both mean the ordinary lit surface. `default` does not
+  enter the character stage; only `game_toon` does.
+- Mixing classes does not create a pass per object. The frame still has one
+  G-buffer, one character stage and one splat stage.
+
+While the overlay is open, the object panel offers only the values that fit the
+selected asset: a mesh offers `default`, `pbr` and `unlit`, plus `game_toon`
+when its sidecar exists; a cloud offers only `gaussian`. Edits apply between
+frames and are runtime-only.
+
+### Current v1 boundaries
+
+- Gaussian objects receive no PBR lighting, mesh shadows or ray-traced
+  reflections; splats remain a separate compositing stage.
+- TAA is disabled while any cloud is staged, regardless of the user toggle.
+- Character pixels are shaded by deferred and then overwritten by the character
+  stage. That double shading is accepted for v1.
+- Splats do not interleave correctly with transparent meshes.
+- Phase C has not produced the single PBR + unlit + GameToon + Gaussian capture
+  yet, so the mixed scene is covered by the per-class captures and routing
+  tests, not by a frozen reference image.
+
+The non-goals in section 2 and the risks in section 10 are the detailed version
+of these limits.
 
 ## 0. Base state
 
@@ -392,7 +487,8 @@ its own scenes and exposes that asset's clip list.
 - Verify PBR + unlit + GameToon + Gaussian in one frame.
 - Add config tests for mismatches and the sixteen-character cap.
 - Add a capture with outline and shadow checks across multiple characters.
-- Update `config.example.toml` and user-facing docs.
+- Add the Phase C mixed-scene block to `config.example.toml`; the quick start
+  above is the reference for the keys.
 - Run the complete local gate.
 
 ## 9. Validation

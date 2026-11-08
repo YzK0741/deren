@@ -70,12 +70,75 @@ The README material preview uses this configuration with a 1080x960 offscreen ca
 ./build/deren --config reflection.toml --capture-frames 30
 ```
 
+## Limitations
+
+- The composite covers deferred PBR surfaces and the GameToon cloth lane. Deferred
+  unlit surfaces return before the reflection composite; Gaussian splats and
+  alpha-blended meshes are outside the G-buffer and are not receivers.
+- There is one bounce. The closest-hit shader shades the hit's base color with the
+  sun and a low-mip environment lookup; it does not trace a second reflection,
+  refraction or transmission ray.
+- A surface rougher than 0.55 takes a roughness-selected environment mip instead
+  of the traced radiance. The ray budget is one to four samples per pixel.
+- The any-hit cutout applies to `alphaMode = MASK` materials. It does not add a
+  transparency path for blended geometry.
+- The receiver whitelist is resolved at scene import, so changing
+  `rt_reflection_materials` requires a reload. Per object there is only an opt-out
+  (`ray_tracing_reflection`), not a per-object strength or ray count.
+- A device without ray queries ignores `rt_reflections` and continues with the
+  normal deferred lighting result; there is no screen-space fallback.
+
+## Performance
+
+This repository does not commit a frame-time number for the reflection pass. The
+cost is resolution-proportional, scales with `rt_reflection_samples`, and adds the
+four denoiser dispatches; the default one sample is the cheapest configuration.
+Measure it on the target device with `[render] gpu_timings` and the overlay or the
+session average rather than inferring a number from the capture settings. With
+the feature off, no reflection pass is recorded and the deferred lighting result
+is unchanged.
+
+## Validation
+
+- `source/tests/test_app_config.cpp:205-250` covers the defaults, whitelist
+  parsing, strength clamping and sample rounding/clamping.
+- `source/tests/test_render_resources.cpp:79-92` and `:169` pin the reflection/denoiser
+  resource ids and the reflection resource's position in the selected list.
+- `source/tests/test_deferred_push_layout.py:37` and `:46` pin the push-block
+  offsets the shader reads.
+- The published material preview is a 1080x960 offscreen capture at frame 30
+  (`docs/screenshots/README.md:5`); it is a manual capture, not an automated
+  pixel gate.
+- `scripts/measure/motion_dd.py` records the reflection's own temporal motion
+  loss as mean |difference of differences| 0.4029 before the accumulation cap and
+  0.3492 after it, with the change confined to smooth-material tiles and the
+  rough tiles bit-identical. That is a recorded arm, not a CI threshold.
+
+## Current boundaries
+
+| Area | v1 behavior |
+| --- | --- |
+| Receiver | Deferred PBR and GameToon cloth; unlit, Gaussian and blended meshes are not receivers. |
+| Bounce | One. The closest hit uses base color, the sun and a low-mip environment lookup; no recursive, refraction or transmission ray. |
+| Samples | 1-4 per pixel, default 1; 2-4 importance-sample the GGX lobe. |
+| Roughness | Above 0.55 the tracer takes an environment mip instead of traced radiance. |
+| Alpha | `MASK` cutouts through any-hit; no blended transparency path. |
+| Device gate | No ray query ignores the key and keeps the normal deferred result. |
+| Denoiser | FidelityFX reflection denoiser with per-swapchain history. |
+| Per-object | `ray_tracing_reflection = false` opt-out only. |
+| Reload | Whitelist changes require a scene reload. |
+| Cost | Not benchmarked in this repository; measure it on the device. |
+
 ## Source layout
 
-- `source/engine/pass/ray_traced_reflection.cppm` and `source/engine/pass/reflection_denoise.cppm`
-  own the recorded passes.
-- `source/engine/render_graph/rt_reflection.cppm` and
-  `source/engine/render_graph/reflection_denoise.cppm` own their graph declarations.
+- `source/engine/pass/ray_traced_reflection.cppm`
+  owns the ray-trace pass.
+- `source/engine/pass/reflection_denoise.cppm`
+  owns the denoiser passes.
+- `source/engine/render_graph/rt_reflection.cppm`
+  owns the reflection graph.
+- `source/engine/render_graph/reflection_denoise.cppm`
+  owns the denoiser graph.
 - `source/shaders/lighting/rt_reflection.slang` holds the ray-generation, closest-hit, miss
   and alpha-mask any-hit stages; `source/shaders/common/rt_alpha_mask.slang` holds the predicate
   shared with ray-traced shadows. The denoiser stages are `reflection_reproject.slang`,

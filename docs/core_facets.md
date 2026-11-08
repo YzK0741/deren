@@ -1,8 +1,9 @@
 # Core facets: splitting the Vulkan device root by RHI responsibility
 
-Status: implemented and verified on `refactor/core-facets`. Phases 1-5 are complete: each facet owns
+Status: implemented and verified on `refactor/core-facets`; published as PR #55
+(https://github.com/YzK0741/deren/pull/55). Phases 1-5 are complete: each facet owns
 its Vulkan state and implements its RHI entry points; `core` keeps thin delegating entry points for its
-remaining internal callers. The full Release build succeeds, CTest passes 85/85 (4 device tests skipped),
+remaining internal callers. The full Release build succeeds, CTest passes 85/85 with the 7 device-labelled tests skipped (CI runs 78),
 and a 60-frame validation-layer sample reported no VUID or ERROR lines.
 
 This document is the implementation plan and current design record for turning `deren.vulkan.core` from
@@ -334,6 +335,7 @@ Phases 1-5 are complete when all of the following hold on a full Release build:
 - [x] Move the resource, command, and frame RHI entry-point bodies into their facet implementation units;
   `core` keeps thin delegating entry points for internal callers.
 - [x] Rebuild `deren_vulkan` and the full Release build.
-- [x] Run the targeted tests, then the full CTest suite (85/85, 4 device tests skipped).
+- [x] Run the targeted tests, then the full CTest suite (85/85, 7 device-labelled tests skipped; CI runs 78).
 - [x] Run a 60-frame validation-layer sample with no VUID or ERROR lines.
-- [ ] Commit and push through `scripts/commit.ps1` / `scripts/push.ps1` (pending user approval).
+- [x] Commit and push through `scripts/commit.ps1` / `scripts/push.ps1`; opened PR #55
+  (https://github.com/YzK0741/deren/pull/55).

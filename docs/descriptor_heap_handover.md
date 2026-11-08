@@ -85,8 +85,8 @@ entry - rather than its source.
 ### (c) The objects nothing points at any more - DONE
 
 They were created, written and read by no shader, and they have since been deleted: `core::scene_pipeline_layout` and
-`scene_descriptor_set_layout` (`source/backends/vulkan/core/core.cpp:1536`, `:1412`), `core::create_descriptor_pool`
-(`:1353`), `runtime::scene_sets`, `runtime::gbuffer_family`, `runtime::post_family`,
+`scene_descriptor_set_layout` (both were in `source/backends/vulkan/core/core.cpp`), `core::create_descriptor_pool`,
+`runtime::scene_sets`, `runtime::gbuffer_family`, `runtime::post_family`,
 `pipelines::make_post_set_layout` / `make_gbuffer_set_layout`, `bindings::make_set_layout` /
 `write_set` / `image_set_family`, the passes' `pipeline_layout_` / `set_layout_` members and their
 `pipeline_layout()` / `set_layout()` accessors, and the `shared_set_layout` / `shared_pipeline_layout` /
@@ -161,8 +161,10 @@ probes prove that a heap read and a heap draw both work, and no push is refused.
   (`gbuffer_albedo + image_index`; `core.cpp` writes image `i` at `heap_slot_base + i`), while different
   arrays are `heap_image_capacity` (8) apart (`bloom_l0 + level * heap_image_capacity`).
 * **The push-lane length.** Two lanes instead of three produced six validation errors *and* the same hash.
-* **The push block layout.** 8 uints + `alignas(16) glm::mat4` = 96 = `scene_push_constant_size`, and the
-  shader's block is the same 8 uints then `mat4`, so the lanes land at 96/100 exactly as declared.
+* **The push block layout.** 8 uints + `alignas(16) glm::mat4` = 96 = `scene_push_constant_size`, then the
+  three heap lanes at 96/100/104. The geometry window starts at 108 in the scene block and 112 in the
+  shadow block because VUID-vkCmdDrawMeshTasksEXT-None-11376 requires the fill to run from the previous
+  member's end to the end of the declared block.
 * **The vertex stage, entirely.** With `gl_Position` computed by hand - no camera UBO at all - and the model
   matrix replaced by the identity, the frame is *still* black.
 * **The image index, and the capture path.** Painting the post chain flat red changed the captured hash
@@ -218,8 +220,8 @@ image, which is why it survived every fix that changed what the frame does.
 
 ```powershell
 cmake --build build            # must be exit 0
-ctest --test-dir build         # every test target (43 today)
-pwsh scripts\windows\check_render.ps1          # the scenario set, changed must be 0
+ctest --test-dir build         # 85 tests today; 7 are device-labelled and skipped by CI, which runs 78
+pwsh scripts\gates\check_render.ps1            # the scenario set, changed must be 0
 ```
 
 Then re-do the negative proof as a *frame-level* check (push a wrong slot on purpose and confirm the
