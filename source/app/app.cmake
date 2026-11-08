@@ -12,11 +12,11 @@ if(WIN32)
     target_include_directories(deren PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/source/app/resources")
     target_link_libraries(deren user32 gdi32)
 endif()
-# Release builds link as a Windows GUI-subsystem executable: no console window appears when
-# running. On the MSYS2 clang64 / MinGW-w64 toolchain WIN32_EXECUTABLE maps to -mwindows; the CRT
-# still calls main(), only the subsystem changes. Debug keeps the console, but logging still writes
-# deren-debug.log in every build (no console log route).
-set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE $<$<CONFIG:Release>:ON>)
+# Every build links as a Windows GUI-subsystem executable: no console window appears when running.
+# On the MSYS2 clang64 / MinGW-w64 toolchain WIN32_EXECUTABLE maps to -mwindows; the CRT still calls
+# main(), only the subsystem changes. Logging writes deren-debug.log in every build (no console log
+# route), so no configuration needs the terminal.
+set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE ON)
 
 
 # shared_utility: the process-wide half. vessel containers route allocations through the

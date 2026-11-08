@@ -140,6 +140,11 @@ export namespace deren::app {
         // the widgets deliberately write the same structs the config produced, so the GUI and the
         // TOML describe one scene rather than two. Edits are runtime-only; nothing is written back.
         deren::utility::vessel::vector<deren::app_config::scene_object_settings>* scene_objects = nullptr;
+        // The historic single-model path also feeds one implicit entry through `scene_objects`, so
+        // clicking the model can select and move it. That entry has no asset list, pipeline choice,
+        // per-object environment or animation controller; the panel shows only the rows this path
+        // can actually apply.
+        bool object_transform_only = false;
         // One controller per object (phase 2), aligned with scene_objects; null when the historic
         // single-object path runs. The names are captured once at setup for the per-object clip combo.
         deren::utility::vessel::vector<deren::engine::animation::controller*>* object_animations = nullptr;

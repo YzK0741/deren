@@ -9,8 +9,8 @@ resources and does not wait for the device:
 
 ```cpp
 import deren.engine.resource_cluster;
-// core_owner is the runtime's owning rhi::shared_object<rhi::api_core>.
-auto resources = deren::engine::resource_cluster::create(core_owner, "MainView");
+// core_lifetime is the runtime's owning rhi::shared_object<rhi::api_core>.
+auto resources = deren::engine::resource_cluster::create(core_lifetime, "MainView");
 // Or, from a valid runtime:
 auto view_resources = runtime.create_resource_cluster("MainView");
 ```
@@ -81,7 +81,7 @@ a cluster for the acquired output view. This complements the existing resource
 registry; clusters do not infer synchronization or pool GPU allocations.
 
 Existing generation/shared owners can be adapted with
-`resource_lease<T>::from_shared(core, shared_owner)`, whose arguments are the owning
+`resource_lease<T>::from_shared(core, resource)`, whose arguments are the owning
 `rhi::shared_object<rhi::api_core>` and the RHI reference's shared form, `rhi::shared_object<T>` - not
 a raw pointer and not a `std::shared_ptr` over the RHI type. An aliasing `rhi::shared_object<T>` may
 pin an engine owner (a generation, a subchain) while naming one of its images. The lease retains that

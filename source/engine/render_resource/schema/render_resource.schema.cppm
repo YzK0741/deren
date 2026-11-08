@@ -395,7 +395,7 @@ export namespace deren::engine::render_resource {
     /**
      * @brief where a binding's resource comes from: the pass's own per-image binding, or the frame's heap
      *
-     * `own` marks one of the pass's private per-image bindings: the resolver indexes those by `binding`, and
+     * `local` marks one of the pass's private per-image bindings: the resolver indexes those by `binding`, and
      * the validator requires them to be numbered contiguously from zero. `shared` marks a binding the pass
      * reaches through the frame's descriptor heap - the scene's camera and material table, the G-buffer
      * surface, the post chain's images - whose descriptors some other stage publishes; a pass declares only
