@@ -5,6 +5,7 @@ export module deren.engine.subtilis.upload;
 export import deren.vstd;
 import deren.engine.subtilis.builder;
 import deren.engine.meshlet;
+import deren.engine.subtilis.page_streaming;
 import deren.utility.shared;
 import deren.promise.rhi;
 import deren.engine.render_resource.instances;
@@ -22,6 +23,17 @@ export namespace deren::engine::subtilis {
     enum class geometry_upload_mode { automatic,
                                       synchronous,
                                       batched,
+    };
+    /// One frame's page-install pass over the cut's request buffer. `requests` counts entries the
+    /// previous frame wrote, `installed` counts pages admitted this pass, `pending` counts entries
+    /// compacted forward because the byte budget was exhausted, and `overflow` mirrors the shader's
+    /// request-buffer overflow flag.
+    struct page_install_stats {
+        std::uint32_t requests = 0;
+        std::uint32_t installed = 0;
+        std::uint32_t pending = 0;
+        std::uint32_t overflow = 0;
+        std::uint64_t bytes = 0;
     };
     /// Immutable GPU cut input: one record per DAG group. Kept separate from the 48-byte
     /// meshlet ABI so the render-side record can never grow into the meshlet contract.
@@ -66,7 +78,9 @@ export namespace deren::engine::subtilis {
         deren::utility::vessel::vector<triangle_edge_record> triangle_edges_;
         std::shared_ptr<render_resource::instances::generation const> vertices_, indices_;
         std::shared_ptr<render_resource::instances::generation const> cut_groups_, cut_references_, cut_clusters_;
+        std::shared_ptr<render_resource::instances::generation const> page_arena_, page_table_, page_requests_;
         std::uint32_t cut_group_count_ = 0, cut_reference_count_ = 0, cut_cluster_count_ = 0;
+        std::uint32_t page_count_ = 0, page_request_capacity_ = 0;
         friend std::expected<std::shared_ptr<uploaded_geometry const>, upload_rhi::error>
         upload_geometry(upload_rhi::shared_object<upload_rhi::api_core> const&, std::shared_ptr<built_geometry const>, upload_rhi::buffer_flags, geometry_upload_mode);
 
@@ -78,6 +92,10 @@ export namespace deren::engine::subtilis {
                           std::shared_ptr<render_resource::instances::generation const> cut_references,
                           std::shared_ptr<render_resource::instances::generation const> cut_clusters, std::uint32_t cut_group_count,
                           std::uint32_t cut_reference_count, std::uint32_t cut_cluster_count,
+                          std::shared_ptr<render_resource::instances::generation const> page_arena,
+                          std::shared_ptr<render_resource::instances::generation const> page_table,
+                          std::shared_ptr<render_resource::instances::generation const> page_requests,
+                          std::uint32_t page_count, std::uint32_t page_request_capacity,
                           deren::utility::vessel::vector<triangle_edge_record> edges)
             : resources_(std::move(resources))
             , source_(std::move(source))
@@ -87,9 +105,14 @@ export namespace deren::engine::subtilis {
             , cut_groups_(std::move(cut_groups))
             , cut_references_(std::move(cut_references))
             , cut_clusters_(std::move(cut_clusters))
+            , page_arena_(std::move(page_arena))
+            , page_table_(std::move(page_table))
+            , page_requests_(std::move(page_requests))
             , cut_group_count_(cut_group_count)
             , cut_reference_count_(cut_reference_count)
-            , cut_cluster_count_(cut_cluster_count) {
+            , cut_cluster_count_(cut_cluster_count)
+            , page_count_(page_count)
+            , page_request_capacity_(page_request_capacity) {
         }
 
         uploaded_geometry(uploaded_geometry const&) = delete ("uploaded_geometry is non-copyable: pass it by reference or construct a new instance");
@@ -126,5 +149,27 @@ export namespace deren::engine::subtilis {
         [[nodiscard]] std::uint32_t cut_cluster_count() const noexcept {
             return cut_cluster_count_;
         }
+        /// Null when the source has no streaming pages (a locally built LOD0 mesh or an imported
+        /// version-1.0 payload). The arena bytes use the encoded page-record layout, not engine structs.
+        [[nodiscard]] upload_rhi::buffer* page_arena() const noexcept {
+            return page_arena_ ? page_arena_->objects[0].buffer.get() : nullptr;
+        }
+        [[nodiscard]] upload_rhi::buffer* page_table() const noexcept {
+            return page_table_ ? page_table_->objects[0].buffer.get() : nullptr;
+        }
+        [[nodiscard]] upload_rhi::buffer* page_requests() const noexcept {
+            return page_requests_ ? page_requests_->objects[0].buffer.get() : nullptr;
+        }
+        [[nodiscard]] std::uint32_t page_count() const noexcept {
+            return page_count_;
+        }
+        [[nodiscard]] std::uint32_t page_request_capacity() const noexcept {
+            return page_request_capacity_;
+        }
+        /// Promote last frame's index-page requests into the host-visible page table under a byte
+        /// budget. Pages that do not fit stay `requested` and are compacted to the front of the
+        /// request buffer for the next frame. The page bytes are already in the arena; this install
+        /// publishes their table state, it does not perform a device-to-device copy.
+        [[nodiscard]] page_install_stats install_requested_pages(std::uint64_t budget_bytes, std::uint32_t frame = 0) const noexcept;
     };
 } // namespace deren::engine::subtilis

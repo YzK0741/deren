@@ -174,6 +174,10 @@ static const uint heap_slots_rt_reflection_surface_current = heap_slot_base + 15
 static const uint heap_slots_rt_reflection_surface_current_storage = heap_slot_base + 1572u;
 static const uint heap_slots_rt_reflection_depth_current = heap_slot_base + 1580u;
 static const uint heap_slots_rt_reflection_depth_current_storage = heap_slot_base + 1588u;
+// the streamed index page cover: one 32-byte table entry per page, and the page arena the entries point into.
+// Both are scene-wide, so they are single descriptors rather than per-frame runs.
+static const uint heap_slots_subtilis_page_table = heap_slot_base + 1596u;
+static const uint heap_slots_subtilis_page_arena = heap_slot_base + 1597u;
 static const uint heap_environment_capacity = 4u;
 // per swapchain image: the shadow map, the ray-traced visibility, and every G-buffer/post image
 static const uint heap_slots_shadow_map = heap_slot_base + 1047u;

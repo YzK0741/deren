@@ -5,6 +5,7 @@ module;
 #include <yyjson.h>
 module deren.asset.subtilis.builder;
 import deren.vstd;
+import deren.asset.subtilis.pages;
 
 namespace deren::asset::subtilis {
     namespace {
@@ -16,7 +17,7 @@ namespace deren::asset::subtilis {
             return std::unexpected(error{code, message, {}, {}});
         }
         uint64_t storage(payload const& p) {
-            return uint64_t(p.indices.size()) * 4 + uint64_t(p.clusters.size()) * 32 + uint64_t(p.groups.size()) * 48 + uint64_t(p.references.size() + p.leaves.size() + p.roots.size()) * 4 + 8192;
+            return uint64_t(p.indices.size()) * 4 + uint64_t(p.clusters.size()) * 32 + uint64_t(p.groups.size()) * 48 + uint64_t(p.references.size() + p.leaves.size() + p.roots.size()) * 4 + uint64_t(p.pages.size()) * 32 + uint64_t(p.page_dependencies.size()) * 4 + 8192;
         }
         result<sphere> lod_sphere(source_geometry const& source, payload const& p, std::span<uint32_t const> fine, bd::frontier const& coarse) {
             array<double, 3> lo{}, hi{};
@@ -474,6 +475,14 @@ namespace deren::asset::subtilis {
             }
             data.build_meta = metadata(options, report);
             double const validate_started = stage_now();
+            auto page_table = compute_pages(data, validation_limits);
+            if (!page_table) {
+                return std::unexpected(page_table.error());
+            }
+            if (storage(data) > budget.max_output_bytes || storage(data) > budget.max_known_work_bytes - base_work) {
+                return fail(error_code::capacity, "payload with page table exceeds build budget");
+            }
+            report.known_work_peak_bytes = std::max(report.known_work_peak_bytes, base_work + storage(data));
             auto validated = make_asset(std::move(source), std::move(data), validation_limits);
             stages.add(stage_kind::validate, stage_now() - validate_started);
             if (!validated) {

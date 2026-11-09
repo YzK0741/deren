@@ -23,8 +23,10 @@ include(${DEREN_REPO_ROOT}/source/utility/utility.cmake)
 add_library(subtilis_codec STATIC)
 target_sources(subtilis_codec PUBLIC FILE_SET CXX_MODULES BASE_DIRS ${DEREN_REPO_ROOT} FILES
     ${DEREN_REPO_ROOT}/source/asset/subtilis/types.cppm
+    ${DEREN_REPO_ROOT}/source/asset/subtilis/pages.cppm
     ${DEREN_REPO_ROOT}/source/asset/subtilis/codec.cppm
-    PRIVATE ${DEREN_REPO_ROOT}/source/asset/subtilis/codec.cpp
+    PRIVATE ${DEREN_REPO_ROOT}/source/asset/subtilis/pages.cpp
+    ${DEREN_REPO_ROOT}/source/asset/subtilis/codec.cpp
     ${DEREN_REPO_ROOT}/source/asset/subtilis/digest.cpp)
 target_link_libraries(subtilis_codec PUBLIC shared_utility vstd_lib PRIVATE yyjson_vendored)
 

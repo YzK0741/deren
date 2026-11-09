@@ -3,6 +3,7 @@ module;
 #include <cstdint>
 module deren.asset.subtilis.dag;
 import deren.vstd;
+import deren.asset.subtilis.pages;
 namespace deren::asset::subtilis {
     namespace {
         auto fail(char const* message, std::optional<uint32_t> group = {}) {
@@ -199,10 +200,10 @@ namespace deren::asset::subtilis {
         }
     } // namespace
     result<void> validate_structure(payload const& p, limits const& lim) {
-        uint64_t counts[]{p.indices.size(), p.clusters.size(), p.groups.size(), p.references.size(), p.leaves.size(), p.roots.size(), p.build_meta.size()};
-        uint64_t strides[]{4, 32, 48, 4, 4, 4, 1};
-        uint64_t bytes = 352;
-        for (size_t i = 0; i < 7; ++i) {
+        uint64_t counts[]{p.indices.size(), p.clusters.size(), p.groups.size(), p.references.size(), p.leaves.size(), p.roots.size(), p.build_meta.size(), p.pages.size(), p.page_dependencies.size()};
+        uint64_t strides[]{4, 32, 48, 4, 4, 4, 1, 32, 4};
+        uint64_t bytes = p.pages.empty() ? 352 : 416;
+        for (size_t i = 0; i < (p.pages.empty() ? 7 : 9); ++i) {
             if (counts[i] > lim.max_records || counts[i] > UINT32_MAX || ((i == 1 || i == 2) && counts[i] == none)) {
                 return std::unexpected(error{error_code::capacity, "record limit", {}, {}});
             }
@@ -278,6 +279,10 @@ namespace deren::asset::subtilis {
         };
         if (!exact_set(p.leaves, true) || !exact_set(p.roots, false)) {
             return fail("leaf or root coverage mismatch");
+        }
+        auto pages = validate_pages(p, lim);
+        if (!pages) {
+            return std::unexpected(pages.error());
         }
         return {};
     }

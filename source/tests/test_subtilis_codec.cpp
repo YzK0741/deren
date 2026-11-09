@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <limits>
 import deren.asset.subtilis.codec;
+import deren.asset.subtilis.pages;
 namespace sub = deren::asset::subtilis;
 namespace v = deren::utility::vessel;
 using std::byte;
@@ -126,6 +127,54 @@ int main() {
     lod0.groups.clear();
     auto lod0_wire = sub::encode(lod0, {});
     CHECK(lod0_wire && sub::decode(*lod0_wire, {})); // no DAG validation in codec
+
+    auto paged = p;
+    CHECK(sub::compute_pages(paged, {}));
+    CHECK(paged.pages.size() == 6 && paged.page_dependencies.size() == 5);
+    auto paged_wire = sub::encode(paged, {});
+    CHECK(paged_wire);
+    if (paged_wire) {
+        auto const& paged_bytes = *paged_wire;
+        CHECK(read(paged_bytes, 8, 2) == 1 && read(paged_bytes, 10, 2) == 1);
+        CHECK(read(paged_bytes, 24, 4) == 9);
+        CHECK(read(paged_bytes, 128 + 16, 8) == 416);
+        auto const page_offset = read(paged_bytes, 128 + 7 * 32 + 16, 8);
+        CHECK(page_offset == 664 && read(paged_bytes, 128 + 7 * 32 + 8, 8) == 6);
+        CHECK(paged_bytes.size() == 880);
+        auto paged_decoded = sub::decode(paged_bytes, {});
+        CHECK(paged_decoded);
+        if (paged_decoded) {
+            CHECK(paged_decoded->pages == paged.pages);
+            CHECK(paged_decoded->page_dependencies == paged.page_dependencies);
+        }
+        auto bad_page = paged_bytes;
+        put(bad_page, page_offset, 0, 4);
+        CHECK(!sub::decode(bad_page, {}));
+
+        auto bad_bytes = paged_bytes;
+        put(bad_bytes, page_offset + 12, 1, 4);
+        CHECK(!sub::decode(bad_bytes, {}));
+
+        auto bad_dependency = paged;
+        bad_dependency.pages[0].dependency_first = static_cast<uint32_t>(bad_dependency.page_dependencies.size());
+        bad_dependency.pages[0].dependency_count = 1;
+        CHECK(!sub::validate_pages(bad_dependency, {}));
+
+        auto bad_resident = paged;
+        for (auto& page : bad_resident.pages) {
+            if (page.dependency_count != 0 && (page.flags & uint16_t(sub::page_flags::always_resident)) != 0) {
+                bad_resident.pages[bad_resident.page_dependencies[page.dependency_first]].flags = 0;
+                break;
+            }
+        }
+        CHECK(!sub::validate_pages(bad_resident, {}));
+
+        auto bad_cycle = paged;
+        bad_cycle.pages[0].dependency_first = 0;
+        bad_cycle.pages[0].dependency_count = 1;
+        bad_cycle.page_dependencies[0] = 0;
+        CHECK(!sub::validate_pages(bad_cycle, {}));
+    }
 
     CHECK(hex(sub::sha256({})) == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
     char const abc[] = "abc";

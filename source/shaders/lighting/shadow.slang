@@ -284,7 +284,7 @@ void meshlet_main(out vertices shadow_vertex_output verts[mesh_vertices_per_work
     {
         for (uint corner = 0u; corner < mesh_indices_per_triangle; ++corner)
         {
-            const uint raw_index = mesh_index_at(geometry, meshlet.first_index + t * mesh_indices_per_triangle + corner);
+            const uint raw_index = mesh_index_at(geometry, meshlet, meshlet.first_index + t * mesh_indices_per_triangle + corner);
             const uint vertex_index = uint(int(raw_index) + meshlet.base_vertex);
             const MeshVertex v = mesh_vertex_at(geometry, vertex_index);
             verts[t * mesh_indices_per_triangle + corner] = shadow_shade_vertex(v, vertex_index, group_id.y);

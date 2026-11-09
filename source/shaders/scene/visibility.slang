@@ -156,7 +156,7 @@ void mesh_main(out vertices VisibilityVertexOutput verts[mesh_vertices_per_workg
         {
             // THE RECORD'S WINDOW AND THE RECORD'S base_vertex, exactly as the pbr meshlet entry fetches them:
             // `geometry.base_vertex` is the run's flag lane in a meshlet session, never a vertex offset.
-            const uint raw_index = mesh_index_at(geometry, meshlet.first_index + t * mesh_indices_per_triangle + corner);
+            const uint raw_index = mesh_index_at(geometry, meshlet, meshlet.first_index + t * mesh_indices_per_triangle + corner);
             const uint vertex_index = uint(int(raw_index) + meshlet.base_vertex);
             const MeshVertex v = mesh_vertex_at(geometry, vertex_index);
             VisibilityVertexOutput o;

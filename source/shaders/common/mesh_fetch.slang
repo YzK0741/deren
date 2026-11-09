@@ -123,7 +123,7 @@ MeshGeometryLanes visibility_geometry(VisibilityDrawItem item) {
     return geometry;
 }
 MeshVertex visibility_vertex(MeshGeometryLanes geometry, MeshletRecord record, uint triangle, uint corner) {
-    const uint raw_index = mesh_index_at(geometry, record.first_index + triangle * mesh_indices_per_triangle + corner);
+    const uint raw_index = mesh_index_at(geometry, record, record.first_index + triangle * mesh_indices_per_triangle + corner);
     return mesh_vertex_at(geometry, uint(int(raw_index) + record.base_vertex));
 }
 float4 visibility_world(float3 position, VR_MAT4 model) { return mul(float4(position, 1.0), model); }

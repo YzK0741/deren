@@ -155,6 +155,10 @@ export namespace deren::engine::render_resource {
         scene_cut_references,
         /// the per-frame GPU cut item table (frame header + one record per planned item)
         subtilis_cut_items,
+        /// the immutable streaming page image owned by one subtilis geometry generation
+        scene_page_arena,
+        scene_page_table,
+        scene_page_requests,
         count,
     };
 
@@ -335,6 +339,11 @@ export namespace deren::engine::render_resource {
         {.id = resource_id::scene_cut_clusters, .name = "scene_cut_clusters", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
         {.id = resource_id::scene_cut_references, .name = "scene_cut_references", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
         {.id = resource_id::subtilis_cut_items, .name = "subtilis_cut_items", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::per_frame},
+        // Immutable page image, page table and request lane for one subtilis generation. M5c-1 keeps
+        // every page resident; M5c-2 writes the request lane and rewrites arena/table updates.
+        {.id = resource_id::scene_page_arena, .name = "scene_page_arena", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
+        {.id = resource_id::scene_page_table, .name = "scene_page_table", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
+        {.id = resource_id::scene_page_requests, .name = "scene_page_requests", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
     }};
 
     // =============================================================================================
