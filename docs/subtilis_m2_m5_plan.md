@@ -3,9 +3,8 @@
 Status: M2 v1 is implemented in this branch and is off by default
 (`[render] subtilis_gpu_cut`). M5a (offline page table), M5b (synchronous page
 residency manager), and M5c (cut requests, budgeted installs, raster page-id fetch,
-LOD0 fallback) are implemented in this working tree; the local Release build, full
-CTest, boundary, format, and changed-file tidy checks pass. The worktree is not
-committed, so the commit marker gate has not run. M5c publishes table state on the frame
+LOD0 fallback) are implemented on this branch; the local Release build, full CTest,
+boundary, format, and changed-file tidy checks pass. M5c publishes table state on the frame
 after a request; it does not yet perform a device-to-device page copy or eviction. The
 v1 shader keeps one persistent
 workgroup per item (64 lanes, word-owned coarsen bitset, iterated closure, contiguous
