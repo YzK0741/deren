@@ -24,6 +24,17 @@ export namespace deren::engine::subtilis {
                                       synchronous,
                                       batched,
     };
+    /// One frame's page-install pass over the cut's request buffer. `requests` counts entries the
+    /// previous frame wrote, `installed` counts pages admitted this pass, `pending` counts entries
+    /// compacted forward because the byte budget was exhausted, and `overflow` mirrors the shader's
+    /// request-buffer overflow flag.
+    struct page_install_stats {
+        std::uint32_t requests = 0;
+        std::uint32_t installed = 0;
+        std::uint32_t pending = 0;
+        std::uint32_t overflow = 0;
+        std::uint64_t bytes = 0;
+    };
     /// Immutable GPU cut input: one record per DAG group. Kept separate from the 48-byte
     /// meshlet ABI so the render-side record can never grow into the meshlet contract.
     struct cut_group_record {
@@ -155,5 +166,10 @@ export namespace deren::engine::subtilis {
         [[nodiscard]] std::uint32_t page_request_capacity() const noexcept {
             return page_request_capacity_;
         }
+        /// Promote last frame's index-page requests into the host-visible page table under a byte
+        /// budget. Pages that do not fit stay `requested` and are compacted to the front of the
+        /// request buffer for the next frame. The page bytes are already in the arena; this install
+        /// publishes their table state, it does not perform a device-to-device copy.
+        [[nodiscard]] page_install_stats install_requested_pages(std::uint64_t budget_bytes, std::uint32_t frame = 0) const noexcept;
     };
 } // namespace deren::engine::subtilis

@@ -19,7 +19,7 @@ export namespace deren::engine::subtilis {
         meshlet record;
         uint32_t producer = dag_none, consumer = dag_none;
         bool operator==(dag_cluster const& b) const {
-            auto key = [](dag_cluster const& c) {auto const& r=c.record;return std::tuple(r.first_index,r.index_count,r.base_vertex,r._pad,r.center_x,r.center_y,r.center_z,r.radius,r.axis_x,r.axis_y,r.axis_z,r.cone_cos,c.producer,c.consumer); };
+            auto key = [](dag_cluster const& c) {auto const& r=c.record;return std::tuple(r.first_index,r.index_count,r.base_vertex,r.page_id,r.center_x,r.center_y,r.center_z,r.radius,r.axis_x,r.axis_y,r.axis_z,r.cone_cos,c.producer,c.consumer); };
             return key(*this) == key(b);
         }
     };
@@ -95,7 +95,7 @@ export namespace deren::engine::subtilis {
                 if (finish > UINT32_MAX) {
                     return std::unexpected(dag_error::capacity);
                 }
-                if (!r.index_count || r.index_count % 3 || r.index_count > meshlet_max_indices || r.base_vertex || r._pad || !valid_sphere(geometry(c)) || !std::isfinite(r.axis_x) || !std::isfinite(r.axis_y) || !std::isfinite(r.axis_z) || !std::isfinite(r.cone_cos) || r.cone_cos < -1 || r.cone_cos > 1 || (total_index_count != dag_none && finish > total_index_count)) {
+                if (!r.index_count || r.index_count % 3 || r.index_count > meshlet_max_indices || r.base_vertex || r.page_id || !valid_sphere(geometry(c)) || !std::isfinite(r.axis_x) || !std::isfinite(r.axis_y) || !std::isfinite(r.axis_z) || !std::isfinite(r.cone_cos) || r.cone_cos < -1 || r.cone_cos > 1 || (total_index_count != dag_none && finish > total_index_count)) {
                     return std::unexpected(dag_error::invalid_cluster);
                 }
                 if ((c.producer != dag_none && c.producer >= groups.size()) || (c.consumer != dag_none && c.consumer >= groups.size()) || (c.producer != dag_none && c.consumer != dag_none && c.producer >= c.consumer)) {

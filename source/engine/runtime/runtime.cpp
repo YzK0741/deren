@@ -2208,6 +2208,7 @@ namespace deren::engine {
             bool gpu_cut = false;
             subtilis::uploaded_geometry const* cut_source = nullptr;
             uint32_t input_count = 0, selected_count = 0, fallback_count = 0;
+            std::uint32_t lod0_count = 0;
             std::uint64_t input_triangles = 0, selected_triangles = 0;
             double cut_us = 0;
             // M4 Task 1's capture-only workload probe: this item's split at 1.0 px (only touched while the env probe is
@@ -2451,7 +2452,7 @@ namespace deren::engine {
                 view.selection.target_error_px = this->subtilis_error_px;
                 subtilis::item_policy const policy{this->material_flags_of(leaf), exact_depth_redraw && !leaf.environment};
                 plan.software_allowed = subtilis::coarse_allowed(leaf, policy);
-                bool const cut_eligible =
+                bool cut_eligible =
                     this->subtilis_gpu_cut && !this->subtilis_hysteresis && !this->hzb_cull_active_frame &&
                     !this->software_raster_active_frame && this->cut_job.ready() && count <= subtilis::cut_item_capacity &&
                     this->subtilis_cut_items_mapped != nullptr && plan.software_allowed &&
@@ -2462,6 +2463,19 @@ namespace deren::engine {
                     leaf.subtilis_geometry->cut_group_count() <= subtilis::cut_max_groups &&
                     leaf.subtilis_geometry->source().hierarchy_dag()->maximum_selected_bound() <= leaf.subtilis_geometry->cut_cluster_count() &&
                     leaf.subtilis_geometry->source().hierarchy_dag()->maximum_selected_bound() <= plan.space.count;
+                if (cut_eligible) {
+                    // A page-miss frame must still draw the WHOLE item as LOD0: the cut shader can only
+                    // write a contiguous meshlet run, so the host preloads the LOD0 records where the
+                    // visibility path already expects `space.base`. If that write fails, use the CPU cut
+                    // instead of publishing a run that reads unrelated records.
+                    auto const lod0 = leaf.subtilis_geometry->source().lod0_clusters();
+                    if (lod0.empty() || lod0.size() > plan.space.count ||
+                        !runtime::meshlet_culled_write(this, plan.space.base, std::as_bytes(lod0))) {
+                        cut_eligible = false;
+                    } else {
+                        plan.lod0_count = static_cast<std::uint32_t>(lod0.size());
+                    }
+                }
                 if (cut_eligible) {
                     plan.run = subtilis::visible_run{plan.space.base, 0u, subtilis::run_source::visible, subtilis::fallback_reason::none};
                     plan.gpu_cut = true;
@@ -3243,11 +3257,20 @@ namespace deren::engine {
             frame->item_capacity = subtilis::cut_item_capacity;
             auto* const items = reinterpret_cast<subtilis::cut_item*>(frame_bytes + sizeof(subtilis::cut_frame));
             std::uint32_t item = 0u;
+            constexpr std::uint64_t page_install_budget = 8ull << 20;
             for (auto const& plan : plans) {
                 if (!plan.gpu_cut) {
                     continue;
                 }
                 auto const& source = *plan.cut_source;
+                auto const page_stats = source.install_requested_pages(page_install_budget, static_cast<std::uint32_t>(frame_slot));
+                if (page_stats.overflow != 0u) {
+                    deren::utility::log("subtilis pages: request buffer overflowed at frame {} ({} requests, {} installed, {} pending)", frame_slot,
+                                        page_stats.requests, page_stats.installed, page_stats.pending);
+                } else if (page_stats.installed != 0u) {
+                    deren::utility::log("subtilis pages: installed {} page(s), {} bytes, {} pending at frame {}", page_stats.installed, page_stats.bytes,
+                                        page_stats.pending, frame_slot);
+                }
                 auto& cut = items[item++];
                 std::memcpy(cut.model, plan.block.model.data(), sizeof(cut.model));
                 cut.groups = runtime::buffer_address(*source.cut_groups());
@@ -3263,6 +3286,13 @@ namespace deren::engine {
                 cut.output_capacity = plan.space.count;
                 cut.command_index = runtime::visibility_command_run + plan.item_index;
                 cut.flags = 0u;
+                cut.page_arena = source.page_arena() != nullptr ? runtime::buffer_address(*source.page_arena()) : 0u;
+                cut.page_table = source.page_table() != nullptr ? runtime::buffer_address(*source.page_table()) : 0u;
+                cut.page_requests = source.page_requests() != nullptr ? runtime::buffer_address(*source.page_requests()) : 0u;
+                cut.page_count = cut.page_table != 0u ? source.page_count() : 0u;
+                cut.request_capacity = cut.page_requests != 0u ? source.page_request_capacity() : 0u;
+                cut.request_frame = static_cast<std::uint32_t>(frame_slot);
+                cut.lod0_count = plan.lod0_count;
             }
             std::uint64_t const items_address = runtime::buffer_address(*this->subtilis_cut_items_buffer) +
                                                 static_cast<std::size_t>(frame_slot) * subtilis::cut_frame_bytes();
@@ -3770,6 +3800,22 @@ namespace deren::engine {
             }
             if (!result->bind_subtilis_geometry(shared_generation)) {
                 return nullptr;
+            }
+            if (auto* const page_table = shared_generation->page_table(); page_table != nullptr) {
+                if (!this->write_heap_buffer(*page_table, deren::engine::render_layout::heap_slots::subtilis_page_table, page_table->size(),
+                                             rhi::descriptor_type::storage_buffer)) {
+                    deren::utility::log("descriptor heap: the subtilis page table did not reach grid slot {}",
+                                        deren::engine::render_layout::heap_slots::subtilis_page_table);
+                    return nullptr;
+                }
+            }
+            if (auto* const page_arena = shared_generation->page_arena(); page_arena != nullptr) {
+                if (!this->write_heap_buffer(*page_arena, deren::engine::render_layout::heap_slots::subtilis_page_arena, page_arena->size(),
+                                             rhi::descriptor_type::storage_buffer)) {
+                    deren::utility::log("descriptor heap: the subtilis page arena did not reach grid slot {}",
+                                        deren::engine::render_layout::heap_slots::subtilis_page_arena);
+                    return nullptr;
+                }
             }
         } else {
             namespace managed = render_resource::instances;

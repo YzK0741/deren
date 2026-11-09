@@ -1,9 +1,13 @@
 # Subtilis M2/M5 implementation plan
 
 Status: M2 v1 is implemented in this branch and is off by default
-(`[render] subtilis_gpu_cut`). M5a (offline page table) and M5b (synchronous page
-residency manager) are implemented in this branch; runtime page upload and streaming
-are not started. The v1 shader keeps one persistent
+(`[render] subtilis_gpu_cut`). M5a (offline page table), M5b (synchronous page
+residency manager), and M5c (cut requests, budgeted installs, raster page-id fetch,
+LOD0 fallback) are implemented in this working tree; the local Release build, full
+CTest, boundary, format, and changed-file tidy checks pass. The worktree is not
+committed, so the commit marker gate has not run. M5c publishes table state on the frame
+after a request; it does not yet perform a device-to-device page copy or eviction. The
+v1 shader keeps one persistent
 workgroup per item (64 lanes, word-owned coarsen bitset, iterated closure, contiguous
 chunk compaction); a global cross-item node/cluster queue is deliberately deferred
 until the flat group table gains explicit child links. `test_subtilis_cut_gpu` exercises
@@ -149,11 +153,12 @@ lifetime):
 - `cut_group`: one record per DAG group: LOD center/radius, error, first child/count, first
   cluster/count, producer/consumer ids or flags. Exact layout follows the CPU DAG after the
   payload is finalized.
-- `cut_cluster`: one 48-byte meshlet record per DAG cluster, plus any producer/consumer or
-  page id in a parallel lane. The 48-byte ABI does not change.
-- `cut_page`: page id per cluster, once M5 exists; in M2 this can be a constant or omitted.
-- `cut_item`: per-frame item input: model matrix, previous coarsen state pointer or bitset,
-  reservation base, reservation capacity, flags.
+- `cut_cluster`: one 48-byte meshlet record per DAG cluster, plus producer/consumer ids. The page id
+  reuses the record's four-byte padding lane at offset 12, so the 48-byte ABI does not change.
+- `cut_page`: the page table and arena are separate scene descriptors, not a per-cluster parallel
+  array. A record's page id is `page_index + 1`, with 0 meaning the draw's own index buffer.
+- `cut_item`: per-frame item input: model matrix, cut BDA pointers, reservation base/capacity,
+  flags, and the page table/arena/request pointers + counts.
 - `cut_scratch`: per-item group coarsen flags and a selected-cluster bitmask/count.
 - `cut_indirect`: device-local mesh-task indirect arguments, one command per item.
 
@@ -317,10 +322,10 @@ page is allowed, but only if the ancestor is a complete conservative representat
 
 This is the hard part and needs an explicit choice.
 
-Option A (recommended for v1): keep one index buffer per item but make the selected cluster's
-record refer to a resident page through a side lane and a page table. The 48-byte record stays
-fixed; a parallel `page_id` lane and a `page_base` table let the mesh shader compute the index
-address. Every cluster window must be inside one page.
+Option A (implemented for v1): keep one index buffer per item but make the selected cluster's
+record refer to a resident page through the record's four-byte padding lane and a page table. The
+48-byte record stays fixed; the `page_id` lane and a `page_base` table let the mesh shader compute
+the index address. Every cluster window must be inside one page.
 
 Option B (smaller first step): page at whole-item granularity. One page set per item; an item
 is either fully resident or falls back to LOD0. This needs no shader change, but it does not
@@ -349,9 +354,10 @@ order, requests install a complete dependency closure, and eviction only removes
 pages that no remaining resident page depends on. The render path still uploads every page;
 it does not consult eviction yet.
 
-M5c: asynchronous transfer, request buffer from the cut pass, budgeted installs, fallback to
-LOD0, and a page-miss metric. This is the first milestone that can actually miss a page during
-rendering.
+M5c: request-driven page install, budgeted installs, fallback to LOD0, and a page-miss metric.
+This is the first milestone that can actually miss a page during rendering. The install is
+`request -> next-frame table publish`; the arena already holds every page's bytes, so this slice
+does not yet perform a device-to-device copy or wait on a transfer fence.
 
 M5c-1 (the first slice) is implemented in
 `source/engine/geometry/subtilis_page_streaming.cppm`: `page_arena_layout` assigns one 64-byte
@@ -366,9 +372,25 @@ The device part is implemented in `source/engine/geometry/subtilis_upload.cpp`: 
 geometry generation now owns three additional buffers, `scene_page_arena`,
 `scene_page_table`, and `scene_page_requests`. `uploaded_geometry` exposes them with
 `page_arena()`, `page_table()`, `page_requests()`, `page_count()`, and
-`page_request_capacity()`. Every page is installed through `request_all` before publication, so
-the table is fully resident and the request buffer starts empty. The cut does not read or write
-these buffers yet, so rendering is unchanged.
+`page_request_capacity()`, plus `install_requested_pages(budget, frame)`. Upload leaves only
+pinned pages resident; a cut index-page miss appends a 16-byte request, and the host promotes
+requests under an 8 MiB per-frame budget before the next cut dispatch. Pages that do not fit stay
+`requested` and are compacted forward; the request overflow flag is logged.
+
+M5c-2 keeps the cut's group/reference/cluster reads on the existing full buffers: the 32-byte wire
+cluster has no normal-cone axis/cosine, so the cut cannot build the 48-byte output record from the
+page arena. The page check covers the **indices** the raster stage needs. The cut binary-searches
+the index section of the page table for each selected cluster; it emits `page_id + 1` only when the
+whole index window lies in one resident page, otherwise it requests the page(s) and writes
+`lod0_count` into the item command. The runtime preloads the LOD0 records at `space.base` for every
+GPU-cut item, so that command is a complete coarse fallback rather than a hole. The 48-byte meshlet
+record's former `_pad` is now `page_id`; the raster resolves it through the page table/arena
+descriptor slots and falls back to the draw's own index buffer when it is zero.
+
+The page table and arena are bound once per uploaded generation at
+`render_layout::heap_slots::subtilis_page_table` and `subtilis_page_arena`. This slice is still
+single-asset because those slots are scene-global; multi-asset streaming needs per-asset arena
+offsets or descriptor arrays.
 
 M5d: prefetch and priority tuning. Do not start this before M5c is stable.
 

@@ -122,19 +122,55 @@ uint mesh_index_at(const MeshGeometryLanes geometry, const uint i)
 }
 
 /// @brief one MESHLET RECORD: exactly the 48 bytes `deren::engine::meshlet` holds and the GPU table stores, in byte order:
-///        first_index @0, index_count @4, base_vertex @8, center @16, radius @28, axis @32, cone_cos @44 - the
-///        16-byte alignment of the std430 `float3` members is what makes the host record 48 bytes, not the 28 the
-///        fields alone would add up to, and the host struct carries the same padding explicitly.
+///        first_index @0, index_count @4, base_vertex @8, page_id @12, center @16, radius @28, axis @32, cone_cos @44 -
+///        the 16-byte alignment of the std430 `float3` members is what makes the host record 48 bytes, and the
+///        four bytes before `center` are the streamed-page lane.
 struct MeshletRecord
 {
     uint first_index;
     uint index_count;
     int base_vertex;
-    float3 center;   // std430 puts a float3 on a 16-byte boundary: the host record carries the padding for it
+    uint page_id;     // streamed index page + 1; 0 means the draw's own index buffer
+    float3 center;    // std430 puts a float3 on a 16-byte boundary: the host record carries the padding for it
     float radius;
-    float3 axis;     // the normal cone's axis (the average of the window's face normals)
-    float cone_cos;  // the smallest dot any face normal has with the axis, i.e. the cone's half-angle is acos(this)
+    float3 axis;      // the normal cone's axis (the average of the window's face normals)
+    float cone_cos;   // the smallest dot any face normal has with the axis, i.e. the cone's half-angle is acos(this)
 };
+
+/// @brief read index @p i through the record's streamed page, or the draw's own buffer when it has none
+///
+/// @note THE PAGE ID IS THE SIDE LANE docs/subtilis_m2_m5_plan.md calls for: the 48-byte meshlet record
+///       already carries it in the four bytes the std430 float3 left at offset 12, so the geometry lanes
+///       stay 40 bytes and no stage's push block grows. The table entry is 32 bytes in the scene page
+///       table heap slot; its arena offset is a byte offset into the page arena heap slot. A page that is
+///       not resident (or an index outside the page) answers 0 - the cut shader only emits a page id for a
+///       resident, fully containing page, so reaching that case means the host/GPU residence states
+///       disagreed, and a zero index is the one value that cannot read outside the arena.
+uint mesh_index_at(const MeshGeometryLanes geometry, const MeshletRecord record, const uint i)
+{
+    if (record.page_id == 0u)
+        return mesh_index_at(geometry, i);
+
+    ByteAddressBuffer table = heap_at<ByteAddressBuffer>(heap_slots_subtilis_page_table);
+    const uint entry_base = (record.page_id - 1u) * 32u;
+    const uint4 entry_lo = table.Load4(entry_base);
+    const uint4 entry_hi = table.Load4(entry_base + 16u);
+    const uint page_first = entry_lo.z;
+    const uint page_count = entry_lo.w;
+    const uint arena_offset = entry_hi.x;
+    const uint state = entry_hi.z;
+    if (state != 2u || i < page_first || i >= page_first + page_count)
+        return 0u;
+
+    ByteAddressBuffer arena = heap_at<ByteAddressBuffer>(heap_slots_subtilis_page_arena);
+    const uint local = i - page_first;
+    if (geometry.index_width == 2u)
+    {
+        const uint word = arena.Load(arena_offset + (local >> 1u) * 4u);
+        return (local & 1u) != 0u ? (word >> 16u) : (word & 0xFFFFu);
+    }
+    return arena.Load(arena_offset + local * 4u);
+}
 
 /// @brief one record of the meshlet table (grid slot `heap_slots_meshlets`)
 /// @note ONE descriptor rather than a per-frame array: the table is written once while the scene imports.

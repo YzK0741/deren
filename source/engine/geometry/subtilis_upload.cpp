@@ -100,9 +100,8 @@ namespace deren::engine::subtilis {
             if (!manager) {
                 return std::unexpected(manager.error());
             }
-            if (auto all = manager->request_all(); !all) {
-                return std::unexpected(all.error());
-            }
+            // Only pinned pages start resident. Index pages become resident when the cut requests them
+            // and install_requested_pages() admits them under the per-frame byte budget.
             auto table = make_gpu_page_table(pages, packed->layout, *manager);
             if (!table) {
                 return std::unexpected(table.error());
@@ -361,5 +360,79 @@ namespace deren::engine::subtilis {
                                                        std::move(page_arena), std::move(page_table), std::move(page_requests),
                                                        page_payload ? static_cast<std::uint32_t>(page_payload->table.size()) : 0u,
                                                        page_payload ? page_payload->requests.capacity() : 0u, std::move(edges));
+    }
+
+    page_install_stats uploaded_geometry::install_requested_pages(std::uint64_t budget_bytes, std::uint32_t frame) const noexcept {
+        page_install_stats stats;
+        auto* request_owner = this->page_requests();
+        auto* table_owner = this->page_table();
+        if (!request_owner || !table_owner || page_count_ == 0u || page_request_capacity_ == 0u) {
+            return stats;
+        }
+        auto request_bytes = request_owner->mapped();
+        auto table_bytes = table_owner->mapped();
+        constexpr std::size_t header_size = sizeof(gpu_page_request_header);
+        constexpr std::size_t request_size = sizeof(gpu_page_request);
+        constexpr std::size_t entry_size = sizeof(gpu_page_table_entry);
+        if (request_bytes.size() < header_size + static_cast<std::size_t>(page_request_capacity_) * request_size ||
+            table_bytes.size() < static_cast<std::size_t>(page_count_) * entry_size) {
+            return stats;
+        }
+
+        gpu_page_request_header header{};
+        std::memcpy(&header, request_bytes.data(), header_size);
+        stats.requests = header.count;
+        stats.overflow = header.overflow;
+        auto const available = std::min(header.count, page_request_capacity_);
+        if (header.count > page_request_capacity_) {
+            stats.overflow = 1u;
+        }
+
+        auto* entries = request_bytes.data() + header_size;
+        std::uint32_t pending = 0;
+        for (std::uint32_t i = 0; i < available; ++i) {
+            gpu_page_request request{};
+            std::memcpy(&request, entries + static_cast<std::size_t>(i) * request_size, request_size);
+            if (request.page >= page_count_) {
+                continue;
+            }
+            auto* entry_bytes = table_bytes.data() + static_cast<std::size_t>(request.page) * entry_size;
+            gpu_page_table_entry entry{};
+            std::memcpy(&entry, entry_bytes, entry_size);
+            if (entry.state == static_cast<std::uint32_t>(gpu_page_state::resident)) {
+                continue;
+            }
+            if (budget_bytes >= stats.bytes && entry.bytes <= budget_bytes - stats.bytes) {
+                entry.state = static_cast<std::uint32_t>(gpu_page_state::resident);
+                std::memcpy(entry_bytes, &entry, entry_size);
+                stats.bytes += entry.bytes;
+                ++stats.installed;
+                continue;
+            }
+
+            entry.state = static_cast<std::uint32_t>(gpu_page_state::requested);
+            std::memcpy(entry_bytes, &entry, entry_size);
+            bool duplicate = false;
+            for (std::uint32_t j = 0; j < pending; ++j) {
+                gpu_page_request queued{};
+                std::memcpy(&queued, entries + static_cast<std::size_t>(j) * request_size, request_size);
+                if (queued.page == request.page) {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (!duplicate) {
+                std::memcpy(entries + static_cast<std::size_t>(pending) * request_size, &request, request_size);
+                ++pending;
+            }
+        }
+
+        header.count = pending;
+        header.capacity = page_request_capacity_;
+        header.overflow = 0u;
+        header.frame = frame;
+        std::memcpy(request_bytes.data(), &header, header_size);
+        stats.pending = pending;
+        return stats;
     }
 } // namespace deren::engine::subtilis

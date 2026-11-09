@@ -56,6 +56,13 @@ struct CutItem
     uint output_capacity;
     uint command_index;
     uint flags;
+    uint64_t page_arena;
+    uint64_t page_table;
+    uint64_t page_requests;
+    uint page_count;
+    uint request_capacity;
+    uint request_frame;
+    uint lod0_count;
 };
 
 // Host `dag_group`: fine range, coarse range, LOD sphere, then error. All members are 4-byte scalars.
@@ -77,7 +84,7 @@ struct CutMeshlet
     uint first_index;
     uint index_count;
     int base_vertex;
-    uint pad;          // the host's 48-byte ABI keeps the center 16-byte aligned
+    uint page_id;      // streamed index page + 1; 0 means the draw's own index buffer
     float center_x;
     float center_y;
     float center_z;
@@ -185,6 +192,72 @@ bool cut_cluster_selected(CutCluster c)
     const bool consumer_closed = c.consumer == cut_none || !cut_shared_bit(c.consumer);
     return producer_open && consumer_closed;
 }
+
+// The scene page table is ordered by (section, first) and the index section is 1. The cut only consumes
+// index pages; the full cut buffers still provide the group/cluster/hierarchy data, because a 32-byte wire
+// cluster carries neither the normal-cone axis nor the cone cosine a 48-byte output record needs.
+static const uint cut_page_section_indices = 1u;
+static const uint cut_page_state_absent = 0u;
+static const uint cut_page_state_requested = 1u;
+static const uint cut_page_state_resident = 2u;
+
+bool cut_page_lookup(const CutItem item, const uint index, out uint page_index, out uint page_first, out uint page_count, out uint state)
+{
+    page_index = cut_none;
+    page_first = 0u;
+    page_count = 0u;
+    state = cut_page_state_absent;
+    if (item.page_table == 0ull || item.page_count == 0u)
+        return false;
+
+    uint* words = (uint*)item.page_table;
+    uint lo = 0u;
+    uint hi = item.page_count;
+    while (lo < hi)
+    {
+        const uint mid = lo + (hi - lo) / 2u;
+        uint* entry = words + mid * 8u;
+        const uint section = entry[1];
+        const uint first = entry[2];
+        if (section < cut_page_section_indices || (section == cut_page_section_indices && first <= index))
+            lo = mid + 1u;
+        else
+            hi = mid;
+    }
+    if (lo == 0u)
+        return false;
+
+    uint* entry = words + (lo - 1u) * 8u;
+    if (entry[1] != cut_page_section_indices)
+        return false;
+    page_index = lo - 1u;
+    page_first = entry[2];
+    page_count = entry[3];
+    state = entry[6];
+    return true;
+}
+
+void cut_request_page(const CutItem item, const uint item_index, const uint page_index, const uint state)
+{
+    if (item.page_requests == 0ull || item.request_capacity == 0u || state != cut_page_state_absent)
+        return;
+
+    uint* header = (uint*)item.page_requests;
+    uint slot = 0u;
+    InterlockedAdd(header[0], 1u, slot);
+    if (slot >= item.request_capacity)
+    {
+        header[2] = 1u; // overflow: the host reports it as a page-miss metric, never as a silent drop
+        return;
+    }
+    uint* request = header + 4u + slot * 4u;
+    request[0] = page_index;
+    request[1] = 0u;
+    request[2] = item_index;
+    request[3] = item.request_frame;
+}
+
+groupshared uint cut_page_fallback;
 
 [shader("compute")]
 [numthreads(cut_group_size, 1, 1)]
@@ -339,14 +412,87 @@ void comp_main(uint3 group : SV_GroupID, uint3 lane : SV_GroupThreadID)
         return;
     }
 
+    // Index-page residency gate. A cluster is only emitted with a page id when its whole index window lies
+    // inside ONE resident index page. Anything else falls the WHOLE item back to the LOD0 records the host
+    // preloaded at `item.meshlets`: a partially streamed item cannot be mixed with LOD0 records because the
+    // visibility path treats the item's command count as one contiguous run.
+    cut_page_fallback = 0u;
+    GroupMemoryBarrierWithGroupSync();
+    if (item.page_table != 0ull && item.page_count != 0u)
+    {
+        for (uint i = begin; i < end; ++i)
+        {
+            CutCluster c = clusters[i];
+            if (!cut_cluster_selected(c))
+                continue;
+            const uint first = c.record.first_index;
+            const uint count = c.record.index_count;
+            const uint last = first + count - 1u;
+            uint page_index = cut_none;
+            uint page_first = 0u;
+            uint page_span = 0u;
+            uint page_state = cut_page_state_absent;
+            if (!cut_page_lookup(item, first, page_index, page_first, page_span, page_state))
+            {
+                cut_page_fallback = 1u;
+                continue;
+            }
+
+            const uint64_t page_end = uint64_t(page_first) + uint64_t(page_span);
+            if (uint64_t(last) >= page_end)
+            {
+                // The cluster crosses a page boundary. Request both ends (the host installs by page) and
+                // fall back this frame; a later frame can only succeed if one page covers the whole window.
+                cut_page_fallback = 1u;
+                cut_request_page(item, group.x, page_index, page_state);
+                uint last_page = cut_none;
+                uint last_first = 0u;
+                uint last_span = 0u;
+                uint last_state = cut_page_state_absent;
+                if (cut_page_lookup(item, last, last_page, last_first, last_span, last_state))
+                    cut_request_page(item, group.x, last_page, last_state);
+                continue;
+            }
+
+            if (page_state != cut_page_state_resident)
+            {
+                cut_request_page(item, group.x, page_index, page_state);
+                cut_page_fallback = 1u;
+            }
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (cut_page_fallback != 0u)
+    {
+        if (lane.x == 0u)
+        {
+            command[0] = item.lod0_count;
+            command[1] = 1u;
+            command[2] = 1u;
+        }
+        return;
+    }
+
     uint dst_index = cut_cluster_offsets[lane.x];
     for (uint i = begin; i < end; ++i)
     {
         CutCluster c = clusters[i];
         if (!cut_cluster_selected(c))
             continue;
+        uint page_id = 0u;
+        if (item.page_table != 0ull && item.page_count != 0u)
+        {
+            uint page_index = cut_none;
+            uint page_first = 0u;
+            uint page_span = 0u;
+            uint page_state = cut_page_state_absent;
+            if (cut_page_lookup(item, c.record.first_index, page_index, page_first, page_span, page_state) && page_state == cut_page_state_resident)
+                page_id = page_index + 1u;
+        }
+        CutMeshlet record = c.record;
+        record.page_id = page_id;
         CutMeshlet* dst = (CutMeshlet*)(item.meshlets + uint64_t(dst_index) * 48ull);
-        *dst = c.record;
+        *dst = record;
         ++dst_index;
     }
 

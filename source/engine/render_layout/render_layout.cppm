@@ -356,6 +356,18 @@ export namespace deren::engine::render_layout {
         static constexpr uint32_t rt_reflection_surface_current_storage = heap_slot_base + 1572u;
         static constexpr uint32_t rt_reflection_depth_current = heap_slot_base + 1580u;
         static constexpr uint32_t rt_reflection_depth_current_storage = heap_slot_base + 1588u;
+        /**
+         * @brief the streamed index page table and its arena, read by the raster and mesh stages
+         *
+         * @note THEY ARE HEAP SLOTS RATHER THAN PUSH LANES because the 48-byte meshlet record only carries a
+         *       32-bit page id: the table and arena addresses are scene-wide and constant for the lifetime of
+         *       the uploaded geometry, so binding them once is cheaper than growing `MeshGeometryLanes` (and
+         *       every stage's push block) by two 64-bit addresses and a count. They sit after the reflection
+         *       block, which is the last used pair; the shader constants in `heap_slot_constants.slang` must
+         *       move with them or every page fetch reads an unrelated descriptor.
+         */
+        static constexpr uint32_t subtilis_page_table = heap_slot_base + 1596u;
+        static constexpr uint32_t subtilis_page_arena = heap_slot_base + 1597u;
         static constexpr uint32_t shadow_map = heap_slot_base + 1047u; // binding 8, per image
         /** @brief the ray-traced visibility image, sampled by the lighting stage */
         static constexpr uint32_t rt_visibility = heap_slot_base + 1055u; // binding 15, per image
@@ -534,6 +546,8 @@ export namespace deren::engine::render_layout {
                   "the ray-traced reflection descriptor runs must stay inside the grid");
     static_assert(heap_slots::rt_reflection_depth_current_storage + heap_image_capacity <= heap_slot_base + heap_slot_count,
                   "the reflection denoiser descriptor runs must stay inside the grid");
+    static_assert(heap_slots::subtilis_page_arena + 1u <= heap_slot_base + heap_slot_count,
+                  "the subtilis page descriptors must stay inside the grid");
     // THE SOFTWARE FAMILIES' SPACING IS THE GRID'S, and these are the contract. `software_depth` sits in the range
     // the visibility work RESERVED (1239..1246, one per-image run) and `software_id` follows the HZB tables, so the
     // two are NOT adjacent - only the id family and the tile-list lane are. The checks are the run's end (the depth
