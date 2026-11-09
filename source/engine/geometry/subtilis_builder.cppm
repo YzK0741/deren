@@ -4,6 +4,7 @@ export module deren.engine.subtilis.builder;
 import deren.engine.meshlet;
 import deren.engine.subtilis.asset;
 import deren.engine.subtilis.dag_import;
+import deren.asset.subtilis.types;
 import deren.utility.shared;
 
 export namespace deren::engine::subtilis {
@@ -100,6 +101,14 @@ export namespace deren::engine::subtilis {
         }
         [[nodiscard]] bool imported_payload() const noexcept {
             return bool(imported_);
+        }
+        /// Empty for a locally built LOD0 mesh; an imported version-1.1 payload supplies the complete
+        /// page cover and the dependency table the residency manager validates.
+        [[nodiscard]] std::span<deren::asset::subtilis::page_entry const> pages() const noexcept {
+            return imported_ ? imported_->pages() : std::span<deren::asset::subtilis::page_entry const>{};
+        }
+        [[nodiscard]] std::span<std::uint32_t const> page_dependencies() const noexcept {
+            return imported_ ? imported_->page_dependencies() : std::span<std::uint32_t const>{};
         }
         static std::expected<built_geometry, build_error> adopt_imported(std::shared_ptr<imported_asset const> source) {
             if (!source || source->vertices().empty() || source->indices().empty()) {

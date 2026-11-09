@@ -6,6 +6,7 @@
 
 import deren.engine.subtilis.residency;
 import deren.engine.subtilis.dag_import;
+import deren.engine.subtilis.builder;
 import deren.asset.subtilis.dag;
 import deren.asset.subtilis.pages;
 #include "subtilis_dag_fixtures.hpp"
@@ -154,18 +155,25 @@ int main() {
                     CHECK(!imported->pages().empty());
                     CHECK(imported->pages().size() == validated->data().pages.size());
                     CHECK(imported->page_dependencies().size() == validated->data().page_dependencies.size());
-                    auto manager = sub::make_page_manager(imported->pages(), imported->page_dependencies(), budget(1ull << 20));
+                    auto shared = std::make_shared<sub::imported_asset const>(std::move(*imported));
+                    auto adopted = sub::built_geometry::adopt_imported(shared);
+                    CHECK(adopted);
+                    if (adopted) {
+                        CHECK(adopted->pages().size() == shared->pages().size());
+                        CHECK(adopted->page_dependencies().size() == shared->page_dependencies().size());
+                    }
+                    auto manager = sub::make_page_manager(shared->pages(), shared->page_dependencies(), budget(1ull << 20));
                     CHECK(manager);
                     if (manager) {
                         auto loaded = manager->request_all();
                         CHECK(loaded);
                         std::uint64_t bytes = 0;
-                        for (std::uint32_t page = 0; page < imported->pages().size(); ++page) {
+                        for (std::uint32_t page = 0; page < shared->pages().size(); ++page) {
                             CHECK(manager->resident(page));
-                            bytes += imported->pages()[page].bytes;
+                            bytes += shared->pages()[page].bytes;
                         }
                         CHECK(manager->stats().resident_bytes == bytes);
-                        CHECK(manager->stats().resident_pages == imported->pages().size());
+                        CHECK(manager->stats().resident_pages == shared->pages().size());
                     }
                 }
             }

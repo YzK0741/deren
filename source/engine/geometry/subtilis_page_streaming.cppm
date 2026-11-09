@@ -44,6 +44,25 @@ export namespace deren::engine::subtilis {
         }
     };
 
+    /// One hierarchy section's wire bytes. The arena copies element ranges verbatim, so the stride
+    /// must be the encoded record size (32-byte clusters, 48-byte groups), not the engine-side struct.
+    struct page_section_view {
+        std::span<std::byte const> bytes{};
+        std::uint32_t stride = 0;
+    };
+    /// A complete page arena: the offset plan and the bytes those offsets address. M5c-1 uploads this
+    /// image unchanged; M5c-2 replaces the bytes of a page when its transfer completes.
+    struct page_arena_payload {
+        page_arena_layout layout;
+        utility::vessel::vector<std::byte> bytes;
+    };
+    /// Copy every page's wire range into one aligned arena. Fails rather than truncating when a page
+    /// disagrees with its section view, because the GPU page table would otherwise publish a range
+    /// that reads unrelated bytes.
+    [[nodiscard]] std::expected<page_arena_payload, residency_error>
+    pack_page_arena(std::span<page_entry const> pages, std::span<page_section_view const> sections,
+                    std::uint32_t alignment = 64);
+
     enum class gpu_page_state : std::uint32_t {
         absent = 0,
         requested = 1,
