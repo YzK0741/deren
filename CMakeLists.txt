@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 4.3)
 
-project(deren VERSION 0.5.0)
+project(deren VERSION 0.6.0)
 
 # Generate compile_commands.json for clangd and the VS Code C/C++ linter. This is
 # build metadata only - it does not change any compiled artifact.

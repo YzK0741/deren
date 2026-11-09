@@ -6,7 +6,7 @@ renderer reaches the graphics API through a contract and never through Vulkan ty
 a DLL the executable resolves **by name** at run time, so a second backend (D3D12, null, ...) is a
 second DLL implementing the same contract - see [The dynamic API](#the-dynamic-api) below.
 
-Current version: **0.5.0** - single source is `project(VERSION)` in `CMakeLists.txt`
+Current version: **0.6.0** - single source is `project(VERSION)` in `CMakeLists.txt`
 (surfaced by `--version`, the startup log banner and the instance's `app_info`); bump it there
 and keep this line in sync.
 
