@@ -1,7 +1,7 @@
 #version 460
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
-// The bindless texture array is indexed by the material's own index, exactly as shaders/surface.glsl does
+// The bindless texture array is indexed by the material's index, exactly as shaders/surface.glsl does
 // it: plain indices into a partially-bound array.
 #extension GL_EXT_nonuniform_qualifier : enable
 
@@ -24,8 +24,8 @@
  * measured landing 1.29 of mean brightness away from the raster reference because of exactly that. It stays
  * because a switch is what makes the two comparable, and it is off by default (`[render] rt_mask_bake`).
  *
- * Hiding a triangle means writing all three of its vertices at the SAME position - a degenerate triangle,
- * which traversal can never report a hit against. That is only safe when the triangle OWNS its vertices: a
+ * Hiding A separate triangle means writing all three vertices at the SAME position - a degenerate triangle,
+ * which traversal can never report a hit against. That is only safe when the triangle HOLDS its vertices: a
  * shared vertex would drag its neighbours with it. So the geometry is EXPANDED - three unique vertices per
  * triangle, no index buffer - into the buffer this pass fills, and the instance table points at that buffer
  * instead of the original one. A zero index address marks the geometry as not indexed.
@@ -113,7 +113,7 @@ void main() {
     }
 
     // The triangle's three source vertices, by the same arithmetic the hit shader uses: an index (or, for
-    // a non-indexed source, the vertex's own position in the list), times the stride, off the base.
+    // a non-indexed source, the vertex's position in the list), times the stride, off the base.
     SourceWords indices = SourceWords(lane_address(pc.source_indices));
     SourceFloats vertices = SourceFloats(lane_address(pc.source_vertices));
     const uint stride = pc.source_stride / 4u;
@@ -138,7 +138,7 @@ void main() {
         uvs[k] = vec2(vertices.values[at + 6u], vertices.values[at + 7u]);
     }
 
-    // The area test: the triangle is collapsed only when EVERY texel of its UV footprint is cut - so it
+    // The area test: the separate triangle is collapsed only when EVERY texel UV footprint is cut - so it
     // survives as soon as ONE texel inside its UV triangle is opaque.
     //
     // THE SAMPLES WALK THE FOOTPRINT AT TEXTURE RESOLUTION, and that is the part the measurement decided: a
@@ -178,7 +178,7 @@ void main() {
             const float w2 = (e0.x * rel.y - rel.x * e0.y) / determinant;
             const float w0 = 1.0 - w1 - w2;
             if (min(min(w0, w1), w2) < -0.01) {
-                continue; // outside the triangle (the tolerance absorbs the grid's own rounding)
+                continue; // outside the triangle (the tolerance absorbs the grid's rounding)
             }
             // The same coverage the raster path tests: base colour factor alpha times the texture's alpha,
             // kept when it reaches the cutoff (shaders/shadow.frag and surface.glsl's `alpha < cutoff ->
@@ -189,13 +189,13 @@ void main() {
         }
     }
 
-    // Write the three destination vertices: the source's own when the triangle survives, and three copies
+    // Write the three destination vertices: the source's when the triangle survives, and three copies
     // of its FIRST vertex when it does not - which is a degenerate triangle, and the whole of what "hide
     // this triangle" means to an acceleration structure.
     //
     // Position, normal AND UV are copied in both cases. The UVs are what the hit shading interpolates to
     // sample the material, and the normal is what it uses when the material has no normal map (a hit WITH
-    // one solves its tangent frame from the triangle's own edges and UV deltas, and needs the vertex normal
+    // one solves its tangent frame from the triangle's edges and UV deltas, and needs the vertex normal
     // as that frame's third axis) - so a zeroed normal would not be "unused", it would be a degenerate
     // shading frame. For a hidden triangle none of the three is ever read: no ray can hit it.
     DestFloats out_values = DestFloats(lane_address(pc.destination));

@@ -31,7 +31,7 @@
  * THE FRAME COUNT RIDES IN THE HISTORY'S ALPHA LANE. The trace's alpha carried the fraction of samples that
  * found their light unblocked; this pass overwrites it with the count, because the count is what the NEXT
  * frame's resolve needs and the unblocked fraction has no consumer yet. (UE keeps the count in an R8_UINT
- * image of its own; an integer up to 2048 is exact in a float16, so the lane is free.)
+ * separate image; an integer up to 2048 is exact in a float16, so the lane is free.)
  *
  * WHAT IT DOES NOT DO: no spatial filter (UE runs one after this, gated on the accumulated variance), no
  * history rectification beyond the clamp, and no motion-vector dilation - `docs/megalights.md` stages those.
@@ -40,7 +40,7 @@
 layout(local_size_x = 8, local_size_y = 8) in;
 
 // The SHARED G-buffer set's depth (the rejections compare it) and motion vector (the history is reprojected with
-// it), and this pass's own two ends of the accumulation - all HEAP-NATIVE now (see docs/descriptor_heap_migration.md):
+// it), and this pass's two ends of the accumulation - all HEAP-NATIVE now (see docs/descriptor_heap_migration.md):
 // resource heap images, per SWAPCHAIN IMAGE, and every READ is an exact texel fetch (this pass works per pixel), so
 // the NEAREST sampler. The WRITE is a STORAGE image, so it uses the storage descriptor the grid reserves for that
 // image (heap_slots_ml_resolved_storage) - one image, two descriptors, because no single heap descriptor is both.
@@ -86,14 +86,14 @@ float view_depth(float z_ndc) {
  * @brief the variance-weighted mean of this frame's estimate over a small neighbourhood
  * @param uv this pixel's uv
  * @param view_here its view distance, the depth guard's reference
- * @return the filtered estimate, or this pixel's own value when every tap was rejected
+ * @return the filtered estimate, or this pixel's value when every tap was rejected
  *
  * THE SPATIAL HALF of the denoise, and it runs BEFORE the accumulation rather than after it: filtering the
  * accumulated image would need a second pass, a second image and a second descriptor family (UE does exactly
- * that, and its spatial filter is `MegaLightsDenoiserSpatial.usf`), while filtering the frame's own estimate
+ * that, and its spatial filter is `MegaLightsDenoiserSpatial.usf`), while filtering the frame's estimate
  * costs nothing here - the taps are already in registers and the accumulation is what then averages the
  * result over time. The trade is stated rather than hidden: a pre-filter cannot use the accumulated moments
- * as its variance estimate, so the variance it weighs by is the neighbourhood's own.
+ * as its variance estimate, so the variance it weighs by is the neighbourhood's.
  *
  * The two weights are this chain's usual pair - a relative view-depth test and a spatial Gaussian - and the
  * SIGMA comes from the push block, so 0 makes this function the identity and the whole thing an A/B.
@@ -139,7 +139,7 @@ void main() {
     const vec3 current = spatial_mean(uv, view_depth(depth_here), pc.extents.z);
     if (depth_here >= 1.0) {
         // Background: the trace wrote 0 here, and so does this - with a count of 0, so that a pixel that gets
-        // geometry later starts its own accumulation rather than inheriting the sky's.
+        // geometry later starts its accumulation rather than inheriting the sky's.
         imageStore(ml_resolved_image[heap_slots_ml_resolved_storage + heap_image_index], pixel, vec4(0.0, 0.0, 0.0, 0.0));
         return;
     }
@@ -158,7 +158,7 @@ void main() {
         // target this chain deliberately does not bind (see the binding comment). A constant 1 divides the
         // tolerance by the loose factor, i.e. this is UE's test with its `lerp` fixed at its loosest - the
         // conservative direction, which costs history rather than granting a stale one. Binding the normal to
-        // sharpen it is a change with its own measurement, not an assumption here.
+        // sharpen it is a change with its measurement, not an assumption here.
         const float tolerance = max(previous_depth < 1.0 ? pc.params.w * view_here : -1.0, -1.0);
         const bool depth_agrees = previous_depth < 1.0 && abs(view_depth(previous_depth) - view_here) <= tolerance;
         // ---- A SOFT REJECTION, AND THE REASON IS THE ONE THING THAT EXPLAINED THE FLICKER ----

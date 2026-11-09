@@ -2,8 +2,8 @@
 // ============================================================================
 // file: source/backends/vulkan/core/facet/core.frame_views.cpp
 //
-// The frame face's borrowed views and the frame/profiler entry points, split
-// out of core.api_core.cpp. This translation unit owns no state of its own:
+// The frame face's views and the frame/profiler entry points, split
+// out of core.api_core.cpp. This translation unit holds no separate state:
 // every definition here is a member of `core` over the frame and command
 // facets, exactly as before the move.
 // ============================================================================
@@ -59,13 +59,13 @@ namespace deren::vulkan {
             // THE FRAME IN FLIGHT IS NOW THIS IMAGE, and that is all `frame.frame_in_flight` means: from here
             // until submit() hands the frame over, `begin_commands()` and `frame_image()` answer for it.
             // Both spellings go through this one primitive - the contract's frame_begin() and the
-            // runtime's own pacing path - so neither can be "in flight" without the other knowing.
+            // runtime's pacing path - so neither can be "in flight" without the other knowing.
             this->frame.acquired_image_index = image_index;
             this->frame.async_present_queued = false;
             this->frame.frame_in_flight = true;
-            // THE FRAME'S OWN RECORDING TARGET: while this frame is in flight the borrowed view's shared head
-            // names the frame slot's buffer; the frame's own submit/advance clears it. (The GUI overlay no
-            // longer records here - gui abi 5 gives the plugin its own two mergeable segments.)
+            // THE FRAME'S RECORDING TARGET: while this frame is in flight the view's shared head
+            // names the frame slot's buffer; the frame's submit/advance clears it. (The GUI overlay no
+            // longer records here - gui abi 5 gives the plugin its two mergeable segments.)
             this->frame.commands_view.set_target(this->frame_command_buffer());
             // and this is what makes `frame_image()` answer at all: before the first successful acquire
             // there is no last-acquired image, only a default index that happens to name one.
@@ -89,19 +89,19 @@ namespace deren::vulkan {
                 return rhi::error::unsupported;
             }
         }
-        // THE FRAME'S OWN LIST first, which is the shape this verb had from the start.
+        // THE FRAME'S LIST first, which is the shape this verb had from the start.
         if (&commands != static_cast<rhi::command_buffer*>(&this->frame.commands_view)) {
-            // ---- AND THE CALLER'S OWN LIST (plan X4) ------------------------------------------------------
+            // ---- AND THE CALLER'S LIST (plan X4) ------------------------------------------------------
             //
             // WHAT THIS WIDENING IS FOR, and it is a WIDENING rather than a new slot (the signature does not
             // move, so abi 27 stands): the probes record their read-back into a buffer THEY created
             // (`create_command_buffer()`), and they used to hand it to the queue through the escape with a raw
             // `vkQueueSubmit` (the escape is deleted in abi 43) - the last Vulkan reference the engine half had.
-            // A one-shot list the caller owns is the same operation the frame's list is (record -> submit to
+            // A one-shot list the caller holds is the same operation the frame's list is (record -> submit to
             // the graphics queue); what differs is
             // that NOTHING IS PRESENTED, so the acquire state, the swapchain image and the semaphores are not
             // involved. THE ORDERING STAYS THE CALLER'S (`wait_idle()`), exactly as it was when it submitted by
-            // hand - the contract has no fence for an owned buffer, and inventing one is not this batch's call.
+            // hand - the contract has no fence for a held buffer, and inventing one is not this batch's call.
             {
                 std::lock_guard const lock(this->command.contract_command_buffers_mutex);
                 if (!this->command.contract_command_buffers.contains(&commands)) {
@@ -194,7 +194,7 @@ namespace deren::vulkan {
         if (!this->frame.frame_in_flight) {
             return rhi::error::not_ready;
         }
-        // The image and the present-ready semaphore are this backend's own acquire state - never
+        // The image and the present-ready semaphore are this backend's acquire state - never
         // caller data (the contract's note). The raw failure becomes the generic translation; the
         // device-level codes travel as themselves.
         report_operation_counts();
@@ -203,9 +203,9 @@ namespace deren::vulkan {
 
     // ---- the frame face (abi 13) ----------------------------------------------------------------
     //
-    // THE ACCESSORS hand out this core's two borrowed views - the same object every call, the
-    // constructor set their `owner`. The views' methods compose the machinery this class already
-    // owned: the walker is today's frame prologue fused (wait -> latch timings -> acquire -> report),
+    // THE ACCESSORS hand out this core's two views - the same object every call, the
+    // constructor set their `holder`. The views' methods compose the machinery this class already
+    // held: the walker is today's frame prologue fused (wait -> latch timings -> acquire -> report),
     // the profiler reads the timing snapshot the walker's latch produced.
 
     std::uint32_t core::frame_walker_view::slot_count() const noexcept {
@@ -213,7 +213,7 @@ namespace deren::vulkan {
     }
 
     std::uint32_t core::frame_walker_view::position() const noexcept {
-        // THE one authority: this is the backend's own cursor, read without advancing.
+        // THE one authority: this is the backend's cursor, read without advancing.
         return static_cast<std::uint32_t>(this->parent->frame.current_frame);
     }
 

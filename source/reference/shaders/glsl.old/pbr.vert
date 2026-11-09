@@ -47,7 +47,7 @@ layout(descriptor_heap, descriptor_stride = heap_slot_stride) readonly buffer In
 
 // Previous-frame world matrices (scene set binding 13), one per MOTION SLOT: the runtime walks the
 // scene tree once per frame and writes, for every leaf, the world matrix that leaf had one frame
-// ago. This draw's own entry is indexed by push.motion_base (+ gl_InstanceIndex for an instanced
+// ago. This draw's entry is indexed by push.motion_base (+ gl_InstanceIndex for an instanced
 // draw, whose slots run parallel to the instance block), and the resulting previous world position
 // is what the fragment stage turns into TAA's motion vector - which is how a MOVING object gets one
 // at all. Without it the vector could only describe camera motion, and a character walking through
@@ -181,7 +181,7 @@ void main() {
     v_uv = in_uv;
 
     // The previous LOCAL position through the previous frame's world matrix. The node's rigid motion comes
-    // from that matrix, and a vertex's own movement inside its object space comes from prev_local_pos
+    // from that matrix, and a vertex's movement inside its object space comes from prev_local_pos
     // above - the previous MORPH weights and the previous SKIN matrices, composed in that order. Which is
     // why this is no longer "the current local position through last frame's model": that version reported
     // a motion vector of exactly zero for a mesh whose node never moved, no matter how it deformed.

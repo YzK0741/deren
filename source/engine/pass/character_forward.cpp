@@ -48,12 +48,12 @@ namespace deren::engine::pass {
     }
 
     void character_forward_pass::create(pass_context const&) {
-        // Nothing to build: no own set (every slot these leaves read comes from the frame's heaps) and no
+        // Nothing to build: no dedicated set (every slot these leaves read comes from the frame's heaps) and no
         // pipeline (the renderer registers the named one, and the leaves bind it through `default_name`).
     }
 
     void character_forward_pass::on_swapchain_recreated(pass_host const&) {
-        // Nothing is per-image here: the targets belong to the frame loop and the leaves own their buffers.
+        // Nothing is per-image here: the targets belong to the frame loop and the leaves hold their buffers.
     }
 
     void character_forward_pass::set_frame(character_forward_frame const& frame) noexcept {
@@ -68,7 +68,7 @@ namespace deren::engine::pass {
         // LOAD on both attachments: the lit frame and the opaque surface are what this pass draws OVER.
         // THE SCOPE RIDES THE CONTRACT TOO (abi 20): one colour attachment and the depth, both LOAD + STORE, and
         // no `secondary_contents` bit - this pass records straight into the primary, which is the whole point of
-        // its own note (see the file's header).
+        // its note (see the file's header).
         deren::utility::vessel::array<rhi::color_attachment, 1> const colors = {
             rhi::color_attachment{.view = io.targets[0].view_handle, .load = rhi::load_op::load, .store = rhi::store_op::store, .clear = {}},
         };
@@ -102,7 +102,7 @@ namespace deren::engine::pass {
         //   drawn by it.
         //
         //   DEPTH WRITE OFF, THEN LOCKED. The set comes first (the state starts "unknown", so it is really
-        //   emitted), and the lock comes second because every primitive's draw() sets its OWN depth write a
+        //   emitted), and the lock comes second because every primitive's draw() sets its depth write a
         //   few instructions later - without the lock this pass's `ZWrite Off` would be a statement of
         //   intent that the very next leaf undoes. See render_environment::depth_write_locked.
         env.default_name = this->pass_frame.pipeline_name;
@@ -121,16 +121,16 @@ namespace deren::engine::pass {
 
         // ---- AND THE OUTLINE GROUP, AFTER THE LEAVES AND BEFORE THE OVERLAYS ----
         //
-        // THE ARTICLE'S ① 描边 (`MyZmdOutlineShader`): the character's own leaves drawn a second time as an
+        // THE ARTICLE'S ① 描边 (`MyZmdOutlineShader`): the character's leaves drawn a second time as an
         // INVERTED HULL - front faces culled, vertices pushed outward in the VERTEX stage - so the only fragments
         // that survive the depth test are the ring just outside each silhouette. It is a third list for the same
-        // reason `overlay_leaves` is a second one: its own pipeline (`outline_pipeline_name`, Cull Front +
-        // LESS_OR_EQUAL), its own order, and its own per-material gate (the material's `_OutlineWidth`, which is 0
+        // reason `overlay_leaves` is a second one: its pipeline (`outline_pipeline_name`, Cull Front +
+        // LESS_OR_EQUAL), its order, and its per-material gate (the material's `_OutlineWidth`, which is 0
         // for a material the game itself says has no outline - chen's `cloth_02`).
         //
         // WHY IT IS BEFORE THE OVERLAYS: they multiply what this stage wrote, so the hull is part of what they
         // multiply. WHY THE DEPTH TEST IS ENOUGH: the leaves have just re-shaded the character onto the depth
-        // this pass LOADed, so every hull fragment inside a silhouette fails LESS_OR_EQUAL against its own
+        // this pass LOADed, so every hull fragment inside a silhouette fails LESS_OR_EQUAL against its
         // surface and only the outside ring is left.
         //
         // WHAT IS NOT REPRODUCED, and it is the one state the article's shader states that this pass cannot: its
@@ -141,9 +141,9 @@ namespace deren::engine::pass {
         if (!this->pass_frame.outline_pipeline_name.empty() && !this->pass_frame.outline_leaves.empty()) {
             env.default_name = this->pass_frame.outline_pipeline_name;
             // CULL FRONT FOR THIS GROUP ONLY, and it has to be stated HERE rather than in the pipeline: every
-            // leaf's draw() calls `set_cull_mode` with its own double-sided flag (see the field's own note), so a
+            // leaf's draw() calls `set_cull_mode` with its double-sided flag (see the field's note), so a
             // pipeline-level Cull Front would be undone by the first hull. Cleared immediately after, so the
-            // overlay group below records its own culling exactly as before.
+            // overlay group below records its culling exactly as before.
             env.forced_cull_front = true;
             for (primitive const* const leaf : this->pass_frame.outline_leaves) {
                 leaf->draw(env);
@@ -151,7 +151,7 @@ namespace deren::engine::pass {
             env.forced_cull_front = false;
         }
 
-        // ---- AND THE OVERLAY GROUP, AFTER THEM AND WITH ITS OWN PIPELINE ----
+        // ---- AND THE OVERLAY GROUP, AFTER THEM AND WITH Its PIPELINE ----
         //
         // THE ORDER IS THE MECHANISM (see `character_forward_frame::overlay_leaves`): the multiply has to see
         // the toon-SHADED pixel, so it cannot be interleaved with the leaves whose result it multiplies. The
@@ -164,7 +164,7 @@ namespace deren::engine::pass {
         // over. THE ARTICLE'S `Stencil { Ref 1 Comp Equal }` ON THE HAIR SHADOW IS NOT REPRODUCED and cannot be
         // here: this renderer's dynamic rendering info declares NO stencil attachment
         // (`stencilAttachmentFormat` is VK_FORMAT_UNDEFINED, see source/backends/vulkan/constant_init), so there is no stencil
-        // plane for a Ref test - the geometry's own coverage is what stands in for it, which is why the hair
+        // plane for a Ref test - the geometry's coverage is what stands in for it, which is why the hair
         // shadow is a mesh shaped around the forehead rather than a full-screen quad.
         if (!this->pass_frame.overlay_pipeline_name.empty() && !this->pass_frame.overlay_leaves.empty()) {
             env.default_name = this->pass_frame.overlay_pipeline_name;

@@ -157,7 +157,7 @@ namespace {
     ///   - the distance is the FULL homogeneous dot (plane.xyz * world.xyz + plane.w), so the plane's translation
     ///     participates instead of being dropped;
     ///   - the radius comes from the UNNORMALIZED plane normal, which is what scales it by |n| and makes this a
-    ///     world-space sphere test. Normalizing `n` on its own would shrink the support where |n| is small -
+    ///     world-space sphere test. Normalizing `n` alone would shrink the support where |n| is small -
     ///     near the far plane, where |n| is far/(far - near) for the near plane and (far - near)/far for the far
     ///     one - so the two sides would disagree by a world unit exactly where a splat cloud meets the plane.
     bool shader_plane_drawn(glm::mat4 const& vp, glm::mat4 const& model, gs::geometry_record const& g) {
@@ -371,7 +371,7 @@ namespace {
                 CHECK(std::memcmp(references->objects[0].buffer->mapped().data(), frame.references().data(), frame.references().size_bytes()) == 0);
             }
         } else {
-            CHECK_MSG(false, "CPU raster uploads must be owned by a passchain snapshot");
+            CHECK_MSG(false, "CPU raster uploads must be held by a passchain snapshot");
         }
     }
     template <typename core_type>
@@ -478,7 +478,7 @@ namespace {
             item.asset.reset();
         }
         CHECK(!weak.expired());
-        reused->reset(); // the reuse result owns the same frame now, so it is one reference to drop
+        reused->reset(); // the reuse result holds the same frame now, so it is one reference to drop
         (*frame).reset();
         CHECK(weak.expired());
         raster_probe_core empty_probe;
@@ -518,7 +518,7 @@ namespace {
         one = {};
         growth = {};
         asset->reset();
-        grown->reset(); // owning reuse handle
+        grown->reset(); // holding reuse handle
         leased.reset();
         frame->reset();
         CHECK(!root.expired());

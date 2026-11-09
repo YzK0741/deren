@@ -1,6 +1,6 @@
 // Headless unit tests: the RHI image-format vocabulary =========================
 // The contract's `image_format` numbers cross the C ABI, so they are facts rather than an implementation
-// detail: a value may be APPENDED but never renumbered (see the enum's own note in rhi.api_core.cppm).
+// detail: a value may be APPENDED but never renumbered (see the enum's note in rhi.api_core.cppm).
 // The host byte size is the second half of the same vocabulary - a caller that receives image content
 // strides rows with it - and `r32_uint` is the appended value the visibility buffer is created with.
 #include "vk_test.h"

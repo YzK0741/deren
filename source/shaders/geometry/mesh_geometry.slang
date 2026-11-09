@@ -19,7 +19,7 @@
 // offset the other fetch paths name keeps its byte. A mesh whose layout differed would need this file changed
 // with it; the caller refuses such a mesh instead (see the host's mesh draw path).
 //
-// IT DOES NOT DECIDE WHERE A TRIANGLE GOES: the stage's own transform body is shared with the vertex
+// IT DOES NOT DECIDE WHERE A TRIANGLE GOES: the stage's transform body is shared with the vertex
 // entry of the same file, so the two paths emit the same clip positions by construction rather than by a
 // copied expression - which is what makes the capture gate a valid acceptance for a mesh port.
 
@@ -39,7 +39,7 @@ uint64_t mesh_lane_address(uint2 halves)
 /// @note A MESH STAGE HAS NO DRAW COMMAND TO READ THESE FROM. `vkCmdDrawMeshTasksEXT` carries group
 ///       counts and nothing else: no vertex buffer binding, no index buffer, no first index, no
 ///       instance count. Everything the input assembler used to consume therefore has to arrive as
-///       DATA, and this struct is that data - pushed by the primitive's own draw() right before its
+///       DATA, and this struct is that data - pushed by the primitive's draw() right before its
 ///       mesh dispatch, at the offset its stage block reserves for it (see the host's
 ///       `mesh_geometry_offset_*`).
 ///
@@ -130,14 +130,14 @@ struct MeshletRecord
     uint first_index;
     uint index_count;
     int base_vertex;
-    uint page_id;     // streamed index page + 1; 0 means the draw's own index buffer
+    uint page_id;     // streamed index page + 1; 0 means the draw's index buffer
     float3 center;    // std430 puts a float3 on a 16-byte boundary: the host record carries the padding for it
     float radius;
     float3 axis;      // the normal cone's axis (the average of the window's face normals)
     float cone_cos;   // the smallest dot any face normal has with the axis, i.e. the cone's half-angle is acos(this)
 };
 
-/// @brief read index @p i through the record's streamed page, or the draw's own buffer when it has none
+/// @brief read index @p i through the record's streamed page, or the draw's buffer when it has none
 ///
 /// @note THE PAGE ID IS THE SIDE LANE docs/subtilis_m2_m5_plan.md calls for: the 48-byte meshlet record
 ///       already carries it in the four bytes the std430 float3 left at offset 12, so the geometry lanes
@@ -181,11 +181,11 @@ MeshletRecord meshlet_at(const uint index)
 
 /// @brief the same record out of the HOST-CULLED table for this frame (docs/mesh_shaders.md step 3)
 /// @param frame_slot the frame in flight (the push block's, which the caller has)
-/// @param index the record index INSIDE the primitive's run - the culled table uses the table's own layout, so the
+/// @param index the record index INSIDE the primitive's run - the culled table uses the table's layout, so the
 ///        host's compaction is what makes `index` (a workgroup id) select the i-th SURVIVING meshlet
 /// @note a CULLED session passes its lanes' flag here: the host culled the primitive's run against the camera and
 ///       wrote only the survivors out, so the workgroups the dispatch asks for are exactly the ones with work to do.
-///       The table's own indexing is unchanged, which is what keeps this a table SWAP rather than a second lookup.
+///       The table's indexing is unchanged, which is what keeps this a table SWAP rather than a second lookup.
 MeshletRecord culled_meshlet_at(const uint frame_slot, const uint index)
 {
     return heap_at<StructuredBuffer<MeshletRecord>>(heap_slots_meshlet_culled)[frame_slot * meshlet_table_capacity + index];
@@ -232,12 +232,12 @@ static const uint mesh_stat_visibility_depth_mismatch = 6u;
 // the resolve's pixels whose triangle crossed the NEAR PLANE (item 3's size: every one of these is a
 // vertex behind the eye, which v0 cannot rebuild and the clip will recover)
 static const uint mesh_stat_visibility_clipped = 7u;
-// THE VISIBILITY RASTER LANE'S OWN CULL COUNTERS (ids 8..11), because the counters above cover the pbr/shadow
+// THE VISIBILITY RASTER LANE'S CULL COUNTERS (ids 8..11), because the counters above cover the pbr/shadow
 // meshLET entries only: the visibility mesh entry culls per meshlet with the same frustum test but its workgroups
 // are a different stage's, so a pre-dispatch compute cull for THAT lane had no in-engine number to justify it -
 // only the offline probe. `visibility_culled` is the lane's `mesh_stat_culled`: launched workgroups the test
 // rejected, i.e. the dispatches a compute pass that culled before the dispatch would not record (docs/
-// mesh_shaders.md step 3's argument, now with the visibility lane's own number in the shutdown log).
+// mesh_shaders.md step 3's argument, now with the visibility lane's number in the shutdown log).
 static const uint mesh_stat_visibility_workgroups = 8u;  // visibility mesh workgroups dispatched = meshlets it looked at
 static const uint mesh_stat_visibility_culled = 9u;      // ... rejected by the same frustum test, emitting nothing
 static const uint mesh_stat_visibility_emitted = 10u;    // ... that emitted their triangles

@@ -151,7 +151,7 @@ float3 FFX_DNSR_Reflections_LoadRadiance(int2 pixel_coordinate)
     // Each stage loads a different radiance image through this one callback. Reprojection builds its
     // neighborhood from the raw reflection, exactly like AMD's Reproject.hlsl; the temporal resolve
     // reconstructs its local color box from the prefiltered radiance, like AMD's ResolveTemporal.hlsl.
-    // The prefilter has its own raw reader in LoadNeighborhood below.
+    // The prefilter has its raw reader in LoadNeighborhood below.
 #if defined(REFLECTION_DENOISE_REPROJECT)
     return reflection_raw_radiance(pixel_coordinate);
 #else
@@ -325,7 +325,7 @@ void FFX_DNSR_Reflections_LoadNeighborhood(
 {
     // AMD's Prefilter.hlsl filters the RAW radiance; the variance next to it is the value the
     // reprojection stage wrote for this pixel. Reading the reprojected radiance here would feed
-    // prefilter its own temporal neighbor instead of the current reflection.
+    // prefilter its temporal neighbor instead of the current reflection.
     radiance = reflection_raw_radiance(pixel_coordinate);
     Texture2D<float4> moments = heap_at<Texture2D<float4>>(heap_slots_rt_reflection_moments + heap_frame_slot);
     variance = moments.Load(int3(reflection_clamp_pixel(pixel_coordinate), 0)).x;

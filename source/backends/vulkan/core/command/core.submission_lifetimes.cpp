@@ -65,7 +65,7 @@ namespace deren::vulkan {
             }
             timeline = command.completion_timeline;
         }
-        // The core owns this semaphore until teardown; callers keep the core alive.
+        // The core holds this semaphore until teardown; callers keep the core alive.
         // Never block while holding queue/submission locks: another host thread can submit or signal.
         VkResult status;
         if (wait) {

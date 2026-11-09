@@ -3,7 +3,7 @@
 > **What this is**: `vstd` is **modified from libc++** (LLVM's C++ standard
 > library, the C++23 library shipped with clang). It is *not* a rewrite of
 > the STL, *not* derived from any other std implementation (e.g. GNU
-> libstdc++), and *not* an independent implementation: it is libc++'s own
+> libstdc++), and *not* an independent implementation: it is libc++'s
 > generated `std` module, renamed to `vstd` and **trimmed to the headers this
 > project actually uses**. The exported entities are the libc++ entities,
 > re-exported with `using`; the definitions come from the toolchain's libc++
@@ -15,7 +15,7 @@
 > **UPDATE (portability layer)**: the binding is now confined to ONE file. The partitions
 > name `VSTD_*` instead of `_LIBCPP_*`, and `source/vstd/vstd_compat.inc` defines each of those
 > names — under libc++ *as* the `_LIBCPP_*` macro it replaces, and under another standard
-> library from that library's own feature-test macros. The partitions themselves contain
+> library from that library's feature-test macros. The partitions themselves contain
 > no implementation-specific macro, and no internal namespace: see "Portability layer"
 > below for what that buys and what it does not.
 
@@ -43,7 +43,7 @@ used partitions are kept.
 ## MSVC dialect (`vstd_msvc.cppm`)
 
 The MSVC build does **not** compile `vstd.cppm`. It compiles `vstd_msvc.cppm`, which is a vendored
-copy of the MSVC STL's own `modules/std.ixx` from Visual Studio 2022 17.14 / MSVC 14.44.35207. The
+copy of the MSVC STL's `modules/std.ixx` from Visual Studio 2022 17.14 / MSVC 14.44.35207. The
 body is upstream's unchanged except for the module name:
 
 ```c++
@@ -59,7 +59,7 @@ This is not a preference, it is a workaround for a measured compiler bug: with t
 re-export construction, `cl.exe` 19.44 dies with `fatal error C1001` (internal compiler error,
 three different signatures) on every TU that instantiates `std::span`, `std::array` or
 `std::tuple` through the module - 7 of the tree's 326 objects, every one of them an importer of
-`vstd`. Using the MSVC STL's own module source avoids that construction. Minimal reproductions, a
+`vstd`. Using the MSVC STL's module source avoids that construction. Minimal reproductions, a
 partition-level bisection and the counter-experiments live in
 `build-release-clang64/msvc/lead_lab/ICE_FINDINGS.md`.
 
@@ -125,7 +125,7 @@ The partitions are mechanically generated from libc++ and were audited:
 
 So the content is **toolchain-bound, not platform-bound**: it compiles
 against the matching libc++ headers and must be regenerated with them, but it
-has no Windows/Linux/compiler-specific forks of its own.
+has no Windows/Linux/compiler-specific separate forks.
 
 ## Versioning
 

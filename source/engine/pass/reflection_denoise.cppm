@@ -4,7 +4,7 @@
  * @brief the AMD FidelityFX reflection denoiser's three stages as heap-native compute passes.
  *
  * The denoiser is a three-stage temporal chain (Reproject -> Prefilter -> ResolveTemporal). Each stage is its
- * own pass node in the render graph so the graph owns the transitions between them; the shaders reach every
+ * a pass node in the render graph so the graph holds the transitions between them; the shaders reach every
  * image through the frame's heap, so a pass declares no bindings and no targets. The only host-side constants
  * are the push block below, and the framework appends the two heap index lanes after them.
  */
@@ -127,7 +127,7 @@ export namespace deren::engine::pass {
             return this->history_valid;
         }
 
-        /// @brief the temporal accumulation cap (AMD's `max_samples`; 0 means the shader's own fallback)
+        /// @brief the temporal accumulation cap (AMD's `max_samples`; 0 means the shader's fallback)
         void set_max_samples(std::uint32_t samples) noexcept {
             this->max_samples = samples;
         }

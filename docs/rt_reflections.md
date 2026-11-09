@@ -109,7 +109,7 @@ is unchanged.
 - The published material preview is a 1080x960 offscreen capture at frame 30
   (`docs/screenshots/README.md:5`); it is a manual capture, not an automated
   pixel gate.
-- `scripts/measure/motion_dd.py` records the reflection's own temporal motion
+- `scripts/measure/motion_dd.py` records the reflection's temporal motion
   loss as mean |difference of differences| 0.4029 before the accumulation cap and
   0.3492 after it, with the change confined to smooth-material tiles and the
   rough tiles bit-identical. That is a recorded arm, not a CI threshold.
@@ -132,13 +132,13 @@ is unchanged.
 ## Source layout
 
 - `source/engine/pass/ray_traced_reflection.cppm`
-  owns the ray-trace pass.
+  holds the ray-trace pass.
 - `source/engine/pass/reflection_denoise.cppm`
-  owns the denoiser passes.
+  holds the denoiser passes.
 - `source/engine/render_graph/rt_reflection.cppm`
-  owns the reflection graph.
+  holds the reflection graph.
 - `source/engine/render_graph/reflection_denoise.cppm`
-  owns the denoiser graph.
+  holds the denoiser graph.
 - `source/shaders/lighting/rt_reflection.slang` holds the ray-generation, closest-hit, miss
   and alpha-mask any-hit stages; `source/shaders/common/rt_alpha_mask.slang` holds the predicate
   shared with ray-traced shadows. The denoiser stages are `reflection_reproject.slang`,

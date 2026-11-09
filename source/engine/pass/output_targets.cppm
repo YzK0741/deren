@@ -1,6 +1,6 @@
 /** @file
  * @brief Output-sized G-buffer and HDR resources shared by the scene and post passes.
- * This producer owns no recording stage. The chain owns the generations; host routing and barriers
+ * This producer holds no recording stage. The chain holds the generations; host routing and barriers
  * retain their existing behavior. scene_color is an alias, not an allocation request.
  *
  * THE STOCHASTIC PUNCTUAL LIGHTING CHAIN (ml_trace / ml_resolve / ml_history) IS NOT HERE ANY MORE: the feature
@@ -244,7 +244,7 @@ export namespace deren::engine::pass {
          * @brief THE CSR TILE-LIST BUFFER (spec §3.4/§9 Q7): one host-written lane per frame slot
          *
          * Its size is the shared layout's answer for the render extent (header + counts + offsets + the GLOBAL entry
-         * budget) times the owner's frame count, so the one adjustable constant - `software_entry_budget` - moves the
+         * budget) times the holder's frame count, so the one adjustable constant - `software_entry_budget` - moves the
          * buffer with it. It is NOT an image, so it is not part of `software_resource_count`.
          */
         static render_resource::instances::request software_tiles_description(render_resource::instances::resource_context const& context) {

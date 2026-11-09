@@ -5,13 +5,13 @@
  * @brief The fifteenth real pass: the G-buffer debug view, which shows the stored surface one channel at a time.
  * @defgroup engine_pass_gbuffer_debug G-buffer Debug View Pass
  *
- * WHY IT IS A PASS AND WHAT IT OWNS: the view is a fullscreen triangle over the HDR target, so it owns its
+ * WHY IT IS A PASS AND WHAT IT HOLDS: the view is a fullscreen triangle over the HDR target, so it holds its
  * pipeline and its recording - the four images it moves to a sampled layout, the CLEAR instance, the 16-byte push
  * and the draw. IT IS ALSO THE PASS THAT WRITES THE HEAP SLOTS the view reads, and the deferred lighting stage
- * reads its own through the same heap: a shader names the slot and the frame binds the heap once (see
- * source/shaders/heap_slots.glsl), so there is no set layout to own and no family to write.
+ * reads its through the same heap: a shader names the slot and the frame binds the heap once (see
+ * source/shaders/heap_slots.glsl), so there is no set layout to hold and no family to write.
  *
- * WHAT IT DOES NOT OWN, and each is a shared thing rather than an omission: the stored surface itself, which is a
+ * WHAT IT DOES NOT hold, and each is a shared thing rather than an omission: the stored surface itself, which is a
  * per-image heap slot `publish_frame_resources` writes every frame; the two samplers, which a declaration picks by
  * hint and the heap carries; and two pieces of per-image bookkeeping the frame carries as a callback - the
  * G-buffer depth's transition (its old layout depends on whether the G-buffer instance rendered this frame) and
@@ -20,7 +20,7 @@
  *
  * THE HDR TARGET'S TRANSITION IS THE FRAME LOOP'S, for the same reason the post chain's is: it has to happen even
  * on a frame where nothing could run, because the post chain samples that image - and it is the frame loop
- * that owns the fallback (a cleared instance, which is what makes such a frame black rather than undefined).
+ * that holds the fallback (a cleared instance, which is what makes such a frame black rather than undefined).
  */
 
 module;
@@ -39,14 +39,14 @@ import deren.engine.pipelines; // vk_pipeline: the RAII parent of the pipeline t
 
 export namespace deren::engine::pass {
 
-    /// @brief what the renderer hands the view: the two per-image pieces of bookkeeping it cannot own
+    /// @brief what the renderer hands the view: the two per-image pieces of bookkeeping it cannot hold
     /**
      * @brief what the renderer hands the G-buffer debug view: NOTHING, and that is the endpoint
      *
      * The two per-image transitions this frame used to carry (`ensure_inputs`: the depth's hand-back and clearing
      * the motion-vector flag) are the frame's ORDERING rules about images the G-buffer pass wrote, so they run in
      * the debug stage's preamble in the renderer - the same move the ray-traced shadow pass's identical pair made.
-     * What is left for this pass to know is its own channel (its parameter) and the frame's facts, so the struct
+     * What is left for this pass to know is its channel (its parameter) and the frame's facts, so the struct
      * is gone rather than emptied.
      */
 
@@ -58,7 +58,7 @@ export namespace deren::engine::pass {
      */
     class gbuffer_debug_pass final : public frame_pass {
     public:
-        /// @brief how many stored channels the view can show: the SHADER's own switch (`gbuffer_debug.frag`), which
+        /// @brief how many stored channels the view can show: the SHADER's switch (`gbuffer_debug.frag`), which
         ///        is why the count lives with the pass rather than with the renderer that offers a slider for it
         static constexpr int32_t channel_count = 9;
         /// @brief the push block, which is also `gbuffer_debug.frag`'s
@@ -82,7 +82,7 @@ export namespace deren::engine::pass {
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const& host) override;
 
-        /// @brief the CLEAR instance, the push and the fullscreen draw alone - none of this pass's own ordering
+        /// @brief the CLEAR instance, the push and the fullscreen draw alone - none of this pass's ordering
         ///
         /// The removed legacy path's `record()` transitioned the four sampled G-buffer images itself (see its comment). A
         /// graph-recorded frame declares those reads and the HDR target write instead, and the graph emits both -
@@ -91,8 +91,8 @@ export namespace deren::engine::pass {
 
         /// @brief whether the pass built everything it records with (the renderer gates the feature on this)
         [[nodiscard]] bool pipeline_ready() const noexcept;
-        /// @brief the framework's generic form of the same question, so an owner holding only a chain can ask it
-        ///        (a pass with nothing of its own to build keeps the interface's `true`; see `frame_pass::ready`)
+        /// @brief the framework's generic form of the same question, so a holder holding only a chain can ask it
+        ///        (a pass with nothing separate to build keeps the interface's `true`; see `frame_pass::ready`)
         [[nodiscard]] bool ready() const noexcept override {
             return this->pipeline_ready();
         }
@@ -101,9 +101,9 @@ export namespace deren::engine::pass {
         /**
          * @brief which stored channel the view shows, which is THIS pass's parameter
          *
-         * The knob used to live in the renderer, which clamped it and copied it into the push block; the pass owns
+         * The knob used to live in the renderer, which clamped it and copied it into the push block; the pass holds
          * it now (with the clamp) and `runtime::set_gbuffer_channel` forwards. There is no frame any more: after the
-         * push block moved here the pass needs nothing per-frame except the frame's own facts.
+         * push block moved here the pass needs nothing per-frame except the frame's facts.
          * @param channel 0 albedo, 1 normal, 2 roughness, 3 metallic, 4 ao, 5 id, 6 depth, 7 flags, 8 motion
          */
         void set_channel(int32_t channel) noexcept;

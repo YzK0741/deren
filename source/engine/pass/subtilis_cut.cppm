@@ -26,7 +26,7 @@ export namespace deren::engine::pass {
     static_assert(sizeof(subtilis_cut_push_constants) == 16u);
 
     /**
-     * @brief Owns the cut pipeline and records the single dispatch plus the ordering barriers the raster needs.
+     * @brief Holds the cut pipeline and records the single dispatch plus the ordering barriers the raster needs.
      *
      * The shader writes the meshlet records and the mesh-task command. A later draw of the same frame reads
      * both, so the command needs SHADER_WRITE -> INDIRECT_READ and the table needs SHADER_WRITE ->

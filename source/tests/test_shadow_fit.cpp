@@ -1,7 +1,7 @@
 // Headless unit tests: deren.engine.shadow_fit (pure CPU) ===========================
 // The cascade fit is arithmetic that decides whether shadows land on screen at all: it had no GPU
 // dependency to begin with, it just lived inside deren.engine.runtime, where nothing could reach it. These
-// tests pin the invariants its own comments claim - the per-cascade resolution and the depth range -
+// tests pin the invariants its comments claim - the per-cascade resolution and the depth range -
 // without a device.
 #include "vk_test.h"
 
@@ -20,7 +20,7 @@ namespace {
     constexpr float far_plane = 100.0f;
 
     // A camera at the origin looking down -z, an object 5 units away, and a sun from the side.
-    // This is the shape the renderer's own orbit camera produces (RH_ZO, y-flip included), which
+    // This is the shape the renderer's orbit camera produces (RH_ZO, y-flip included), which
     // matters: the fit reads near/far out of the projection's z row.
     deren::engine::shadow_fit::fit_params make_params(uint32_t const cascades, float const scene_radius, bool const log_summary = false) {
         deren::engine::shadow_fit::fit_params params = {};
@@ -65,7 +65,7 @@ namespace {
         CHECK(fit.cascade_count == 3);
         CHECK(fit.cascade_texel_world[0] < fit.cascade_texel_world[1]);
         CHECK(fit.cascade_texel_world[1] < fit.cascade_texel_world[2]);
-        // every cascade is quantized to whole texels of its own box, so the size is strictly positive
+        // every cascade is quantized to whole separate texels box, so the size is strictly positive
         for (uint32_t i = 0; i < fit.cascade_count; ++i) {
             CHECK(fit.cascade_texel_world[i] > 0.0f);
         }
@@ -95,7 +95,7 @@ namespace {
         deren::engine::shadow_fit::fit_result const far_scene = deren::engine::shadow_fit::fit(far_params);
         CHECK(near_scene.valid && far_scene.valid);
         CHECK(far_scene.cascade_splits[2] > near_scene.cascade_splits[2]);
-        // and still refuses to exceed the camera's own far plane
+        // and still refuses to exceed the camera's far plane
         CHECK(far_scene.cascade_splits[2] <= far_plane);
     }
 
@@ -155,7 +155,7 @@ namespace {
     }
 
     // A caster cannot inflate the box sideways: under an orthographic sun a shadow lands at the
-    // caster's own light-space xy, and only xy inside the view is sampled - so a big caster far
+    // caster's light-space xy, and only xy inside the view is sampled - so a big caster far
     // outside the cascade must not coarsen it (merging its raw AABB is the bug that dissolved thin
     // shadows). It may only contribute DEPTH.
     void test_distant_caster_does_not_coarsen_the_cascade() {
@@ -189,7 +189,7 @@ namespace {
     // does not, and that is the design working.
     //
     // The consequence that does change is what the light camera must be able to see: the fitted z span
-    // has to reach the sphere's own depth extremes, or the unbounded caster's shadow is clipped away
+    // has to reach the sphere's depth extremes, or the unbounded caster's shadow is clipped away
     // and the sun leaks through - the exact failure the fallback exists to prevent.
     void test_unbounded_caster_extends_only_the_depth_range() {
         deren::engine::shadow_fit::fit_params params = make_params(1, 5.0f);

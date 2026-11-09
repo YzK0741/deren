@@ -349,7 +349,7 @@ struct upload_probe : rhi::api_core, rhi::resource_factory, rhi::command_context
         return rhi::unique_object<rhi::buffer>{new probe_buffer(calls, releases, calls == undersized_at ? desc.size - 1 : desc.size)};
     }
     /// abi 35: this probe records no batches - the two slots exist so the class stays concrete; the
-    /// probe's own batch semantics live in source/tests/probe_backend.cpp.
+    /// probe's batch semantics live in source/tests/probe_backend.cpp.
     [[nodiscard]] rhi::mergeable_command_buffer_ref make_mergeable_command_buffer(rhi::command_buffer_desc const&) override {
         return {};
     }
@@ -419,8 +419,8 @@ struct upload_probe : rhi::api_core, rhi::resource_factory, rhi::command_context
         return rhi::abi_version;
     }
 };
-/// The upload path requires an owning device lease. The probe's release is a no-op, so the
-/// stack probe can serve as its own owner for these tests.
+/// The upload path requires a holding device lease. The probe's release is a no-op, so the
+/// stack probe can serve as its holder for these tests.
 template <typename asset_type>
 auto upload_with_lease(upload_probe& probe, asset_type&& asset, gs::foundation_limits limits = {}) {
     return gs::upload_asset(probe, std::forward<asset_type>(asset), limits, rhi::shared_object<rhi::api_core>{&probe});
@@ -431,7 +431,7 @@ void check_asset_storage(Asset const& asset) {
     if constexpr (requires { asset.resources(); }) {
         CHECK(asset.resources().size() == 2);
     } else {
-        CHECK_MSG(false, "Static Gaussian buffers must be owned by a passchain snapshot");
+        CHECK_MSG(false, "Static Gaussian buffers must be held by a passchain snapshot");
     }
 }
 void test_upload() {

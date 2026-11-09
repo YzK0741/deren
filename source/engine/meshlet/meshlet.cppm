@@ -5,7 +5,7 @@
  *        each with an object-space bounding sphere - so a task stage can decide per meshlet whether to run it
  *        at all (docs/mesh_shaders.md step 3).
  *
- * WHY THIS IS A MODULE OF ITS OWN, and a PURE one: the split is arithmetic over the vertex and index bytes, it
+ * WHY THIS IS A separate MODULE, and a PURE one: the split is arithmetic over the vertex and index bytes, it
  * needs no device, no allocator and no Vulkan type, and getting it wrong is invisible on screen in exactly the
  * way a bad bounding volume always is (a meshlet culled while it is visible is a hole; a meshlet that is NOT
  * culled is just work). Keeping it free of dependencies is what lets the headless tests check the three
@@ -15,7 +15,7 @@
  * IT DELIBERATELY DOES NOT DECIDE WHAT A MESHLET IS FOR. It emits the same triangles the input window describes,
  * in the input's order, split into runs of at most `meshlet_max_triangles`: what a consumer does with them
  * (cull, reorder, deduplicate vertices, build a meshlet-local index buffer) is the consumer's business, and this
- * file's contract is only that the union of its output is the input.
+ * file's contract is only that the separate union output is the input.
  */
 module;
 #include <cstdint>
@@ -66,7 +66,7 @@ namespace deren::engine {
         uint32_t index_count = 0; ///< indices it covers (always a multiple of three, never zero)
         int32_t base_vertex = 0;  ///< the draw's base vertex, repeated per meshlet: it is added to every index
         /**
-         * @brief the streamed index page this record reads through, plus one; zero means the draw's own index buffer
+         * @brief the streamed index page this record reads through, plus one; zero means the draw's index buffer
          *
          * @note THE LANE AND ITS OFFSET ARE THE SHADER'S. The GPU-side struct is a Vulkan std430 `StructuredBuffer`
          *       element, where a `float3` has a 16-byte ALIGNMENT - so the shader puts `center` at byte 16 and

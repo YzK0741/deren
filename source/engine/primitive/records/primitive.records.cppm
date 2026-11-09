@@ -1,7 +1,7 @@
 // ============================================================================
 // module: deren.engine.primitive:records  (the GPU scene records of
 //         deren.engine.primitive: camera / light / material inputs and the
-//         geometry lease the drawable primitives own)
+//         geometry lease the drawable primitives separate)
 //
 // This partition is one of the three domains of deren.engine.primitive; the
 // top-level facade re-exports it, so consumers keep importing
@@ -174,10 +174,10 @@ namespace deren::engine {
      * @ingroup engine_primitive
      * @brief the FACE SDF's HEAD FRAME (scene block slot 749), one block per frame slot
      *
-     * WHY IT IS ITS OWN BLOCK AND NOT A FIELD OF THE CAMERA'S, which would have been the smaller change: the
+     * WHY IT IS its BLOCK AND NOT A FIELD OF THE CAMERA'S, which would have been the smaller change: the
      * head frame is a property of the CHARACTER rather than of the eye looking at it. A renderer that put it in
      * the camera UBO would have one more thing to unpick the day a scene holds two characters facing different
-     * ways - and the SDF's whole premise is that a face is shaded in ITS OWN frame rather than in anyone else's.
+     * ways - and the SDF's whole premise is that a face is shaded in its frame rather than in anyone else's.
      *
      * THREE `vec4`s RATHER THAN THREE `vec3`s, so the layout is unambiguous: a std430 `vec3` has a 16-byte
      * stride and a std140 one does too, but a struct of three of them is the kind of thing that agrees by
@@ -207,7 +207,7 @@ namespace deren::engine {
         /// the reference's `headCenter`: the head object's WORLD POSITION, `posWS - this` being the sphere normal
         /// `Recalculate normal` builds. `.w` IS A FLAG AND NOT PADDING: `1.0` means "a centre is known" and `0.0`
         /// (the default) means "this model has no head bone, so there is no `HC` object to read one from" - and
-        /// the SHADER then declines the sphere term and keeps the socket's own `interface[]` default
+        /// the SHADER then declines the sphere term and keeps the socket's `interface[]` default
         /// (`sphereNormal_Strength = 0.0`), which is what a material that states nothing gets in Goo. A `(0,0,0)`
         /// centre is NOT a neutral value for this socket: it is the WORLD ORIGIN, and `normalize(posWS)` is a
         /// radial vector from it rather than a head normal. MEASURED on the asset this step ports: every character
@@ -216,7 +216,7 @@ namespace deren::engine {
         glm::vec4 center = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
     };
     // 64: four `vec4`s and no padding, which is what lets the shader's copy be the same four members with no
-    // `alignas` or explicit padding anywhere - and the values above are glTF's own basis, matching
+    // `alignas` or explicit padding anywhere - and the values above are glTF's basis, matching
     // `deren::gltf::head_basis_fallback`, so a block nobody writes is still a usable frame rather than three zeros that
     // would produce NaNs on the way to the sigmoid. THE DEFAULTS MATTER MORE THAN THEY LOOK: a model with NO
     // SKELETON never calls `set_head_basis`, so this block IS that model's head frame - and getting its `front`
@@ -225,11 +225,11 @@ namespace deren::engine {
 
     /**
      * @ingroup engine_primitive
-     * @brief how many GameToon characters can carry their own head frame in one frame
+     * @brief how many GameToon characters can carry their head frame in one frame
      *
      * The character stage already draws a LIST of leaves; what was single was the head frame, because the scene
      * constant block had room for one `head_ubo` per frame slot. A scene can now import that many characters, each
-     * with its own index written into the high bits of `material_push_constants::flags`, and the shader indexes the
+     * with its index written into the high bits of `material_push_constants::flags`, and the shader indexes the
      * per-frame array. Sixteen matches `max_scene_objects`, and the shader's character index is 8 bits wide, so the
      * CPU-side array and descriptor range are the only storage that grow: 16 * 64 = 1024 bytes per frame slot.
      */
@@ -237,10 +237,10 @@ namespace deren::engine {
 
     /**
      * @ingroup engine_primitive
-     * @brief which shading stage owns this leaf's pixels
+     * @brief which shading stage holds this leaf's pixels
      *
      * `deferred` leaves write the G-buffer and are shaded by the deferred lighting pass. `character` leaves also
-     * write the G-buffer (they own its depth) but are re-shaded by the character-forward stage, which is where the
+     * write the G-buffer (they hold its depth) but are re-shaded by the character-forward stage, which is where the
      * GameToon chain lives. `splat` is reserved for Gaussian-splat objects; the stage does not consume it yet.
      *
      * THIS IS A LIST-BUILDING FACT, not a material-record lane: the frame builder decides which leaves each pass
@@ -264,9 +264,9 @@ namespace deren::engine {
      * They change when the art direction changes rather than per material, so they are one block and not a field
      * of every record.
      *
-     * THE LANES ARE THE ARTICLE'S OWN VOCABULARY (`_DayStrength`, `_OtherLight*`, `_MainLightColor_dark`, ...),
+     * THE LANES ARE THE ARTICLE'S VOCABULARY (`_DayStrength`, `_OtherLight*`, `_MainLightColor_dark`, ...),
      * packed four to a `vec4` so no layout question can arise - `head_ubo` above makes the same choice for the
-     * same reason. The shader's `ToonRigUBO` names every lane in its own comments; the two must be read together,
+     * same reason. The shader's `ToonRigUBO` names every lane in its comments; the two must be read together,
      * and the defaults below are the article's values wherever it states one.
      */
     export struct toon_rig {
@@ -276,10 +276,10 @@ namespace deren::engine {
         /// x = `_OtherLightResultStrength_day0`, y = `_OtherLightResultStrength_day1`,
         /// z = `_SelfAoShadowStrength`, w = the metallic/gloss map's occlusion exponent (`_AoStrength`)
         ///
-        /// x/y ARE THE AUTHOR'S OWN DEFAULTS (0.7 / 0.3), which all SIX of its shaders declare identically
+        /// x/y ARE THE AUTHOR'S DEFAULTS (0.7 / 0.3), which all SIX of its shaders declare identically
         /// (`MyZmdToonShader.shader:79-80`, `MyZmdHairToonShader.shader:63-64`, `MyZmdSkinToonShader.shader:58-59`,
         /// `MyZmdFaceShader.shader:68-69`, `MyZmdEyeShader.shader:71-72`, `MyZmdOutlineShader.shader:12-13`).
-        /// The port carried 1.0 / 0.25 - its own numbers, and ones that made the head light's DAY-1 share 3.3x
+        /// The port carried 1.0 / 0.25 - its numbers, and ones that made the head light's DAY-1 share 3.3x
         /// the author's. `head_day1` is live at the default `day_strength = 1` (`mainLightColor_final =
         /// lerp(head_day0, sun + head_day1, day)`), so both were visible; `head_day0` only at day < 1.
         glm::vec4 other_light = glm::vec4(0.7f, 0.3f, 1.0f, 1.0f);
@@ -290,12 +290,12 @@ namespace deren::engine {
         /// x = `_RimLightArea`, y = `_RimLightStrength`, z = `_RimLightNoLxzStrength`,
         /// w = `_RimLightDiffuseColorEffect`
         ///
-        /// x AND w ARE THE AUTHOR'S DEFAULTS (1.0 and 0.1), which every one of its rim-carrying shaders declares
+        /// x AND w ARE THE AUTHOR'S DEFAULTS (1.0 and 0.1), which every a separate one rim-carrying shaders declares
         /// identically (`MyZmdToonShader.shader:101/104`, `MyZmdHairToonShader.shader:85/88`,
         /// `MyZmdSkinToonShader.shader:78/81`, `MyZmdFaceShader.shader:83/86` - the EYE has no rim at all).
         /// The port carried x = 0.5 and w = 1.0, and the second is the bigger of the two by far: `w` is
         /// `rimLight_brdf = (mainDiffuseColor_Light - 0.25) * w + 0.25`, so at 1.0 the rim's brightness tracks the
-        /// material's own lit layer TEN TIMES as strongly as the author's 0.1 does. `x` moves the window the rim
+        /// material's lit layer TEN TIMES as strongly as the author's 0.1 does. `x` moves the window the rim
         /// occupies: `rimStart = x * -0.6 + 0.8`, `rimEnd = x * -0.4 + 0.9`, so 0.5 puts it at 0.5..0.7 and the
         /// author's 1.0 at 0.2..0.5 - a wider band starting further from the silhouette.
         glm::vec4 rim = glm::vec4(1.0f, 1.0f, 1.0f, 0.1f);
@@ -323,7 +323,7 @@ namespace deren::engine {
         /// Stronger = fewer hard comb teeth at the shadow's termination, more light
         /// leaking onto the whole skin - a taste trade the user picks per run, which is why the default is off.
         ///
-        /// IT RIDES THE RIG, NOT THE PER-FRAME LIGHT BLOCK, for the rig's own reason: it is fixed for a run and
+        /// IT RIDES THE RIG, NOT THE PER-FRAME LIGHT BLOCK, for the rig's reason: it is fixed for a run and
         /// only the toon chain reads it (`source/shaders/toon/character_forward.slang`'s one shadow call site). The rig's
         /// other lanes let this be a per-run A/B knob with no rebuild - the same lever `_DayStrength` uses.
         glm::vec4 shadow_softness = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -447,12 +447,12 @@ namespace deren::engine {
         uint32_t mip_levels = 1;
         ::deren::promise::rhi::image_format format = ::deren::promise::rhi::image_format::rgba8_unorm;
         bool valid = false;
-        /// Optional immutable owner. All aliases must remain immutable while retained by the runtime.
+        /// Optional immutable holder. All aliases must remain immutable while retained by the runtime.
         std::shared_ptr<deren::utility::vessel::vector<uint8_t> const> parent = {};
         bool override_format = false; // Opt-in explicit colour/data encoding, otherwise lane default.
     };
 
-    /// Reuse only an exact whole-vector owner; borrowed or partial spans need their own snapshot.
+    /// Reuse only an exact whole-vector holder; referenced or partial spans need their snapshot.
     export [[nodiscard]] inline std::shared_ptr<deren::utility::vessel::vector<uint8_t> const>
     share_texture_source(texture_input const& input) {
         if (input.parent && input.data.data() == input.parent->data() && input.data.size() == input.parent->size()) {
@@ -506,7 +506,7 @@ namespace deren::engine {
     };
 
     // The scene_drawable_iterator concept is STRUCTURAL over the getters' result shapes, so a
-    // scene iterator can satisfy it with its own pure-CPU types (e.g. the glTF loader's) — no
+    // scene iterator can satisfy it with its pure-CPU types (e.g. the glTF loader's) — no
     // shared type identity is required. The runtime template converts the read values (spans /
     // widths / factors) into its internal types.
 
@@ -549,7 +549,7 @@ namespace deren::engine {
         out.format = format;
         out.valid = true;
         // Converting a mutable shared_ptr to const does not prevent writes through other aliases.
-        // Only an explicitly immutable owner opts into sharing; other inputs retain snapshot semantics.
+        // Only an explicitly immutable holder opts into sharing; other inputs retain snapshot semantics.
         if constexpr (requires { { image.parent } -> std::same_as<decltype(out.parent) const&>; }) {
             out.parent = image.parent;
         }

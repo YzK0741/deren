@@ -3,15 +3,15 @@
  * @defgroup engine_pass_software_merge Software Merge Pass
  * @brief the SOFTWARE RASTER's depth-only merge (M4; docs/superpowers/specs/2026-10-22-software-
  *        raster-design.md §3.2/§5.2): one fullscreen depth-only graphics pass that folds the software image's depth
- *        into the frame's own G-buffer depth with LESS_OR_EQUAL + depth write, i.e. the write IS `min(hw, sw)`.
+ *        into the frame's G-buffer depth with LESS_OR_EQUAL + depth write, i.e. the write IS `min(hw, sw)`.
  *
  * WHY THIS IS A GRAPHICS PASS AND NOT A COMPUTE STAGE. The merge must change the SAME depth image the lighting and
  * the HZB read, and a depth write with the test enabled is what gives `min(hardware, software)` for free - including
  * the design's tie rule (an equal value writes the same value, so a tie changes nothing). A compute image would need a
  * storage write of the G-buffer depth AND a separate depth-usage descriptor, a second route to one image.
  *
- * ITS DECLARATION IS ONE DEPTH TARGET and nothing else: the frame's own `gbuffer_depth`, kind `depth` (the schema's
- * `target_kind::depth`). No colour attachment, no own bindings - the software images arrive through the frame's heap as
+ * ITS DECLARATION IS ONE DEPTH TARGET and nothing else: the frame's `gbuffer_depth`, kind `depth` (the schema's
+ * `target_kind::depth`). No colour attachment, no dedicated bindings - the software images arrive through the frame's heap as
  * sampled descriptors, and the fragment stage samples them to decide its SV_Depth value. The load op is LOAD (the
  * hardware depth is the comparison's other half) and the store is STORE (the merge's result is what later stages see);
  * both are the pass's knowledge at record time, which is why they are not declared.
@@ -45,7 +45,7 @@ export namespace deren::engine::pass {
         ~software_merge_pass() override = default;
 
         [[nodiscard]] render_resource::pass_io const& io() const noexcept override {
-            // ONE DEPTH TARGET, THE FRAME'S OWN G-BUFFER DEPTH. The software images are read through the frame's heap
+            // ONE DEPTH TARGET, THE FRAME'S G-BUFFER DEPTH. The software images are read through the frame's heap
             // (sampled descriptors), so they are not bindings; the only thing a declaration has to say is the
             // attachment this pass renders into, and that it fills the DEPTH slot rather than a colour one.
             static constexpr std::array<render_resource::render_target, 1> merge_targets{{{
@@ -59,7 +59,7 @@ export namespace deren::engine::pass {
 
         [[nodiscard]] deren::engine::pass::behaviour const& behaviour() const noexcept override {
             // A GRAPHICS pass over the FULL extent (one fullscreen triangle at the render resolution), and the
-            // viewport must be re-synced from the resolved extent because this pass's pipeline is its OWN object
+            // viewport must be re-synced from the resolved extent because this pass's pipeline is its object
             // rather than a name in the renderer's registry.
             static deren::engine::pass::behaviour const value{.kind = behaviour_kind::graphics,
                                                               .group_size_x = 8u,
@@ -74,7 +74,7 @@ export namespace deren::engine::pass {
             return {}; // no feature knob: whether the lane exists is the graph's decision (Task 4 wires the selection)
         }
 
-        /// @brief whether the pass has the depth-only pipeline it needs (not `ready()`: the framework owns that name)
+        /// @brief whether the pass has the depth-only pipeline it needs (not `ready()`: the framework holds that name)
         [[nodiscard]] bool has_pipeline() const noexcept {
             return this->merge_pipeline.has_value();
         }

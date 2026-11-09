@@ -14,8 +14,8 @@ namespace pass = deren::engine::pass;
 
 int main() {
     pass::software_merge_pass merge;
-    // ---- the declaration: ONE depth attachment, which is the FRAME'S OWN G-buffer depth (the merge writes min(hw,sw)
-    //      back into it; it has no colour target and no own binding) ----
+    // ---- the declaration: ONE depth attachment, which is the FRAME'S G-buffer depth (the merge writes min(hw,sw)
+    //      back into it; it has no colour target and no dedicated binding) ----
     auto const& io = merge.io();
     CHECK(io.name == "software merge");
     CHECK(io.bindings.empty());
@@ -24,13 +24,13 @@ int main() {
     CHECK(io.targets[0].kind == deren::engine::render_resource::target_kind::depth);
     CHECK(io.push == std::nullopt);
     // ---- the behaviour: a GRAPHICS pass over the full extent; the declaration carries the viewport rule because
-    //      the pipeline is the pass's own (it is not in the renderer's named registry) ----
+    //      the pipeline is the pass's (it is not in the renderer's named registry) ----
     auto const& behaviour = merge.behaviour();
     CHECK(behaviour.kind == pass::behaviour_kind::graphics);
     CHECK(behaviour.extent == pass::extent_rule::full);
     CHECK(behaviour.resync_viewport);
     CHECK(behaviour.pipelines.empty());
-    // ---- the pipeline the pass owns is the DEPTH-ONLY one built at create time (LESS_OR_EQUAL + depth write), which
+    // ---- the pipeline the pass holds is the DEPTH-ONLY one built at create time (LESS_OR_EQUAL + depth write), which
     //      a device-free test can only assert through the gating: no pipeline -> not ready, refuse the frame ----
     CHECK(!merge.has_pipeline());
     CHECK(!merge.ready());

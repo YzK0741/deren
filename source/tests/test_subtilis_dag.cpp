@@ -121,7 +121,7 @@ int main() {
     p = {};
     p.threshold = std::numeric_limits<float>::infinity();
     CHECK(!sub::select_cut(*asset, p));
-    // Owned lifetime: destroy caller copies, then select using the immutable asset.
+    // Held lifetime: destroy caller copies, then select using the immutable asset.
     input = {};
     p = {};
     p.threshold = .2f;

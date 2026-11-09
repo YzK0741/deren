@@ -28,8 +28,8 @@ namespace deren::engine {
         matcap = 3,         // `_MatcapTex`: the eye's reflection map
         sdf_lightmap = 4,   // `_SDFLightmap`: the FACE's shadow terminator, as a 2D distance field
         metallic_gloss = 5, // `_MetallicGlossMap`: metallic / reflectivity / ambient occlusion / smoothness
-        sdf_mask = 6,       // `_SDFMask`: the face's own mask - SSS region, neck blend, SDF normal, rim region
-        emotion = 7,        // `_EmotionMap`: the 2x2 expression atlas the face's own uv is read into
+        sdf_mask = 6,       // `_SDFMask`: the face's mask - SSS region, neck blend, SDF normal, rim region
+        emotion = 7,        // `_EmotionMap`: the 2x2 expression atlas the face's uv is read into
         split_normal = 8,   // `_SplitNormalMap` (`_UseSpecBumpMap`): TWO tangent-space normals packed in one map
         /**
          * `_GooMatcap05`: THE REWRITTEN TOON CHAIN's iris ball (see `source/shaders/toon/goo_toon.slang`).
@@ -39,8 +39,8 @@ namespace deren::engine {
          * `character_forward.slang` takes its eye block whenever `toon_indices.w != 0`, i.e. whenever the legacy
          * matcap lane is declared. Handing the Goo chain's ball to that lane would therefore switch the OLD eye
          * path on for a material that had none, and "with `goo_toon` off the frame is what it was" is the A/B this
-         * rewrite is verified by. A lane of its own keeps the two chains' assets independent, and the cost is one
-         * component of a buffer this enum's own note already says is cheap to extend.
+         * rewrite is verified by. A separate lane keeps the two chains' assets independent, and the cost is one
+         * component of a buffer this enum's note already says is cheap to extend.
          *
          * IT IS A PER-FAMILY TEXTURE IN THE REFERENCE AND A PER-MATERIAL LANE HERE: the Goo iris group samples
          * `T_actor_common_matcap_05_D.png` from INSIDE itself, so no material states it - but a texture reaches a
@@ -55,17 +55,17 @@ namespace deren::engine {
          * `_GooBaseRamp`: THE REWRITTEN TOON CHAIN's BASE / SKIN / CLOTH RAMP - the `_RD` image the Goo
          * reference's `RampSelect` resolves to for this material (spec `goo_step4_diffuse_spec.md` §2.4/§2.6).
          *
-         * WHY IT IS A LANE OF ITS OWN RATHER THAN THE EXISTING `diffuse_ramp`, which names the same KIND of map:
+         * WHY IT IS A separate LANE RATHER THAN THE EXISTING `diffuse_ramp`, which names the same KIND of map:
          * the two are read by two different chains at two different coordinates. `diffuse_ramp` is the article's
          * `_DiffRampMap`, indexed by `ramp_u` (a back-light-compensated light term) and read as a TINT whose
          * ALPHA is a layer-selection gate (`character_forward.slang`'s `ramp_colour` / `ramp_weight`); this one is
          * the reference's, indexed by `min(two SigmoidSharp curves)` and read as the DIRECT DIFFUSE ITSELF, with
          * its alpha feeding only `smoothstep(GlobalShadowBrightnessAdjustment, 1, ·)`. Handing the Goo chain the
-         * legacy lane would therefore make it read the article's ramp, and - worse - would make the ASSET's own
+         * legacy lane would therefore make it read the article's ramp, and - worse - would make the ASSET's
          * `_DiffRampMap` decide a term the reference computes from a different image.
          *
          * IT IS ALSO NOT A PER-FAMILY TEXTURE IN THE REFERENCE AND IS ONE HERE: the reference's `RampSelect` holds
-         * four `_RD` images INSIDE itself and picks one by the material's `RampIndex`, and its own §2.6/§A8 show
+         * four `_RD` images INSIDE itself and picks one by the material's `RampIndex`, and its §2.6/§A8 show
          * that the four slots hold only TWO distinct images and that every laevatain material states
          * `RampIndex ∈ {0.0, 1.0}`. The selection is therefore resolved ON THE HOST, in the sidecar read, which is
          * where `RampIndex` is known and where the `_RD` images arrive by name - so the shader sees one lane and
@@ -81,14 +81,14 @@ namespace deren::engine {
          */
         goo_base_ramp = 10, // `_GooBaseRamp`: the `_RD` image `RampSelect` resolves to (see source/shaders/toon/goo_toon.slang)
         /**
-         * `_GooFaceSDF`: THE FACE CONTAINER's OWN SHADOW TERMINATOR - `T_actor_common_female_face_01_SDF.png`.
+         * `_GooFaceSDF`: THE FACE CONTAINER's SHADOW TERMINATOR - `T_actor_common_female_face_01_SDF.png`.
          *
          * WHY THIS IS NOT `sdf_lightmap` ABOVE, which is the same KIND of map and the obvious lane to reuse: THE
          * TWO ARE DIFFERENT IMAGES WITH DIFFERENT CHANNEL ROLES, measured rather than argued. Lane 4 names what
          * the SIDECAR's `_SDFLightmap` row resolves to and on this repository's characters that is the `_03` family
          * (`face_shader_compare.md` §5-1), while the Goo reference's Face container samples
          * `T_actor_common_female_face_01_SDF.png` from INSIDE itself - and it reads that image as `(R + G) / 2`
-         * (spec `goo_step7_face_spec.md` §4.1), where the article's chain reads one channel of its own atlas and
+         * (spec `goo_step7_face_spec.md` §4.1), where the article's chain reads one channel of its atlas and
          * treats the third as a normal. Handing the Goo chain lane 4 would therefore make it read the article's
          * face, and handing the article's chain this lane would make it read the reference's - two mistakes that
          * cancel into a plausible face rather than into an error, which is this file's whole subject.
@@ -105,7 +105,7 @@ namespace deren::engine {
          *     `混合.005` (is the cast shadow itself used, or the constant 1), of `混合.002` (the SDF branch or the
          *     chin branch of the ramp coordinate) and of `混合.019` (the flattened or the raw probe irradiance),
          *     and it is `Recalculate normal`'s `ChinMask`;
-         *   * `R` - `Front transparent red`'s `D_R`, the cheek's own forward-scatter weight;
+         *   * `R` - `Front transparent red`'s `D_R`, the cheek's forward-scatter weight;
          *   * `A` - the gate on `运算.010`, i.e. on the whole "front transparent red" term that multiplies the
          *     albedo.
          *
@@ -125,11 +125,11 @@ namespace deren::engine {
          * `step(0.5, G(uv))`. Measured on this asset: 1.809% of the IMAGE has `G > 0.5` (mean 4.6/255), so the
          * 1.5 branch is a small minority of the atlas; the rendered consequence is in `goo_step7_result.md`.
          *
-         * THE OTHER TWO IMAGES THE CONTAINER NAMES ARE NOT LANES HERE, and each for its own measured reason:
+         * THE OTHER TWO IMAGES THE CONTAINER NAMES ARE NOT LANES HERE, and each for its measured reason:
          * `T_actor_common_face_01_hl_M.png` (the lips mask, read as `.R`) multiplies `Lips highlight color`, which
          * `M_actor_laevat_face_01` leaves at the group's interface default - BLACK - so the term is zero whatever
          * the mask is; and `图像纹理.003` (`CsutmMask` again) feeds a screen-space "shadow proxy" whose other
-         * input is a depth sample this stage cannot take (the depth is its own attachment), so its chain is not
+         * input is a depth sample this stage cannot take (the depth is its attachment), so its chain is not
          * evaluated at all (see `toon_diffuse`'s face arm).
          */
         goo_face_csumt = 13, // `_GooFaceCsutm`: `CsutmMask`, whose `G` selects the Face container's brightness
@@ -146,7 +146,7 @@ namespace deren::engine {
          * `(r+g+b)/3` average (`float_from_vec3` is that one, and it is not the node here). The `max` rides
          * `toon_colour_lane::goo_rs_tint`'s `.w`, so no part of the mapping is baked into the upload either.
          *
-         * UNORM, AND THAT IS A COLOUR-SPACE DECISION RATHER THAN A FORMAT DETAIL: the image's own colorspace is
+         * UNORM, AND THAT IS A COLOUR-SPACE DECISION RATHER THAN A FORMAT DETAIL: the image's colorspace is
          * Non-Color, its channels are a MASK, and the reference reads them through no sRGB decode - a `_SRGB`
          * upload would bend every texel by 2.2 gamma before the luminance dot, which is the quantity the
          * smoothstep thresholds. See `runtime.constructor.cppm`'s format table, where this lane sits beside
@@ -161,9 +161,9 @@ namespace deren::engine {
          * two arms (`RS Model`: 0 = `armA`, which samples the two 256x1 `_RS` character sheets; 1 = `armB`,
          * `_M ⊙ RS ColorTint`), and step 15 ports `armA`. `toon_colour_lane`'s sibling note recorded the lane
          * ceiling as `toon_record_lanes + toon_lane_blocks * 4` = 16 at the time, so it was the last lane that fit.
-         * THE SECOND SHEET IS STILL NOT A LANE, and its reason is now its OWN rather than the ceiling: this arm
+         * THE SECOND SHEET IS STILL NOT A LANE, and its reason is now its rather than the ceiling: this arm
          * still carries ONE sheet slot, and the reference's other `_RS` sheet rides the material record's NAME plus
-         * that sheet's OWN switch (`_GooRSSheet1` + `_UseGooRSSheet1`), which the HOST resolves from `RS_Index`
+         * that sheet's switch (`_GooRSSheet1` + `_UseGooRSSheet1`), which the HOST resolves from `RS_Index`
          * when the texture is registered - `main.cpp`'s `toon_texture` picks one of the two names and the stage
          * keeps sampling one slot, the same split `toon_colour_lane::goo_rs_arm0` describes for `.x`. (The ceiling
          * itself moved after this lane: `_OutlineMask` below is lane 16 and raised `toon_lane_blocks` to 4 - see
@@ -179,12 +179,12 @@ namespace deren::engine {
         goo_rs_sheet = 15, // `_GooRSSheet`: `armA`'s 256x1 `_RS` colour sheet (mechanism table #14), SRGB
         /**
          * `_OutlineMask`: THE INVERTED-HULL OUTLINE's WIDTH / DEPTH-OFFSET MASK - the captured viewer's `Q121`
-         * texture, sampled only when its own `#ifdef Q326` is defined, i.e. when `_EnableOutlineMask === 1` AND
+         * texture, sampled only when its `#ifdef Q326` is defined, i.e. when `_EnableOutlineMask === 1` AND
          * the material names an `_OutlineMask` image (`source/shaders/toon/game_toon/captured/outline.slang`'s
          * header transcribes `vert:56-62`).
          *
          * WHAT THE SHADER DOES WITH IT, and it is why the image must be staged UNORM: the vertex stage samples it at
-         * the hull's own uv and uses TWO CHANNELS as MULTIPLIERS - `R18 *= mask.r` scales the hull's screen-space
+         * the hull's uv and uses TWO CHANNELS as MULTIPLIERS - `R18 *= mask.r` scales the hull's screen-space
          * WIDTH, and `R136 *= mask.g` scales its VIEW-DEPTH offset (`vert:60-61`). Both channels are NUMBERS; an
          * sRGB decode would bend every one of them, exactly as it would bend `sdf_mask`'s or `goo_rs_mask`'s.
          *
@@ -270,9 +270,9 @@ namespace deren::engine {
                   "a toon lane past the last block needs toon_lane_blocks raised AND its accessors widened");
 
     /**
-     * @brief the MATERIAL COLOURS the game's own parameter table carries, in `toon_inputs::colours` order
+     * @brief the MATERIAL COLOURS the game's parameter table carries, in `toon_inputs::colours` order
      *
-     * A SECOND KIND OF VALUE BESIDE THE TEXTURES, and it needs its own lanes for a reason the texture lanes do not
+     * A SECOND KIND OF VALUE BESIDE THE TEXTURES, and it needs its lanes for a reason the texture lanes do not
      * have: a `color` row is four floats - `_EyeHighLightColor` is (2.399, 1.885, 2.038) on chen's iris - so it
      * cannot ride the `uvec4` of texture indices, and the material record has no room for it (see
      * `core::heap_slots::toon_colours` for why growing the record is not an option here).
@@ -284,7 +284,7 @@ namespace deren::engine {
      * THE OUTLINE LANE IS THE ONE THE LIST USED TO NAME AS UNCLAIMED, and it carries TWO numbers in its four
      * floats because the article's outline needs two and they are stated by the SAME material rows: `.rgb` is the
      * game's `_OutlineTintColor` - the author's `_OutlineColor` (`MyZmdOutlineShader.shader:15`) - and `.w` is its
-     * `_OutlineWidth` (`:7`), which the outline hull's own geometry stage reads as its `> 0` gate. A separate
+     * `_OutlineWidth` (`:7`), which the outline hull's geometry stage reads as its `> 0` gate. A separate
      * lane for the second number would be a second carrier for one material's one statement, and the material
      * record cannot take either (see the note above).
      *
@@ -297,12 +297,12 @@ namespace deren::engine {
      * to contain such a pair (see the "材质去重键补上 colour lanes" section of `remaining_port_spec.md`).
      */
     export enum class toon_colour_lane : uint32_t {
-        sdf_rim = 0,        // `_SDFRimColor`: the FACE's own rim colour, read where the SDF drives the rim
+        sdf_rim = 0,        // `_SDFRimColor`: the FACE's rim colour, read where the SDF drives the rim
         eye_highlight = 1,  // `_EyeHighLightColor`: the iris' highlight tint
         eye_scattering = 2, // `_EyeScatteringColor`: the iris' scattering tint
         outline_edge = 3,   // `_OutlineTintColor` (rgb) and `_OutlineWidth` (w): the toon outline's tint and width
         /**
-         * `_Specular` in `.x`: the material's own SPECULAR STRENGTH, which the family table could only
+         * `_Specular` in `.x`: the material's SPECULAR STRENGTH, which the family table could only
          * approximate - see below. `.y` / `.z` / `.w` are unused and reserved.
          *
          * THE ONE LANE THAT IS NOT A COLOUR, and it is here for the reason the lane above carries a width: the
@@ -315,7 +315,7 @@ namespace deren::engine {
          * `spec_strength` was that table's reading of the game's `_Specular` (skin 0.454, cloth/face/hair 1.0,
          * eye 0.0). The game states the value PER MATERIAL, and on chen one material disagrees with its family:
          * `M_actor_chen_brow_01` is classified `face` and states `_Specular = 0.0` against the face family's
-         * 1.0, so the brow wore a highlight no one authored. The value arrives from the asset's own `extras`
+         * 1.0, so the brow wore a highlight no one authored. The value arrives from the asset's `extras`
          * block (`deren::gltf::claimed_extras_floats`) rather than from the sidecar, which carries no `_Specular` row
          * at all - it is the first property of a third source, and it is connected one property at a time.
          *
@@ -329,14 +329,14 @@ namespace deren::engine {
          * IT IS NO LONGER THE ONLY LANE OF THIS KIND: `parallax_scale` below is the second, from the same source
          * and with the same sentinel contract, and the two are the pair this table's per-material scalars ride.
          */
-        specular_strength = 4, // `_Specular`: the material's own specular strength (`.x`; <0 = the family's)
+        specular_strength = 4, // `_Specular`: the material's specular strength (`.x`; <0 = the family's)
         /**
-         * `_ParallaxScale` in `.x`: the material's own PARALLAX DEPTH - the distance the iris' albedo lookup
+         * `_ParallaxScale` in `.x`: the material's PARALLAX DEPTH - the distance the iris' albedo lookup
          * slides behind the cornea (`.y` / `.z` / `.w` are unused and reserved).
          *
          * THE SECOND SCALAR TO RIDE A LANE FOR THE SAME REASON AS THE FIRST: it is PER MATERIAL, the material
          * record cannot take it, and the asset's `extras` block is the only source that states it per material
-         * (`deren::gltf::claimed_extras_floats`). What it replaces is `source/shaders/toon/character_forward.slang`'s own
+         * (`deren::gltf::claimed_extras_floats`). What it replaces is `source/shaders/toon/character_forward.slang`'s
          * `character_eye_parallax_depth` constant - the value of ONE material (`M_actor_chen_iris_01`, 0.03)
          * that the stage used to apply to every material the eye path runs on, with a note saying the per-material
          * value could not be carried. The asset states 0.03 on the iris and 0.5 on the brow, so the constant was
@@ -345,11 +345,11 @@ namespace deren::engine {
          * `.x < 0` MEANS "THE ASSET STATES NOTHING", the same sentinel contract as the lane above and for the
          * same reason: `0.0` is a legitimate authored value here (a material that wants no parallax at all would
          * state it), so it cannot double as "absent". No material in `deren-ab/extras_dump.md` states 0 (the domain
-         * there is 0.03 / 0.5), but that is not what makes the sentinel right - the value's own domain does. The
+         * there is 0.03 / 0.5), but that is not what makes the sentinel right - the value's domain does. The
          * stage reads `lane.x >= 0 ? lane.x : character_eye_parallax_depth`, i.e. a material that states no such
          * row keeps the frame it had before this lane existed.
          */
-        parallax_scale = 5, // `_ParallaxScale`: the material's own parallax depth (`.x`; <0 = the stage's constant)
+        parallax_scale = 5, // `_ParallaxScale`: the material's parallax depth (`.x`; <0 = the stage's constant)
         /**
          * `_GooEyeBrightness` in `.x` / `.y`: THE REWRITTEN TOON CHAIN's two iris BRIGHTNESSES - the reference
          * group `Arknights: Endfield_PBRToon_irisBase`'s `Eyes brightness` and `Eyes HightLight brightness`
@@ -364,7 +364,7 @@ namespace deren::engine {
          * two carriers for one material's one statement, which is the arrangement this enum's notes refuse.
          *
          * `.x < 0` MEANS "THE ASSET STATES NOTHING", the same sentinel contract as the two lanes above and for the
-         * same reason: `0.0` is a legitimate authored brightness (it is in fact the value the group's own
+         * same reason: `0.0` is a legitimate authored brightness (it is in fact the value the group's
          * interface defaults BOTH sockets to), so it cannot double as "absent". The stage then answers with that
          * interface default rather than with a number invented here, and the two components are tested
          * independently (`>= 0.0` each) because a material may state one and not the other.
@@ -382,7 +382,7 @@ namespace deren::engine {
          * saving: `混合.017` broadcasts `Rim_ColorStrength` (a VALUE socket) into a RGBA as `(s,s,s,1.0)`, so the
          * product's alpha is 1.0 for every material in both dumps and cannot carry a statement.
          *
-         * THE NEUTRAL IS WHITE, and it is the REFERENCE'S OWN INTERFACE DEFAULT rather than a number chosen
+         * THE NEUTRAL IS WHITE, and it is the REFERENCE'S INTERFACE DEFAULT rather than a number chosen
          * here: `::- Rim_Color :: 组输入.Rim_Color = [1.0, 1.0, 1.0, 1.0]`, so a material whose sources state
          * no row gets exactly what a material that calls the group without stating it gets in Goo. TEN of the
          * eleven `M_actor_laevat_*` materials are at that default; `M_actor_laevat_face_01` is the only
@@ -395,16 +395,16 @@ namespace deren::engine {
          * the order the reference states them - `.x` = `Rim_ColorStrength`, `.y` = `Rim_DirLightAtten`,
          * `.z` = `ToonfresnelPow`, `.w` = `Use Rimlimitation?`.
          *
-         * WHY FOUR IN ONE LANE, and the reason is the enum's own rule rather than this step's convenience: they
+         * WHY FOUR IN ONE LANE, and the reason is the enum's rule rather than this step's convenience: they
          * are ONE mechanism's numbers, stated by the SAME material row (`群组.00N.inputs[...]` of one group
          * instance) and consumed within one composition (`source/shaders/toon/goo_toon.slang`'s rim term). A lane each would
          * be four carriers for one material's one statement, which is the arrangement this enum keeps refusing.
          *
          * `.x` / `.y` / `.z` ARE SCALARS WHOSE ZERO IS A REAL STATEMENT - `Rim_ColorStrength = 0.0` is how the
-         * reference's own author SWITCHES A MATERIAL'S RIM OFF (`M_actor_laevat_cloth_03` states exactly that),
+         * reference's author SWITCHES A MATERIAL'S RIM OFF (`M_actor_laevat_cloth_03` states exactly that),
          * and `Rim_DirLightAtten` / `ToonfresnelPow` are exponents and attenuations that are meaningful at any
          * sign-free value - so each carries the SAME `< 0` sentinel as the lanes above and falls back to the
-         * reference group's OWN interface default (`1.0` / `0.8999999761581421` / `2.0`). `.w` IS A 0/1 GATE
+         * reference group's interface default (`1.0` / `0.8999999761581421` / `2.0`). `.w` IS A 0/1 GATE
          * (`Use Rimlimitation?`, BOOLEAN in Blender), so its sentinel is the same `< 0` and its fallback is the
          * group's `0.0` - i.e. 0.0 is a statement (limitation off) and -1 is "not stated".
          *
@@ -419,27 +419,27 @@ namespace deren::engine {
          * `DepthRim`'s `Rim_width_X` / `Rim_width_Y` sockets, which is the pair the offset sample's camera-space
          * displacement is built from (`source/shaders/toon/goo_rim.slang`). `.z` / `.w` are unused and reserved.
          *
-         * IT IS A LANE OF ITS OWN RATHER THAN TWO MORE COMPONENTS ON `goo_rim_scalars`, and the reason is the
-         * enum's own rule read the other way round: that lane's four components are the four scalars ONE
+         * IT IS A separate LANE RATHER THAN TWO MORE COMPONENTS ON `goo_rim_scalars`, and the reason is the
+         * enum's rule read the other way round: that lane's four components are the four scalars ONE
          * COMPOSITION reads (the `PBRToonBase` container's rim term), while these two belong to the OTHER group
          * the same material instantiates - `DepthRim`, whose two `组输入` sockets are the only thing it takes and
-         * which the container reaches through `群组.016`. A material states them in its own row because they are
-         * its own numbers, and the two groups are separate statements in the reference's graph.
+         * which the container reaches through `群组.016`. A material states them in its row because they are
+         * its numbers, and the two groups are separate statements in the reference's graph.
          *
          * THE `DepthRim` GROUP HAS NO OTHER SOURCE AND NO FALLBACK INSIDE THE MATERIAL, which is why this lane is
          * the difference between the reference's rim and a rim of some other width: `Rim_width_X` = `0.5` (the
-         * group's own interface default) puts the offset sample 10x further across the screen than the `0.041847`
+         * group's interface default) puts the offset sample 10x further across the screen than the `0.041847`
          * every laevatain material states. THE SENTINEL IS THEREFORE PER COMPONENT AND THE FALLBACK IS `0.5` -
          * the group's `interface[]` value, read out of `gooblender/nodes.json`, not a number chosen here.
          *
          * `.x < 0` MEANS "THE ASSET STATES NOTHING", the same `< 0` contract as every lane above: `0.0` is a
-         * legitimate authored width (it makes the offset sample the pixel's own depth, i.e. `dz = 0`, i.e. no
+         * legitimate authored width (it makes the offset sample the pixel's depth, i.e. `dz = 0`, i.e. no
          * rim - which is a statement), so it cannot double as "absent".
          */
         goo_rim_widths = 9, // `_GooRimWidths`: `Rim_width_X`[x] / `Rim_width_Y`[y] (`.z`/`.w` reserved)
         /**
          * `_GooBaseColour` in `.rgb`: THE REWRITTEN CHAIN's `PBRToonBase`'s `BaseColor` - the reference's albedo
-         * TINT, which its own graph multiplies into the albedo before every term that reads it.
+         * TINT, which its graph multiplies into the albedo before every term that reads it.
          *
          * WHY THE PORT NEEDS A LANE FOR IT AT ALL, and this is the uncomfortable half: `BaseColor` is non-white on
          * every material this step covers (`body_01` `[1.1628, 0.9888, 1.0280]`, every cloth
@@ -449,12 +449,12 @@ namespace deren::engine {
          * `1/1.2425 = 0.805` of the reference's - a 24% error on five of the seven materials, and one that no
          * family table could express because the value is per material.
          *
-         * THE NEUTRAL IS WHITE, and it is the reference's OWN interface default (`::- Arknights:
+         * THE NEUTRAL IS WHITE, and it is the reference's interface default (`::- Arknights:
          * Endfield_PBRToonBase :: 组输入.BaseColor = [1.0, 1.0, 1.0, 1.0]`), so a material that states no such row
          * gets exactly what a material calling the group without stating it gets in Goo. `.a` IS NOT READ: the
          * reference's tint is `混合 = MULTIPLY(A = 混合.035.Result, B = 组输入.BaseColor)`, i.e. the whole RGBA, but
          * the albedo the port tints is a `float3` and its alpha is the coverage the pass blends with - a second
-         * owner of that channel would be a second statement about coverage.
+         * holder of that channel would be a second statement about coverage.
          */
         goo_base_colour = 10, // `_GooBaseColour`: `PBRToonBase`'s `BaseColor` (`.rgb`; white = the group's default)
         /**
@@ -462,17 +462,17 @@ namespace deren::engine {
          * the order its two call sites state them: `.x` = `RemaphalfLambert_center`, `.y` =
          * `RemaphalfLambert_sharp`, `.z` = `CastShadow_center`, `.w` = `CastShadow_sharp`.
          *
-         * ONE LANE FOR FOUR NUMBERS, and the reason is the enum's own rule: they are ONE mechanism's arguments,
+         * ONE LANE FOR FOUR NUMBERS, and the reason is the enum's rule: they are ONE mechanism's arguments,
          * stated by ONE material row (one group instance's four sibling sockets) and consumed at ONE composition -
          * `u = min(SigmoidSharp(CastShadows, .z, .w), SigmoidSharp(0.5*NoL+0.5, .x, .y))`. `.x` / `.y` move the
          * TERMINATOR of the half-Lambert curve and `.z` / `.w` the one of the cast-shadow curve, and it is `.x`
          * that is the per-material terminator position the acceptance test checks against the frame: `0.1` on
          * `body_01`, `0.4` on `cloth_01/02`, `0.57` on `cloth_03/04/05`.
          *
-         * `.x` / `.y` CARRY THE SAME `< 0` SENTINEL AS THE LANES ABOVE, and the fallback is the reference's own
+         * `.x` / `.y` CARRY THE SAME `< 0` SENTINEL AS THE LANES ABOVE, and the fallback is the reference's
          * interface default - `0.5699999928474426` and `0.1599999964237213` (spec §4.1). It is a SENTINEL rather
          * than a no-op because every one of the four numbers is meaningful at zero AND at a negative value:
-         * `CastShadow_center` is `-0.1` on both body materials, i.e. the reference's own author states a negative
+         * `CastShadow_center` is `-0.1` on both body materials, i.e. the reference's author states a negative
          * one, so a lane left at 0.0 could not be told from "not stated". `.z` / `.w` use the same sentinel and the
          * same kind of fallback (`0.0` / `0.0`, which IS the group's default for both).
          */
@@ -482,7 +482,7 @@ namespace deren::engine {
          * `GlobalShadowBrightnessAdjustment`, `.y` = `Color desaturation in shaded areas attenuation`, `.z` =
          * `MetallicMax`. `.w` IS RESERVED.
          *
-         * `.x` IS THE GATE'S OWN LOWER EDGE and the one number this step's second new factor turns on:
+         * `.x` IS THE GATE'S LOWER EDGE and the one number this step's second new factor turns on:
          * `gate = smoothstep(GSBA, 1.0, RampAlpha)` - so on the cloth, whose GSBA is `-1.8`, a ramp texel of alpha
          * 0 still lifts the shadow side to `0.708`, while on the body, whose GSBA is `0.0318`, the same texel is
          * left at 0. THAT IS THE SPEC'S §10.4 ITEM 5: the `cloth_04_RD` alpha has a NON-MONOTONE notch at
@@ -495,16 +495,16 @@ namespace deren::engine {
          * `钳制.004 = clamp(luma(RampColor) + this, 0, 1) -> 色相/饱和度/明度.Saturation`, i.e. as the final
          * image's desaturation - a POST-rim stage this port has no equivalent of (spec §9-U1), so the value is
          * recorded where it belongs rather than applied where the port cannot honour it. It is in THIS lane and not
-         * one of its own because it comes off the same material row and the same group as `.x` and `.z`.
+         * a separate one because it comes off the same material row and the same group as `.x` and `.z`.
          *
          * `.z` IS THE OTHER HALF OF A SPECIES OF DOUBLE COUNTING this step has to be careful about: the reference's
          * `metallic = lerp(0, MetallicMax, _P.R)` and its `diffuseColor = albedo * (1 - metallic)` are one
-         * mechanism, and the PORT already reads `metallic` off the metallic/gloss map with the FAMILY's own
+         * mechanism, and the PORT already reads `metallic` off the metallic/gloss map with the FAMILY's
          * `MetallicMax` folded into `toon_params`... except that the port's `toon_params` has no `metallic_max`
          * field at all (it reads `orm.x` raw). This lane is therefore the reference's value, read where the
-         * reference reads it, and the shader uses it for the new `1 - metallic` factor only - the port's own
+         * reference reads it, and the shader uses it for the new `1 - metallic` factor only - the port's
          * `0.96 - 0.96*metallic` on the OLD three-layer path is left exactly as it was, because that path is not
-         * what this step replaces. `.z` defaults to `1.0` (the group's own value) and carries the same `< 0`
+         * what this step replaces. `.z` defaults to `1.0` (the group's value) and carries the same `< 0`
          * sentinel.
          */
         goo_diffuse_b = 12, // `_GooDiffuseB`: `GlobalShadowBrightnessAdjustment`[x] / `Color desat...`[y] / `MetallicMax`[z]
@@ -520,14 +520,14 @@ namespace deren::engine {
          * the two colours and the two window edges are the FOUR sockets of ONE MIX chain in ONE group, and the
          * window edge rides the colour because they are read at the same line - `smoothstep(L, H, x)` - so a
          * material that states one and not the other is a state the lanes can still express component by
-         * component. `.w`'s sentinel is `< 0` with the group's own default behind it (`0.0`); the colour's neutral
-         * behind the sentinel is the group's own `[1,1,1,1]`.
+         * component. `.w`'s sentinel is `< 0` with the group's default behind it (`0.0`); the colour's neutral
+         * behind the sentinel is the group's `[1,1,1,1]`.
          */
         goo_fresnel_inside = 13, // `_GooFresnelInside`: `fresnelInsideColor`[rgb] + `_ToonfresnelSMO_L`[w]
         /**
          * `_GooFresnelOutside`: `PBRToonBase`'s `fresnelOutsideColor` in `.rgb` and `_ToonfresnelSMO_H` in `.w`.
          *
-         * THE SHADED END OF THE SAME MIX, and the reason it is a LANE OF ITS OWN rather than the same lane's
+         * THE SHADED END OF THE SAME MIX, and the separate reason it is a LANE rather than the same lane's
          * reserved components: `.rgb` is the A side of a `MIX` whose B side is the lane above, so the two are
          * different TERMS of one lerp rather than two components of one value, and the reference states them as
          * two sibling sockets of two different names. `body_01`'s outside colour is `[0.6035, 0.5052, 0.4115]` - a
@@ -546,15 +546,15 @@ namespace deren::engine {
          * `_GooDirectOcclusion` in `.rgb`: `PBRToonBase`'s `directOcclusionColor`, the colour
          * `directOcclusion = lerp(directOcclusionColor, white, AO)` walks FROM as the occlusion rises.
          *
-         * ITS NEUTRAL IS BLACK AND IT IS THE GROUP'S OWN DEFAULT (`[0.0, 0.0, 0.0, 1.0]`), which is also the only
+         * ITS NEUTRAL IS BLACK AND IT IS THE GROUP'S DEFAULT (`[0.0, 0.0, 0.0, 1.0]`), which is also the only
          * value any of the seven materials states - but the lane exists because the port must be able to read the
          * OVERRIDE the moment another asset states one (`M_actor_laevat_hair_01` states
          * `[0.0811, 0.0109, 0.0187]`, and the hair is out of this step's scope exactly because its composition is
          * a different one - see the shader's family note). `.a` is not read: the reference's mix has an alpha, but
-         * the port's occlusion is a scalar and the coverage alpha has one owner already.
+         * the port's occlusion is a scalar and the coverage alpha has one holder already.
          *
          * BLACK IS NOT A NO-OP HERE, which is why the sentinel is NOT used: `lerp(black, white, AO)` is a valid
-         * `directOcclusion` and the value the reference's own assets produce, so `0.0` is a STATEMENT and cannot
+         * `directOcclusion` and the value the reference's assets produce, so `0.0` is a STATEMENT and cannot
          * double as "absent". The fallback behind a `< 0` component is therefore that same group default.
          */
         goo_direct_occlusion = 15, // `_GooDirectOcclusion`: `directOcclusionColor` (`.rgb`; black = the group's default)
@@ -568,7 +568,7 @@ namespace deren::engine {
          * group's `1.0`, while `face_01` / `hair_01` DO NOT HAVE THE SOCKET AT ALL (their containers are
          * `PBRToonBaseFace` / `PBRToonBaseHair`, which have no `specularFGD Strength` in their `interface[]` -
          * spec §5.1). So `< 0` means "this material's container states nothing", and the stage answers the
-         * reference's own group default `1.0` (`::- Arknights: Endfield_PBRToonBase :: 组输入.specularFGD Strength
+         * reference's group default `1.0` (`::- Arknights: Endfield_PBRToonBase :: 组输入.specularFGD Strength
          * = 1.0`) - which is also why a `-1` sentinel is honest here and a `0.0` would not be: `0.0` would switch a
          * material's entire IBL specular off, and it is not a value the group defaults the socket to.
          *
@@ -576,9 +576,9 @@ namespace deren::engine {
          * PER MATERIAL (`0.8` against the cloth's `1.0`) and the material record is inline in the per-draw push
          * block, so a `vec4` lane is the only per-material storage this renderer has.
          */
-        goo_specular_fgd = 16, // `_GooSpecularFGD`: `specularFGD Strength` (`.x`; <0 = the group's own 1.0)
+        goo_specular_fgd = 16, // `_GooSpecularFGD`: `specularFGD Strength` (`.x`; <0 = the group's 1.0)
         /**
-         * `_GooLightColor` in `.rgb`: `PBRToonBase`'s `dirLight_lightColor`, THE LIGHT COLOUR THE REFERENCE'S OWN
+         * `_GooLightColor` in `.rgb`: `PBRToonBase`'s `dirLight_lightColor`, THE LIGHT COLOUR THE REFERENCE'S
          * DIRECT SPECULAR MULTIPLIES ITSELF BY (`Vector Math.006 = Vector Math.005 * 转接点.042`, and `转接点.042`
          * is this socket - spec §5.4/§6.2). `.a` is unused and reserved.
          *
@@ -595,7 +595,7 @@ namespace deren::engine {
          * the reference multiplies `directLighting_specular` by it as well - and the two direct terms each carry it
          * ONCE, not one standing in for the other.
          *
-         * THE NEUTRAL IS WHITE AND THE SENTINEL IS `< 0`: `1.0` is the group's own `interface[]` default for the
+         * THE NEUTRAL IS WHITE AND THE SENTINEL IS `< 0`: `1.0` is the group's `interface[]` default for the
          * socket (`::- ... :: 组输入.dirLight_lightColor = [1.0, 1.0, 1.0, 1.0]`), i.e. a material that states no
          * row gets exactly what a material calling the group without stating it gets in Goo - while a material whose
          * CONTAINER has no such socket at all (`face_01`, whose `PBRToonBaseFace` states one;
@@ -611,17 +611,17 @@ namespace deren::engine {
          * `[1.5121498107910156] x3` - a 51% LIFT of their whole ambient - while every cloth inherits the group's
          * white, so a single family number could not express it (spec §5.2). `face_01` overrides it too
          * (`[1.5509, 1.2822, 1.2712]`) and `hair_01`'s container has no such socket - the same two sentinel cases
-         * the lane above has, and the same answer: white, which is the group's own `interface[]` default.
+         * the lane above has, and the same answer: white, which is the group's `interface[]` default.
          *
          * `G9` OF THE SPEC'S §7.2 IS THE REASON IT IS READ HERE AND NOT FOLDED INTO THE OLD `ambient`: the port's
          * `irradiance_sample(n) * albedo * ao_used * params.ambient_strength` is THREE mechanisms the reference's
          * `混合.008` does not have (the family strength, the AO gate and the raw albedo), and this lane is one of
-         * the two per-material replacements for them - the other being `directOcclusion`'s own AO on the direct
+         * the two per-material replacements for them - the other being `directOcclusion`'s AO on the direct
          * side, which step 4 already carries.
          */
         goo_ambient_tint = 18, // `_GooAmbientTint`: `AmbientLightColorTint` (`.rgb`; white = the group's default)
         /**
-         * `_GooSpecularColor` in `.rgb`: `PBRToonBase`'s `SpecularColor` - THE DIRECT SPECULAR'S OWN PER-MATERIAL
+         * `_GooSpecularColor` in `.rgb`: `PBRToonBase`'s `SpecularColor` - THE DIRECT SPECULAR'S PER-MATERIAL
          * TINT, the fourth factor of the reference's `directLighting_specular`
          * (`Vector Math.016 = 混合.016.Result ⊙ 转接点.077`, and `转接点.077 <- 组输入.SpecularColor`). `.a` is
          * unused and reserved.
@@ -642,12 +642,12 @@ namespace deren::engine {
          * unconfirmed (a linear HDR colour or a strength); this lane carries it as the RGB it is and lets it
          * multiply, exactly as the reference's `Vector Math.016` does.
          *
-         * THE NEUTRAL IS WHITE (the group's own `interface[]` default, so a material that states no row gets what a
+         * THE NEUTRAL IS WHITE (the group's `interface[]` default, so a material that states no row gets what a
          * caller that states nothing gets in Goo) and the sentinel is `< 0`, for the reason every colour lane above
          * has: no component of a multiplier the reference's author wrote is negative.
          */
         goo_specular_color = 19, // `_GooSpecularColor`: `SpecularColor` (`.rgb`; white = the group's default)
-        // ---- STEP 7: THE FACE CONTAINER'S OWN NUMBERS, WHICH NO LANE ABOVE CARRIES ----
+        // ---- STEP 7: THE FACE CONTAINER'S NUMBERS, WHICH NO LANE ABOVE CARRIES ----
         //
         // FOUR LANES AND NOT SIX, because the audit came first and four of the FACE's twenty-three stated numbers
         // already have carriers the SAME socket name fills: `BaseColor` rides `goo_base_colour` (10),
@@ -662,7 +662,7 @@ namespace deren::engine {
          * [x] / `chin_RemaphalfLambert_sharp` [y] / `sphereNormal_Strength` [z] / `SmoothnessMax` [w].
          *
          * ALL FOUR ARE MATERIAL OVERRIDES ON `M_actor_laevat_face_01` EXCEPT THE LAST (`0.5`, `0.10000000149011612`,
-         * `1.0`, and `1.0` which is the group's own default), and each one is load-bearing:
+         * `1.0`, and `1.0` which is the group's default), and each one is load-bearing:
          *
          *   * THE CHIN PAIR is the SECOND `SigmoidSharp` call site's `center` / `sharp` (`群组.021`), i.e. the
          *     half-Lambert branch of the ramp coordinate - the branch `cm_M`'s `G` selects over the SDF's. It is a
@@ -670,7 +670,7 @@ namespace deren::engine {
          *     material they are `(0.5, 0.1)` against `(0.1, 0.5)`, i.e. the same two numbers with the roles swapped.
          *   * `sphereNormal_Strength` is `Recalculate normal`'s factor, and it is `1.0` here: the face's shading
          *     normal is the SPHERE normal about `headCenter` blended with the geometric one by `cm_M.G`. Without the
-         *     lane the port would have to pick a number, and `0.0` (the group's default, and the port's own
+         *     lane the port would have to pick a number, and `0.0` (the group's default, and the port's
          *     behaviour before this step) is the opposite behaviour rather than a neutral one.
          *   * `SmoothnessMax` is `PerceptualSmoothnessToPerceptualRoughness`'s input, and it is the ONE place the
          *     FACE disagrees with the port's family table by construction: the reference's face is `1.0` (perfectly
@@ -697,9 +697,9 @@ namespace deren::engine {
          * TEXTURE'S ALPHA - and on this asset that alpha is NOT the constant 1 the spec's §2.4/A7 assumed: measured
          * over `T_actor_laevat_face_01_D.png` it is `min 202 / mean 254.978 / max 255`, so `混合.017` is white over
          * most of the plate and as low as `0.792*1 + 0.208*0.3084 = 0.856` where the alpha dips - a 14% darkening
-         * that the spec's A7 says does not exist. THE NEUTRAL IS BLACK, which is the socket's own `interface[]`
+         * that the spec's A7 says does not exist. THE NEUTRAL IS BLACK, which is the socket's `interface[]`
          * default, so a material that states no row gets a fully shadowed nose at alpha 0 and white at alpha 1 -
-         * the reference's own answer rather than a number chosen here.
+         * the reference's answer rather than a number chosen here.
          */
         goo_face_nose_shadow = 22, // `_GooFaceNoseShadow`: `nose_shadow_Color` (`.rgb`; BLACK = the group's default)
         /**
@@ -711,12 +711,12 @@ namespace deren::engine {
          * `toon_slot::goo_face_cm`'s `R` and `Positive attenuation` is `dot(headForward, V)` - so this lane
          * completes the sub-group's five arguments with no sixth lane.
          *
-         * THE NEUTRAL IS BLACK, the socket's own `interface[]` default: `Front transparent red` ends in a MIX whose
+         * THE NEUTRAL IS BLACK, the socket's `interface[]` default: `Front transparent red` ends in a MIX whose
          * B side is this colour, so black leaves the albedo as the albedo.
          */
         goo_face_front_r = 23, // `_GooFaceFrontR`: `Front R Color` (`.rgb`; BLACK = the group's default)
         /**
-         * `_GooNormalStrength`: the `DecodeNormal` group's own `NormalStrength` input, i.e. the strength the reference
+         * `_GooNormalStrength`: the `DecodeNormal` group's `NormalStrength` input, i.e. the strength the reference
          *'s normal decode applies to the normal map's `xy` before it is turned into a tangent-space normal.
          *
          * IT IS NOT A PROPERTY THE GLTF CARRIES, and that is why it needs a lane: `normalTexture.scale` is `1.0` on
@@ -727,9 +727,9 @@ namespace deren::engine {
          *
          * `.x` IS THE STRENGTH AND THE OTHER THREE COMPONENTS ARE UNUSED - the port's scalar-lane convention (see
          * `specular_strength` and `parallax_scale`). THE SENTINEL IS `-1000` ON EVERY COMPONENT rather than `-1` on
-         * `.x` alone, because `-1` is a strength the group's own range does not contain but `0` IS a value the
+         * `.x` alone, because `-1` is a strength the group's range does not contain but `0` IS a value the
          * reference really states (`M_actor_chen_body_01.001` carries `1.3184714317321777` with `Use NormalTex? = 0`,
-         * so a decode is switched off there by the material's own gate rather than by a zero strength): see
+         * so a decode is switched off there by the material's gate rather than by a zero strength): see
          * `goo_lane_absent` in `source/shaders/toon/character_forward.slang` for the audit rule this follows.
          *
          * A MATERIAL WITH NO ROW KEEPS THE PREVIOUS NORMAL RATHER THAN GETTING THE REFERENCE'S GROUP DEFAULT `1.0`,
@@ -768,10 +768,10 @@ namespace deren::engine {
          * pixel of any frame this repository renders can reach either arm (see `混合.016`'s block in
          * `source/shaders/toon/character_forward.slang`). It was recorded without a reader from step 10 until step 12.
          *
-         * THE NEUTRAL IS `(0, 0, 0, 0)` AND IT IS THE REFERENCE'S OWN GROUP DEFAULT, not a chosen number:
+         * THE NEUTRAL IS `(0, 0, 0, 0)` AND IT IS THE REFERENCE'S GROUP DEFAULT, not a chosen number:
          * `ng[2].interface[3]` (`Use anisotropy?`) `default = 0.0`, `interface[45]` (`Anisotropic mask`)
          * `default = 0.0` and `interface[4]` (`Use Toonaniso?`) `default = 0.0`. A material that states no row
-         * therefore gets the group's own answer, which - since `混合.016` returns its A arm at 0 - is the isotropic
+         * therefore gets the group's answer, which - since `混合.016` returns its A arm at 0 - is the isotropic
          * product. THE GPU TABLE'S DEFAULT IS `glm::vec4(1.0f)` FOR EVERY LANE, so this lane MUST be overridden in
          * `runtime.constructor.cppm`; with no override a material with no row would read flag 1 and get the masked
          * arm instead. The census behind the values this asset states: all 23 `ng[2]` instances, flag `1.0` only on
@@ -790,10 +790,10 @@ namespace deren::engine {
          * `组输入` numbers rather than textures or colours. The values this asset states are NOT the group's
          * defaults: `Aniso_SmoothnessMaxT = 0.2197451889514923` and `Aniso_SmoothnessMaxB = 0.668789803981781` on
          * all five `M_actor_laevat_cloth_*` materials, against `ng[2].interface[20]` / `[21]` = `0.0` / `0.0`. A
-         * constant here would therefore be wrong for every material the reference's own author tuned, in both
+         * constant here would therefore be wrong for every material the reference's author tuned, in both
          * directions (a default of 0 gives `rT = rB = 1`, a plausible-looking but unauthored answer).
          *
-         * THE NEUTRAL IS `(0.0, 0.0, 0.0, 0.0)` AND IT IS THE REFERENCE'S OWN GROUP DEFAULT, not a chosen number -
+         * THE NEUTRAL IS `(0.0, 0.0, 0.0, 0.0)` AND IT IS THE REFERENCE'S GROUP DEFAULT, not a chosen number -
          * the same shape lane 25 above uses and for the same reason. `Aniso_SmoothnessMaxT = 0` makes `rT = 1`,
          * i.e. a fully rough anisotropic lobe, which is exactly what `ng[2]` returns for a caller that states
          * nothing; and because `0.0` here is a stated value the reference really has, it cannot double as "absent",
@@ -806,7 +806,7 @@ namespace deren::engine {
         goo_aniso_rough = 26, // `_GooAnisoRough`: `Aniso_SmoothnessMaxT` [x] / `Aniso_SmoothnessMaxB` [y] (zw reserved)
         /**
          * `_GooRSScalars`: the three scalars of the reference's mechanism table #14 (`RS EFF`) that the branch's
-         * own gates and its LIGHTEN factor are built from, in the reference's socket order - `.x = Use RS_Eff?`,
+         * the gates and its LIGHTEN factor are built from, in the reference's socket order - `.x = Use RS_Eff?`,
          * `.y = RS Multiply Value`, `.z = RS Model`. `.w` is unused and reserved (`0.0`).
          *
          * IT IS A `color` ROW AND TAKES THE GENERIC PATH, so `main.cpp`'s `toon_colour` needs no branch for it:
@@ -846,7 +846,7 @@ namespace deren::engine {
          * (`M_actor_laevat_cloth_05`). A single constant would be wrong for one of them, and the two are close
          * enough that the error would be invisible in a log. The smoothstep's `min` is `0.0` on both and is NOT
          * carried (spec U11) - if a third material with a non-zero `min` ever lands, this lane has no component
-         * left and the mapping needs a lane of its own.
+         * left and the separate mapping needs a lane.
          *
          * `.w <= 0` IS READ AS `1.0` BY THE STAGE, which is a deviation from the reference and is deliberate: the
          * GPU table's default for an unstated lane is `(0,0,0,0)`, and a literal `max = 0` would divide by zero in
@@ -882,7 +882,7 @@ namespace deren::engine {
          * THE NEUTRAL IS `(0,0,0,0)` AND IT MAKES `armA` A NO-OP: `RS Strength = 0` zeroes `s023` and with it
          * `arm0`, which is what a material whose sidecar states no `_GooRSArm0` row must get. Note that is NOT
          * the same as the lane being absent: the lane exists and is written for every material, and a zeroed
-         * `arm0` still passes through `armB`'s own LIGHTEN (`max(base, 0)`), which is why the outer gate stays
+         * `arm0` still passes through `armB`'s LIGHTEN (`max(base, 0)`), which is why the outer gate stays
          * `Use RS_Eff?` and only that - see the RS block's note in `source/shaders/toon/goo_toon.slang`.
          */
         goo_rs_arm0 = 29, // `_GooRSArm0`: `RS_Index` [x] / `RS Strength` [y] / `Layer weight Value` [z] / `Offset` [w]
@@ -919,7 +919,7 @@ namespace deren::engine {
     export struct toon_inputs {
         deren::utility::vessel::array<texture_input, static_cast<std::size_t>(toon_slot::count)> slots = {};
         /**
-         * THE MATERIAL'S OWN COLOURS (see `toon_colour_lane`), each one NEUTRAL BY DEFAULT.
+         * THE MATERIAL'S COLOURS (see `toon_colour_lane`), each one NEUTRAL BY DEFAULT.
          *
          * WHITE IS THE NEUTRAL, and it is chosen rather than left zero for the reason every other default here is
          * chosen: a missing row must leave the shading exactly where it was. White does that for a multiply-tint
@@ -935,7 +935,7 @@ namespace deren::engine {
          * ... AND THE TWO SCALAR LANES' NEUTRALS ARE NEITHER, WHICH ARE THE PLACES THIS TABLE CARRIES A SENTINEL:
          * their `.x` is `-1.0`, meaning "the asset states no such row for this material". A "no-op" number does
          * not exist for either - the value IS the term's strength (`_Specular`) or its depth (`_ParallaxScale`),
-         * so any number in the value's own range would be one the port invented (and `0.0`, the tempting one, is
+         * so any number in the value's range would be one the port invented (and `0.0`, the tempting one, is
          * a value the game really states on the iris and the brow for `_Specular`, and a legitimate authored
          * "no parallax" for `_ParallaxScale`). `-1` is outside either value's range and therefore cannot be
          * confused with a statement; the stage's test is `>= 0.0` on both (see
@@ -944,17 +944,17 @@ namespace deren::engine {
          * THE RIM LANES ADD A THIRD SHAPE AND IT IS WORTH NAMING BECAUSE IT IS NOT A THIRD CONVENTION: they use
          * the SAME `< 0` sentinel as the two above, and their FALLBACKS differ per component because the
          * REFERENCE's defaults differ per component. `goo_rim_colour` starts WHITE (the `Rim_Color` sub-group's
-         * own interface default - a multiply-tint, so white is the no-op), and `goo_rim_scalars` /
+         * its interface default - a multiply-tint, so white is the no-op), and `goo_rim_scalars` /
          * `goo_rim_widths` start `(-1, -1, -1, -1)` with the STAGE resolving each component to that socket's
          * reference default (`1.0` / `0.8999999761581421` / `2.0` / `0.0` for the scalars, `0.5` for each width).
-         * A single number here could not express that, and a number in a component's own range could not mean
+         * A single number here could not express that, and a number in a component's range could not mean
          * "absent" (`Rim_ColorStrength = 0.0` is how the reference's author switches a rim OFF). See
          * `toon_colour_lane::goo_rim_colour` / `goo_rim_scalars` / `goo_rim_widths`.
          *
          * ... AND STEP 4'S SIX LANES USE BOTH SHAPES AT ONCE, which is the same statement one level further out:
          * `goo_base_colour` starts WHITE and `goo_direct_occlusion` starts BLACK, because those two ARE the
-         * reference's own interface defaults and each is a real value in its own right; the other four start
-         * `(-1, -1, -1, -1)`, because each of their eight per-material numbers is one the reference or its own
+         * reference's interface defaults and each is a real value in its right; the other four start
+         * `(-1, -1, -1, -1)`, because each of their eight per-material numbers is one the reference or its
          * author states at zero or below - `CastShadow_center` is `-0.1` on both `body_01` and `body_02` - and
          * their fallbacks are that same group's interface defaults, resolved component by component in the stage.
          * See `toon_colour_lane::goo_base_colour` .. `goo_direct_occlusion`.
@@ -964,7 +964,7 @@ namespace deren::engine {
          * none reordered, none omitted. A SHORT LIST IS NOT A COMPILE ERROR AND NOT A WARNING: the elements
          * that are not written are VALUE-INITIALISED, so omitting one silently renumbers the defaults of
          * every lane after it. This table once stated 23 of the 29, and lanes 23..28 read plain zero instead
-         * of the sentinels and the opaque black their own lanes document - a defect that was invisible in
+         * of the sentinels and the opaque black their lanes document - a defect that was invisible in
          * every frame and visible only in the text. `source/tests/test_toon_material_sidecar.cpp` now counts these
          * elements for exactly that reason.
          *
@@ -991,14 +991,14 @@ namespace deren::engine {
                                                                                                                glm::vec4(-1.0f, -1.0f, -1.0f, -1.0f),
                                                                                                                // ---- STEP 4'S SIX LANES (`toon_colour_lane::goo_base_colour` .. `goo_direct_occlusion`) ----
                                                                                                                //
-                                                                                                               // THE FIRST TWO ARE THE REFERENCE'S OWN INTERFACE DEFAULTS RATHER THAN A
+                                                                                                               // THE FIRST TWO ARE THE REFERENCE'S INTERFACE DEFAULTS RATHER THAN A
                                                                                                                // CONVENTION - `BaseColor` is `[1,1,1,1]` and `directOcclusionColor` is
                                                                                                                // `[0,0,0,1]` in `gooblender/nodes.json` - and the other four are the SAME
                                                                                                                // `-1000` SENTINEL (`goo_lane_absent` in the shader), and it is NOT `< 0`
                                                                                                                // BECAUSE TWO OF THE EIGHT ARE AUTHORED NEGATIVES - `CastShadow_center` is
                                                                                                                // `-0.1` on both body materials and `GlobalShadowBrightnessAdjustment` is
                                                                                                                // `-1.8` on the cloth - so a neutral inside the range would swallow them. The two
-                                                                                                               // fresnel lanes' `.rgb` is white behind the sentinel - the group's own
+                                                                                                               // fresnel lanes' `.rgb` is white behind the sentinel - the group's
                                                                                                                // `fresnel{Inside,Outside}Color` default - and their `.w` is the window
                                                                                                                // edge's default (`0.0` / `1.0`), resolved by the stage component by
                                                                                                                // component exactly as `goo_rim_scalars`' four are.
@@ -1010,7 +1010,7 @@ namespace deren::engine {
                                                                                                                glm::vec4(0.0f, 0.0f, 0.0f, 1.0f),
                                                                                                                // ---- STEP 5'S FOUR LANES (`toon_colour_lane::goo_specular_fgd` .. `goo_specular_color`) ----
                                                                                                                //
-                                                                                                               // ALL FOUR ARE THE REFERENCE'S OWN `interface[]` DEFAULTS, which is
+                                                                                                               // ALL FOUR ARE THE REFERENCE'S `interface[]` DEFAULTS, which is
                                                                                                                // the same shape step 4's first two lanes use and for the same reason:
                                                                                                                // each one is a value the graph really uses (a strength of 1.0, a white
                                                                                                                // light, a white multiplier) rather than a sentinel standing in for a missing mechanism.
@@ -1019,26 +1019,26 @@ namespace deren::engine {
                                                                                                                // container has no such socket" while the three colour lanes have no
                                                                                                                // in-range value that could mean it: `specularFGD Strength = 0.0` would
                                                                                                                // be a material with no IBL specular at all, and black is a light
-                                                                                                               // colour the reference's own author never wrote. So -1 in `.x` is
+                                                                                                               // colour the reference's author never wrote. So -1 in `.x` is
                                                                                                                // the scalar's absence and the STAGE resolves it (exactly as
                                                                                                                // `goo_rim_scalars`' four components are resolved), while the two
-                                                                                                               // colour lanes fall back on their own four components.
+                                                                                                               // colour lanes fall back alone four components.
                                                                                                                glm::vec4(-1.0f, 1.0f, 1.0f, 1.0f),
                                                                                                                glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
                                                                                                                glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
                                                                                                                // ... AND `SpecularColor` IS WHITE FOR THE OUTLINE LANE'S REASON READ THE
                                                                                                                // OTHER WAY: it is a MULTIPLIER, so 1.0 is the no-op, and a lane left at
                                                                                                                // 0 would DELETE the direct specular of every material that states no
-                                                                                                               // row. White is also the reference's own `interface[]` default for
+                                                                                                               // row. White is also the reference's `interface[]` default for
                                                                                                                // the socket, so "not stated" and "stated as white" agree.
                                                                                                                glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
                                                                                                                // ---- STEP 7'S FOUR LANES (`toon_colour_lane::goo_face_scalars_a` .. `goo_face_front_r`) ----
                                                                                                                //
                                                                                                                // THE TWO SCALAR LANES ARE `-1000` SENTINELS AND THE TWO COLOUR LANES ARE
-                                                                                                               // OPAQUE BLACK, each for its own lane's reason: the scalars' zero is a value the
+                                                                                                               // OPAQUE BLACK, each for its lane's reason: the scalars' zero is a value the
                                                                                                                // graph really uses (`SmoothnessMax = 0` is "perfectly rough", and the two
                                                                                                                // brightnesses are multiplied into the pixel), while the two colours ARE the
-                                                                                                               // reference's own `interface[]` defaults - white would be the strongest possible
+                                                                                                               // reference's `interface[]` defaults - white would be the strongest possible
                                                                                                                // statement about a nose shadow (`混合.017`'s A side) and about `Front transparent
                                                                                                                // red`'s tint. See `toon_colour_lane::goo_face_scalars_a` .. `goo_face_front_r`.
                                                                                                                glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),
@@ -1047,15 +1047,15 @@ namespace deren::engine {
                                                                                                                glm::vec4(0.0f, 0.0f, 0.0f, 1.0f),
                                                                                                                // ---- STEP 8'S ONE LANE (`toon_colour_lane::goo_normal_strength`) ----
                                                                                                                //
-                                                                                                               // A `-1000` SENTINEL RATHER THAN THE GROUP'S OWN `1.0`, because an absent row
+                                                                                                               // A `-1000` SENTINEL RATHER THAN THE GROUP'S `1.0`, because an absent row
                                                                                                                // has to leave the chain's previous normal in place instead of switching the
                                                                                                                // decode on for a material the port carried no measured value for - and not a
-                                                                                                               // `0`, because `NormalStrength = 0` is a value the reference's own materials
+                                                                                                               // `0`, because `NormalStrength = 0` is a value the reference's materials
                                                                                                                // state. See `toon_colour_lane::goo_normal_strength`.
                                                                                                                glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),
                                                                                                                // ---- STEP 10'S ONE LANE (`toon_colour_lane::goo_aniso_gate`) ----
                                                                                                                //
-                                                                                                               // `(0, 0, 0, 0)` IS THE REFERENCE'S OWN GROUP DEFAULT AND IS NOT A SENTINEL:
+                                                                                                               // `(0, 0, 0, 0)` IS THE REFERENCE'S GROUP DEFAULT AND IS NOT A SENTINEL:
                                                                                                                // `Use anisotropy?`, `Anisotropic mask` and `Use Toonaniso?` are all `0.0` in
                                                                                                                // the dump, so a material that states no `_GooAnisoGate` row gets the arm the
                                                                                                                // graph gives a caller that states nothing. See
@@ -1063,7 +1063,7 @@ namespace deren::engine {
                                                                                                                glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
                                                                                                                // ---- STEP 12'S ONE LANE (`toon_colour_lane::goo_aniso_rough`) ----
                                                                                                                //
-                                                                                                               // `(0, 0, 0, 0)` IS THE REFERENCE'S OWN `interface[]` DEFAULT,
+                                                                                                               // `(0, 0, 0, 0)` IS THE REFERENCE'S `interface[]` DEFAULT,
                                                                                                                // exactly as lane 25's is, and NOT the `-1` / `-1000` sentinel shape:
                                                                                                                // `Aniso_SmoothnessMaxT = 0` is a value the graph really uses (it is
                                                                                                                // what a caller that states nothing gets, and `rT = 1` follows from it),
@@ -1082,7 +1082,7 @@ namespace deren::engine {
                                                                                                                // IT IS ONE OF THE `count` STATED ENTRIES RATHER THAN PART OF AN INITIALIZER TAIL, and
                                                                                                                // that is not tidiness either: what a value-initialised `deren::utility::vessel::array` tail holds depends on
                                                                                                                // GLM's `GLM_FORCE_CTOR_INIT`, so a table that stopped short of `count` would be leaving
-                                                                                                               // the values of its last lanes to a build configuration. A stated zero cannot drift.
+                                                                                                               // the separate values last lanes to a build configuration. A stated zero cannot drift.
                                                                                                                glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
                                                                                                                // Lane 28's `.w` is the mask's `SmoothStep.max`, so zero here also has to mean "unstated" rather than a
                                                                                                                // literal `max = 0`: the stage reads `.w <= 0` as `1.0`, which is the divide-by-zero guard the port
@@ -1090,7 +1090,7 @@ namespace deren::engine {
                                                                                                                glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
                                                                                                                // ---- STEP 15'S ONE LANE (`toon_colour_lane::goo_rs_arm0`) ----
                                                                                                                //
-                                                                                                               // `(0, 0, 0, 0)` IS THE REFERENCE'S OWN GROUP DEFAULT for the
+                                                                                                               // `(0, 0, 0, 0)` IS THE REFERENCE'S GROUP DEFAULT for the
                                                                                                                // `armA` sockets AND it is the arm's off switch: `.y` is `RS Strength`,
                                                                                                                // and `s023 = s036 * RS Strength` zeroes the whole arm when it is zero.
                                                                                                                // A material with no `_GooRSArm0` row therefore gets an `arm0` of zero

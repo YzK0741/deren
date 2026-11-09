@@ -6,17 +6,17 @@
  * @defgroup engine_pass_shadow Shadow Pass
  *
  * WHY IT IS DIFFERENT FROM EVERY OTHER GRAPHICS PASS: the others draw a fullscreen triangle whose shape the pass
- * owns; this one draws THE SCENE, once per cascade, into a layer of a layered depth image - and it records that
+ * holds; this one draws THE SCENE, once per cascade, into a layer of a layered depth image - and it records that
  * content into SECONDARY command buffers the frame loop's task pool fills. So its frame carries the scene's content
  * as a CALLBACK (see shadow_frame::record_cascade) plus what is specific to this pass: the secondaries, the map's
  * edge and the task scheduler.
  *
- * WHAT IT OWNS: the depth-only pipeline (built at create time from `pass_context::depth_format` and the three
+ * WHAT IT HOLDS: the depth-only pipeline (built at create time from `pass_context::depth_format` and the three
  * slope-scaled bias factors), and the per-cascade recording: the layer's transition to a
  * depth attachment, the depth-only instance at the map's edge, the pre-recorded secondary's execution and the
  * instance's end.
  *
- * WHAT IT DOES NOT OWN, each a shared thing rather than an omission: the shadow map IMAGES and their pool (the
+ * WHAT IT DOES NOT hold, each a shared thing rather than an omission: the shadow map IMAGES and their pool (the
  * passchain creates them and the scene shaders read them through the heap - a shared resource like the G-buffer
  * family); the HAND-BACK
  * barrier (it covers every ALLOCATED layer, including the spare ones a shrank cascade count left behind, which only
@@ -55,13 +55,13 @@ export namespace deren::engine::pass {
         /**
          * @brief record ONE cascade's content into its secondary, from a fresh begin to its end
          *
-         * The implementation begins @p secondary with its own inheritance info and usage flags, sets the map-sized
+         * The implementation begins @p secondary with its inheritance info and usage flags, sets the map-sized
          * viewport and scissor, pushes @p cascade_index at the offset this pass's declaration names and draws the
          * frame's casters with @p pipeline - then ends the buffer.
          *
          * @p secondary IS THE CONTRACT HANDLE NOW (abi 20): the cascade's buffer is a contract
          * `command_buffer`, so the callback begins and ends it through `begin_recording` / `end_recording`
-         * (the inheritance rides the contract's own tagged structure, whose descriptor-heap half the backend
+         * (the inheritance rides the contract's tagged structure, whose descriptor-heap half the backend
          * derives itself).
          */
         /// @return whether the secondary was recorded: a begin that FAILED must not be executed (that is a VUID
@@ -70,11 +70,11 @@ export namespace deren::engine::pass {
         ///        dispatches (vkCmdDrawMeshTasksEXT) instead of indexed draws - the pipeline and the way to feed
         ///        it are one fact, so they travel together (see docs/mesh_shaders.md step 1)
         bool (*record_cascade)(void* parent, deren::promise::rhi::mergeable_command_buffer_ref const& secondary, uint32_t cascade_index, deren::promise::rhi::pipeline* pipeline, bool mesh_stage, bool meshlets) = nullptr;
-        /// the frame loop's scheduler: one task per cascade, each recording into its own secondary
+        /// the frame loop's scheduler: one task per cascade, each recording into its secondary
         void (*run_tasks)(void* parent, std::span<std::function<void()>> tasks) = nullptr;
         void* parent = nullptr;
         /// the per-cascade SECONDARY command buffers, in cascade order - one per layer this frame renders.
-        /// THE CONTRACT HANDLES, BORROWED (abi 20): the frame loop owns the buffers (per slot, one per cascade)
+        /// THE CONTRACT HANDLES, REFERENCED (abi 20): the frame loop holds the buffers (per slot, one per cascade)
         /// and the pass only records into them and executes them - so this is a span of raw pointers and the
         /// pass must not release one.
         std::span<deren::promise::rhi::mergeable_command_buffer_ref const> cascades = {};
@@ -87,7 +87,7 @@ export namespace deren::engine::pass {
      * @brief the directional shadow map: the scene's depth from the light, one cascade per layer
      *
      * It runs BEFORE the scene pass, because the surfaces that sample the maps are shaded after it - and it may not
-     * run at all: the renderer skips the whole stage when the maps this slot already owns are still valid for it and
+     * run at all: the renderer skips the whole stage when the maps this slot already holds are still valid for it and
      * the caster geometry has not changed, which is what an UNRESOLVED pass means (nothing is recorded, and the
      * host's hand-back keeps the array sampleable).
      */
@@ -107,7 +107,7 @@ export namespace deren::engine::pass {
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const& host) override;
 
-        /// @brief the cascade rendering alone, with none of this pass's own ordering
+        /// @brief the cascade rendering alone, with none of this pass's ordering
         ///
         /// The removed legacy `record()` transitioned each cascade layer to a renderable depth attachment right before
         /// rendering it (see its comment). A graph-recorded frame declares the shadow map as a written graph
@@ -117,8 +117,8 @@ export namespace deren::engine::pass {
 
         /// @brief whether the pass built the pipeline it records with (the renderer gates its feature on this)
         [[nodiscard]] bool pipeline_ready() const noexcept;
-        /// @brief the framework's generic form of the same question, so an owner holding only a chain can ask it
-        ///        (a pass with nothing of its own to build keeps the interface's `true`; see `frame_pass::ready`)
+        /// @brief the framework's generic form of the same question, so a holder holding only a chain can ask it
+        ///        (a pass with nothing separate to build keeps the interface's `true`; see `frame_pass::ready`)
         [[nodiscard]] bool ready() const noexcept override {
             return this->pipeline_ready();
         }
@@ -129,12 +129,12 @@ export namespace deren::engine::pass {
         void set_frame(shadow_frame const& frame) noexcept;
 
     private:
-        /// @brief the one cascade-recording body, parameterised by who owns the per-layer transitions
+        /// @brief the one cascade-recording body, parameterised by who holds the per-layer transitions
         ///        false for a graph-recorded frame (the graph declares the writes and emits them)
         void record_impl(resolved_io const& io);
         static constexpr std::string_view vertex_shader_name = "shadow.vert.spv";
         static constexpr std::string_view fragment_shader_name = "shadow.frag.spv";
-        /// THE MESH STAGE'S OWN MODULE, from the same shader file's `mesh_main` entry (docs/mesh_shaders.md step
+        /// THE MESH STAGE'S MODULE, from the same shader file's `mesh_main` entry (docs/mesh_shaders.md step
         /// 1). It replaces the vertex entry rather than joining it: the pipeline is built with MESH + the same
         /// fragment stage, and the two pipelines are the same depth pass drawn two ways.
         static constexpr std::string_view mesh_shader_name = "shadow.mesh.spv";

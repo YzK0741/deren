@@ -41,7 +41,7 @@ RAW_PANIC = (
     "frame pc=0x50001100 base=0x50000000 rva=0x1100 module=C:\\build\\deren.exe\n"
 )
 
-# Two records concatenated into one log. Each record owns its first frame, so every `deren crash`
+# Two records concatenated into one log. Each record holds its first frame, so every `deren crash`
 # line RESETS the positional state instead of pinning it to the first frame of the file.
 RAW_TWO_RECORDS = (
     "deren crash code=0xc0000005 fault_pc=0x50002340\n"
@@ -57,7 +57,7 @@ RAW_TWO_RECORDS = (
 class ScratchDirectory:
     """A directory under the working directory, removed on exit.
 
-    NOT `tempfile.TemporaryDirectory`: it creates its directory with owner-only permissions
+    NOT `tempfile.TemporaryDirectory`: it creates its directory with holder-only permissions
     (0o700), and on Windows a process can then be refused when writing INSIDE it (measured:
     PermissionError from `Path.write_text`, and again from the cleanup) even though creating the
     directory and writing beside it both succeed. The working directory is where this suite

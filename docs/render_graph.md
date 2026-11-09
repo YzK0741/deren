@@ -14,7 +14,7 @@ the layer that decides pass order and abstract barriers.
 Resources are created outside the graph, for example through resource clusters.
 The core accepts nonzero opaque `resource_identity { device, object }` values. These
 values identify actual objects within a device domain; names do not identify
-resources. The core does not own or dereference those objects. A later execution binding
+resources. The core does not hold or dereference those objects. A later execution binding
 layer must retain their leases and validate device compatibility.
 
 ## Build a plan
@@ -44,7 +44,7 @@ Names and normalized accesses are copied into the builder. Rejected registration
 does not append a partial resource, pass, output or order request.
 
 The builder is noncopyable/nonmovable. Its first compile freezes it, including
-when compilation fails; construct another builder to revise the graph. Owning
+when compilation fails; construct another builder to revise the graph. Held
 compiled_graph and graph_error values remain readable after the builder and
 input strings are destroyed. Ordinary invalid inputs return expected errors;
 allocation failure follows utility's existing fast_panic policy.
@@ -58,7 +58,7 @@ An active read must have defined contents throughout its declared range.
 
 ## Typed pass parameters
 
-The typed overload `add_pass(name, parameters, options)` owns a const copy (or moved
+The typed overload `add_pass(name, parameters, options)` holds a const copy (or moved
 value) and derives its access list from that value. No parallel access array is
 needed. Define `void visit_resources(parameter_visitor&) const noexcept` and enumerate
 each resource field explicitly; ordinary scalar fields are not passed to the visitor.
@@ -85,7 +85,7 @@ These express content operations. Each field also accepts a third `access_scope`
 member containing usage and pipeline stages, as described below.
 
 The visitor supports nested parameter structs, std::array, std::optional, and spans
-constructed over owned fields. An absent optional declares no access. It visits
+constructed over held fields. An absent optional declares no access. It visits
 fields in enumeration order; the existing registration code validates and normalizes
 their ranges and rejects conflicting operations or foreign refs transactionally.
 Enumeration must be deterministic and free of side effects. Every actual resource
@@ -97,14 +97,13 @@ once; move-only parameters work. `plan.passes[i].parameters.get<MyParameters>()`
 returns a const pointer, or nullptr for a different type or a legacy untyped pass.
 Parameter values survive the builder and original input. Copying a plan shares
 the same immutable snapshot, including move-only values; destruction releases it
-after its last owner. Failed registration releases its candidate snapshot.
+after its last holder. Failed registration releases its candidate snapshot.
 Allocation uses utility's mimalloc allocator and existing fast_panic policy.
 
-Constness is shallow: use owning value fields for variable data. Raw pointers,
+Constness is shallow: use holding value fields for variable data. Raw pointers,
 string_view, span, reference wrappers and shared mutable objects do not become
 deep snapshots. Their backing data must stay alive and immutable for the whole
-plan lifetime. Prefer constructing spans inside visit_resources over the snapshot's
-own arrays; do not store a span into the original object's storage. GPU leases and
+plan lifetime. Prefer constructing spans inside visit_resources over the snapshot's arrays; do not store a span into the original object's storage. GPU leases and
 descriptor retention remain the future execution binding's responsibility.
 
 The span-of-resource_access overload remains available for CPU compiler tests and
@@ -204,7 +203,7 @@ planned states, not evidence of submission/completion; publish them only through
 the future successful-submission protocol. No final requested layout/epilogue is
 emitted yet, including no automatic transition to present.
 
-This model contains no Vulkan masks, RHI handles or queue ownership transfers.
+This model contains no Vulkan masks, RHI handles or queue retention transfers.
 Generic read/write masks permit a conservative backend mapping; an execution
 adapter must map the complete stage sets, layouts and aspect ranges, or reject an
 unsupported combination. Existing RHI recipes do not yet establish that mapping.
@@ -246,7 +245,7 @@ passes. Validation uses subtraction before addition, including uint64 byte limit
 Disjoint ranges in one pass may use different operations, such as reading mip0 and
 writing mip1. Overlapping ranges with different operations are rejected; express a
 read-modify-write explicitly. Overlapping accesses with the same operation are
-normalized into a disjoint union so overlapping read_write does not read its own
+normalized into a disjoint union so overlapping read_write does not read its
 new version. Pass registration stays transactional on any rejection.
 
 Content versions, initialization, value dependencies and hazards are range-aware.
@@ -263,7 +262,7 @@ claim of constant memory for arbitrarily fragmented workloads.
 
 Registration order determines the content version each read sees. Compilation
 first traces value dependencies backwards from exported final contents and
-passes marked `pass_options{.side_effect = true}`. Imported ownership or an
+passes marked `pass_options{.side_effect = true}`. Imported retention or an
 ordinary write is not itself a root. Unused passes, including overwritten dead
 writes, are culled. Undefined reads in dead passes are ignored; invalid refs are
 always rejected during registration.
@@ -283,7 +282,7 @@ The result keeps dependency reasons (value, RAW, WAR, WAW, explicit order), live
 flags and content reads. Multiple reasons may connect the same endpoints. Cycle
 diagnostics identify a blocked pass; they do not promise a complete cycle path.
 
-Each resource's final_ranges owns a disjoint cover of the full imported shape,
+Each resource's final_ranges holds a disjoint cover of the full imported shape,
 with producer, version and defined state per fragment. defined is true only if
 all fragments are defined. last_producer is invalid_index when final fragments
 have different producers (including imported contents). last_version counts
@@ -304,7 +303,7 @@ expected rather than calling the throwing BGL topological_sort. Public interface
 contain no Boost, RHI or Vulkan types.
 
 Tests cover a 20,000-pass chain, version culling, read-modify-write, aliases,
-hazards, stable order, cycles, owned diagnostics and OOM. The Boost allocation
+hazards, stable order, cycles, held diagnostics and OOM. The Boost allocation
 probe observes the actual compiled graph module as well as its shared adapter.
 
 Subresource ranges, typed parameter visitors, the baseline abstract barrier
@@ -314,12 +313,12 @@ scoped recording capability live in the backend (see [the RHI mapping audit](ren
 and since the 2026-10-17 cleanup the graph is the only recording path: the Bloom, post-chain and
 main-graph stages are composed into it, and the legacy hand-ordered scene tail and legacy Bloom path
 are gone (see "Composing an executable graph" and "First main-chain boundary" below). What the CPU
-core itself still does not do is validate GPU synchronization on its own; the backend converters
+core itself still does not do is validate GPU synchronization alone; the backend converters
 record the commands the plan describes.
 
 ## Diagnostic dumps
 
-Call dump_text(plan) or dump_json(plan) explicitly; both return an owned vessel::string.
+Call dump_text(plan) or dump_json(plan) explicitly; both return a held vessel::string.
 The same functions accept graph_error after a rejected registration or compilation.
 They perform no file writes, logging, recording or submission. They are normal
 allocating diagnostic helpers, not part of fast_panic or the OOM path.
@@ -371,7 +370,7 @@ comes from the backend allocation domain, so wrappers sharing a deduplicated
 image import as one graph resource. Keep an original lease alive continuously from
 import through prepare; numeric identities alone do not retain allocations or
 guard against allocator handle reuse after destruction. Preparation
-owns a snapshot and checks device identity, exact resource shape, live access
+holds a snapshot and checks device identity, exact resource shape, live access
 usage/stages and every bound barrier through the optional
 `rhi::scoped_synchronization` capability. Resources used only by culled passes
 need no binding; exports still need one. Duplicate or unrelated bindings fail.
@@ -379,7 +378,7 @@ A backend without the capability returns an error before any recording.
 
 `record(commands, callback)` emits a batch before each live pass, then invokes a
 const noexcept callback returning `rhi::error`. `record_context` exposes the pass
-record and only the images/buffers declared by that pass. This context is borrowed
+record and only the images/buffers declared by that pass. This context is referenced
 only during the callback; copying it does not retain resources. Empty batches still
 check the command buffer. A recording or callback error stops execution; the
 caller must discard that partially recorded command buffer.
@@ -387,7 +386,7 @@ caller must discard that partially recorded command buffer.
 Keep `prepared.retention()` until GPU completion. It pins the core, graph and
 bound leases; recording does not submit, wait, publish final state or determine
 GPU lifetime. Pipelines, views, descriptors and uploads used by callbacks need
-their own retention. Parameter snapshots retain their existing shallow ownership
+their retention. Parameter snapshots retain their existing shallow retention
 rules. Initial states remain the caller's handoff declaration, and exports do not
 request epilogue transitions. The API consumes compiler-produced graphs; editing
 compiled records does not recompile or repair their synchronization.
@@ -406,7 +405,7 @@ ordinary Bloom intensity/debug-view gates still apply.
 
 `deren.engine.render_graph.bloom` compiles four graphics passes: HDR prefilter,
 then three downsamples. Each reads the previous image in the fragment shader and
-CLEARs its own color attachment. A fifth boundary pass samples all four outputs;
+CLEARs its color attachment. A fifth boundary pass samples all four outputs;
 it records synchronization only and establishes the composite's incoming state.
 The HDR transition belongs to the preceding graph lane. The graph
 callback uses `post_bloom_pass::record_content`, which records content only - the graph emits the barriers.
@@ -414,14 +413,14 @@ Pipeline binding, viewport, heap slots, shader constants and fullscreen draws ar
 shared with the established implementation.
 
 The runtime pins existing output generations through aliasing shared image leases;
-`resource_lease::from_shared` retains the supplied owner without taking a second
+`resource_lease::from_shared` retains the supplied holder without taking a second
 raw release reference. Generation retention also keeps the existing image views
 alive. The prepared graph/off-path leases remain in the paced frame slot until
 that slot completes. Callback-only pipelines and descriptor storage still follow
-the runtime's existing ownership/wait protocols.
+the runtime's existing retention/wait protocols.
 
 Only successful submission publishes Bloom initialization. State is keyed by
-resource-generation ownership identity and image instance, so an unrelated output
+resource-generation retention identity and image instance, so an unrelated output
 rebuild does not discard another image's frontier, and returning to a still-live
 generation preserves its state. Expired generation entries are reclaimed. Reused
 images retain fragment-read/color-write scopes even though their texels are
@@ -442,7 +441,7 @@ color LUT. Disabled Bloom clears its four attachments: the current shader sample
 them even at zero intensity, so their contents must be defined.
 
 `deren.engine.render_graph.post` builds the chain from imported identities and
-states. Resource creation remains outside the graph. Existing generation owners
+states. Resource creation remains outside the graph. Existing generation holders
 pin HDR/Bloom/LDR images and views; frame-slot retention keeps graph bindings and
 the output view alive until GPU completion. Bloom/LDR initialization is published
 only after successful submission. The scene-to-HDR boundary remains external.
@@ -453,13 +452,13 @@ from the mutable legacy `frame_image()` facade. It pins the core, but does not
 extend the native swapchain generation's validity through resize. Submission,
 frame advance and reacquisition invalidate old bindings; prepare and record check
 their identity, including passes without barriers. Snapshot images cannot be used
-with an independently owned command buffer. Existing acquire/submit/resize rules
+with an independently held command buffer. Existing acquire/submit/resize rules
 remain mandatory.
 
 For a windowed snapshot's initial UNDEFINED transition, the Vulkan recorder adds
 a source execution scope covering its acquire-semaphore wait. Discarding contents
 does not remove WSI ordering. This augmentation belongs to the acquired-image
-protocol; ordinary owned images retain the generic UNDEFINED mapping.
+protocol; ordinary held images retain the generic UNDEFINED mapping.
 
 Composite/resolve callbacks use checked `record_content` entry points that record
 content only (the graph emits the barriers). UI stays inside the final rendering instance. Screenshot/readback
@@ -468,10 +467,10 @@ then establishes PRESENT (windowed) or sampled (offscreen), with PRESENT carryin
 no destination stage/access. Recording failure blocks submission instead of
 falling back after partially recording a graph.
 
-Canonical owned image/buffer identities use stable backend allocation-record
-addresses, shared by deduplicated wrappers; frame snapshots use their own object
+Canonical held image/buffer identities use stable backend allocation-record
+addresses, shared by deduplicated wrappers; frame snapshots use their object
 addresses in the same core domain. Keep leases alive from import to preparation.
-Identity values are process-local and do not own resources.
+Identity values are process-local and do not hold resources.
 
 ## Composing an executable graph
 
@@ -481,17 +480,17 @@ backend description. Consistent canonical aliases return the same ref; conflicti
 imports fail. GPU resources are still created outside the graph.
 
 Use `frame.append(fn)` to synchronously run a pure CPU construction function against
-the shared description builder. The callable must be noexcept and return an owned
+the shared description builder. The callable must be noexcept and return a held
 `expected<T, graph_error>` value, including void. An append error is latched: a
 partially constructed graph cannot subsequently prepare. No builder reference may
 escape the invocation. `post::append(graph, inputs, options)` demonstrates module
 composition: it returns named pass refs and a color ref without importing,
 exporting or compiling. The standalone `post::compile` wraps that same function.
 
-Bind returned pass refs with `bind_pass<Parameters>(ref, recorder)`. `ownable`,
+Bind returned pass refs with `bind_pass<Parameters>(ref, recorder)`.
 `graph_appender` and `pass_recorder` constrain stored values and exact noexcept
 signatures. Move-only recorders are supported; null function pointers are rejected.
-The recorder receives the original typed parameter snapshot, commands and borrowed
+The recorder receives the original typed parameter snapshot, commands and referenced
 record_context. Const invocation still permits GPU side effects. Refs retain their
 builder incarnation; graph indices or pass names cannot substitute for a pass ref.
 
@@ -504,7 +503,7 @@ must refuse submission.
 
 Recorders and explicit `retain(shared_object<T>)` objects join the existing GPU
 retention token. Store frame data at a stable address before resolving self-pointing
-spans; copying a span or capturing a raw pointer does not retain its owner. The
+spans; copying a span or capturing a raw pointer does not retain its holder. The
 runtime post adapter now uses this mechanism instead of global pass-index dispatch.
 The graph still does not submit or publish cross-frame state. The composition design and the
 implementation acceptance record are maintainer material and are not distributed with this repository.
@@ -534,7 +533,7 @@ depth-test access and is not a substitute for shader sampling.
 `deren.engine.render_graph.geometry::append` declares discard writes for the three
 surface targets, velocity, HDR and depth. These imports start with undefined
 contents, and the geometry callback clears them even when the scene has no visible
-leaves. The existing scene pass still owns secondary recording and scheduling;
+leaves. The existing scene pass still holds secondary recording and scheduling;
 its checked content entry point propagates begin/end/execute failures after closing
 the rendering scope. The scene's lane is the only producer, so a frame has no
 duplicate geometry or attachment barriers.
@@ -542,7 +541,7 @@ duplicate geometry or attachment barriers.
 Mesh/material/bindless inputs, deformation, shadow and cluster producers, host
 publication and inactive descriptor-layout protocols remain outside this graph's
 coverage. This slice does not claim full-frame resource tracking. Existing
-generation owners pin all six attachments through aliasing leases, and the
+generation holders pin all six attachments through aliasing leases, and the
 composed payload has stable storage.
 
 ### Shared read-only inputs
@@ -556,14 +555,14 @@ reads. Attachment-only CPU clients may omit these bundles; the runtime main path
 requires all eight buffer imports and reuses one camera ref for both consumers.
 
 Per-slot buffers use the frame slot, not the swapchain image index. Every import
-checks its device/generation and expected borrowed handle, then retains an aliasing
+checks its device/generation and expected referenced handle, then retains an aliasing
 lease. Shared tables conservatively declare their full buffer range. Data comes
 from the existing CPU publication protocol: slot completion, writes, required flush
 and submission. Importing defined read state does not itself synchronize a host
 write. No fake GPU upload pass or host-write barrier is introduced.
 Camera/light imports must support uniform-buffer use, matching the shader's
 ConstantBuffer declarations. A custom storage-only constant generation is refused
-by graph preparation even if the declaration's own validation accepted it.
+by graph preparation even if the declaration's validation accepted it.
 
 Task and mesh shader stages are available throughout the CPU graph, RHI scope
 bridge and diagnostics. Vulkan maps them to their EXT stage bits and advertises
@@ -578,7 +577,7 @@ commands and cluster producers still need separate declarations. The shared bund
 does not claim to enumerate every resource the pass can access. The shared-input
 acceptance record is not distributed with this repository.
 
-During graph-owned deferred preparation the graph emits the surface/depth handoff
+During graph-held deferred preparation the graph emits the surface/depth handoff
 itself; CPU frame preparation still runs. The graph emits the handoff, then
 checked deferred record_content records only LOAD/draw commands. Recording or
 preparation failure blocks submission; no second path is replayed after partial

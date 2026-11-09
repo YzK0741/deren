@@ -14,8 +14,8 @@
 // WHY THE CAST NEEDS A SHARED DECLARATION AT ALL: the backend DLL exports exactly one C name, so a module
 // attachment cannot be served from it - both images compile this interface unit instead (the same shape
 // `denen.vulkan.main_context` and the other shared layout units use). The class is deliberately the
-// SMALLEST possible: one private native handle, `get()`, and the backend-side setter. No ownership flag,
-// no borrowed/owned kind, no conversion callback - the backend's two concrete command-buffer classes
+// SMALLEST possible: one private native handle, `get()`, and the backend-side setter. No retention flag,
+// no referenced/held kind, no conversion callback - the backend's two concrete command-buffer classes
 // derive from it and keep the handle current.
 // ============================================================================
 module;
@@ -36,14 +36,14 @@ export import deren.promise.rhi;
 
 export namespace deren::vulkan {
 
-    /// The concrete identity the backend constructs the BORROWED frame view with.
+    /// The concrete identity the backend constructs the REFERENCED frame view with.
     inline constexpr std::string_view frame_command_buffer_name = "deren_frame_commands_vulkan";
-    /// The concrete identity the backend constructs a caller-OWNED recording buffer with.
+    /// The concrete identity the backend constructs a caller-HELD recording buffer with.
     inline constexpr std::string_view command_buffer_name = "deren_command_buffer_vulkan";
 
     /// THE VULKAN CLASS: a contract `command_buffer` the Vulkan side casts to after checking the concrete
-    /// tag. `get()` is the native handle; `set_target()` is the backend's own way of keeping it current
-    /// (a frame slot's buffer while a frame is in flight, an owned buffer's own handle once allocated).
+    /// tag. `get()` is the native handle; `set_target()` is the backend's way of keeping it current
+    /// (a frame slot's buffer while a frame is in flight, a held buffer's handle once allocated).
     struct command_buffer : deren::promise::rhi::command_buffer {
         command_buffer() noexcept = default;
 
@@ -65,7 +65,7 @@ export namespace deren::vulkan {
         VkCommandBuffer native = VK_NULL_HANDLE;
     };
 
-    /// THE VULKAN CLASS A CONTRACT `mergeable_command_buffer` IS. The GUI overlay records its own ImGui draw
+    /// THE VULKAN CLASS A CONTRACT `mergeable_command_buffer` IS. The GUI overlay records its ImGui draw
     /// data into one of these, and `get()` is how the recording target is read - the same opaque-handle +
     /// concrete-tag + shared-layout rule the primary `command_buffer` class follows. The backend keeps the
     /// native handle current (a mergeable's target is the secondary buffer it was allocated with).

@@ -109,7 +109,7 @@ int main(int argc, char** argv) {
     CHECK(batch.upload(target, 60, bytes, {}, transfer_read) == rhi::error::invalid_argument);
     CHECK(batch.upload(target, 0, bytes, {}, {}) == rhi::error::invalid_argument);
     CHECK(batch.upload(target, 8, bytes, {}, transfer_read) == rhi::error::ok);
-    bytes.fill(std::byte{0xff}); // accepted input is a snapshot, not a borrowed span.
+    bytes.fill(std::byte{0xff}); // accepted input is a snapshot, not a referenced span.
     auto index = batch.readback(target, 8, 16, transfer_read, transfer_read);
     CHECK(index && *index == 0);
     CHECK(!batch.readback(target, 63, 2, transfer_read, transfer_read));
@@ -157,7 +157,7 @@ int main(int argc, char** argv) {
         auto rejected = service.make_batch();
         CHECK(rejected.upload(forged, 0, bytes, {}, transfer_read) == rhi::error::invalid_argument);
     }
-    // Drop a receipt while pending: the service must still own its input and staging.
+    // Drop a receipt while pending: the service must still hold its input and staging.
     {
         auto resources = engine::resource_cluster::create(core);
         auto buffer = resources->create_buffer({.size = 16, .flags = rhi::to_bits(rhi::buffer_flag::transfer_destination)});
@@ -177,7 +177,7 @@ int main(int argc, char** argv) {
             CHECK(service.drain() == rhi::error::ok && service.pending_count() == 0);
         }
     }
-    // Service destruction drains its own work; completed readback survives in the ticket.
+    // Service destruction drains its work; completed readback survives in the ticket.
     engine::buffer_transfer_ticket survivor;
     queue_gate gate(native.device, native.graphics_queue);
     std::thread release_gate;

@@ -16,7 +16,7 @@
 # ---- top level: model to load ----
 # model: glTF/GLB file to load. When empty, tries DamagedHelmet.gltf under
 #   paths.model_dir, then auto-locates asset/ upward from the cwd.
-#   The value "ask" (exactly, case-sensitive) opens the platform's own file dialog at startup instead:
+#   The value "ask" (exactly, case-sensitive) opens the platform's file dialog at startup instead:
 #   GetOpenFileNameW on Windows, zenity/kdialog on Linux, osascript on macOS. Cancelling it, or running
 #   where no dialog backend exists, is NOT an error - the app falls back to the default model above, so
 #   an unattended run still starts. A positional argv model path overrides this key, dialog and all.
@@ -28,13 +28,13 @@ grid_side = 0
 
 # ---- [scene] simple multi-object placement (deferred, unlit, game_toon or gaussian) ----
 # An EMPTY or absent list keeps the historic single-object import. Each
-# [[scene.objects]] entry imports the model named by its own `model` (a file
+# [[scene.objects]] entry imports the model named by its `model` (a file
 # path) or `asset` (an id in [paths] asset_library); an entry naming neither
 # reuses the top-level `model`. Entries naming the same file share ONE load
 # (geometry, textures and materials), so many placements do not multiply memory.
 # At most 16 entries and at most 8 DISTINCT model files in the pool, INCLUDING
 # the top-level default when it is not one of the per-object files. When every
-# entry names its own asset, the top-level `model` may be omitted: the first
+# entry names its asset, the top-level `model` may be omitted: the first
 # entry becomes the default load.
 #
 # Names are for the log and scene tree only; positions are world metres from
@@ -44,7 +44,7 @@ grid_side = 0
 # grounded on the same floor, so differently sized models stand together.
 #
 # The character stage supports multiple per-object GameToon placements. Each
-# pipeline="game_toon" entry uses ITS asset's toon sidecar and gets its own head
+# pipeline="game_toon" entry uses ITS asset's toon sidecar and gets its head
 # slot, up to max_game_toon_characters (16). Gaussian splat objects use the
 # shared splat stage: one global sort and one snapshot handle every visible
 # cloud, with a distinct stable id per object.
@@ -77,12 +77,12 @@ grid_side = 0
 #                       tint [r,g,b] (linear multiplier), metallic_scale, roughness_scale,
 #                       emissive_scale. The shared imported material is never modified.
 #   animation     - this object's clip index (0 = the first channel-bearing animation).
-#                   The list is the OBJECT'S OWN asset's clip list; two different
+#                   The list is the OBJECT'S asset's clip list; two different
 #                   models can therefore select different clips by index and name.
 #   animation_speed - playback-rate multiplier (1 = real time, 0 = frozen)
 #   animation_playing - false leaves the pose at its current time
-# These are independent per object: each entry gets its own animation controller and
-# its own clock, so two objects can play different clips at different speeds.
+# These are independent per object: each entry gets its animation controller and
+# its clock, so two objects can play different clips at different speeds.
 #
 # While the debug overlay is open, clicking an object in the viewport selects it
 # and its placement/draw settings appear in a separate "scene object" panel. Those
@@ -248,7 +248,7 @@ shadow_cascade_blend = 0.1
 # shadow lookup inside `toon_diffuse` (`shaders/character_forward.slang`). That body is SHARED: the same
 # file's entry point, `shaders/outline.slang` and `shaders/goo_toon.slang` (which includes
 # `character_forward.slang` for the rewritten chain) all call it, so at 1..4 the wide lookup is compiled
-# into and used by those three stages. `shaders/goo_toon.slang`'s OWN shadow read (its `rs_shadow`, the bare
+# into and used by those three stages. `shaders/goo_toon.slang`'s shadow read (its `rs_shadow`, the bare
 # `calc_shadow`) is untouched by every level, and the deferred/PBR paths never see the value at all.
 # 0 = OFF, the default, and byte-identical to a run without the key: `calc_shadow_soft(0)` calls the shipped
 # `calc_shadow` and nothing else - the same 3x3 grid of hardware 2x2 comparison taps that the shipped comment
@@ -256,7 +256,7 @@ shadow_cascade_blend = 0.1
 # 1..4 widen the UNROTATED tap grid: taps spaced `spacing` texels apart, running `half` texels either way, so
 # the tap count is `(2*half + 1)^2` = 9 / 25 / 49 / 121 / 289. THE WIDTH COLUMN BELOW IS THE SPAN OF TEXEL
 # INDICES THE TAPS REACH, first and last included - the counting the shipped "4x4" uses: each hardware
-# comparison tap carries its own 2x2 texel footprint and its centre sits within `half*spacing` texels of the
+# comparison tap carries its 2x2 texel footprint and its centre sits within `half*spacing` texels of the
 # sample uv, so the span is `2*half*spacing + 2` (the CONTINUOUS COVERED WIDTH is one texel less,
 # `2*half*spacing + 1`; the two must not be mixed up):
 #   level  (half, spacing)  taps       texel span (2*half*spacing + 2)
@@ -288,16 +288,16 @@ shadow_cascade_blend = 0.1
 # touches the character. Levels 3 and 4 leave the same 79 hard steps: within this ROI 4 buys no extra
 # termination, it is merely softer elsewhere (more mean lift, more leak) - so do not read this ROI as "4 is
 # better than 3". The marginal cost is `(t120 - t40) / 80`, one extra frame's worth at that level; 10.46 ->
-# 11.69 ms is +11.8 % and sub-linear because the five levels already saturate this ROI. Level 3's own cost was
+# 11.69 ms is +11.8 % and sub-linear because the five levels already saturate this ROI. Level 3's cost was
 # NOT measured, so nothing here may be interpolated between 0 and 4.
 # So stronger = fewer hard comb teeth at the shadow's edge AND more light leaking onto the lit skin - a taste
 # trade, which is why the default is off. Float or integer; a non-integer is rounded, anything outside 0..4 is
-# clamped, `nan` is read as 0, and each case is logged at startup with its own line. The inner loops are
+# clamped, `nan` is read as 0, and each case is logged at startup with its line. The inner loops are
 # dynamic, so the GPU cost of 1, 2 and 3 is NOT measured either.
 toon_shadow_softness = 0
 
 # shadow_bias_constant / shadow_bias_slope: the rasterization depth bias the shadow pass applies to a
-# caster's depth, which is what stops a lit surface from shadowing itself. These are the runtime's own
+# caster's depth, which is what stops a lit surface from shadowing itself. These are the runtime's
 # defaults, so omitting them changes nothing; `slope` scales with the depth gradient and is the one that
 # usually matters, `constant` is a flat offset. The debug GUI exposes the same two as sliders, and moving
 # them there overrides whatever the config said.
@@ -305,7 +305,7 @@ shadow_bias_constant = 0.0
 shadow_bias_slope = 1.5
 
 # clustered_lights: sort the punctual lights into a screen-tile x depth-slice grid once per frame (a
-# compute pass, shaders/light_cluster.slang) and evaluate only the pixel own cluster list instead of
+# compute pass, shaders/light_cluster.slang) and evaluate only the per-pixel cluster list instead of
 # every active light. This is what makes a light count far past the old four affordable: measured on
 # Sponza with 64 procedural lights at 960x720, the shading pass drops from 1.28 ms to 0.44 ms (and the
 # same change measured 0.25 ms to 0.08 ms in the pre-M5 forward path), with a byte-identical image.
@@ -363,7 +363,7 @@ furnace = false
 # deformation happens in the vertex shader and never reaches the memory a build reads) unless `rt_skin_bake`
 # is on. The other limit a traced shadow used to have - alphaMode MASK geometry being SOLID to the ray,
 # because an inline ray query has no any-hit stage to run the material's discard - is GONE: the shadow runs
-# on a ray-tracing PIPELINE whose hit group carries an any-hit shader that fetches the hit's own UV, samples
+# on a ray-tracing PIPELINE whose hit group carries an any-hit shader that fetches the hit's UV, samples
 # the material's alpha and refuses the intersection below the cutoff (shaders/rt_shadow.rahit). `rt_mask_bake`
 # below is the older, worse substitute for that stage and stays only as an A/B instrument.
 rt_shadows = false
@@ -400,20 +400,20 @@ rt_reflection_samples = 1
 # rt_mask_bake: bake alphaMode MASK into the acceleration structures, so a masked surface is not SOLID to a
 # ray. THIS IS THE SUBSTITUTE FOR AN ANY-HIT STAGE, and the shipped path does not need it: the ray-tracing
 # pipeline's any-hit shader answers the same question per HIT rather than per triangle (shaders/rt_shadow.rahit
-# fetches the hit's own UV, samples the material's alpha and refuses the intersection below the cutoff; measured
+# fetches the hit's UV, samples the material's alpha and refuses the intersection below the cutoff; measured
 # on the AlphaBlendModeTest asset it lands 3.0/255 from the raster shadow over the pixels it changes, against
 # 136.6/255 without it). What is left here is the A/B arm of that comparison.
 # A compute pass (`shaders/mask_bake.slang`) samples the material's alpha over each triangle of masked
-# geometry and COLLAPSES the triangles the mask covers nowhere - all three of their vertices written at one
+# geometry and COLLAPSES the separate triangles the mask covers nowhere - all three vertices written at one
 # position, which is a triangle no traversal can report a hit against. Hiding a triangle that way is only
-# safe if it owns its vertices, so the geometry is expanded to three unique vertices per triangle, made
-# non-indexed, written into a buffer of its own, and the structures and the hit shading read that copy.
+# safe if it holds its vertices, so the geometry is expanded to three unique vertices per triangle, made
+# non-indexed, written into A separate buffer, and the structures and the hit shading read that copy.
 # OFF BY DEFAULT, AND THE MEASUREMENT IS WHY - this is an instrument, not a fix that worked. The plumbing is
 # verified (baking with the rule disabled is byte-identical to not baking at all: the expansion, the
 # non-indexed build and the instance table are all exact), but the RULE is a per-triangle decision standing
 # in for a per-fragment one, and on a MASK-heavy sample asset it disagrees with the raster path in the
 # expensive direction: the traced frame came out 1.29 of mean brightness BRIGHTER than the raster shadow it
-# should match, i.e. triangles the raster path still shadows (through its own filtered texel sampling) were
+# should match, i.e. triangles the raster path still shadows (through its filtered texel sampling) were
 # removed from the structure. The rule samples every texel of a triangle's UV footprint and keeps anything
 # it cannot walk, so it does not remove geometry it has not looked at - what it cannot do is reproduce a
 # PER-PIXEL mask, which is exactly the limitation the mechanism has and the reason the any-hit stage in
@@ -425,7 +425,7 @@ rt_mask_bake = false
 # ray-traced shadow is cast by the mesh where it actually is and not by its bind pose. What it costs: one
 # compute invocation per vertex of every skinned caster (`shaders/compute_skin.slang`, the same skinning
 # maths `shaders/pbr.slang` does, writing OBJECT-space positions and normals into a buffer of the geometry's
-# own), then VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR over the structures of those casters - a refit,
+# separate), then VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR over the structures of those casters - a refit,
 # not a rebuild, which is why the topology is fixed for a skinned mesh and only the vertex data moves. The
 # structures are built with ALLOW_UPDATE for exactly this (see acceleration_structure::add's refittable
 # argument), and the instance record's vertex address is switched to the skinned buffer for the frame, so the
@@ -451,12 +451,12 @@ rt_skin_bake = false
 # no direct light, shadows, IBL, AO or emissive - a shading-free reference against the lit pass, and
 # useful for assets whose authored data is minimal. It is the "render mode" combo of the debug overlay
 # as a startup setting: the lighting stage is told explicitly (set_unlit) and then writes the stored
-# albedo instead of shading it, because it binds its own pipeline and cannot follow a per-leaf switch.
+# albedo instead of shading it, because it binds its pipeline and cannot follow a per-leaf switch.
 unlit = false
 
 # render_scale: the fraction of the window's extent the RENDER CHAIN runs at, so the scene is shaded at
 # fewer pixels than are presented. 1.0 (the default) is the historic frame - every render target is the
-# window's own size, and the frame's last pass writes the swapchain directly. Below 1.0 the whole render
+# window's size, and the frame's last pass writes the swapchain directly. Below 1.0 the whole render
 # chain shrinks together: the G-buffer, the HDR/LDR images, the TAA history, the half-size stochastic
 # targets and the bloom chain all follow ONE extent (core::render_extent is that one definition), which cuts
 # the per-pixel cost of every scene stage, and the frame's last pass resolves those pixels back up to the
@@ -531,7 +531,7 @@ taa_blend_static = 0.9
 taa_blend_min = 0.5
 
 # visibility_buffer: the GPU-DRIVEN OPAQUE PATH (the visibility-buffer plan's v0.5). A mesh-task raster writes one
-# packed triangle id per pixel plus the frame's own G-buffer depth, and a compute pass turns the ids back into the
+# packed triangle id per pixel plus the frame's G-buffer depth, and a compute pass turns the ids back into the
 # five G-buffer targets the deferred lighting stage already reads - no per-draw vertex fetch, no per-pixel
 # interpolators, one id word per pixel instead.
 #
@@ -553,7 +553,7 @@ software_raster_threshold_px = 1.0 # conservative projected-diameter cutoff for 
 # character_forward: the TOON CHARACTER STAGE. It draws the scene's opaque leaves a SECOND time, after the
 # lighting stage, through a pipeline whose depth compare is EQUAL and whose depth write is held off - so it
 # lands on exactly the surface the G-buffer pass recorded and REPLACES the lit pixel rather than layering
-# over it. That is what lets a character carry its own hand-authored shading without being lit twice, which
+# over it. That is what lets a character carry its hand-authored shading without being lit twice, which
 # is what happens if a finished (display-space) colour is fed back through the G-buffer.
 #
 # OFF by default, and that default is the feature's contract rather than caution: with it ON every opaque
@@ -564,7 +564,7 @@ software_raster_threshold_px = 1.0 # conservative projected-diameter cutoff for 
 # The toon SHADING CHAIN HAS LANDED and this stage now reads the material's four sidecar lanes -
 # `_DiffRampMap`, `_ShadowLutTex`, `_SpecRampMap`, `_MatcapTex` - through the descriptor heap, selected per
 # material FAMILY (see shaders/toon_params.slang). It also gates the screen-space rim (vulkan/pass/toon_screen_rim).
-# The game's own maps for those lanes are not redistributable (ASSET_LICENSE_BOUNDARY_CN.md), so a neutral,
+# The game's maps for those lanes are not redistributable (ASSET_LICENSE_BOUNDARY_CN.md), so a neutral,
 # redistributable bake stands in for each one; see main.cpp's bake_unit_ramp / bake_shadow_lut / bake_matcap and
 # gltf_loader/toon_material_sidecar.cppm for the `.toon.tsv` the slots come from.
 character_forward = false
@@ -602,7 +602,7 @@ game_toon = false
 #
 # WHAT THE FLAG DOES, and it is deliberately one flag with two consequences rather than a material trick:
 # the leaves this import creates are marked `primitive::environment`, so (a) the toon CHARACTER stage skips
-# them - the character chain is the cartoon author's chain, written for one character's own material data,
+# them - the character chain is the cartoon author's chain, written for one character's material data,
 # and the reference never gave its ground or its dome a toon material - and (b) they are never shadow
 # CASTERS, nor part of the shadow fit, so a 34 m ground disc cannot spend the shadow map's texels on itself.
 # The SCENE pass draws them through the ordinary PBR/unlit path, where a matte ground and a glTF emissive
@@ -611,12 +611,12 @@ game_toon = false
 # A RELATIVE PATH IS RESOLVED AGAINST THE EXECUTABLE'S DIRECTORY (where the other assets are), so a config
 # shipped beside the binary can name one without being absolute.
 #
-# THE OFFSET IS DERIVED, NOT CONFIGURED: the model is expected to have its GROUND at its own y = 0, and it
-# is translated so that plane lands under the subject's feet (the subject's own centering shift plus its own
+# THE OFFSET IS DERIVED, NOT CONFIGURED: the model is expected to have its GROUND at its y = 0, and it
+# is translated so that plane lands under the subject's feet (the subject's centering shift plus its
 # lowest point). A background whose ground is not at y = 0 will sit at the wrong height - the assumption is
 # stated rather than guessed at.
 #
-# Example (the author's own `endfield-background`, a 34 m matte ground disc + emissive dome, converted to
+# Example (the author's `endfield-background`, a 34 m matte ground disc + emissive dome, converted to
 # glTF): background_glb = "deren-ab/bg/endfield-background/export/background.glb"
 # NOTE ON THAT ASSET: it is licensed for LOCAL REFERENCE ONLY (attribution to Xinyang XIYAG is required and it
 # must be replaced before any release - see its SOURCE_TERMS.txt), so it is a development stand-in and not
@@ -670,7 +670,7 @@ demo_lights = 0
 # this unset is byte-identical to one from before the key existed: that is the contract, and every
 # other value here is only reachable through this key.
 #
-# It exists because the author's own preview renders were lit by a captured studio, not by a gradient:
+# It exists because the author's preview renders were lit by a captured studio, not by a gradient:
 # their package's manifest names `lighting/studio_01_1k.exr` with `world_strength 0.35`, and that
 # light is what fills the shadows their area light casts (ours come out of the toon rig and the
 # environment, so the character's ambient is otherwise a blue-grey sky band). Converting that EXR to a
@@ -693,7 +693,7 @@ demo_lights = 0
 environment_hdr = ""
 
 # environment_intensity: a plain multiplier on every texel of `environment_hdr`, and its default is
-# the reference package's own `world_strength` - so pointing the key at the converted studio HDR
+# the reference package's `world_strength` - so pointing the key at the converted studio HDR
 # reproduces the author's lighting level with nothing else to set. 1.0 = the file's raw radiance.
 # It has no effect while `environment_hdr` is empty (the procedural sky is not scaled by it).
 environment_intensity = 0.35
@@ -704,7 +704,7 @@ environment_intensity = 0.35
 #     UsdLuxRectLight, size_m 30, power_w 4000, position_blender_m [-3, -4, 15], aim_at [0, 0, 0]
 #
 # Blender is Z-up and this engine is Y-up, so that position reads [-3, 15, 4] here: 15.8 m away and ~72
-# degrees up. A 30 m source that close to overhead is why the author's own preview is bright inside the
+# degrees up. A 30 m source that close to overhead is why the author's preview is bright inside the
 # shadows a point light would leave black, and reproducing it is the point of these keys.
 #
 # THIS IS THE ENGINE'S MAIN LIGHT, NOT AN EXTRA ONE. The engine shades with exactly one directional light,
@@ -713,14 +713,14 @@ environment_intensity = 0.35
 # `area_light_size` together with `area_light_irradiance` is therefore also the switch that decides whether
 # `[lighting] sun_direction` or the emitter sets the direction - while the emitter contributes energy it
 # wins, and the visible sun disc and the shadow cascades follow it. (In the dressed scene the analytic sky's
-# own sun then sits behind the `[render] background_glb` dome and is not visible; that is a consequence of
+# sun then sits behind the `[render] background_glb` dome and is not visible; that is a consequence of
 # the emitter being the main light, not a second light being added.)
 #
 # POSITION AND TARGET ARE RELATIVE TO THE AUTHOR'S ORIGIN - the character's feet on the ground, world XZ = 0 -
 # and NOT to the scene's bounding-box centre. The manifest's numbers assume the character stands at the
 # origin, and in Blender that origin is on the ground under it. This engine sinks the imported model by its
 # radius, which lands the feet at `bounds.min.y + (-scene_center.y - scene_radius)`; for this character that
-# is (0, -2.198, 0) - the same point the background package's own import offset lands on. `world = author
+# is (0, -2.198, 0) - the same point the background package's import offset lands on. `world = author
 # origin + position` is what lets the manifest's numbers be copied verbatim: [-3, 15, 4] here becomes
 # (-3, 12.802, 4) in world space. The derivation is anchored there and main.cpp logs the origin it used, so a
 # frame can be audited against the number.
@@ -733,13 +733,13 @@ environment_intensity = 0.35
 # SIZE 0 (THE DEFAULT) IS THE CONTRACT: no area light, both shading lanes written as zero, and a frame is
 # byte-identical to one rendered before these keys existed.
 #
-# WHAT THIS IS *NOT* (v1.1's honest boundary): the emitter does not get a shading pass of its own. It is
+# WHAT THIS IS *NOT* (v1.1's honest boundary): the separate emitter does not get a shading pass. It is
 # expressed through the engine's one directional light - the host points the sun's direction at it and scales
 # the sun's intensity by its radiance - and the shadow gets a world-space penumbra from
 # shaders/shading.glsl. An earlier version additionally corrected the direct term for the emitter's SIZE
 # (a polygon-Lambert term read out of the second light lane); measurement showed it drew the main light to
 # zero, and it has been deleted. It is not a full linearly-transformed-cosine area-light solver and the
-# penumbra is not PCSS: the soft edge is bounded by the shadow map's own resolution, and the emitter's own
+# penumbra is not PCSS: the soft edge is bounded by the shadow map's resolution, and the emitter's
 # shading (its falloff across the receiver) is not integrated. Treat it as "the soft box the reference
 # used", not as a physically complete area-light renderer.
 #
@@ -748,14 +748,14 @@ area_light_power     = 0.0   # total power in watts (the manifest's Blender unit
 area_light_position  = [0.0, 0.0, 0.0]   # emitter centre, RELATIVE TO THE AUTHOR ORIGIN (the feet), Y-up metres
 area_light_target    = [0.0, 0.0, 0.0]   # aim point, same frame as `area_light_position`: sets the emitting side
 area_light_intensity = 1.0   # multiplier on the emitter's radiance; radiance = intensity * power / (pi * size^2)
-                             # 4000 W over a 30 m side reads 1.41471 - the reference package's own soft key.
+                             # 4000 W over a 30 m side reads 1.41471 - the reference package's soft key.
                              # IT CANNOT EXCEED 3.0: this value multiplies `[render] sun_intensity`, which the
                              # runtime clamps to 0..3, so anything above ~2.12 on this key is clipped there.
                              # (It reaches the sun only while `area_light_irradiance` is true.)
 area_light_irradiance = true # true = the emitter TAKES OVER the main light: its direction becomes
                              # `[lighting] sun_direction` and its radiance multiplies `[render] sun_intensity`
                              # (an A/B knob for "the soft box is the key light" vs. "the sun is")
-                             # false = the emitter contributes ONLY its penumbra; the sun keeps its own
+                             # false = the emitter contributes ONLY its penumbra; the sun keeps its
                              # direction and intensity and the block only softens the shadow
 area_light_shadow     = true # give the shadow a penumbra: while false the area light does not touch the shadow
                              # term at all, so the shadow keeps the hard edge it has without this block
@@ -769,17 +769,17 @@ area_light_softness   = 0.0  # the penumbra's world radius in metres; 0 = automa
 # These are the Endfield chain's GLOBAL numbers (see deren::vulkan::toon_rig): the ones tuned once for a whole character
 # rather than per material. A material FAMILY's numbers live in shaders/toon_params.slang - they are a contract
 # between two shader stages - and a MATERIAL's come from the `.toon.tsv` sidecar beside the model. The defaults
-# below are the article's own values, so saying nothing here renders what this port was measured at.
+# below are the article's values, so saying nothing here renders what this port was measured at.
 [toon]
 # day_strength: the article's `_DayStrength`, and the one knob that moves a frame most. 1 = the sun carries the
 #   character with the head light supplementing it; 0 = the sun's DIRECT term is removed ENTIRELY (no terminator,
 #   no light direction) and the head light plus the environment carry it, which is what the game shows for a
 #   character standing in a corner. Values between the two BLEND two whole shading outcomes rather than dimming
-#   one, because a dimmed sun still draws its own terminator across the character.
+#   one, because a dimmed sun still draws its terminator across the character.
 day_strength = 1.0
 # head_light_day0 / head_light_day1: the weight of the light the game rigs straight over every character, in each
 #   of the two states above. It is a fill rather than a lamp: a large weight at day 1 would light the character
-#   from above in full sun. 0.7 / 0.3 are `_OtherLightResultStrength_day0/_day1`'s own defaults, which all six of
+#   from above in full sun. 0.7 / 0.3 are `_OtherLightResultStrength_day0/_day1`'s defaults, which all six of
 #   the author's shaders declare identically; day1 is LIVE at the default day_strength = 1 (the day blend is
 #   `lerp(head_day0, sun + head_day1, day_strength)`), day0 only at day_strength < 1.
 head_light_day0 = 0.7
@@ -801,7 +801,7 @@ diffuse_blend_effect = 1.0
 # rim_area / rim_strength / rim_nolxz_strength: the contour. `rim_area` moves the fresnel band's INNER edge
 #   without moving its outer one (1.0 is the article's `_RimLightArea` default - the band runs 0.2..0.5, against
 #   0.5..0.7 at the 0.5 this port used to carry); the other two scale the two mechanisms - the
-#   view-angle band and the one taken from the light's own azimuth.
+#   view-angle band and the one taken from the light's azimuth.
 rim_area = 1.0
 rim_strength = 1.0
 rim_nolxz_strength = 1.0
@@ -809,7 +809,7 @@ rim_nolxz_strength = 1.0
 #   what keeps a backlit character's silhouette from collapsing into one flat shape.
 backlight_strength = 1.0
 # emotion_type: WHICH EXPRESSION THE FACE IS WEARING - the cell of `_EmotionMap`'s 2x2 atlas of eyebrow/mouth
-#   paintings. 0 = none (the face keeps its own albedo, and every capture before this key existed was taken at
+#   paintings. 0 = none (the face keeps its albedo, and every capture before this key existed was taken at
 #   0); 1..3 select the other three cells. It is a config key rather than a material value because the material
 #   files have none: the game picks the expression from the character's animation/script system, and nothing in
 #   the `.toon.tsv` describes it. See `deren::vulkan::toon_rig`'s `other_colour.w` for the lane it rides.

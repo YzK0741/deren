@@ -3,8 +3,8 @@
 //
 // TWO STAGES WRITE THE FIVE G-BUFFER TARGETS: `scene/gbuffer.slang`'s fragment stage (the path the frame has
 // always used) and `scene/visibility_resolve.slang` (the visibility path's compute resolve, which rebuilds the
-// attributes from the id and gets no interpolators or derivatives for free). If either carried its own copy of
-// the composition, the two pictures would drift in exactly the pixels the visibility path owns - and a G-buffer
+// attributes from the id and gets no interpolators or derivatives for free). If either carried its copy of
+// the composition, the two pictures would drift in exactly the pixels the visibility path holds - and a G-buffer
 // difference is not a "small" difference: it multiplies by every light, so a 1% albedo drift is a lighting
 // change. This file is that composition: the five outputs' shape, the material id's two-byte packing, the
 // emissive term, and the motion vector's projection rule. Both producers call it.
@@ -35,7 +35,7 @@ struct gbuffer_output {
 };
 
 /// @brief the value a pixel that NO geometry covered keeps: every target's clear value.
-/// @note the old path's clear is the render pass's own (`scene_pass::record_content` clears every colour target
+/// @note the old path's clear is the render pass's (`scene_pass::record_content` clears every colour target
 ///       to zero and the depth to 1.0), so the visibility resolve must WRITE this value for an empty pixel: a
 ///       compute pass has no load op, and "did not write" would leave whatever the target held last frame.
 /// @note the DEPTH target is not in this struct: the resolve reads a depth image the raster lane produced, it does
@@ -55,7 +55,7 @@ gbuffer_output gbuffer_empty_output() {
 /// @param prev_view_proj the previous rendered frame's view*proj (unjittered by construction)
 /// @note both matrices are the JITTER-FREE pair (the TAA jitter lives in `proj`; a jitter that leaked in
 ///       here would be read as camera motion), and the previous position is projected with
-///       `prev_view_proj` alone because the object's own motion is already baked into it.
+///       `prev_view_proj` alone because the object's motion is already baked into it.
 /// @note this covers camera motion, rigid object motion and a DEFORMING mesh (see
 ///       docs/deformation_motion_vectors.md); alpha-blended geometry is not covered, because it is
 ///       composited outside the G-buffer and writes no velocity at all.

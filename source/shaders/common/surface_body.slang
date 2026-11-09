@@ -9,12 +9,12 @@
 //   * `common/surface.slang`  - the fragment stages' `gather_surface`: it runs the MASK test FIRST (a `discard`
 //     before any derivative is requested), derives the tangent frame from the SCREEN-SPACE DERIVATIVES of
 //     world_pos/uv (ddx/ddy are fragment-only) only for a material that has a normal map, and finishes the decode;
-//   * `scene/visibility_resolve.slang` - reconstructs the frame from the TRIANGLE's own edges (a compute thread
+//   * `scene/visibility_resolve.slang` - reconstructs the frame from the TRIANGLE's edges (a compute thread
 //     has no derivatives and cannot discard) and answers a masked fragment with a flag instead of an exit.
 //
 // ONE DECODE, TWO CALLERS, and that is the point: a material fetched twice by two implementations would drift
 // silently - the resolve would shade a surface the G-buffer path shades differently, and the picture would differ
-// only in the pixels this path owns, which is the hardest kind of difference to read.
+// only in the pixels this path holds, which is the hardest kind of difference to read.
 //
 // IT COMES IN TWO PHASES, AND THE SPLIT IS A CORRECTNESS REQUIREMENT (measured: the capture gate's sponza scenario
 // moved on 10.5% of its pixels when the decode was one function). The legacy fragment shader:

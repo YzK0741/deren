@@ -15,12 +15,12 @@
  * process, the second rotation truncates the file the first copy still has open and is appending
  * to: interleaved lines, holes, and two "sessions" in one deren-debug.log.old. Today that cannot happen
  * because the toolkit is STATIC and the linker keeps one copy - but the day `deren_vulkan` becomes
- * SHARED, the DLL carries its own copy unless `shared_utility` is the shared image both halves
+ * SHARED, the DLL carries its copy unless `shared_utility` is the shared image both halves
  * import, and THAT is precisely the invariant this claim watches.
  *
- * A function-local `static` cannot see the other copy of the code (each image has its own), so the
+ * A function-local `static` cannot see the other copy of the code (each image has its), so the
  * claim is an OS-named object keyed by the PROCESS ID. `Local\` alone would be per SESSION, which
- * is the wrong scope in both directions: two runs of the executable must each rotate their own
+ * is the wrong scope in both directions: two runs of the executable must each rotate their
  * log, while two images of one process must not.
  *
  * @return 1 when THIS image is the first in this process to claim the rotation (the caller

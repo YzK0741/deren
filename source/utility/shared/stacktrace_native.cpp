@@ -1,4 +1,4 @@
-// Keep OS headers in a plain TU. The fatal path owns no C++ heap objects.
+// Keep OS headers in a plain TU. The fatal path holds no C++ heap objects.
 #include "stacktrace_native.hpp"
 
 #include <algorithm>

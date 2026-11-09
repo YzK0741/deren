@@ -20,7 +20,7 @@ module;
 export module deren.engine.acceleration_structure;
 export import deren.utility.shared;
 
-import deren.promise.rhi; // the contract's buffer handle + unique_object: the storage/scratch owners
+import deren.promise.rhi; // the contract's buffer handle + unique_object: the storage/scratch holders
 import deren.engine.pass.chain;
 import deren.engine.pass.buffer_storage;
 import deren.engine.render_resource;
@@ -33,7 +33,7 @@ export import deren.vstd;
 /**
  * @file source/engine/acceleration/acceleration.cppm
  * @defgroup engine_acceleration_structure Ray-Tracing Acceleration Structures
- * @brief Bottom level acceleration structures for the renderer's own geometry buffers.
+ * @brief Bottom level acceleration structures for the renderer's geometry buffers.
  *
  * The engine's geometry already lives in device-local vertex and index buffers, and an acceleration
  * structure build reads exactly those - so a BLAS is a *view* of the renderer's geometry rather than a
@@ -77,7 +77,7 @@ namespace deren::engine::acceleration_structure {
     /**
      * @ingroup engine_acceleration_structure
      * @brief one indexed triangle geometry to build a bottom level structure from
-     * @note the addresses come from `vkGetBufferDeviceAddress` on the renderer's own vertex and index
+     * @note the addresses come from `vkGetBufferDeviceAddress` on the renderer's vertex and index
      *       buffers; `index_address` may be 0 for a non-indexed geometry, which the build then reads as
      *       a flat vertex list
      */
@@ -101,7 +101,7 @@ namespace deren::engine::acceleration_structure {
          * @note a null handle means no micromap, which is also the state of every geometry on a device without
          *       VK_EXT_opacity_micromap: nothing changes for it.
          */
-        /// TIER-1 SINCE PLAN S1's P4: the micromap is an OBJECT (`rhi::micromap`), and it owns its usage record
+        /// TIER-1 SINCE PLAN S1's P4: the micromap is an OBJECT (`rhi::micromap`), and it holds its usage record
         /// and the index array the traversal reads - so this field is ONE handle where it used to be a driver
         /// handle plus an index buffer address, a stride and a usage record. A null handle means no micromap,
         /// which is also the state of every geometry on a device without VK_EXT_opacity_micromap.
@@ -176,21 +176,21 @@ namespace deren::engine::acceleration_structure {
      * @note the builds are batched into ONE `vkCmdBuildAccelerationStructuresKHR` call, which is why the
      *       scratch space is one buffer with a per-geometry aligned range. THE REASON IS NOT THAT THE
      *       BUILDS RUN IN ORDER: Vulkan gives no ordering between the builds of a single call, and a
-     *       build that reads another's output needs its own synchronization. The per-geometry ranges are
+     *       build that reads another's output needs its synchronization. The per-geometry ranges are
      *       what remove the QUESTION instead of relying on an answer - no two builds share scratch, so no
      *       ordering is needed, and the batching is purely a CPU-side win.
      */
     export class bottom_level_structures {
-        /// ONE GEOMETRY'S STRUCTURE, AND NOTHING ELSE (P1b-2): the tier-1 object owns the storage, the
+        /// ONE GEOMETRY'S STRUCTURE, AND NOTHING ELSE (P1b-2): the tier-1 object holds the storage, the
         /// scratch, the size query and the alignment, so what stays here is the HANDLE plus the one bit the
         /// caller declared (whether it may be refitted). The geometry the build reads lives in the backend's
-        /// own copy of the description, which is why a resize of `entries` cannot dangle a pointer any more -
+        /// a copy of the description, which is why a resize of `entries` cannot dangle a pointer any more -
         /// the container this class used to be careful about (`micromap_geometries`, a deque for exactly that
         /// reason) is gone with it.
         struct entry {
             deren::engine::pass::pass_chain storage_chain;
             render_resource::instances::resource_snapshot storage_view;
-            render_resource::instances::borrowed<rhi::acceleration_structure> structure = {};
+            render_resource::instances::view<rhi::acceleration_structure> structure = {};
             bool refittable = false; // built with ALLOW_UPDATE, so record_update may refit it
         };
 
@@ -207,7 +207,7 @@ namespace deren::engine::acceleration_structure {
     public:
         explicit bottom_level_structures(rhi::api_core& face, rhi::shared_object<rhi::api_core> lease = {});
         bottom_level_structures(bottom_level_structures const&) = delete ("bottom_level_structures is non-copyable: construct it in place and keep its identity");
-        bottom_level_structures& operator=(bottom_level_structures const&) = delete ("bottom_level_structures is non-copyable: configure it through its owning API");
+        bottom_level_structures& operator=(bottom_level_structures const&) = delete ("bottom_level_structures is non-copyable: configure it through its holding API");
         bottom_level_structures(bottom_level_structures&&) = delete ("bottom_level_structures is non-movable: its resources are tied to the current address");
         bottom_level_structures& operator=(bottom_level_structures&&) = delete ("bottom_level_structures is non-movable: its resources are tied to the current address");
         ~bottom_level_structures();
@@ -223,7 +223,7 @@ namespace deren::engine::acceleration_structure {
          * @return the index this geometry got, or an error message on failure
          * @note this is HOST work (a size query plus an allocation); the GPU build happens in
          *       record_build(). A source with no triangles is skipped and returns the index it WOULD
-         *       have had, so the caller's indices stay aligned with its own array.
+         *       have had, so the caller's indices stay aligned with its array.
          */
         std::expected<uint32_t, deren::utility::vessel::string> add(geometry_source const& source, bool refittable = false, std::span<std::shared_ptr<void const> const> dependencies = {});
         [[nodiscard]] render_resource::instances::resource_snapshot resources(uint32_t index) const noexcept {
@@ -293,16 +293,16 @@ namespace deren::engine::acceleration_structure {
             deren::engine::pass::pass_chain storage_chain;
             deren::engine::pass::resource_storage_pass* storage_provider = nullptr;
             render_resource::instances::resource_snapshot storage_view;
-            /// THE STRUCTURE ITSELF: the tier-1 object owns the instance records it reads (the caller writes
+            /// THE STRUCTURE ITSELF: the tier-1 object holds the instance records it reads (the caller writes
             /// them through `write_instances`), the storage, the scratch and the instance capacity - so this
             /// slot keeps ONE handle where it used to keep five objects and a size.
-            render_resource::instances::borrowed<deren::promise::rhi::acceleration_structure> structure = {};
-            /// THE INSTANCE TABLE THE SHADER READS (through `instanceCustomIndex`): this is the ENGINE's own
+            render_resource::instances::view<deren::promise::rhi::acceleration_structure> structure = {};
+            /// THE INSTANCE TABLE THE SHADER READS (through `instanceCustomIndex`): this is the ENGINE's
             /// data, not the driver's instance array, which is why it stays here - it is the per-instance
             /// record the hit shader resolves a hit back to a surface with.
-            render_resource::instances::borrowed<deren::promise::rhi::buffer> records = {};
+            render_resource::instances::view<deren::promise::rhi::buffer> records = {};
             /// what `add()` has collected for the frame being recorded, handed to the structure at
-            /// `record_build` (the backend copies it into its own memory: the contract's record POD, the same
+            /// `record_build` (the backend copies it into its memory: the contract's record POD, the same
             /// shape a caller writes anywhere else).
             deren::utility::vessel::vector<deren::promise::rhi::acceleration_structure_instance> pending = {};
             uint32_t capacity = 0; // instances the records buffer can hold
@@ -317,7 +317,7 @@ namespace deren::engine::acceleration_structure {
         /// releasing the structures goes through the contract's factories.
         rhi::api_core* contract = nullptr;
         /// the device's instance limit, from `device_capabilities` (the check that used to need a properties
-        /// query of this module's own)
+        /// query of this module's)
         rhi::shared_object<rhi::api_core> device_lease;
         std::uint64_t max_instances = 0;
         deren::utility::vessel::vector<slot> slots = {};
@@ -332,7 +332,7 @@ namespace deren::engine::acceleration_structure {
          */
         explicit top_level_structure(rhi::api_core& face, uint32_t frame_slot_count, rhi::shared_object<rhi::api_core> lease = {});
         top_level_structure(top_level_structure const&) = delete ("top_level_structure is non-copyable: construct it in place and keep its identity");
-        top_level_structure& operator=(top_level_structure const&) = delete ("top_level_structure is non-copyable: configure it through its owning API");
+        top_level_structure& operator=(top_level_structure const&) = delete ("top_level_structure is non-copyable: configure it through its holding API");
         top_level_structure(top_level_structure&&) = delete ("top_level_structure is non-movable: its resources are tied to the current address");
         top_level_structure& operator=(top_level_structure&&) = delete ("top_level_structure is non-movable: its resources are tied to the current address");
         ~top_level_structure();
@@ -390,7 +390,7 @@ namespace deren::engine::acceleration_structure {
         }
 
         /**
-         * @brief the size of the slot's instance table (binding 17): its capacity times the record's own size
+         * @brief the size of the slot's instance table (binding 17): its capacity times the record's size
          * @return that size, or 0 when the slot does not exist
          * @note PUBLISHED for the same reason structure_size is: the descriptor-set path writes this buffer with
          *       VK_WHOLE_SIZE (legal there), while a HEAP range must carry a real size

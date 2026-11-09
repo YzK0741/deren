@@ -7,20 +7,20 @@
  *
  * WHY THIS ONE IS DIFFERENT FROM THE OTHER TWO, and it is the reason the framework did not have this shape
  * before: its WORK IS DATA. A compute pass dispatches a declared number of groups; a fullscreen resolve draws
- * one triangle; this pass draws whatever the frame's culling left visible, each piece through its own pipeline
- * and its own push constants. Nothing in a declaration can say that, so the renderer hands the list over - see
- * `scene_frame` - and this pass owns what is left once the list exists: the rendering instance over the
+ * one triangle; this pass draws whatever the frame's culling left visible, each piece through its pipeline
+ * and its push constants. Nothing in a declaration can say that, so the renderer hands the list over - see
+ * `scene_frame` - and this pass holds what is left once the list exists: the rendering instance over the
  * declared targets, the segment strategy (one secondary, or several recorded in parallel), the per-segment draw
  * state, the order of the draws, and ending the instance the moment it is done with it.
  *
  * THIS PASS FIXES A COUPLING BY EXISTING. The instance it opens used to be opened by one function
  * (`runtime::record_opaque_scene`) and closed by another (`runtime::record_scene_tail`), with the whole rest of
- * the frame's work in between - so "who owns the open instance" was a fact spread over two scopes, and the
+ * the frame's work in between - so "who holds the open instance" was a fact spread over two scopes, and the
  * close had to be remembered on every path out of the pass. Here the open and the close are two statements in
  * one function.
  *
- * WHAT IT OWNS AND WHAT IT ONLY USES, because this one is a genuine split rather than a move:
- *  * OWNS the instance (its colour and depth attachments come from its declaration), the segment strategy, the
+ * WHAT IT HOLDS AND WHAT IT ONLY USES, because this one is a genuine split rather than a move:
+ *  * HOLDS the instance (its colour and depth attachments come from its declaration), the segment strategy, the
  *    secondary begin/end and its inheritance, the draw loop, and the per-segment `render_environment`'s life;
  *  * USES the pipeline REGISTRY, and that is deliberate: a leaf asks for a pipeline by name, the names are the
  *    renderer's (`"pbr"`, `"unlit"`, `"gbuffer"`, whatever the scene tree requests), and the registry's
@@ -49,11 +49,11 @@ import deren.engine.render_environment; // the per-segment draw state the render
 export namespace deren::engine::pass {
 
     /// @brief one per-slot secondary command buffer for a recording segment
-    /// @note the command POOL does not travel with it: the backend's `vk_command_buffer` owns its own
+    /// @note the command POOL does not travel with it: the backend's `vk_command_buffer` holds its
     ///       pool now (one per buffer, which is what keeps concurrent recording threads off a shared
     ///       pool), and no pass ever read the pool this struct used to carry.
     struct segment_buffer {
-        /// ABI 36: the segment is a BATCH-ONLY command buffer now. The frame loop owns it (one
+        /// ABI 36: the segment is a BATCH-ONLY command buffer now. The frame loop holds it (one
         /// `mergeable_command_buffer` per worker per slot) and the pass only records into it and hands the
         /// refs to the frame primary's recording-time batch merge - so this is the contract's shared handle,
         /// never a raw pointer.
@@ -63,10 +63,10 @@ export namespace deren::engine::pass {
     /**
      * @brief the SCENE, as the renderer hands it to the pass
      *
-     * Everything in here is a fact this pass cannot know and must not own: the leaves are the scene's (culled
+     * Everything in here is a fact this pass cannot know and must not hold: the leaves are the scene's (culled
      * by the frame loop), the secondaries and the task pool are the frame loop's resources, and the pipeline
      * registry and the shared scene layout are the renderer's. What the pass does with them is the part that
-     * IS its own: the instance, the segmentation, and the order of the draws.
+     * IS its: the instance, the segmentation, and the order of the draws.
      */
     struct scene_frame {
         /// the visible opaque leaves, in draw order (the pass draws them in exactly this order)
@@ -86,10 +86,10 @@ export namespace deren::engine::pass {
         void (*run_tasks)(void* parent, std::span<std::function<void()>> tasks) = nullptr;
         void* parent = nullptr;
         // (THE HEAP-BIND FIELD IS GONE - plan X5 B3.5. It existed to chain the two `VkBindHeapInfoEXT` a
-        //  secondary must inherit, because a secondary is VALIDATED ON ITS OWN and the heap bound on the primary
+        //  secondary must inherit, because a secondary is VALIDATED alone and the heap bound on the primary
         //  does not reach it - but THE PASS STOPPED CALLING IT AT ABI 20: a secondary is begun through the
         //  contract, whose chain carries the ATTACHMENT inheritance alone, and the BACKEND derives the
-        //  descriptor-heap inheritance from the heaps it owns. The field, the hook that filled it and the two raw
+        //  descriptor-heap inheritance from the heaps it holds. The field, the hook that filled it and the two raw
         //  structs were a second truth with no reader, and the frame's publisher stopped filling them too.)
         /// the attachments a SECONDARY must inherit (dynamic rendering): formats in attachment order + depth
         std::span<::deren::promise::rhi::image_format const> color_formats = {};
@@ -104,7 +104,7 @@ export namespace deren::engine::pass {
      * @brief the frame's scene: the primitives, drawn into the surface targets the declaration names
      *
      * The instance it opens covers EXACTLY this pass - the lighting stage, the transparent pass, the resolve
-     * and the lighting chain all run after it ends, each opening its own - which is why it can own the whole thing.
+     * and the lighting chain all run after it ends, each opening its - which is why it can hold the whole thing.
      */
     class scene_pass final : public frame_pass {
     public:
@@ -122,7 +122,7 @@ export namespace deren::engine::pass {
         void set_frame(scene_frame const& frame) noexcept;
 
     private:
-        /// the renderer's own threshold for when parallel recording is worth it (few leaves: one segment)
+        /// the renderer's threshold for when parallel recording is worth it (few leaves: one segment)
         static constexpr std::size_t min_leaves_for_parallel = 4;
 
         /// NO pipeline names, and that is not an omission: a leaf names the pipeline it wants and the
@@ -136,7 +136,7 @@ export namespace deren::engine::pass {
             .extent = extent_rule::full,
             .extent_of = resource_id::none,
             .pipelines = pipeline_names,
-            // the scene pipelines carry their own stored viewport (the renderer resyncs it once per frame in
+            // the scene pipelines carry their stored viewport (the renderer resyncs it once per frame in
             // update_pass_geometry, and each bind applies it), so the record step has nothing to set here
             .resync_viewport = false,
         };

@@ -121,7 +121,7 @@ namespace {
         test_node model;
         test_source src;
         src.node_by_source.emplace(0, &model);
-        // One asset clip, two placements: each controller must sample it with its own clock.
+        // One asset clip, two placements: each controller must sample it with its clock.
         src.animations.push_back({"move", {{{0.0f, 1.0f}, {0.0f, 0.0f, 0.0f, 10.0f, 0.0f, 0.0f}, 3, interpolation::linear}}, {{channel_path::translation, 0, 0}}});
         controller first;
         controller second;
@@ -630,7 +630,7 @@ namespace {
     void test_mmd_motion_real_file_when_available() {
 #if defined(_MSC_VER)
         // MSVC's <cstdlib> marks std::getenv deprecated (C4996, an error under /WX), so the MSVC build asks the
-        // same question with its secure twin and owns the copy the CRT hands back; clang keeps std::getenv below.
+        // same question with its secure twin and holds the copy the CRT hands back; clang keeps std::getenv below.
         char* value = nullptr;
         std::size_t value_size = 0;
         if (_dupenv_s(&value, &value_size, "VR_MMD_MOTION") != 0) {
@@ -810,7 +810,7 @@ namespace {
         CHECK(approx(baked.samplers[0].times.back(), 1.0f));
         CHECK(baked.samplers[1].times.size() == 31);
 
-        // Play it through the controller's own sampler, which is what consumes a clip.
+        // Play it through the controller's sampler, which is what consumes a clip.
         node_pose const base;
         CHECK(approx(sample_node(baked, 0, base, 0.0f).translation, glm::vec3(0.0f)));
         CHECK(approx(sample_node(baked, 0, base, 0.5f).translation, glm::vec3(0.5f, 0.0f, 0.0f)));

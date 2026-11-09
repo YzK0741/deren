@@ -10,7 +10,7 @@
 # compiler - clang 18+ or gcc 14+). This script detects the distro, reports
 # what is missing and installs it (apt on Debian/Ubuntu, dnf on Fedora,
 # pacman on Arch, brew on macOS); installs are optional when you prefer to
-# use your own package manager.
+# use your package manager.
 #
 # Afterwards:
 #     python3 scripts/build_helpers/build.py         # Debug + Release

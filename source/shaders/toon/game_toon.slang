@@ -70,7 +70,7 @@ float4 game_toon_frag_main(
     [[vk::location(0)]] float3 v_world_pos : TEXCOORD0,
     [[vk::location(1)]] float3 v_normal : TEXCOORD1,
     [[vk::location(2)]] float2 v_uv : TEXCOORD2,
-    // THE MESH'S OWN TANGENT FRAME (pbr.slang's `pbr_vertex_output.tangent`, location 4): xyz the world-space
+    // THE MESH'S TANGENT FRAME (pbr.slang's `pbr_vertex_output.tangent`, location 4): xyz the world-space
     // tangent, w the authored handedness. It is declared HERE, in the game chain's only entry, because the
     // GameToon hair's split-normal decode is the consumer - and NOT in the stages that do not read it, which is
     // the same rule the location's appending was chosen by (see pbr.slang's note). `w == 0` is the loader's
@@ -126,7 +126,7 @@ float4 game_toon_frag_main(
 
     // ---- REMAINING FAMILIES (base/outline surface, and anything without a game port yet) ----
     //
-    // Cloth, skin, hair, face and eye now have their own functions above. The shared author body remains the
+    // Cloth, skin, hair, face and eye now have their functions above. The shared author body remains the
     // fallback for the families this pass has not ported yet (outline/base surface); it is not used as a
     // stand-in for a ported family. FUR is still not ported: the loader has no fur family.
     const toon_params params = toon_params_for(s.toon_family);
@@ -135,8 +135,8 @@ float4 game_toon_frag_main(
     const float3 colour = toon_diffuse(s.albedo, s.alpha, s.toon_family, goo_toon_shading_normal(v_world_pos, v_normal, v_uv, normalize(s.normal), v_is_front), v_world_pos, s.ao, params, s.toon_indices, v_uv, toon_lanes, push.material_index, desaturation);
     const float3 lit = colour + s.emissive;
     const float3 lit_final = goo_hsv_desaturate(lit, desaturation);
-    // the BLEND rule, copied from `character_forward.slang`'s own entry: an alphaMode BLEND
-    // material carries its own coverage, every other material is fully opaque.
+    // the BLEND rule, copied from `character_forward.slang`'s entry: an alphaMode BLEND
+    // material carries its coverage, every other material is fully opaque.
     const bool toon_transparent = (s.flags & 256u) != 0u;
     const float out_alpha = ((s.flags & 32u) != 0u || toon_transparent) ? s.alpha : 1.0;
     return float4(toon_rt_reflection_composite(s, v_world_pos, lit_final, sv_position.xy), out_alpha);

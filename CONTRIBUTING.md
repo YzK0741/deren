@@ -52,7 +52,7 @@ that came before it.
 8. **Squash before review.** A feature branch may have many WIP commits locally;
    the PR should contain coherent commits (or one squash commit), not a trail of
    "try again" commits.
-9. **Do not import outside patterns without precedent.** This tree has its own idioms
+9. **Do not import outside patterns without precedent.** This tree has its idioms
    and they are not suggestions: modules split into `.cppm`/`.cpp` with the
    `export import std` pattern, `vessel` containers instead of the C++ standard
    library, plain classes with direct members rather than pimpl
@@ -175,7 +175,7 @@ git update-index --chmod=+x .githooks/pre-commit .githooks/pre-merge-commit .git
 
 ## The WIP channel (`wip/*`)
 
-Unfinished work has a channel of its own, so that "back this up" never means
+Unfinished work has A separate channel, so that "back this up" never means
 "publish an unverified commit as if it were reviewable":
 
 - **Commit freely on a `wip/` branch.** `.githooks/pre-commit` skips the
@@ -226,15 +226,14 @@ These required checks belong to the release path only: a `wip/` branch never
 produces them, so once this protection is applied a wip PR cannot merge. That
 protection is repository configuration, not code - it is only in force after the
 helper has been run with `-Apply`, and `gh api
-repos/<owner>/<repo>/branches/master/protection` answers 404 while it is not.
+repos/<holder>/<repo>/branches/master/protection` answers 404 while it is not.
 
 **Required approvals:** the helper script's default is `-Approvals 0`, which is the
-explicit solo-maintainer exception. GitHub does not let a PR author approve their
-own PR, so a required approval would make every PR unmergeable while there is one
+explicit solo-maintainer exception. GitHub does not let a PR author approve their PR, so a required approval would make every PR unmergeable while there is one
 maintainer. This exception is printed by the script and is the only reason reviews
 are not enforced server-side. As soon as a second maintainer can review, re-run the
 script with `-Approvals 1`.
 
 The helper script is deliberately `-Apply`-gated and prints the exact API call it
-would make. Do not run it against a repository where another maintainer owns the
+would make. Do not run it against a repository where another maintainer holds the
 branch policy without asking.

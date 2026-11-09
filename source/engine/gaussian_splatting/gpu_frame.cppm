@@ -96,18 +96,18 @@ export namespace deren::engine::gaussian_splatting {
         deren::promise::rhi::api_core* parent = nullptr;
         raster_push push;
         std::uint64_t parameter_address = 0, bytes = 0;
-        // The device and asset leases outlive the subchain's drain and all owned allocations.
+        // The device and asset leases outlive the subchain's drain and all held allocations.
         deren::promise::rhi::shared_object<deren::promise::rhi::api_core> device_lease;
         deren::utility::vessel::vector<std::shared_ptr<raster_asset const>> retained_assets;
         deren::promise::rhi::unique_object<deren::promise::rhi::radix_sorter> sorter;
         deren::engine::pass::pass_chain storage_chain;
         deren::engine::pass::buffer_storage_pass* storage_provider = nullptr;
         render_resource::instances::resource_snapshot storage_view;
-        deren::utility::vessel::array<render_resource::instances::borrowed<deren::promise::rhi::buffer>, buffer_count> buffers;
+        deren::utility::vessel::array<render_resource::instances::view<deren::promise::rhi::buffer>, buffer_count> buffers;
     };
     /// reuse must be a completed slot obtained from this factory on the same core.
-    /// A reference-only caller keeps the core alive; production passes provide an owning device lease.
-    /// An allocated reference-only frame cannot be promoted to owning reuse; create a fresh frame instead.
+    /// A reference-only caller keeps the core alive; production passes provide a holding device lease.
+    /// An allocated reference-only frame cannot be promoted to holding reuse; create a fresh frame instead.
     // NOLINTNEXTLINE(readability-trailing-comma): Clang 23 mislocates commas around empty module default arguments.
     [[nodiscard]] std::expected<std::shared_ptr<gpu_frame>, foundation_error> prepare_gpu_frame(deren::promise::rhi::api_core&, std::span<raster_instance const>, raster_camera const&, foundation_limits const& = {}, gpu_frame* = nullptr, deren::promise::rhi::shared_object<deren::promise::rhi::api_core> = {});
 } // namespace deren::engine::gaussian_splatting

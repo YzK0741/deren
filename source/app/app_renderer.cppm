@@ -2,10 +2,10 @@
 
 /**
  * @file source/app/app_renderer.cppm
- * @brief THE EXAMPLE: this repository's own pass chain, wired from OUTSIDE the renderer.
+ * @brief THE EXAMPLE: this repository's pass chain, wired from OUTSIDE the renderer.
  * @defgroup app_renderer Application Renderer
  *
- * WHY THIS MODULE EXISTS. `deren.engine.runtime` is a frame loop: it owns the device, the pacing, the images and the
+ * WHY THIS MODULE EXISTS. `deren.engine.runtime` is a frame loop: it holds the device, the pacing, the images and the
  * frame's constants, and it records whatever chain of passes it is given. Everything that is specific to THIS
  * application's renderer - which passes there are, in what order, what each one is handed per frame, and which
  * knob belongs to which one - used to live inside the runtime as sixteen typed members and eighty-nine call sites.
@@ -13,13 +13,13 @@
  *
  * WHAT IT IS: the app's wiring, and deliberately not a framework. It looks the passes up by declaration name, keeps
  * the typed references, and implements the two callbacks the runtime asks for (`prepare`, `collect`) by switching on
- * the STAGE name - which is the frame's own structure, so the seam needs no new vocabulary. A second application
+ * the STAGE name - which is the frame's structure, so the seam needs no new vocabulary. A second application
  * that wants a different chain writes a module like this one; nothing in `deren.engine.pass` or `deren.engine.runtime` changes.
  *
  * WHERE IT IS HEADED: the knobs and their setters move here next (today they are
  * still the runtime's public API and forward into the passes); the descriptor families that used to be built from a
- * pass's set layout are gone with the heap (the runtime writes it and a pass owns only a pipeline); and finally the
- * CONSTRUCTION - at which point the runtime is handed the chain through `set_pass_chain` instead of owning it, and
+ * pass's set layout are gone with the heap (the runtime writes it and a pass holds only a pipeline); and finally the
+ * CONSTRUCTION - at which point the runtime is handed the chain through `set_pass_chain` instead of holding it, and
  * the transitional `runtime::passes()` accessor goes away.
  */
 
@@ -33,7 +33,7 @@ export module deren.app.renderer;
 import deren.vstd;
 import deren.engine.runtime;
 import deren.engine.pass;
-import deren.engine.pass.chain;              // pass_chain: the chain the runtime owns its passes in, looked up by declaration name
+import deren.engine.pass.chain;              // pass_chain: the chain the runtime holds its passes in, looked up by declaration name
 import deren.engine.pass.gaussian_splatting; // the splat cloud's pass: an immutable upload per frame, recorded between the lighting stage and the blended geometry
 import deren.engine.pass.cluster;
 import deren.engine.pass.scene_constants;
@@ -52,7 +52,7 @@ import deren.engine.pass.taa;
 import deren.engine.pass.transparent;
 import deren.engine.pass.character_forward;   // the toon character stage: the OPAQUE leaves re-shaded over the lit frame
 import deren.engine.pass.toon_screen_rim;     // ... and its second rim: a fullscreen additive contour from the depth
-import deren.engine.pass.game_toon_depth_rim; // ... and the GAME chain's depth rim: a dedicated contour of its own
+import deren.engine.pass.game_toon_depth_rim; // ... and the GAME chain's depth rim: A separate dedicated contour
 import deren.engine.pass.upscale;             // the resolve: the render chain's LDR image -> the presented swapchain
 
 export namespace deren::app {
@@ -64,14 +64,14 @@ export namespace deren::app {
      * @brief the demo's wiring: this app's passes, found by declaration name, fed stage by stage
      *
      * @note the object must outlive the renderer's recording (the runtime holds pointers into it), which is what a
-     *       local in the application's own frame scope gives it
+     *       local in the application's frame scope gives it
      */
     class app_renderer {
     public:
         /**
          * @brief look this renderer's passes up by the names their declarations carry, and remember the runtime
          * @return how many of the passes it knows about were found; a pass that is missing is simply not fed, and
-         *         a pass that is not fed records nothing - which is the seam's own failure mode rather than a crash
+         *         a pass that is not fed records nothing - which is the seam's failure mode rather than a crash
          */
         std::size_t attach(runtime& self) noexcept;
 
@@ -86,12 +86,12 @@ export namespace deren::app {
         }
 
         // =============================================================================================
-        // THE APP'S KNOBS for the passes this demo owns.
+        // THE APP'S KNOBS for the passes this demo holds.
         //
         // EACH OF THESE IS THE SPLIT THE HANDOVER FORCES, and it is a real one: the renderer needs some flags for its
-        // OWN policy (it jitters the projection for TAA, builds the structures for GI, picks the scene target), while
+        // the policy (it jitters the projection for TAA, builds the structures for GI, picks the scene target), while
         // the VALUES are read by one pass each. So the demo forwards the flag half to the runtime and keeps the value
-        // half on the pass - one owner per value, and the app calls one setter rather than two.
+        // half on the pass - one holder per value, and the app calls one setter rather than two.
         // =============================================================================================
         /// @brief TAA on/off (`runtime::set_taa_enabled`) + the resolve's two blend weights (the pass's)
         void set_taa(bool enabled, float blend_static, float blend_min) noexcept;
@@ -102,9 +102,9 @@ export namespace deren::app {
         /// @brief the multi-bounce gain the tracer re-emits at a hit (the pass clamps it to [0, 1])
         /// @brief the world-space cache: its flag (the runtime's), its rate and round count (the pass's) and the
         ///        tracer's gain over it
-        /// @brief which G-buffer channel the debug view shows (the pass's own parameter)
+        /// @brief which G-buffer channel the debug view shows (the pass's parameter)
         void set_gbuffer_channel(std::int32_t channel) noexcept;
-        /// @brief the flat render mode, which the lighting stage's own parameter decides
+        /// @brief the flat render mode, which the lighting stage's parameter decides
         ///
         /// NOTE the whole setter moved here rather than its value half, and that is the honest shape: the render mode
         /// is a property of the LIGHTING STAGE (the shader returns the stored albedo), and the renderer's other
@@ -114,7 +114,7 @@ export namespace deren::app {
         /// @brief screen-space AO: the switch and its three shaping values, all of them the lighting pass's
         ///
         /// The SESSION-level diagnostic travels with it ("why does this switch do nothing?"), asked through the
-        /// runtime's own answers rather than by reaching into it.
+        /// runtime's answers rather than by reaching into it.
         void set_ssao(bool enabled, float radius, float intensity, std::uint32_t samples) noexcept;
         /// @brief WHICH FILTER resolves a scaled render chain onto the output (`[render] upscale`)
         ///
@@ -132,11 +132,11 @@ export namespace deren::app {
         /// report the stage's results back (see runtime::frame_results)
         static void collect(void* parent, std::string_view stage, runtime::frame_results& out);
         /**
-         * @brief the REFLECTION's own accumulation, recorded at the end of the temporal pass's recording
+         * @brief the REFLECTION's accumulation, recorded at the end of the temporal pass's recording
          *
          * THE APP'S ONE DELIBERATE EXCEPTION, and it lives here rather than in the pass for a reason a declaration
          * cannot express: this application resolves TWO SIGNALS - the diffuse bounce and the glossy reflection -
-         * through the temporal pass's ONE pipeline, and each needs its own list of images in the same seven slots.
+         * through the temporal pass's ONE pipeline, and each needs its list of images in the same seven slots.
          * The pass does the first and calls back for the second (its frame's `record_reflection`),
          * which is what keeps the chain contiguous.
          */
@@ -163,8 +163,8 @@ export namespace deren::app {
 
         pass::pass_chain* passes = nullptr;
         /**
-         * THIS APPLICATION'S CHAIN, which this demo OWNS: `attach` constructs the passes into it and hands it to the
-         * runtime (`set_pass_chain`), so the runtime holds no pass of its own and this object owns them all.
+         * THIS APPLICATION'S CHAIN, which this demo HOLDS: `attach` constructs the passes into it and hands it to the
+         * runtime (`set_pass_chain`), so the separate runtime holds no pass and this object holds them all.
          */
         pass::pass_chain chain{"render"};
         /// named `runtime_handle` rather than `runtime`: the type of this very pointer is `deren::engine::runtime`, and
@@ -174,7 +174,7 @@ export namespace deren::app {
          * The frame's services, as last handed to `prepare`, and the reflection's family.
          *
          * The SERVICES are cached because the reflection's callback is carried by a PASS's frame - whose signature
-         * the pass owns (`record_reflection(owner, cmd, history_valid)`) - so the toolkit it needs (the device, the
+         * the pass holds (`record_reflection(holder, cmd, history_valid)`) - so the toolkit it needs (the device, the
          * frame's table, its constants) has to be reachable from the demo rather than passed through the pass. They
          * are a value of pointers to the runtime, valid for the frame that set them.
          */
@@ -183,25 +183,25 @@ export namespace deren::app {
         pass::scene_pass* scene = nullptr;
         pass::transparent_pass* transparent = nullptr;
         /// THE GAUSSIAN SPLAT CLOUD (deren.engine.pass.gaussian_splatting): the one stage whose frame is not a
-        /// leaf list but an immutable upload the runtime prepares (it owns the camera and the frame's completion
+        /// leaf list but an immutable upload the runtime prepares (it holds the camera and the frame's completion
         /// points), recorded after the lighting stage and before the blended geometry.
         pass::gaussian_splatting_pass* gaussian = nullptr;
         /// THE TOON CHARACTER STAGE: the same OPAQUE leaves again, through the character-forward pipeline, over
-        /// the lit frame. Owned by the chain and looked up by its declaration name like every other pass here.
+        /// the lit frame. Held by the chain and looked up by its declaration name like every other pass here.
         pass::character_forward_pass* character_forward = nullptr;
         /// THE TOON STAGE'S SECOND RIM: a fullscreen additive contour sampling the depth, run right after the
         /// surface stage. Gated by the SAME `character_forward` feature - the contour means nothing without the
         /// shading it outlines, so the two are one switch.
         pass::toon_screen_rim_pass* toon_screen_rim = nullptr;
         /// THE GAME CHAIN'S DEPTH RIM (`deren.engine.pass.game_toon_depth_rim`): the same fullscreen additive
-        /// depth-contour shape as the article's rim above, but its own declaration/feature and ITS OWN colour
+        /// depth-contour shape as the article's rim above, but its declaration/feature and its colour
         /// parameter - the captured profile's contour. Gated at the post-graph lane by
         /// `runtime::game_toon_active()`, so it records only while the game-shader chain is the one drawing.
         pass::game_toon_depth_rim_pass* game_toon_depth_rim = nullptr;
         pass::rt_shadow_pass* rt_shadow = nullptr;
         /// THE RAY-TRACED REFLECTION STAGE: one reflection ray per pixel into a per-frame-slot target that the
-        /// deferred lighting stage samples. It is its own chain entry rather than a second pass in the shadow
-        /// stage because it writes a different target and runs at its own point in the frame.
+        /// deferred lighting stage samples. It is its chain entry rather than a second pass in the shadow
+        /// stage because it writes a different target and runs at its point in the frame.
         pass::rt_reflection_pass* rt_reflection = nullptr;
         pass::deferred_pass* deferred = nullptr;
         pass::taa_pass* taa = nullptr;
@@ -211,7 +211,7 @@ export namespace deren::app {
         pass::post_composite_pass* composite = nullptr;
         pass::fxaa_pass* fxaa = nullptr;
         /// THE RESOLVE (deren.engine.pass.upscale): the render chain's LDR image -> the presented swapchain, the
-        /// frame's last writer whenever the chain runs below the output size. It is fed no frame by this owner
+        /// frame's last writer whenever the chain runs below the output size. It is fed no frame by this holder
         /// - the overlay hook it carries is installed once in `attach`, like the composite's and FXAA's - so
         /// this view exists for that hook and for the feature table's relay.
         pass::upscale_pass* upscale = nullptr;

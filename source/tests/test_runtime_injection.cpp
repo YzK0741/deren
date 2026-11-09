@@ -2,7 +2,7 @@
 // ============================================================================
 // file: source/tests/test_runtime_injection.cpp
 //
-// THE LAYERING'S OWN TEST (batch ⑥): the engine builds a renderer from a device root it was HANDED,
+// THE LAYERING'S TEST (batch ⑥): the engine builds a renderer from a device root it was HANDED,
 // and refuses the two roots it must not accept - with no loader, no DLL and no GPU in the picture.
 //
 // WHY THE HANDED-ROOT PATH IS THE EVIDENCE THE SPLIT IS REAL: before this batch the runtime loaded the
@@ -15,7 +15,7 @@
 // consumption-side handshake (`runtime_detail::verify_contract_version`, called through `require_core`),
 // and that is what a probe root can exercise end to end. Everything AFTER it legitimately needs a real
 // device - the construction asks the escape for the presentation format and derives the graphics queue's
-// FAMILY by walking the device's families and comparing `vkGetDeviceQueue()` against the escape's own
+// FAMILY by walking the device's families and comparing `vkGetDeviceQueue()` against the escape's
 // queue handle (source/engine/runtime/runtime.cpp) - so a device-less probe cannot carry the constructor to
 // completion, and this test does not pretend otherwise. What it does instead is OBSERVE THE LINE BETWEEN
 // THE TWO: with a probe whose version AGREES, the constructor gets PAST the handshake and dies later at
@@ -24,7 +24,7 @@
 //
 //   1. THE AGREEING PATH, IN-PROCESS: `verify_contract_version()` on a probe attesting
 //      `rhi::abi_version` returns normally (no panic) - the check the runtime performs, called as the
-//      runtime calls it - and the probe's own `api_version()` is the contract's number.
+//      runtime calls it - and the probe's `api_version()` is the contract's number.
 //   2. THE REFUSAL, IN A CHILD PROCESS: a probe reporting `rhi::abi_version + 1` handed to the RUNTIME
 //      makes the constructor panic with both numbers. A panic cannot be observed from inside the process
 //      it kills, so the case runs in a child of this same executable and the parent reads its status and
@@ -70,7 +70,7 @@ import deren.engine.primitive;
 import deren.engine.render_resource;
 import deren.engine.render_layout;
 
-// The injection source: the probe backend's test-only factory (see the header's own note).
+// The injection source: the probe backend's test-only factory (see the header's note).
 #include "buffer_creation_contract.hpp"
 #include "probe_backend.hpp"
 #include "recording_scope_contract.hpp"
@@ -135,7 +135,7 @@ namespace {
     constexpr char const* async_present_mode = "--child-async-present";
 
     /// The contract's concrete-identity mismatch: `rhi::do_concrete` TERMINATES on a name that does not
-    /// match the handle's own concrete name, so the diagnostic is read from a child process exactly
+    /// match the handle's concrete name, so the diagnostic is read from a child process exactly
     /// like the two contract-version refusals above.
     constexpr char const* do_concrete_panic_mode = "--child-do-concrete-panic";
 
@@ -164,12 +164,12 @@ namespace {
     ///
     /// CreateProcessW rather than std::system, deliberately: `system` goes through the command
     /// interpreter, whose exit-code translation would hide what is being checked (a fail-fast abort
-    /// reports 0xC0000409 verbatim through the process API; cmd.exe would report its own number).
+    /// reports 0xC0000409 verbatim through the process API; cmd.exe would report its number).
     [[nodiscard]] child_outcome run_child(char const* const self, char const* const flag) {
         deren::utility::vessel::string const command = "\"" + deren::utility::vessel::string{self} + "\" " + flag;
         deren::utility::vessel::wstring const wide(command.begin(), command.end());
 
-        // Capture third-party/runtime diagnostics; deren's own reports go to files in both builds.
+        // Capture third-party/runtime diagnostics; deren's reports go to files in both builds.
         SECURITY_ATTRIBUTES inherited{};
         inherited.nLength = sizeof(inherited);
         inherited.bInheritHandle = TRUE;
@@ -188,7 +188,7 @@ namespace {
             CreateProcessW(nullptr, const_cast<wchar_t*>(wide.c_str()), nullptr, nullptr,
                            capture != INVALID_HANDLE_VALUE ? TRUE : FALSE, 0, nullptr, nullptr, &startup, &child);
         if (capture != INVALID_HANDLE_VALUE) {
-            CloseHandle(capture); // the child holds its own reference now
+            CloseHandle(capture); // the child holds its reference now
         }
         if (spawned == FALSE) {
             deren::vk_test::write_line("injection: could not spawn the child for {} (error {})", flag, GetLastError());
@@ -306,20 +306,20 @@ namespace {
         input.data = input.data.subspan(4, 8);
         auto subset = deren::engine::share_texture_source(input);
         CHECK(subset->size() == 8 && subset != pixels && subset->front() == 37);
-        struct borrowed_image {
+        struct view_image {
             std::span<std::uint8_t const> data;
             std::uint32_t width = 4, height = 4, mip_levels = 1;
             bool valid = true;
         };
-        texture_bytes borrowed(64, 23);
-        struct weak_image : borrowed_image {
+        texture_bytes referenced(64, 23);
+        struct weak_image : view_image {
             std::weak_ptr<texture_bytes const> parent;
         };
         weak_image weak_source;
         weak_source.data = std::span(*pixels);
         weak_source.parent = pixels;
         CHECK(!deren::engine::texture_input_from(weak_source, rhi::image_format::rgba8_unorm).parent);
-        struct mutable_image : borrowed_image {
+        struct mutable_image : view_image {
             std::shared_ptr<texture_bytes> parent;
         };
         auto mutable_pixels = std::make_shared<texture_bytes>(64, 55);
@@ -332,9 +332,9 @@ namespace {
         (*mutable_pixels)[0] = 99;
         CHECK(mutable_snapshot->front() == 55);
         auto copied = deren::engine::share_texture_source(deren::engine::texture_input_from(
-            borrowed_image{std::span(borrowed)}, rhi::image_format::rgba8_unorm));
-        borrowed[0] = 99;
-        CHECK(copied->front() == 23 && copied->data() != borrowed.data());
+            view_image{std::span(referenced)}, rhi::image_format::rgba8_unorm));
+        referenced[0] = 99;
+        CHECK(copied->front() == 23 && copied->data() != referenced.data());
         std::weak_ptr<texture_bytes const> lifetime = pixels;
         image = {};
         input = {};
@@ -422,7 +422,7 @@ int main(int const argc, char** const argv) {
         if (fixture_pipeline) {
             CHECK(io.list->bind_pipeline(*fixture_pipeline) == rhi::error::ok);
         }
-        // Mirror the host's two views of the same frame-owned recording object.
+        // Mirror the host's two views of the same frame-held recording object.
         io.cmd = io.list;
         io.frame.image_count = rhi::max_swapchain_images;
         io.frame.image_index = 0;
@@ -580,7 +580,7 @@ int main(int const argc, char** const argv) {
         }
         CHECK(selected.find(rr::resource_id::software_depth) == nullptr);
         CHECK(selected.find(rr::resource_id::software_id) == nullptr);
-        CHECK(!prior.expired()); // other submitted slot still owns the former generation
+        CHECK(!prior.expired()); // other submitted slot still holds the former generation
         finish_frame();
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
         CHECK(prior.expired());
@@ -638,7 +638,7 @@ int main(int const argc, char** const argv) {
     // promise - what this probe (a device with no mesh/compute pipelines and no chain) must prove is that asking
     // for the path is SAFE: availability answers false, the request does not panic, and the frames keep recording
     // (through whatever the old path does on this device: no scene, the cleared background). The admitted path's
-    // own picture is the capture gate's A/B, which needs the real device.
+    // hold picture is the capture gate's A/B, which needs the real device.
     if (has_flag(argc, argv, "--child-visibility-fallback")) {
         rhi::create_info options{};
         options.window_width = options.window_height = 4;
@@ -755,7 +755,7 @@ int main(int const argc, char** const argv) {
         if (refused != deren::engine::frame_status::acquire_failed) {
             return deren::vk_test::finish("shared_assets");
         }
-        CHECK(heap(layout::heap_slots::env_cube)->extent().width == 1); // Partial publication stays owned while rendering is refused.
+        CHECK(heap(layout::heap_slots::env_cube)->extent().width == 1); // Partial publication stays held while rendering is refused.
         deren::vk_test::probe_heap_image_failure(*device, -1);
         engine.set_ibl(input);
         check_publication();
@@ -1772,7 +1772,7 @@ int main(int const argc, char** const argv) {
         return deren::vk_test::finish("portable_runtime_frame");
     }
 
-    // ---- THE CHILDREN: each must die in the constructor, for its own reason ------------------------
+    // ---- THE CHILDREN: each must die in the constructor, for its reason ------------------------
     if (has_flag(argc, argv, mismatch_mode) || has_flag(argc, argv, empty_root_mode) ||
         has_flag(argc, argv, accepted_probe_mode)) {
         rhi::shared_object<rhi::api_core> root;

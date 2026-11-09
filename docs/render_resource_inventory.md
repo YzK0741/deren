@@ -1,6 +1,6 @@
 # Current pass resource inventory
 
-Source-backed inventory, 2026-10-12; ownership update, 2026-10-14.
+Source-backed inventory, 2026-10-12; retention update, 2026-10-14.
 
 > **NOTE 2026-10-17:** the MegaLights trace/temporal rows and the ml_trace/ml_resolve/ml_history images were
 > historical - the chain was removed temporarily on 2026-10-17 (the render graph gate review records it).
@@ -13,17 +13,17 @@ Raster shadow images, their view bundles, clustered-light count/index buffers, c
 physical scene-input, TAA history, LDR, Bloom and RT visibility images, plus shared
 motion-transform, skin/previous-skin, morph and nine shared scene-table buffers now belong to
 the passchain resource registry. The
-runtime borrows their handles and maintains the existing heap publication and hand-back barriers;
-other allocations in the table retain the original ownership. See [passchain-managed resources](managed_resources.md).
+runtime references their handles and maintains the existing heap publication and hand-back barriers;
+other allocations in the table retain the original retention. See [passchain-managed resources](managed_resources.md).
 
 ## Actual GPU access channels
 
 | Channel | GPU spelling | Host responsibility |
 | --- | --- | --- |
 | H: descriptor heap buffers | `heap_at<ConstantBuffer<T>>`, `StructuredBuffer<T>`, `RWStructuredBuffer<T>` | Allocate buffer/range, publish a correctly typed heap descriptor, retain backing memory |
-| H: sampled images | `Texture2D`, `TextureCube`, `Texture2DArray` with separate sampler; `Sample`, `SampleLevel`, `Load` as appropriate | Own image/view/sampler and publish sampled descriptor |
+| H: sampled images | `Texture2D`, `TextureCube`, `Texture2DArray` with separate sampler; `Sample`, `SampleLevel`, `Load` as appropriate | Retain image/view/sampler and publish sampled descriptor |
 | H: storage images | `RWTexture2D<T>` indexed writes | Publish storage descriptor and order shader writes before later readers |
-| D: device addresses | Push address halves/uint64, cast to `uint*`, `float*` or a structured pointer | Own the addressed buffer and preserve its range/stride/address until GPU completion |
+| D: device addresses | Push address halves/uint64, cast to `uint*`, `float*` or a structured pointer | hold the addressed buffer and preserve its range/stride/address until GPU completion |
 | M: mapped AS binding | RT shadow `mapped_tlas[frame_slot]`, set 0/binding 16 mapped by backend to heap slots | Publish per-slot TLAS and keep AS/backing buffers alive; pipeline defines mapping |
 | A: attachments | Raster color `SV_Target`, rasterized depth/depth test, blending | Host supplies attachment views, load/store/depth state; these writes are not RWTexture accesses |
 | C: copy/indirect commands | GPU transfer copy, indirect draw argument fetch | Declare source/destination/indirect buffer use even when no shader fetch names it |
@@ -46,7 +46,7 @@ identities even if their counts happen to match in windowless mode. G does not i
   and per-image processing outputs.
 - G: material and instance-transform descriptors, scene textures, meshlet table, IBL cubes/LUTs,
   toon rig/material tables and other explicitly shared lookups. Geometry lives with its scene/asset;
-  selected per-frame derived geometry and transient buffers have their own slot lifetime.
+  selected per-frame derived geometry and transient buffers have their slot lifetime.
 
 ## Pass table
 
@@ -93,7 +93,7 @@ The current declaration schema is a useful foundation, not a complete actual GPU
    tables are global allocations with internal frame regions; allocation scope does not erase that
    region index. TLAS schema and typed AS publication now select the frame slot; empty/failed builds
    retain allocation while withholding a ready traversal handle.
-2. Scene passes intentionally have no own descriptor binding list; shared heap inputs are still
+2. Scene passes intentionally have no dedicated descriptor binding list; shared heap inputs are still
    reached by shader code. Toon tables and mesh indirect/culling storage now have ids. Ten Gaussian GPU-frame
    address buffers and two CPU raster upload buffers are declared in per-slot resource subchains; geometry/SH
    assets have scene-lifetime subchains. Mask/skin output buffers now have scene subchains and retained
@@ -103,7 +103,7 @@ The current declaration schema is a useful foundation, not a complete actual GPU
    now have managed subchains as well. Pushed source selection
    and AS-preparation jobs still need complete representation.
 3. Sampled and storage descriptors can name the same image; descriptor identity is not allocation
-   identity. Likewise, an address is not an owning reference, and an attachment write is not a
+   identity. Likewise, an address is not a holding reference, and an attachment write is not a
    shader storage write.
 4. Transfer updates to temporal history and whether a conditional pass actually ran must be recorded
    separately from potential binding access. Per-image history storage does not by itself identify
@@ -111,15 +111,15 @@ The current declaration schema is a useful foundation, not a complete actual GPU
 
 A future manager must record the actual resource object, subresource/range, index domain, access,
 producer/consumer stage, resource generation and completion-dependent retention. Bindings and device
-addresses are publication methods for that resource, not independent lifetime owners.
+addresses are publication methods for that resource, not independent lifetime holders.
 
-## Production ownership audit
+## Production retention audit
 
 The production pass/shared-resource migration is complete; the final audit and validation record is
 maintainer material and is not distributed with this repository. Remaining direct allocation calls
 serve diagnostic probes or HDR capture readback; old generic buffer helpers have no production callers.
-Presentation images remain borrowed from backend frame ownership, with explicitly owned views.
-Backend AS/micromap storage/scratch and descriptor-heap services stay inside their RHI owners. Legacy
+Presentation images remain referenced from backend frame retention, with explicitly held views.
+Backend AS/micromap storage/scratch and descriptor-heap services stay inside their RHI holders. Legacy
 custom/static imports still require their documented device and CPU scene lifetimes. The use-graph gaps
 above describe future access/ordering work, not outstanding production allocation migration.
 

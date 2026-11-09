@@ -155,7 +155,7 @@ export namespace deren::engine::visibility::software {
     // Task 1's measurement (see build_tile_lists_measure above) FALSIFIED the fixed per-tile capacity: far's
     // densest tile held 977 entries at 1.0 px and 1,907 at 2.0 px while the frame's whole total was only 4,572 /
     // 12,557 entries over 3,600 tiles - a long-tailed distribution where any fixed per-tile cap either overflows
-    // or wastes tens of MiB. The approved replacement is this CSR (compressed sparse row) list: every tile owns a
+    // or wastes tens of MiB. The approved replacement is this CSR (compressed sparse row) list: every tile holds a
     // RANGE of ONE shared entries array, located by an exclusive prefix sum of the per-tile counts. There is NO
     // per-tile capacity and NO per-tile overflow anywhere on the production path; the only capacity is the global
     // `software_entry_budget`, and exceeding it refuses the WHOLE frame (never truncates: spec §5.4's "no partial
@@ -180,7 +180,7 @@ export namespace deren::engine::visibility::software {
         deren::utility::vessel::vector<std::uint32_t> offsets; ///< tiles + 1 exclusive prefix sums; offsets[0] == 0
         deren::utility::vessel::vector<tile_entry> entries;    ///< entry_count entries, grouped by tile, in the order above
 
-        /// @brief the CSR range of tile (@p x, @p y), as a span of its entries (empty for a sparse tile)
+        /// @brief the CSR range of tile (@p x, @p y), as A separate span entries (empty for a sparse tile)
         [[nodiscard]] inline std::span<tile_entry const> tile_span(std::uint32_t const x, std::uint32_t const y) const noexcept {
             if (x >= this->grid.tiles_x || y >= this->grid.tiles_y || this->offsets.size() != static_cast<std::size_t>(this->grid.tile_count()) + 1u) {
                 return {};

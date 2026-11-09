@@ -43,7 +43,7 @@ struct ShadowPush
     VR_MAT4 model;
     uint frame_slot;   // PER FRAME SLOT arrays: the skin and morph blocks the vertex stage reads
     uint image_index;
-    uint spare_lane;   // every stage gets three lanes; the third is the post chain's own source slot
+    uint spare_lane;   // every stage gets three lanes; the third is the post chain's source slot
     uint cascade;      // which shadow-map layer this pass renders into (offset 108)
     // THE MESH ENTRY'S GEOMETRY LANES (docs/mesh_shaders.md step 1), at offset 112 - after the three heap
     // index lanes and the cascade, so every field above keeps its offset. The VERTEX and FRAGMENT entries

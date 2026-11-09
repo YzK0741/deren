@@ -281,7 +281,7 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context_view co
     parameters data{addresses->buffer_address(*output, 0), 0, 0};
     CHECK(commands.get()->push_constants(0u, std::as_bytes(std::span(&data.destination, 1))) == rhi::error::ok);
     CHECK(commands.get()->push_constants(8, std::as_bytes(std::span(&data.token, 1))) == rhi::error::invalid_argument);
-    // The batch-only owner uses the same pipeline-reserved push range as a primary.
+    // The batch-only holder uses the same pipeline-reserved push range as a primary.
     auto segment = core.commands->make_mergeable_command_buffer({});
     CHECK(segment);
     if (segment) {
@@ -349,7 +349,7 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context_view co
     CHECK(lifetime_a.expired() && lifetime_b.expired());
     if (space != nullptr) {
         // THE STALE POSITION: the token is gone (or reused), so the write is refused by name. The image
-        // pointer is only compared, never dereferenced: the group that owned it was released just above.
+        // pointer is only compared, never dereferenced: the group that held it was released just above.
         rhi::descriptor_write stale{};
         stale.where = position_a;
         stale.index = 0u;

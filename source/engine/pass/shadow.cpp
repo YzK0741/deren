@@ -2,7 +2,7 @@
 // context's depth format) and the per-cascade recording - the layer's transition to a depth attachment, the
 // depth-only instance at the map's edge, the pre-recorded secondary's execution and the instance's end. Moved out of
 // `runtime::make_shadow_pipeline` + the shadow block of `begin_recording` UNCHANGED in behaviour, except for the
-// things the pass does not own (the hand-back barrier over every allocated layer, and the per-cascade content, which
+// things the pass does not hold (the hand-back barrier over every allocated layer, and the per-cascade content, which
 // the renderer records through the frame's callback) - so the capture gate, which runs with shadows on in all twelve
 // scenarios, decides the move.
 
@@ -15,7 +15,7 @@ import deren.vstd;
 import deren.utility.shared;
 
 import deren.promise.rhi;
-import deren.engine.pipelines; // build_shadow: the depth-only pipeline this pass owns
+import deren.engine.pipelines; // build_shadow: the depth-only pipeline this pass holds
 import deren.utility;
 
 namespace rhi = deren::promise::rhi;
@@ -170,22 +170,22 @@ namespace deren::engine::pass {
         }
         // ONE LAYER PER CASCADE, and never more than the map has: the DECLARATION claims a RUN of cascade layers
         // (render_resource::shadow_targets) and the FRAME caps it at the layers the image actually has - so the
-        // two counts meet here. The secondaries are the frame's own count, and they are what decides how many
+        // two counts meet here. The secondaries are the frame's count, and they are what decides how many
         // layers this frame renders: a cascade with no secondary to record into is not rendered at all.
         uint32_t const layers = static_cast<uint32_t>(std::min<std::size_t>(this->pass_frame.cascades.size(), io.targets.size()));
         if (layers == 0u) {
             return;
         }
-        // THE PASS'S OWN PIPELINE, AS THE CONTRACT HANDLE (abi 21): it travels to the frame's cascade callback,
-        // which binds it through `command_buffer::bind_pipeline` inside the secondary's own session. There is no
+        // THE PASS'S PIPELINE, AS THE CONTRACT HANDLE (abi 21): it travels to the frame's cascade callback,
+        // which binds it through `command_buffer::bind_pipeline` inside the secondary's session. There is no
         // raw `VkPipeline` in this file any more.
         // ... and HOW it must be fed travels with it: a mesh pipeline has no input assembler, so its casters are
         // dispatched rather than drawn (see the frame's record_cascade).
         bool const meshlets = this->pass_frame.allow_meshlets && this->meshlet_pipeline.has_value();
         deren::promise::rhi::pipeline* const pipeline = meshlets ? this->meshlet_pipeline->contract : this->mesh_pipeline->contract;
         bool const mesh_stage = meshlets || this->mesh_pipeline.has_value();
-        // ---- THE CONTENT: one task per cascade, each into its OWN secondary ----
-        // A VkCommandPool is not thread safe, which is why every cascade has its own {pool, buffer} pair (the same
+        // ---- THE CONTENT: one task per cascade, each into its secondary ----
+        // A VkCommandPool is not thread safe, which is why every cascade has its {pool, buffer} pair (the same
         // rule the main pass's workers follow). Only the CONTENT moves off the primary thread: the barriers, the
         // instances and the executions below stay here, in the layer order the attachments require, so a parallel
         // frame's recorded commands are identical to a sequential one's.
@@ -194,7 +194,7 @@ namespace deren::engine::pass {
         deren::utility::vessel::vector<bool> recorded(layers, false);
         for (uint32_t cascade = 0; cascade < layers; ++cascade) {
             tasks.emplace_back([this, cascade, pipeline, mesh_stage, meshlets, &recorded] {
-                // THE CASCADE'S SECONDARY IS A CONTRACT HANDLE NOW (abi 20), BORROWED from the frame: the
+                // THE CASCADE'S SECONDARY IS A CONTRACT HANDLE NOW (abi 20), REFERENCED from the frame: the
                 // callback begins and ends it through the contract, so no raw handle is named here at all.
                 rhi::mergeable_command_buffer_ref const& secondary = this->pass_frame.cascades[cascade];
                 if (secondary == nullptr) {
@@ -222,7 +222,7 @@ namespace deren::engine::pass {
                 continue;
             }
             // THIS layer to a renderable depth attachment: one barrier per layer, because the transition's
-            // subresource range is single-layer and each layer is its own attachment here. Its loadOp CLEAR discards
+            // subresource range is single-layer and each layer is its attachment here. Its loadOp CLEAR discards
             // the previous frame's contents, so UNDEFINED as the old layout is valid.
             // THE PAIR RIDES THE CONTRACT (abi 20): undefined -> depth_attachment is the shipped
             // `depth_attachment_transition`, and the layer it covers is the contract range's base_layer - the raw

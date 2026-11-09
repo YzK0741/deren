@@ -15,7 +15,7 @@
 // has) and a FRAGMENT stage (`game_toon_outline_frag_main`).
 //
 // -------------------------------------------------------------------------------------------------------------
-// THE CAPTURED MATERIAL, FROM THE VIEWER'S OWN JS (this is where the uniforms' NAMES come from; the GLSL only
+// THE CAPTURED MATERIAL, FROM THE VIEWER'S JS (this is where the uniforms' NAMES come from; the GLSL only
 // carries the obfuscated ids). `eadba1af4f-DIaZSo8d.js`'s `addOutline` (~byte offset 246420) builds the outline
 // mesh as a SECOND `nh(geometry, material)` under the character mesh (`visible = false`, added to `outlines`):
 //
@@ -25,7 +25,7 @@
 //   Q334 = _OutlineTintColor ?? [1,1,1,1] (sRGB->linear through `Na`/`It`, ~offset 186518),
 //   side = BackSide (i.e. CULL FRONT), and the material is OPAQUE unless the character material is transparent.
 //
-// Its defines, and the condition each one is emitted under (`addOutline` + `material-feature-defines.js`'s `Zm`):
+// its defines, and the condition each one is emitted under (`addOutline` + `material-feature-defines.js`'s `Zm`):
 //   Q140 base map / Q42 alpha test / Q142 transparent  <- copied from the character material (`Zm`)
 //   Q243 Q273 Q154 Q178                                <- copied from the character material's defines
 //   Q198 lit outlines                                  <- `this.litOutlines`, viewer default TRUE
@@ -43,7 +43,7 @@
 //     `character_forward.cpp:140`), because culling is DYNAMIC state in this renderer - no pipeline bit.
 //   * ONE HDR COLOUR TARGET + the G-buffer DEPTH, OPAQUE blend, depth compare LESS_OR_EQUAL - all stated by
 //     `core::make_outline_pipeline` (`core.cpp:759-809`) and the character-forward pass's LOCKED depth write off.
-//   * The captured shader's own `ZTest`/`ZWrite`/`Blend`: the viewer material's THREE defaults are depthTest on,
+//   * The captured shader's `ZTest`/`ZWrite`/`Blend`: the viewer material's THREE defaults are depthTest on,
 //     depthFunc LessEqual, depthWrite ON for an opaque character material, NoBlending for the opaque case. deren
 //     reproduces the test and the blend and DEVIATES on the write (off + locked) - the same recorded deviation
 //     `toon/outline.slang`'s header states, with the same consequence (the hull does not occlude the overlay group
@@ -62,7 +62,7 @@
 //      (`E3="_outline_normal"`, `Vf="Q194"`, ~offset 240341; `B3` at ~250033 gates Q274 on both existing).
 //      deren's `MeshVertex` is the 80-byte interleaved record of `mesh_geometry.slang:66-73`: position, normal,
 //      uv, joints, weights, tangent - but NO second/outline-normal attribute. So:
-//        * `position/normal/uv` -> `MeshVertex` + deren's own `pbr_shade_vertex` (morph -> skin -> world ->
+//        * `position/normal/uv` -> `MeshVertex` + deren's `pbr_shade_vertex` (morph -> skin -> world ->
 //          projection), which is the adapter for the captured `<skinning_pars_vertex>`/`<skinning_vertex>` chain
 //          and `modelMatrix`/`modelViewMatrix`/`projectionMatrix`;
 //        * `tangent` + `Q194` (the Q274 smooth-normal expansion) -> NOT EXPRESSIBLE. The TANGENT now exists, but
@@ -84,9 +84,9 @@
 //
 // -------------------------------------------------------------------------------------------------------------
 // THE ONE THING A READER OF THE OTHER GAME_TOON FILES MIGHT EXPECT AND WILL NOT FIND HERE: the outline fragment
-// does NOT shade the surface BEHIND the ring from the G-buffer (that is what deren's own `toon/outline.slang`
+// does NOT shade the surface BEHIND the ring from the G-buffer (that is what deren's `toon/outline.slang`
 // does for the ARTICLE's outline, and it is a different mechanism). The captured outline fragment shades the
-// OUTLINE MESH's own material: its base colour, its family, its ramp, its own world normal `Q35`. The G-buffer
+// OUTLINE MESH's material: its base colour, its family, its ramp, its world normal `Q35`. The G-buffer
 // normal slot is therefore read by NEITHER entry here - the mesh entry only asks it for its SIZE (`Q76`, see the
 // adapters), which is the frame's render extent.
 // =============================================================================================================
@@ -148,7 +148,7 @@ static const float3 game_toon_outline_captured_sdf_rim_colour = float3(0.651, 0.
 static const float game_toon_outline_captured_skin_rim_off = 0.699999988079071;
 static const float game_toon_outline_captured_face_rim_off = 1.0;
 
-// The viewer's OWN binding defaults for a material row it does not state (material-uniform-bindings.js `M3`,
+// The viewer's binding defaults for a material row it does not state (material-uniform-bindings.js `M3`,
 // ~offset 237996: `Q347:{value:_ShadowColorBrightness ?? .5}`, `Q348:{value:_ShadowColorSaturation ?? 1}`).
 // Those two rows ride the FINAL packing's lane 5`.x`/`.y` (`uniform-packing.json` row 5), and a zero word
 // ("not stated") falls back to the JS defaults below.
@@ -183,7 +183,7 @@ static const float game_toon_outline_captured_alpha_premultiply = 0.0;          
 static const bool game_toon_outline_captured_tint_enable = false;                  // `_OutlineTintEnable`
 static const uint game_toon_outline_sdf_rim_lane = 0u;                             // `toon_colour_lane::sdf_rim`
 
-// The captured JS's own `??` defaults for the outline row (`addOutline`, `Q195/Q206/Q102/Q319/Q334` bindings).
+// The captured JS's `??` defaults for the outline row (`addOutline`, `Q195/Q206/Q102/Q319/Q334` bindings).
 // `_OutlineWidth`'s .5 is deliberately NOT used as a fallback: deren's outline GROUP is gated by a NON-ZERO width
 // (`primitive::outline_width`, `character_forward.cpp:134-145`), so "no width row" is "not in this list", and the
 // viewer default would draw a hull the frame never selected. Documented in the notes.
@@ -202,7 +202,7 @@ static const float3 game_toon_outline_default_tint = float3(1.0, 1.0, 1.0); // `
 // dedicated `toon_colour_lane::outline_edge` (lane 3, `pbr.slang:321-326`):
 //
 //   * `Q195` `_OutlineWidth` is that lane's `.w` - the captured `float _OutlineWidth` row, which `main.cpp`'s
-//     outline branch reads (`material->scalar("_OutlineWidth", 0.0f)`) and which the frame's own
+//     outline branch reads (`material->scalar("_OutlineWidth", 0.0f)`) and which the frame's
 //     `primitive::outline_width` gate consumes, so the hull's size and its presence cannot disagree;
 //   * `Q334` `_OutlineTintColor` is that lane's `.rgb` - the captured `color _OutlineTintColor` row, linearised by
 //     the loader exactly as `Na`/`It` linearises it in the viewer.
@@ -212,14 +212,14 @@ static const float3 game_toon_outline_default_tint = float3(1.0, 1.0, 1.0); // `
 // 7 Q120, 8 Q146, 9 Q212/Q160/Q255/Q32, 10 Q113, 11 Q72, 12 Q152/Q238, 13 Q349, 14 Q190/Q20, 15 Q93) and NONE is
 // `_Outline*`. The captured values therefore come from the STAGED CAPTURED ROWS (the constants block above), not
 // from a lane - which is the whole point of this file's reconciliation: it no longer reads lane 12`.z`/`.w` (the
-// silk Q238 values cloth owns) or lane 14`.x/.y/.z/.w` (the silk Q190 colour and Q20 premultiply). The one row
+// silk Q238 values cloth holds) or lane 14`.x/.y/.z/.w` (the silk Q190 colour and Q20 premultiply). The one row
 // that is NOT a number and therefore could not be transcribed is `_OutlineMask`; it is read from the dedicated
 // TEXTURE lane `toon_slot::outline_mask` (lane 16) below - the 17th texture lane, which is why `toon_lane_blocks`
 // is now 4 and `toon_lanes4_at` exists (see `deren::engine::toon_slot`).
 
-/// @brief the viewer's FAMILY_SKIN - ONE family covering deren's separate VR_FAMILY_SKIN and VR_FAMILY_FACE
+/// @brief the viewer's FAMILY_SKIN - ONE family covering deren's VR_FAMILY_SKIN and VR_FAMILY_FACE
 /// @note the captured outline inherits the CHARACTER material's family define (`addOutline` copies it), and the
-///       viewer has no face family of its own - so the two deren families are one captured branch.
+///       viewer has no separate face family - so the two deren families are one captured branch.
 static bool game_toon_outline_skin_family(uint family) {
     return family == VR_FAMILY_SKIN || family == VR_FAMILY_FACE;
 }
@@ -260,7 +260,7 @@ static float game_toon_outline_alpha_premultiply() {
 
 /// @brief `Q334` `_OutlineTintColor`: the existing outline lane's `.rgb`
 /// @note the viewer linearises the JSON row with `It` (sRGB->linear); deren's loader binds this lane from the game's
-///       own `_OutlineTintColor` row, so the encoding is the loader's - the shader does not decode again.
+///       its `_OutlineTintColor` row, so the encoding is the loader's - the shader does not decode again.
 static float3 game_toon_outline_tint_colour(uint material_index) {
     const float3 lane = toon_colour_at(heap_slots_toon_colours, material_index * character_toon_colour_lanes + pbr_outline_edge_lane).rgb;
     return dot(lane, lane) > 0.0 ? lane : game_toon_outline_default_tint;
@@ -325,7 +325,7 @@ static float3 game_toon_outline_skin_light_colour(uint material_index) {
     return dot(lane, lane) > 0.0 ? lane : game_toon_outline_captured_skin_light;
 }
 
-/// @brief `Q62` `uShadowTint`: the character material's own `Q62`, which `T3` (~offset 239127) aliases to
+/// @brief `Q62` `uShadowTint`: the character material's `Q62`, which `T3` (~offset 239127) aliases to
 ///        `uSkinShadowTint` for a skin material - so the outline of a body/face takes profile lane 4 and every
 ///        other family takes lane 3, exactly as the captured `f[Q62]=r.uniforms[Q62]` copy does
 static float3 game_toon_outline_shadow_tint(uint material_index, bool skin_family) {
@@ -373,7 +373,7 @@ static float game_toon_outline_face_rim_off_scale(uint material_index) {
 }
 
 // =============================================================================================================
-// THE CAPTURED HELPERS (transcribed; they are the viewer's own functions, not deren's)
+// THE CAPTURED HELPERS (transcribed; they are the viewer's functions, not deren's)
 // =============================================================================================================
 
 /// @brief the viewer's `R218` (frag:363-365): the LINEAR-LUMINANCE weights
@@ -384,7 +384,7 @@ static float game_toon_outline_luma(float3 colour) {
 }
 
 /// @brief the viewer's `R113` (frag:17-20): `max(mix(vec3(l), c, s), 0)` with `l = dot(c, 0.2126/0.7152/0.0722)`
-/// @note this is BOTH the outline's own tint operation (`outline = R113(base.rgb, Q319) * Q102`, frag:466) and
+/// @note this is BOTH the outline's tint operation (`outline = R113(base.rgb, Q319) * Q102`, frag:466) and
 ///       `R198`'s no-LUT shadow-side fallback (frag:382). One transcription, two captured call sites.
 static float3 game_toon_outline_saturation_to_luma(float3 colour, float saturation) {
     const float l = dot(colour, float3(0.2126, 0.7152, 0.0722));
@@ -405,7 +405,7 @@ static float3 game_toon_outline_linear_to_srgb(float3 c) {
 
 /// @brief the viewer's `sampleShadowLutLinear` (`R63`, frag:351-360): a 32^3 cube packed as `n` tiles of `n`x`n`
 /// @param albedo_linear `R40` in `R198` (the OUTLINE colour, not the surface behind it - that is the capture's
-///        own argument, frag:379/382)
+///        its argument, frag:379/382)
 /// @param lane deren's `toon_slot::shadow_lut` texture index (callers must pass a non-zero lane)
 /// @note the tile layout/coordinate are the captured expressions field for field; `n` is the image HEIGHT, queried
 ///       rather than assumed, and `v = 1 - (g+0.5)/n` already carries the archive export's vertical flip.
@@ -430,7 +430,7 @@ static float3 game_toon_outline_shadow_lut(float3 albedo_linear, uint lane) {
 // THE VERTEX HALF: THE CAPTURED NORMAL EXPANSION (`vert:23-66`)
 // =============================================================================================================
 //
-// The captured vertex shader, in its own order:
+// The captured vertex shader, in its order:
 //   vUv=uv; objectNormal=normalize(normal);                                  (vert:24-25)
 //   [Q274 smooth normal from tangent + Q194]                                 (vert:27-33)   NOT EXPRESSIBLE, see above
 //   <skinning_pars_vertex> <skinbase_vertex> <skinnormal_vertex>              (vert:35-38)   deren: pbr_shade_vertex
@@ -448,7 +448,7 @@ static float3 game_toon_outline_shadow_lut(float3 albedo_linear, uint lane) {
 // THE SUBSTITUTIONS THIS PORT HAS TO MAKE, each stated at its use:
 //   * `normalMatrix * objectNormal` -> `(float3x3)view * world_normal`. `normalMatrix` is
 //     inverse-transpose(modelView) applied to an OBJECT normal; deren's normal is already world-space and the
-//     view transform is rigid, so the inverse transpose of its 3x3 IS its 3x3. The same substitution, with the same
+//     view transform is rigid, so the separate inverse transpose 3x3 IS its 3x3. The same substitution, with the same
 //     wording, is `scene/pbr.slang:281-295`'s (the existing article-outline mesh entry), and it is what keeps this
 //     hull attached to the surface it outlines.
 //   * `(projectionMatrix * vec4(n,0.0)).xy` -> `dot(proj[0].xyz, n_view)`, `dot(proj[1].xyz, n_view)`: for a
@@ -459,7 +459,7 @@ static float3 game_toon_outline_shadow_lut(float3 albedo_linear, uint lane) {
 //     captured quantity is the half-FOV magnitude, while the sign is the flip the rest of the chain already carries.
 //   * `Q76` is the viewer's RENDER-TARGET pixel size. This stage has no such uniform; the adapter is
 //     `heap_size(gbuffer_normal)` - the frame's render extent, i.e. exactly the image the outline pass writes over
-//     (see the notes; the post chain owns any upscale, so the two are the same extent).
+//     (see the notes; the post chain holds any upscale, so the two are the same extent).
 //   * `isOrthographic ? 1.0/proj[1][1] : atan(1.0/proj[1][1])`: the character pass only ever draws through the
 //     PERSPECTIVE camera (the orthographic projection in this renderer belongs to the shadow pass, which never
 //     draws a character hull), so the perspective arm is transcribed and the orthographic arm is recorded in the
@@ -469,7 +469,7 @@ static float3 game_toon_outline_shadow_lut(float3 albedo_linear, uint lane) {
 //     texture read, which in WebGL2 is base-level; the explicit-LOD form states that instead of relying on a
 //     derivative a mesh stage does not have.
 //
-// THE Z OFFSET LINE IS NOT A COMPOSITION OF PROJECTIONS AND IS KEPT AS ITS OWN EXPRESSION (vert:63-66): the point
+// THE Z OFFSET LINE IS NOT A COMPOSITION OF PROJECTIONS AND IS KEPT AS its EXPRESSION (vert:63-66): the point
 // is moved along VIEW z by `-0.1*R136`, projected, and its clip z is re-expressed AT THE ORIGINAL `w`
 // (`R285.z * w / R285.w` = new_ndc_z * old_w), so the expansion's xy is not re-scaled by the moved depth.
 
@@ -525,7 +525,7 @@ static void game_toon_outline_expand(inout pbr_vertex_output o, const float2 uv,
 //
 // THE LOOP IS DEREN'S, UNCHANGED, because the hull must be skinned/morphed/instanced EXACTLY like the surface it
 // outlines or it detaches the moment the character deforms - the same argument `pbr.slang:263-271` makes. What is
-// this stage's own is only the expansion call.
+// this stage's is only the expansion call.
 //
 // THE NAME IS NOT `outline_mesh_main`: `scene/pbr.slang` is INCLUDED above and defines that entry already; two
 // mesh entries may not share a name in one translation unit. The host does not name the entry - it loads the
@@ -553,7 +553,7 @@ void game_toon_outline_mesh_main(out vertices pbr_vertex_output verts[mesh_verti
         mesh_stat_add(push.frame_slot, mesh_stat_mesh_workgroups, 1u);
     }
 
-    // ---- THE PER-FRAME / PER-MATERIAL VALUES, hoisted exactly where `outline_mesh_main` hoists its own ----
+    // ---- THE PER-FRAME / PER-MATERIAL VALUES, hoisted exactly where `outline_mesh_main` hoists its ----
     //
     // `Q195` `_OutlineWidth`: deren's outline lane, `.w` (the existing mesh entry reads the same word for the same
     // reason, and the frame's `outline_width > 0` filter is what puts this draw in the outline group at all).
@@ -567,7 +567,7 @@ void game_toon_outline_mesh_main(out vertices pbr_vertex_output verts[mesh_verti
     // `Q121` `_OutlineMask`: the dedicated texture lane (16) in the table's FOURTH block, or 0 when the material's
     // `_EnableOutlineMask` gate left it unset - which is the captured Q326-absent arm, i.e. the uniform hull.
     const uint Q121 = game_toon_outline_mask_texture(push.material_index);
-    // `Q76`: the captured per-frame RENDER TARGET size (`onBeforeRender`). This stage's adapter is the frame's own
+    // `Q76`: the captured per-frame RENDER TARGET size (`onBeforeRender`). This stage's adapter is the frame's
     // render extent, read off the G-buffer normal image the pass already publishes for its shaders (the outline
     // fragment of `toon/outline.slang` samples the same slot, so its descriptor is bound for this group too).
     const float2 Q76 = heap_size(heap_at<Texture2D<float4>>(heap_slots_gbuffer_normal + heap_image_index), 0u);
@@ -585,7 +585,7 @@ void game_toon_outline_mesh_main(out vertices pbr_vertex_output verts[mesh_verti
         const MeshVertex v = mesh_vertex_at(geometry, vertex_index);
         pbr_vertex_output o = pbr_shade_vertex(v, vertex_index, group_id.y);
         // The width gate mirrors `outline_mesh_main`'s (`> 0`): a material with no outline emits its vertices
-        // unexpanded, which the frame's own filter already keeps out of this group in practice.
+        // unexpanded, which the frame's filter already keeps out of this group in practice.
         if (Q195 > 0.0) {
             game_toon_outline_expand(o, o.uv, Q76, Q195, Q206, R255, Q121);
         }
@@ -609,17 +609,17 @@ void game_toon_outline_mesh_main(out vertices pbr_vertex_output verts[mesh_verti
 //   R237 = mix(1, alpha, Q20)                                        (frag:473)
 //   [Q198] gl_FragColor = vec4(R198(outline,R237), alpha)            (frag:475-477)
 //   else   gl_FragColor = vec4(outline*R237, alpha)                  (frag:478-480)
-//   #include <tonemapping_fragment> <colorspace_fragment>            (frag:486-487) -> post owns both; this stage
+//   #include <tonemapping_fragment> <colorspace_fragment>            (frag:486-487) -> post holds both; this stage
 //                                                                                     returns LINEAR, like every
 //                                                                                     other game_toon port.
 
 /// @brief the captured `R198` (frag:366-446): the OUTLINE COLOUR run through the viewer's toon chain
-/// @param R40 the outline colour the caller computed (frag:461-466) - `R198`'s own first argument
+/// @param R40 the outline colour the caller computed (frag:461-466) - `R198`'s first argument
 /// @param R237 `mix(1, alpha, Q20)` (frag:473)
 /// @param s the gathered surface (family, ramp/LUT/face-mask lanes; the albedo is NOT read - `R40` already
 ///        contains the base colour, exactly as the capture passes it)
-/// @param world_pos `Q166` (the hull's own interpolated world position)
-/// @param Q35 the captured varying (vert:41-43) - the hull's own WORLD normal, NOT a G-buffer normal
+/// @param world_pos `Q166` (the hull's interpolated world position)
+/// @param Q35 the captured varying (vert:41-43) - the hull's WORLD normal, NOT a G-buffer normal
 /// @param uv the hull's uv (the face mask's coordinate, frag:395)
 ///
 /// WHAT IS NOT IN THIS FUNCTION, and it is the whole list: `Q132` (self-shadow) - the viewer default is OFF and the
@@ -777,7 +777,7 @@ float4 game_toon_outline_frag_main([[vk::location(0)]] float3 v_world_pos : TEXC
 
     // ---- ALPHA (frag:467-473) ----
     // `Q142` is the viewer's `n.transparent` (`Zm`, ~offset 240003: `transparent && (Q142="")`), i.e. the character
-    // material already blends; deren's two spellings of that are the glTF BLEND bit and the toon material's own
+    // material already blends; deren's two spellings of that are the glTF BLEND bit and the toon material's
     // `_TRANSPARENT_ON` bit (`material_record.slang:44-55`). The captured `_OutlineTransparent` material row is NOT
     // read anywhere in the viewer's JS (verified by grep) and is not used here.
     float alpha = 1.0;

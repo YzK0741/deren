@@ -1,6 +1,6 @@
 /**
  * @file source/engine/pass/scene_tables.cppm
- * @brief Passchain-owned shared scene tables and packed mesh command/culling storage.
+ * @brief Passchain-held shared scene tables and packed mesh command/culling storage.
  */
 module;
 

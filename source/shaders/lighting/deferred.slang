@@ -3,15 +3,15 @@
 // PRODUCES `deferred.frag.spv`, the same name the GLSL version produced, so the host side is untouched.
 // Ported from shaders/deferred.frag (now in `shaders/glsl.old/`). It reads the G-buffer, rebuilds
 // the world position from the stored depth, and evaluates the SAME lighting the forward path evaluates per
-// fragment - literally the same code, because shaders/shading.slang owns the sun, the shadow test, the
+// fragment - literally the same code, because shaders/shading.slang holds the sun, the shadow test, the
 // punctual lights, the split-sum IBL and the BRDF presets, and this stage only supplies a shade_input
-// assembled from G-buffer texels instead of from interpolated vertex data. It also owns the screen-space
+// assembled from G-buffer texels instead of from interpolated vertex data. It also holds the screen-space
 // ambient occlusion, folded into that shade_input's `ao`.
 //
 // WHAT CHANGED IN THE PORT is only what the language requires:
 //   - `[[vk::location(n)]]` / `SV_Target` in place of the layout qualifiers;
 //   - `gl_FragCoord.xy` becomes the `SV_Position` parameter, and it is passed into the SSAO helper rather
-//     than read there (the same value, and the helper stays a pure function of its arguments);
+//     than read there (the same value, and the separate helper stays a pure function arguments);
 //   - the G-buffer fetch helper takes the texture HANDLE instead of a heap slot: the GLSL version has to
 //     pass a slot because a `texture2D` parameter does not survive a function boundary in glslang, while
 //     Slang can hand the handle to the shim's `heap_texel`;
@@ -21,7 +21,7 @@
 // Together these retain the old GLSL column-vector and TBN semantics.
 // The frozen render gate verifies the SSAO and lighting outputs.
 //
-// THE INCLUDE ORDER IS PART OF THE CONTRACT: the shim, then sky.slang (pure math), then this stage's own
+// THE INCLUDE ORDER IS PART OF THE CONTRACT: the shim, then sky.slang (pure math), then this stage's
 // declarations, and ONLY THEN shading.slang - whose functions address the per-frame arrays through the slot
 // macros, which expand to `pc.frame_slot`, so `pc` has to exist first. That is the one ordering rule this
 // pattern has.
@@ -65,7 +65,7 @@ float4 gbuffer_texel(DescriptorHandle<Texture2D<float4>> image, float2 uv)
 /// @brief rebuild the world-space position of the pixel from the stored depth
 /// @note the engine's projection is a RH_ZO matrix with its Y row flipped for Vulkan, and post.vert's v_uv
 ///       already maps (0,0) to the top-left texel, so the NDC of a pixel is (2*uv - 1) in both axes: no
-///       extra flip belongs here - the inverse matrix already carries the projection's own conventions.
+///       extra flip belongs here - the inverse matrix already carries the projection's conventions.
 float3 world_position_from_depth(float2 uv, float depth)
 {
     const float4 world = mul(float4(uv * 2.0 - 1.0, depth, 1.0), pc.inv_view_proj);
@@ -163,7 +163,7 @@ float4 main([[vk::location(0)]] float2 v_uv : TEXCOORD0, float4 sv_position : SV
         // view direction (the reconstructed position is exact even at depth 1), and the sky function is the
         // forward skybox pass's - so the two paths cannot disagree about the background.
         const float3 far_point = world_position_from_depth(v_uv, 1.0);
-        // THE SUN COMES FROM THE LIGHT UBO, not from a constant in the sky: `sky.slang` used to carry its own
+        // THE SUN COMES FROM THE LIGHT UBO, not from a constant in the sky: `sky.slang` used to carry its
         // hard-coded `(0.3, 1.0, 0.5)`, which is a second place for one sun to live and would put the visible
         // disc somewhere other than the direction the shadows are cast from the moment `[lighting]
         // sun_direction` moved.
@@ -176,7 +176,7 @@ float4 main([[vk::location(0)]] float2 v_uv : TEXCOORD0, float4 sv_position : SV
     // shared sky). TWO SOURCES, because the mode is global on the forward path and per-object here: the pass's
     // push flag is the whole-frame [render] unlit setting, while the G-buffer's material id leads back to the
     // material record whose bit9 is the per-object choice. The record is the only per-pixel place the choice
-    // can live: this stage shades a fullscreen triangle and has no draw of its own to bind a pipeline for.
+    // can live: this stage shades A separate fullscreen triangle and has no draw to bind a pipeline for.
     const uint material_id = uint(round(material.r * 255.0)) | (uint(round(material.g * 255.0)) << 8u);
     const Material surface_material = material_at(heap_slots_materials, material_id);
     if (pc.unlit > 0.5 || (surface_material.flags & 512u) != 0u)

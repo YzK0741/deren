@@ -426,7 +426,7 @@ namespace deren::vulkan {
             }
         }
         profile.mark(4);
-        // Compact the canonical logical state; keep copied payloads and group owners for interop restore.
+        // Compact the canonical logical state; keep copied payloads and group holders for interop restore.
         for (auto* op : batch) {
             if (!op->is_unique()) {
                 saved_selection.push_back(op);

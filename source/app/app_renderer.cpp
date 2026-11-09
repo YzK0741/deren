@@ -1,7 +1,7 @@
 // The application renderer's implementation: the two callbacks the runtime asks for, and nothing else. Every branch below is a
 // STAGE of this application's frame - the same names the runtime's frame loop uses for its stage structs - and what
-// it does is hand that stage's passes the frames only the runtime can build (its own recording machinery, and the
-// leaf lists/camera it owns). The per-stage ORDERING RULES that used to run here are the composed graph's now: it
+// it does is hand that stage's passes the frames only the runtime can build (its recording machinery, and the
+// leaf lists/camera it holds). The per-stage ORDERING RULES that used to run here are the composed graph's now: it
 // declares those image hand-offs, so this preamble no longer touches an image.
 
 module;
@@ -10,7 +10,7 @@ module;
 #include <cstdint>
 #include <glm/glm.hpp>
 // NO VULKAN HEADER: this demo hands passes their frames and runs the frame's ordering rules - every value it
-// touches is the contract's or the renderer's own.
+// touches is the contract's or the renderer's.
 
 module deren.app.renderer;
 
@@ -30,8 +30,8 @@ namespace deren::app {
         // ---- THE CHAIN, CONSTRUCTED HERE ----
         // The same passes the renderer used to construct for itself, in the order their create step must run in (the
         // chain's order IS that order). THE G-BUFFER DEBUG VIEW COMES FIRST, which used to be a CREATE-ORDER
-        // constraint - the passes that read the G-buffer asked the owner for the G-buffer set's layout while they
-        // were being created. That is gone with the layouts: a pass builds only its own pipeline now.
+        // constraint - the passes that read the G-buffer asked the holder for the G-buffer set's layout while they
+        // were being created. That is gone with the layouts: a pass builds only its pipeline now.
         this->chain.emplace<pass::scene_constants_pass>();
         this->chain.emplace<pass::scene_deformation_pass>();
         this->chain.emplace<pass::scene_tables_pass>();
@@ -45,8 +45,8 @@ namespace deren::app {
         this->chain.emplace<pass::visibility_resolve_pass>();
         this->chain.emplace<pass::scene_pass>();
         this->chain.emplace<pass::transparent_pass>();
-        // ... AND THE GAUSSIAN SPLAT CLOUD, whose create step only builds its pipeline (it owns no descriptor
-        // family of its own): it records between the lighting stage and the blended geometry, and draws nothing
+        // ... AND THE GAUSSIAN SPLAT CLOUD, whose create step only builds its pipeline (it holds no descriptor
+        // separate family): it records between the lighting stage and the blended geometry, and draws nothing
         // at all until the app hands the runtime a cloud to draw.
         this->chain.emplace<pass::gaussian_splatting_pass>();
         // ... and the toon character stage, right after the blended geometry: it re-shades the OPAQUE leaves
@@ -89,7 +89,7 @@ namespace deren::app {
         this->chain.emplace<pass::upscale_pass>();
         this->passes = &this->chain;
         // LOOKED UP BY THE NAME THE DECLARATION CARRIES, which is the only key a chain gives: a cast is what turns
-        // the declaration's owner into the type whose frame it wants. A pass this build does not have (its
+        // the declaration's holder into the type whose frame it wants. A pass this build does not have (its
         // declaration missing, or a variant of this app) stays null and is simply never fed.
         this->cluster = this->find<pass::cluster_pass>("cluster");
         this->shadow = this->find<pass::shadow_pass>("shadow");
@@ -124,7 +124,7 @@ namespace deren::app {
         found += this->fxaa != nullptr ? 1u : 0u;
         if (found != 17) {
             // NOT a fatal error: this demo is one application's chain, and a build of it that lacks a pass (a
-            // shader that did not compile is the usual reason - that pass's own create step says why) renders
+            // shader that did not compile is the usual reason - that pass's create step says why) renders
             // without it. Saying so once at startup is what keeps "the pass did not run" from looking like a
             // rendering bug. NO FORMAT ARGUMENT, and that is not a style choice: `deren::utility::log` with one crashes
             // THIS translation unit's code generation (clang 22.1.8, `EmitBuiltinNewDeleteCall` - a toolchain bug
@@ -132,14 +132,14 @@ namespace deren::app {
             deren::utility::log("app_renderer: a pass this demo wires is missing from the chain - it is not fed a frame and will not record");
         }
         // ---- AND HAND IT OVER ----
-        // `set_pass_chain` binds this chain into the runtime's own frame structure (the stage sequence, the marks,
+        // `set_pass_chain` binds this chain into the runtime's frame structure (the stage sequence, the marks,
         // the renderer's work between the stages) and takes this demo's wiring for everything the runtime does not
         // know about those passes: their frames, the stage preambles, the results, the feature table.
         self.set_pass_chain(this->chain, this->wiring());
         // ---- THE TWO HOOKS THE PASSES CARRY, INSTALLED ONCE ----
         // NEITHER IS A PER-FRAME VALUE, which is why neither belongs in a frame any more: the overlay's draw is a
         // property of this renderer and of WHICH pass is the frame's last writer (the composite and the FXAA pass
-        // both hold it, and each frame's own decision says which of them uses it), and the reflection's recording
+        // both hold it, and each frame's decision says which of them uses it), and the reflection's recording
         // is this application's second signal through the temporal pass's one pipeline. `attach` is where both are
         // known, so they are set here and the frame loop never writes into a pass's frame again.
         if (this->composite != nullptr) {
@@ -166,11 +166,11 @@ namespace deren::app {
             self.runtime_handle->set_scene_unlit(self.deferred->unlit());
         }
         // THE FRAMES ONLY THE RUNTIME CAN BUILD are handed over here (see frame_services): the scene, shadow and
-        // transparent frames carry the runtime's own recording machinery (per-slot secondaries, per-cascade
+        // transparent frames carry the runtime's recording machinery (per-slot secondaries, per-cascade
         // secondaries, the draw-state factory), and the gaussian and character frames carry the leaf lists and the
-        // camera the runtime owns. The ORDERING RULES those stages used to run in this preamble - whose first
+        // camera the runtime holds. The ORDERING RULES those stages used to run in this preamble - whose first
         // sample publishes an image - are the composed graph's now (it declares the hand-offs), so nothing here
-        // touches an image. Every other frame is the pass's own (see frame_pass::prepare_frame).
+        // touches an image. Every other frame is the pass's (see frame_pass::prepare_frame).
         if (stage == "shadow") {
             if (self.shadow != nullptr) {
                 self.shadow->set_frame(services.make_shadow_frame(services.parent));
@@ -219,7 +219,7 @@ namespace deren::app {
     // THE APP'S KNOBS: the flag half goes to the runtime (its policy), the value half to the pass
     // =================================================================================================
     // The CLAMPS travel with the values (they are the same fact), which is why the argument for each of them now
-    // lives in the pass that owns it rather than in the setter below.
+    // lives in the pass that holds it rather than in the setter below.
 
     void app_renderer::reset_temporal_history() noexcept {
         if (this->taa) {
@@ -234,7 +234,7 @@ namespace deren::app {
         }
         this->taa->set_blend(blend_static, blend_min);
         if (turned_on) {
-            // THE PASS's HALF OF THE OFF -> ON EDGE: whether each image's history holds anything is the pass's own
+            // THE PASS's HALF OF THE OFF -> ON EDGE: whether each image's history holds anything is the pass's
             // state, and the renderer's half (the matrix history and the jitter index) is what its setter just reset.
             this->taa->reset_history();
         }
@@ -256,7 +256,7 @@ namespace deren::app {
         if (this->deferred != nullptr) {
             this->deferred->set_unlit(unlit);
         }
-        // ... and the renderer's own policy reads it (see set_scene_unlit): publish it here as well as per stage, so
+        // ... and the renderer's policy reads it (see set_scene_unlit): publish it here as well as per stage, so
         // a toggle that arrives between two frames is not one frame late.
         if (this->runtime_handle != nullptr) {
             this->runtime_handle->set_scene_unlit(unlit);
@@ -297,7 +297,7 @@ namespace deren::app {
     // =================================================================================================
     // Every substitution below is the same one: `this-><runtime member>` became a FIELD of the facts the runtime
     // hands over, and `this->pass_ready("name")` became a question to the typed reference this demo found - so the
-    // composition is unchanged and the two inputs it is made of now sit on their own sides of the seam.
+    // composition is unchanged and the two inputs it is made of now sit alone sides of the seam.
 
     bool app_renderer::feature_active(void* const parent, runtime::feature_facts const& facts, std::string_view const name) {
         app_renderer& self = *static_cast<app_renderer*>(parent);
@@ -306,7 +306,7 @@ namespace deren::app {
         bool const shaded_scene = !gbuffer_debug && self.deferred != nullptr && self.deferred->ready() && facts.gbuffer_pipeline;
         // THE FLAT RENDER FLAG AND THE SSAO SWITCH LIVE IN THE LIGHTING PASS (they are its parameters), so the table
         // ASKS it - the same shape the other "ask the pass" answers below use. One copy of each
-        // value, and the pass that pushes them is the one that owns them.
+        // value, and the pass that pushes them is the one that holds them.
         bool const unlit = self.deferred != nullptr && self.deferred->unlit();
         bool const character_shading = facts.character_forward_pending && self.character_forward != nullptr && self.character_forward->ready();
 
@@ -314,7 +314,7 @@ namespace deren::app {
         // with the renderer's resolver returning false to skip them; the skip is the same, but the question now has
         // one name and one answer. What is NOT in these answers is the OTHER half of those old gates - whether this
         // frame's target generation exists: that is what the resource table already says, so a frame whose images
-        // are not there fails the pass's own resolution. Two mechanisms, two questions.
+        // are not there fails the pass's resolution. Two mechanisms, two questions.
         if (name == "scene") {
             return facts.gbuffer_pass;
         }
@@ -331,13 +331,13 @@ namespace deren::app {
         if (name == "character_forward") {
             // THE RUNTIME'S COMPOSED PREDICATE (the knob AND this frame's opaque leaf list, see
             // feature_facts::character_forward_pending) AND the pass being ready. This ONE gate answers for the
-            // SURFACE pass; the screen-space rim asks under its own name below, because the rewritten toon chain
+            // SURFACE pass; the screen-space rim asks under its name below, because the rewritten toon chain
             // must not wear that contour as well as the Goo rim (see `toon_screen_rim_pass::feature`).
             return character_shading;
         }
         if (name == "toon_screen_rim") {
             // THE SAME PREDICATE AS THE STAGE ABOVE PLUS "THE REWRITTEN CHAIN IS NOT THE ONE DRAWING" - and that
-            // second half is the whole reason this is a name of its own.
+            // second half is the separate whole reason this is a name.
             //
             // WHY THE REWRITTEN CHAIN MUST SILENCE IT: this pass is a fullscreen ADDITIVE contour (the article's
             // second rim, `toon_screen_rim.slang`), and the chain the rewrite follows has no such contour - its
@@ -346,8 +346,8 @@ namespace deren::app {
             // step 2 suppresses inside `toon_diffuse`, one stage over.
             //
             // THE GAME-SHADER MODEL IS THE SECOND REFERENCE CHAIN and its inline rim (`ZmdToonMain.hlsl:343-370`)
-            // is the author's own rim, so the article's contour must be off under it for the same "two rims"
-            // reason - and the game chain now has a contour of its own to put in its place: the dedicated
+            // is the author's rim, so the article's contour must be off under it for the same "two rims"
+            // reason - and the separate game chain now has a contour to put in its place: the dedicated
             // `game_toon_depth_rim` pass, which `runtime::set_toon_screen_rim` configures for the profile-on path
             // and whose post-graph lane is gated on this same `game_toon_active()` predicate.
             //
@@ -370,8 +370,8 @@ namespace deren::app {
         if (name == "upscale") {
             // THE RUNTIME'S COMPOSED PREDICATE (`post_upscale_active`: the render chain is smaller than the
             // output AND the pass built its pipeline), relayed exactly as `fxaa` is - the runtime is what knows
-            // the render scale and the pass registry, and this owner is what knows the chain. Nothing of the
-            // pass's own is added here: its `ready()` half is already inside the fact, so the record step's gate and
+            // the render scale and the pass registry, and this holder is what knows the chain. Nothing of the
+            // pass's is added here: its `ready()` half is already inside the fact, so the record step's gate and
             // the composite's target choice cannot disagree about whether the resolve runs.
             return facts.upscale;
         }
@@ -389,7 +389,7 @@ namespace deren::app {
         }
         if (name == "rt_reflection") {
             // The reflection pass shares the shadow's structure gate: a reflection ray has nothing to hit until
-            // this frame's acceleration structure for the slot exists, and the pass's own pipeline must exist.
+            // this frame's acceleration structure for the slot exists, and the pass's pipeline must exist.
             return facts.rt_reflection && self.rt_reflection != nullptr && self.rt_reflection->ready() && facts.structures_ready;
         }
         if (name == "clustered") {
@@ -404,7 +404,7 @@ namespace deren::app {
             return facts.bloom && self.composite != nullptr && self.composite->ready() && !gbuffer_debug;
         }
         if (name == "deferred") {
-            // THE LIGHTING STAGE'S OWN GATE, and it is deliberately the SAME predicate the frame loop's branch uses:
+            // THE LIGHTING STAGE'S GATE, and it is deliberately the SAME predicate the frame loop's branch uses:
             // the record step asks this before resolving the pass, and the frame loop asks it before recording the stage,
             // so one answer means the two cannot disagree about whether the lighting runs this frame.
             return facts.deferred_lit;
@@ -459,7 +459,7 @@ namespace deren::app {
     // =================================================================================================
 
     void app_renderer::recreated([[maybe_unused]] void* const parent) {
-        // This demo keeps no descriptor family of its own: every pass in the chain retires its own, which the
+        // This demo keeps no separate descriptor family: every pass in the chain retires its, which the
         // record step does through recreate_stage, so there is nothing left here to reset.
     }
 

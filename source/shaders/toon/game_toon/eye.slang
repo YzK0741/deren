@@ -14,7 +14,7 @@
 // `// MISSING:` plus a documented fallback. The Lead runs the A/B.
 //
 // LINE NUMBERS: every `HLSL nnn` below is a line of `eye_forward_spirv_decompiled.hlsl` AS CHECKED IN. That file's
-// provenance header adds 17 lines, so the header's own KEY SITES are +17 here: its "435 normal reconstruction" is
+// provenance header adds 17 lines, so the header's KEY SITES are +17 here: its "435 normal reconstruction" is
 // line 452, its "651 P/F0 formula" is line 668 and its "1113 entry" is line 1130.
 //
 // THE INPUTS THIS FILE CANNOT TAKE FROM deren, NAMED ONCE SO THE FALLBACK IS ONE EDIT EACH:
@@ -34,7 +34,7 @@
 //     value that keeps the formula the game's shape (documented at the use).
 //   * The game's character DIRECTIONAL-OCCLUSION VOLUME (HLSL 467-626: three Texture3D sampling levels driven by
 //     the world position, producing `_1042`..`_1045`). deren has no volume for a character. THE FALLBACK IS THE
-//     GAME'S OWN "NO VOLUME" ARM (`_19_m80.y >= 0.5`, HLSL 620-626) rather than an invention: it is the program
+//     GAME'S "NO VOLUME" ARM (`_19_m80.y >= 0.5`, HLSL 620-626) rather than an invention: it is the program
 //     code for exactly this situation, and it yields `_1042 = 0`, `_1043 = 1`, `_1044 = _19_m81.xyz`, `_1045 =
 //     _544`. Only the two globals' values are then deren-side fallbacks.
 //
@@ -47,7 +47,7 @@
 //     the shadow read (the eye sits inside the socket and the engine's map reads it as occluded over 100% of the
 //     iris). The override constant is the switch, and its comment says which value is which.
 //   * `_DiffRampMap` sampling: the game samples the ramp at v = 0.5 (HLSL 694/700) - a single-row 256x1 image, so
-//     the v is not a band selector there. deren's lane carries the same image and the stage's own band constant
+//     the v is not a band selector there. deren's lane carries the same image and the stage's band constant
 //     (`character_ramp_band_v`) is used, which lands on the same texel of a 1-row ramp.
 //   * a missing per-material `_ShadowColorBrightness` / `_ShadowColorSaturation` (HLSL 440-441) -> the family's
 //     `params.albedo_dark_strength` / `albedo_dark_saturation`. deren's eye family deliberately sets the
@@ -63,16 +63,16 @@
 
 /// `_MatcapNormalScale` (HLSL 453) - how far the cornea hemisphere tilts at the iris' edge.
 /// MISSING: no deren lane; 0.9 is the value `toon_params.slang` records for the game's iris material (the game's
-/// own 0.125 factor is applied to it below, matching the article's `_CorneaBumpStrength` form).
+/// the 0.125 factor is applied to it below, matching the article's `_CorneaBumpStrength` form).
 static const float game_eye_matcap_normal_scale = 0.9;
 
-/// `_MatcapColor.rgb` / `_MatcapColor.a` (HLSL 715) - the matcap's tint and the weight of its RGB.
+/// `_MatcapColor.rgb` / `_MatcapColor.a` (HLSL 715) - the matcap's tint and the separate weight RGB.
 /// MISSING: no deren lane (see `deren::vulkan::toon_colour_lane`); white with alpha 1 is the neutral, which makes
-/// the matcap read `ball.rgb + ball.a` - the game's own two-term form with no artist tint.
+/// the matcap read `ball.rgb + ball.a` - the game's two-term form with no artist tint.
 static const float3 game_eye_matcap_colour_rgb = float3(1.0, 1.0, 1.0);
 static const float game_eye_matcap_colour_alpha = 1.0;
 
-/// `_19_m81.xyz` (HLSL 624) - the character volume's "no volume" colour, which the game's own volume-off arm uses
+/// `_19_m81.xyz` (HLSL 624) - the character volume's "no volume" colour, which the game's volume-off arm uses
 /// in place of the sampled volume. MISSING: no deren equivalent for the volume; white is the neutral.
 static const float3 game_eye_volume_colour = float3(1.0, 1.0, 1.0);
 
@@ -82,9 +82,9 @@ static const float game_eye_volume_strength = 1.0;
 /// The shadow the eye is shaded by. MISSING: the game reads the frame's screen-space shadow mask at the fragment's
 /// pixel (HLSL 688, texture t22 `_ScreenSpaceShadowMask`); deren's nearest input is `calc_shadow`.
 /// FALLBACK 1.0 = LIT, and it is the measured answer rather than a preference: an eyeball is INSIDE the socket, so
-/// the engine's shadow map's depth at the iris' own screen position belongs to the face plate in front of it -
+/// the engine's shadow map's depth at the iris' screen position belongs to the face plate in front of it -
 /// `character_forward.slang` records that the iris reads `shadow = 0.00` over 100% of its pixels while the cheek a
-/// centimetre away reads 1.00. The game's mask is the frame's screen-space term applied to the eye's own pixel, and
+/// centimetre away reads 1.00. The game's mask is the frame's screen-space term applied to the eye's pixel, and
 /// the eye material is lit in the game's reference frames; the engine's cascaded map is the same geometry read
 /// against the wrong depth. A negative value takes the engine's `calc_shadow` instead - that is the A/B this
 /// constant exists for.
@@ -177,7 +177,7 @@ float3 game_toon_eye_shade(surface_sample s, float3 world_pos, float3 geo_normal
     // sun_intensity` as its magnitude (the same bridge `game_toon_cloth_shade` records), so its colour IS the
     // intensity broadcast.
     const float3 light_colour = float3(main_light_intensity, main_light_intensity, main_light_intensity);
-    // THE GAME FLATTENS THE LIGHT ON THE OBJECT'S OWN Y before the ramp (`_1245.y = 0`) and flattens the SHADING
+    // THE GAME FLATTENS THE LIGHT ON THE OBJECT'S Y before the ramp (`_1245.y = 0`) and flattens the SHADING
     // normal the same way for the highlight (`_548`). deren publishes no object basis and every character here is
     // Y-up in world space, so the bridge is the world Y axis for both - which is exactly what the game's matrix
     // multiplication collapses to when the object's up is world up.
@@ -185,7 +185,7 @@ float3 game_toon_eye_shade(surface_sample s, float3 world_pos, float3 geo_normal
 
     // ---- THE UV, THE CORNEA'S ZONE AND ITS HEMISPHERE (HLSL 430-433, 449-453) ----
     //
-    // `frac(uv)` is the game's own domain: `_401 = frac(_3)`, `_402 = _401 - 0.5`, `_403 = dot(_402,_402)` is the
+    // `frac(uv)` is the game's domain: `_401 = frac(_3)`, `_402 = _401 - 0.5`, `_403 = dot(_402,_402)` is the
     // distance-squared from the eye's centre, and `_404 = step(0.25, _403)` is the line between the two zones -
     // INSIDE the inscribed circle the cornea hemisphere stands, outside it the quad's flat normal does, which is
     // what keeps the curvature (and the catchlight) on the iris rather than on the sclera's rim.
@@ -207,7 +207,7 @@ float3 game_toon_eye_shade(surface_sample s, float3 world_pos, float3 geo_normal
                               hemisphere_z);
     cornea_ts = lerp(cornea_ts, float3(0.0, 0.0, 1.0), flat_zone);
 
-    // ---- THE MANUFACTURED NORMAL IN THE SURFACE'S OWN FRAME (HLSL 435, 448, 455) ----
+    // ---- THE MANUFACTURED NORMAL IN THE SURFACE'S FRAME (HLSL 435, 448, 455) ----
     //
     // `_412 = cross(_5, _6.xyz)` and `_481 = float3x3(_6.xyz, _412 * _6.w, _5)` are the game's TBN built from the
     // VERTEX tangent; `mul(_503, _481)` is `corneaTS.x * T + .y * B + .z * N`. deren's equivalent frame is
@@ -233,7 +233,7 @@ float3 game_toon_eye_shade(surface_sample s, float3 world_pos, float3 geo_normal
     // quarter-strength y the game writes out, and only inside the cornea zone (full at the centre, zero by the
     // circle's edge - which is what keeps the sclera from sliding). `_ParallaxScale` is deren's
     // `toon_colour_lane::parallax_scale` (lane 5), whose `.x < 0` sentinel means "the asset states nothing" and
-    // resolves to the stage's own constant, exactly as `character_forward.slang` reads it.
+    // resolves to the stage's constant, exactly as `character_forward.slang` reads it.
     float2 parallax_offset = float2(0.0, 0.0);
     if (frame_valid) {
         const float parallax_scale = toon_colour_at(heap_slots_toon_colours, colour_base + 5u).x;
@@ -259,7 +259,7 @@ float3 game_toon_eye_shade(surface_sample s, float3 world_pos, float3 geo_normal
     const float3 dark_albedo = lerp(float3(toon_luminance(dark_scaled)), dark_scaled, params.albedo_dark_saturation);
     // HLSL 721: `(_EmissionMap * _EmissionColor).xyz * _EmissionBrightness`, sampled at the SAME parallaxed uv.
     // deren's emissive slot and factor are the equivalents of the map and the colour; `_EmissionBrightness` has no
-    // lane, and 1.0 is the game's own default (MISSING at the constant list).
+    // lane, and 1.0 is the game's default (MISSING at the constant list).
     float3 emission = float3(0.0, 0.0, 0.0);
     if ((s.flags & 4u) != 0u) {
         emission = mat.emissive_factor.rgb * frame_texture_sample_lod0(mat.emissive_index, eye_uv).rgb;
@@ -285,7 +285,7 @@ float3 game_toon_eye_shade(surface_sample s, float3 world_pos, float3 geo_normal
     // `_1285 = _EyeHighLightColor * _404`, `_1292 = _EyeScatteringColor * _444`, and
     // `_1295 = _1175 * ((1 - _404) + _1285) * ((1 - _444) + _1292)` - i.e. `lerp(1, colour, weight)` per zone:
     // the highlight colour tints the eye's CORNERS (the zone outside the inscribed circle) and the scattering
-    // colour tints wherever the base map's ALPHA says the surface is thin. Both lanes are deren's own
+    // colour tints wherever the base map's ALPHA says the surface is thin. Both lanes are deren's
     // (`toon_colour_lane::eye_highlight` / `eye_scattering`, whose neutral is white = no tint), read exactly as
     // `character_forward.slang` reads them.
     const float3 eye_highlight_colour = toon_colour_at(heap_slots_toon_colours, colour_base + 1u).rgb;
@@ -315,7 +315,7 @@ float3 game_toon_eye_shade(surface_sample s, float3 world_pos, float3 geo_normal
                                      heap_sampler_texture, float2(ramp_u_nof, character_ramp_band_v)).w; // `_1328`
     } else {
         // MISSING: the ramp lane is EMPTY on `chars\laevatain_goo.glb`'s iris (its sidecar states no
-        // `_DiffRampMap`), while the game reads this map unconditionally. FALLBACK: the family's own procedural
+        // `_DiffRampMap`), while the game reads this map unconditionally. FALLBACK: the family's procedural
         // edge - the same shape `game_toon_cloth_shade` uses for a material with no ramp - keeping a NEUTRAL ramp
         // colour (1,1,1) rather than inventing a tint, so the ramp's colour term below is an identity.
         ramp_nol_weight = smoothstep(params.center - params.softness, params.center + params.softness, ramp_u_nol);
@@ -331,7 +331,7 @@ float3 game_toon_eye_shade(surface_sample s, float3 world_pos, float3 geo_normal
     // (_19_m80.y * _1334))` - a per-frame highlight direction and a bias, whitened by the volume's colour.
     // MISSING `_19_m85.xyz` (direction), `_19_m86` (offset / gain / bias) and `_19_m80.y` (volume switch): no deren
     // rig lane carries any. FALLBACK: the sun direction flattened exactly like the normal, and the identity bias
-    // (offset 0, gain 1, bias 0), with the game's own volume-off `_1044`.
+    // (offset 0, gain 1, bias 0), with the game's volume-off `_1044`.
     const float3 volume_tint = lerp(game_eye_volume_colour, float3(1.0, 1.0, 1.0), ramp_nol_lit);       // `_1044`
     const float3 eye_highlight = float3(saturate(dot(flat_normal, flat_light))) * volume_tint;           // `_1338`
 
@@ -346,7 +346,7 @@ float3 game_toon_eye_shade(surface_sample s, float3 world_pos, float3 geo_normal
     //
     // `_1364 = lerp(shade_side, lit_side, shadow)` with the game's `_1267` as the third argument (1 = LIT, which is
     // the convention deren's `calc_shadow` returns too). BOTH sides are the `_OtherLight`-style block the game's eye
-    // has INSTEAD of an ambient/IBL: the lit side is the sun's colour lerped with its own luminance by the ramp's
+    // has INSTEAD of an ambient/IBL: the lit side is the sun's colour lerped with its luminance by the ramp's
     // weight plus the highlight, the shadow side is the highlight alone - which is what makes a shaded iris read as
     // a lit ball of colour rather than as a dark disc.
     // MISSING `_19_m79.y` / `_19_m79.w` / `_19_m80.x` (the two light-side scales and the volume switch): each is
@@ -362,7 +362,7 @@ float3 game_toon_eye_shade(surface_sample s, float3 world_pos, float3 geo_normal
     //
     // `_1365`: the dark-in-dark layer pulled to 1.2x contrast, then the dark layer by the two ramp weights, then
     // the TINTED lit albedo by the light-axis ramp weight. `_1371 = _1365 * (_1309.rgb * _1319 + 1 - _1319)` is the
-    // ramp's colour mapping (its strength is the sampled colour's own chroma), and `_1380` puts them together with
+    // ramp's colour mapping (its strength is the sampled colour's chroma), and `_1380` puts them together with
     // the game's `rampControl` - the ratio of the albedo's luminance to the coloured one, clamped to 1.5.
     const float3 dark_mix = lerp(float3(toon_luminance(dark_in_dark)), dark_in_dark, 1.2);
     const float3 albedo_mix = lerp(lerp(dark_mix, dark_layer, saturate(ramp_nof_weight + ramp_nol_weight)),
@@ -380,7 +380,7 @@ float3 game_toon_eye_shade(surface_sample s, float3 world_pos, float3 geo_normal
     // normalised xy (`HLSL 713`). deren's `toon_matcap_uv` builds the same sphere map from the same two vectors
     // without needing the matrix, and its note records why the V sign is what it is on these textures.
     // `_1425`-style blend of the two terms (`ball.rgb * _MatcapColor.a + _MatcapColor.rgb * ball.a`) is the
-    // game's own, and the matcap is multiplied by the light and by a shadow-gated `(_1386 * 0.5 + 0.5)` - the
+    // game's, and the matcap is multiplied by the light and by a shadow-gated `(_1386 * 0.5 + 0.5)` - the
     // program's way of keeping the catchlight out of the fully shadowed side.
     float3 matcap_term = float3(0.0, 0.0, 0.0);
     if (s.toon_indices.w != 0u) {
@@ -409,10 +409,10 @@ float3 game_toon_eye_shade(surface_sample s, float3 world_pos, float3 geo_normal
     //
     // `_1436 = dot(flat_light, normal)` and `_1447 = dot(view, normal)`; the game then builds a fresnel-band mask
     // `smoothstep(0.6, 0.8, 1 - |NoV|)`, a back-light weight and a shadow-side gate, and multiplies them by the
-    // LIT ALBEDO floored at 0.15 - i.e. the eye's "shine" is its own albedo, the same arrangement the P/F0 block
+    // LIT ALBEDO floored at 0.15 - i.e. the eye's "shine" is its albedo, the same arrangement the P/F0 block
     // above makes (the eye has no separate F0 term in this variant).
     // The volume terms the game multiplies in are the volume-off arm's: `_1043 = 1` (white) and `_1042 = 0`, the
-    // latter replaced here by the game's own half-lambert-like polynomial so the term survives with its shape.
+    // latter replaced here by the game's half-lambert-like polynomial so the term survives with its shape.
     // MISSING `_19_m91.x` (a specular switch, identity at 0) and `_19_m92` (the eye's extra light colours, whose
     // deren fallback below drops the additive block it drives - see the tail).
     const float no_v = dot(view_dir, normal);                                                           // `_1447`

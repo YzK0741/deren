@@ -87,8 +87,8 @@ namespace deren::engine::pass {
 
     void post_composite_pass::on_swapchain_recreated(pass_host const&) {
         // Nothing to reset: the two pipelines depend on the surface's FORMAT (a session-stable device fact) and
-        // on nothing whose size changes, and the sets this pass binds belong to the post family, whose owner
-        // retires them (the record step calls this so a pass that owned a family could not forget to - see
+        // on nothing whose size changes, and the sets this pass binds belong to the post family, whose holder
+        // retires them (the record step calls this so a pass that held a family could not forget to - see
         // recreate_stage).
     }
 
@@ -104,7 +104,7 @@ namespace deren::engine::pass {
 
     pipeline_ref post_composite_pass::named_pipeline(std::string_view const name) const noexcept {
         // THE ONE NAME THIS PASS PUBLISHES TO ITS SIBLINGS: the bloom levels' `post_hdr` (see the class note and
-        // frame_pass::named_pipeline). Its own name is answered by `pipeline_handle()` above.
+        // frame_pass::named_pipeline). Its name is answered by `pipeline_handle()` above.
         return name == bloom_pipeline_name ? pipeline_ref{.contract = this->hdr.has_value() ? this->hdr->contract : nullptr} : pipeline_ref{};
     }
 
@@ -121,7 +121,7 @@ namespace deren::engine::pass {
     }
 
     void post_composite_pass::set_overlay(draw_callback const overlay) noexcept {
-        // The host's hook, installed once by whoever owns the passes. It is STORED, not put in the frame: what the
+        // The host's hook, installed once by whoever holds the passes. It is STORED, not put in the frame: what the
         // frame decides per frame is whether THIS pass is the frame's last writer (see prepare_frame).
         this->overlay_callback = overlay;
     }
@@ -148,7 +148,7 @@ namespace deren::engine::pass {
         // resolve on (FXAA at the frame's extent, the upscale below render_scale 1.0), the composite writes the
         // R16F LDR image with the R16F variant; otherwise it writes the declared swapchain image and neither
         // resolve pass runs. The LDR image is not in the declaration - one `render_target` names one resource -
-        // so it comes from the frame's table, in the declaration's own vocabulary, exactly as the declared one did.
+        // so it comes from the frame's table, in the declaration's vocabulary, exactly as the declared one did.
         if (!this->pass_frame.write_ldr) {
             return this->fill_push(out, false);
         }
@@ -172,7 +172,7 @@ namespace deren::engine::pass {
 
     bool post_composite_pass::fill_push(resolved_io& out, bool const writing_ldr) const {
         // The lanes are the frame's settings (more than one pass reads them - see
-        // vulkan.frame_constants::render_settings), this pass's own GI upsample switch, and the TWO that follow
+        // vulkan.frame_constants::render_settings), this pass's GI upsample switch, and the TWO that follow
         // from the target choice: `encode_gamma` (an R16F target needs the shader to encode, an sRGB swapchain
         // attachment does the transfer in hardware) and the GI weight, which is the frame's answer to whether the
         // chain resolved.
@@ -200,7 +200,7 @@ namespace deren::engine::pass {
             io.extent.width == 0 || io.extent.height == 0 || io.push.size() < sizeof(post_push_constants)) {
             return rhi::error::invalid_argument;
         }
-        // The push block the host filled, with the pass's own stage lane written last: `mode = 2` is what makes
+        // The push block the host filled, with the pass's stage lane written last: `mode = 2` is what makes
         // post.frag composite instead of prefiltering or downsampling.
         post_push_constants push = {};
         std::memcpy(&push, io.push.data(), sizeof(push));
@@ -218,7 +218,7 @@ namespace deren::engine::pass {
             .colors = colors,
             .depth = {},
             .has_depth = false,
-            .secondary_contents = false, // this instance is inline; the overlay segment runs in its own after it ends
+            .secondary_contents = false, // this instance is inline; the overlay segment runs in its after it ends
         };
         auto const begun = io.list->begin_rendering(rendering_info);
         if (begun != rhi::error::ok) {
@@ -230,9 +230,9 @@ namespace deren::engine::pass {
             return rhi::error::operation_failed;
         }
         io.list->draw(3, 1, 0, 0);
-        // THE OVERLAY RECORDS ITS OWN SEGMENT HERE (gui abi 5): the third-party recorder is not a contract
-        // consumer, so the plugin starts one of its mergeable targets under this instance's inheritance and
-        // returns it; the segment is EXECUTED by the host in its own secondary-contents instance after THIS
+        // THE OVERLAY RECORDS its SEGMENT HERE (gui abi 5): the third-party recorder is not a contract
+        // consumer, so the plugin starts a separate one mergeable targets under this instance's inheritance and
+        // returns it; the segment is EXECUTED by the host in its secondary-contents instance after THIS
         // instance ends (see draw_callback::finish - the two cannot share one instance because a
         // CONTENTS_SECONDARY_COMMAND_BUFFERS instance may contain no primary draw).
         if (this->pass_frame.after_draw.valid()) {
@@ -279,7 +279,7 @@ namespace deren::engine::pass {
     }
 
     std::string_view post_bloom_pass::feature() const noexcept {
-        // THE BLOOM CHAIN'S OWN GATE, and the renderer already answers this name: `bloom_intensity > 0` and the
+        // THE BLOOM CHAIN'S GATE, and the renderer already answers this name: `bloom_intensity > 0` and the
         // chain's pipeline being there. It has to be a feature rather than a resolver that fails, because the
         // OFF path is not "nothing happens": the host moves the four levels to a sampled layout so the
         // composite's descriptor (which declares all four as inputs) is valid on a frame no level was written -
@@ -289,15 +289,15 @@ namespace deren::engine::pass {
 
     void post_bloom_pass::create(pass_context const&) {
         // NOTHING TO BUILD, and that is this pass's whole shape: it records with the chain's R16F pipeline, which
-        // the COMPOSITE owns - one push block serves all five stages (one shader, one `mode` lane), so a copy per
+        // the COMPOSITE holds - one push block serves all five stages (one shader, one `mode` lane), so a copy per
         // level would be five identical objects and five chances to disagree about the push block. Its target
-        // is an element of its declaration and its extent comes from the declaration's rule, which is why it has
+        // is A separate element declaration and its extent comes from the declaration's rule, which is why it has
         // no error path here either.
     }
 
     void post_bloom_pass::on_swapchain_recreated(pass_host const&) {
-        // Nothing to reset: this pass owns no handle at all (its pipeline arrives through resolved_io::pipelines
-        // and its target through its own declaration).
+        // Nothing to reset: this pass holds no handle at all (its pipeline arrives through resolved_io::pipelines
+        // and its target through its declaration).
     }
 
     uint32_t post_bloom_pass::level() const noexcept {
@@ -313,7 +313,7 @@ namespace deren::engine::pass {
         // The push block is composed HERE (S3): the frame's three settings (exposure, the bloom weight and the
         // bright-pass threshold - all of them lanes more than one pass pushes, which is why they are frame
         // settings), the struct's defaults for every lane this stage does not read - which is what the renderer
-        // pushed before the move - and the stage's own lane: 0 for the bright-pass prefilter, 1 for every
+        // pushed before the move - and the stage's lane: 0 for the bright-pass prefilter, 1 for every
         // downsample, because the bright-pass test runs on the first level only.
         render_settings const& settings = io.constants.settings;
         post_push_constants push = {

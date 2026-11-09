@@ -5,9 +5,9 @@
  * @brief The eleventh real pass: the deferred lighting stage, which shades every pixel from the G-buffer.
  * @defgroup engine_pass_deferred Deferred Lighting Pass
  *
- * WHAT IT OWNS: its pipeline (built at create time from its own shader, with the ADDITIVE blend the stage needs),
+ * WHAT IT HOLDS: its pipeline (built at create time from its shader, with the ADDITIVE blend the stage needs),
  * the frame's recording - the scene-colour dependency barrier, the LOAD instance over the frame's scene target,
- * the push block and the draw - and its own frame data (the callback that performs the two per-image input
+ * the push block and the draw - and its frame data (the callback that performs the two per-image input
  * transitions).
  *
  * THE TARGET IS THE FRAME'S, NOT THE DECLARATION'S: the host resolves `scene_color` while the TAA resolve is on and
@@ -15,7 +15,7 @@
  * `render_target` names one resource today, so the declaration names the TAA path's and the resolver hands over the
  * frame's; the deviation is recorded in `render_resource::deferred_io`.
  *
- * WHAT IT DOES NOT OWN: the images it reads. The stored surface and the G-buffer depth are heap slots the shader
+ * WHAT IT DOES NOT hold: the images it reads. The stored surface and the G-buffer depth are heap slots the shader
  * names itself, and a frame the shader cannot address is not a frame this pass has anything to do with.
  */
 
@@ -78,8 +78,8 @@ export namespace deren::engine::pass {
 
         /// @brief whether the pass built what it records with (the renderer gates the deferred path on this)
         [[nodiscard]] bool pipeline_ready() const noexcept;
-        /// @brief the framework's generic form of the same question, so an owner holding only a chain can ask it
-        ///        (a pass with nothing of its own to build keeps the interface's `true`; see `frame_pass::ready`)
+        /// @brief the framework's generic form of the same question, so a holder holding only a chain can ask it
+        ///        (a pass with nothing separate to build keeps the interface's `true`; see `frame_pass::ready`)
         [[nodiscard]] bool ready() const noexcept override {
             return this->pipeline_ready();
         }
@@ -144,7 +144,7 @@ export namespace deren::engine::pass {
         std::optional<pipelines::pipeline_handle> pass_pipeline = std::nullopt;
         // called ssao_active, not ssao_enabled: the class declares ssao_enabled() and a member of that name
         // would duplicate it and hide the override.
-        /// the SSAO parameters (see set_ssao): the defaults are the renderer's own historical ones
+        /// the SSAO parameters (see set_ssao): the defaults are the renderer's historical ones
         bool ssao_active = true;
         float ssao_radius = 0.5f;
         float ssao_intensity = 1.0f;

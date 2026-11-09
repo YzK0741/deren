@@ -25,8 +25,8 @@ export namespace deren::promise::rhi {
         // ---- the presentation verbs (abi 14) --------------------------------------------------
         // The swapchain was created once at startup and is rebuilt IN PLACE - never replaced - so
         // the verbs below are APPENDED to this interface rather than new methods on `api_core`: a
-        // rebuild is the swapchain's own behaviour (the caller supplies nothing - the backend
-        // re-derives the extent from the window it owns, which is the one place the current size
+        // rebuild is the swapchain's behaviour (the caller supplies nothing - the backend
+        // re-derives the extent from the window it holds, which is the one place the current size
         // lives).
         /// Rebuild the swapchain and its images for the window's current size.
         /// `ok` = a new generation was built; `not_ready` = the window reports a zero extent (a
@@ -37,7 +37,7 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual error recreate() = 0;
 
         /// The extent of the swapchain's images, in pixels - what presentation shows. The caller
-        /// scales it to its own render resolution (a render scale is a RENDERER decision, not a
+        /// scales it to its render resolution (a render scale is a RENDERER decision, not a
         /// presentation fact, so the contract does not pre-multiply it).
         [[nodiscard]] virtual image_extent extent() const noexcept = 0;
 
@@ -81,7 +81,7 @@ export namespace deren::promise::rhi {
     /// rule every appended `error` value follows). It exists because a compile-time number is what the
     /// engine needs for its per-slot C++ (arrays sized by the ring), which `frame_walker::slot_count()`
     /// - the RUNTIME truth, and the only authority - cannot provide. The two are therefore pinned to
-    /// each other rather than trusted: the backend `static_assert`s its own ring against this constant,
+    /// each other rather than trusted: the backend `static_assert`s its ring against this constant,
     /// and the engine checks `slot_count()` against it once at startup and PANICS on a mismatch (a
     /// backend whose ring is a different size must fail loudly, never overrun a per-slot array).
     inline constexpr std::uint32_t max_frames_in_flight = 2u;
@@ -97,19 +97,19 @@ export namespace deren::promise::rhi {
     /// IT IS A PROMISE THE BACKEND KEEPS, NOT A GUESS ABOUT THE DRIVER: a driver that reports MORE images
     /// than this makes the backend REFUSE THE CREATION LOUDLY - never clamp, never resize past the
     /// constant, because the caller's arrays are already sized by it. The backend `static_assert`s this
-    /// against its own frozen bound, and the ENGINE asserts an index before it uses one (a panic, never a
+    /// against its frozen bound, and the ENGINE asserts an index before it uses one (a panic, never a
     /// silent out-of-range read). A backend that cannot keep this promise is what the abi-17
     /// `swapchain::image_count()` route is for.
     inline constexpr std::uint32_t max_swapchain_images = 4u;
 
-    /// The frame ring's cursor, as a BORROWED VIEW - the `command_buffer` shape, not the owned-handle
+    /// The frame ring's cursor, as a VIEW - the `command_buffer` shape, not the held-handle
     /// one: a view carries no reference, so `unique_object` must not wrap it (its release panics).
     /// `api_core` hands out the same object every call.
     ///
-    /// WHY THE RING IS A CONTRACT FACE AT ALL: the cursor's one home is the backend's own frame
+    /// WHY THE RING IS A CONTRACT FACE AT ALL: the cursor's one home is the backend's frame
     /// state - the engine today keeps a SECOND copy of it (`current_frame` field reads, the
     /// `MAX_FRAMES_IN_FLIGHT` constant) plus three raw verbs (wait, acquire, advance), which is the
-    /// "two sources of truth" shape this face exists to end. The engine borrows the view and walks;
+    /// "two sources of truth" shape this face exists to end. The engine references the view and walks;
     /// the backend stays the only authority. `position()` and a successful `wait_and_acquire()`'s
     /// `frame.frame_index` answer the SAME slot - the consistency is asserted, not hoped for.
     ///
@@ -138,7 +138,7 @@ export namespace deren::promise::rhi {
         virtual void walk_to_next() noexcept = 0;
     };
 
-    /// The GPU timing report of the LAST COMPLETED frame, as a BORROWED VIEW (no `release()`, same
+    /// The GPU timing report of the LAST COMPLETED frame, as a VIEW (no `release()`, same
     /// rule as `frame_walker`).
     ///
     /// The REPORT, not the recording: marks are written by the backend while a frame is recorded
@@ -169,17 +169,17 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual error get_stage_info(std::uint32_t index, std::string_view* name, std::uint64_t* duration_ns) const noexcept = 0;
     };
 
-    /// Borrowed resource creation interface. Empty products mean creation was refused/failed.
-    /// Descriptors are borrowed until return; products retain their existing ownership rules.
+    /// Referenced resource creation interface. Empty products mean creation was refused/failed.
+    /// Descriptors are referenced until return; products retain their existing retention rules.
     /// Shared immutable payload. Other aliases must not mutate bytes during the resource lifetime.
-    /// Borrowed frame/presentation interface, also present for offscreen frames (present is unsupported).
-    /// Walker/profiler/surface are stable borrowed views: never release/delete them.
+    /// Referenced frame/presentation interface, also present for offscreen frames (present is unsupported).
+    /// Walker/profiler/surface are stable views: never release/delete them.
     struct frame_context {
         frame_context() noexcept = default;
         virtual ~frame_context() noexcept = default;
-        frame_context(frame_context const&) = delete ("frame_context is a borrowed interface; use the reference supplied by the runtime");
-        frame_context& operator=(frame_context const&) = delete ("frame_context is a borrowed interface; use the reference supplied by the runtime");
-        /// Current frame's primary, or null outside recording. Borrowed until frame submission.
+        frame_context(frame_context const&) = delete ("frame_context is a referenced interface; use the reference supplied by the runtime");
+        frame_context& operator=(frame_context const&) = delete ("frame_context is a referenced interface; use the reference supplied by the runtime");
+        /// Current frame's primary, or null outside recording. Referenced until frame submission.
         [[nodiscard]] virtual command_buffer* begin_commands() = 0;
         /// Last acquired image; null before first acquire, valid through submit until the next acquire.
         [[nodiscard]] virtual image* frame_image() noexcept = 0;
@@ -191,7 +191,7 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual frame_walker* walk_frames() noexcept = 0;
         [[nodiscard]] virtual gpu_profiler* profiler() noexcept = 0;
         [[nodiscard]] virtual swapchain* frame_swapchain() noexcept = 0;
-        /// Submit the current frame using backend-owned acquire/presentation state.
+        /// Submit the current frame using backend-held acquire/presentation state.
         [[nodiscard]] virtual error submit() = 0;
     };
 

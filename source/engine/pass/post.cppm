@@ -8,28 +8,28 @@
  * WHY THEY ARE ONE MODULE AND FIVE PASSES. They are one module because they are one shader: `post.frag` declares
  * ONE push constant block and selects its stage with a `mode` lane (0 bright-pass prefilter, 1 downsample,
  * 2 composite, 3 FXAA), so the block's SHAPE is shared and belongs next to the passes that push it - not in the
- * renderer, where it lived while the renderer owned the recordings. They are five passes because each of the five
+ * renderer, where it lived while the renderer held the recordings. They are five passes because each of the five
  * stages reads a DIFFERENT set of the post images (the prefilter reads the HDR target, downsample L reads level L-1,
- * the composite reads all four levels plus the GI image and the G-buffer depth and normal), and each reaches its own
+ * the composite reads all four levels plus the GI image and the G-buffer depth and normal), and each reaches its
  * through the frame's heap: a shader names the image slot the stage pushes.
  *
- * WHAT THE COMPOSITE OWNS, and it is the whole post chain's GPU material: the TWO pipelines the
+ * WHAT THE COMPOSITE HOLDS, and it is the whole post chain's GPU material: the TWO pipelines the
  * chain records with - one per colour format the chain renders into, because a pipeline's declared colour format
  * has to match the attachment it renders into (the swapchain's format for the composite when it finishes the
  * frame, R16F for the bloom levels and for the composite when FXAA will finish it instead). `pipelines::build_post`
  * is what creates both in one call, which is why the bloom passes reach the R16F variant through this pass
  * rather than building a second copy of it.
  *
- * WHAT THE BLOOM PASSES OWN: their own recording - the transition of the level they read, the clear-instance over
+ * WHAT THE BLOOM PASSES hold: their recording - the transition of the level they read, the clear-instance over
  * the level they write, the one-lane push and the fullscreen draw - and the deepest level's HAND-BACK (it moves
- * its own output to a sampled layout, because the composite samples all four levels and the last level has no
+ * its output to a sampled layout, because the composite samples all four levels and the last level has no
  * successor to do it for it, the same writer's hand-back every traced pass uses). They build no pipeline: the
  * record step binds the chain's R16F variant, which their `behaviour` names and the host resolves (the shape the
  * temporal resolve's first extraction had, and the reason it needed no new framework).
  *
- * WHAT NEITHER OWNS, recorded because it is a decision rather than an omission: the HDR target's transition to a
+ * WHAT NEITHER HOLDS, recorded because it is a decision rather than an omission: the HDR target's transition to a
  * sampled layout. Two of these passes read that image and it must be moved exactly once on frames where the bloom
- * chain does NOT run at all, so its single owner is the frame loop - the same "shared per-image transition" split
+ * chain does NOT run at all, so its single holder is the frame loop - the same "shared per-image transition" split
  * the deferred lighting stage's input transitions have.
  */
 
@@ -55,7 +55,7 @@ export namespace deren::engine::pass {
      * Thirteen floats in the order the shader declares them, and every stage pushes ALL of them: the lanes a
      * stage does not read are part of the bytes the renderer pushed before these passes existed, and the
      * non-zero defaults below (the GI upsample's sigma and normal power, its on switch, the FXAA knobs) are that
-     * history. `mode` is the one lane a PASS writes - it is the stage's own identity - and the rest are the
+     * history. `mode` is the one lane a PASS writes - it is the stage's identity - and the rest are the
      * frame's values.
      */
     struct post_push_constants {
@@ -75,7 +75,7 @@ export namespace deren::engine::pass {
         float fxaa_edge_threshold = 0.166f;
         // THE ARTICLE'S LUT WEIGHT (`ZmdLutPost.shader`'s `_LutWeight`). IT SHIPS AT 0, AND THAT IS A MEASUREMENT
         // RATHER THAN A HEDGE: the engine bakes a NEUTRAL cube into the post-LUT slot (`runtime::set_post_lut`), and
-        // with the weight at the article's own 1.0 the frame against that cube is *nearly* the frame with no LUT - max
+        // with the weight at the article's 1.0 the frame against that cube is *nearly* the frame with no LUT - max
         // |d| 8/255, 0.02% of pixels above 4, 53% of pixels differing by 1-2 - because a 32^3 cube is the identity
         // only AT its grid points, and the article's log-domain addressing leaves the interpolation between them
         // approximate (largest at the bright end, where the encoding's slope is greatest). The port's lanes read
@@ -93,7 +93,7 @@ export namespace deren::engine::pass {
      *
      * The push block does NOT travel here: it travels through `resolved_io::push`, exactly as every other pass's
      * does - the host composes a VALUE of this module's `post_push_constants` (so the shape is still the passes',
-     * which is what the static_assert above is for) and the pass writes only the lane that is its own stage's
+     * which is what the static_assert above is for) and the pass writes only the lane that is its stage's
      * identity.
      */
     struct composite_frame {
@@ -101,9 +101,9 @@ export namespace deren::engine::pass {
          * The debug overlay's draw, recorded INSIDE this pass's rendering instance between its draw and
          * `vkCmdEndRendering`.
          *
-         * WHY IT IS A CALLBACK AND NOT A PASS OF ITS OWN, which is the decision this step had to make: the
+         * WHY IT IS A separate CALLBACK AND NOT A PASS, which is the decision this step had to make: the
          * overlay has no load op - it composites a UI on top of the image the composite just wrote - so a pass
-         * of its own would CLEAR the frame it is supposed to draw over. It has to be inside whichever instance
+         * would CLEAR the frame it is supposed to draw over. It has to be inside whichever instance
          * is the frame's LAST writer, and which one that is depends on the resolve: the pass installs this hook
          * (see `set_overlay`) and then decides from `write_ldr` whether it or the FXAA pass (or the upscale pass
          * - the two are mutually exclusive) is the one that draws it (deren.engine.pass.fxaa and deren.engine.pass.upscale
@@ -128,7 +128,7 @@ export namespace deren::engine::pass {
          * Bloom is a display effect, and a glow smeared over the channel being inspected is the opposite of a debug
          * view (it would also invent colours that are not in the G-buffer at all). The host composes the answer
          * because it is the same "what runs this frame" question that gates the bloom CHAIN
-         * (`feature_active("bloom")`), so the weight this pass adds and the chain's own gate cannot disagree about
+         * (`feature_active("bloom")`), so the weight this pass adds and the chain's gate cannot disagree about
          * whether there is a sum.
          */
         bool suppress_bloom = false;
@@ -176,8 +176,8 @@ export namespace deren::engine::pass {
 
         /// @brief whether the pass built everything it records with (the renderer gates the post chain on this)
         [[nodiscard]] bool pipeline_ready() const noexcept;
-        /// @brief the framework's generic form of the same question, so an owner holding only a chain can ask it
-        ///        (a pass with nothing of its own to build keeps the interface's `true`; see `frame_pass::ready`)
+        /// @brief the framework's generic form of the same question, so a holder holding only a chain can ask it
+        ///        (a pass with nothing separate to build keeps the interface's `true`; see `frame_pass::ready`)
         [[nodiscard]] bool ready() const noexcept override {
             return this->pipeline_ready();
         }
@@ -186,12 +186,12 @@ export namespace deren::engine::pass {
         /// @brief the R16F pipeline: the bloom levels, and the LDR target a resolve will read
         [[nodiscard]] deren::promise::rhi::pipeline* hdr_pipeline() const noexcept;
         /// @brief the pipeline the record step binds by default: the SWAPCHAIN variant, which `resolve` replaces on
-        ///        the frames a resolve finishes (the declaration names ONE pipeline, and this pass owns both variants)
+        ///        the frames a resolve finishes (the declaration names ONE pipeline, and this pass holds both variants)
         [[nodiscard]] deren::promise::rhi::pipeline* pipeline_handle() const noexcept override;
         /**
          * @brief the R16F variant, which the BLOOM LEVELS record with
          *
-         * The four bloom passes declare `post_hdr` in their behaviour and own nothing: this is the pass that owns the
+         * The four bloom passes declare `post_hdr` in their behaviour and hold nothing: this is the pass that holds the
          * object, and answering by NAME is what lets the chain share it without the renderer knowing whose it is
          * (see `frame_pass::named_pipeline`).
          */
@@ -199,7 +199,7 @@ export namespace deren::engine::pass {
         /**
          * @brief the GI upsample's ON/OFF lane, which is THIS pass's parameter
          *
-         * It is read by the composite alone (the spatial filter has its own criterion), so it lives here rather
+         * It is read by the composite alone (the spatial filter has its criterion), so it lives here rather
          * than in the frame's settings - the rule `vulkan.frame_constants::render_settings` states.
          */
 
@@ -255,7 +255,7 @@ export namespace deren::engine::pass {
      *
      * Four instances of this class, one per level, and the LEVEL is what differs: the target it renders into
      * (element `level` of the `bloom` family), the resource it declares for its input transition (level
-     * `level - 1`; level 0 reads the HDR target, whose transition the frame loop owns), the extent the host
+     * `level - 1`; level 0 reads the HDR target, whose transition the frame loop holds), the extent the host
      * derives from `behaviour::extent_of_element`, and the push block's `mode` lane (0 for the prefilter, 1 for
      * every downsample - the shader's bright-pass test runs on the prefilter only).
      *
@@ -278,13 +278,13 @@ export namespace deren::engine::pass {
         /// @brief which level of the bloom chain this instance is
         [[nodiscard]] uint32_t level() const noexcept;
 
-        /// Draw only; the graph caller owns all input/output barriers and the composite handoff.
+        /// Draw only; the graph caller holds all input/output barriers and the composite handoff.
         /// Pipeline, viewport, heap and target resolution are still the caller's pre-record duties.
         [[nodiscard]] deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
 
     private:
-        /// the pipeline the record step binds: the chain's R16F variant, which the COMPOSITE owns. The NAME is the
-        /// composite's (`post_composite_pass::bloom_pipeline_name`) because the owner resolves it by asking ITS
+        /// the pipeline the record step binds: the chain's R16F variant, which the COMPOSITE holds. The NAME is the
+        /// composite's (`post_composite_pass::bloom_pipeline_name`) because the holder resolves it by asking ITS
         /// passes (`frame_pass::named_pipeline`) - and one shared object is the point: a copy per level would be
         /// five identical pipelines.
         static constexpr deren::utility::vessel::array<std::string_view, 1> pipeline_names = {post_composite_pass::bloom_pipeline_name};

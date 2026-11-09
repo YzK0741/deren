@@ -1,6 +1,6 @@
 # Standalone motion assets
 
-Each motion lives in its own directory containing a skeleton-only `motion.gltf`
+Each motion lives in its directory containing a skeleton-only `motion.gltf`
 and `motion.bin`. Geometry, materials, and textures stay in the character asset.
 The current player binds one external motion asset to the single-model scene.
 

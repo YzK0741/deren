@@ -63,7 +63,7 @@ $slangSources = @(
     "scene/visibility_resolve.slang:main:compute:visibility_resolve.comp.spv",
     "scene/visibility_feedback.slang:main:compute:visibility_feedback.comp.spv",
     # THE SOFTWARE RASTER'S MODULES (M4 Task 2): the tiled compute stage (one 8x8 group per 16x16 tile) and the
-    # depth-only merge's fullscreen triangle + SV_Depth fragment. Both passes build their own pipelines from these
+    # depth-only merge's fullscreen triangle + SV_Depth fragment. Both passes build their pipelines from these
     # through pass_context::shader, so they must be compiled AND registered; the merge file has two entries.
     "scene/software_visibility.slang:main:compute:software_visibility.comp.spv",
     "scene/software_visibility_atomic.slang:main:compute:software_visibility_atomic.comp.spv",

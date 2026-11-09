@@ -9,9 +9,9 @@ import deren.engine.runtime;
  * @defgroup app_pipelines Application Pipeline Setup
  * @brief the demo pipelines' creation, kept out of main.cpp so the entry point reads first: the
  *        named forward pipelines every pass and job draws with, and the shader modules those
- *        passes build their own pipelines from. Demo/application layer only - this module knows
- *        about deren.engine.runtime and the app's own shader files (loaded through
- *        deren.app.config), never about glTF (the loader's own diagnostics live in gltf_loader).
+ *        passes build their pipelines from. Demo/application layer only - this module knows
+ *        about deren.engine.runtime and the app's shader files (loaded through
+ *        deren.app.config), never about glTF (the loader's diagnostics live in gltf_loader).
  * @note interface only - the implementations live in app_pipelines.cpp (the module follows the
  *       export import std pattern of the other split modules)
  */

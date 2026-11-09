@@ -18,7 +18,7 @@ import deren.vstd;
 //
 // Windows: LoadLibraryExW, never LoadLibraryA / the LoadLibrary macro (m02099).
 //   - an absolute path is loaded with LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR |
-//     LOAD_LIBRARY_SEARCH_DEFAULT_DIRS: only the DLL's own directory and the standard
+//     LOAD_LIBRARY_SEARCH_DEFAULT_DIRS: only the DLL's directory and the standard
 //     system directories are searched, never %PATH% (DLL planting);
 //   - a name without a path separator takes the classic search order instead, because
 //     those two flags reject a relative path with ERROR_INVALID_PARAMETER;
@@ -118,7 +118,7 @@ export namespace deren::utility::dynamic_link {
      *       taken from it
      *     - `detach()` is the other exit: it hands the handle back and leaves this object empty, so
      *       the destructor does NOT unload - which is what a library that must live until the process
-     *       ends needs (see its own note)
+     *       ends needs (see its note)
      */
     class library {
     public:
@@ -157,27 +157,27 @@ export namespace deren::utility::dynamic_link {
          */
         [[nodiscard]] std::expected<void const*, load_error> symbol(std::string_view name) const noexcept;
 
-        /** @brief the raw platform handle (nullptr when empty); owned by this object, never freed by the caller */
+        /** @brief the raw platform handle (nullptr when empty); held by this object, never freed by the caller */
         [[nodiscard]] void* native_handle() const noexcept {
             return this->handle;
         }
 
         /**
          * @brief give up the platform handle WITHOUT unloading the library
-         * @return the raw handle, which the CALLER now owns; nullptr on an already-empty library
+         * @return the raw handle, which the CALLER now holds; nullptr on an already-empty library
          *
          * THE EXIT FOR "THE LIBRARY LIVES UNTIL THE PROCESS ENDS", which is the rule the backend's
          * boundary runs on. MEASURED: unloading the backend after a context had
          * been built and torn down NEVER RETURNED - the destructor called `FreeLibrary` and the process
          * sat at 0.45 s of CPU for 80+ s with ten threads and a working set that never moved, while the
-         * same program with the unload removed exited immediately. The wait is on the DLL's own detach
+         * same program with the unload removed exited immediately. The wait is on the DLL's detach
          * path (GLFW is initialised inside it and this backend terminates GLFW on no path -
          * `core.constructor.cppm` says so), so a product that unloads as it exits deadlocks where
          * nothing is watching: the window has already closed.
          *
          * AFTER DETACH THIS OBJECT IS EMPTY: `native_handle()` answers nullptr and `symbol()` refuses
          * with "the library is not loaded", so detach is the last call a caller makes on it. Whoever
-         * holds the returned handle owns the decision to free it, and the product's answer is that
+         * holds the returned handle holds the decision to free it, and the product's answer is that
          * nobody does.
          */
         [[nodiscard]] void* detach() noexcept {
@@ -197,7 +197,7 @@ export namespace deren::utility::dynamic_link {
      * @brief load a shared library
      * @param file_name path to the library, UTF-8; the platform suffix is appended when it is absent
      * @return the loaded library, or the reason the load failed
-     * @note an absolute path is searched narrowly on Windows (the library's own directory plus the
+     * @note an absolute path is searched narrowly on Windows (the library's directory plus the
      *       system directories); a name without a separator is a relative name and takes the
      *       classic search order
      */
@@ -270,7 +270,7 @@ namespace {
         return message;
     }
 
-    /** @brief a message for a platform error code that has no text of its own */
+    /** @brief a message for A separate platform error code that has no text */
     deren::utility::vessel::string failed_message(std::string_view call, unsigned long code) {
         return deren::utility::vessel::format("{} failed (GetLastError={})", call, code);
     }

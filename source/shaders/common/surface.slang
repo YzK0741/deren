@@ -31,7 +31,7 @@
 #ifndef DEREN_SURFACE_SLANG
 #define DEREN_SURFACE_SLANG
 
-// THE GEOMETRY LANES A MESH STAGE OF THIS FILE'S OWNERS NEEDS (docs/mesh_shaders.md step 2). The block below ends
+// THE GEOMETRY LANES A MESH STAGE OF THIS FILE'S HOLDERS NEEDS (docs/mesh_shaders.md step 2). The block below ends
 // with them because their offsets are the block's: the material fields (96 B), the two heap index lanes (8 B) and
 // then `MeshGeometryLanes` - whose first member is a `uint2`, so it lands on the 8-byte boundary at
 // mesh_geometry_offset (112) that the host pushes them at. The VERTEX and FRAGMENT entries of every stage that
@@ -47,11 +47,11 @@
 
 // One entry of the material table; layout matches material_record in vulkan/primitive.cppm
 // (std430, 80 bytes). Field order and the flag bits are a CPU/GPU contract - see register_material.
-// THE MATERIAL RECORD'S LAYOUT LIVES IN ITS OWN FILE, because a FULLSCREEN stage cannot include this one
+// THE MATERIAL RECORD'S LAYOUT LIVES IN its FILE, because a FULLSCREEN stage cannot include this one
 // (the shared scene push block below is 144 bytes, over the 128-byte heap limit, so only a geometry stage
 // can declare it) and a fullscreen stage may still need the material table. See material_record.slang.
 #include "common/material_record.slang"
-// ... AND THE DECODE IS IN ANOTHER FILE OF ITS OWN, for the same 128-byte wall: the visibility resolve is a
+// ... AND THE separate DECODE IS IN ANOTHER FILE, for the same 128-byte wall: the visibility resolve is a
 // COMPUTE stage, so the surface_sample type and the material/texture decode it shares with the fragment paths
 // have to be reachable without this file's push block. See surface_body.slang.
 uint scene_texture_base();
@@ -69,7 +69,7 @@ float4 frame_texture_sample_lod0(uint texture_index, float2 uv);
 
 /**
  * @brief one fetch from the bindless array, with the sampler the descriptor-set path used to bind for it
- * @param texture_index the texture's own index (its slot is heap_slots_textures + this)
+ * @param texture_index the texture's index (its slot is heap_slots_textures + this)
  * @param uv the coordinate
  * @note THE TWO HALVES OF A FETCH ARE SEPARATE IN A HEAP: the image comes from the resource heap at its slot, the
  *       sampler from the SAMPLER heap at heap_sampler_texture (linear, repeat, mips - exactly what the set path
@@ -112,7 +112,7 @@ struct PushConstants {
     // been written by vkCmdPushDataEXT before the draw (VUID-...-11376), so a member that is pushed but not
     // declared, or declared but skipped, is a validation error rather than a wasted word.
     uint spare_lane;
-    // ... AND THE LANES' OWN ALIGNMENT WORD, declared so their offset is a CONTRACT rather than a consequence:
+    // ... AND THE LANES' ALIGNMENT WORD, declared so their offset is a CONTRACT rather than a consequence:
     // `MeshGeometryLanes` is a struct, and Slang lays a std140 struct member out on a 16-byte boundary - which
     // put it at 112 (not at the 108 the members before it end at) and left a 4-byte hole that made every fetch
     // read another draw's window. Declaring this word makes 112 the end of a real member, so the layout survives
@@ -145,7 +145,7 @@ float4 frame_texture_sample_lod0(uint texture_index, float2 uv) {
  * A FUNCTION RATHER THAN A BLOCK INSIDE `gather_surface`, and the reason is a SECOND CALLER rather than tidiness:
  * the normal-map path needs the frame only when the material HAS a normal map (which no character material in this
  * repository does), while the toon stage needs one for a material whose hair normal is packed beside the model's
- * own in the game's split-normal texture. A second copy of this arithmetic would be the second implementation this
+ * in the game's split-normal texture. A second copy of this arithmetic would be the second implementation this
  * file's neighbours keep refusing, and a caller that needs no frame does not pay for one.
  *
  * @param world_pos the surface point whose screen-space derivatives are one half of the frame

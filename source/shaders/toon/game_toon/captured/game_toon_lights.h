@@ -39,7 +39,7 @@ static PunctualLight game_toon_load_light(uint index) {
 /// map's reflectivity and `R92` is the strand edge fade; both are parameters here so the capture's globals stay
 /// visible at the call site.
 ///
-/// The specular-ramp lane is `s.toon_indices.z` (`toon_slot::specular_ramp`). When it is absent the viewer's own
+/// The specular-ramp lane is `s.toon_indices.z` (`toon_slot::specular_ramp`). When it is absent the viewer's
 /// `!USE_SPECULAR_RAMP` arm is used (`tint = vec3(1)`, `readable:134`), so no colour is invented.
 static float3 game_toon_hair_specular_lobe(const float3 lobe_normal, const float3 half_dir, const float p_map_g,
                                           const float strand_fade, const uint spec_ramp_lane) {

@@ -323,7 +323,7 @@ int main() {
         CHECK(updated && (*slot1)->candidate_count() == 1u && (*slot1)->params().references_address != (*updated)->params().references_address);
         a->reset();
         one = {};
-        CHECK(!retained.expired()); // the other pending slot still owns the original cloud
+        CHECK(!retained.expired()); // the other pending slot still holds the original cloud
         slot1->reset();
         CHECK(retained.expired());
     }

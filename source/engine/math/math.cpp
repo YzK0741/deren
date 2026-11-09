@@ -55,9 +55,9 @@ namespace deren::engine {
             return env;
         }
 
-        // Cubemap face mapping: direction -> (face, u, v) with u/v in [-1, 1]. This is the one owner of
+        // Cubemap face mapping: direction -> (face, u, v) with u/v in [-1, 1]. This is the one holder of
         // the convention (cube_face_direction() above is its inverse) and every sampler here goes
-        // through it, so the bakes cannot drift apart from each other or from the GPU's own lookup.
+        // through it, so the bakes cannot drift apart from each other or from the GPU's lookup.
         //
         // THE MAJOR-AXIS DIVIDE IS WHAT MAKES IT THE INVERSE: cube_face_direction() normalizes its
         // result, so the reverse mapping has to divide the two minor components by the major one (the
@@ -66,7 +66,7 @@ namespace deren::engine {
         // all: for a unit direction |major| <= 1, so the lookup lands at u_correct * |major| - every
         // fetch is pulled toward its face centre and the six faces stop agreeing at the seams. That
         // warps the irradiance and prefilter bakes (the CPU samplers below are the only consumers),
-        // i.e. exactly the environment the shaders then sample with the GPU's own correct convention.
+        // i.e. exactly the environment the shaders then sample with the GPU's correct convention.
         void cube_face_uv(glm::vec3 const& dir, int32_t& face, float& u, float& v) {
             float const ax = std::abs(dir.x);
             float const ay = std::abs(dir.y);
@@ -303,7 +303,7 @@ namespace deren::engine {
         // sun disc, and a narrow GGX lobe either lands on it or misses it. With 64 taps of level 0
         // a coarse level ended up with isolated texels several times brighter than the rest of the
         // level (measured at 16^2: brightest texel 1.22 against a level mean of 0.17, i.e. 7x the
-        // mean, and 2.3x its own 3x3 neighbourhood). On screen ONE coarse texel covers a large
+        // mean, and 2.3x its 3x3 neighbourhood). On screen ONE coarse texel covers a large
         // area, so those texels read as big highlight patches sweeping across a rotating metal
         // surface - the artifact this replaces. Averaging each tap over the solid angle it
         // actually represents (Karis) removes them: same measurement, brightest texel 0.42
@@ -473,7 +473,7 @@ namespace deren::engine {
     }
 
     std::future<deren::utility::vessel::vector<float>> generate_environment_cubemap_from_equirect_async(deren::utility::vessel::vector<float> equirect, int32_t const width, int32_t const height, int32_t const size, float const intensity) {
-        // The pixels are MOVED in, not viewed: see the declaration's own note.
+        // The pixels are MOVED in, not viewed: see the declaration's note.
         return std::async(std::launch::async, [equirect = std::move(equirect), width, height, size, intensity] {
             return generate_environment_cubemap_from_equirect(equirect, width, height, size, intensity);
         });

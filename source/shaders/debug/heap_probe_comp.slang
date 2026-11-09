@@ -1,7 +1,7 @@
 // shaders/heap_probe_comp.slang - the SLANG source of the COMPUTE half of the heap-native probe.
 //
 // PRODUCES `heap_probe.comp.spv`, the same name the GLSL version produced, so the host side is untouched.
-// Ported from shaders/heap_probe.comp (which is a file of its own on the GLSL side too, and for the same
+// Ported from shaders/heap_probe.comp (which is A separate file on the GLSL side too, and for the same
 // reason: a compute pipeline is not the graphics probe's pair, and the two have DIFFERENT push layouts - one
 // push-constant block per stage means they cannot share a file without one of them being ambiguous).
 //

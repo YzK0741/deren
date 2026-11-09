@@ -62,7 +62,7 @@ namespace deren::engine::scene_tree {
      * @ingroup engine_scene_tree
      * @brief abstract primitive leaf of a scene node (the interface the GPU primitives
      *        below implement: normal_draw_primitive / instanced_draw_primitive)
-     * @note pure interface: implementations own their GPU geometry and record
+     * @note pure interface: implementations hold their GPU geometry and record
      *       their draw commands; scene_tree only feeds them their accumulated
      *       world transform every frame
      */
@@ -71,13 +71,13 @@ namespace deren::engine::scene_tree {
         virtual ~primitive() = default;
 
         /**
-         * @brief store the accumulated world transform of the owning node
+         * @brief store the accumulated world transform of the holding node
          * @param world parent_world * node.local (computed by update_world)
          */
         virtual void set_world(glm::mat4 const& world) = 0;
 
         /**
-         * @brief first slot this leaf owns in the runtime's previous-transform buffer (scene set
+         * @brief first slot this leaf holds in the runtime's previous-transform buffer (scene set
          *        binding 13), i.e. where its world matrix from one frame ago is kept
          * @return the slot, or @c no_motion_slot for a leaf whose object motion is not tracked
          *         frame to frame (an instanced draw fills its slots at setup instead, because its
@@ -94,7 +94,7 @@ namespace deren::engine::scene_tree {
     /**
      * @ingroup engine_scene_tree
      * @brief one node of the scene tree: a local transform, child nodes and an
-     *        optional primitive leaf. Value semantics: children are owned inline
+     *        optional primitive leaf. Value semantics: children are held inline
      *        (copying a node copies its subtree).
      */
     export struct scene_node {
@@ -147,7 +147,7 @@ namespace deren::engine::scene_tree {
          *        returns the primitive WITHOUT attaching it; this call places it under this
          *        node, so programmatic scenes can group primitives under transform nodes
          *        instead of only appending root leaves.
-         * @param leaf the primitive to attach (ownership moves into this node)
+         * @param leaf the primitive to attach (retention moves into this node)
          * @return the attached primitive (stable: it lives on the heap, unlike this node)
          * @note the node becomes a leaf node; any children it already had stay siblings below it
          * @note structural change: call runtime::scene_changed() afterwards so the culling BVH

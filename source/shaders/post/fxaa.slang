@@ -6,7 +6,7 @@
 // fetches, which go through the shared shim (see docs/slang_migration.md).
 //
 // The pass runs on the TONEMAPPED, gamma-encoded image, because FXAA's relative luma thresholds are
-// defined on display-referred data, and it needs its own input (a pass cannot read the image it renders
+// defined on display-referred data, and it needs its input (a pass cannot read the image it renders
 // into) - which is why the composite writes a per-swapchain-image LDR target when FXAA is on.
 
 #include "common/heap_access.slang"

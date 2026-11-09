@@ -4,7 +4,7 @@
 //
 // THE REAL BACKEND'S C ABI SURFACE (abi 18): the ONE
 // `extern "C"` symbol source/promise/rhi/backend_entry.hpp declares, DEFINED here for
-// deren::vulkan::core - the object that already owns the instance, the device
+// deren::vulkan::core - the object that already holds the instance, the device
 // and the swapchain, and that already derives from deren::promise::rhi::api_core
 // (source/backends/vulkan/core/declarations/core.declarations.cppm:271). There is no wrapper type: the object the
 // engine gets back from deren_make_api_core() IS the core.
@@ -16,10 +16,10 @@
 // this target. So the file imports what it needs, includes the declared surface, and
 // defines it at global scope.
 //
-// THE ABI'S OWN SHAPE (backend_entry.hpp) IS TAKEN AS GIVEN, AND SINCE abi 18 IT IS ONE
+// THE ABI'S SHAPE (backend_entry.hpp) IS TAKEN AS GIVEN, AND SINCE abi 18 IT IS ONE
 // FUNCTION: the version arrives as the first ARGUMENT (a mismatch is refused here, before any
-// object exists, with the backend's own number written into the diagnostic), the creation
-// descriptor arrives by pointer and is borrowed for the length of the call, and OWNERSHIP
+// object exists, with the backend's number written into the diagnostic), the creation
+// descriptor arrives by pointer and is referenced for the length of the call, and RETENTION
 // TRAVELS IN THE RETURNED `shared_object` (abi 44) - its control block's last copy calls the
 // contract's `release()`, whose implementation below deletes the root in THIS image without the
 // host ever naming a deleter symbol. The two former entry points
@@ -57,7 +57,7 @@ extern "C" DEREN_API_EXPORT rhi::shared_object<rhi::api_core>
 deren_make_api_core(std::uint32_t abi_version, rhi::create_info const* desc, rhi::error_info* out_error_info) {
     // THE HANDSHAKE FIRST, BEFORE ANY OBJECT EXISTS (plan §4.2): an engine built against a
     // different contract learns "we disagree" as an empty `shared_object`, at the only moment where
-    // nothing has been allocated yet and nothing has to be cleaned up. THE BACKEND'S OWN NUMBER
+    // nothing has been allocated yet and nothing has to be cleaned up. THE BACKEND'S NUMBER
     // travels in `native_code` - that is what the deleted `deren_abi_version()` used to answer, and
     // the refusal is the only place a host needs it.
     if (abi_version != rhi::abi_version) {
@@ -78,18 +78,18 @@ deren_make_api_core(std::uint32_t abi_version, rhi::create_info const* desc, rhi
     if (out_error_info != nullptr) {
         *out_error_info = rhi::error_info{}; // ok: a zeroed diagnostic says ok, api unknown - nobody failed
     }
-    // OWNERSHIP TRANSFER, IN THE CONTROL BLOCK: the root is heap-allocated in THIS image, and the
-    // returned `shared_object` (its control block is created right here, abi 44) owns the contract's one
+    // RETENTION TRANSFER, IN THE CONTROL BLOCK: the root is heap-allocated in THIS image, and the
+    // returned `shared_object` (its control block is created right here, abi 44) holds the contract's one
     // reference - its last copy, wherever it is dropped, calls `release()`, whose implementation below
     // deletes the object in the allocator that made it. That is safe HERE for the measured reason the
     // header states: one C++ runtime and one heap (libc++.dll + UCRT) shared by every image, checked by
     // the gate.
     //
-    // The descriptor is read by the constructor and not kept: its `window_title` is borrowed only
-    // until this call returns (GLFW copies the text into the window), which the contract's own note
+    // The descriptor is read by the constructor and not kept: its `window_title` is referenced only
+    // until this call returns (GLFW copies the text into the window), which the contract's note
     // states and the constructor's member note repeats.
     //
-    // A failure INSIDE construction does not come back as an `error_info`: the backend's own
+    // A failure INSIDE construction does not come back as an `error_info`: the backend's
     // startup rule is a NAMED panic with the missing thing in the message (a required
     // extension, a required feature, a swapchain that cannot be created -
     // core.constructor.cppm's `panic` sites), and the spike confirmed that shape. So a non-empty

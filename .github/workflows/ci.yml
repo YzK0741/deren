@@ -169,7 +169,7 @@ jobs:
       # deren_vulkan can become a resolved-at-run-time DLL.
       #
       # MANDATORY NOW, and that is what makes it a gate instead of a suggestion: every toolchain
-      # records its OWN baseline (the counting rule is the mangled symbol set, which is not
+      # records its baseline (the counting rule is the mangled symbol set, which is not
       # comparable across compilers or standard libraries), so a joiner fails this job instead of
       # scrolling past - and the target builds the full product first, so a half-built tree cannot
       # report a fake improvement (see the check-backend-boundary target in CMakeLists).
@@ -202,7 +202,7 @@ jobs:
           # THE LIST IS CHECKED BEFORE IT IS USED. source/utility/thread_pool/thread_pool.cpp and
           # source/utility/BVH/bvh.cpp sat in this list after the module renames moved them to .cppm, and
           # clang-tidy's "no such file or directory" kept master red while every other gate passed.
-          # A hand-maintained list that can go stale silently is a failure mode of its own.
+          # A hand-maintained list that can go stale silently is A separate failure mode.
           # app_config is the TARGET name; its sources live in source/configuration/ (the dir was
           # renamed and this list was not).
           TIDY_FILES="source/engine/geometry/subtilis.cppm \
@@ -258,7 +258,7 @@ jobs:
       # THE ARTIFACT IS THE RUN-TIME PACKAGE, NOT JUST THE EXECUTABLE, AND THAT IS THE FIX IN THIS STEP:
       # since the dynamic-backend flip the product is no longer one file. deren.exe loads deren_assets.dll
       # through its import library BEFORE main, resolves deren_vulkan.dll and deren_gui_vulkan.dll BY NAME
-      # out of its own directory, imports shared_utility.dll for the process-wide sink, takes the C++
+      # out of its directory, imports shared_utility.dll for the process-wide sink, takes the C++
       # runtime from libc++.dll, and finds the compiled SPIR-V by walking up from the working directory to
       # `source/shaders/` (deren::chores::analyse_config). Uploading `build/deren.exe` alone - what this job did
       # before - shipped a download that could not start, and nothing said so.
@@ -395,7 +395,7 @@ jobs:
         # source/tests/test_docs.cpp, which now compares the two lists and fails by name). No sanitizer has
         # ever reported anything in this job.
         #
-        # test_shader_sources IS THE SHADER PIPELINE'S OWN GATE and it is deliberately here as well as in the
+        # test_shader_sources IS THE SHADER PIPELINE'S GATE and it is deliberately here as well as in the
         # Release job: it compares the four places a .spv is named (VR_SLANG_SOURCES, the two compile scripts,
         # chores.cpp's loads) and requires the MESH entries to exist, so a mesh stage that silently stops being
         # built - or a build rule the escape-hatch scripts do not mirror - fails a job rather than a picture.

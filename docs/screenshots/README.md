@@ -52,7 +52,7 @@ It was cropped from a 2560x1600 desktop screenshot (ShareX, 2026-10-02). The ImG
 title bar and the Windows taskbar are cut away, leaving the render alone; the client-area edges were measured
 rather than guessed (the crop helper found the overlay's right edge from its text density and the taskbar's
 top edge from the first row that is dark across the whole width; that helper is not distributed with the
-repository). Pixels inside the crop are the renderer's own; the crop was re-encoded with Pillow
+repository). Pixels inside the crop are the renderer's; the crop was re-encoded with Pillow
 (`optimize=True`) and NOT resampled.
 
 

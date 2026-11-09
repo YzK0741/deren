@@ -43,11 +43,11 @@
 //
 // WHAT IS NOT PORTED, and why (all detailed again in `tmp/game_toon-port/skin-face-notes.md`):
 //   * `R114` (:188-327) - the viewer's PUNCTUAL/OTHER-lights loop (`Q260` lights, modes 0..4). It is ported in
-//     its own header (`toon/game_toon/captured/game_toon_lights.h`, fed by deren's ordinary punctual-light UBO and
+//     its header (`toon/game_toon/captured/game_toon_lights.h`, fed by deren's ordinary punctual-light UBO and
 //     the captured Laevatain rig injected by the app), NOT in this file: the skin arm below is the
 //     main/skin-light composition `:787-889`, and it hands `game_toon_lights.h` the captured `R114` call's
 //     arguments (N, `R252`, `R333`). The block's other globals (`R45`, `R134`, `R151`, `R162`, `R268`) are the
-//     punctual loop's own and are not recomputed here.
+//     punctual loop's and are not recomputed here.
 //   * `Q132` (:805-826) - the viewer's SELF-SHADOW arm. It is a LOOK TOGGLE (`setSelfShadow`), and the captured
 //     default is OFF (`selfShadow:false` in the same defaults object). Its absence is what makes the captured
 //     lit weights `R144 = min(base.a, ramp_alpha)` and `R204 = base.a` (:822-826), which is what this port
@@ -59,7 +59,7 @@
 //     default. No deren lane exists.
 //   * `R77` (:427-435) - the SDF's angle/normal-B terminator. It is DEAD in the captured fragment: the SKIN
 //     branch calls `evaluateFaceSdfTerm` (:798), never `R77`; the port keeps only the one the branch calls.
-//   * The `#include <tonemapping_fragment>` / `<colorspace_fragment>` (:1189-1190) - post owns both.
+//   * The `#include <tonemapping_fragment>` / `<colorspace_fragment>` (:1189-1190) - post holds both.
 //
 // AN IMPORTANT VIEWER-SPECIFIC DETAIL the reader would otherwise have to rediscover: THE SHADOW TINT IS
 // ALIASED FOR THE SKIN FAMILY. `character.frag.readable.glsl:845` mixes `uShadowTint` (`Q62`), and
@@ -69,7 +69,7 @@
 //
 // ONE SENTENCE A READER SHOULD LEAVE WITH: the shadow side's colour is the material's `_ShadowLutTex` lookup
 // (srgb-decoded by the lane upload), the ramp selects how much of it is lit, the face's 2D SDF replaces the
-// geometric `NdotL` where `_SDFMask.g` says so, and the light is the viewer's own two-part skin composition
+// geometric `NdotL` where `_SDFMask.g` says so, and the light is the viewer's two-part skin composition
 // (`wf_skin_light`, pinned by `tools/game_shader_audit/test_game_toon_math.cpp`) - not deren's environment.
 
 #include "toon/game_toon_math.h"
@@ -83,7 +83,7 @@
 // The two light-composition constants are inside `wf_skin_light` (`toon/game_toon_math.h:29-34`):
 // `VIEWER_AMBIENT = 0.725` and `VIEWER_LIGHT_SCALE = 0.2877` (`character.frag.readable.glsl:420-421`,
 // `comparison-summary.json` `shader_constants.ri.ambient` / `.o3`). They are NOT re-declared here; the helper
-// owns that expression so its numerical pin is the one the test asserts.
+// holds that expression so its numerical pin is the one the test asserts.
 //
 // Every constant in THIS block is a RIG value of the captured Laevatain configuration (viewer-lighting.js /
 // `comparison-summary.json` `laevat_volume`), not a per-material row: the per-material payload arrives in the
@@ -103,7 +103,7 @@ static const float game_toon_skin_face_environment_multiplier = 0.55;
 
 /// `uMainLightIntensity` (`Q143`): `viewer-lighting.js` initialises `zf = 2` and `Q143:{value:zf}`; the
 /// comparison records it as the captured "main light intensity 2.0". It multiplies ONLY the skin light inside
-/// `R153`/`R208`, never deren's sun. Lane 0.y carries `Q143`; this is the absent-lane default (the rig's own
+/// `R153`/`R208`, never deren's sun. Lane 0.y carries `Q143`; this is the absent-lane default (the rig's
 /// initialiser, not a material row).
 static const float game_toon_skin_face_captured_main_light_intensity = 2.0;
 
@@ -137,7 +137,7 @@ static const float game_toon_skin_face_sdf_bias = 0.0;
 // rim scale), not a colour, and the skin arm multiplies it into the base at grazing angles.
 //
 // A ZERO WORD MEANS "NOT STATED" (`game_toon_profile.h`), and every accessor below answers the captured VIEWER's
-// own nullish default (`M3`/`T3`'s `??` values) rather than a laevat material constant. The laevat rows are
+// its nullish default (`M3`/`T3`'s `??` values) rather than a laevat material constant. The laevat rows are
 // staged, so the lanes are what run on the captured asset; the defaults exist only so a model without a payload
 // does not read a zero as art.
 static float4 game_toon_skin_face_payload(const uint material_index, const uint lane) {
@@ -184,13 +184,13 @@ static float game_toon_skin_face_highlight_vector_x(const uint material_index) {
     return lane != 0.0 ? lane : 0.0;
 }
 
-/// @brief `uMainLightIntensity` (`Q143`): lane 0.y; absent-lane default is the rig's own initialiser (2.0)
+/// @brief `uMainLightIntensity` (`Q143`): lane 0.y; absent-lane default is the rig's initialiser (2.0)
 static float game_toon_skin_face_main_light_intensity(const uint material_index) {
     const float lane = game_toon_main_light_intensity(material_index);
     return lane > 0.0 ? lane : game_toon_skin_face_captured_main_light_intensity;
 }
 
-/// @brief `uRampRangeBias` (`Q215`): deren lane 1.a (`uniform-packing.json` row 1.a), the viewer's own rig row.
+/// @brief `uRampRangeBias` (`Q215`): deren lane 1.a (`uniform-packing.json` row 1.a), the viewer's rig row.
 /// @note the captured Laevatain configuration is 0.0 (`laevat_volume.rangeBias`), which is also the lane word
 ///       when no rig states one - so the lane value is returned as-is and no fallback is invented.
 static float game_toon_skin_face_ramp_range_bias(const uint material_index) {
@@ -220,7 +220,7 @@ static float3 game_toon_skin_face_unpack_normal(const float2 rg, const float sca
 
 /// @brief the captured viewer's `R218` (`character.frag.readable.glsl:422-424`), Rec.709 luminance
 /// @note These weights are the viewer's and DIFFER from `R113`'s (:59) in the last three digits; both are kept
-///       with their own values rather than unified, because each one is cited.
+///       with their values rather than unified, because each one is cited.
 static float game_toon_skin_face_luma(const float3 colour) {
     return dot(colour, float3(0.212673, 0.715152, 0.072175));
 }
@@ -269,7 +269,7 @@ static float3 game_toon_skin_face_sample_shadow_lut(const float3 albedo, const u
 
 /// @brief the captured viewer's `evaluateFaceSdfTerm` (`character.frag.readable.glsl:436-449`)
 ///
-/// THE 2D FACE TERMINATOR. The light direction is projected into the face's own plane and turned into an angle
+/// THE 2D FACE TERMINATOR. The light direction is projected into the face's plane and turned into an angle
 /// against the face's forward axis (`f`) and right axis (`s`); the SDF atlas is read MIRRORED when the light is
 /// on the `s >= 0` side (`:442`), its R/G average is stretched over the window `[max(2e-1,0), min(2e,1)]` where
 /// `e = 0.5 - 0.5t` (`:446-447`), and the signed result is `2k-1 + max(t,0)` (`:448`). It never reads the
@@ -287,7 +287,7 @@ static float3 game_toon_skin_face_sample_shadow_lut(const float3 albedo, const u
 /// angle/window, exactly as the captured viewer does. That limitation is the viewer's, and is kept.
 ///
 /// @param light_dir the unit SURFACE-TO-LIGHT direction (the viewer's `L`, :728)
-/// @param uv the surface uv (the SDF atlas's own coordinate)
+/// @param uv the surface uv (the SDF atlas's coordinate)
 /// @param lane the material's `_SDFLightmap` heap lane; the caller must not pass 0
 /// @param face_forward the head's world forward axis (viewer `Q324`)
 /// @param face_right the game object's world `+X` axis (viewer `Q80`; `-head_right` in deren's frame)
@@ -339,7 +339,7 @@ static float3 game_toon_skin_face_shadow_tint_value(const uint material_index) {
 /// @param geo_normal interpolated geometric normal
 /// @param uv the material's uv (also the SDF/mask/highlight/ramp coordinate)
 /// @param is_front the rasterizer's front/back decision (the double-sided normal flip, :694-698)
-/// @return LINEAR HDR radiance - no tone map, no sRGB encode; the caller owns alpha and dispatch
+/// @return LINEAR HDR radiance - no tone map, no sRGB encode; the caller holds alpha and dispatch
 ///
 /// THE INPUTS WHOSE CAPTURED COUNTERPART IS deren's RATHER THAN THE VIEWER'S, called out once instead of at
 /// every use:
@@ -379,7 +379,7 @@ float3 captured_skin_face_shade(surface_sample s, float3 world_pos, float3 geo_n
         normal = -normal;
     }
 
-    // ---- 2. L, V and the material's own white ----
+    // ---- 2. L, V and the material's white ----
     const float3 camera_forward_axis = normalize(mul(camera_at(heap_camera_slot).view, float4(0.0, 0.0, 1.0, 0.0)).xyz);
     const float3 light_dir = game_toon_profile_enabled(push.material_index)
         ? normalize(wf_camera_light(-camera_forward_axis, game_toon_yaw_bias(push.material_index), game_toon_min_pitch(push.material_index)))
@@ -460,7 +460,7 @@ float3 captured_skin_face_shade(surface_sample s, float3 world_pos, float3 geo_n
         ramp_alpha = ramp.a;
     } else {
         // `USE_DIFFUSE_RAMP` OFF. No laevat skin material takes this arm (`_UseDiffRampMap = 1` on both), so
-        // this is the documented neutral behaviour for a material without the lane: the family's own Hermite
+        // this is the documented neutral behaviour for a material without the lane: the family's Hermite
         // step (the same fallback the rest of this renderer uses when a ramp lane is absent), no tint.
         const float ramp_u = clamp(ramp_x * 0.5 + 0.5, 0.0, 1.0);
         ramp_alpha = smoothstep(family_params.center - family_params.softness,
@@ -536,7 +536,7 @@ float3 captured_skin_face_shade(surface_sample s, float3 world_pos, float3 geo_n
                   (0.5 + 0.5 * lit_weight);
     }
 
-    // ---- 12. THE SKIN ARM'S OWN DIRECT SPECULAR (`:854-889`) ----
+    // ---- 12. THE SKIN ARM'S DIRECT SPECULAR (`:854-889`) ----
     //
     // A TERM OF THE CAPTURED SKIN ARM, NOT OF THE PUNCTUAL LOOP, and the first version of this port omitted it
     // entirely: after the highlight the captured arm builds `R134` (the face mask, or `(1,1,1,0)` for body),
@@ -591,7 +591,7 @@ float3 captured_skin_face_shade(surface_sample s, float3 world_pos, float3 geo_n
     // ---- 14. RETURN ----
     // The captured skin arm has no emission term (`_UseEmission = 0` on both laevat skin materials, and the
     // viewer's `_EmissionMap` addition is cloth-only, `:1127-1130`); deren's surface sample carries the
-    // material's own emissive, which is 0 here and is added for stage consistency rather than invented.
+    // material's emissive, which is 0 here and is added for stage consistency rather than invented.
     //
     // THE PUNCTUAL LOOP'S ARGUMENTS ARE THE CAPTURED `R114` CALL'S (`:1156`): N is the shading normal, `R283`
     // is `R252` (the PRE-LIGHT composition saved above, not the albedo), and the specular F0 is `R333` - the

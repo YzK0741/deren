@@ -277,7 +277,7 @@ namespace {
             for (int32_t const face : {0, 1, 4, 5}) {
                 face_ramp_stats const stats = face_stats(stripe_cube, size, face);
                 if (face == expected) {
-                    CHECK_MSG(stats.max_r > 0.9, "the stripe's own face sees it");
+                    CHECK_MSG(stats.max_r > 0.9, "the stripe's face sees it");
                 } else {
                     CHECK_MSG(stats.max_r < 0.01, "no other SIDE face sees the stripe");
                 }
@@ -315,7 +315,7 @@ namespace {
     // texel covers a large area on screen, so an isolated bright texel (the sun disc landing on some
     // Monte-Carlo taps and missing their neighbours) reads as a big highlight patch sweeping across a
     // rotating metal surface. The variant this replaced had such texels - at 16^2 the brightest texel
-    // was 7x the level mean and 2.3x its own 3x3 neighbourhood. Sampling a source mip per tap fixes
+    // was 7x the level mean and 2.3x its 3x3 neighbourhood. Sampling a source mip per tap fixes
     // it, and these bounds are the regression test: they fail loudly on the old behaviour and hold
     // with room to spare on the new one.
     void test_prefiltered_environment_is_smooth() {

@@ -23,7 +23,7 @@ LINE COUNTS IN THIS DOCUMENT are `Get-Content .Count`. PowerShell's `Measure-Obj
 whose last line has no trailing newline - the same file reads 3021 and 3187 by the two methods - and this project
 quotes numbers so they can be re-derived, so the method is part of the number.
 
-## 1. Why, in the repository's own terms, not mine
+## 1. Why, in the repository's terms, not mine
 
 The architecture this refactor moves TOWARD is already written down, so this is not a new design:
 
@@ -40,7 +40,7 @@ The measured shape of what exists instead:
     next largest module .cppm    1031 lines   (constant_init); everything else is <= 1018
 
 So the interface's line count is mostly DOCUMENTATION and is not the problem. The problem is that one translation
-unit and one class own the state and the behaviour of ten subsystems, and that the dependencies between those
+unit and one class hold the state and the behaviour of ten subsystems, and that the dependencies between those
 subsystems are expressed as shared members, shared descriptor sets and a positional call order rather than as
 interfaces. The operational test of a good boundary is:
 
@@ -68,19 +68,19 @@ THE PRECEDENT THAT MATTERS: three prior extractions say "Extracted from deren.en
 `source/backends/vulkan/bindings/bindings.cppm:9` - the last of the three has since been deleted with the
 descriptor-set world) and all three are of the STATELESS/PURE kind - they
 take handles and return builders. **No extraction in this repository has ever moved state.** Everything below is
-therefore the first of its kind, and the acceptance criteria have to be stronger than "it compiles".
+therefore the separate first kind, and the acceptance criteria have to be stronger than "it compiles".
 
-## 3. Who owns what today, which is not what the plan assumed
+## 3. Who holds what today, which is not what the plan assumed
 
-`core` - not `runtime` - owns every per-image target family: `source/backends/vulkan/core/core.constructor.cppm:777-1283` creates HDR, bloom, LDR, the
+`core` - not `runtime` - holds every per-image target family: `source/backends/vulkan/core/core.constructor.cppm:777-1283` creates HDR, bloom, LDR, the
 G-buffer, velocity, the GI chain's images (`gi`, `gi_resolve`, `gi_history`, `gi_spatial`), the glossy lobe's
 (`gi_spec`, `gi_spec_reproject`, `gi_spec_resolve`, `gi_spec_history`), the probe cache's eight coefficient images
 plus its surface image, the furnace cube and the per-SLOT ray-traced shadow maps; the matching cleanup is one
 lambda at `source/backends/vulkan/core/core.constructor.cppm:1182-1282` and the swapchain-recreate path at `source/backends/vulkan/core/core.cpp:207-380` (teardown `228-358`, rebuild
 `360-378`). The only per-slot family `runtime` creates itself is the shadow map (`source/engine/runtime/runtime.cpp:659-678`).
 
-CONSEQUENCE FOR EVERY BOUNDARY BELOW: "a submodule owns its image families" is not available as a move. The
-honest target is that a submodule owns its **behaviour, descriptor sets, pipelines, push-constant structs,
+CONSEQUENCE FOR EVERY BOUNDARY BELOW: "a submodule holds its image families" is not available as a move. The
+honest target is that a submodule holds its **behaviour, descriptor sets, pipelines, push-constant structs,
 per-frame flags and teardown**, while `core` remains the single allocator of images. Taking an image family over
 is a resource-layer change and must be argued separately.
 
@@ -115,14 +115,14 @@ is a resource-layer change and must be argued separately.
   `image_set_family` instances - `ssgi_spec_temporal_family` (`runtime.cppm:516`) and `gi_probe_family`
   (`runtime.cppm:586`) are not in that list and survive only because `ensure()` re-detects changed views
   (`bindings.cppm:283-294`). That is a latent hazard rather than a bug today, and it is exactly the class of
-  thing a boundary that owns its own family would make impossible.
+  thing a boundary that holds its family would make impossible.
 
 ## 5. The order, narrowest seam first
 
     1. probe cache        -> vulkan.gi_probe    218 cpp + 70 cppm, 8 members, ONE call per frame (`source/engine/runtime/runtime.frames.cppm:2602`)
-    2. TAA                229 + 42              owns scene_target_image/view, which the scene path calls 4x
+    2. TAA                229 + 42              holds scene_target_image/view, which the scene path calls 4x
     3. screenshot         105 + 26              already half-extracted into deren.vulkan.readback
-    4. shadow cascades    534 + 148             the only subsystem that owns an image family outright
+    4. shadow cascades    534 + 148             the only subsystem that holds an image family outright
     5. rt structures      656 + 111             its instance table is consumed by the GI chain
     6. post               338 + 71              post_push_constants is shared by bloom/composite/FXAA/GI-upsample
     7. GI chain           796 + 191             blocked on C1
@@ -132,9 +132,9 @@ is a resource-layer change and must be argued separately.
        frame loop         never - it is the facade the others are called from
 
 **WHY THE PROBE CACHE GOES FIRST**, and why this supersedes an earlier draft of this plan that started with post:
-it is the smallest COMPLETE state-owning unit in the runtime, its interface is exactly "`core&`, the scene set
+it is the smallest COMPLETE state-holding unit in the runtime, its interface is exactly "`core&`, the scene set
 handle, the G-buffer set handle, the resolved-GI views, a params struct, a command buffer", it is called once per
-frame, and it exercises the whole pattern end-to-end WITHOUT touching a single shader - so the first state-owning
+frame, and it exercises the whole pattern end-to-end WITHOUT touching a single shader - so the first state-holding
 extraction is also the smallest risk that can still fail in every way the later ones can. Its one oddity: its
 sampler is created inside `make_gbuffer_debug_pipeline` (`source/engine/runtime/runtime.frames.cppm:1220-1222`), which is a naming accident to fix while
 passing through.
@@ -144,11 +144,11 @@ The boundary the project chose for a pass is `deren.engine.pass` (the framework)
 (`vulkan.pass.gi_probe`), because the thing being extracted is not "some code in a file" but a unit with a
 DECLARED interface - and the declaration is what made the move provable: the frame is byte-identical
 (`sponza_gi` back to 58EC848DFABE654A). What moved is narrower than the `218 cpp + 70 cppm, 8 members` above and
-what stayed is on purpose: the pass owns its set layout, its two-set ping-pong family, its pipeline layout, its
+what stayed is on purpose: the pass holds its set layout, its two-set ping-pong family, its pipeline layout, its
 pipeline, its barriers, its clear and its push; `deren.engine.runtime` keeps the switch, and the values the push block
 is composed from (they are the renderer's). `record_gi_probe_pass`, `ensure_gi_probe_descriptors` and
 `make_gi_probe_pipeline` are gone, and `gi_probe_valid`/`gi_probe_light_dir_valid` are the pass's state now. The
-app's two calls are `register_shader` (it owns the file) and `create_passes` (the pass owns the pipeline). That
+app's two calls are `register_shader` (it holds the file) and `create_passes` (the pass holds the pipeline). That
 pass and the probe cache have since been removed with the traced-GI chain (commit `1162d88`; see
 `docs/pass_io_design.md`), so extraction 1 is history rather than a live module. The
 remaining entries in the order above are unchanged, and TAA is next - but it needed one thing this map did not
@@ -168,7 +168,7 @@ see either:
   wrong one (they differ every frame, which would rewrite sets a pending frame names). The pass caches the first
   frame's views and drops them in `on_swapchain_recreated` - the framework's recreate contract, used for
   something real for the first time;
-* two lines of the resolve's own sequence belong to OTHER passes: the G-buffer depth's transition (its flag is
+* two lines of the resolve's sequence belong to OTHER passes: the G-buffer depth's transition (its flag is
   the G-buffer pass's) and clearing the motion-vector flag. Both stay with the host, gated on the same predicate
   the runner gates the stage on, and they are the barrier/order stage's entry point - the first concrete one this
   sequence produced.
@@ -233,7 +233,7 @@ Non-behavioural hazards the gate will catch but that deserve to be known in adva
 * A module whose extracted interface still needs `runtime&`. If an extraction's interface is "a reference to
   the thing we are splitting", the boundary is wrong and the honest answer is not to extract it yet.
 * C1 (the shared G-buffer set) blocking GI, post and shadows at once. Until it is addressed - and addressing it
-  means changing shader binding declarations, i.e. a behaviour-visible change with its own gate - those three
+  means changing shader binding declarations, i.e. a behaviour-visible change with its gate - those three
   cannot be cleanly separated.
 * `light_state`, the shared rendering instance (C4), the per-image flags (C5) and `gpu_mark` (C2), each of which
   turns a would-be interface into a negotiation.

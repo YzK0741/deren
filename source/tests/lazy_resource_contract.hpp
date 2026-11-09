@@ -141,7 +141,7 @@ inline void check_lazy_resource_contract(rhi::api_core& core) {
     CHECK(group_commands->barrier({.buffers = std::span(&grouped_barrier, 1)}) == rhi::error::ok);
     CHECK(group_commands->end_recording() == rhi::error::ok);
     group_commands.reset();
-    CHECK(grouped_raw->unload() == rhi::error::not_ready); // logical group caches/owns this resource
+    CHECK(grouped_raw->unload() == rhi::error::not_ready); // logical group caches/holds this resource
     group = std::unexpected(rhi::error::unsupported);
     CHECK(grouped_raw->unload() == rhi::error::ok);
 

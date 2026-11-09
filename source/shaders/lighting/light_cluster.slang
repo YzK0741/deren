@@ -88,7 +88,7 @@ struct ClusterPush
 ///       same space the rendered fragments land in - which is what makes this box and the shader's cluster
 ///       index describe the same volume.
 /// @note `inverse()` IS A RISK WORTH NAMING: SPIR-V has no inverse instruction, so glslang expands the 4x4
-///       inverse inline and Slang expands its own, and two expansions can disagree in the last bit. The gate
+///       inverse inline and Slang expands its, and two expansions can disagree in the last bit. The gate
 ///       is what decides whether they do here (a cluster box that moves by one ULP can move a light across a
 ///       boundary); if it ever fails on the cluster scenarios, this line is the first place to look.
 // Preserve the old MatrixInverse instruction and its rounding at cluster boundaries.

@@ -5,7 +5,7 @@
  * Layout per the OpenMMD VMD specification (only 16 of a bone key's 64 interpolation bytes are
  * used) plus babylon-mmd's field map (src/Loader/Parser/vmdObject.ts) for the [4][4][4] indexing
  * and the trailing property-keyframe section.  Both were checked against a real 20 MB motion:
- * with those offsets every one of its 193525 keys decodes to MMD's default linear curve
+ * with those offsets every a separate one 193525 keys decodes to MMD's default linear curve
  * (20,20,107,107) on all four channels, and the file parses to exactly its last byte.
  */
 module;
@@ -123,7 +123,7 @@ namespace deren::engine::animation {
         float const span = static_cast<float>(b.frame) - static_cast<float>(a.frame);
         float const s = span > 0.0f ? (frame - static_cast<float>(a.frame)) / span : 0.0f;
         // Each channel is eased separately: MMD stores one bezier per axis, so the three position
-        // components do not share a fraction, and the quaternion has a fourth curve of its own.
+        // components do not share a fraction, and the separate quaternion has a fourth curve.
         out.translation = glm::vec3(glm::mix(a.translation.x, b.translation.x, a.ease_x.evaluate(s)),
                                     glm::mix(a.translation.y, b.translation.y, a.ease_y.evaluate(s)),
                                     glm::mix(a.translation.z, b.translation.z, a.ease_z.evaluate(s)));
@@ -277,7 +277,7 @@ namespace deren::engine::animation {
 
         // --- property keyframes (visibility + IK on/off states) ---------------------------
         // This section is not a bare IK list: every entry is a property keyframe carrying a
-        // visibility flag and its own list of IK states.  Treating it as "count then 21-byte IK
+        // visibility flag and its list of IK states.  Treating it as "count then 21-byte IK
         // records" swallows the 9-byte header and then reports a perfectly plausible record holding
         // an impossible frame number - 27266 in a motion that only reaches frame 3954.
         if (o + 4 <= size) {
@@ -563,7 +563,7 @@ namespace deren::engine::animation {
         out.hip_local = glm::normalize(glm::inverse(parent_world) * (hip_delta * hip_world_rotation));
 
         // the knee's parent is the hip's NEW world rotation, and the lower bone has already been
-        // carried along by hip_delta, so its own delta is measured after that
+        // carried along by hip_delta, so its delta is measured after that
         glm::quat const new_hip_world = parent_world * out.hip_local;
         glm::quat const knee_delta = rotate_between(hip_delta * (ankle_world - knee_world), solved.lower);
         out.knee_local =
@@ -601,7 +601,7 @@ namespace deren::engine::animation {
                     continue;
                 }
                 float const seconds = frame / mmd_motion::frames_per_second;
-                // A VMD position is an OFFSET in MMD's own space, so it takes the same transform the
+                // A VMD position is an OFFSET in MMD's space, so it takes the same transform the
                 // skeleton was rigged with before it can serve as a node translation.  Writing it
                 // verbatim is what stretched the mesh into a spike: every driven joint's local
                 // translation was replaced by a value ~13.6x too large and with Z un-negated.

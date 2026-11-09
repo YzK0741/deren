@@ -341,7 +341,7 @@ void test_the_head_frame_matcher_rejects_lookalikes() {
 }
 
 void test_the_head_frame_from_a_bone_and_when_there_is_none() {
-    // THE FALLBACK IS glTF'S OWN BASIS, and its exact values are the assertion because they are what a face's
+    // THE FALLBACK IS glTF'S BASIS, and its exact values are the assertion because they are what a face's
     // SDF is measured against: the front of a glTF asset faces `+Z` and its right is `-X`. It is deliberately NOT
     // the reference's constant `(0,0,-1)`, which points 180 degrees away from the face of every model measured
     // here - see the note on `head_basis` for what that sign costs (94.1% of a face read as shadow).
@@ -354,7 +354,7 @@ void test_the_head_frame_from_a_bone_and_when_there_is_none() {
     // path whose handedness disagreed with the fallback's would shade a static and a skinned model differently.
     CHECK(glm::length(glm::cross(fallback.right, fallback.front) - fallback.up) < 1e-6f);
 
-    // AN IDENTITY BONE. `row3` is `+Z` and `row1` is `+X`, so the frame is the fallback's own - and it must come
+    // AN IDENTITY BONE. `row3` is `+Z` and `row1` is `+X`, so the frame is the fallback's - and it must come
     // back flagged as a REAL frame rather than as the fallback, because those two are different answers that look
     // identical.
     deren::gltf::head_basis const identity = deren::gltf::head_basis_from_axes(glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(1.0f, 0.0f, 0.0f));
@@ -433,7 +433,7 @@ void test_the_toon_family_matcher_reads_mmd_material_names() {
     // material among them, which is what silently cost the hair its highlight and the eye its soft ramp.
     //
     // EVERY NAME BELOW IS TAKEN FROM A MODEL IN THIS REPOSITORY rather than invented. The first group is
-    // `zhuangfy_toon.glb`'s own material list, in its own spellings.
+    // `zhuangfy_toon.glb`'s material list, in its spellings.
     CHECK(deren::gltf::toon_family_of("颜") == deren::gltf::toon_family::face);
     CHECK(deren::gltf::toon_family_of("肌上") == deren::gltf::toon_family::skin);
     CHECK(deren::gltf::toon_family_of("肌-手") == deren::gltf::toon_family::skin);
@@ -461,7 +461,7 @@ void test_the_toon_family_matcher_reads_mmd_material_names() {
     CHECK(deren::gltf::toon_family_of("手") == deren::gltf::toon_family::skin);
 
     // THE SAME WORD IN ANOTHER SCRIPT IS A DIFFERENT WORD TO A BYTE COMPARISON, so each spelling is asserted
-    // on its own: a table that gained only one of a pair reads half the models it exists to serve.
+    // alone: a table that gained only one of a pair reads half the models it exists to serve.
     CHECK(deren::gltf::toon_family_of("髪") == deren::gltf::toon_family::hair);  // Japanese
     CHECK(deren::gltf::toon_family_of("髮") == deren::gltf::toon_family::hair);  // traditional
     CHECK(deren::gltf::toon_family_of("顔") == deren::gltf::toon_family::face);  // Japanese
@@ -482,7 +482,7 @@ void test_the_toon_family_matcher_reads_mmd_material_names() {
     CHECK(deren::gltf::toon_family_of("袖口") == deren::gltf::toon_family::cloth);
     CHECK(deren::gltf::toon_family_of("领口") == deren::gltf::toon_family::cloth);
 
-    // THE REFERENCE'S OWN NAMES ARE UNCHANGED, which is the widest risk in adding patterns: one that steals
+    // THE REFERENCE'S NAMES ARE UNCHANGED, which is the widest risk in adding patterns: one that steals
     // a material the game data already classified moves a frame that was not supposed to move. These are
     // `actor_zhuangfy.glb`'s names, and `eyeshadow` and `tail` must stay `none` - they are the two names in
     // that file no family claims, and `eyeshadow` is the near miss that would catch a careless `eye` pattern.
@@ -492,10 +492,10 @@ void test_the_toon_family_matcher_reads_mmd_material_names() {
     CHECK(deren::gltf::toon_family_of("M_actor_zhuangfy_body_01") == deren::gltf::toon_family::skin);
     CHECK(deren::gltf::toon_family_of("M_actor_zhuangfy_cloth_01") == deren::gltf::toon_family::cloth);
     CHECK(deren::gltf::toon_family_of("M_S_actor_zhuangfy_eyebrow_01_lod0") == deren::gltf::toon_family::face);
-    // THE TWO OVERLAY MATERIALS ARE `none`, NOT `hair`: the article draws them in their own framebuffer-multiply
+    // THE TWO OVERLAY MATERIALS ARE `none`, NOT `hair`: the article draws them in their framebuffer-multiply
     // pass (`MyZmdEyeDarkShader` / `MyZmdHairShadowShader`), so no toon family may claim them - see the note at the
     // top of `toon_family_of`. The hair-shadow line here asserted `hair` until that pass was being ported, which is
-    // the reference's own classification of the NAME and not of the SHADING.
+    // the reference's classification of the NAME and not of the SHADING.
     CHECK(deren::gltf::toon_family_of("M_S_actor_zhuangfy_hairshadow_01_lod0") == deren::gltf::toon_family::none);
     CHECK(deren::gltf::toon_family_of("M_S_actor_zhuangfy_eyeshadow_01_lod0") == deren::gltf::toon_family::none);
     CHECK(deren::gltf::toon_family_of("M_eyeshadow_common_01") == deren::gltf::toon_family::none);
@@ -511,7 +511,7 @@ void test_the_toon_family_matcher_reads_mmd_material_names() {
 // ---------------------------------------------------------------------------------------------------
 // THE OVERLAY MATCHER, the other half of the same "no family shades them" decision above.
 //
-// WHY IT NEEDS ITS OWN TEST AND NOT JUST A SECOND `CHECK` LINE: the two functions are ONE decision read from
+// WHY IT NEEDS its TEST AND NOT JUST A SECOND `CHECK` LINE: the two functions are ONE decision read from
 // two sides (see the note at the top of `toon_family_of`). A name claimed by neither is a material that is
 // never drawn at all - not a wrong picture, a disappearing surface - so the invariant that matters is the PAIR:
 // every name `overlay_kind_of` claims must be `toon_family::none`, and the two overlay assets' names must be
@@ -531,7 +531,7 @@ void test_the_overlay_matcher_claims_the_two_masks() {
     CHECK(deren::gltf::overlay_kind_of("M_eyewhiteshadow_common_01") == deren::gltf::overlay_kind::eye_dark);
     CHECK(deren::gltf::toon_family_of("M_eyewhiteshadow_common_01") == deren::gltf::toon_family::none);
     CHECK(deren::gltf::overlay_kind_of("M_hairshadow_common_01") == deren::gltf::overlay_kind::hair_shadow);
-    // ... and the game's own names for the same two, which are the ones the loader meets first in practice
+    // ... and the game's names for the same two, which are the ones the loader meets first in practice
     CHECK(deren::gltf::overlay_kind_of("M_S_actor_zhuangfy_eyeshadow_01_lod0") == deren::gltf::overlay_kind::eye_dark);
     CHECK(deren::gltf::overlay_kind_of("M_S_actor_zhuangfy_hairshadow_01_lod0") == deren::gltf::overlay_kind::hair_shadow);
     // the matcher is case-insensitive ASCII, like `toon_family_of`
@@ -573,7 +573,7 @@ void test_the_extras_block_is_read_through_the_claimed_table() {
         return;
     }
     // THE CLAIMED ROWS ARRIVE, as the asset wrote them - and a stated ZERO is a value rather than an absence,
-    // which is exactly why these lanes' "nothing stated" had to be a sentinel of its own.
+    // which is exactly why these lanes' "nothing stated" had to be A separate sentinel.
     CHECK(scenes.materials[0].extras_floats.count("_Specular") == 1);
     CHECK(scenes.materials[0].extras_floats.at("_Specular") == 0.0f);
     // ... AND SO DOES THE SECOND CLAIMED ROW, which is the pair the whitelist is now made of: a table that
@@ -838,7 +838,7 @@ void test_standalone_motion_file() {
 // THE TWO BYTE RANGES fastgltf::validate() LEAVES UNCHECKED, pinned with files whose numbers point past the end.
 //
 // WHY THESE ARE TESTED AT ALL: neither is a decode bug. The JSON is legal, every index resolves, and fastgltf's
-// own validation accepts both files - what is wrong is only their EXTENT. The first file's second bufferView runs
+// the validation accepts both files - what is wrong is only their EXTENT. The first file's second bufferView runs
 // 8 bytes past the end of a 12-byte buffer; the second file's morph target names accessor 7 of a table holding
 // one. Before the loader compared those ranges itself, the first fed span::subspan an out-of-range pair
 // (undefined behaviour, already inside get_source_bytes) and the second indexed asset.accessors past the end, so

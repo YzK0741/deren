@@ -17,7 +17,7 @@ import deren.utility.shared;
 // The record series (abi 20): the two barriers, the rendering scope, the cull mode and the draw go through
 // the contract, so this file names no `vkCmd*` at all - the same six-site shape fxaa.cpp migrated.
 import deren.promise.rhi;
-import deren.engine.pipelines; // build_upscale: the pass's own pipeline, from its two shaders and the surface's format
+import deren.engine.pipelines; // build_upscale: the pass's pipeline, from its two shaders and the surface's format
 import deren.utility;
 
 // The contract's spelling, local to this TU (post.cpp and fxaa.cpp carry the same alias): the record series
@@ -45,7 +45,7 @@ namespace deren::engine::pass {
     std::string_view upscale_pass::feature() const noexcept {
         // THE NAME THE RENDERER ALREADY ANSWERS: `f.upscale` = "the render chain is smaller than the output AND
         // this pass built its pipeline" (`runtime::post_upscale_active`), which is one definition shared with
-        // the composite's target choice and the overlay's owner - so the record step's gate, the frame's target and
+        // the composite's target choice and the overlay's holder - so the record step's gate, the frame's target and
         // the overlay cannot disagree about whether this pass runs. At render_scale = 1.0 it answers false and
         // the pass is never resolved or recorded, which is what keeps every scale-1.0 frame byte-identical.
         return "upscale";
@@ -82,8 +82,8 @@ namespace deren::engine::pass {
 
     void upscale_pass::on_swapchain_recreated(pass_host const&) {
         // Nothing to reset: the pipeline depends on the surface's FORMAT (a session-stable device fact) and not
-        // on its size - the viewport is resynced by the record step from `io.extent`, which is the swapchain's own
-        // extent this time (see pass_behaviour) - and this pass owns no descriptor family.
+        // on its size - the viewport is resynced by the record step from `io.extent`, which is the swapchain's
+        // extent this time (see pass_behaviour) - and this pass holds no descriptor family.
     }
 
     bool upscale_pass::pipeline_ready() const noexcept {
@@ -114,7 +114,7 @@ namespace deren::engine::pass {
         // THE ZERO GUARDS ARE NOT DEFENSIVE PADDING: these are divisions by an extent, and a zero would put an
         // infinity into EASU's tap positions, which produces a frame of garbage rather than a small image. The
         // frame cannot reach here with a zero extent (the pass returns early, and `core::render_extent` clamps
-        // to 1), so the guard exists to make that a property of THIS function rather than of its callers.
+        // to 1), so the guard exists to make that A separate property of THIS function rather than callers.
         float const in_w = static_cast<float>(render_width == 0u ? 1u : render_width);
         float const in_h = static_cast<float>(render_height == 0u ? 1u : render_height);
         float const out_w = static_cast<float>(output_width == 0u ? 1u : output_width);
@@ -124,13 +124,13 @@ namespace deren::engine::pass {
 
         easu_constants con = {};
         // The output integer position -> a pixel position in the input viewport, and the -0.5 that keeps the
-        // mapping centred on the input's own pixel centres rather than its corner.
+        // mapping centred on the input's pixel centres rather than its corner.
         con.con0[0] = in_w / out_w;
         con.con0[1] = in_h / out_h;
         con.con0[2] = 0.5f * in_w / out_w - 0.5f;
         con.con0[3] = 0.5f * in_h / out_h - 0.5f;
         // Viewport pixel position -> normalized image space, which is the upper-left of the 'F' tap, plus the
-        // three further gather positions relative to it (the reference's own arrangement, kept so the shader's
+        // three further gather positions relative to it (the reference's arrangement, kept so the shader's
         // p0..p3 stay recognisable against it).
         con.con1[0] = rcp_in_w;
         con.con1[1] = rcp_in_h;
@@ -163,11 +163,11 @@ namespace deren::engine::pass {
             io.extent.width == 0 || io.extent.height == 0) {
             return rhi::error::invalid_argument;
         }
-        // The push block is composed HERE (S3), and it is the pass's own. TWO GROUPS OF LANES:
+        // The push block is composed HERE (S3), and it is the pass's. TWO GROUPS OF LANES:
         //
         //   * EASU's four constants, from the two extents the pass can see without being told the scale: the
         //     FRAME's extent is the render chain's (`io.frame.extent` - the same value `pass_frame` handed the
-        //     resolver) and `io.extent` is the OUTPUT extent this pass's own `resource` rule resolved to. Their
+        //     resolver) and `io.extent` is the OUTPUT extent this pass's `resource` rule resolved to. Their
         //     ratio IS the render scale, which is why nothing here needs to know it.
         //   * the display transfer, which follows from the surface's format - 0 when the swapchain attachment
         //     encodes linear -> sRGB in hardware (so the shader must hand it LINEAR values) and 1 when the
@@ -195,7 +195,7 @@ namespace deren::engine::pass {
             .colors = colors,
             .depth = {},
             .has_depth = false,
-            .secondary_contents = false, // this instance is inline; the overlay segment runs in its own after it ends
+            .secondary_contents = false, // this instance is inline; the overlay segment runs in its after it ends
         };
         auto const begun = io.list->begin_rendering(rendering_info);
         if (begun != rhi::error::ok) {
@@ -209,9 +209,9 @@ namespace deren::engine::pass {
             return rhi::error::operation_failed;
         }
         io.list->draw(3, 1, 0, 0);
-        // THE OVERLAY RECORDS ITS OWN SEGMENT HERE (gui abi 5): the third-party recorder is not a contract
-        // consumer, so the plugin starts one of its mergeable targets under this instance's inheritance and
-        // returns it; the segment is EXECUTED by the host in its own secondary-contents instance after THIS
+        // THE OVERLAY RECORDS its SEGMENT HERE (gui abi 5): the third-party recorder is not a contract
+        // consumer, so the plugin starts a separate one mergeable targets under this instance's inheritance and
+        // returns it; the segment is EXECUTED by the host in its secondary-contents instance after THIS
         // instance ends (see draw_callback::finish - the two cannot share one instance because a
         // CONTENTS_SECONDARY_COMMAND_BUFFERS instance may contain no primary draw).
         if (this->pass_frame.after_draw.valid()) {

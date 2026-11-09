@@ -12,7 +12,7 @@
  * a `VkDevice` as well - a leftover from the years when a builder created its pipeline raw through the escape -
  * and after the last raw builder (the heap probe's graphics pipeline) moved onto `create_pipeline`, not one of
  * them read it. A builder that needs the surface's format is handed that as a parameter instead (the composite
- * and FXAA, which write the swapchain image). Ownership stays with whoever asked for the build (the runtime
+ * and FXAA, which write the swapchain image). Retention stays with whoever asked for the build (the runtime
  * today, a pass once its three-piece has moved).
  *
  * NO BUILDER TAKES OR MAKES A PIPELINE LAYOUT: every stage is heap-native, so a pipeline is created with
@@ -20,7 +20,7 @@
  * reads come from the frame's bound heap rather than from a set. The set-layout plumbing the builders used to
  * thread through is gone with it.
  *
- * The pipeline handles are std::optional because vk_pipeline is an RAII owner with no default
+ * The pipeline handles are std::optional because vk_pipeline is an RAII holder with no default
  * constructor, which is also how the runtime holds them.
  */
 
@@ -40,27 +40,27 @@ namespace deren::engine::pipelines {
 
     namespace rhi = deren::promise::rhi;
 
-    /// THE TWO RELEASES THE ENGINE'S OWN RAII TYPES CALL, out of line here for the reason below.
-    /// THE RELEASES RUN OUT-OF-LINE, here in the module that owns the handles: a virtual release()
+    /// THE TWO RELEASES THE ENGINE'S RAII TYPES CALL, out of line here for the reason below.
+    /// THE RELEASES RUN OUT-OF-LINE, here in the module that holds the handles: a virtual release()
     /// call textually inside an importer's destructor trips a clang 22 codegen crash (EmitBuiltin
     /// NewDeleteCall under EmitDeferred, measured this session), and keeping the call here also
     /// keeps the importer's generated code free of it.
     ///
-    /// `release_contract_shader` IS GONE WITH THE RAW SHADER LANE (abi 21): the engine-owned shader module
+    /// `release_contract_shader` IS GONE WITH THE RAW SHADER LANE (abi 21): the engine-held shader module
     /// handle it existed for (`shader_module_handle` / `make_shader_module_raw`) had exactly ONE user - the
-    /// heap probe's graphics builder - and that builder now goes through `create_pipeline`, which owns its
+    /// heap probe's graphics builder - and that builder now goes through `create_pipeline`, which holds its
     /// modules inside the backend. `release_contract_pipeline` is the one the pipeline RAII needs.
     export void release_contract_pipeline(rhi::pipeline* resource) noexcept;
 
     /// AN ENGINE-HELD PIPELINE (abi 8): a CONTRACT pipeline (every pipeline this renderer builds since abi 21),
     /// created through `create_pipeline` and released inside the backend when this dies.
     ///
-    /// THE RAW LANE IS GONE (this batch): the type first gave up OWNING a raw `VkPipeline` (abi 21), and now it
+    /// THE RAW LANE IS GONE (this batch): the type first gave up HOLDING a raw `VkPipeline` (abi 21), and now it
     /// gives up CARRYING one: its last reader was `begin_pipeline` - the runner's raster bind of the geometry
     /// pipelines - and that verb takes the CONTRACT command buffer now, so `native`, its `get_pipeline()`
     /// accessor and the eight `vulkan_escape::native_pipeline()` reads that filled it are deleted. The stored
     /// dynamic state speaks the CONTRACT's vocabulary too (`rhi::viewport` / `rhi::rect`), which is what lets the
-    /// bind and the state be stated as the record series' own verbs.
+    /// bind and the state be stated as the record series' verbs.
     export struct pipeline_handle {
         /// SET FOR EVERY PIPELINE THIS RENDERER BUILDS: its release() runs inside the backend.
         rhi::pipeline* contract = nullptr;
@@ -268,29 +268,29 @@ namespace deren::engine::pipelines {
      * @param depth_bias_constant_factor constant depth bias
      * @param depth_bias_slope_factor slope-scaled depth bias
      * @param depth_bias_clamp depth bias clamp, 0 disables clamping
-     * @param vertex_shader_code the geometry stage's SPIR-V (the mesh path's own module when it fetches its
-     *        own vertices)
+     * @param vertex_shader_code the geometry stage's SPIR-V (the mesh path's module when it fetches its
+     *        its vertices)
      * @param fragment_shader_code the fragment stage's SPIR-V, the same shader either way
      * @param first_stage the stage that emits the geometry: VERTEX for the input-assembler path, MESH for the
-     *        one that fetches its own vertices - the FRAGMENT stage is the same shader either way, which is
+     *        one that fetches its vertices - the FRAGMENT stage is the same shader either way, which is
      *        what makes the two paths comparable (see docs/mesh_shaders.md step 1)
      */
     export std::expected<pipeline_handle, deren::utility::vessel::string> build_shadow(rhi::api_core& face, rhi::image_format depth_format, float depth_bias_constant_factor, float depth_bias_slope_factor,
                                                                                        float depth_bias_clamp, std::span<uint8_t const> vertex_shader_code, std::span<uint8_t const> fragment_shader_code,
                                                                                        rhi::shader_stage first_stage = rhi::shader_stage::vertex);
-    /// @brief what the FXAA pass's own create step needs: the anti-aliasing pipeline
+    /// @brief what the FXAA pass's create step needs: the anti-aliasing pipeline
     export struct fxaa_resources {
         std::optional<pipeline_handle> antialias;
     };
     export std::expected<fxaa_resources, deren::utility::vessel::string> build_fxaa_resources(rhi::api_core& face, rhi::image_format swap_chain_format,
                                                                                               std::span<uint8_t const> vertex_shader_code, std::span<uint8_t const> fragment_shader_code);
     /**
-     * @brief what the UPSCALE pass's own create step needs: the resolve pipeline
+     * @brief what the UPSCALE pass's create step needs: the resolve pipeline
      *
      * FXAA's sibling, and its body is the same pipeline recipe on purpose: both passes read the composite's
      * display-referred LDR image and write the swapchain with `post.vert.spv`'s synthetic triangle and no depth
      * attachment, so the only things that differ are the fragment shader and the viewport the RUNNER sets from
-     * each pass's own declaration (FXAA's is the frame's extent, this one's is the swapchain's).
+     * each pass's declaration (FXAA's is the frame's extent, this one's is the swapchain's).
      */
     export struct upscale_resources {
         std::optional<pipeline_handle> resolve;
@@ -304,7 +304,7 @@ namespace deren::engine::pipelines {
     /// the additive blend state comes in as a parameter: the helper that builds it is a local of the
     /// runtime, next to the passes whose blend modes it describes
     export std::expected<deferred_resources, deren::utility::vessel::string> build_deferred(rhi::api_core& face, std::span<rhi::blend_mode const> color_blend, std::span<uint8_t const> vertex_shader_code, std::span<uint8_t const> fragment_shader_code);
-    // post: the composite chain's owner. The two fullscreen pipelines (one per color format the chain renders
+    // post: the composite chain's holder. The two fullscreen pipelines (one per color format the chain renders
     // into) are created here.
     std::expected<post_resources, deren::utility::vessel::string> build_post(rhi::api_core& face, rhi::image_format const swap_chain_format,
                                                                              std::span<uint8_t const> const vertex_shader_code,
@@ -355,7 +355,7 @@ namespace deren::engine::pipelines {
         out.debug = std::move(pipeline_result).value();
         return out;
     }
-    // taa: the resolve pass' owner. It writes the HDR target, so its rendering color format is hdr_format
+    // taa: the resolve pass' holder. It writes the HDR target, so its rendering color format is hdr_format
     // (a span of one), and its sampler is the odd one out - linear magnification, nearest minification,
     // because the resolve upsamples the scene color but must not average neighbouring history texels.
     std::expected<taa_resources, deren::utility::vessel::string> build_taa(rhi::api_core& face, rhi::image_format const color_format, std::span<uint8_t const> const vertex_shader_code, std::span<uint8_t const> const fragment_shader_code) {
@@ -376,14 +376,14 @@ namespace deren::engine::pipelines {
 
     // The mask bake (see source/shaders/geometry/mask_bake.slang): a compute pipeline over the material heap slots ALONE, because
     // everything it needs is there - the material table for the alpha texture's index and the cutoff, and the
-    // bindless texture array to sample it. It owns no set layout, like every traced compute pass, and it is the only compute
+    // bindless texture array to sample it. It holds no set layout, like every traced compute pass, and it is the only compute
     // pass here whose output is not an image: it writes vertices into a buffer the acceleration structure is
     // then built from.
     std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_mask_bake(rhi::api_core& face, std::span<uint8_t const> const compute_shader_code) {
         using fail = std::unexpected<deren::utility::vessel::string>;
         compute_pipeline_resources out;
         // THE PIPELINE IS A CONTRACT OBJECT NOW (abi 21): the heap-native compute rules live in the backend
-        // (`core::create_compute_pipeline`), which is the side that owns the bind point and the heap flag.
+        // (`core::create_compute_pipeline`), which is the side that holds the bind point and the heap flag.
         rhi::pipeline_desc desc{};
         desc.first_stage = rhi::shader_stage::compute;
         desc.compute_code = std::as_bytes(compute_shader_code);
@@ -402,7 +402,7 @@ namespace deren::engine::pipelines {
         using fail = std::unexpected<deren::utility::vessel::string>;
         compute_pipeline_resources out;
         // THE PIPELINE IS A CONTRACT OBJECT NOW (abi 21): the heap-native compute rules live in the backend
-        // (`core::create_compute_pipeline`), which is the side that owns the bind point and the heap flag.
+        // (`core::create_compute_pipeline`), which is the side that holds the bind point and the heap flag.
         rhi::pipeline_desc desc{};
         desc.first_stage = rhi::shader_stage::compute;
         desc.compute_code = std::as_bytes(compute_shader_code);
@@ -416,7 +416,7 @@ namespace deren::engine::pipelines {
     }
 
     // The GPU subtilis cut: the same heap-native compute shape as the compute-skinning pass above. Its inputs
-    // and outputs are device addresses in the item record, so the builder owns only the pipeline.
+    // and outputs are device addresses in the item record, so the builder holds only the pipeline.
     std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_subtilis_cut(rhi::api_core& face, std::span<uint8_t const> const compute_shader_code) {
         using fail = std::unexpected<deren::utility::vessel::string>;
         compute_pipeline_resources out;
@@ -435,12 +435,12 @@ namespace deren::engine::pipelines {
     // The clustered-light sort: NO set, NO layout and NO push range. Every stage of the frame is heap-native
     // (see docs/descriptor_heap_handover.md), so this pipeline is created with VK_NULL_HANDLE and the heap flag;
     // the shader reads the light UBO and the cluster buffers out of the scene block by slot, and the slot itself
-    // travels in the stage push block (source/shaders/heap_slots.glsl). Owning the pipeline is all that is left to own.
+    // travels in the stage push block (source/shaders/heap_slots.glsl). Holding the pipeline is all that is left to hold.
     std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_cluster(rhi::api_core& face, std::span<uint8_t const> const compute_shader_code) {
         using fail = std::unexpected<deren::utility::vessel::string>;
         compute_pipeline_resources out;
         // THE PIPELINE IS A CONTRACT OBJECT NOW (abi 21): the heap-native compute rules live in the backend
-        // (`core::create_compute_pipeline`), which is the side that owns the bind point and the heap flag.
+        // (`core::create_compute_pipeline`), which is the side that holds the bind point and the heap flag.
         rhi::pipeline_desc desc{};
         desc.first_stage = rhi::shader_stage::compute;
         desc.compute_code = std::as_bytes(compute_shader_code);
@@ -455,12 +455,12 @@ namespace deren::engine::pipelines {
 
     // The VISIBILITY RESOLVE (source/shaders/scene/visibility_resolve.slang): the same heap-native compute shape as
     // the cluster sort above and for the same reason - every input and output is a heap descriptor, the shader's only
-    // constants are the two index lanes it receives through vkCmdPushDataEXT, and there is no set or layout to own.
+    // constants are the two index lanes it receives through vkCmdPushDataEXT, and there is no set or layout to hold.
     std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_visibility_resolve(rhi::api_core& face, std::span<uint8_t const> const compute_shader_code) {
         using fail = std::unexpected<deren::utility::vessel::string>;
         compute_pipeline_resources out;
         // THE PIPELINE IS A CONTRACT OBJECT (abi 21): the heap-native compute rules live in the backend
-        // (`core::create_compute_pipeline`), which is the side that owns the bind point and the heap flag.
+        // (`core::create_compute_pipeline`), which is the side that holds the bind point and the heap flag.
         rhi::pipeline_desc desc{};
         desc.first_stage = rhi::shader_stage::compute;
         desc.compute_code = std::as_bytes(compute_shader_code);
@@ -481,7 +481,7 @@ namespace deren::engine::pipelines {
         using fail = std::unexpected<deren::utility::vessel::string>;
         compute_pipeline_resources out;
         // THE PIPELINE IS A CONTRACT OBJECT (abi 21): the heap-native compute rules live in the backend
-        // (`core::create_compute_pipeline`), which is the side that owns the bind point and the heap flag.
+        // (`core::create_compute_pipeline`), which is the side that holds the bind point and the heap flag.
         rhi::pipeline_desc desc{};
         desc.first_stage = rhi::shader_stage::compute;
         desc.compute_code = std::as_bytes(compute_shader_code);
@@ -525,12 +525,12 @@ namespace deren::engine::pipelines {
     // The HZB BUILD (source/shaders/scene/hzb_build.slang): the visibility resolve's shape one more time - every
     // input and output is a heap descriptor (the per-image depth, the two HZB tables, the camera), the shader's
     // only constants are the pyramid level plus the two index lanes the framework appends, and no set or layout
-    // exists to own. M3 phase A2 builds it so the pyramid can be validated by readback; nothing reads it yet.
+    // exists to hold. M3 phase A2 builds it so the pyramid can be validated by readback; nothing reads it yet.
     std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_hzb_build(rhi::api_core& face, std::span<uint8_t const> const compute_shader_code) {
         using fail = std::unexpected<deren::utility::vessel::string>;
         compute_pipeline_resources out;
         // THE PIPELINE IS A CONTRACT OBJECT (abi 21): the heap-native compute rules live in the backend
-        // (`core::create_compute_pipeline`), which is the side that owns the bind point and the heap flag.
+        // (`core::create_compute_pipeline`), which is the side that holds the bind point and the heap flag.
         rhi::pipeline_desc desc{};
         desc.first_stage = rhi::shader_stage::compute;
         desc.compute_code = std::as_bytes(compute_shader_code);
@@ -544,8 +544,8 @@ namespace deren::engine::pipelines {
     }
 
     // The REFLECTION DENOISER (source/shaders/lighting/reflection_{reproject,prefilter,resolve}.slang): the HZB
-    // build's shape again - every image and the camera are heap descriptors, the only constants are the five own
-    // push lanes plus the framework's two index lanes, and no set or layout exists to own. Three calls with
+    // build's shape again - every image and the camera are heap descriptors, the only constants are the five dedicated
+    // push lanes plus the framework's two index lanes, and no set or layout exists to hold. Three calls with
     // different SPIR-V modules share this builder; `debug_name` keeps them apart in a capture.
     std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_reflection_denoise(rhi::api_core& face, std::span<uint8_t const> const compute_shader_code, char const* debug_name) {
         using fail = std::unexpected<deren::utility::vessel::string>;
@@ -564,13 +564,13 @@ namespace deren::engine::pipelines {
 
     // The HZB CULL (source/shaders/scene/hzb_cull.slang): the build stage's shape once more, for the same reason -
     // every input and output is a heap descriptor (the history pyramid/header, the item/candidate tables, the flags/
-    // survivors/counts tables and the draw-item model), its only constants are the three own push lanes plus the
-    // framework's index lanes, and no set or layout exists to own. M3 phase B1: it writes its own tables only.
+    // survivors/counts tables and the draw-item model), its only constants are the three dedicated push lanes plus the
+    // framework's index lanes, and no set or layout exists to hold. M3 phase B1: it writes its tables only.
     std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_hzb_cull(rhi::api_core& face, std::span<uint8_t const> const compute_shader_code) {
         using fail = std::unexpected<deren::utility::vessel::string>;
         compute_pipeline_resources out;
         // THE PIPELINE IS A CONTRACT OBJECT (abi 21): the heap-native compute rules live in the backend
-        // (`core::create_compute_pipeline`), which is the side that owns the bind point and the heap flag.
+        // (`core::create_compute_pipeline`), which is the side that holds the bind point and the heap flag.
         rhi::pipeline_desc desc{};
         desc.first_stage = rhi::shader_stage::compute;
         desc.compute_code = std::as_bytes(compute_shader_code);
@@ -587,7 +587,7 @@ namespace deren::engine::pipelines {
         using fail = std::unexpected<deren::utility::vessel::string>;
         compute_pipeline_resources out;
         // THE PIPELINE IS A CONTRACT OBJECT NOW (abi 21): the heap-native compute rules live in the backend
-        // (`core::create_compute_pipeline`), which is the side that owns the bind point and the heap flag.
+        // (`core::create_compute_pipeline`), which is the side that holds the bind point and the heap flag.
         rhi::pipeline_desc desc{};
         desc.first_stage = rhi::shader_stage::compute;
         desc.compute_code = std::as_bytes(compute_shader_code);
@@ -612,12 +612,12 @@ namespace deren::engine::pipelines {
         // is the parameter that makes the vertex probe and the MESH probe (docs/mesh_shaders.md step 0) the same
         // builder: a mesh pipeline substitutes the mesh stage and ignores the (empty) vertex input.
         //
-        // THE RAW PATH THAT STOOD HERE IS GONE WITH THE CONTRACT'S OWN FACTORY, and this builder was its LAST
+        // THE RAW PATH THAT STOOD HERE IS GONE WITH THE CONTRACT'S FACTORY, and this builder was its LAST
         // user: `make_shader_module_raw` (two vkCreateShaderModule calls), a hand-built
         // `VkGraphicsPipelineCreateInfo`, `vkCreateGraphicsPipelines` and `pipeline_handle(raw, device)` - whose
         // destructor was the engine's only vkDestroyPipeline. The heap flag and the NULL layout the comment above
         // insists on are `create_pipeline`'s business now, exactly as they are for every other recipe in this
-        // file; the probe's own subject (a fragment stage reading the heap through a graphics pipeline at all) is
+        // file; the probe's subject (a fragment stage reading the heap through a graphics pipeline at all) is
         // unchanged, which is why the two probes still compare directly.
         deren::utility::vessel::array<rhi::image_format, 1> const color_formats = {colour_format};
         return make_graphics_pipeline(face,
@@ -640,7 +640,7 @@ namespace deren::engine::pipelines {
         using fail = std::unexpected<deren::utility::vessel::string>;
         compute_pipeline_resources out;
         // THE PIPELINE IS A CONTRACT OBJECT NOW (abi 21): the heap-native compute rules live in the backend
-        // (`core::create_compute_pipeline`), which is the side that owns the bind point and the heap flag.
+        // (`core::create_compute_pipeline`), which is the side that holds the bind point and the heap flag.
         rhi::pipeline_desc desc{};
         desc.first_stage = rhi::shader_stage::compute;
         desc.compute_code = std::as_bytes(compute_shader_code);
@@ -686,7 +686,7 @@ namespace deren::engine::pipelines {
         // THE PIPELINE IS A CONTRACT OBJECT NOW (abi 21): the ray-tracing rules - the entry-point resolution
         // (the loader exports no extension command), the heap flag, the group TYPE derived from which slots a
         // group fills, and the ray-tracing bind point - live in the backend (`core::create_ray_tracing_pipeline`),
-        // which is the side that owns them. What stays here is the pipeline's SHAPE, which is this pass's.
+        // which is the side that holds them. What stays here is the pipeline's SHAPE, which is this pass's.
         deren::utility::vessel::array<rhi::ray_tracing_stage, 4> const stages = {
             rhi::ray_tracing_stage{.stage = rhi::shader_stage::ray_generation, .code = std::as_bytes(raygen_code), .debug_name = "rt shadow raygen"},
             rhi::ray_tracing_stage{.stage = rhi::shader_stage::miss, .code = std::as_bytes(miss_code), .debug_name = "rt shadow miss"},
@@ -706,7 +706,7 @@ namespace deren::engine::pipelines {
         rhi::pipeline_desc desc{};
         desc.ray_tracing_stages = stages;
         desc.ray_tracing_groups = groups;
-        // RECURSION DEPTH 1 (the header's own note): the shadow ray answers a yes/no question and terminates on
+        // RECURSION DEPTH 1 (the header's note): the shadow ray answers a yes/no question and terminates on
         // the first hit, so there is nothing for a second level to do.
         desc.max_ray_recursion = 1u;
         desc.debug_name = "rt shadow";
@@ -781,13 +781,13 @@ namespace deren::engine::pipelines {
         return out;
     }
 
-    // The temporal resolve: its own pipeline, over the images the frame's heap carries. It reads no scene
+    // The temporal resolve: its pipeline, over the images the frame's heap carries. It reads no scene
     // buffer: the push block carries the two projection terms its depth guard needs.
     std::expected<resolve_pipeline_resources, deren::utility::vessel::string> build_resolve_pipeline(rhi::api_core& face, std::span<uint8_t const> const compute_shader_code) {
         using fail = std::unexpected<deren::utility::vessel::string>;
         resolve_pipeline_resources out;
         // THE PIPELINE IS A CONTRACT OBJECT NOW (abi 21): the heap-native compute rules live in the backend
-        // (`core::create_compute_pipeline`), which is the side that owns the bind point and the heap flag.
+        // (`core::create_compute_pipeline`), which is the side that holds the bind point and the heap flag.
         rhi::pipeline_desc desc{};
         desc.first_stage = rhi::shader_stage::compute;
         desc.compute_code = std::as_bytes(compute_shader_code);
@@ -833,7 +833,7 @@ namespace deren::engine::pipelines {
                                                                                 float const depth_bias_slope_factor, float const depth_bias_clamp, std::span<uint8_t const> const vertex_shader_code,
                                                                                 std::span<uint8_t const> const fragment_shader_code,
                                                                                 // THE STAGE THAT EMITS THE GEOMETRY: VERTEX for the input-assembler path, MESH
-                                                                                // for the one that fetches its own vertices (docs/mesh_shaders.md step 1 - the
+                                                                                // for the one that fetches its vertices (docs/mesh_shaders.md step 1 - the
                                                                                 // fragment stage is the SAME shader either way, which is what makes the two
                                                                                 // paths comparable at all).
                                                                                 rhi::shader_stage first_stage) {

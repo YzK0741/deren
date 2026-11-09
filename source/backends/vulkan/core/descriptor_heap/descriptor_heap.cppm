@@ -16,13 +16,13 @@ module; // the macro-using Vulkan header must not be imported into a module purv
  * @defgroup vulkan_core_descriptor_heap Descriptor Heap
  *
  * WHY IT IS A SUBMODULE OF core AND NOT A PASS OR A TOP-LEVEL MODULE: a heap is DEVICE-WIDE state. The
- * extension's own guidance is to bind one heap for the application's lifetime, because binding a new one costs
+ * extension's guidance is to bind one heap for the application's lifetime, because binding a new one costs
  * a pipeline flush; the descriptors in it are the same contract the shared scene block already describes; and
- * every pass reads them. So it lives beside the vma allocator as something `core` owns and hands down, and it
+ * every pass reads them. So it lives beside the vma allocator as something `core` holds and hands down, and it
  * deliberately knows NOTHING about what a binding means - set 0 binding 7 being the light UBO is core's
  * business, not this file's.
  *
- * WHAT IT OWNS: the two heap buffers (resources and samplers, which are SEPARATE heaps in this API), the
+ * WHAT IT HOLDS: the two heap buffers (resources and samplers, which are SEPARATE heaps in this API), the
  * layout arithmetic that the device's properties dictate, and the three calls that make the model work -
  * vkWriteResourceDescriptorsEXT to write a descriptor, vkCmdBindResourceHeapEXT/vkCmdBindSamplerHeapEXT to
  * bind the heaps, and VkDescriptorSetAndBindingMappingInfoEXT to let a shader keep naming `set N, binding M`.
@@ -58,9 +58,9 @@ namespace deren::vulkan {
     /**
      * @ingroup vulkan_core_descriptor_heap
      * @brief the device's heap numbers, copied out of VkPhysicalDeviceDescriptorHeapPropertiesEXT at init
-     * @note it is a struct of its own rather than a reference to the queried properties so that this module does
+     * @note it is A separate struct rather than a reference to the queried properties so that this module does
      *       not depend on the capability layer's header: the caller copies what a layout needs, and the heap
-     *       never reaches back into device state it does not own.
+     *       never reaches back into device state it does not hold.
      */
     export struct heap_limits {
         VkDeviceSize max_resource_size = 0;
@@ -88,7 +88,7 @@ namespace deren::vulkan {
     public:
         descriptor_heap() = default;
         descriptor_heap(descriptor_heap const&) = delete ("descriptor_heap is non-copyable: construct it in place and keep its identity");
-        descriptor_heap& operator=(descriptor_heap const&) = delete ("descriptor_heap is non-copyable: configure it through its owning API");
+        descriptor_heap& operator=(descriptor_heap const&) = delete ("descriptor_heap is non-copyable: configure it through its holding API");
         descriptor_heap(descriptor_heap&&) = delete ("descriptor_heap is non-movable: its resources are tied to the current address");
         descriptor_heap& operator=(descriptor_heap&&) = delete ("descriptor_heap is non-movable: its resources are tied to the current address");
         ~descriptor_heap();
@@ -166,16 +166,16 @@ namespace deren::vulkan {
         void record_bind(VkCommandBuffer command_buffer) const noexcept;
 
         /**
-         * @brief write THIS heap's two bind infos into storage the caller owns
+         * @brief write THIS heap's two bind infos into storage the caller holds
          * @param resource filled with the resource heap's bind info (the same one record_bind binds)
          * @param sampler filled with the sampler heap's bind info
          *
-         * WHY IT EXISTS SEPARATELY FROM record_bind: a SECONDARY COMMAND BUFFER IS VALIDATED ON ITS OWN, so the
+         * WHY IT EXISTS SEPARATELY FROM record_bind: a SECONDARY COMMAND BUFFER IS VALIDATED alone, so the
          * bind the primary records never reaches it - validation refuses the draw with "The shader uses resource
          * descriptors, but VkCommandBufferInheritanceDescriptorHeapInfoEXT::pResourceHeapBindInfo is NULL"
          * (VUID-vkCmdDrawIndexed-None-11308), and a migrated frame whose leaves draw in secondaries therefore
          * comes out black. `VkCommandBufferInheritanceDescriptorHeapInfoEXT` POINTS at the bind infos rather than
-         * copying them, which is why this fills caller-owned storage: it has to outlive vkBeginCommandBuffer, and
+         * copying them, which is why this fills caller-held storage: it has to outlive vkBeginCommandBuffer, and
          * a stack local in the recording function does that.
          */
         void bind_infos(VkBindHeapInfoEXT& resource, VkBindHeapInfoEXT& sampler) const noexcept;
@@ -242,7 +242,7 @@ namespace deren::vulkan {
         }
 
         /**
-         * @brief where a caller may START placing its own descriptors: past the implementation's reserved window
+         * @brief where a caller may START placing its descriptors: past the implementation's reserved window
          *
          * @note THIS IS NOT OPTIONAL BOOKKEEPING. minResourceHeapReservedRange is memory the implementation reserves
          *       for itself (the embedded-sampler machinery lives in it), and descriptors written INSIDE it are not
@@ -429,9 +429,9 @@ namespace deren::vulkan {
         if (!this->ready() || infos.empty() || descriptors_offset >= this->resource_heap_size) {
             return false;
         }
-        // The host range is the heap's own memory at the offset the descriptors go to: the call writes
+        // The host range is the heap's memory at the offset the descriptors go to: the call writes
         // descriptorCount descriptors of the declared types there, which is why the destination must be big
-        // enough for the sum of their strides.
+        // enough for the separate sum strides.
         VkDeviceSize needed = 0;
         for (VkResourceDescriptorInfoEXT const& info : infos) {
             needed += this->descriptor_stride(info.type);

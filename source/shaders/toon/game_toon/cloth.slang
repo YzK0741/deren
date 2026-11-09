@@ -30,7 +30,7 @@
 //
 // The function is included from `game_toon.slang` after `character_forward.slang`, so every deren helper/type
 // below (`surface_sample`, `Material`, `toon_params`, `ToonRigUBO`, `heap_*`, `toon_lanes*_at`, `surface_tbn`,
-// `calc_shadow`, `light_at`, `environment_*`) is already in scope. This file adds no include of its own; the
+// `calc_shadow`, `light_at`, `environment_*`) is already in scope. This file adds no separate include; the
 // guard is only so an accidental double include reports nothing rather than a redefinition.
 #ifndef DEREN_GAME_TOON_CLOTH_SLANG
 #define DEREN_GAME_TOON_CLOTH_SLANG
@@ -69,7 +69,7 @@ static float2 cloth_port_env_brdf_fit(float no_v, float roughness2) {
     const float no_v2 = no_v * no_v;
     const float no_v3 = no_v2 * no_v;
     const float r6 = roughness2 * roughness2 * roughness2;
-    // `_2539`: `mul(float2(1, NoV), mat2(...)) . (1, r2)` over its own denominator
+    // `_2539`: `mul(float2(1, NoV), mat2(...)) . (1, r2)` over its denominator
     const float fit_a = 3.32707 * no_v + 0.0365463;
     const float fit_b = -9.04755 * no_v + 9.0632;
     const float fit_x = 3.59685 * no_v2 - 1.36772 * no_v3 + 1.0;
@@ -116,11 +116,11 @@ float3 game_toon_cloth_shade(surface_sample s, float3 world_pos, float3 geo_norm
     // names that block's y as the `_MetallicGlossMap` index).
     //
     // THE SECOND SOURCE IS MEASURED, NOT GUESSED. `laevatain_goo.glb.toon.tsv` carries ONLY the Goo chain's
-    // rows for its cloth materials (no `_MetallicGlossMap`), so lane 5 is 0 there - but the glb's own P image
+    // rows for its cloth materials (no `_MetallicGlossMap`), so lane 5 is 0 there - but the glb's P image
     // IS its glTF `metallicRoughnessTexture` (`T_actor_laevat_cloth_01_P`, image 5; channel means over 2048^2:
     // R 41.5, G 254.9, B 160.0, A 80.1, i.e. the P dictionary), and deren uploads the glTF MR slot as
     // `rgba8_unorm` (`runtime.constructor.cppm`). `mat.tex_indices.y` is that slot. The white fallback is
-    // element 0, so `mat.tex_indices.y != 0u` means "a real MR texture exists" (deren's own "0 == do not read"
+    // element 0, so `mat.tex_indices.y != 0u` means "a real MR texture exists" (deren's "0 == do not read"
     // contract for the lane tables).
     //
     // THE THIRD SOURCE IS THE FAMILY TABLE, and it is deren's contract rather than a guess: `toon_params`'
@@ -142,7 +142,7 @@ float3 game_toon_cloth_shade(surface_sample s, float3 world_pos, float3 geo_norm
     const float reflectivity = p_texel.g;   // `_494`, readable:452
     const float occlusion = p_texel.b;      // `_495`, readable:453
     const float smoothness = p_texel.w;     // `_492.w`, readable:454
-    const float roughness = 1.0 - smoothness; // `_497`, readable:454 - the game's own definition
+    const float roughness = 1.0 - smoothness; // `_497`, readable:454 - the game's definition
     // readable:466-467 samples the OTHER name in the swap (`_MetallicGlossMap`); per the resolution above it is
     // the shadow LUT, used only as the additive detail at readable:1086. That detail needs `_48_m25` and
     // `_48_m7` (both stripped), so it is not ported:
@@ -156,7 +156,7 @@ float3 game_toon_cloth_shade(surface_sample s, float3 world_pos, float3 geo_norm
     // uses: the game builds `_567` from Unity's VERTEX tangent (`_6`), while deren has no vertex tangent and
     // builds the frame from UV derivatives (`surface_tbn`). The game's normal maps store their Y in the game's
     // (Unity) tangent-space convention, the opposite Y direction from the derivative frame, so the bitangent
-    // is negated. A future vertex-tangent path can replace this with the mesh's own `TANGENT.w`.
+    // is negated. A future vertex-tangent path can replace this with the mesh's `TANGENT.w`.
     float3 n_geo = normalize(geo_normal); // `_5`
     float3 n_shading = n_geo;             // `_577` when no normal map is present
     if ((mat.flags & 1u) != 0u) {
@@ -193,7 +193,7 @@ float3 game_toon_cloth_shade(surface_sample s, float3 world_pos, float3 geo_norm
     // recover, and whose deren lane is therefore absent (see §6 below).
     //
     // // MISSING: cloth_01..05 carry no `_DiffRampMap` row in `laevatain_goo.glb.toon.tsv`; their only ramp row
-    //    is `_GooBaseRamp` = lane 10, the GOO CHAIN's ramp, whose own coordinate is a different mechanism -
+    //    is `_GooBaseRamp` = lane 10, the GOO CHAIN's ramp, whose coordinate is a different mechanism -
     //    sampling it at this chain's uv would conflate two chains, so it is not done.
     //    THE FALLBACK IS A NEUTRAL VALUE OF 1.0, NOT THE OLD PROCEDURAL FAMILY TINT: the old body's
     //    `params.shadow_tint` + Hermite step was an invented colour, and "no ramp" is the honest degradation.
@@ -232,7 +232,7 @@ float3 game_toon_cloth_shade(surface_sample s, float3 world_pos, float3 geo_norm
     const float3 f0 = f0_dielectric + metallic * (base_colour - f0_dielectric); // `_2052`, readable:936 / asm:1075-1077
     // `_2032` is the DARK base: `_506 = _488 * _48_m18` (`_ShadowColorBrightness`), then
     // `_510 = lerp(luma(_506), _506, _48_m19)` (`_ShadowColorSaturation`) - readable:456-457, 510.
-    // Neither member has a deren lane; deren's family table carries the two values its own toon chain uses
+    // Neither member has a deren lane; deren's family table carries the two values its toon chain uses
     // for the same job, and they are used as the documented fallback:
     // // MISSING: `_48_m18` `_ShadowColorBrightness` / `_48_m19` `_ShadowColorSaturation`.
     float3 dark_base = base_colour * params.albedo_dark_strength;
@@ -305,7 +305,7 @@ float3 game_toon_cloth_shade(surface_sample s, float3 world_pos, float3 geo_norm
     const float hv2 = a4 * (1.0 - no_h * no_h + a4 * no_h * no_h); // `_2310` at aspect 0
     const float hv3 = a4 * a4 * a4;                                // `_2312` = `_2305`^3
     const float hv4 = hv2 * hv2;                                   // `_2313`
-    const float d_aniso = (hv3 != hv4) ? (hv3 / hv4) : 1.0;        // `_2312 / _2313`, with the game's own guard
+    const float d_aniso = (hv3 != hv4) ? (hv3 / hv4) : 1.0;        // `_2312 / _2313`, with the game's guard
     // readable:1005's V term: `_2317 = 2*NoV` and `_2319 = (1+NoV)-NoV = 1`, so `0.5/(2*NoV + roughness2 + eps)`
     const float spec_v = 0.5 / (2.0 * no_v + roughness2 + 9.99999975e-05);
     const float spec_dv = clamp(d_aniso * spec_v - 6.10351562e-05, 0.0, 20.0); // `_2350`'s clamp
@@ -323,7 +323,7 @@ float3 game_toon_cloth_shade(surface_sample s, float3 world_pos, float3 geo_norm
     // // MISSING: `_1183 = _48_m43.xyz * lerp(0.04, 1.0, _48_m40)` (the specular colour x strength): white,
     // //    i.e. lerp's 1.0 end, is used.
     // // MISSING: `_48_m39` (the per-material smoothness that builds the spec-ramp roughness `_1171`) - the
-    // //    P map's own roughness is used instead.
+    // //    P map's roughness is used instead.
     // The block is sampled only when BOTH ramp lanes exist: with no diffuse ramp the gate's value is unknown,
     // and the modulation `_2402` would not be the identity, so the conservative documented choice is off.
     const bool spec_ramp_on = has_diff_ramp && (s.toon_indices.z != 0u) && diff_ramp > 0.001; // `_2351`
@@ -340,7 +340,7 @@ float3 game_toon_cloth_shade(surface_sample s, float3 world_pos, float3 geo_norm
         const float fresnel5 = one_minus_vh * one_minus_vh * one_minus_vh * one_minus_vh * one_minus_vh; // `_2370`
         const float3 spec_tint = (spec_ramp_colour * (1.0 - fresnel5) + fresnel5) * diff_ramp; // `_2375`
         const float3 spec_inverse = float3(1.0, 1.0, 1.0) - spec_tint;                         // `_2376`
-        // the spec-ramp lobe's own D/V (readable:1021-1026), on the P map's roughness in place of `_48_m39`
+        // the spec-ramp lobe's D/V (readable:1021-1026), on the P map's roughness in place of `_48_m39`
         const float spec_rough2 = roughness2;                       // `_1171`
         const float spec_rough4 = spec_rough2 * spec_rough2;        // `_2379`
         const float no_h_geo = dot(n_geo, spec_half);               // `_2356`
@@ -357,13 +357,13 @@ float3 game_toon_cloth_shade(surface_sample s, float3 world_pos, float3 geo_norm
     }
 
     // ========================================================================================================
-    // 9. THE ENVIRONMENT: deren's cubemap and irradiance, at the game's own LOD fit
+    // 9. THE ENVIRONMENT: deren's cubemap and irradiance, at the game's LOD fit
     // ========================================================================================================
     //
     // `_CharMaxCubemap.SampleLevel(reflect(-V, N), 1.2*log2(max(roughness, 0.001)) + 5.0)` (readable:1056-1058)
     // times the environment-BRDF fit at readable:1050-1051, which is `_2547`/`_2548` below. deren's
     // `environment_specular_sample` IS the cubemap (it applies the engine's environment intensity and
-    // rotation), so the game's own probe/rotation globals `_19_m88`/`_19_m92` are not copied. The `_1176`-
+    // rotation), so the game's probe/rotation globals `_19_m88`/`_19_m92` are not copied. The `_1176`-
     // scaled SECOND environment lobe of the spec-ramp path (`_2624`, readable:1059-1073) is not ported.
     const float2 env_fit = cloth_port_env_brdf_fit(no_v, roughness2); // `_2539`, `_2544`
     const float env_factor = env_fit.x + env_fit.y;                   // `_2548`
@@ -379,19 +379,19 @@ float3 game_toon_cloth_shade(surface_sample s, float3 world_pos, float3 geo_norm
     //
     // deren's sun is white with a scalar intensity; the game's `_2253` (a shadow-weighted light colour) is its
     // role. The diffuse layer is already shadow/AO-gated by §6, so no second shadow multiply; the specular
-    // keeps its own gate, and `rig.env.z` (`_SpecularStrength`, default 1) stands in for the game's
+    // keeps its gate, and `rig.env.z` (`_SpecularStrength`, default 1) stands in for the game's
     // `_19_m92.w` specular-strength global.
     const float3 light_colour = float3(1.0, 1.0, 1.0) * sun_intensity;
     const float3 direct = light_colour * (diffuse_direct * spec_modulation + spec_brdf_final * (rig.env.z * shadow_vis));
     // THE ONE deren-SIDE ADDITION, AND IT IS A BRIDGE RATHER THAN THE GAME'S FORMULA: the readable cloth main
-    // has NO ambient/IBL diffuse read of its own - its shadow side is meant to be lit by the game's own light
+    // has NO ambient/IBL diffuse read - its shadow side is meant to be lit by the game's light
     // data (`_OtherLight*` / `_19_m90`, not ported) - so the engine's sky irradiance is added on the same terms
     // the character stage uses for every family:
     //     `environment_irradiance(n) * albedo * ao * ambient_strength`
     const float3 ambient = environment_irradiance(n_shading) * s.albedo * occlusion * params.ambient_strength;
     // `s.emissive` is deren's gathered emission. The readable's `_EmissionMap` samples at lines 964/970 are a
     // 1-D RAMP lookup in this variant (see §3/§6), not the emission texture; the gathered emission is the
-    // engine's, and the readable's own emission composite is not traced - see the notes' uncovered list.
+    // engine's, and the readable's emission composite is not traced - see the notes' uncovered list.
     // NOT PORTED: the rim term (readable:1078), the spec-ramp environment lobe (1059-1073), the metallic/gloss
     // additive (1086), snow/rain (readable:670-882, 889-930), the atmospheric pass (1488-1544) and the second
     // SV_Target (`_2103`) - all listed in tmp/game-toon-port/cloth-notes.md with the lanes they would need.

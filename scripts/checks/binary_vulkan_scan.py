@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Does deren.exe still contain Vulkan? Layer 3: the binary's own bytes.
+"""Does deren.exe still contain Vulkan? Layer 3: the binary's bytes.
 
 The import table (layer 1) and the unresolved symbols (layer 2) are checked by
 `scripts/checks/check_native_boundary.py`; this looks INSIDE the image for names and message text that came from

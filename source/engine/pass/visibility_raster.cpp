@@ -109,7 +109,7 @@ namespace deren::engine::pass {
             }
         }
         // THE SCOPE: the id target CLEARS to zero (0 = "no geometry"), the shared G-buffer depth CLEARS to the far
-        // plane - the exact pair the geometry pass clears when IT owns the frame. This pass replaces the geometry lane
+        // plane - the exact pair the geometry pass clears when IT holds the frame. This pass replaces the geometry lane
         // on an admitted frame (v0.5), so these clears ARE the frame's, not a private copy: the lighting and toon
         // stages read the depth written here.
         std::array<rhi::color_attachment, 1> const colors = {
@@ -153,12 +153,12 @@ namespace deren::engine::pass {
             return begun;
         }
         // BIND + RE-EMIT the dynamic state the handle stores. THE STORED VIEWPORT IS WRITTEN FIRST, because
-        // `begin_pipeline` re-emits the handle's own state and a pipeline this pass owns starts with a {0,0,0,0}
+        // `begin_pipeline` re-emits the handle's state and a pipeline this pass holds starts with a {0,0,0,0}
         // viewport - recording that is a validation error (VUID-VkViewport-width-01770), which is how the first
         // run that actually executed this pass found it. After this assignment the bind and the explicit sets
         // below name the same numbers, for the same "the record step cannot know this pass's extent" reason the
-        // declaration's `resync_viewport` documents. (This pipeline is the pass's own, so writing its state is
-        // the pass's own business - the runtime's registry-wide resync never sees it.)
+        // declaration's `resync_viewport` documents. (This pipeline is the pass's, so writing its state is
+        // the pass's business - the runtime's registry-wide resync never sees it.)
         this->raster_pipeline->viewport = rhi::viewport{.x = 0.0f,
                                                         .y = 0.0f,
                                                         .width = static_cast<float>(this->pass_frame.extent.width),
@@ -169,7 +169,7 @@ namespace deren::engine::pass {
         this->raster_pipeline->begin_pipeline(*io.list);
         // THE PIPELINE'S TWO DYNAMIC RASTER STATES: `make_graphics_pipeline` creates EVERY graphics pipeline with
         // VK_DYNAMIC_STATE_CULL_MODE and VK_DYNAMIC_STATE_DEPTH_WRITE_ENABLE (the scene pass sets them per draw
-        // because a single pipeline serves single- and double-sided materials), so a pass that binds its own
+        // because a single pipeline serves single- and double-sided materials), so a pass that binds its
         // pipeline must set them itself: BACK-face culling - the cull the G-buffer pass applies to a single-sided
         // material - and depth WRITE on, because this pass is the depth producer. MEASURED: without the two calls
         // the mesh dispatches are two validation errors (07840 / 07844) even though the picture would be right.
@@ -184,7 +184,7 @@ namespace deren::engine::pass {
             ok = io.list->execute(this->pass_frame.segments) == rhi::error::ok;
         }
         io.list->end_rendering();
-        // THE LANE'S OWN WITNESS (visibility-buffer v0.4b): one line, once per run, saying that the item recorder
+        // THE LANE'S WITNESS (visibility-buffer v0.4b): one line, once per run, saying that the item recorder
         // actually ran and how many mesh-task dispatches it issued. Until this existed the lane's only evidence was
         // the absence of a validation error, which cannot distinguish "the resolve consumed the ids" from "the graph
         // never recorded this pass"; the depth-mismatch counter in visibility_resolve.slang is the other half (it

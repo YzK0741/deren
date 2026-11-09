@@ -223,7 +223,7 @@ namespace deren::gltf {
          * character ALSO reads a diffuse ramp, a shadow LUT, a specular ramp, a matcap and a face SDF - none of
          * which glTF has a slot for. Those are named by the ASSET PIPELINE and referenced by name in the toon
          * material sidecar (see toon_material_sidecar.cppm), so the image NAME is the only thing that connects
-         * the two files. Empty for an unnamed image, which is what most glTF files have (the repository's own
+         * the two files. Empty for an unnamed image, which is what most glTF files have (the repository's
          * DamagedHelmet sample names none of its five).
          */
         deren::utility::vessel::string name = {};
@@ -281,18 +281,18 @@ namespace deren::gltf {
          */
         deren::utility::vessel::string name = {};
         /**
-         * THE `extras` SCALARS THIS PORT HAS CLAIMED, by the asset pipeline's own spelling (`_Specular`,
+         * THE `extras` SCALARS THIS PORT HAS CLAIMED, by the asset pipeline's spelling (`_Specular`,
          * `_ParallaxScale`), and only those - see `claimed_extras_floats`.
          *
          * WHAT `extras` IS AND WHY IT NEEDED A THIRD SOURCE: a glTF material carries the spec's six factors and
          * five texture slots, and this repository's toon characters carry a SECOND set of parameters in
-         * `material.extras` - the game's own exported material table, as `efFloats` / `efColors` / `efTexSlots` /
+         * `material.extras` - the game's exported material table, as `efFloats` / `efColors` / `efTexSlots` /
          * `efToonSlots` / `efResolved` (194 float/colour names that the `.toon.tsv` sidecar does not carry; the
          * sidecar is this port's transcription of a subset of the same tables). glTF has no slot for them, the
          * sidecar the renderer reads has no row for this one, and a value the game states per material that the
          * shader could not see was simply not available - which is the gap this field closes.
          *
-         * WHY IT IS A CLAIMED SUBSET RATHER THAN THE WHOLE `efFloats` BLOCK: the port's own rule is that a lane
+         * WHY IT IS A CLAIMED SUBSET RATHER THAN THE WHOLE `efFloats` BLOCK: the port's rule is that a lane
          * nobody consumes is a SECOND source of truth for a value that has none, so a property is imported when
          * its consumer is wired and not before. The names are held in ONE table (`claimed_extras_floats`) whose
          * entries are added together with their reader, and a name absent from a given material's extras is
@@ -324,7 +324,7 @@ namespace deren::gltf {
      *                         that proves it (0.0 against the face family's 1.0).
      *   `_ParallaxScale`  ->  the per-material parallax depth, a `toon_colour_lane::parallax_scale` lane read by
      *                         the same stage (`parallax_offset = offset_dir * depth * float2(1.0, 0.25)`), whose
-     *                         source was the stage's own `character_eye_parallax_depth` constant - chen states
+     *                         source was the stage's `character_eye_parallax_depth` constant - chen states
      *                         0.03 on the iris and 0.5 on the brow, and values 0.03/0.5/0.5 over the three
      *                         materials that state the row at all.
      */
@@ -432,7 +432,7 @@ namespace deren::gltf {
      * @ingroup gltf_loader
      * @brief one animation channel: animate one TRS property of a node from a sampler
      * @note
-     *      - sampler indexes the owning animation's samplers (glTF semantics)
+     *      - sampler indexes the holding animation's samplers (glTF semantics)
      *      - target_node is the animated node's index in the glTF asset's node table. Locate
      *        the matching node of a scene's pool by deren::gltf::node::source_index (animations are
      *        file-scoped; a node may be reachable from several scenes)
@@ -519,7 +519,7 @@ namespace deren::gltf {
      * @note
      *      - color is linear RGB; intensity is lux (directional) or candela (point/spot);
      *        range and the spot cone angles are optional (absent = infinite range / default cone)
-     *      - position/direction come from the owning node's world transform (resolved through
+     *      - position/direction come from the holding node's world transform (resolved through
      *        deren::gltf::node::source_index; lights can be animated) — only the light *properties*
      *        are stored here
      */
@@ -607,7 +607,7 @@ namespace deren::gltf {
      *        children as indices into the same scene.nodes list. Callers that need the full
      *        parent->child structure walk children[]; the drawable iterators (scenes::begin /
      *        drawable_iterator) simply flatten the same list and skip mesh-less nodes.
-     *      - local_transform is the node's own transform relative to its parent (TRS-composed
+     *      - local_transform is the node's transform relative to its parent (TRS-composed
      *        matrix, or the node's matrix when the asset stored a raw matrix); transform_matrix
      *        keeps the accumulated world matrix for backward compatibility (same value as the
      *        loader used to expose before the tree was retained)
@@ -621,7 +621,7 @@ namespace deren::gltf {
         deren::utility::vessel::string name = {};         // glTF node name (empty when unnamed)
         glm::mat4 local_transform = glm::mat4(1.0f);      // transform relative to the parent node
         deren::utility::vessel::vector<mesh> meshes = {}; // meshes attached at this node (may be empty)
-        // indices into the owning scene.nodes (DFS pre-order): the direct children of this node
+        // indices into the holding scene.nodes (DFS pre-order): the direct children of this node
         deren::utility::vessel::vector<std::size_t> children = {}; // empty for leaves / transform-only nodes
         glm::mat4 transform_matrix = glm::mat4(1.0f);              // world matrix (parent * local), kept for compatibility
         // animation substrate: asset node index + TRS base pose (see the @note above)
@@ -658,8 +658,8 @@ namespace deren::gltf {
     /**
      * @ingroup gltf_loader
      * @brief one drawable primitive of the scene hierarchy as seen by the iterator:
-     *        the primitive plus the world transform of the node that owns it
-     * @note the primitive carries its own material_index (primitive::material_index)
+     *        the primitive plus the world transform of the node that holds it
+     * @note the primitive carries its material_index (primitive::material_index)
      */
     export struct drawable_ref {
         primitive const* primitive = nullptr;
@@ -817,7 +817,7 @@ namespace deren::gltf {
          *
          * AN ABSENT NAME IS NOT AN ERROR HERE, because "the sidecar names a texture this file does not have" is
          * a real and common state: the sidecar is written for a character whose optional maps the artist may not
-         * have exported. The caller decides what a miss means - the safe answer, and the one the sidecar's own
+         * have exported. The caller decides what a miss means - the safe answer, and the one the sidecar's
          * `_Use` rule already implies, is to leave that feature off.
          */
         [[nodiscard]] std::optional<uint16_t> texture_index_by_name(std::string_view name) const noexcept;
@@ -834,7 +834,7 @@ namespace deren::gltf {
          * tens of materials, and a map would be a second index to keep in step with the vector.
          *
          * A MISS IS NOT AN ERROR. A name that matches nothing is a real state (a sidecar written for a model
-         * whose materials were renamed, a primitive with no material), and the caller's answer to it is its own
+         * whose materials were renamed, a primitive with no material), and the caller's answer to it is its
          * rule's - for the extras that means "this material states nothing", which is the same state as a
          * material whose file has no extras at all.
          */
@@ -875,7 +875,7 @@ namespace deren::gltf {
     // the member shapes below, so this module never needs vulkan.model (or any Vulkan header);
     // the runtime template converts these values into its internal types itself.
 
-    /** @brief interleaved vertex bytes of one drawable (spans into loader-owned storage) */
+    /** @brief interleaved vertex bytes of one drawable (spans into loader-held storage) */
     export struct vertex_view {
         std::span<uint8_t const> data = {};
         uint32_t stride = 0;
@@ -892,8 +892,8 @@ namespace deren::gltf {
     /**
      * @ingroup gltf_loader
      * @brief decoded RGBA8 texture bytes (mip-major) of one material slot
-     * @note owner keeps the bytes alive while image_view is copied/moved around; data spans
-     *       into *owner. valid == false means the slot is missing.
+     * @note holder keeps the bytes alive while image_view is copied/moved around; data spans
+     *       into *holder. valid == false means the slot is missing.
      */
     export struct image_view {
         std::span<uint8_t const> data = {};
@@ -954,7 +954,7 @@ namespace deren::gltf {
      * @brief classify a glTF material name into the family whose toon parameters it uses
      *
      * SUBSTRING MATCHING over a lowercased name, in PRIORITY ORDER, and the order is the substance of the
-     * function rather than a detail: the reference's own classifier is written the same way for the same
+     * function rather than a detail: the reference's classifier is written the same way for the same
      * reason - a material called `M_actor_zhuangfy_body_01_eye` would match both `body` and `eye`, and only
      * the order decides. The specific collisions that forced this order, and they are the ones its patterns
      * are written against: `睫毛`/`眉毛` (lash, brow) contain neither skin nor face but belong to the face
@@ -982,7 +982,7 @@ namespace deren::gltf {
      * AN OVERLAY IS NOT A MATERIAL FAMILY, and that is why this is a second enum rather than a seventh
      * `toon_family`. A family says HOW this port SHADES a surface - ramp, layers, specular, the whole toon chain -
      * while an overlay surface is not shaded at all: `MyZmdEyeDarkShader` and `MyZmdHairShadowShader` are drawn by
-     * a pass of their own that MULTIPLIES an already shaded character by a mask, and their entire material state is
+     * A separate pass that MULTIPLIES an already shaded character by a mask, and their entire material state is
      * `_MainTex`, `_Color`, `_Alpha` and `_DayStrength`. Both names therefore classify as `toon_family::none`
      * (see the top of `toon_family_of`) and are claimed HERE instead.
      *
@@ -991,7 +991,7 @@ namespace deren::gltf {
      * shadow - while `MyZmdHairShadowShader` multiplies by the scalar `_DayStrength` and never reads its mask at
      * all. Collapsing them into one kind would silently turn one of those into the other.
      *
-     * THE NAMES ARE THE ARTICLE'S OWN, not the game's: the game's material sidecar (`ef_char_materials_full`) has no
+     * THE NAMES ARE THE ARTICLE'S, not the game's: the game's material sidecar (`ef_char_materials_full`) has no
      * colour and no day strength at all - it drives these masks procedurally from the light angle - so the two
      * shaders being ported are the article's simplification of that mechanism, and these are its two shaders.
      */
@@ -1007,8 +1007,8 @@ namespace deren::gltf {
      *
      * SUBSTRING MATCHING over a lowercased name, like `toon_family_of` and for the same reason (the name is the
      * only input, and a glTF material name is authored text). The two patterns are `eyeshadow` and `hairshadow`,
-     * which are the names the game's own assets use - `M_eyeshadow_common_01` and `M_hairshadow_common_01` on
-     * `chars\chen_full2.glb`, and `M_S_actor_zhuangfy_eyeshadow_01_lod0` in the game's own package.
+     * which are the names the game's assets use - `M_eyeshadow_common_01` and `M_hairshadow_common_01` on
+     * `chars\chen_full2.glb`, and `M_S_actor_zhuangfy_eyeshadow_01_lod0` in the game's package.
      *
      * @param name the glTF material name (case-insensitive ASCII)
      * @return the channel, or `overlay_kind::none` when nothing matched
@@ -1022,18 +1022,18 @@ namespace deren::gltf {
      * WHY THE FACE NEEDS A HEAD FRAME AT ALL, and it is the whole reason the SDF lane exists: a low-poly anime
      * face is a few triangles whose normals do not describe its form - the cheeks and the nose are painted into
      * the texture - so its terminator is decided by a distance field thresholded against the light's angle IN
-     * THE HEAD'S OWN FRAME rather than by `dot(N, L)`. The surface normal is never consulted.
+     * THE HEAD'S FRAME rather than by `dot(N, L)`. The surface normal is never consulted.
      *
-     * THE FRAME POINTS WHERE THE FACE LOOKS, WHICH IS glTF'S OWN CONVENTION RATHER THAN THE REFERENCE'S. glTF
+     * THE FRAME POINTS WHERE THE FACE LOOKS, WHICH IS glTF'S CONVENTION RATHER THAN THE REFERENCE'S. glTF
      * specifies `+Y` up, `+Z` forward and `-X` right, with the front of an asset facing `+Z`, and every
      * character this repository has follows it: the mean bind normal of the face primitive measures
      * `(+0.10 +0.31 +0.95)` on `lizhiyan_toon.glb`, `(-0.18 +0.41 +0.89)` on `zhuangfy_toon.glb` and
-     * `(0 -0.38 +0.93)` on the game's own `actor_zhuangfy.glb` - all three face `+Z`.
+     * `(0 -0.38 +0.93)` on the game's `actor_zhuangfy.glb` - all three face `+Z`.
      *
      * `EfFaceGetHeadBasis` INSTEAD TAKES `-row3` AS FORWARD, and `head_basis_from_axes` therefore reproduces its
      * re-orthogonalisation but NOT its negation. The cost of the negation is measurable rather than cosmetic:
      * with `front = -row3` the light's angle in the head frame comes out at 0.83 for a sun the face is looking
-     * almost straight into, the SDF atlas' mean threshold is 0.55, and 94.1% of the texels the face's own UVs
+     * almost straight into, the SDF atlas' mean threshold is 0.55, and 94.1% of the texels the face's UVs
      * sample are then read as SHADOW - the whole face wears the family's shadow tint and the lane stops shaping
      * anything. With the sign corrected, the same measurement gives 11.9%.
      */
@@ -1049,7 +1049,7 @@ namespace deren::gltf {
 
     /**
      * @ingroup gltf_loader
-     * @brief the fallback head frame: glTF's own basis, `headFront = (0,0,1)`, `headRight = (-1,0,0)`,
+     * @brief the fallback head frame: glTF's basis, `headFront = (0,0,1)`, `headRight = (-1,0,0)`,
      *        `headUp = (0,1,0)`
      *
      * IT IS DELIBERATELY NOT THE REFERENCE'S CONSTANTS, which substitute `headFront = (0,0,-1)` for a bone that
@@ -1204,7 +1204,7 @@ namespace deren::gltf {
     export deren::utility::vessel::vector<resolved_material> resolve_materials(deren::gltf::scenes& scenes, bool consume_texture_pixels);
 
     /// Explicitly release decoded pixels after all raw-pixel consumers finish. Metadata and resolved
-    /// image owners survive; resolving again requires reloading the source. Returns released payload bytes.
+    /// image holders survive; resolving again requires reloading the source. Returns released payload bytes.
     export std::uint64_t release_texture_pixels(scenes& scene) noexcept;
 
     /**
@@ -1215,7 +1215,7 @@ namespace deren::gltf {
     export std::future<deren::utility::vessel::vector<resolved_material>> resolve_materials_async(deren::gltf::scenes const& scenes);
 
     /// Async consuming twin; @p scenes must stay alive until the future is consumed. See the
-    /// consuming resolve_materials overload for the pixel-ownership contract.
+    /// consuming resolve_materials overload for the pixel-retention contract.
     export std::future<deren::utility::vessel::vector<resolved_material>> resolve_materials_async(deren::gltf::scenes& scenes, bool consume_texture_pixels);
 
     /**

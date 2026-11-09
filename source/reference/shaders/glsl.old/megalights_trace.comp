@@ -48,7 +48,7 @@
  *
  * WHAT THIS PASS DOES NOT DO YET, stated rather than discovered later: it writes the RAW estimate - no
  * temporal accumulation, no spatial filter, no history-guided sampling (`GuideByHistory`), and the
- * sample's own surface is the half-resolution texel's, not one surface per sample. `docs/megalights.md`
+ * sample's surface is the half-resolution texel's, not one surface per sample. `docs/megalights.md`
  * stages those, and the reference note's section 2 is the one to read before judging the noise: the
  * guide is what stops a bright OCCLUDED light from being sampled over and over.
  *
@@ -66,7 +66,7 @@
 // which is the local_size declaration below rather than the include.
 #extension GL_EXT_descriptor_heap : require
 #extension GL_EXT_nonuniform_qualifier : enable
-// THE GRID HEADER, early: this stage's OWN declarations below are heap-native and need its constants, while
+// THE GRID HEADER, early: this stage's declarations below are heap-native and need its constants, while
 // shading.glsl (which also carries it) is included only after the push block. The header has an include guard.
 #include "heap_slots.glsl"
 
@@ -88,7 +88,7 @@ layout(descriptor_heap, descriptor_stride = heap_slot_stride) uniform accelerati
 layout(descriptor_heap, descriptor_stride = heap_slot_stride) uniform texture2D gbuffer_albedo_texture[];   // RGBA8: albedo.rgb + metallic
 layout(descriptor_heap, descriptor_stride = heap_slot_stride) uniform texture2D gbuffer_normal_texture[];   // RGBA16F: world normal.xyz + roughness
 layout(descriptor_heap, descriptor_stride = heap_slot_stride) uniform texture2D gbuffer_material_texture[]; // RGBA8: .b = the material's baked AO
-layout(descriptor_heap, descriptor_stride = heap_slot_stride) uniform texture2D gbuffer_depth_texture[];    // the pass's own 1x depth
+layout(descriptor_heap, descriptor_stride = heap_slot_stride) uniform texture2D gbuffer_depth_texture[];    // the pass's 1x depth
 
 // This pass's output: rgb = the punctual lights' contribution, a = the fraction of the samples whose ray found the
 // light (see the header). It is a STORAGE image, so it uses the STORAGE descriptor the grid reserves for it
@@ -99,7 +99,7 @@ layout(descriptor_heap, descriptor_stride = heap_slot_stride, rgba16f) uniform i
 /// @brief the compile-time bound on samples per pixel: UE supports 1, 2 and 4, and the loop is bounded by
 ///        the constant so the reservoir arrays have a size (the ACTIVE count is a push lane).
 const int ML_MAX_SAMPLES = 4;
-/// @brief UE's `r.MegaLights.MaxShadingWeight`: how much a single sample may contribute on its own. The
+/// @brief UE's `r.MegaLights.MaxShadingWeight`: how much a single sample may contribute alone. The
 ///        value is an absolute cap on the estimator weight, and it is what keeps one unblocked sample of
 ///        an occluded-but-bright light from writing a firefly.
 const float ML_MAX_SHADING_WEIGHT = 20.0;
@@ -141,7 +141,7 @@ float next_uniform(inout uint state) {
     return float(state) * (1.0 / 4294967296.0);
 }
 
-/** @brief world position of a depth-buffer sample (the lighting stage's own reconstruction) */
+/** @brief world position of a depth-buffer sample (the lighting stage's reconstruction) */
 vec3 world_position_from_depth(vec2 uv, float depth) {
     const vec4 clip = vec4(uv * 2.0 - 1.0, depth, 1.0);
     const vec4 world = pc.inv_view_proj * clip;
@@ -203,7 +203,7 @@ void main() {
         return;
     }
 
-    // This texel's surface, at HALF resolution - the pass's own resolution, like the GI tracer's. The
+    // This texel's surface, at HALF resolution - the pass's resolution, like the GI tracer's. The
     // lighting it produces is a half-resolution image for the same reason the GI's is: the signal is
     // lower frequency than the shading that consumes it, and the resolve is where it meets full
     // resolution again.
@@ -219,7 +219,7 @@ void main() {
 
     // The cluster lookup happens at the FULL-resolution pixel this half-resolution texel stands for: the
     // light grid is built in full-resolution tiles (see shaders/light_cluster.comp), so a half-resolution
-    // texel that used its own coordinates would read the neighbouring tile's list at every tile edge.
+    // texel that used its coordinates would read the neighbouring tile's list at every tile edge.
     const ivec2 full_extent = textureSize(sampler2D(gbuffer_depth_texture[heap_slots_gbuffer_depth + heap_image_index], heap_samplers[heap_sampler_gbuffer]), 0);
     const ivec2 full_pixel = ivec2((vec2(pixel) + 0.5) * vec2(full_extent) / vec2(ml_extent));
     const int cluster = cluster_index_at(full_pixel, world_pos);
@@ -334,7 +334,7 @@ void main() {
             const float visible = visibility(origin, ray_dir, ray_distance, pc.params.z);
             const vec3 shaded = evaluate_direct_light(normal, v, albedo, metallic, roughness, f0, dir, radiance);
             // `Sum / W_k` is 1/p for the reservoir's selection probability; the firefly cap bounds what a
-            // single sample may carry; `1/samples` is the estimator's own normalization, and the smooth cut
+            // single sample may carry; `1/samples` is the estimator's normalization, and the smooth cut
             // is applied HERE as well as in the PDF (from the same luminance), which is what keeps the
             // estimate consistent when the cut is not 1.
             const float lum = dot(shaded, vec3(0.2126, 0.7152, 0.0722));

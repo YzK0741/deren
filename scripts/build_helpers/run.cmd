@@ -12,7 +12,7 @@ rem `UseShellExecute = $false`), so the automated runs no longer prompt either.
 rem
 rem ARGUMENTS ARE FORWARDED, so this is also the way to run a capture by hand:
 rem     run.cmd --capture-frames 60 --capture-camera=0,0,2.4,0,-0.9,0
-rem The working directory becomes the build directory, which is where the renderer's own relative paths (its
+rem The working directory becomes the build directory, which is where the renderer's relative paths (its
 rem `config.toml`, `chars\`, `shaders\`) resolve from.
 rem ------------------------------------------------------------------------------------------------------------------
 setlocal
@@ -28,7 +28,7 @@ pushd "%BUILD%"
 rem THE CONFIG IS SUPPLIED ONLY IF THE CALLER DID NOT SUPPLY ONE, and that check is not politeness: the renderer
 rem takes the FIRST `--config` on its command line, so hardcoding one in front of `%*` silently overrode a config
 rem passed by hand - which is how a capture into a scratch directory ended up writing its screenshot into the
-rem repository's own folder instead.
+rem repository's folder instead.
 echo %* | find /i "--config" >nul
 if errorlevel 1 (
     "%BUILD%\deren.exe" --config "%BUILD%\config.toml" %*

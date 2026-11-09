@@ -81,7 +81,7 @@ namespace deren::engine {
         //  - NEVER an instanced draw: its world matrix comes from the instance table per workgroup, so one run's
         //    survivors differ per instance and a single compacted run cannot describe them;
         //  - NEVER a deforming draw: the sphere is built from the BIND POSE, so it bounds geometry this draw is not
-        //    about to emit - the same rule the entries state for their own test.
+        //    about to emit - the same rule the entries state for their test.
         bool const cullable = env.meshlets && env.meshlet_culled && env.meshlet_view_proj != nullptr && env.meshlet_culled_write != nullptr &&
                               geometry.meshlet_count != 0u && (this->push.flags & 1u) == 0u && this->push.skin_base == 0u && this->push.morph_targets == 0u;
         uint32_t survivors = not_culled;
@@ -132,15 +132,15 @@ namespace deren::engine {
         lanes.vertex_address = geometry.vertex_buffer ? env.buffer_address(env.push_source, *geometry.vertex_buffer) : 0;
         lanes.index_address = geometry.index_buffer ? env.buffer_address(env.push_source, *geometry.index_buffer) : 0;
         // A MESHLET SESSION CARRIES THE MESHLET RUN HERE (docs/mesh_shaders.md step 3): the meshlet entry reads each
-        // record's own window, so these two fields describe WHICH RECORDS this draw owns; the buffer addresses and
+        // record's window, so these two fields describe WHICH RECORDS this draw holds; the buffer addresses and
         // the index width are still the draw's, which is why the lanes carry both kinds of fact.
         lanes.first_index = env.meshlets ? geometry.meshlet_base : first_index;
         lanes.index_count = env.meshlets ? geometry.meshlet_count : index_count;
         // ... AND, in a meshlet session, WHETHER THE RUN WAS HOST-CULLED: the field is otherwise unused there (a
-        // meshlet record carries its own base vertex), and the entry point reads it as "this frame's culled table,
+        // meshlet record carries its base vertex), and the entry point reads it as "this frame's culled table,
         // not the shared one" (docs/mesh_shaders.md step 3)
         lanes.base_vertex = env.meshlets ? ((host_culled ? 1 : 0) | (backface_legal ? 2 : 0)) : base_vertex;
-        // the buffer's own index type, which the shader needs because a raw load has no format: 4 for UINT32,
+        // the buffer's index type, which the shader needs because a raw load has no format: 4 for UINT32,
         // 2 for UINT16 (the shader reads the 16-bit case as the half of a 32-bit word its index falls in)
         lanes.index_width = geometry.index_type == deren::promise::rhi::index_type::uint16 ? 2u : 4u;
         if (lanes.vertex_address == 0 || lanes.index_address == 0) {
@@ -180,11 +180,11 @@ namespace deren::engine {
         // ---- the dispatch: one workgroup per `mesh_triangles_per_workgroup` triangles of THIS draw ----
         // The workgroup budget is the shader's (see source/shaders/geometry/mesh_geometry.slang: 85 triangles, 255 vertices,
         // because a triangle costs three of the device's 256 output vertices), and the group count has to cover
-        // the window: the stage itself decides how many of its 85 triangles are real, which is what makes a
+        // the window: the separate stage itself decides how many 85 triangles are real, which is what makes a
         // window that is not a multiple of 85 work without a second command.
         constexpr uint32_t triangles_per_workgroup = 85u;
         uint32_t const triangles = index_count / 3u;
-        // A MESHLET SESSION DISPATCHES ONE WORKGROUP PER MESHLET: each one reads its own window out of the table and
+        // A MESHLET SESSION DISPATCHES ONE WORKGROUP PER MESHLET: each one reads its window out of the table and
         // emits the whole meshlet, so the group count is the primitive's run - not a slice of a triangle count. A
         // HOST-CULLED run dispatches its SURVIVORS instead, which is the point of culling before the dispatch: a
         // meshlet the frustum rejected costs no workgroup at all (docs/mesh_shaders.md step 3).
@@ -194,7 +194,7 @@ namespace deren::engine {
         }
         if (groups != 0u && static_cast<bool>(env.target)) {
             // A MESHLET SESSION DISPATCHES THROUGH THE INDIRECT ENTRY POINT (docs/mesh_shaders.md step 3, second
-            // mechanism): the counts travel in the command table at the primitive's OWN slot (`meshlet_base`), so a
+            // mechanism): the counts travel in the command table at the primitive's slot (`meshlet_base`), so a
             // COMPUTE culling pass can rewrite that record with the counts culling left and the dispatch picks them
             // up with no host change. The other mesh sessions keep the direct call - their counts are the host's,
             // and nothing will ever rewrite them - and the runtime logs which route was taken either way.
@@ -282,7 +282,7 @@ namespace deren::engine {
     }
 
     void instanced_draw_primitive::destroy() noexcept {
-        // owns nothing: the instance transform buffer is runtime-owned, geometry is source's
+        // holds nothing: the instance transform buffer is runtime-held, geometry is source's
     }
 
     bool instanced_draw_primitive::is_valid() const noexcept {
@@ -321,7 +321,7 @@ namespace deren::engine {
     }
 
     void static_draw_primitive::destroy() noexcept {
-        // owns the merged buffers: dropping the two handles' references frees the GPU memory when the
+        // holds the merged buffers: dropping the two handles' references frees the GPU memory when the
         // last reference goes (see the note on normal_draw_primitive::destroy above)
         this->vertex_buffer.reset();
         this->index_buffer.reset();

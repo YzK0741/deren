@@ -5,7 +5,7 @@
 //
 // VENDORED FROM THE MSVC TOOLCHAIN
 // -------------------------------
-// The body below is the MSVC STL's own modules/std.ixx, copied from Visual Studio
+// The body below is the MSVC STL's modules/std.ixx, copied from Visual Studio
 // 2022 17.14 / MSVC 14.44.35207 and renamed from `std` to `deren.vstd`. It includes
 // the full standard-library header set inside the module purview; the
 // `_BUILD_STD_MODULE` define makes those headers export their entities from this
@@ -17,7 +17,7 @@
 // source/vstd/vstd.cppm is the libc++-derived 71-partition re-export. cl.exe 19.44
 // crashes with C1001 on every TU that instantiates std::span / std::array /
 // std::tuple through it (7 of 326 objects on the real tree); see source/vstd/README.md
-// for the measured evidence. Using the MSVC STL's own module source avoids that
+// for the measured evidence. Using the MSVC STL's module source avoids that
 // construction while keeping the project-facing module name `deren.vstd`.
 //
 // WHAT THAT COSTS - STATED PLAINLY, NOT HIDDEN

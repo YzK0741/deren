@@ -25,7 +25,7 @@ namespace deren::engine::gaussian_splatting {
             return failure(error_code::invalid_argument, "GPU frame belongs to another core");
         }
         if (reuse && device_lease && !reuse->device_lease && reuse->storage_view.size()) {
-            return failure(error_code::invalid_argument, "Legacy GPU storage cannot gain an owning device lease; prepare a new frame");
+            return failure(error_code::invalid_argument, "Legacy GPU storage cannot gain a holding device lease; prepare a new frame");
         }
         if (inputs.size() > UINT32_MAX || inputs.size() > limits.max_packed_bytes / (sizeof(instance_record) + sizeof(gpu_instance_range))) {
             return failure(error_code::limit_exceeded, "GPU instance tables exceed budget");
@@ -184,7 +184,7 @@ namespace deren::engine::gaussian_splatting {
             }
             result->storage_provider->configure(requests);
             if (!result->device_lease) {
-                return failure(error_code::invalid_argument, "GPU frame storage requires an owning device lease");
+                return failure(error_code::invalid_argument, "GPU frame storage requires a holding device lease");
             }
             auto root = result->device_lease;
             if (result->storage_chain.prepare_resources(root, managed::resource_context{.frame_slots = 1, .output_images = 1}, admit) != rhi::error::ok) {

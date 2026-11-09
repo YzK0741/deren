@@ -83,7 +83,7 @@ float3 game_toon_skin_shade(surface_sample s, float3 world_pos, float3 geo_norma
     const float3 specular = skin.f0 * clamp(d * v - 6.10351562e-05, 0.0, 20.0) * direct_light.specular;
     // MISSING wet/snow globals (_592/_595/_605), procedural layers (:650-965),
     // SSR and punctual-light inputs: dry else branches; existing deren pipeline
-    // retains ownership of scene lighting. No guessed rain textures are sampled.
+    // retains retention of scene lighting. No guessed rain textures are sampled.
     const float3 direct = main_diffuse_result + specular;
     // Original :1018-1025 applies this mild bright-region saturation expansion.
     const float luma = face_diffuse_luma(direct);

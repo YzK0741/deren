@@ -31,8 +31,8 @@ import deren.engine.render_graph.visibility;
 import deren.engine.pass.transparent;
 import deren.engine.pass.taa;
 import deren.engine.pass;
-import deren.engine.pass.hzb_build; // the runtime-owned HZB build pass (lane 22) and its header constants
-import deren.engine.pass.hzb_cull;  // the runtime-owned HZB cull pass (lane 21, M3 phase B2)
+import deren.engine.pass.hzb_build; // the runtime-held HZB build pass (lane 22) and its header constants
+import deren.engine.pass.hzb_cull;  // the runtime-held HZB cull pass (lane 21, M3 phase B2)
 import deren.engine.pass.software_visibility;
 import deren.engine.pass.software_merge;
 import deren.engine.pass.output_targets;
@@ -54,7 +54,7 @@ namespace deren::engine {
         // are sized and indexed by the compiler instead of by a hand-kept table, and `lane_slot()` is the only
         // conversion between a lane and an array index.
         //
-        // THE POST CHAIN OWNS 0..5 AND IS WALKED BY INDEX (the static_assert below guards that), every
+        // THE POST CHAIN HOLDS 0..5 AND IS WALKED BY INDEX (the static_assert below guards that), every
         // other lane is reached by name only.
         enum class lane : std::uint8_t {
             // the post chain: six contiguous lanes, ios[0..5]
@@ -170,7 +170,7 @@ namespace deren::engine {
         // `side_effect = true` IS LOAD-BEARING: a pass whose outputs nothing in the graph reads would be culled by
         // the value-root liveness pass (render_graph.cpp's roots list) and the pyramid would never be built. This
         // is the same requirement the TAA history copy states with `export_resource` - here the side effect is the
-        // pass's own: it writes tables the NEXT frame's phase-B cull will read, which no graph can see.
+        // pass's: it writes tables the NEXT frame's phase-B cull will read, which no graph can see.
         //
         // IT IS DECLARED HERE RATHER THAN IN A `render_graph/hzb.cppm` because phase A has ONE such pass and this
         // is the file that appends it; the module-per-chain shape the other adapters use earns its file when the
@@ -368,7 +368,7 @@ namespace deren::engine {
             taa_history_image = taa_history_lease.get();
         }
         // THE REMOVED LEGACY TAA frame transitioned the history for itself (its first-use barrier) and left it sampled by its
-        // own hand-back: record that too, so a later graph frame imports a KNOWN layout instead of re-issuing the
+        // the hand-back: record that too, so a later graph frame imports a KNOWN layout instead of re-issuing the
         // first-use transition on an image that is no longer UNDEFINED.
         if (this->taa_active() && index < this->taa_history_initialized.size()) {
             this->taa_history_initialized[index] = true;
@@ -415,7 +415,7 @@ namespace deren::engine {
                                 .passes = settings.resolution == graph::post::resolve::fxaa ? std::span<pass::frame_pass*>{this->fxaa_pass} : std::span<pass::frame_pass*>{this->upscale_pass}};
             this->prepare_stage(resolve);
         }
-        // Resolve in its final allocation: resolved_io contains spans into its own storage.
+        // Resolve in its final allocation: resolved_io contains spans into its storage.
         auto payload = std::allocate_shared<post_recording_payload>(deren::utility::memory::allocator<post_recording_payload>{});
         payload->host = this->make_pass_host();
         auto& host = payload->host;
@@ -425,7 +425,7 @@ namespace deren::engine {
         if (this->main_graph_frame) {
             // THE TWO STATICALLY BOUND IMAGES' LAYOUT PROTOCOL (stage 2B): the deferred lighting descriptor keeps the
             // RT visibility and MegaLights resolve images bound even when their producers are predicated out, and the
-            // graph cannot declare a read of contents that are undefined by design. The runtime owns that ONE
+            // graph cannot declare a read of contents that are undefined by design. The runtime holds that ONE
             // initialization transition - but only once per GENERATION (the same boundary rule the TAA history's
             // first use follows): no eligible graph frame runs those producers, so after the seed the images stay
             // sampled and every later frame is barrier-free from the runtime's side.
@@ -506,7 +506,7 @@ namespace deren::engine {
                 slot >= this->skin_buffers_previous.size() || slot >= this->morph_buffers.size()) {
                 return rhi::error::not_ready;
             }
-            // THE CLUSTERED-LIGHT SORT'S OWN OUTPUT (adoption stage 2G): the graph records the sort as a pass on
+            // THE CLUSTERED-LIGHT SORT'S OUTPUT (adoption stage 2G): the graph records the sort as a pass on
             // an eligible frame, so its two per-slot buffers are imported and declared here. `counts` keeps the
             // contents: the frame-slot reset host-zeroes the table and the dispatch ATOMICALLY increments it, so
             // its prior state is the compute read-write the last frame left. `indices` starts undefined because
@@ -542,11 +542,11 @@ namespace deren::engine {
                 cluster_counts_ref = *counts_import;
                 cluster_indices_ref = *indices_import;
             }
-            // THE CASCADED SHADOW MAP (adoption stage 2H). Two shapes, depending on who owns the producer this frame:
+            // THE CASCADED SHADOW MAP (adoption stage 2H). Two shapes, depending on who holds the producer this frame:
             // - a GRAPH-RECORDED shadow pass (the maps are stale) writes the array, so the import declares its prior
             //   contents UNDEFINED: the first frame's image really is in UNDEFINED layout, and the producer's write
             //   (the only access) is allowed to discard it - the graph then emits the attachment transition the
-            //   pass's legacy record used to own;
+            //   pass's legacy record used to hold;
             // - otherwise (a reused map, or a frame that cannot record the pass) the map was handed back as sampled
             //   by the renderer before the graph records, and only the lighting reads are declared.
             std::optional<graph::texture_ref> shadow_cascades{};
@@ -630,14 +630,14 @@ namespace deren::engine {
             graph::geometry::shared_inputs shared_geometry{shared_refs[0], shared_refs[1], shared_refs[2], shared_refs[3], shared_refs[4], shared_refs[5], shared_refs[6]};
             shared_geometry.meshlets = graph::geometry::meshlet_inputs{shared_refs[8], shared_refs[9], shared_refs[10], shared_refs[11]};
             // THE RAY-TRACED VISIBILITY IMAGE (RT stage 2b): its producer is a lane of this graph and the lighting
-            // stage declares the matching sampled read, so the graph owns the write -> hand-off pair the pass's
+            // stage declares the matching sampled read, so the graph holds the write -> hand-off pair the pass's
             // legacy record issues itself. Imported with a KNOWN sampled state: the 2B seed transitioned it once
             // this generation, and the per-frame write is the layout transition the plan emits.
             std::optional<graph::texture_ref> rt_visibility{};
             if (this->graph_rt_frame) {
                 // The family's publication is per FRAME SLOT (one visibility image per structure/FIF slot), which is why
                 // this is the shadow map's shape rather than `retain`'s: the lease comes from the generation's object at
-                // the slot, and it is checked against the borrowed array the pass's descriptor sees.
+                // the slot, and it is checked against the referenced array the pass's descriptor sees.
                 auto const rt_slot = this->frame_ring().position();
                 auto rt_generation = this->output_resource_views[13].find(pass::output_targets_pass::ids[13]);
                 if (!rt_generation || rt_generation->device.get() != this->core_lifetime.get() || rt_slot >= rt_generation->objects.size()) {
@@ -662,7 +662,7 @@ namespace deren::engine {
             }
             // THE RAY-TRACED REFLECTION IMAGE, the same per-frame-slot publication shape as the visibility image.
             // It starts UNDEFINED (no generation seed ever touched it) and the graph's first storage write is its
-            // first transition, so the import carries the empty state and the pass's own barrier declaration stays
+            // first transition, so the import carries the empty state and the pass's barrier declaration stays
             // for the legacy path.
             std::optional<graph::texture_ref> rt_reflection{};
             if (this->graph_rt_reflection_frame) {
@@ -776,7 +776,7 @@ namespace deren::engine {
             lighting_inputs.shared = lighting_shared;
             // THE CLUSTERED-LIGHT SORT AS A GRAPH PASS (adoption stage 2G): its two per-slot buffers are imported
             // above and declared by the adapter, the lighting pass declares the same buffers as reads, and the
-            // graph owns the producer -> consumer dependency - the removed legacy path kept its own two barriers
+            // graph holds the producer -> consumer dependency - the removed legacy path kept its two barriers
             // for the frames it alone recorded, and its recorder here uses the barrier-free record_content entry.
             if (this->graph_cluster_frame) {
                 auto cluster_added = build.append([&](graph::builder& description) noexcept {
@@ -828,7 +828,7 @@ namespace deren::engine {
             }
             // ---- THE VISIBILITY PATH'S TWO LANES (visibility-buffer v0.4c, made the opaque producer in v0.5) ----
             // WHEN THE FRAME'S FROZEN LANE IS `visibility`, THESE TWO PASSES ARE THE G-BUFFER'S PRODUCER: the raster
-            // lane writes the packed id AND the frame's own shared depth (no separate capture depth any more - the
+            // lane writes the packed id AND the frame's shared depth (no separate capture depth any more - the
             // lighting, transparent and toon stages read the depth THIS lane wrote), and the resolve lane reads that
             // pair back and reconstructs the five colour targets. The geometry lane is then NOT recorded at all.
             //
@@ -847,7 +847,7 @@ namespace deren::engine {
             bool const visibility_frame = this->visibility_lane_frame == deren::engine::visibility::opaque_lane::visibility;
             // ---- THE HZB LANES' SHARED ADMISSION, AND THE PHASE-B STATIC GATE (M3 phase A2 + B1) ----
             // The BUILD lane's predicate is phase A2's, unchanged (the gate, the two tables, the pipeline, and a
-            // visibility-lane frame - §8.3: a geometry-lane frame builds nothing). The CULL lane adds its own §9.1
+            // visibility-lane frame - §8.3: a geometry-lane frame builds nothing). The CULL lane adds its §9.1
             // clauses AND the §9.2 byte-exact gate, evaluated ONCE, here, before any HZB resource is imported:
             // `evaluate_hzb_cull_lane` captures this frame's scene snapshot and compares it with the slot's saved
             // "what built the history HZB" record. A closed gate prunes the lane, and the frame keeps today's path.
@@ -910,7 +910,7 @@ namespace deren::engine {
             // THE HISTORY LANES ARE IMPORTED ONCE, FOR BOTH LANES. A cull frame's history is DEFINED (it is the same
             // frame slot's previous use: the cull reads it and the build overwrites it, and the graph's WAR edge from
             // that read to the build's write is the §8.2 cull-before-build order). Without a cull lane the build
-            // lane's import is phase A2's own - undefined contents, no state - so a closed-gate frame is byte-for-byte
+            // lane's import is phase A2's - undefined contents, no state - so a closed-gate frame is byte-for-byte
             // a phase-A2 frame.
             std::optional<graph::buffer_ref> hzb_levels_ref{}, hzb_header_ref{};
             if (hzb_build_lane) {
@@ -960,7 +960,7 @@ namespace deren::engine {
                 if (!items_import || !results_import || !survivors_import) {
                     return post_build_error(!items_import ? items_import.error() : (!results_import ? results_import.error() : survivors_import.error()));
                 }
-                // THE CANDIDATE LANE AND THE DRAW-ITEM TABLE ARE THE FRAME'S OWN SHARED IMPORTS (shared_refs[9] and
+                // THE CANDIDATE LANE AND THE DRAW-ITEM TABLE ARE THE FRAME'S SHARED IMPORTS (shared_refs[9] and
                 // [12]): the cull reads the records the host compacted in phase 2 and the model matrix the raster
                 // will project with, so the two lanes cannot disagree about either.
                 auto hzb_added = build.append([&](graph::builder& description) noexcept {
@@ -994,7 +994,7 @@ namespace deren::engine {
                         if (error != rhi::error::ok) {
                             return error;
                         }
-                        // the lane's witness + its own timing boundary (the "hzb cull" interval ends here, before
+                        // the lane's witness + its timing boundary (the "hzb cull" interval ends here, before
                         // the raster lane's "visibility raster" interval starts - spec §10.5's split)
                         this->hzb_cull_recorded_this_frame = true;
                         this->hzb_cull_stats_valid = true;
@@ -1479,7 +1479,7 @@ namespace deren::engine {
             // THE RAY-TRACED SHADOW LANE (RT stage 2b): recorded between the G-buffer producer and the lighting stage its
             // visibility feeds. The adapter declares the storage write from the ray-tracing stage plus the G-buffer
             // reads the tracer reconstructs its ray origins from, so the graph orders geometry -> trace -> lighting and
-            // owns the image's two transitions; the pass's record_content keeps the launch alone.
+            // holds the image's two transitions; the pass's record_content keeps the launch alone.
             if (this->graph_rt_frame && rt_visibility) {
                 pass::stage rt_stage{.name = "rt_shadow", .passes = this->rt_shadow_pass};
                 this->prepare_stage(rt_stage);
@@ -1598,7 +1598,7 @@ namespace deren::engine {
                 // THE G-BUFFER DEBUG VIEW AS A GRAPH PASS (adoption stage 2J): it samples the stored targets and the
                 // motion vectors and CLEARS the HDR target into one visible channel - the lane that runs INSTEAD of
                 // the lighting stage on a debug frame. Its four input transitions and the HDR write are the graph's
-                // now; the frame loop's own HDR transition for this view belonged to the removed legacy path.
+                // now; the frame loop's HDR transition for this view belonged to the removed legacy path.
                 pass::stage debug_stage{.name = "gbuffer_debug", .passes = this->gbuffer_debug_stage};
                 this->prepare_stage(debug_stage);
                 passes[lane_slot(lane::gbuffer_debug)] = this->gbuffer_debug_stage[0];
@@ -1665,9 +1665,9 @@ namespace deren::engine {
                 }
             }
             // THE GAUSSIAN RASTER AS A GRAPH PASS (adoption stage 2O): the removed legacy tail ran it BEFORE transparency
-            // (lighting -> gaussian -> transparent), so it is appended here. Its GPU compute chain keeps its own
+            // (lighting -> gaussian -> transparent), so it is appended here. Its GPU compute chain keeps its
             // buffer barriers inside the recorder - the snapshot's private buffers, no other pass touches them - and
-            // the graph owns the pass-level boundary: the working image as a preserve write and the depth as a read.
+            // the graph holds the pass-level boundary: the working image as a preserve write and the depth as a read.
             if (this->gaussian_active()) {
                 pass::stage gaussian_stage{.name = "gaussian", .passes = this->gaussian_pass};
                 this->prepare_stage(gaussian_stage);
@@ -1685,7 +1685,7 @@ namespace deren::engine {
                 }
                 auto gaussian_bound = build.bind_pass<graph::gaussian::parameters>(
                     gaussian_added->pass, [this, payload](graph::gaussian::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
-                        // the pass's own GPU timing callback writes 7/8/9 INSIDE this record; the raster mark (10) is
+                        // the pass's GPU timing callback writes 7/8/9 INSIDE this record; the raster mark (10) is
                         // the zero-interval placeholder after it (or the whole 7..10 range when it did not record)
                         auto const recorded = payload->record(lane::gaussian_splats);
                         this->gpu_mark_through(gpu_mark_id::gaussian_raster_end);
@@ -1696,7 +1696,7 @@ namespace deren::engine {
                 }
             }
             // THE TRANSPARENT PASS AS A GRAPH PASS (adoption stage 2K): it blends the alpha geometry over the lit
-            // working image and reads the opaque depth. The graph owns the two hand-off transitions the pass's
+            // working image and reads the opaque depth. The graph holds the two hand-off transitions the pass's
             // removed legacy record issued, and this declaration is what orders lighting -> transparent -> TAA.
             if (this->active_features().transparent) {
                 pass::stage transparent_stage{.name = "transparent", .passes = this->transparent_pass};
@@ -1782,7 +1782,7 @@ namespace deren::engine {
             // THE GAME CHAIN'S DEPTH RIM (lane 27): the dedicated contour that replaces the article's while the
             // game-shader model draws. It is a THIRD lane rather than a mode of either rim above because the
             // feature registry answers once per NAME and this stage's answer is a different question:
-            // `game_toon_active()` is the runtime's own composed predicate (the knob AND the pipeline), i.e. the
+            // `game_toon_active()` is the runtime's composed predicate (the knob AND the pipeline), i.e. the
             // same expression `make_character_forward_frame` selects the pipeline with - so the contour cannot
             // disagree with the surface it outlines. ITS PASS MUST EXIST: a chain that never emplaced it leaves
             // `game_toon_depth_rim_pass` null, and the lane is then simply absent rather than resolving a pass
@@ -1790,7 +1790,7 @@ namespace deren::engine {
             //
             // SAME TOPOLOGY AS `toon_screen_rim` (target preserve-write, depth/albedo sampled reads), so it reuses
             // that adapter: the node's label says "toon screen rim" in the graph's diagnostics, but the RECORDED
-            // pass is this lane's own (a different pass object with its own pipeline and colour).
+            // pass is this lane's (a different pass object with its pipeline and colour).
             // `game_toon_active()` says which fragment model the character pipeline uses; it does not say
             // that the character stage is on. The lane also requires the stage itself, or a frame with
             // `game_toon = true` and `character_forward = false` would run a contour over PBR depth.
@@ -1822,7 +1822,7 @@ namespace deren::engine {
             }
             // THE TAA RESOLVE AND ITS HISTORY COPY (adoption stage 2I): TWO graph passes from the one pass object.
             // The resolve turns the working image (which geometry and lighting just wrote) into this HDR image;
-            // the copy moves that HDR image into the history. The graph owns the attachment transition, the
+            // the copy moves that HDR image into the history. The graph holds the attachment transition, the
             // transfer round trip and the ordering between them - kept by the pass's removed legacy record.
             // (The legacy frames it alone recorded are gone with that path.)
             if (this->graph_taa_frame && taa_history) {
@@ -1982,8 +1982,8 @@ namespace deren::engine {
         }
         // THE TAA HISTORY'S HAND-BACK (adoption stage 2I): the graph's copy leaves the history image in
         // transfer-destination, and the invariant every frame's import relies on is "the history is sampled outside
-        // the graph" - so the frame that wrote it hands it back, as the removed legacy TAA record did for its own
-        // frame. The graph cannot own a state that outlives its plan, which is why this stays the runtime's.
+        // the graph" - so the frame that wrote it hands it back, as the removed legacy TAA record did for its
+        // frame. The graph cannot hold a state that outlives its plan, which is why this stays the runtime's.
         if (this->graph_taa_frame && taa_history_image != nullptr) {
             auto const hand_back = commands->barrier(rhi::image_barrier{.resource = taa_history_image,
                                                                         .from = rhi::image_use::transfer_destination,
@@ -1993,7 +1993,7 @@ namespace deren::engine {
                 return hand_back;
             }
         }
-        // THE TAA STAGE'S COLLECTED RESULT: the legacy tail collected it after its own TAA stage, and a written history
+        // THE TAA STAGE'S COLLECTED RESULT: the legacy tail collected it after its TAA stage, and a written history
         // is what publishes this frame's UNJITTERED view-projection for the NEXT frame's reprojection. Measured:
         // without this the graph-recorded TAA frame differs (the resolve reprojects against a stale matrix).
         if (this->graph_taa_frame) {
@@ -2171,11 +2171,11 @@ namespace deren::engine {
         // The pyramid lane and the header lane of the frame that JUST built them are copied out here, for the same
         // reason the depth probe copies here: the graph has recorded, the buffers' contents are final, and this is
         // the only recorder there is. The copy is NOT a graph node (no pass reads these tables this phase), so it
-        // needs its own buffer role pair: compute-write -> transfer-source, then transfer-destination -> host-read
+        // needs its buffer role pair: compute-write -> transfer-source, then transfer-destination -> host-read
         // on the two readback slots (the depth probe's image pair, one resource class over).
         //
         // THE METADATA IS THE POINT (spec §4.1/C21): the header's view/proj are a GPU snapshot of the camera lane the
-        // build read, and the only way to prove "the header is THAT frame's camera" is to dump the host's own
+        // build read, and the only way to prove "the header is THAT frame's camera" is to dump the host's
         // snapshot of the same frame (current_ubo, written in pace_and_acquire before this frame recorded) beside
         // it. scripts/measure/hzb_verify.py then compares the two BIT FOR BIT, and independently rebuilds the whole
         // pyramid from the same frame's DEREN_DEPTH_PROBE_CAPTURE dump.

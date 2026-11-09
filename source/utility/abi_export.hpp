@@ -32,7 +32,7 @@
 // the boundary lands (plan §7.4); today the only user is the probe backend
 // source/tests/probe_backend.cpp. The macro is kept in ONE header, next to the utility code
 // it is a build concern of, and applied at the declarations in
-// source/promise/rhi/backend_entry.hpp: one header owns the question "is this build shared?".
+// source/promise/rhi/backend_entry.hpp: one header holds the question "is this build shared?".
 // ============================================================================
 #pragma once
 
@@ -65,11 +65,11 @@
  * @brief the three `extern "C"` symbols a backend exports and a host resolves, and the keyword that
  *        makes them visible across a DLL boundary.
  *
- * The C ABI is deliberately tiny: a version number, a factory whose ownership transfer is spelled
+ * The C ABI is deliberately tiny: a version number, a factory whose retention transfer is spelled
  * out by the deleter it returns, and that deleter (see `source/promise/rhi/backend_entry.hpp`). Everything
  * else the engine and the backend share is a virtual base class in `deren.promise.rhi`, compiled by
  * both sides independently, so no C++ type is passed by value and no symbol other than these three
- * is exchanged. It is a group of its own rather than part of `deren.promise.rhi` because an entry point
+ * is exchanged. It is A separate group rather than part of `deren.promise.rhi` because an entry point
  * is not a virtual base class (m03159) - and the two files of the group live by that split: the entry
  * points sit in `source/promise/rhi/`, beside the contract they hand out but outside the module, while this
  * build-mode keyword is a utility (`source/utility/abi_export.hpp`, m04074).

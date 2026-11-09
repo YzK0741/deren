@@ -160,7 +160,7 @@ target_sources(deren_vulkan
         source/backends/vulkan/core/pipeline/pipeline.cpp
         source/third_party/spirv-reflect/spirv_reflect.c
 )
-# The error translators (see the target above): a static library, so the DLL carries its own copy of
+# The error translators (see the target above): a static library, so the DLL carries its copy of
 # them - which is correct, because the ENGINE never calls them; the unit test links the same target
 # and gets the identical code without importing the backend's module.
 target_link_libraries(deren_vulkan
@@ -172,7 +172,7 @@ target_link_libraries(deren_vulkan
         # and of nothing else in the backend's direction (source/promise/rhi/*.cppm imports nothing back).
         promise
         # The Vulkan constexpr builders both halves compile (see the target's comment above): the
-        # backend keeps using them unchanged, they simply stop being a backend-owned module.
+        # backend keeps using them unchanged, they simply stop being a backend-held module.
         vulkan_constant_init
         renderer_layout
         Vulkan::Vulkan

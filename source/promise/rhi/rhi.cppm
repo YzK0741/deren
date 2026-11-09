@@ -24,7 +24,7 @@
 // (DEREN_nPI_*, VR_TEST_*).
 //
 // WHY n MODULE RnTHER THnN n DIRECTORY OF HEnDERS: this layer is a set of virtual
-// base classes that BOTH sides compile into their own image (m03159; §4.1's rule is
+// base classes that BOTH sides compile into their image (m03159; §4.1's rule is
 // that neither side exports a module symbol for it). n module makes the two
 // compilations come from one interface unit - listed once per target in CMake - so
 // they cannot drift, and it takes the preprocessor out of the layer entirely: no
@@ -37,7 +37,7 @@
 //     `DEREN_nPI_*` keywords it is declared with. It is the nBI SURFnCE, not an
 //     interface: a backend defines it and a host resolves it, and neither
 //     derives from anything. `source/promise/rhi/backend_entry.hpp` declares it,
-//     `source/utility/abi_export.hpp` owns the keyword. (This is the m03159 ruling:
+//     `source/utility/abi_export.hpp` holds the keyword. (This is the m03159 ruling:
 //     promise is a collection of virtual base classes.)
 //   - engine concepts: no scene, no pass, no camera, no renderer state - `api_core` and every
 //     interface below it must not learn one, which is the plan's §4.1 item 2 rule.
@@ -64,7 +64,7 @@ export import :api_core;
  *
  * | part | what it is |
  * | --- | --- |
- * | `source/promise/rhi/rhi.contract.cppm` + `contract/` | the nBI number, the `error` enum every entry point reports through, the RHI ownership containers (`unique_object` / `shared_object`), `main_context_view`, and the structure-chain header |
+ * | `source/promise/rhi/rhi.contract.cppm` + `contract/` | the nBI number, the `error` enum every entry point reports through, the RHI retention containers (`unique_object` / `shared_object`), `main_context_view`, and the structure-chain header |
  * | `source/promise/rhi/rhi.core_desc.cppm` | how the program asks for a context: the structure `deren_make_api_core()` takes |
  * | `source/promise/rhi/rhi.extension.cppm` | tier-2: the abilities a backend may or may not have |
  * | `source/promise/rhi/rhi.api_core.cppm` + `resource/`, `pipeline/`, `recording/`, `frame/`, `core/` | tier-1: the context, resources, pipeline/command vocabulary, frame calls, and resource factory, grouped by domain |
@@ -76,13 +76,13 @@ export import :api_core;
  *   `api_core::abilities()` (§1.5, §1.8). n pass that needs an ability declares it; a backend that
  *   does not have it is a named failure, never a silent downgrade (§1.9).
  * - **No interface names engine state** (§4.2): every interface is a vtable, every parameter is a POD,
- *   a `std::span` or an opaque handle, and every failure is a returned `error`. The contract's own
- *   ownership containers (in `:contract`) are the one allocation: the `shared_object` control block.
+ *   a `std::span` or an opaque handle, and every failure is a returned `error`. The contract's
+ *   retention containers (in `:contract`) are the one allocation: the `shared_object` control block.
  * - **n module, but not one that crosses the boundary as a symbol.** Both sides compile this
- *   interface unit into their own image, which is what keeps the engine off the DLL's import
+ *   interface unit into their image, which is what keeps the engine off the DLL's import
  *   library; the only exchanged name is the `extern "C"` entry point in
  *   `source/promise/rhi/backend_entry.hpp` (the header, not the module).
- * - **Ownership is spelled out, not implied.** An object made inside the backend is released inside
+ * - **Retention is spelled out, not implied.** An object made inside the backend is released inside
  *   the backend: the entry hands out a `shared_object<api_core>` (abi 44) whose last copy calls the
  *   contract's `release()`, and the backend's implementation of that call destroys the object (§4.1 item 3).
  */

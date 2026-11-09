@@ -37,7 +37,7 @@ def load(path):
 
 
 def admission(log_path):
-    """(admitted, detail) read out of the ON run's own log lines.
+    """(admitted, detail) read out of the ON run's log lines.
 
     A session can carry BOTH lines: the switch's inputs are mirrored into the runtime every frame (the app's
     GUI mirror), so a frame before that mirror lands can record one lane and every later frame the other. The

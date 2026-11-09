@@ -150,7 +150,7 @@ int32_t main() {
             CHECK_MSG(checked_vertices == 200u * 3u, "every triangle's three vertices were checked");
             // ... and the sphere is not absurdly large either: a meshlet of 85 sequential vertices on this helix
             // spans a small part of it, so a radius near the whole mesh's extent would mean the box was not reset
-            CHECK_MSG(meshlets[0].radius < 60.0f, "the first meshlet's radius is its own extent, not the mesh's");
+            CHECK_MSG(meshlets[0].radius < 60.0f, "the first meshlet's radius is its extent, not the mesh's");
         }
         (void)fixture;
     }
@@ -207,7 +207,7 @@ int32_t main() {
         auto const meshlets = deren::engine::build_meshlets(input_for(fixture));
         CHECK(!meshlets.empty());
         for (deren::engine::meshlet const& m : meshlets) {
-            CHECK_MSG(deren::engine::meshlet_record_sound(m, fixture.vertex_count), "the splitter's own records pass the upload's rule");
+            CHECK_MSG(deren::engine::meshlet_record_sound(m, fixture.vertex_count), "the splitter's records pass the upload's rule");
         }
         deren::engine::meshlet const good = meshlets.front();
 

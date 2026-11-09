@@ -1,7 +1,7 @@
 \page managed_resources Passchain-managed resources
 
 This is shared engine infrastructure used by [subtilis](subtilis.md), [amnis](amnis.md) and other
-rendering clients. It manages resource generations and lifetimes; clients retain their own policies
+rendering clients. It manages resource generations and lifetimes; clients retain their policies
 for geometry LOD/page selection and texture mip residency. A resource passing through this layer
 does not make its selection policy part of the resource manager.
 
@@ -18,15 +18,15 @@ The dated per-step acceptance records that originally documented these migration
 working material and are not distributed with this repository; the conclusions are summarized in the
 sections below.
 
-## Ownership and lifetime
+## Retention and lifetime
 
-The registry owns `resource_id -> shared_ptr<const generation>` (an engine object - `std::shared_ptr`
+The registry holds `resource_id -> shared_ptr<const generation>` (an engine object - `std::shared_ptr`
 is the engine's container and no longer manages an RHI handle) and groups ids in
-`map<lifetime, vector<resource_id>>`. A generation owns its device root as an
+`map<lifetime, vector<resource_id>>`. A generation holds its device root as an
 `rhi::shared_object<rhi::api_core>` and its RHI objects as `rhi::unique_object<T>`: allocations and
 image views, destroyed so that views go before their images and the device root last. A pass holds a
 snapshot and uses its objects. The runtime retains submitted snapshots until the corresponding
-frame-slot wait succeeds. Destroying a chain drains its device before releasing its owned passes and
+frame-slot wait succeeds. Destroying a chain drains its device before releasing its held passes and
 resources.
 
 Lifetime labels are `device`, `scene`, `output_size`, `frame_slot`, `frame_scratch` and `history`.
@@ -37,7 +37,7 @@ the RHI output-image bound because the contract does not expose a swapchain imag
 
 ## Dynamic collection
 
-`frame_pass::describe_resources(context, requests)` appends owned requirements or a dependency with
+`frame_pass::describe_resources(context, requests)` appends held requirements or a dependency with
 `create = false`. A dependency names a producer's id; it does not supply additional allocation constraints.
 `pass_chain::prepare_resources(device, context)` collects the entire chain before allocation, so producer
 order does not affect resolution. Conflicting descriptions, missing producers and invalid requests fail
@@ -46,9 +46,9 @@ without changing the active set or rebinding passes. A creation failure also lea
 Matching allocations are reused. Buffer byte capacity and image layer capacity can grow; shrinking
 keeps the existing capacity. Extent, format, usage, lifetime, scope or instance-count changes create a
 new generation. Snapshots of the former generation stay valid while their holders remain alive.
-`bind_resources(snapshot)` publishes CPU views only; GPU descriptor writes must respect their own
+`bind_resources(snapshot)` publishes CPU views only; GPU descriptor writes must respect their
 completion rules. Image/buffer initialization uploads are deliberately unsupported in this first API;
-nonempty `initial_bytes` is rejected rather than retaining a borrowed upload span. Mapped buffers can
+nonempty `initial_bytes` is rejected rather than retaining a referenced upload span. Mapped buffers can
 request `zero_on_create` to initialize a newly allocated generation once; reused contents are preserved.
 
 ## Frame sequence
@@ -69,9 +69,9 @@ Images still use their declared render-pass clears; persistent images are not bl
 ## Raster shadow migration
 
 `shadow_pass` declares layered depth images in frame-slot scope and retains its bound snapshot.
-The chain creates the images, array views and per-layer views. The runtime holds borrowed shadow views
+The chain creates the images, array views and per-layer views. The runtime holds referenced shadow views
 for existing shader-heap publication and resource-table resolution. When the generation changes, it
-waits for device idle, updates the borrowed bridge and sampled descriptors, and invalidates cached shadow
+waits for device idle, updates the referenced bridge and sampled descriptors, and invalidates cached shadow
 content. This preserves the existing safe replacement rule. Independently managed light/head buffers
 are reused when only shadow layers grow.
 
@@ -83,7 +83,7 @@ per-frame zeroing. Runtime skips this reset when no clustered dispatch runs; ind
 contents and the dispatch rewrites the rows subsequently consumed by shading. Resizing changes the
 active grid, so it does not reallocate these buffers.
 
-Runtime borrows both buffers and retains a shared snapshot. Replacing the pair waits idle before
+Runtime references both buffers and retains a shared snapshot. Replacing the pair waits idle before
 switching heap addresses. Admission checks require the complete pair, frame-slot scope, coherent storage
 usage, valid sizes and device addresses before changing the bridge. Partial or incompatible providers
 fail before acquiring a frame. Cluster barriers reference the distributed generation for that slot.
@@ -91,7 +91,7 @@ fail before acquiring a frame. Cluster barriers reference the distributed genera
 Hosts without migrated producers use a resource-only compatibility chain that declares just the missing
 shadow, cluster and/or camera/light/head resources. The application chain remains independently collected and initialized.
 Successful submissions retain both application and compatibility snapshots. Chain handover selects the
-producers anew; cached compatibility pass objects are owned by the runtime's compatibility chain.
+producers anew; cached compatibility pass objects are held by the runtime's compatibility chain.
 
 Native tests with 32 lights exposed two older bugs now fixed: the cluster dispatch omitted its heap
 frame/image push indices, and shared shading read the host's floating light-count lane as uint bits.
@@ -114,12 +114,12 @@ The caller supplies GPU completion; the upload method does not wait. Initial pri
 occurs before their first use, or after the existing idle wait during replacement.
 
 Camera is prepared with constructor output targets so setup-time heap publication has a usable buffer;
-light/head, shadow and cluster resources remain lazy. Runtime holds borrowed camera buffers and a
+light/head, shadow and cluster resources remain lazy. Runtime holds referenced camera buffers and a
 generation snapshot. Camera projection, TAA jitter and previous-image matrices retain their existing
-calculations; only ownership and the checked upload path change.
+calculations; only retention and the checked upload path change.
 
 The application and compatibility chain can supply camera/light/head independently. Admission validates all
-selected descriptions before changing borrowed handles or heap bindings and rejects per-frame clearing
+selected descriptions before changing referenced handles or heap bindings and rejects per-frame clearing
 for these constants. Replacing providers preserves submitted snapshots until their slot completes.
 Arbitrary-time setters modify CPU state only; they cannot overwrite a constant block read by the GPU.
 
@@ -148,21 +148,21 @@ THE VISIBILITY BUFFER'S RESOURCES (v0.4b/v0.5), and why two of them look unused 
   declares it, the runtime no longer adopts/publishes it and the shader slot constant is removed - which saves
   one depth image per swapchain image (8 x render extent, ~33 MB at 1080x960) plus its descriptor writes. The
   `resource_id` entry itself stays (removing an enum value would renumber every id after it); the v1 software
-  raster's resource pass can take that renumber together with its own private depth. HEAP SLOTS 727..734
+  raster's resource pass can take that renumber together with its private depth. HEAP SLOTS 727..734
   remain reserved for it.
 - The draw-item table (`visibility_items`) is a per-frame-slot buffer the raster lane's recorder fills and the
   compute resolve reads; its host-visible lane is one 112-byte record per visible item.
 
-The registry gives each physical G-buffer attachment its own allocation id because their formats differ.
+The registry gives each physical G-buffer attachment its allocation id because their formats differ.
 `gbuffer_targets` remains the three-element family used by existing pass IO. `scene_input` is the physical
 TAA input allocation; `scene_color` remains the per-frame alias selecting that image when TAA runs and
 HDR otherwise. The new physical ids identify allocation requests and do not replace existing IO routes.
 
 Application producers can provide individual families. The compatibility producer describes only the
 missing ones. Runtime validates the complete selected set (type, lifetime, scope, extent, format, layers,
-mips, instance count and required usage) before changing any borrowed image/view or heap binding.
+mips, instance count and required usage) before changing any referenced image/view or heap binding.
 Replacement drains in-flight work, adopts the distributed views and republishes existing sampled slots.
-Snapshots retain former generations until frame completion. Existing clears and barriers still own
+Snapshots retain former generations until frame completion. Existing clears and barriers still hold
 image initialization; `begin_frame` does not blindly clear images.
 
 Frame preparation reports allocation/admission failure before legacy publication and acquisition, including
@@ -176,7 +176,7 @@ layout/history/Gaussian frame state after the drain. Other image families still 
 The output producer also declares LDR and four physical Bloom levels with `output_size` lifetime.
 Bloom level L uses `max(1, render_extent >> (L + 1))` on each dimension. The four allocation ids retain
 the existing `bloom` family routes and heap stride. Runtime reads the allocated images' extents through
-the same helper for both owned and borrowed images; it does not repeat the downsample formula.
+the same helper for both held and referenced images; it does not repeat the downsample formula.
 
 TAA history has `history` lifetime, output-image scope and sampled/transfer-destination usage. It is
 never requested for per-frame clearing. `taa_pass` also describes the identical history requirement,
@@ -186,15 +186,15 @@ providers. Compatible duplicate requirements resolve to one generation.
 TAA retains its bound snapshot and compares the history generation when rebinding. An unchanged
 generation preserves history validity and `wrote_history`; replacement invalidates both. Existing
 swapchain recreation and TAA off-to-on resets still apply. The resolve still copies HDR into history,
-then returns it to shader-read use; ownership migration adds no image clear or copy.
+then returns it to shader-read use; retention migration adds no image clear or copy.
 
-LDR/history/Bloom replacement follows the same complete admission, idle wait, borrowed bridge and
+LDR/history/Bloom replacement follows the same complete admission, idle wait, referenced bridge and
 submitted-snapshot rules as the base targets. Admission validates the expected lifetime and derived
 extent of each family. Runtime no longer allocates or destroys these images in the legacy rebuild loop.
 
 ## Ray-traced visibility
 
-The ray-traced shadow pass declares its own output image with the same request as the shared producer:
+The ray-traced shadow pass declares its output image with the same request as the shared producer:
 full-resolution R16F, output-size lifetime and **frame-slot** scope, sampled/storage usage. Runtime validates the
 expected scope and instance count per family, then adopts the generation using its actual object count, publishes
 both the sampled and the storage heap descriptions, and keeps a sampled view for attachment / resource-table
@@ -211,19 +211,19 @@ zero-on-create; none uses zero-on-frame. `skin_matrices_previous` is an appended
 preserving all earlier ids and the RHI ABI number. The frame resource table now also publishes that buffer.
 
 Constructor preparation provides the buffers before animation setup or instanced motion writes.
-The runtime borrows buffers/mappings and retains each family's owning snapshot. Application and
+The runtime references buffers/mappings and retains each family's holding snapshot. Application and
 compatibility chains can independently provide missing families. Admission checks capacity, mapping,
-scope, lifetime and reset policy before acquisition or changing borrowed handles/heap bindings.
+scope, lifetime and reset policy before acquisition or changing referenced handles/heap bindings.
 
 On replacement, the existing idle wait precedes a per-slot copy from the old mapped buffer into the
 new generation; old snapshots remain alive throughout the copy. This preserves setup morph deltas,
 partial skin uploads, instanced motion transforms and previous-skin bytes. CPU chronological history
 is preserved separately. No full-buffer copy or reset occurs on normal reuse; a morph replacement
-does copy up to 48 MiB per slot. Raw morph scratch is borrowed for immediate writes and must be
+does copy up to 48 MiB per slot. Raw morph scratch is referenced for immediate writes and must be
 obtained again after reconciliation; the animation controller already obtains it per operation.
 
 Existing setter/recording writes and their completed-slot/setup timing remain unchanged. This stage
-changes allocation ownership and publication, not the deformation algorithm or its GPU barriers.
+changes allocation retention and publication, not the deformation algorithm or its GPU barriers.
 The animated debug capture separately exposed and fixed an existing HDR attachment ordering error.
 
 ## Shared scene tables
@@ -234,7 +234,7 @@ matches the actual global binding. Seven ids are appended without renumbering pr
 The last three buffers retain internal frame regions and their original offsets; indirect commands
 retain indirect usage and are not placed on the descriptor heap.
 
-Constructor collection precedes default-material/toon initialization. Runtime borrows handles/mappings;
+Constructor collection precedes default-material/toon initialization. Runtime references handles/mappings;
 admission checks each whole allocation's capacity, scope, lifetime, coherent mapping, flags and reset
 policy before adoption. Neutral toon values and material0 registration stay in the original setup code.
 Replacement drains GPU work then preserves full mapped contents, including imported tables and cumulative
@@ -243,34 +243,34 @@ in the frame resource table; submitted snapshots retain retired objects.
 
 ## Gaussian GPU frame storage
 
-Each completed Gaussian GPU frame slot owns a resource-only subchain describing ten dynamic buffers:
+Each completed Gaussian GPU frame slot holds a resource-only subchain describing ten dynamic buffers:
 instances, ranges, keys, values, references, sort scratch, status, indirect draw, parameters and projection
 cache. All are device-wide allocations within that slot's subchain, grouped under frame_slot lifetime.
 The parent Gaussian pass receives the retained frame snapshot; ordinary reuse does not reconcile.
 
 Registry admission runs before candidate publication and pass binding, including cached-generation
 reconciliation. Gaussian checks actual capacities/budget, addresses and coherent mappings there;
-rejection preserves active resources. Production supplies an owning device lease from first creation.
-Legacy reference-only reuse cannot acquire an owning lease later; create a fresh frame for that transition.
+rejection preserves active resources. Production supplies a holding device lease from first creation.
+Legacy reference-only reuse cannot acquire a holding lease later; create a fresh frame for that transition.
 The subchain drains before sorter, asset and device leases are released.
 
 CPU raster slots use the same resource-only subchain for their two coherent instance/reference buffers.
 CPU results are staged before resource admission and publication; rejected growth preserves the old frame.
-Two retained CPU reference/owner workspaces alternate after warmup, preserving capacity reuse. Runtime
-supplies its owning device root from initial creation; the legacy lease contract matches GPU frames.
+Two retained CPU reference/holder workspaces alternate after warmup, preserving capacity reuse. Runtime
+supplies its holding device root from initial creation; the legacy lease contract matches GPU frames.
 
 ## Initial buffer contents
 
-A buffer request may carry owned immutable initial_data bytes and an independent initialization_key.
-The registry exposes those bytes only during synchronous creation, clears the byte owner from generation
+A buffer request may carry held immutable initial_data bytes and an independent initialization_key.
+The registry exposes those bytes only during synchronous creation, clears the byte holder from generation
 metadata, and retains the key/count for compatibility. After successful upload the producer can release
-its byte owner while continuing to describe the initialized resource. Same-key reuse needs no source;
+its byte holder while continuing to describe the initialized resource. Same-key reuse needs no source;
 recreation without a source returns not_ready. New content uses a new key. Initial contents cannot be
 combined with zero-on-create/frame reset policies.
 
 Static Gaussian geometry and SH buffers use scene-lifetime resource subchains with the existing staging
 upload intent. Shared packed data aliases are released after upload; production transfers packed vectors
-without an additional copy and supplies the owning device root through runtime create_gaussian_asset.
+without an additional copy and supplies the holding device root through runtime create_gaussian_asset.
 The legacy const-reference convenience overload temporarily copies its validated packed input.
 
 ## TLAS and instance tables
@@ -279,13 +279,13 @@ Completed TLAS slots declare a top-level AS and coherent hit-shading instance ta
 subchain. Growth validates and copies the current record prefix before committing the pair, preserving
 the old frame on failure. Normal reuse skips reconciliation. Production forwards core_lifetime; retained
 snapshots hold devices, and slot chains drain before releasing allocations. The typed registry AS path
-accepts top-level descriptions and bottom-level descriptions with an owned geometry vector.
+accepts top-level descriptions and bottom-level descriptions with a held geometry vector.
 
 TLAS publication uses the current frame slot and a typed AS handle. Allocation persists across empty
 or failed frames, but traversal readiness is cleared before recording and enabled only by a successful
 nonempty build. Early skin/refit failures leave no stale ready handle.
 
-Nonempty BLAS entries have scene-lifetime subchains and borrowed handles. Geometry vectors are retained
+Nonempty BLAS entries have scene-lifetime subchains and referenced handles. Geometry vectors are retained
 in declarations; only synchronous creation sees their temporary RHI pointer. Optional shared dependency
 leases stay alive until after the AS releases. Entry movement and ordinary refit add no idle wait;
 final destruction drains each entry. Mask/skin output generation leases are connected to BLAS
@@ -296,7 +296,7 @@ before mask recording starts; partial skin/AS recording failures retain resource
 disabled. Initial skin failure also updates runtime's bake flag.
 
 Opacity micromaps use typed scene subchains and are retained by BLAS generation dependencies.
-Their requests own immutable upload vectors only through synchronous creation, retaining a separate
+Their requests hold immutable upload vectors only through synchronous creation, retaining a separate
 content key afterward. Raw RHI spans are never stored; recreation without its upload source refuses.
 
 Production scene geometry uploads also declare vertex/index buffer pairs through scene subchains.
@@ -304,22 +304,22 @@ Primitive views carry generation leases, and BLAS retains both source-buffer lea
 assignments adopt one factory reference, the contract's `rhi::unique_object<rhi::buffer>`, into a
 shared holder (`geometry_buffer::operator=`); their external device obligation remains.
 
-## Shared images, samplers and ownership coverage
+## Shared images, samplers and retention coverage
 
 Shared texture/IBL/furnace/LUT images and six samplers use typed resource-only subchains. Runtime
-holds aliasing `rhi::shared_object<T>` handles whose control blocks name the subchain's own
-`std::shared_ptr`; those aliases own the subchains and their device roots.
+holds aliasing `rhi::shared_object<T>` handles whose control blocks name the subchain's
+`std::shared_ptr`; those aliases hold the subchains and their device roots.
 Image upload sources use the immutable initial-data/key protocol and are released after creation.
 Only whole views are requested for shared sampled images. Shader binding table uploads also use
 managed coherent/addressable buffers through the pass upload hook.
 
 IBL stages a complete replacement, waits for prior readers, publishes all heap slots and only then
-replaces owners. Write refusal rolls back the completed slots; failed rollback retains candidates and
-blocks acquisition until successful replacement. Display/FGD LUTs publish before replacing owners.
+replaces holders. Write refusal rolls back the completed slots; failed rollback retains candidates and
+blocks acquisition until successful replacement. Display/FGD LUTs publish before replacing holders.
 Setters must be called at frame boundaries, without concurrent CPU recording.
 
-Production pass and shared-resource ownership migration is complete. Presentation images stay
-backend-owned borrows, diagnostic/probe allocations are explicitly separate, and legacy custom imports
+Production pass and shared-resource retention migration is complete. Presentation images stay
+backend-held references, diagnostic/probe allocations are explicitly separate, and legacy custom imports
 retain their external device/scene obligations. Heap publication, address access and manual barriers
 remain their existing access channels; lifetime labels do not constitute an automatic render graph.
 See [the pass resource inventory](render_resource_inventory.md); the final audit record is not

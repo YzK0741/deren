@@ -25,7 +25,7 @@ namespace deren::utility {
      * @ingroup frame_clock
      * @brief monotonic per-frame clock with single-writer stamps and cheap multi-reader reads
      * @note
-     *     - stamp() must only be called from ONE thread (the frame owner); every other method
+     *     - stamp() must only be called from ONE thread (the frame holder); every other method
      *       is safe to call from any thread at any time (relaxed atomic loads)
      *     - last_ns()/delta_ns() are raw nanoseconds since the steady clock's origin; convert
      *       with delta_seconds()/last_seconds() or read now_ns() for a true 'right now'
@@ -34,7 +34,7 @@ namespace deren::utility {
      */
     export class frame_clock {
     public:
-        /** @brief record the current steady time as the new frame stamp (frame owner thread) */
+        /** @brief record the current steady time as the new frame stamp (frame holder thread) */
         void stamp() noexcept {
             uint64_t const now = now_ns();
             uint64_t const previous = this->last_ns_value.load(std::memory_order_relaxed);

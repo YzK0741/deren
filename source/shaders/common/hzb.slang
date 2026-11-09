@@ -27,7 +27,7 @@
 // how many levels ONE dispatch run can build: 16 halvings reach 1x1 from any width/height up to 32768, i.e.
 // every swapchain this renderer can create. Mirrors `hzb_max_levels` in deren.engine.visibility.hzb.
 static const uint hzb_max_levels = 16u;
-// a pyramid word is one float32 NDC depth (the D32 format's own bits)
+// a pyramid word is one float32 NDC depth (the D32 format's bits)
 static const uint hzb_word_bytes = 4u;
 
 // ---- THE HEADER (spec §4.1): 256 B per frame lane, written by the build pass ---------------------------------
@@ -49,7 +49,7 @@ static const uint hzb_header_word_magic = 0u;
 static const uint hzb_header_word_width = 1u;
 static const uint hzb_header_word_height = 2u;
 static const uint hzb_header_word_levels = 3u;
-static const uint hzb_header_word_view = 4u;          // 16 words: the glm::mat4's own bytes
+static const uint hzb_header_word_view = 4u;          // 16 words: the glm::mat4's bytes
 static const uint hzb_header_word_proj = 20u;         // 16 words
 static const uint hzb_header_word_camera_pos = 36u;   // 3 words; word 39 is the vec4 pad slot
 static const uint hzb_header_word_reserved_begin = 40u; // .. 63: zeroed by the writer
@@ -187,7 +187,7 @@ static const uint hzb_item_source_culled = 1u;
 //
 // flags[65536] + pass1_count[4096] + pass2_count[4096] + stats[16] words, packed per frame lane. The flags are
 // addressed by the ABSOLUTE candidate index (meshlet_base + i), one u32 per candidate - written exactly once, so
-// no clear and no atomics; the per-item count has ONE writer (the item's own workgroup), and only the cross-item
+// no clear and no atomics; the per-item count has ONE writer (the item's workgroup), and only the cross-item
 // stats block is atomically accumulated. pass2_count is phase C's recovered suffix count (reserved in phase B so the shape
 // and the byte offsets do not move when recovery lands).
 static const uint hzb_results_flags = 0u;                           // [65536] bit0=history rejected, bit1=recovery kept; 0/1 in single-pass mode
@@ -227,7 +227,7 @@ static const uint hzb_stat_overflow_items = 3u; // items whose run could not be 
 // ---- THE MATRIX SPELLING: the CPU reference's storage and its three accessors, copied §6.2 verbatim ----
 //
 // A matrix is the 16 floats the renderer already puts in its buffers: glm's COLUMN-MAJOR layout, element
-// (row, column) = lane[column * 4 + row]. The header stores the camera UBO's own bytes, and the draw item stores
+// (row, column) = lane[column * 4 + row]. The header stores the camera UBO's bytes, and the draw item stores
 // the model matrix's, so loading a matrix is `asfloat(word)` in memory order - no transpose, no `mul`, no
 // layout-majorness rule between the two sides (hzb.cppm's `detail::matrix_element` is the same one line).
 struct HzbMatrix
@@ -346,7 +346,7 @@ struct HzbHistory
     uint width;
     uint height;
     uint levels;
-    HzbMatrix projection;      // the derivation's own projection (§6.4's z_ndc), kept beside the product
+    HzbMatrix projection;      // the derivation's projection (§6.4's z_ndc), kept beside the product
     HzbMatrix view_projection; // proj * view, the matrix every world position in the test goes through
     float3 camera_position;    // the eye, for the "eye inside the ball" early-out
     float near_plane;          // derived from proj (§6.3), used by the cross-near-plane early-out
@@ -429,7 +429,7 @@ struct HzbScreenRect
 
 /// @brief the framebuffer rectangle a world ball covers (§6.5), or false when the test must fail open
 /// @note THE CORNER PROJECTION IS THE CONSERVATIVE PART: the ball is inside the world AABB `center +/- radius`,
-///       perspective maps a convex set in front of the eye to the convex hull of its projected corners, and the
+///       perspective maps a convex set in front of the separate eye to the convex hull projected corners, and the
 ///       bbox of those corners therefore CONTAINS the ball's footprint. A corner at/behind the eye breaks that,
 ///       so such a ball is preserved. This is the function that replaces the host prototype's circle of
 ///       `radius * focal / clip.w`, whose underestimation cost the prototype its 0.314% pixel difference.
@@ -605,7 +605,7 @@ bool hzb_occluded(const HzbHistory history, RWStructuredBuffer<float> pyramid, c
     //     cancellation matters);
     //   * `- epsilon` is then a small correction to a ~1e-5 quantity, not an addition to a ~1.0 one;
     //   * `z_constant / nearest_depth` is one division of two floats into a ~6e-4 quotient (one rounding, ~1e-11).
-    // Every operand is the reference's own value; no bias was added, so the direction of every decision is the
+    // Every operand is the reference's value; no bias was added, so the direction of every decision is the
     // reference's - only its float rounding is bounded far below a real gap. A NaN (an invalid projection that got
     // this far) makes the margin NaN and the comparison false, i.e. it keeps the candidate: the fail-open direction.
     const float margin = (-hzb_matrix_element(history.projection, 2u, 2u) - farthest - hzb_ndc_epsilon) +

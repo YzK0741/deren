@@ -15,7 +15,7 @@
 // buffer view, and the wait is the contract's context call. What stays the engine's is the DECISION:
 // which bytes to unpack, in which order, and what to say when the format cannot be described.
 //
-// Imports are NOT transitive: this partition imports what its own code calls.
+// Imports are NOT transitive: this partition imports what its code calls.
 // ============================================================================
 module;
 #include "../lighting/radiance_capture.hpp"
@@ -66,7 +66,7 @@ namespace deren::engine {
         rhi::api_core& device = this->core_face;
         // THE SAME IMAGE AND THE SAME SLOT THE COPY USED. `frame_image()` answers for the image the last
         // acquire returned - the copy was recorded into THAT frame's command buffer, and by the time the
-        // caller asks the frame has been submitted - and the read-back slot is the backend's own,
+        // caller asks the frame has been submitted - and the read-back slot is the backend's,
         // host-visible buffer.
         deren::promise::rhi::image* const image = device.frames->frame_image();
         deren::promise::rhi::buffer* const slot = device.frames->frame_readback_buffer();
@@ -88,7 +88,7 @@ namespace deren::engine {
 
         // ONE WAIT IS ALL THAT IS LEFT. The copy was recorded INSIDE the submitted frame, so the bytes
         // are on the device until that frame completes; the contract's buffer view carries no fence, so
-        // the caller's pacing - this wait, which is the context's own - is the ordering. The same rule
+        // the caller's pacing - this wait, which is the context's - is the ordering. The same rule
         // the contract states for `buffer::mapped()`.
         device.wait_idle();
         if (auto const* prefix = std::getenv("DEREN_SOFTWARE_IMAGES_CAPTURE")) {
@@ -276,7 +276,7 @@ namespace deren::engine {
 
         // THE DEPTH-PROBE CAPTURE's file (visibility-buffer root-cause measurement): same wait, same frame, a
         // raw dump the comparison script reads (scripts/measure/depth_probe.py): u32 width, u32 height, then
-        // one u32 per texel - the depth format's own bits (D32_SFLOAT float bits on this device, logged by the
+        // one u32 per texel - the depth format's bits (D32_SFLOAT float bits on this device, logged by the
         // backend copy).
         if (auto const* path = std::getenv("DEREN_DEPTH_PROBE_CAPTURE"); path && this->depth_probe_readback) {
             auto const bytes = this->depth_probe_readback->mapped();

@@ -47,7 +47,7 @@ export namespace deren::engine::render_graph::taa {
         return resolve_outputs{in.target, *added};
     }
     /// The history copy: the HDR target out through a transfer read, the history image written through a
-    /// transfer write. Its own pass because the resolve already owns another access to the target.
+    /// transfer write. Its pass because the resolve already holds another access to the target.
     struct copy_inputs {
         texture_ref source;  // the HDR target the resolve wrote
         texture_ref history; // the history image; written wholesale by the copy

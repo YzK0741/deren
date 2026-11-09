@@ -100,7 +100,7 @@ namespace {
     }
 
     void test_scope_timer() {
-        static_assert(!std::is_copy_constructible_v<cpu_phase_timer>, "the timer owns one measurement");
+        static_assert(!std::is_copy_constructible_v<cpu_phase_timer>, "the timer holds one measurement");
         static_assert(!std::is_copy_assignable_v<cpu_phase_timer>);
         static_assert(!std::is_move_constructible_v<cpu_phase_timer>);
         static_assert(!std::is_move_assignable_v<cpu_phase_timer>);

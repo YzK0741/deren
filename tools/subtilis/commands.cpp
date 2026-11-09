@@ -51,7 +51,7 @@ namespace deren::tools::subtilis {
             yyjson_mut_obj_add_uint(d, root, "lod0Only", lod0);
             yyjson_mut_obj_add_uint(d, root, "threads", threads);
             // Explicit boundary note: known-work accounting is not a provable process-memory cap.
-            yyjson_mut_obj_add_str(d, root, "knownWorkNote", "known-work bytes cover source records, owned payload/workspace and per-task estimates; third-party (meshoptimizer) internal temporaries are not a provable process-memory bound");
+            yyjson_mut_obj_add_str(d, root, "knownWorkNote", "known-work bytes cover source records, held payload/workspace and per-task estimates; third-party (meshoptimizer) internal temporaries are not a provable process-memory bound");
             auto* primitives = yyjson_mut_arr(d);
             yyjson_mut_obj_add_val(d, root, "primitives", primitives);
             for (auto const& row : rows) {
@@ -172,7 +172,7 @@ namespace deren::tools::subtilis {
                     build_sources.push_back(std::move(*source));
                 }
             }
-            // Per-index candidate slots owned by the caller: prepare only writes its own slot, the
+            // Per-index candidate slots held by the caller: prepare only writes its slot, the
             // commit callback reads it back in key order on this thread and is the only place that
             // mutates the document. Rejected/failed tasks therefore never consume another target's
             // visible IDs or payload range.

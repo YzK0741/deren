@@ -25,15 +25,15 @@
 // which also covers the backend DLL), so a control block allocated inside the backend can
 // be released by whoever releases the last reference. Two of the three entries therefore
 // become unnecessary rather than wrong:
-//   - `deren_destroy_api_core` is gone: ownership IS the returned handle's control block
-//     (abi 44 put it on the contract's own `shared_object`, whose last copy calls the
+//   - `deren_destroy_api_core` is gone: retention IS the returned handle's control block
+//     (abi 44 put it on the contract's `shared_object`, whose last copy calls the
 //     object's `release()` - there is no deleter name left to resolve, and no raw pointer
 //     for a host to delete);
 //   - `deren_abi_version()` is gone: the version is an INPUT (argument one), so a
-//     disagreement is refused on the call that would have used it, and the backend's own
+//     disagreement is refused on the call that would have used it, and the backend's
 //     number travels back in the `error_info` it fills (`native_code`) plus its message.
 // WHAT DOES NOT CHANGE: an empty `shared_object` means "refused", exactly as a null raw
-// pointer did, and `create_info` is still the contract's one creation structure, borrowed
+// pointer did, and `create_info` is still the contract's one creation structure, referenced
 // only until the call returns.
 // ============================================================================
 #pragma once
@@ -49,7 +49,7 @@
  * @ingroup boundary
  *
  * The C ABI is deliberately tiny: an expected version number in, a context out, and a diagnostic
- * channel the caller owns. Everything else the engine and the backend share is a virtual base class
+ * channel the caller holds. Everything else the engine and the backend share is a virtual base class
  * in `deren.promise.rhi`, compiled by both sides independently (§4.1 item 1), so no symbol other than
  * this one is exchanged.
  *
@@ -71,7 +71,7 @@ extern "C" {
 /// THE one producer of an `api_core`, and the only symbol a backend exports.
 ///
 /// `abi_version` is the CALLER's `deren::promise::rhi::abi_version`: a mismatch is refused (an empty
-/// `shared_object`) and reported through `out_error_info` as `error::abi_mismatch`, with the BACKEND's own
+/// `shared_object`) and reported through `out_error_info` as `error::abi_mismatch`, with the BACKEND's
 /// number in `native_code` - the value `deren_abi_version()` used to answer, now carried by the
 /// diagnostic that explains the refusal instead of by a second entry point.
 ///
@@ -81,20 +81,20 @@ extern "C" {
 /// talk to a newer backend. It is never null in a well-formed call, and a null one is refused with
 /// `error::invalid_argument` rather than defaulted, because "I have no creation parameters" is a
 /// caller bug and not a request for the standard context (`create_info{}` is how that is spelled).
-/// It is BORROWED ONLY UNTIL THIS CALL RETURNS: the backend copies what it keeps (the window title
-/// lives in the window system's own storage after construction).
+/// It is REFERENCED ONLY UNTIL THIS CALL RETURNS: the backend copies what it keeps (the window title
+/// lives in the window system's storage after construction).
 ///
 /// `out_error_info` is the abi 13 diagnostic channel: the CALLER provides the storage (an
-/// out-parameter whose storage the caller owns can stay a frozen type - the by-value rule does not
+/// out-parameter whose storage the caller holds can stay a frozen type - the by-value rule does not
 /// bind here), and the backend fills the WHOLE structure - the decision code AND the diagnosis
 /// (which graphics API produced it, the raw native code, static text, the failure point). On a
 /// version mismatch it returns an EMPTY `shared_object` and fills `error::abi_mismatch`; a caller may not
 /// assume the out-parameter was written on failure, but when it WAS written, it is the whole story.
 ///
-/// OWNERSHIP: the returned `shared_object` carries the contract's release rule (abi 44) - its last copy
+/// RETENTION: the returned `shared_object` carries the contract's release rule (abi 44) - its last copy
 /// calls `release()`, whose backend implementation destroys the object inside the image that made it -
 /// and the engine holds it as its runtime's device root. An empty return is the contract's "no context
-/// for you" and never a half-built one: an internal failure is the backend's own named panic (its
+/// for you" and never a half-built one: an internal failure is the backend's named panic (its
 /// startup rule).
 DEREN_API_EXPORT deren::promise::rhi::shared_object<deren::promise::rhi::api_core>
 deren_make_api_core(std::uint32_t abi_version, deren::promise::rhi::create_info const* desc,

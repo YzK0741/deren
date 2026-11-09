@@ -34,7 +34,7 @@
 // `<colorspace_fragment>` (:1189-1190); for the toon material built by `tu.build` the `Q332` define is NOT set,
 // so the app's custom tone-map chunk runs, and `colorspace_fragment` applies the renderer's output transfer
 // (`sRGBTransferOETF`, `outputColorSpace = "srgb"`) on the way to the canvas. Deren's post composite (mode 2)
-// owns both steps. This header therefore contains NO tone map and NO output transfer - adding either here would
+// holds both steps. This header therefore contains NO tone map and NO output transfer - adding either here would
 // produce the double transform the contract forbids.
 //
 // DEREN STAGING, AND WHY THIS HEADER EXISTS. `runtime.constructor.cppm:2537-2540` stages the four toon COLOUR

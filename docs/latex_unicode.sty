@@ -4,7 +4,7 @@
 %% --------------------
 %% The manual is typeset with pdflatex (see Doxyfile and scripts/build_helpers/build_docs.py).
 %% The doxygen input is not ASCII-only: several doxygen comments quote the reference
-%% toon graph by its own node labels (for example "mixed" / "group" node names written in
+%% toon graph by its node labels (for example "mixed" / "group" node names written in
 %% Chinese) and the gltf loader quotes model part names.  A pdflatex run stops with
 %%   ! LaTeX Error: Unicode character ... not set up for use with LaTeX.
 %% as soon as it meets such a character in text mode.
@@ -31,7 +31,7 @@
 \RequirePackage{CJKutf8}
 
 % The CJK environment has to cover the whole body, but it must not be opened from
-% \AtBeginDocument: doxygen's preamble loads more packages from its own \AtBeginDocument
+% \AtBeginDocument: doxygen's preamble loads more packages from its \AtBeginDocument
 % hooks (natbib/backref do), and opening a group first makes LaTeX abort with
 %   ! LaTeX Error: Loading a class or package in a group.
 % The kernel hook begindocument/end runs after those hooks, and enddocument runs before

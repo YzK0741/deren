@@ -122,7 +122,7 @@ namespace {
     }
 
     // ================================================================================================
-    // THE TEST'S OWN SECOND IMPLEMENTATION OF §6.2-§6.5, used by the property and oracle checks below. It is
+    // THE TEST'S SECOND IMPLEMENTATION OF §6.2-§6.5, used by the property and oracle checks below. It is
     // deliberately a SEPARATE copy of the formulas: a property check that called the production function would
     // only say "the function equals itself". If production regresses to a prototype-style formula, the footprint
     // here still describes the real one and the comparison fails.
@@ -278,7 +278,7 @@ namespace {
         };
     }
 
-    /// §6.4's bug: the centre's own NDC z minus `world_radius / clip.w`, instead of the monotone formula at the
+    /// §6.4's bug: the centre's NDC z minus `world_radius / clip.w`, instead of the monotone formula at the
     /// ball's nearest depth `clip.w - world_radius`
     [[nodiscard]] double prototype_near_ndc(hzb::hzb_camera_snapshot const& camera, matrix const& model, hzb::hzb_sphere const& sphere) {
         std::array<double, 4> const world = transform(model, std::array<double, 4>{sphere.center[0], sphere.center[1], sphere.center[2], 1.0});
@@ -540,7 +540,7 @@ namespace {
                 }
             }
             CHECK_MSG(level_zero_ok, "pyramid level 0 is not a copy of the depth image");
-            // every level is the 2x2 max of the level below, i.e. the max of its pixel block; and a level tile can
+            // every level is the 2x2 max of the level below, i.e. the separate max pixel block; and a level tile can
             // only be LARGER than (or equal to) every pixel it covers - the conservative direction (§4.2)
             bool levels_ok = true;
             bool conservative = true;
@@ -555,7 +555,7 @@ namespace {
                     }
                 }
             }
-            CHECK_MSG(levels_ok, "a pyramid level is not the max of its 2^L pixel block (ceil/edge rule)");
+            CHECK_MSG(levels_ok, "A separate pyramid level is not the max 2^L pixel block (ceil/edge rule)");
             CHECK_MSG(conservative, "a pyramid tile is smaller than a pixel it covers");
             // level_words is that level's prefix of the same buffer
             bool windows_ok = true;

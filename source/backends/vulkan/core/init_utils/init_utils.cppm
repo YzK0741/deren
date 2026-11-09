@@ -102,7 +102,7 @@ export struct device_capabilities {
     VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure_features = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR};
     VkPhysicalDeviceRayQueryFeaturesKHR ray_query_features = deren::vulkan::make_ray_query_features();
     // ---- Ray tracing, the rest of it: the RT PIPELINE (with its maintenance1 features) and the OPACITY
-    //      MICROMAP. Both are chained AFTER ray query and only when their own extensions are advertised,
+    //      MICROMAP. Both are chained AFTER ray query and only when their extensions are advertised,
     //      so "is it linked" is again the availability flag (see the note above). The pipeline is what
     //      turns the traced shadow from a per-pixel ray query into a traceRaysEXT dispatch that can run an
     //      any-hit shader; the micromap is what makes an alphaMode MASK surface opaque/transparent per
@@ -142,7 +142,7 @@ export struct device_capabilities {
      *       ray-tracing one, so its two structs are the first extension links in the chains below.
      * @note the PROPERTIES are the numbers a heap cannot be laid out without: bufferDescriptorSize /
      *       imageDescriptorSize / samplerDescriptorSize are the strides a descriptor of each kind occupies
-     *       (with their own alignment fields), resourceHeapAlignment and samplerHeapAlignment are what a heap
+     *       (with their alignment fields), resourceHeapAlignment and samplerHeapAlignment are what a heap
      *       binding's offset must respect, and minResourceHeapReservedRange plus
      *       minSamplerHeapReservedRangeWithEmbedded are how much of each heap an implementation wants
      *       reserved before descriptors may be placed after the reserved area - the WithEmbedded one being
@@ -156,7 +156,7 @@ export struct device_capabilities {
      *       module declaring one is refused unless VK_KHR_shader_untyped_pointers is enabled and this feature is
      *       on: "SPIR-V Capability UntypedPointersKHR was declared, but ... shaderUntypedPointers" - measured, by
      *       the heap-native probe (source/shaders/debug/heap_probe_comp.slang), which was the first shader in this renderer to
-     *       declare one. The name is kept beside the heap's own dependency for the same reason that one is: the
+     *       declare one. The name is kept beside the heap's dependency for the same reason that one is: the
      *       device-creation list must not re-derive it.
      */
     VkPhysicalDeviceShaderUntypedPointersFeaturesKHR untyped_pointers_features = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_UNTYPED_POINTERS_FEATURES_KHR};
@@ -165,7 +165,7 @@ export struct device_capabilities {
     char const* untyped_pointers_dependency = nullptr;
     VkPhysicalDeviceDescriptorHeapPropertiesEXT descriptor_heap_properties = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_HEAP_PROPERTIES_EXT};
     /**
-     * @brief which extension satisfies the heap's own dependency, or nullptr when neither is present
+     * @brief which extension satisfies the heap's dependency, or nullptr when neither is present
      *
      * @note VK_EXT_descriptor_heap REQUIRES one of VK_KHR_extended_flags or VK_KHR_maintenance5 to be enabled
      *       alongside it, which validation states as VUID-vkCreateDevice-ppEnabledExtensionNames-01387 the
@@ -183,7 +183,7 @@ export struct device_capabilities {
      *        vertex stage rather than extending it, so it is the second independent link in the chains below
      *
      * @note like the heap, this is an extension of how work is SUBMITTED rather than of ray tracing, so it
-     *       joins the chains on its own. It has no extension dependency to resolve: VK_EXT_mesh_shader
+     *       joins the chains alone. It has no extension dependency to resolve: VK_EXT_mesh_shader
      *       depends on VK_KHR_spirv_1_4 and VK_VERSION_1_2, and the engine's 1.3 device already satisfies
      *       the promoted one.
      *
@@ -409,7 +409,7 @@ export VkSurfaceFormatKHR choose_swap_surface_format(deren::utility::vessel::vec
 
 /**
  * @ingroup vulkan_init_utils
- * @brief choose the swap chain extent: the surface's own answer when it has one, else the window's
+ * @brief choose the swap chain extent: the surface's answer when it has one, else the window's
  *        framebuffer size, else the size the window was REQUESTED at
  * @param capabilities surface capabilities
  * @param window the GLFW window, used to query the framebuffer size
@@ -572,7 +572,7 @@ void device_capabilities::query(VkPhysicalDevice const physical_device, uint32_t
     // heap-native probe did: GL_EXT_descriptor_heap compiles every `descriptor_heap` declaration to an UNTYPED
     // POINTER (SPIR-V UntypedPointersKHR), and validation refuses such a module unless
     // VK_KHR_shader_untyped_pointers is enabled AND its feature is on ("SPIR-V Capability UntypedPointersKHR was
-    // declared, but ... shaderUntypedPointers" - measured, on the probe's first run). It hangs off the heap's own
+    // declared, but ... shaderUntypedPointers" - measured, on the probe's first run). It hangs off the heap's
     // link because a device without the heap has no heap shaders to compile.
     bool const untyped_pointers_extension = descriptor_heap_extension && has_extension(VK_KHR_SHADER_UNTYPED_POINTERS_EXTENSION_NAME);
     // MESH SHADERS, the other independent extension: like the heap it changes how work is submitted rather
@@ -584,7 +584,7 @@ void device_capabilities::query(VkPhysicalDevice const physical_device, uint32_t
     // unlike the heap and mesh shaders there is no shader-side consumer to gate - the whole renderer is written
     // against GENERAL, and a device without the feature is rejected at device creation (core.constructor).
     bool const unified_image_layouts_extension = has_extension(VK_KHR_UNIFIED_IMAGE_LAYOUTS_EXTENSION_NAME);
-    // Host image copy is independent of the other extensions and mandatory for renderer-owned uploads/read-back.
+    // Host image copy is independent of the other extensions and mandatory for renderer-held uploads/read-back.
     bool const host_image_copy_extension = has_extension(VK_EXT_HOST_IMAGE_COPY_EXTENSION_NAME);
 
     // ---- Feature pNext chain: features_2 -> 1_1 -> 1_2 -> 1_3 -> 1_4 (truncated by api_version),
@@ -612,7 +612,7 @@ void device_capabilities::query(VkPhysicalDevice const physical_device, uint32_t
         feature_tail = &features_1_4;
     }
     // (the cast is what the newer headers need: a concrete feature struct's pNext is void*, while
-    // VkBaseOutStructure's own pNext is typed - and the tail is reached through the base type)
+    // VkBaseOutStructure's pNext is typed - and the tail is reached through the base type)
     //
     // Chain order: core 1.x, then the INDEPENDENT extension links (descriptor heap, mesh shaders), then the
     // ray-tracing chain. The two independent ones are ahead because neither depends on ray tracing: a device
@@ -646,7 +646,7 @@ void device_capabilities::query(VkPhysicalDevice const physical_device, uint32_t
     }
     independent_tail->pNext = ray_tracing_extensions ? reinterpret_cast<VkBaseOutStructure*>(&acceleration_structure_features) : nullptr;
     acceleration_structure_features.pNext = ray_tracing_extensions ? &ray_query_features : nullptr;
-    // ... and the rest of the ray-tracing chain hangs off ray query, each link present only when its own
+    // ... and the rest of the ray-tracing chain hangs off ray query, each link present only when its
     // extensions are: an extension feature struct whose extension is NOT enabled must not appear in the
     // vkCreateDevice chain at all.
     ray_query_features.pNext = ray_tracing_pipeline_extensions ? reinterpret_cast<VkBaseOutStructure*>(&ray_tracing_pipeline_features) : nullptr;
@@ -740,7 +740,7 @@ void device_capabilities::query(VkPhysicalDevice const physical_device, uint32_t
     //      points work; it says nothing about whether THIS renderer's images may be copied that way. A host copy
     //      needs the image's actual layout to be one of the device's copy-source layouts (the read-back) or one
     //      of its copy-destination layouts (the upload), and every image here is in GENERAL
-    //      (VK_KHR_unified_image_layouts) - so each direction is checked against its OWN list, separately,
+    //      (VK_KHR_unified_image_layouts) - so each direction is checked against its list, separately,
     //      because a device may list GENERAL in one and not the other. A miss is a named startup failure at
     //      device creation; it is not a downgrade to another mechanism. Counts are clamped to the arrays for the
     //      same reason as above.
@@ -1352,7 +1352,7 @@ deren::promise::rhi::image_extent choose_swap_extent(VkSurfaceCapabilitiesKHR ca
     // exactly when the surface does not pin the extent. This file used to `std::max(width, 1)` - a
     // 1x1 swapchain, i.e. a silently different frame at every other resolution, or a validation failure
     // when the driver's minimum image extent is larger than 1. The fallback is instead the size the window
-    // was REQUESTED at (`glfwCreateWindow`'s own arguments, which GLFW keeps whatever it can report for
+    // was REQUESTED at (`glfwCreateWindow`'s arguments, which GLFW keeps whatever it can report for
     // the framebuffer): the caller already decided that extent, so it is the size this run asked for and
     // not a value invented here. `requested_*` is clamped up only so that the fallback cannot itself be a
     // zero-sized image on a config that asks for 0.

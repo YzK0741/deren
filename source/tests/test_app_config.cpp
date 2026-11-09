@@ -72,7 +72,7 @@ namespace {
         CHECK(settings.render.shadow_map_size == 1024);
         CHECK(!settings.render.clustered_lights); // fixture turns the M5 cluster pass off
         CHECK(settings.lighting.demo_lights == 3);
-        CHECK(settings.lighting.environment_hdr == "hdr/test-environment.hdr"); // the fixture's own path, taken verbatim
+        CHECK(settings.lighting.environment_hdr == "hdr/test-environment.hdr"); // the fixture's path, taken verbatim
         CHECK(settings.lighting.environment_intensity > 0.79f && settings.lighting.environment_intensity < 0.81f);
         CHECK(!settings.render.ssao); // fixture turns the M6 screen-space AO off
         CHECK(settings.render.ssao_radius > 1.49f && settings.render.ssao_radius < 1.51f);
@@ -188,7 +188,7 @@ namespace {
         CHECK(settings.lighting.env_size == 256);
         // environment_hdr empty is the contract that keeps the procedural sky (and therefore every frame
         // taken before the key existed) byte-identical; the intensity default is the reference package's
-        // own world_strength, so pointing the key at the converted studio HDR needs no second setting.
+        // its world_strength, so pointing the key at the converted studio HDR needs no second setting.
         CHECK(settings.lighting.environment_hdr.empty());
         CHECK(settings.lighting.environment_intensity > 0.349f && settings.lighting.environment_intensity < 0.351f);
         // [lighting] area_light_*: the example DOCUMENTS the reference package's soft box but ships it OFF
@@ -203,7 +203,7 @@ namespace {
         CHECK(settings.lighting.area_light_softness == 0.0f);
         CHECK(settings.scene.objects.empty()); // example documents the block but ships it commented out
         CHECK(settings.gui.show);
-        // The traced-reflection whitelist ships OFF (rt_reflections = false), but its own defaults are
+        // The traced-reflection whitelist ships OFF (rt_reflections = false), but its defaults are
         // documented: cloth family on, a low strength, and no extra names.
         CHECK(!settings.render.rt_reflections);
         CHECK(settings.render.rt_reflection_cloth);
@@ -274,7 +274,7 @@ namespace {
         CHECK(settings.lighting.irr_size == 32);
         CHECK(settings.lighting.lut_size == 256);
         CHECK(settings.lighting.environment_intensity > 0.349f && settings.lighting.environment_intensity < 0.351f); // -1.0 -> the default
-        // The area light's own numbers: a negative size/power means "no such emitter" rather than a negative
+        // The area light's numbers: a negative size/power means "no such emitter" rather than a negative
         // one, `nan` on the multiplier would ride the light UBO into every pixel (clamp cannot catch a NaN),
         // and a negative softness would ask the shading for a negative penumbra radius.
         CHECK(settings.lighting.area_light_size == 0.0f);
@@ -348,7 +348,7 @@ namespace {
         CHECK(settings.lighting.env_mip_count == 5);
         CHECK(settings.lighting.irr_size == 32);
         CHECK(settings.lighting.lut_size == 256);
-        CHECK(settings.lighting.environment_hdr.empty()); // the generator's own default: the procedural sky
+        CHECK(settings.lighting.environment_hdr.empty()); // the generator's default: the procedural sky
         CHECK(settings.lighting.environment_intensity > 0.349f && settings.lighting.environment_intensity < 0.351f);
         // [lighting] area_light_*: OFF by default, and the generator writes all eight keys out, so this is
         // also the check that the two files (generator + fixture) have not drifted apart.
@@ -386,7 +386,7 @@ namespace {
     }
 
     // `[render] toon_shadow_softness` is a five-step ladder (0..4) sanitized in `analyse_config` on the way
-    // into `deren::engine::toon_rig`'s ninth lane. THE CASE WORTH A TEST OF ITS OWN IS `nan`, because `std::clamp`
+    // into `deren::engine::toon_rig`'s ninth lane. THE separate CASE WORTH A TEST IS `nan`, because `std::clamp`
     // CANNOT CATCH IT: clamp's comparison form returns its first argument unchanged when both comparisons are
     // false, and for NaN both ARE false - so `clamp(round(nan), 0, 4)` is still NaN. That NaN then rides the
     // lane into the shader's `int(clamp(floor(level + 0.5), 0.0, 4.0))`, and `int(NaN)` is UNDEFINED in
@@ -417,7 +417,7 @@ namespace {
     }
 
     // The area light's maths lives in ONE pure function (`deren::app_config::derive_area_light`), so the reference
-    // package's own numbers can be pinned without a device: 4000 W over a 30 m side IS the author's soft key,
+    // package's numbers can be pinned without a device: 4000 W over a 30 m side IS the author's soft key,
     // and this derivation is what turns it into the frame's radiance, direction and penumbra. Three cases
     // carry the contract - the reference numbers, size 0 (the byte-identical path: `enabled == false` and
     // every field zero), and the degenerate geometry that would otherwise normalise a zero vector and put a
@@ -439,7 +439,7 @@ namespace {
         CHECK(derived.world_centre[0] > -3.01f && derived.world_centre[0] < -2.99f);
         CHECK(derived.world_centre[1] > 14.99f && derived.world_centre[1] < 15.01f);
         CHECK(derived.world_centre[2] > 3.99f && derived.world_centre[2] < 4.01f);
-        // radiance = intensity * power / (pi * size^2) = 4000 / (pi * 900) = 1.41471: the soft key's own value
+        // radiance = intensity * power / (pi * size^2) = 4000 / (pi * 900) = 1.41471: the soft key's value
         CHECK(derived.radiance > 1.41471f - 1.0e-4f && derived.radiance < 1.41471f + 1.0e-4f);
         // the sun points FROM the scene AT the emitter ([-3, 15, 4], |v| = 15.8114): up, to the left, forward
         CHECK(derived.to_light_dir[0] < 0.0f);
@@ -778,7 +778,7 @@ namespace {
     // INTEGER OPTIONS ARE VALIDATED IN 64-BIT SPACE, BEFORE THE NARROWING: `static_cast<int32_t>` is a
     // modulo conversion, so 2^32 + 2 used to arrive at a 1..4 check looking like a valid 2, and 2^32 + 5000
     // used to become a plausible 5000-pixel window. Out-of-range values now saturate (and are then clamped
-    // or rejected by the rule that owns the range) or keep the default - but they never wrap.
+    // or rejected by the rule that holds the range) or keep the default - but they never wrap.
     void test_integer_options_do_not_wrap_when_narrowed() {
         std::ofstream("narrowing.toml") << "grid_side = 4294967297\n"
                                            "[render]\nwindow_width = 4294972296\nwindow_height = 4294967996\n"

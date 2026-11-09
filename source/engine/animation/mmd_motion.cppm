@@ -4,7 +4,7 @@
  *        samples on demand.
  *
  * A VMD cannot be expressed as a glTF animation without losing information.  It addresses bones
- * by name, and it eases every channel with its own cubic bezier whose two interior control
+ * by name, and it eases every channel with its cubic bezier whose two interior control
  * points are stored per segment; glTF's CUBICSPLINE carries Hermite in/out tangents, which is a
  * different parameterisation, so the curves would have to be flattened into per-frame linear
  * keys.  That costs the animator's easing, multiplies the asset size (a single 168-bone,
@@ -280,7 +280,7 @@ namespace deren::engine::animation {
      * @param parent_world the world rotation of the hip's parent - the frame the hip comes back in
      * @param hip_world the hip's world position
      * @param target_world the IK target, in world space
-     * @param pole_world  which way the knee should bend; pass the FK knee's own direction so the
+     * @param pole_world  which way the knee should bend; pass the FK knee's direction so the
      *                    knee keeps the facing the animator gave it instead of guessing an axis
      */
     export mmd_ik_result solve_leg_ik(glm::quat const& hip_local, glm::vec3 const& knee_offset,
@@ -291,7 +291,7 @@ namespace deren::engine::animation {
     export struct mmd_bake_options {
         /** samples per second; MMD evaluates its curves once per 30 fps frame, so 30 is exact */
         float frames_per_second = 30.0f;
-        /** last MMD frame to bake (negative means the motion's own last frame) */
+        /** last MMD frame to bake (negative means the motion's last frame) */
         float last_frame = -1.0f;
         /** model units per MMD unit - MUST match the transform the skeleton was rigged with */
         float scale = 1.0f;
@@ -304,7 +304,7 @@ namespace deren::engine::animation {
      *
      * The controller already plays clips onto node poses, so the motion is converted rather than
      * the controller being taught about VMD.  Baking here is not the same thing as baking into the
-     * model: the parsed motion stays untouched and retargetable, and at MMD's own 30 fps the samples
+     * model: the parsed motion stays untouched and retargetable, and at MMD's 30 fps the samples
      * land exactly where MMD evaluates its curves, so no easing is lost.  Asking for a higher rate
      * only subdivides the same curve for an engine that renders faster than the source motion.
      *

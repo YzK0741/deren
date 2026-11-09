@@ -17,7 +17,7 @@ extension, without its `hostImageCopy` feature, whose entry points do not resolv
   entry points resolving through `vkGetDeviceProcAddr`, and whether `VK_IMAGE_LAYOUT_GENERAL` is in the device's
   copy-source list (read-back) AND in its copy-destination list (upload) - separately, because a device may list
   GENERAL in one and not the other.
-- No caller chooses a path at run time. The probe creates and reads back its OWN image, so it asks for
+- No caller chooses a path at run time. The probe creates and reads back its image, so it asks for
   `VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT` unconditionally and calls `vkCopyImageToMemoryEXT`; the log line at the end
   says so, and there is no other branch to infer.
 
@@ -25,7 +25,7 @@ extension, without its `hostImageCopy` feature, whose entry points do not resolv
 
 `vkCopyImageToMemoryEXT` takes an `VkCopyImageToMemoryInfoEXT` naming a source image, its CURRENT layout and one or
 more `VkImageToMemoryCopyEXT` regions, each with a host pointer, a subresource and an extent. The implementation
-performs the copy; the app records nothing, submits nothing and owns no staging memory. It is an EXTENSION command,
+performs the copy; the app records nothing, submits nothing and holds no staging memory. It is an EXTENSION command,
 so it is resolved with `vkGetDeviceProcAddr` and cached on `core` (`copy_image_to_memory`), the same way the mesh
 dispatch commands are (`source/backends/vulkan/core/declarations/core.declarations.cppm`, `source/backends/vulkan/core/core.constructor.cppm`).
 
@@ -62,12 +62,12 @@ The check is now a REQUIREMENT, not a probe. Device creation pushes `VK_EXT_host
 refuses a device whose `hostImageCopy` feature is missing, whose BOTH entry points (`vkCopyImageToMemoryEXT` and
 `vkCopyMemoryToImageEXT`) do not resolve through `vkGetDeviceProcAddr`, or whose copy-source / copy-destination
 layout lists do not contain `GENERAL` - each one a named startup panic, the same posture as
-`VK_KHR_unified_image_layouts`. The two directions are checked against their OWN list (`pCopySrcLayouts` for the
+`VK_KHR_unified_image_layouts`. The two directions are checked against their list (`pCopySrcLayouts` for the
 read-back, `pCopyDstLayouts` for the upload), because a device may list GENERAL in one and not the other. No
 capability flag chooses between implementations at run time.
 
 The image the probe reads back is created with `VK_IMAGE_USAGE_HOST_TRANSFER_BIT` (and no `TRANSFER_SRC`): the
-probe's image is the renderer's own, so the usage bit follows the ONE mechanism that reads it.
+probe's image is the renderer's, so the usage bit follows the ONE mechanism that reads it.
 `VUID-VkCopyImageToMemoryInfo-srcImage-09113` requires the bit for the non-stencil aspects of the source.
 
 ## What the mapping between image and host memory is
@@ -99,7 +99,7 @@ reason:
 2. THE COPY MUST BE RECORDED INSIDE THE FRAME, AND SINCE S2 BATCH 2 IT IS RECORDED THROUGH THE CONTRACT. Moving
    the read-back behind the contract as a frame-domain, synchronously-ordered call was implemented once and
    MEASURED TO FAIL: it ran after `submit_and_present()`, when the swapchain image is `VK_IMAGE_LAYOUT_PRESENT_SRC_KHR`
-   and owned by the presentation engine, and validation reported
+   and held by the presentation engine, and validation reported
    `vkQueueSubmit(): ... expects VkImage ... to be in layout VK_IMAGE_LAYOUT_GENERAL--instead, current layout is
    VK_IMAGE_LAYOUT_PRESENT_SRC_KHR` for every capturing scene. THE FAILURE WAS THE TIMING, NOT THE INTERFACE, and
    the recording surface that fixes the timing now exists (`api_core::begin_commands()`, `image::format()`,
@@ -146,7 +146,7 @@ renderer already shipped, and that check is the SHADOW GATE (plan 8.3):
   with `constant_init`'s `color_attachment_to_transfer_transition` / `transfer_to_color_attachment_transition` over
   all sixteen fields (stage/access masks, both layouts, both queue family indices, the image slot and the four
   subresource fields). A mismatch is a build failure.
-- RUN TIME: the same two barriers are dumped once per pair, so both sides are in the run's own log. MEASURED on the
+- RUN TIME: the same two barriers are dumped once per pair, so both sides are in the run's log. MEASURED on the
   `deferred` scenario:
 
         rhi shadow gate (A5) use(0, 1) image=0x50000000005
@@ -178,7 +178,7 @@ MEASURED on this machine:
 - The device reports the capability (`vulkaninfo`): `VK_EXT_host_image_copy : extension revision 1` and
   `hostImageCopy = true`, and the startup line reports both layout lists' answer.
 - The three graphics probes read their pixel back through the HOST IMAGE COPY and report the same rgba values as
-  before (the probe's own proof: the selected material slot reads white 255,255,255,255 and the deliberately wrong
+  before (the probe's proof: the selected material slot reads white 255,255,255,255 and the deliberately wrong
   slot does not).
 - The surface CANNOT host-copy a swapchain image: `supportedUsageFlags` has six entries and no `HOST_TRANSFER`
   (VUID-VkSwapchainCreateInfoKHR-imageUsage-01276), so the screenshot keeps `vkCmdCopyImageToBuffer` as its sole
@@ -200,6 +200,6 @@ MEASURED on this machine:
   points, and GENERAL in each direction's layout list), and its failure path is exercised by temporarily forcing the
   capability check false and observing the refusal - not by hardware.
 - The swapchain read-back is not host-copyable on this surface, and a surface that DID list `HOST_TRANSFER` would
-  still get the copy command from this batch: converting it is a separate change with its own measurement.
+  still get the copy command from this batch: converting it is a separate change with its measurement.
 - No validation-layer or synchronization-validation run was made for the host copy; the barrier chain is reasoned
   from the synchronization chapter plus the wait that precedes the call.

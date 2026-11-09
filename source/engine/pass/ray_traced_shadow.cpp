@@ -1,5 +1,5 @@
 // The ray-traced shadow pass's implementation: the two barriers around the visibility image, the two shared blocks
-// and the full-resolution dispatch, plus the pipeline it owns. The recording was moved out of
+// and the full-resolution dispatch, plus the pipeline it holds. The recording was moved out of
 // `runtime::record_rt_shadow_pass` UNCHANGED in behaviour - the same UNDEFINED -> GENERAL transition before the
 // dispatch, the same bind order (the scene block, then the G-buffer images), the same 80-byte push, the same workgroup size
 // and the same GENERAL -> SHADER_READ hand-back.
@@ -23,7 +23,7 @@ import deren.utility.shared;
 import deren.promise.rhi; // the record series (abi 20): the two barriers, the push block's endpoint and the traceRays escape
 import deren.engine.render_resource;
 import deren.engine.pass.output_targets;
-import deren.engine.pipelines; // build_rt_shadow: the compute pipeline this pass owns
+import deren.engine.pipelines; // build_rt_shadow: the compute pipeline this pass holds
 import deren.utility;
 
 // The contract's spelling, local to this TU (post.cpp, upscale.cpp, taa.cpp carry the same alias).
@@ -62,7 +62,7 @@ namespace deren::engine::pass {
 
     std::string_view rt_shadow_pass::feature() const noexcept {
         // The renderer's registry answers whether the ray-traced path is on at all (the knob AND a device with
-        // ray queries); this pass's own answer is whether it built its pipeline, which the registry also asks.
+        // ray queries); this pass's answer is whether it built its pipeline, which the registry also asks.
         return "rt_shadow";
     }
 
@@ -123,14 +123,14 @@ namespace deren::engine::pass {
         uint32_t const group_count = built->group_count;
         deren::utility::vessel::vector<uint8_t> handles(static_cast<size_t>(group_count) * handle_size);
         // THE SBT QUERY, through the basis (abi 22): `out.size()` is the query's dataSize, and the pipeline is
-        // the CONTRACT object the backend turns into its own native handle - so this file names neither.
+        // the CONTRACT object the backend turns into its native handle - so this file names neither.
         if (!pass::shader_group_handles(context.face, *this->pass_pipeline->contract, 0, group_count, std::span<std::uint8_t>(handles))) {
             deren::utility::log("ray-traced shadows unavailable: the shader group handles could not be read back");
             this->release_contract();
             return;
         }
         // THE REGIONS ARE THE CONTRACT'S TYPE (`rhi::shader_binding_table_region`): three numbers per table - the
-        // address of its first record, the bytes it spans, and the stride between records. One region per group,
+        // separate address first record, the bytes it spans, and the stride between records. One region per group,
         // each starting on a base-aligned offset and holding exactly one record: the order is the builder's
         // (raygen, miss, hit), so `handles[group]` lands in region `group`.
         deren::utility::vessel::vector<uint8_t> table(static_cast<size_t>(group_count) * region_size, 0);
@@ -139,7 +139,7 @@ namespace deren::engine::pass {
         }
         uint64_t address = 0;
         // THE TABLE IS BUILT THROUGH THE CONTRACT NOW (abi 24): the hook takes the contract's `buffer_flags`
-        // (a shader binding table asks for `shader_binding_table`), answers the contract handle the OWNER keeps
+        // (a shader binding table asks for `shader_binding_table`), answers the contract handle the HOLDER keeps
         // alive, and writes the device address through the out-parameter - so this file names no Vulkan type for
         // any of it, which is why it no longer includes a Vulkan header at all.
         deren::promise::rhi::buffer* const table_buffer = context.create_upload_buffer(context.parent, table.data(), static_cast<uint64_t>(table.size()),
@@ -161,8 +161,8 @@ namespace deren::engine::pass {
     }
 
     void rt_shadow_pass::on_swapchain_recreated(pass_host const&) {
-        // Nothing to reset: this pass owns no per-generation state. Its visibility image is per FRAME SLOT and
-        // belongs to the acceleration structures' own lifetime (the renderer rebuilds both together), and its
+        // Nothing to reset: this pass holds no per-generation state. Its visibility image is per FRAME SLOT and
+        // belongs to the acceleration structures' lifetime (the renderer rebuilds both together), and its
         // pipeline does not depend on the surface's format or size - so the generation change is not its event.
         // The one-shot log line stays set, because "this pass traces rays" does not become untrue on a resize.
     }
@@ -191,7 +191,7 @@ namespace deren::engine::pass {
         // THE LAUNCH DIMS ARE THE EXTENT: one invocation per pixel of the visibility image, which is what the
         // compute form got from its dispatch and its bounds check. The launch itself is the pass's wrapper: the
         // contract buffer in, the native entry point out of the escape (see `trace_rays` above), and the REGIONS
-        // are the contract's own type now (see the members).
+        // are the contract's type now (see the members).
         io.list->trace_rays(this->raygen_region, this->miss_region, this->hit_region, this->callable_region, io.extent.width, io.extent.height, 1);
         if (!this->logged) {
             this->logged = true;

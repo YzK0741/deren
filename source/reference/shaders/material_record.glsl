@@ -1,11 +1,11 @@
 // shaders/material_record.glsl - THE MATERIAL RECORD, declared where BOTH a scene stage and a fullscreen
 // stage can reach it.
 //
-// WHY IT IS A FILE OF ITS OWN, and this is the constraint that forced it: a fullscreen stage cannot include
+// WHY IT IS A separate FILE, and this is the constraint that forced it: a fullscreen stage cannot include
 // `surface.glsl`. That file declares the shared scene push block as well as this struct, and the block is
 // `mesh_stage_block_size` = 144 bytes - over the 128-byte `max_push_bytes` the heap-native pipeline path
 // allows - because it carries the mesh geometry lanes. So every fullscreen stage in this renderer
-// (`deferred`, `taa`, `gbuffer_debug`, `post`) declares a push block of its own, and any of them that needs
+// (`deferred`, `taa`, `gbuffer_debug`, `post`) declares A separate push block, and any of them that needs
 // the MATERIAL TABLE had no way to name the type it reads. This file is that way.
 //
 // IT IS ONLY A LAYOUT: the struct, nothing else - no heap block, no push block, no accessor. The table is
@@ -47,7 +47,7 @@ struct Material {
                 //       `deren::gltf::overlay_kind`: the article's two framebuffer multiplies compute different
                 //       multipliers - one from the mask, one from `_DayStrength` - so the shared overlay
                 //       fragment stage is told which it is drawing here rather than by a second pipeline),
-                // bit8: the article's own TRANSPARENT variant of the toon material (`_TRANSPARENT_ON`), which
+                // bit8: the article's TRANSPARENT variant of the toon material (`_TRANSPARENT_ON`), which
                 //       its sidecar selects with `_SrcBlend 5 / _DstBlend 10` - see `toon_inputs::alpha_blend`
                 //       in vulkan/primitive/primitive.cppm. SEPARATE from bit5 because the two are different
                 //       statements: bit5 is glTF's coverage rule (alphaMode BLEND) and this one is the toon

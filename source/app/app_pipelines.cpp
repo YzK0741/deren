@@ -1,7 +1,7 @@
 /**
  * @file source/app/app_pipelines.cpp
  * @brief the demo pipelines' creation and the registration of every shader module the frame's
- *        passes and jobs build their own pipelines from (see app_pipelines.cppm for the contract).
+ *        passes and jobs build their pipelines from (see app_pipelines.cppm for the contract).
  */
 module;
 
@@ -64,7 +64,7 @@ namespace deren::app {
         // with whatever the runtime default is, so switching set_default_pipeline() between
         // "pbr" and "unlit" (gui "render mode") re-shades the whole scene without re-baking.
         // It shares pbr's GEOMETRY (pbr.vert.spv or its pbr.mesh.spv form) and differs only in its fragment
-        // stage, so it gets a mesh form of its own from the same file.
+        // stage, so it gets A separate mesh form from the same file.
         load_and_create_pipeline(runtime, shaders_dir, "unlit", "unlit.frag.spv", "pbr.mesh.spv", "pbr.meshlet.spv");
 
         // ---- THE VISIBILITY BUFFER'S RASTER PIPELINE (visibility-buffer v0.3b scaffolding) ----
@@ -88,7 +88,7 @@ namespace deren::app {
         }
 
         // ---- THE VISIBILITY RESOLVE'S COMPUTE MODULE (visibility-buffer v0.4c) ----
-        // The resolve pass builds its OWN pipeline at create time from this module (through `pass_context::shader`),
+        // The resolve pass builds its pipeline at create time from this module (through `pass_context::shader`),
         // so the app's job is to load and REGISTER it like the raster pair above: a name the pass asks for and
         // nobody registered would leave the pass disabled, and the capture lane consumerless again - silently.
         {
@@ -122,7 +122,7 @@ namespace deren::app {
         }
 
         // ---- THE HZB BUILD MODULE (M3 phase A2, docs/superpowers/specs/2026-10-20-hzb-occlusion-design.md) ----
-        // The runtime creates its own build pass lazily on the first frame after `create_passes()` (the shader
+        // The runtime creates its build pass lazily on the first frame after `create_passes()` (the shader
         // cannot be registered before `setup_pipeline()` runs, because that is this function), and that pass asks
         // for the module through `pass_context::shader` - so loading and registering it here is the whole host-side
         // contract. THE SAME GATE THE RUNTIME READS (`DEREN_HZB_BUILD`, default off) also guards the LOAD, so an OFF
@@ -134,7 +134,7 @@ namespace deren::app {
             runtime.register_shader("hzb_build.comp.spv", hzb_build_code);
         }
         // ---- THE HZB CULL MODULE (M3 phase B1, docs/superpowers/specs/2026-10-20-hzb-occlusion-design.md) ----
-        // The runtime creates its own cull pass lazily, exactly as it does the build pass, and asks for the module
+        // The runtime creates its cull pass lazily, exactly as it does the build pass, and asks for the module
         // through `pass_context::shader` - so loading and registering it here is the whole host-side contract. THE
         // SAME TWO GATES THE RUNTIME READS guard the load (the cull lane requires the build lane: it tests against
         // the history pyramid the build lane produces), so an A2-only or OFF run does not even read the file.
@@ -234,7 +234,7 @@ namespace deren::app {
             // stage's is EQUAL, which would reject the whole outer ring, since a pushed-out hull is not the
             // surface the G-buffer recorded) - see `core::make_outline_pipeline`, which states each of those.
             //
-            // THE GEOMETRY IS THE OUTLINE'S OWN MESH STAGE, not pbr's: pushing each vertex outward in clip space
+            // THE GEOMETRY IS THE OUTLINE'S MESH STAGE, not pbr's: pushing each vertex outward in clip space
             // is the one thing that turns a second copy of a mesh into an outline, and it lives in the
             // `outline_mesh_main` entry of `pbr.slang` (see `source/shaders/toon/outline.slang` for why the fragment entry is
             // `frag_main`).
@@ -263,9 +263,9 @@ namespace deren::app {
 
         {
             // THE SCREEN-SPACE DEPTH RIM'S STAGE. Only the two shaders are registered here: the pass builds its
-            // own pipeline in its `create` step (it is a fullscreen stage with one additive target and no depth
+            // the pipeline in its `create` step (it is a fullscreen stage with one additive target and no depth
             // attachment, which is nothing `runtime::make_pipeline`'s forward family describes), so there is no
-            // named pipeline to create and no registration path of its own - the same arrangement the deferred
+            // named pipeline to create and no separate registration path - the same arrangement the deferred
             // and TAA stages have.
             deren::utility::vessel::vector<std::uint8_t> rim_fragment_code;
             load_shader(shaders_dir, "toon_screen_rim.frag.spv", rim_fragment_code);
@@ -275,7 +275,7 @@ namespace deren::app {
         {
             // THE GAME CHAIN'S DEPTH RIM (`game_toon_depth_rim.slang`). Registered exactly like the article's
             // contour above and for the same reason: it is a fullscreen stage with ONE additive target and no depth
-            // attachment, so its pass builds its own pipeline in `create` and there is no named pipeline here. The
+            // attachment, so its pass builds its pipeline in `create` and there is no named pipeline here. The
             // two rims are alternatives at run time (the post-graph lane records this one only while
             // `game_toon_active()`), which is why both are registered unconditionally and neither is a fallback for
             // the other.
@@ -286,7 +286,7 @@ namespace deren::app {
 
         {
             // THE RESOLVE'S STAGE. Only the fragment shader is registered here, for the same reason as the rim's
-            // above: the pass builds its own pipeline in its `create` step, from post.vert.spv (the synthetic
+            // above: the pass builds its pipeline in its `create` step, from post.vert.spv (the synthetic
             // triangle, registered with the post chain below) and upscale.frag.spv - and that has to have happened
             // before create_passes(), which is where this registration sits.
             deren::utility::vessel::vector<std::uint8_t> upscale_fragment_code;
@@ -295,7 +295,7 @@ namespace deren::app {
         }
 
         {
-            // The post chain is a PASS PAIR now (deren.engine.pass.post): the composite owns the chain's two pipelines,
+            // The post chain is a PASS PAIR now (deren.engine.pass.post): the composite holds the chain's two pipelines,
             // and the four bloom levels record with them. So the app REGISTERS the two shaders the pass builds
             // from (post.vert's synthetic triangle and post.frag, whose `mode` lane selects the stage) and the pass
             // does the rest in create_passes() below.
@@ -308,7 +308,7 @@ namespace deren::app {
             load_shader(shaders_dir, "post.frag.spv", fragment_code);
             runtime.register_shader("post.vert.spv", vertex_code);
             runtime.register_shader("post.frag.spv", fragment_code);
-            // ... and FXAA's, whose pass builds its own pipeline from its fragment shader and post.vert - which is
+            // ... and FXAA's, whose pass builds its pipeline from its fragment shader and post.vert - which is
             // why this registration sits HERE, before create_passes(), and not after it: the pass is created with
             // every other pass now, and the ordering constraint the old make_fxaa_pipeline() call needed is gone
             // with the call.
@@ -339,9 +339,9 @@ namespace deren::app {
             // lights into the screen-tile x depth-slice grid the shading stage then reads. Optional -
             // without it (or with [render] clustered_lights = false) shade_surface() loops every
             // active light, which is the brute-force reference the clustered path is verified on.
-            // IT IS A PASS: the app registers the shader and the pass builds its own compute pipeline from it (see
+            // IT IS A PASS: the app registers the shader and the pass builds its compute pipeline from it (see
             // deren.engine.pass.cluster) - create_passes() below runs that step, and
-            // the pass logs its own outcome. It has to be registered HERE, before that call, because a pass
+            // the pass logs its outcome. It has to be registered HERE, before that call, because a pass
             // created before its shader exists builds nothing and says so.
             deren::utility::vessel::vector<std::uint8_t> compute_code;
             load_shader(shaders_dir, "light_cluster.comp.spv", compute_code);
@@ -368,7 +368,7 @@ namespace deren::app {
                 deren::utility::log("gbuffer pipeline disabled: {}", gbuffer_result.error());
             } else {
                 // The debug view is a PASS (deren.engine.pass.geometry_buffer_debug): the app registers its two shaders and the
-                // pass builds its pipeline, which is all it owns. The samplers those declarations
+                // pass builds its pipeline, which is all it holds. The samplers those declarations
                 // choose between are the device root's now (`core::create_samplers`).
                 // ... AND THIS IS `post.vert.spv`, NOT A GEOMETRY STAGE: a synthetic fullscreen triangle, which is a
                 // vertex stage by nature and stays one (docs/mesh_shaders.md step 4 is about the geometry path).
@@ -378,7 +378,7 @@ namespace deren::app {
                 runtime.register_shader("post.vert.spv", vertex_code);
                 runtime.register_shader("gbuffer_debug.frag.spv", fragment_code);
                 // The deferred lighting stage is a PASS (deren.engine.pass.deferred): the app REGISTERS the two
-                // shaders it builds from and the pass builds its own pipeline from them, which is why one
+                // shaders it builds from and the pass builds its pipeline from them, which is why one
                 // register call for each replaces the old `make_deferred_pipeline(vertex_code, fragment_code)`
                 // call here.
                 load_shader(shaders_dir, "post.vert.spv", vertex_code);
@@ -386,14 +386,14 @@ namespace deren::app {
                 runtime.register_shader("post.vert.spv", vertex_code);
                 runtime.register_shader("deferred.frag.spv", fragment_code);
                 // TAA resolve (deferred-only). IT IS A PASS TOO: the app registers the two shaders and the
-                // pass builds its own pipeline from them (see deren.engine.pass.taa) - the create_passes() call
+                // pass builds its pipeline from them (see deren.engine.pass.taa) - the create_passes() call
                 // below is what runs that step, for every pass at once. The vertex
                 // stage is post.vert's synthetic triangle, the same one the debug view and the post chain use.
                 //
                 // NOTE WHERE THESE TWO REGISTRATIONS SIT: they used to be in the ELSE branch of the deferred
                 // pipeline's creation, so a machine where that failed silently lost TAA as well. They are
                 // gated on the DEBUG pipeline now, which is what they actually need (post.vert), and the
-                // lighting stage's own shaders are registered above it.
+                // lighting stage's shaders are registered above it.
                 load_shader(shaders_dir, "taa.frag.spv", fragment_code);
                 runtime.register_shader("taa.frag.spv", fragment_code);
                 deren::utility::log("SUCCESS: gbuffer pipelines created (surface write, debug view)");
@@ -403,7 +403,7 @@ namespace deren::app {
         {
 
             // Ray-traced sun shadows: one ray per pixel against the scene's acceleration structures. IT IS A
-            // PASS, so its shaders have to be registered BEFORE create_passes() below - the pass builds its own
+            // PASS, so its shaders have to be registered BEFORE create_passes() below - the pass builds its
             // ray-tracing pipeline from them (see deren.engine.pass.ray_traced_shadow), and a pass created
             // before its shaders exist builds nothing and says so. Optional, and the builder refuses on a device
             // without a ray-tracing pipeline: without it the cascaded shadow maps keep running.
@@ -469,7 +469,7 @@ namespace deren::app {
 
             // The HEAP-NATIVE PROBE (source/shaders/debug/heap_probe_comp.slang): registered like the jobs above, and for a purpose
             // of the same kind - it is not part of any frame, it runs once at scene setup in a command buffer of
-            // its own (runtime::run_heap_probe) and its answer is a log line. It exists because the migration's
+            // its (runtime::run_heap_probe) and its answer is a log line. It exists because the migration's
             // four assumptions about the native path (a heap-flagged pipeline with NO layout, `descriptor_heap`
             // declarations, a sampler taken from the sampler heap, parameters through vkCmdPushDataEXT) cannot be
             // tested by a picture until the whole frame is converted.
@@ -523,15 +523,15 @@ namespace deren::app {
             runtime.register_shader("heap_probe.frag.spv", heap_probe_fragment_code);
             // ... and its MESH half (docs/mesh_shaders.md step 0): the same triangle, emitted by a mesh stage
             // through a heap-native pipeline. A mesh stage is a different stage type, so this binary has a name
-            // of its own rather than replacing the vertex one.
+            // instead of replacing the vertex one.
             deren::utility::vessel::vector<std::uint8_t> heap_probe_mesh_code;
             load_shader(shaders_dir, "heap_probe.mesh.spv", heap_probe_mesh_code);
             runtime.register_shader("heap_probe.mesh.spv", heap_probe_mesh_code);
 
             // ... and now that every pass's and every job's shaders are registered, the pipelines can be built.
             // This block is where the SHADERS come from and nothing else: the ONE create step that builds what the
-            // passes and the jobs own (a pipeline each) runs in main(), after the application has handed its chain
-            // over (`render_start_demo`) - see `runtime::create_passes`, which logs each object's own outcome.
+            // passes and the jobs hold (a pipeline each) runs in main(), after the application has handed its chain
+            // over (`render_start_demo`) - see `runtime::create_passes`, which logs each object's outcome.
         }
     }
 } // namespace deren::app

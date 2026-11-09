@@ -9,7 +9,7 @@
 // descriptor, 32 B - and each array below is a CONTIGUOUS RUN OF SLOTS.
 //
 // THESE NUMBERS MUST EQUAL vulkan/core/core.cppm's `core::heap_slots`, which is where the host reserves them;
-// the host logs its own table at startup (`descriptor heap: slot grid ...`), which is how a drift is seen.
+// the host logs its table at startup (`descriptor heap: slot grid ...`), which is how a drift is seen.
 // See docs/descriptor_heap_migration.md.
 //
 // The stride override is what makes the grid possible: `layout(descriptor_heap, descriptor_stride = 64)`.
@@ -19,18 +19,18 @@
 #ifndef HEAP_SLOTS_GLSL
 #define HEAP_SLOTS_GLSL
 
-// THE TWO INDICES A HEAP-NATIVE STAGE NEEDS ARE PUSH CONSTANTS, and they live INSIDE each stage's own block: a
+// THE TWO INDICES A HEAP-NATIVE STAGE NEEDS ARE PUSH CONSTANTS, and they live INSIDE each stage's block: a
 // heap pipeline has no pipeline layout, so vkCmdPushConstants has nothing to push to, but vkCmdPushDataEXT supplies
 // exactly the same bytes and the shader reads them exactly as it always read push constants (the extension proposal
 // says so in those words, and the heap-native probe proves it). A push_constant BLOCK may not carry an `offset`
 // qualifier - measured, glslang says "only applies to block members" - so there is no shared block to put them in:
-// each stage appends `uint frame_slot; uint image_index;` to ITS OWN block (at the end, so every existing field
+// each stage appends `uint frame_slot; uint image_index;` to Its block (at the end, so every existing field
 // keeps its offset) and then aliases them to the two names the slot macros in heap_slot_constants.glsl use:
 //
 //     #define heap_frame_slot (push.frame_slot)
 //     #define heap_image_index (push.image_index)
 //
-// (with `push` the stage's own block instance name). A stage that uses neither pays 8 bytes of push block.
+// (with `push` the stage's block instance name). A stage that uses neither pays 8 bytes of push block.
 
 // THE CONSTANTS AND THE SLOT MACROS LIVE IN heap_slot_constants.glsl, which BOTH shading languages can
 // read: the migration to Slang needs the same numbers without a second copy, and that file is what
@@ -86,7 +86,7 @@ layout(descriptor_heap) uniform sampler heap_samplers[];
  * module that glslang accepted and spirv-val rejected - "OpFunctionCall Argument <id>'s type does not match
  * Function <id>'s parameter type", every failing call a call to this helper, at vkCreateShaderModule
  * (VUID-VkShaderModuleCreateInfo-pCode-08737): a `texture2D` parameter does not survive a function boundary.
- * The extension's own rule points the same way - a sampler constructor must appear at the point of USE - and a
+ * The extension's rule points the same way - a sampler constructor must appear at the point of USE - and a
  * macro expands there by definition, so the fetch below is built exactly where it is written.
  *
  * The three parameters are fixed, and that is enough: a comma inside a call's argument list does not separate

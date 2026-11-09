@@ -7,8 +7,8 @@
 //
 //  1. EVERY `docs/*.md` IS IN Doxyfile's INPUT, or named in the exception list below with a reason.
 //     MEASURED: nine of twelve were outside it until commit 0ba6d22 - mesh_shaders.md (the mesh
-//     migration's own record), slang_migration.md and seven more were simply not in the manual, and
-//     nothing anywhere said so. A directory input is not the fix: `docs/` also holds doxygen's own
+//     migration's record), slang_migration.md and seven more were simply not in the manual, and
+//     nothing anywhere said so. A directory input is not the fix: `docs/` also holds doxygen's
 //     output and two sets of third-party material, which is why the list is explicit.
 //  2. EVERY INPUT DOCUMENT IS ASCII. The manual's LaTeX runs these files through pdflatex, and a
 //     non-ASCII character aborts or corrupts that build (the rule docs/shaders.md states). The four
@@ -16,7 +16,7 @@
 //     box-drawing tree and U+1D40 - and `docs/mainpage.md` still had three em dashes. CI has no
 //     LaTeX, so the checkable half of that rule is checked here, by byte.
 //  3. EVERY `](#anchor)` LINK RESOLVES to a heading in the SAME file. doxygen accepts an anchor it
-//     cannot resolve without a warning of its own, so renaming a heading leaves a link that quietly
+//     cannot resolve without A separate warning, so renaming a heading leaves a link that quietly
 //     goes nowhere - and this repo's documents cross-reference themselves by section heavily.
 //  4. CODE FENCES AND `@code`/`@endcode` ARE BALANCED. A truncated document, or a diff that eats one
 //     fence, changes what doxygen thinks is code: the manual is mangled rather than the build failing.
@@ -207,8 +207,8 @@ namespace {
     }
 
     /// the `test_*` targets the CI workflow builds: EVERY `--target` block's value, merged. Merging rather than
-    /// taking the first is the fix for a measured own-goal: the workflow's FIRST `--target` is the clang-format
-    /// job's (`cmake --build build --target clang-format-check`), whose value is on its own line and ends the
+    /// taking the first is the fix for a measured separate-goal: the workflow's FIRST `--target` is the clang-format
+    /// job's (`cmake --build build --target clang-format-check`), whose value is alone line and ends the
     /// block - so a first-only parser read an empty list and reported every target as missing.
     deren::utility::vessel::set<deren::utility::vessel::string> ci_built_targets(deren::utility::vessel::string const& workflow_text) {
         deren::utility::vessel::set<deren::utility::vessel::string> targets;
@@ -362,7 +362,7 @@ int32_t main() {
         deren::utility::vessel::string const text = read_text(path.string());
         deren::utility::vessel::string const label = "docs/" + name;
 
-        // 2. ASCII: the manual's LaTeX feeds these files to pdflatex, which the project's own rule says
+        // 2. ASCII: the manual's LaTeX feeds these files to pdflatex, which the project's rule says
         //    must never see a non-ASCII byte (docs/shaders.md). Report WHERE, so the fix is one edit.
         {
             std::size_t line = 1;
@@ -451,7 +451,7 @@ int32_t main() {
         }
 
         // 5. the slot names the documents quote exist: the host grid and the shaders' constants are the
-        //    two files that declare them (test_render_resources owns the comparison between those two)
+        //    two files that declare them (test_render_resources holds the comparison between those two)
         {
             deren::utility::vessel::string const grid = read_text((root / "source" / "engine" / "render_layout" / "render_layout.cppm").string()) +
                                                         read_text((root / "source" / "shaders" / "common/heap_slot_constants.slang").string());

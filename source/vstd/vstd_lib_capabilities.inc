@@ -21,7 +21,7 @@
 // partition, and the first point at which the library has answered.
 //
 // UNDER LIBC++ THIS FILE DOES NOTHING, on purpose: <__config> has already answered both questions from
-// the library's own capability flags (_LIBCPP_HAS_TIME_ZONE_DATABASE / _LIBCPP_HAS_UNICODE), and
+// the library's capability flags (_LIBCPP_HAS_TIME_ZONE_DATABASE / _LIBCPP_HAS_UNICODE), and
 // re-answering them from the standard feature-test macros could disagree with a library whose build
 // switched the capability off. The rule from vstd_compat.inc still holds: a VSTD_* macro is defined
 // ONLY when the capability is really there, and never as 0.

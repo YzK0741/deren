@@ -250,7 +250,7 @@ export namespace deren::engine::render_graph::visibility {
 
     /// THE RESOLVE IS A COMPUTE PASS, and its write scope says so: the five G-buffer targets are written as STORAGE
     /// images (the compute stage's only route), not as colour attachments - the graphics scope belongs to the
-    /// geometry lane that owns the same images. The graph's WAW edge is what orders the two writers.
+    /// geometry lane that holds the same images. The graph's WAW edge is what orders the two writers.
     struct resolve_parameters {
         texture_read vis_id;
         texture_read depth;
@@ -344,7 +344,7 @@ export namespace deren::engine::render_graph::visibility {
 
     // ============================================================================================
     // THE SOFTWARE RASTER'S LANE (M4 Task 2; docs/superpowers/specs/2026-10-22-software-raster-design.md
-    // §3.2/§4.2): the tiled compute pass that rasterizes the subpixel records into its own private depth/id
+    // §3.2/§4.2): the tiled compute pass that rasterizes the subpixel records into its private depth/id
     // images, the resolve's two OPTIONAL reads of them (the candidate selection), and the depth-only merge that
     // writes min(hardware, software) back into the G-buffer depth.
     //
@@ -443,7 +443,7 @@ export namespace deren::engine::render_graph::visibility {
     }
 
     /// the reads the SOFTWARE MERGE makes: the two software images it samples, and the G-buffer depth it tests
-    /// against and writes (the frame's own depth, i.e. the SAME image the hardware raster produced)
+    /// against and writes (the frame's depth, i.e. the SAME image the hardware raster produced)
     struct software_merge_inputs {
         texture_ref software_depth, software_id, gbuffer_depth;
     };

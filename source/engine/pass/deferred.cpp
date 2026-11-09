@@ -15,7 +15,7 @@ import deren.vstd;
 import deren.utility.shared;
 
 import deren.promise.rhi;
-import deren.engine.pipelines; // build_deferred: the pipeline this pass owns
+import deren.engine.pipelines; // build_deferred: the pipeline this pass holds
 import deren.utility;
 
 namespace rhi = deren::promise::rhi;
@@ -77,7 +77,7 @@ namespace deren::engine::pass {
             deren::utility::log("deferred lighting disabled: the parent has no {} or {}", vertex_shader_name, fragment_shader_name);
             return;
         }
-        // The blend state is the stage's own: the attachment is LOADed and the lighting ADDS to the emissive the
+        // The blend state is the stage's: the attachment is LOADed and the lighting ADDS to the emissive the
         // G-buffer pass wrote.
         deren::utility::vessel::array<rhi::blend_mode, 1> const blend = {rhi::blend_mode::additive};
         auto built = pipelines::build_deferred(*context.face,
@@ -98,7 +98,7 @@ namespace deren::engine::pass {
 
     void deferred_pass::set_ssao(bool const enabled, float const radius, float const intensity, uint32_t const samples) noexcept {
         // The clamps came with the parameters, because they are the same fact: an intensity above 1 darkens past
-        // black, a negative radius is meaningless, and the sample count is bounded by the SHADER's own array (16).
+        // black, a negative radius is meaningless, and the sample count is bounded by the SHADER's array (16).
         this->ssao_active = enabled;
         this->ssao_radius = std::max(radius, 0.0f);
         this->ssao_intensity = std::clamp(intensity, 0.0f, 1.0f);
@@ -146,9 +146,9 @@ namespace deren::engine::pass {
         // No set to bind: the stored targets and the G-buffer depth are heap slots, and the frame bound the heaps
         // on this command buffer (see begin_recording); the pass's push block carries the two indices.
         io.list->set_cull_mode(rhi::cull_mode::none); // the synthetic triangle has no facing to cull
-        // THE PUSH BLOCK IS THE PASS'S OWN (S3): its shape was always the pass's (`push_constants`, `static_assert`ed
+        // THE PUSH BLOCK IS THE PASS'S (S3): its shape was always the pass's (`push_constants`, `static_assert`ed
         // against the declaration), and its VALUES are now the pass's too - the SSAO parameters and the flat-render
-        // flag it owns, the frame's inverse view-projection from `resolved_io::constants`, and the frame's answer to
+        // flag it holds, the frame's inverse view-projection from `resolved_io::constants`, and the frame's answer to
         // what the lighting chain is doing. The renderer used to compose all of it and hand it over as raw bytes.
         push_constants push = {};
         push.inv_view_proj = io.constants.inv_view_proj;

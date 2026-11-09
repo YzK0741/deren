@@ -1,6 +1,6 @@
 # Stack diagnostics
 
-`deren.utility.shared` owns the diagnostic service, including across plugins.
+`deren.utility.shared` holds the diagnostic service, including across plugins.
 
 ```cpp
 import deren.utility.shared;
@@ -74,7 +74,7 @@ another thread faults, the record still comes out complete, and a fault raised I
 Overflow reserve is per thread. The project thread pool, logging worker and Gaussian chunk workers call
 `prepare_crash_thread()` at entry. External workers should do the same. This does
 not install or replace the process exception filter. Other libraries may replace
-that filter; ASAN owns native fault reporting in sanitizer builds, where the
+that filter; ASAN holds native fault reporting in sanitizer builds, where the
 native-fault assertions are skipped. They run in the optimized Release suite.
 Windows Clang is validated; POSIX behavior is described below.
 

@@ -4,18 +4,18 @@
  * @brief the CPU-side vocabulary of the VISIBILITY BUFFER: how a rasterized pixel names the triangle
  *        that won it, and the per-frame draw-item record a resolve pass reads to get that triangle back.
  *
- * WHY THIS IS A MODULE OF ITS OWN, and a PURE one: the packing and the record layout are ARITHMETIC, they
+ * WHY THIS IS A separate MODULE, and a PURE one: the packing and the record layout are ARITHMETIC, they
  * need no device, no allocator and no Vulkan type, and getting them wrong is invisible until a resolve pass
  * samples an id that decodes to the wrong triangle - a picture, not a compile error. Keeping the vocabulary
  * free of dependencies is what lets the headless tests pin the exact bit layout and the exact record size,
  * both of which the GLSL side will mirror by hand (the shader cannot include a C++ enum, exactly as the heap
  * slot grid and the material lanes are mirrored).
  *
- * IT DOES NOT OWN THE BUFFER, AND IT DOES NOT SEE A DEVICE. What it states is the FORMAT (the id a geometry
+ * IT DOES NOT hold THE BUFFER, AND IT DOES NOT SEE A DEVICE. What it states is the FORMAT (the id a geometry
  * raster writes, the record the host fills while it culls and builds the draws, the bounds each of them has) and,
  * from v0.5, THE FRAME'S ADMISSION RULE AND WHICH OPAQUE LANE A FRAME RECORDS THROUGH (section 5) - pure data and
  * pure functions, so the rule that must never produce a partly-captured frame is testable without a GPU. The render
- * graph owns the image, the runtime owns the per-frame item table and the facts the rule reads.
+ * graph holds the image, the runtime holds the per-frame item table and the facts the rule reads.
  *
  * THE PACKING IS v0's, NOT THE FINAL ONE. The subtilis (hierarchical geometry) roadmap replaces the item/meshlet
  * half with cluster groups and a hierarchy (design: docs/superpowers/specs/2026-10-18-subtilis-design.md); that
@@ -144,7 +144,7 @@ export namespace deren::engine::visibility {
         std::uint32_t vertex_address_high = 0;
         std::uint32_t index_address_low = 0; ///< device address of the item's index buffer base
         std::uint32_t index_address_high = 0;
-        std::uint32_t first_index = 0;    ///< the draw's first index window (the meshlet adds its own)
+        std::uint32_t first_index = 0;    ///< the draw's first index window (the meshlet adds its)
         std::int32_t base_vertex = 0;     ///< added to every fetched index (static-draw chunks)
         std::uint32_t index_width = 4u;   ///< bytes per index: 2 or 4
         std::uint32_t meshlet_base = 0;   ///< where the item's meshlet run starts in its source table
@@ -188,7 +188,7 @@ export namespace deren::engine::visibility {
     static_assert(push_block_geometry_offset + 8u * sizeof(std::uint32_t) == push_block_bytes);
 
     /// the eight vertex/index lanes the mesh stage fetches through (the shape primitive's `mesh_geometry_lanes`
-    /// holds; spelled again here because a push block is this stage's own contract, not the scene session's)
+    /// holds; spelled again here because a push block is this stage's contract, not the scene session's)
     struct geometry_lanes {
         std::uint32_t vertex_address_low = 0;
         std::uint32_t vertex_address_high = 0;
@@ -221,7 +221,7 @@ export namespace deren::engine::visibility {
      * @brief compose the per-item table row the resolve pass reads back (splits the 64-bit addresses)
      * @param vertex_address the item's vertex buffer base device address
      * @param index_address the item's index buffer base device address
-     * @param first_index the item's index window (the meshlet record carries its own, so this is informational)
+     * @param first_index the item's index window (the meshlet record carries its, so this is informational)
      * @param base_vertex added to every fetched index (static-draw chunks)
      * @param index_width bytes per index: 2 or 4
      * @param meshlet_base where the item's meshlet run starts in its source table
@@ -299,7 +299,7 @@ export namespace deren::engine::visibility {
      *
      * @param item the per-frame draw-item row the id's item index selected
      * @param packed the raw id word (valid bit included; the caller has already checked `id{packed}.valid()`)
-     * @param meshlet_first_index the selected meshlet record's own `first_index` (its window in the index buffer)
+     * @param meshlet_first_index the selected meshlet record's `first_index` (its window in the index buffer)
      * @return the GLOBAL meshlet-table index (item.meshlet_base + the id's meshlet order) and the triangle's
      *         absolute index into the item's index buffer (the record's window base + 3 per triangle)
      * @note the resolve then fetches the three indices at (index_offset + 0/1/2) and adds the record's
@@ -339,7 +339,7 @@ export namespace deren::engine::visibility {
     }
 
     /**
-     * @brief twice the SIGNED area of a screen-space triangle, in the framebuffer's own coordinates (y grows DOWN)
+     * @brief twice the SIGNED area of a screen-space triangle, in the framebuffer's coordinates (y grows DOWN)
      * @note the sign is the RASTERIZER'S front/back decision, which is why the expression is written out rather than
      *       derived from a cross product in a y-up frame: Vulkan faces are determined by the sign of the area
      *       computed in FRAMEBUFFER coordinates, and this renderer's pipelines use `frontFace = COUNTER_CLOCKWISE`.
@@ -426,7 +426,7 @@ export namespace deren::engine::visibility {
     //    rule is written here, as pure data and two functions, because getting it wrong is not a compile error
     //    or a crash - it is a G-buffer with TWO authors (the visibility ids for the admitted leaves, the fragment
     //    pass for the rest), which is a picture that is wrong in a way no single pass can explain. The runtime's
-    //    frame loop owns the FACTS (it is the one holding the primitives); this module owns the DECISION, and the
+    //    frame loop holds the FACTS (it is the one holding the primitives); this module holds the DECISION, and the
     //    headless tests pin every clause of it.
     //
     //    THE REASON IS PART OF THE CONTRACT, not a debugging nicety: the fallback log line names it ONCE, and
@@ -439,8 +439,8 @@ export namespace deren::engine::visibility {
         no_pipeline,         ///< the raster and/or the resolve pass has no pipeline this session
         no_scene,            ///< this frame has no graph-recordable scene (there is no G-buffer lane to replace)
         no_draws,            ///< no visible opaque leaves: the old lane's clear is the whole frame
-        depth_equal_stage,   ///< a re-shading stage tests depth with EXACT equality: it needs its own pipeline's depth
-        custom_pipeline,     ///< a leaf names its own pipeline (a different stage this path does not know)
+        depth_equal_stage,   ///< a re-shading stage tests depth with EXACT equality: it needs its pipeline's depth
+        custom_pipeline,     ///< a leaf names its pipeline (a different stage this path does not know)
         instanced,           ///< an instanced draw: its world matrix comes from the instance table per workgroup
         deforming,           ///< a skinned or morphed draw: one model matrix and one vertex fetch per item
         missing_geometry,    ///< a leaf without its vertex or index buffer
@@ -473,9 +473,9 @@ export namespace deren::engine::visibility {
         case admission::no_draws:
             return "no visible opaque leaves";
         case admission::depth_equal_stage:
-            return "a re-shading stage tests depth with exact equality (it needs its own pipeline's depth)";
+            return "a re-shading stage tests depth with exact equality (it needs its pipeline's depth)";
         case admission::custom_pipeline:
-            return "a leaf names its own pipeline";
+            return "a leaf names its pipeline";
         case admission::instanced:
             return "a leaf is an instanced draw";
         case admission::deforming:

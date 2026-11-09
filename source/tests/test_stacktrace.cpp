@@ -316,7 +316,7 @@ int main(int argc, char** argv) {
     CHECK(stray_environment.text.find("test_stacktrace.cpp:") != vessel::string::npos);
     _putenv_s("LLVM_SYMBOLIZER_OPTS", "");
 #endif
-    // ASAN owns native fault handling; exercise our OS filter in the Release suite.
+    // ASAN holds native fault handling; exercise our OS filter in the Release suite.
 #if !TRACE_ASAN
     auto crashed = run_report_child(argv[0], "--crash", "crash.log");
     CHECK(crashed.started && crashed.code == 0xc0000005u);

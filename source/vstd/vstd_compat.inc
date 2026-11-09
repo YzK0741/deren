@@ -14,7 +14,7 @@
 //   * under libc++ every VSTD_* is defined AS its _LIBCPP_* counterpart whenever that is defined, so
 //     the module this project has been building is the same module (the gate's nine scenarios are the
 //     proof);
-//   * under another standard library the same names come from the standard's own feature-test macros
+//   * under another standard library the same names come from the standard's feature-test macros
 //     and from __has_include, which is what makes the toolchain swap possible at all.
 //
 // THIS IS ALSO THE PER-COMPILER DIALECT LAYER, and it is split in two by what can be known WHEN:

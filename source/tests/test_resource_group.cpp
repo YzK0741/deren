@@ -170,7 +170,7 @@ int main(int argc, char** argv) {
             if (token) {
                 CHECK(completion->wait(*token, UINT64_MAX) == rhi::error::ok);
             }
-            CHECK((*value)->unload() == rhi::error::not_ready); // reusable recording still owns the allocation
+            CHECK((*value)->unload() == rhi::error::not_ready); // reusable recording still holds the allocation
             CHECK(retained->begin_recording({}) == rhi::error::ok);
             CHECK((*value)->unload() == rhi::error::ok);
             CHECK(retained->barrier({.buffers = std::span(&barrier, 1)}) == rhi::error::ok);
@@ -497,7 +497,7 @@ int main(int argc, char** argv) {
     if (!commands) {
         return deren::vk_test::finish("test_resource_group");
     }
-    // Stale pending borrowed identities fail before native replay and recover through begin/reset.
+    // Stale pending referenced identities fail before native replay and recover through begin/reset.
     {
         auto stale = core->commands->make_command_buffer({});
         std::array<std::byte, 64> vertex_bytes{};

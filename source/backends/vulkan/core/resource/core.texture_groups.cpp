@@ -1,4 +1,4 @@
-// Immutable texture-group ownership and allocation. GPU publication is separate.
+// Immutable texture-group retention and allocation. GPU publication is separate.
 module;
 #include <cstddef>
 #include <cstdint>

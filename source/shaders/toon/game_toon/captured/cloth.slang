@@ -9,7 +9,7 @@
 //
 // WHAT THIS IS: the viewer's ONE template has FAMILY_SKIN / FAMILY_HAIR / FAMILY_CLOTH / FAMILY_EYE branches.
 // This file is the CLOTH branch plus the shared helpers it calls, on deren's adapters, and returns LINEAR HDR
-// radiance (no tone map, no output sRGB encode - post pass mode 2 owns both; CONTRACT §Required API).
+// radiance (no tone map, no output sRGB encode - post pass mode 2 holds both; CONTRACT §Required API).
 //
 // WHICH CAPTURED BRANCHES ARE ACTIVE FOR LAEVATAIN'S CLOTH (evidence, not assumption):
 //   FAMILY_CLOTH                        family = cloth (material JSON name / feature-defines `Ym.cloth = "Q30"`)
@@ -53,7 +53,7 @@
 // Where a captured value has no whose lane, the fallback is the captured constant and is marked
 // `// MISSING PROFILE LANE`. The 10 studio punctual lights (`R114`, readable:188-327) are NOT ported - they are
 // the capture's SCENE rig (RimLight_2/SpecLight_1/Point Light_overview/FogLight_1 in
-// 2fcd9c7a...json-laevat.json), not a material response; deren's own lights cannot reproduce them.
+// 2fcd9c7a...json-laevat.json), not a material response; deren's lights cannot reproduce them.
 
 #ifndef DEREN_GAME_TOON_GAME_TOON_CLOTH_SLANG
 #define DEREN_GAME_TOON_GAME_TOON_CLOTH_SLANG
@@ -286,7 +286,7 @@ float3 captured_cloth_shade(surface_sample s, float3 world_pos, float3 geo_norma
         ? normalize(wf_camera_light(-camera_forward_axis, game_toon_yaw_bias(push.material_index), game_toon_min_pitch(push.material_index)))
         : normalize(light_at(heap_light_slot).light_dir.xyz);
     // `calc_shadow` IS DELIBERATELY NOT MULTIPLIED IN: the captured frame has `mainLightShadow: false`
-    // (`laevat_volume`) and the viewer's own `selfShadow` default is OFF, so the captured diffuse weight is
+    // (`laevat_volume`) and the viewer's `selfShadow` default is OFF, so the captured diffuse weight is
     // `R144 = min(ramp.a, metallic_mask)` with no shadow-map term; whose `calc_shadow` is fit to the engine sun
     // and would add a term the capture does not have. If the Lead turns engine shadows on, this is the site.
     const float no_l = dot(n, light_dir);                        // `R128` (readable:731)
@@ -307,7 +307,7 @@ float3 captured_cloth_shade(surface_sample s, float3 world_pos, float3 geo_norma
         metallic_gloss = heap_texel(heap_at<Texture2D<float4>>(scene_texture_base() + metallic_gloss_lane), heap_sampler_texture, uv);
     }
     // NO SECOND SOURCE: unlike the original game program, the captured viewer's `_MetallicGlossMap` is a texture
-    // of its own and the material JSON declares no glTF metallicRoughness texture, so `mat.tex_indices.y` would
+    // and the material JSON declares no glTF metallicRoughness texture, so `mat.tex_indices.y` would
     // be the white fallback and is deliberately not used. With no lane the captured viewer would have emitted
     // no Q84/Q13 at all: `mask = 1` and the cloth spec block is skipped, which is what this port does.
 
@@ -553,7 +553,7 @@ float3 captured_cloth_shade(surface_sample s, float3 world_pos, float3 geo_norma
     //  * Q118 silk / Q100 customize: transcribed verbatim above, but the capture states both enables as 0.0
     //    (`_SilkStockings`, `_AvatarCustomizeEnable`) and the final packing carries no lane for either.
     //  * Q247 extra-alpha: needs a second UV set deren does not carry, and `_UseUV2Color = 0` on all five.
-    // No tone mapping and no output sRGB encode: this is LINEAR HDR; post pass mode 2 owns the transform.
+    // No tone mapping and no output sRGB encode: this is LINEAR HDR; post pass mode 2 holds the transform.
     return colour;
 }
 

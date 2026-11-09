@@ -36,7 +36,7 @@ export namespace deren::engine::render_layout {
 
     /**
      * @brief format of the HDR scene target the deferred lighting stage renders into and the post-process
-     *        pass samples: the scene color target uses it, and each swapchain image owns one
+     *        pass samples: the scene color target uses it, and each swapchain image holds one
      *        single-sample resolve target in it.
      */
     inline constexpr deren::promise::rhi::image_format hdr_format = deren::promise::rhi::image_format::r16g16b16a16_sfloat;
@@ -53,7 +53,7 @@ export namespace deren::engine::render_layout {
      *        - 1 RGBA16F: world normal.xyz (no encoding - the conservative layout trades 4 bytes per
      *          pixel for not having to reason about octahedral precision) + roughness in a
      *        - 2 RGBA8_UNORM: material_id low/high byte + ambient occlusion + material flags
-     *        16 bytes per pixel in total; the depth is the pass's own single-sampled depth image.
+     *        16 bytes per pixel in total; the depth is the pass's single-sampled depth image.
      * @note every target is single-sampled (1x) on purpose: a G-buffer cannot be multisampled
      *       without per-sample shading, which is the trade that makes TAA the anti-aliasing
      *       (the anti-aliasing story is TAA/FXAA on the lit image instead).
@@ -89,9 +89,9 @@ export namespace deren::engine::render_layout {
      *        them `heap_image_capacity` apart.
      *
      * @note IT LIVES HERE FOR THE SAME REASON `hdr_format` DOES (A1.0): the ENGINE now creates and holds the
-     *       bloom targets, so it has to size its own per-level arrays by this number without importing the
+     *       bloom targets, so it has to size its per-level arrays by this number without importing the
      *       backend - and a value compiled once and linked by both halves is the only arrangement that
-     *       cannot drift. `core` keeps an alias plus a `static_assert`, so the backend's own bloom arrays
+     *       cannot drift. `core` keeps an alias plus a `static_assert`, so the backend's bloom arrays
      *       and this number cannot disagree either.
      */
     inline constexpr uint32_t bloom_level_count = 4;
@@ -102,7 +102,7 @@ export namespace deren::engine::render_layout {
      *        source/engine/scene_tree/scene_tree.cppm).
      *
      * @note IT LIVES HERE FOR THE SAME REASON `hdr_format` AND `bloom_level_count` DO: the ENGINE needs it -
-     *       `deren.engine.primitive` `static_assert`s its own push block against it and derives its exported
+     *       `deren.engine.primitive` `static_assert`s its push block against it and derives its exported
      *       push-block offsets from it - and the engine may not import a backend module to reach it. A value
      *       compiled once and linked by both halves cannot drift; `core` keeps an alias plus a
      *       `static_assert`, which is the backend's half of the guard. The SECOND range
@@ -138,14 +138,14 @@ export namespace deren::engine::render_layout {
     /// descriptor is 64 B from the next, so a write HERE and a heap-native shader's `array[slot]` with
     /// `descriptor_stride = 64` are the same address by construction. There is no second stride to disagree
     /// with - which is exactly what the older per-slot block could not promise, because it mixed the device's
-    /// 16 B buffer stride with its 32 B image stride and put each binding at its own offset.
+    /// 16 B buffer stride with its 32 B image stride and put each binding at its offset.
     /// @note A SLOT NUMBER IS ALREADY ABSOLUTE: `core::heap_slots::x` includes `heap_slot_base`, so this is a
     ///       multiply and nothing else. The first version added `heap_grid_offset` as well and doubled the
-    ///       1 MiB base - every write landed past the heap and was refused, which the heap's own bounds check
+    ///       1 MiB base - every write landed past the heap and was refused, which the heap's bounds check
     ///       reported (`... did not fit at offset 2130432`).
     /// @note THIS IS THE ONE COPY: it used to be duplicated in runtime:constructor, runtime:frames and
     ///       runtime.cpp, which is what a helper defined in terms of the stride below invites. It belongs
-    ///       beside the constant it multiplies, and it is exported so those units can drop their own.
+    ///       beside the constant it multiplies, and it is exported so those units can drop their.
     /// @note `constexpr` IMPLIES `inline` FOR A FUNCTION, so the explicit keyword here was redundant (the
     ///       VARIABLES above need theirs - a constexpr variable is not implicitly inline, and without it the
     ///       namespace-scope constant would have module/internal linkage and could not be exported).
@@ -168,9 +168,9 @@ export namespace deren::engine::render_layout {
     inline constexpr uint32_t heap_environment_capacity = 4;
     inline constexpr uint32_t heap_texture_bank_stride = 2048;
     inline constexpr uint32_t heap_image_capacity = 8; // per-swapchain-image arrays (3-4 images in practice)
-    /// The SAMPLER heap is a second grid with its own base, and it cannot share the resource one: the API caps
+    /// The SAMPLER heap is a second grid with its base, and it cannot share the resource one: the API caps
     /// the sampler heap at 128 KiB, so 64 KiB - the reserved window the embedded-sampler path requires - is the
-    /// largest base it can have. Its stride is the device's own sampler descriptor size (32 B here).
+    /// largest base it can have. Its stride is the device's sampler descriptor size (32 B here).
     inline constexpr uint32_t heap_sampler_base = 2048; // 64 KiB / 32 B
     inline constexpr std::uint64_t heap_sampler_stride = 32;
     struct heap_slots {
@@ -195,7 +195,7 @@ export namespace deren::engine::render_layout {
          * @note ONE SLOT, not a per-frame pair, and that is a property of the data rather than a shortcut: the
          *       table is written ONCE, while the scene is imported and before any frame is recorded, and never
          *       touched again - so there is no frame in flight whose contents could disagree with it. (The TLAS
-         *       above is the counter-example: it is rebuilt every frame, which is why it owns two slots.)
+         *       above is the counter-example: it is rebuilt every frame, which is why it holds two slots.)
          * @note it lives at the END of the used region for the reason stated there: the arrays above are
          *       numbered by their position, so growing one in place would renumber everything after it.
          */
@@ -203,7 +203,7 @@ export namespace deren::engine::render_layout {
         /**
          * @brief the MESH CULLING COUNTERS (docs/mesh_shaders.md step 3, "what the culling buys"): one per-frame
          *        lane of 16 uints, added to by the mesh entries (and by the visibility raster lane's ids 8..11,
-         *        which report that lane's own frustum cull) and read back by the host at shutdown
+         *        which report that lane's frustum cull) and read back by the host at shutdown
          *
          * @note ON THE HEAP rather than in a host-only buffer, because a mesh stage's only way to reach memory
          *       is a heap descriptor - there is no binding model left to hang a counter off. The read-back is a
@@ -236,11 +236,11 @@ export namespace deren::engine::render_layout {
         // THE TOON LANES THAT DO NOT FIT THE MATERIAL RECORD: one `uvec4` per material, written once at
         // import. x is the face SDF map's texture-array index (`_SDFLightmap`), y the metallic/gloss map's
         // (`_MetallicGlossMap`), and z and w are reserved for the lanes the rest of the character work
-        // adds. See heap_slot_constants.glsl for why they are a buffer of their own rather than components
+        // adds. See heap_slot_constants.glsl for why they are A separate buffer rather than components
         // of the material record, and why it is one descriptor rather than a per-frame pair.
         static constexpr uint32_t toon_lanes = heap_slot_base + 1260u;
         // THE HEAD FRAME the face SDF shades against, one block per frame slot because on a model whose
-        // head turns it changes every frame. It is its own block rather than a field of the camera's: the
+        // head turns it changes every frame. It is its block rather than a field of the camera's: the
         // head frame belongs to the CHARACTER, not to the eye looking at it.
         static constexpr uint32_t scene_head = heap_slot_base + 1261u;
         // THE TOON LIGHT RIG (`deren::engine::toon_rig`): the character stage's global numbers - the sun/head-light
@@ -252,19 +252,19 @@ export namespace deren::engine::render_layout {
         // spacing: `scene_head` above is a PER-FRAME-SLOT array, so it occupies 1261 AND 1262 (two frames in
         // flight), and a rig placed at 1262 was therefore overwritten every frame by the second slot's head
         // frame. What that looked like was not a crash and not a validation error: the rig simply read as the
-        // head frame's own numbers - `_DayStrength` came out of the head basis' first lane, i.e. zero - so
+        // head frame's numbers - `_DayStrength` came out of the head basis' first lane, i.e. zero - so
         // the two-state lighting silently sat in its NIGHT state for every frame of both captures. The
         // captures differed by 0 pixels before this line moved.
         static constexpr uint32_t toon_rig = heap_slot_base + 1263u;
         // THE MATERIAL COLOURS (see `deren::engine::toon_colour_lane`): one `vec4` per lane per material, written once
-        // at import from the same sidecar the texture lanes come from. A buffer of its own because the value is
+        // at import from the same sidecar the texture lanes come from. A separate buffer because the value is
         // FOUR FLOATS and the material record has nowhere to put it here: the record is INLINE in the per-draw
         // push block (see `sdf_lanes` above for the measurement), so a colour lane could not be a record field
         // even if the record had room. The REFERENCE PORT solved the same problem by growing ITS record from
         // 128 B to 192 B - a shape this renderer cannot copy, and does not need to, because the lane table
         // pattern already exists here.
         //
-        // ... AND BECAUSE THEY LIVE HERE RATHER THAN IN THE RECORD, THEY ARE THEIR OWN TERM OF THE MATERIAL
+        // ... AND BECAUSE THEY LIVE HERE RATHER THAN IN THE RECORD, THEY ARE Their TERM OF THE MATERIAL
         // DEDUP KEY: `material_slot_cache` (see `runtime.declarations.cppm`) keys the record, the two texture
         // lane blocks AND these six lanes' bytes, because `register_material` writes this table only AFTER its
         // early return - six lanes left out of the key are six lanes the second of two record-identical
@@ -283,7 +283,7 @@ export namespace deren::engine::render_layout {
          * above the post LUT is 1266.
          *
          * IT IS A GLOBAL IMAGE RATHER THAN A MATERIAL LANE, which is the architecture ruling the step-5 spec
-         * makes from the reference's own graph (§3.4): the Goo `GetPreIntegratedFGDGGXAndDisneyDiffuse` group
+         * makes from the reference's graph (§3.4): the Goo `GetPreIntegratedFGDGGXAndDisneyDiffuse` group
          * has ONE `ShaderNodeTexImage`, `users == 3` containers share it, and its coordinate is computed from
          * `sqrt(NoV)` / `perceptualRoughness` / `fresnel0` - never from a material's uv. Routing it through
          * `toon_slot` would need eleven sidecar rows pointing at one file, and zero new information.
@@ -307,7 +307,7 @@ export namespace deren::engine::render_layout {
         /**
          * @brief the CUSTOM environment slots (1..3), each a prefiltered cube + irradiance pair
          *
-         * A per-object `[[scene.objects]]` entry can select its own HDR; slot 0 is the scene-wide IBL above and
+         * A per-object `[[scene.objects]]` entry can select its HDR; slot 0 is the scene-wide IBL above and
          * the three custom slots are what the application fills for objects that chose a different one. The
          * material record carries the slot in flags bits 10..11, and the deferred stage picks the descriptor by
          * that index - so the shader needs ONE PAIR OF SLOT BASES, not one pair per environment.
@@ -421,7 +421,7 @@ export namespace deren::engine::render_layout {
         static constexpr uint32_t visibility = heap_slot_base + 1231u;
         /// 1239..1246 stay RESERVED: the capture-only depth the visibility work retired from the frame in v0.5 (the
         /// raster lane writes the shared gbuffer_depth). The constant went with the family's producer in the
-        /// non-extension cleanup; the slots stay reserved for the v1 software raster's own private depth.
+        /// non-extension cleanup; the slots stay reserved for the v1 software raster's private depth.
         /**
          * THE VISIBILITY RESOLVE'S FIVE OUTPUTS (visibility-buffer v0.4b): the SAME images as the G-buffer family,
          * as STORAGE descriptors instead of sampled ones (1268..1307, `heap_image_capacity` each)
@@ -449,7 +449,7 @@ export namespace deren::engine::render_layout {
         // renumber every array after it.
         //
         // ONE DESCRIPTOR WITH AN INTERNAL PER-FRAME LANE, NOT A PER-FRAME PAIR. These tables' sizes are fixed per
-        // frame slot (hzb_levels' lane stride depends on the render extent, which the shader learns from its own
+        // frame slot (hzb_levels' lane stride depends on the render extent, which the shader learns from its
         // header), so each descriptor is written once and a shader indexes
         // `heap_at<...>(heap_slots_hzb_<table>)` and then `frame_slot * stride + index` - NEVER `+ heap_frame_slot`,
         // which would read another frame's lane. That is a wrong picture rather than an error, so §5.3 asks for
@@ -484,7 +484,7 @@ export namespace deren::engine::render_layout {
         /// draw reads; the buffer gains `buffer_flag::device_address` and this slot is only the descriptor's number.
         static constexpr uint32_t hzb_commands = heap_slot_base + 1313u;
 
-        // ---- THE SOFTWARE RASTER'S OWN SURFACE (M4 Task 2; docs/superpowers/specs/2026-10-22-software-raster-
+        // ---- THE SOFTWARE RASTER'S SURFACE (M4 Task 2; docs/superpowers/specs/2026-10-22-software-raster-
         //      design.md §3.2/§4.2). TWO R32_UINT images per swapchain image plus ONE host-written CSR tile-list
         //      buffer per frame lane.
         //
@@ -562,7 +562,7 @@ export namespace deren::engine::render_layout {
                   "the software id storage run must follow the software depth storage run");
 
     // ================================================================================================
-    // THE RENDER SCALE'S ONE CLAMP (③-D/E step 2's merged slice, ruling: ONE owner of the rule)
+    // THE RENDER SCALE'S ONE CLAMP (③-D/E step 2's merged slice, ruling: ONE holder of the rule)
     // ================================================================================================
     /**
      * @brief THE ONE CLAMP OF `create_info::render_scale`, and the reason it is a function in a module
@@ -571,7 +571,7 @@ export namespace deren::engine::render_layout {
      * THE CONTRACT SAYS THE BACKEND CLAMPS (rhi.core_desc.cppm's `render_scale` note): a value outside
      * the supported range is neither an error nor a request, and the backend's answer is what a frame
      * uses. That answer has TWO consumers - the backend, which sizes the swapchain's render extent by it
-     * in `core::render_extent()`, and the ENGINE, which sizes its own render-chain targets by the scale
+     * in `core::render_extent()`, and the ENGINE, which sizes its render-chain targets by the scale
      * it keeps. If the two spellings of "clamped" ever differed, the engine would create its targets at
      * one resolution while the backend sized the frame's at another, and nothing would say so: a wrong
      * picture, not an error. So the rule lives HERE, once, and both halves call it - exactly the same
@@ -579,7 +579,7 @@ export namespace deren::engine::render_layout {
      *
      * THE BODY IS `std::clamp(requested, 0.1f, 1.0f)` SPELLED OUT, because this module includes only
      * `<array>`, `<cstdint>` and `vulkan/vulkan.h` (a module both halves compile may not drag in more).
-     * `std::clamp`'s own definition is `v < lo ? lo : (hi < v ? hi : v)`, so this is the same expression
+     * `std::clamp`'s definition is `v < lo ? lo : (hi < v ? hi : v)`, so this is the same expression
      * for every value including a NaN, not a second policy.
      *
      * @param requested the scale the program asked for

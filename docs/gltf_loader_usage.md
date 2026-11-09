@@ -76,10 +76,10 @@ namespace gltf {
 - The node hierarchy is **kept**: `scene.nodes` holds every node reachable from the scene
   roots in **DFS pre-order** (roots first, then each subtree), and `root_indices` lists the
   indices of the scene's roots inside `nodes`. Each node records its direct children as
-  indices into the same `nodes` list (`node.children`, always greater than the node's own
+  indices into the same `nodes` list (`node.children`, always greater than the node's
   index), so the full parent->child structure is recoverable. Transform-only (intermediate)
   nodes appear too, with empty `meshes`.
-- `local_transform` is the node's **own** transform relative to its parent (TRS-composed
+- `local_transform` is the node's transform relative to its parent (TRS-composed
   matrix, or the raw matrix when the asset stored one). `transform_matrix` keeps the
   accumulated **world-space** matrix (`parent_world * local_transform`)  -  same value the
   loader exposed before the hierarchy was retained, so existing world-space consumers keep
@@ -228,7 +228,7 @@ data are kept as they were found, and a non-indexed primitive gets a synthesized
 
 Vertex buffers can be uploaded by memcpy'ing the raw bytes directly, provided the destination's vertex input
 layout matches the data layout (e.g. POSITION/NORMAL as `VK_FORMAT_R32G32B32_SFLOAT`, stored contiguously);
-otherwise re-arrange into an interleaved struct before upload. The engine's own vertex format is ONE 64-byte
+otherwise re-arrange into an interleaved struct before upload. The engine's vertex format is ONE 64-byte
 interleaved record, which the engine's importer builds from these de-interleaved portions.
 
 ---
@@ -260,7 +260,7 @@ animation            // name + samplers + channels
 |     interpolation  //   linear | step | cubic_spline
 `-- channels[j]      // animation_channel: animate one property of one node
       path           //   translation | rotation | scale | weights (morph)
-      sampler        //   index into the owning animation's samplers
+      sampler        //   index into the holding animation's samplers
       target_node    //   index in the glTF asset's node table (NOT a scene pool index)
 ```
 
@@ -361,7 +361,7 @@ struct skin {
 ```cpp
 // skinMat_j = inv(W_mesh) * W_joint_j * IBM_j  -  world matrices of the skinned mesh node and of
 // each joint (the joints follow the animation evaluation of section 8); per-vertex the shader blends
-// these matrices by WEIGHTS_0 and the node's own world transform applies afterwards.
+// these matrices by WEIGHTS_0 and the node's world transform applies afterwards.
 ```
 
 - The renderer (`main.cpp`) assigns each skinned primitive a block of the shared skin-matrix

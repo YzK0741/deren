@@ -7,10 +7,10 @@
  *
  * Position in the chain: forward -> HDR -> bloom -> composite -> [this] -> swapchain. It has to sit
  * AFTER tonemapping (the luma thresholds below are tuned for display-referred, gamma-encoded data)
- * and it needs its own input, because a pass cannot read the image it renders into: that is what
+ * and it needs its input, because a pass cannot read the image it renders into: that is what
  * core::ldr_images are for. The composite writes them *gamma-encoded* (post_push_constants::
  * encode_gamma - they are R16F, so nothing decodes them again) and this shader therefore works
- * directly in the perceptual space FXAA was designed for. Its own output is @b linear when the
+ * directly in the perceptual space FXAA was designed for. Its output is @b linear when the
  * swapchain is an sRGB attachment (which encodes to display values in hardware) and stays
  * display-encoded for a UNORM swapchain.
  *

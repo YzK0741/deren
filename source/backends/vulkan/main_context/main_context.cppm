@@ -10,11 +10,11 @@
 // backend vocabulary (`vulkan_constant_init`, `renderer_layout`): the backend's DLL exports exactly one
 // name, so a module attachment cannot be served from it - both images compile the same interface unit
 // instead. The pair (backend, plugin) is versioned together by `rhi::abi_version`, which both sides already
-// compare at their own handshakes.
+// compare at their handshakes.
 //
 // WHAT IT CARRIES: exactly what the GUI plugin's ImGui Vulkan backend needs to come up - the RHI core
-// (for the version handshake) and the native handles/numbers that core already owns. Nothing here is
-// contract vocabulary. The per-frame RECORDING TARGETS are not a callback here: the GUI overlay owns two
+// (for the version handshake) and the native handles/numbers that core already holds. Nothing here is
+// contract vocabulary. The per-frame RECORDING TARGETS are not a callback here: the GUI overlay holds two
 // contract `mergeable_command_buffer` segments (gui abi 5) and reads their native VkCommandBuffer through
 // the shared `denen.vulkan.command_buffer` class's `get()`, after checking the concrete tag (the same
 // opaque-handle + tag + shared-layout rule).
@@ -47,13 +47,13 @@ export namespace deren::vulkan {
         [[nodiscard]] std::string_view get_tag() const noexcept override {
             return tag;
         }
-        /// The backend owns this borrowed context; the object contract's release is a no-op.
+        /// The backend holds this referenced context; the object contract's release is a no-op.
         void release() noexcept override {
         }
         main_context_view() noexcept = default;
 
-        /// borrowed: the backend owns the RHI root and the overlay must keep it alive (it does - the host
-        /// owns both for the session, and the overlay is released before the runtime)
+        /// referenced: the backend holds the RHI root and the overlay must keep it alive (it does - the host
+        /// holds both for the session, and the overlay is released before the runtime)
         deren::promise::rhi::api_core* core = nullptr;
         VkInstance instance = VK_NULL_HANDLE;
         VkPhysicalDevice physical_device = VK_NULL_HANDLE;
