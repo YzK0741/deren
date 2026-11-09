@@ -320,7 +320,7 @@ void mesh_main(out vertices pbr_vertex_output verts[mesh_vertices_per_workgroup]
 //  2. THE VIEW SPACE NORMAL IS `mat3(view) * o.normal`. The author's `UNITY_MATRIX_IT_MV` is the inverse
 //     transpose of the model-view matrix applied to an OBJECT-space normal; this port's normal is already world
 //     space, and for the separate rigid view transform the inverse transpose 3x3 IS its 3x3. THE SPELLING MATTERS
-//     Native mul(normal, (float3x3)matrix) retains that GLSL product.
+//     Native mul(normal, (float3x3)matrix) preserves that GLSL product.
 //     Projection composition similarly reverses operands to preserve column-vector semantics.
 //
 // `ScaleX`: the author's `GetScaledScreenParams()` is the RENDER-TARGET size, which this renderer does not

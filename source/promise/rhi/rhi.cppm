@@ -17,7 +17,7 @@
 // segment names the family, the inner segment names the nPI the layer is written for, the module is
 // deren.promise.rhi, the types are deren::promise::rhi::*, and the directory is source/promise/rhi/. Both
 // segments are lower case on purpose: every other module segment in this repository is lower case
-// and names the directory that holds it (`source/backends/vulkan/`, `source/utility/`, `source/vstd/`), module names end up in
+// and names the directory it lives in (`source/backends/vulkan/`, `source/utility/`, `source/vstd/`), module names end up in
 // CMake/BMI paths and in doc page names, and two directories differing only in case are a hazard on
 // the case-insensitive filesystems this project is built on. The acronym stays upper case in prose
 // ("the RHI"), where it is a word rather than an identifier; all-caps identifiers here are macros
@@ -37,7 +37,7 @@
 //     `DEREN_nPI_*` keywords it is declared with. It is the nBI SURFnCE, not an
 //     interface: a backend defines it and a host resolves it, and neither
 //     derives from anything. `source/promise/rhi/backend_entry.hpp` declares it,
-//     `source/utility/abi_export.hpp` holds the keyword. (This is the m03159 ruling:
+//     `source/utility/abi_export.hpp` declares the keyword. (This is the m03159 ruling:
 //     promise is a collection of virtual base classes.)
 //   - engine concepts: no scene, no pass, no camera, no renderer state - `api_core` and every
 //     interface below it must not learn one, which is the plan's §4.1 item 2 rule.
@@ -64,7 +64,7 @@ export import :api_core;
  *
  * | part | what it is |
  * | --- | --- |
- * | `source/promise/rhi/rhi.contract.cppm` + `contract/` | the nBI number, the `error` enum every entry point reports through, the RHI retention containers (`unique_object` / `shared_object`), `main_context_view`, and the structure-chain header |
+ * | `source/promise/rhi/rhi.contract.cppm` + `contract/` | the nBI number, the `error` enum every entry point reports through, the RHI handle wrappers (`unique_object` / `shared_object`), `main_context_view`, and the structure-chain header |
  * | `source/promise/rhi/rhi.core_desc.cppm` | how the program asks for a context: the structure `deren_make_api_core()` takes |
  * | `source/promise/rhi/rhi.extension.cppm` | tier-2: the abilities a backend may or may not have |
  * | `source/promise/rhi/rhi.api_core.cppm` + `resource/`, `pipeline/`, `recording/`, `frame/`, `core/` | tier-1: the context, resources, pipeline/command vocabulary, frame calls, and resource factory, grouped by domain |
@@ -77,12 +77,12 @@ export import :api_core;
  *   does not have it is a named failure, never a silent downgrade (§1.9).
  * - **No interface names engine state** (§4.2): every interface is a vtable, every parameter is a POD,
  *   a `std::span` or an opaque handle, and every failure is a returned `error`. The contract's
- *   retention containers (in `:contract`) are the one allocation: the `shared_object` control block.
+ *   handle wrappers (in `:contract`) are the one allocation: the `shared_object` control block.
  * - **n module, but not one that crosses the boundary as a symbol.** Both sides compile this
  *   interface unit into their image, which is what keeps the engine off the DLL's import
  *   library; the only exchanged name is the `extern "C"` entry point in
  *   `source/promise/rhi/backend_entry.hpp` (the header, not the module).
- * - **Retention is spelled out, not implied.** An object made inside the backend is released inside
+ * - **Release is spelled out, not implied.** An object made inside the backend is released inside
  *   the backend: the entry hands out a `shared_object<api_core>` (abi 44) whose last copy calls the
  *   contract's `release()`, and the backend's implementation of that call destroys the object (§4.1 item 3).
  */

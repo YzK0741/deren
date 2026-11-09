@@ -27,7 +27,7 @@ export namespace deren::promise::rhi {
     /// The vocabulary is the renderer's census of buffer uses (twelve creation sites today, counted
     /// in source/backends/vulkan/runtime, readback, ray_tracing and acceleration_structure), and every value says what
     /// the CALLER does with the buffer - "the host writes it every frame", "only the GPU touches it",
-    /// "it holds an acceleration structure". The backend maps each one to memory properties, tiling and
+    /// "an acceleration structure lives in it". The backend maps each one to memory properties, tiling and
     /// an upload strategy, which is exactly the knowledge the contract is not allowed to have.
     ///
     /// VALUES ARE APPENDED, NEVER MOVED OR REUSED: a value is part of the ABI the moment it ships (the
@@ -249,51 +249,51 @@ export namespace deren::promise::rhi {
         return 0u;
     }
 
-    // ---- RETENTION: WHAT `release()` IS, AND WHAT IT IS NOT ---------------------------------------
+    // ---- RELEASE: WHAT IT IS, AND WHAT IT IS NOT ---------------------------------------------------
     //
     // EVERY handle a factory returns (`buffer`, `image`, `sampler`, `shader`, `pipeline`)
-    // is handed out WITH ONE REFERENCE, and the caller releases that reference by calling
-    // `release()` EXACTLY ONCE. The call runs INSIDE the backend - that is the whole reason it is a
+    // is handed out to ONE caller, who calls `release()` on it EXACTLY ONCE. The call runs INSIDE
+    // the backend - that is the whole reason it is a
     // virtual instead of the caller reaching for `delete`: the allocator, the registry entry and the
-    // reference count all stay on the side that created them, and the C ABI never has to hand out an
+    // count of live handles all stay on the side that created them, and the C ABI never has to hand out an
     // allocator.
     //
     // RELEASE IS NOT NECESSARILY DESTRUCTION, AND THAT IS WHY IT IS NOT CALLED `destroy()`. A backend
     // MAY SERVE THE SAME RESOURCE TO MORE THAN ONE CALLER - this one does it whenever two requests
-    // carry identical content, by keeping a content-keyed (XXH3-128) registry and a reference count
-    // behind these handles (source/backends/vulkan/core/vma/vma.cppm's retention note) - so `release()` releases ONE
-    // reference, and the device object dies only when the LAST reference goes. Two consequences a
+    // carry identical content, by keeping a content-keyed (XXH3-128) registry and a count of live handles
+    // behind these handles (the note on `release()` in source/backends/vulkan/core/vma/vma.cppm) - so `release()`
+    // accounts for ONE caller, and the device object dies only when the LAST caller releases. Two consequences a
     // caller has to live with:
     //
     //   - THE CALL MAY FREE NOTHING. A caller that needs the memory back must not infer it from this
     //     call; the backend's bookkeeping decides (`vma_allocator::log_statistics()`, and the
     //     registry sweep in its `destroy()`).
     //   - THE HANDLE IS DEAD AFTERWARDS EVEN IF THE OBJECT LIVES. Touching the pointer again is a
-    //     caller bug: the caller no longer holds a reference, so another `release()` would release
+    //     caller bug: this call has already released the caller's one claim, so another `release()` would release
     //     somebody else's.
     //
-    // HOW A SECOND REFERENCE IS TAKEN: BY ASKING A FACTORY AGAIN. THE FACTORY IS THE RETAIN - a
-    // `create_image()` whose content and parameters match a live object answers with THAT object and a
-    // NEW reference, and the caller's single `release()` balances it. There is deliberately NO
-    // `retain()` virtual: a raw "add a reference to this handle" call would let a caller manufacture
-    // references for handles it never received, which is exactly the over-release path the backend
-    // removed when it made its free/retain private and handed out injectable holders instead
-    // (vma_allocator's retention comment).
+    // HOW A SECOND HANDLE IS OBTAINED: BY ASKING A FACTORY AGAIN. THE FACTORY IS WHERE A HANDLE COMES
+    // FROM - a `create_image()` whose content and parameters match a live object answers with THAT object
+    // and a NEW handle, and the caller's single `release()` balances it. There is deliberately NO
+    // raw "add a reference to this handle" call would let a caller manufacture
+    // handles for objects it never received, which is exactly the over-release path the backend
+    // removed when it made its `free`/`add` private and handed out injectable wrappers instead
+    // (the note on `release()` in vma_allocator).
     //
-    // A VIEW IS NOT AN HELD HANDLE, and this is the other half of the retention model.
+    // A VIEW IS NOT A HANDLE FROM A FACTORY, and this is the other half of the release model.
     // `frame_context::frame_image()`, `frame_context::frame_readback_buffer()` and `frame_context::begin_commands()`
-    // answer with objects the BACKEND holds and lends for a window (a frame, or until the next
-    // acquire). Those are VIEWS, not factory products: they carry no reference, and `release()` on one is a
-    // lifecycle PRECONDITION violation that TERMINATES (the container-based retention introduced in abi 41 is
+    // answer with objects the BACKEND creates and destroys for a window (a frame, or until the next
+    // acquire). Those are VIEWS, not factory products: they never came from a factory, and `release()` on one is a
+    // lifecycle PRECONDITION violation that TERMINATES (the handle wrappers introduced in abi 41 are
     // what makes "who releases" unambiguous; a caller that reaches a view's release ignored it).
     //
-    // A REFERENCED IMAGE MAY STILL HAND OUT AN HELD VIEW: `frame_image()->make_view(desc)` answers a new factory
+    // A FRAME IMAGE THE BACKEND MAKES FOR ONE WINDOW MAY STILL HAND OUT A FACTORY PRODUCT: `frame_image()->make_view(desc)` answers a new factory
     // product, released like any other. The rule is a lifetime one: a view made over a swapchain image dies
     // with that image, so the caller releases every such view before `swapchain::recreate()` - and the range is
     // the swapchain image's shape (one layer, one mip); anything outside it is REFUSED, not clamped.
     // ----------------------------------------------------------------------------------------------
 
-    /// A buffer, held by the backend and released by the caller through `release()`.
+    /// A buffer the backend creates and destroys; the caller releases it through `release()`.
     /// WHAT KIND OF ACCELERATION STRUCTURE: the two levels the hardware API has, named the contract's way.
     enum class acceleration_structure_type : std::uint32_t {
         bottom_level = 0, ///< one geometry's structure (a BLAS), built from triangles
@@ -343,7 +343,7 @@ export namespace deren::promise::rhi {
     /// THE MEMORY IS THE BACKEND'S, as it is for an acceleration structure, and so are the setup buffers these
     /// spans are copied into - including the 256-byte ADDRESS alignment the build requires of them, which is a
     /// requirement on an address rather than on a buffer and therefore cannot be the caller's problem. The
-    /// `struct_size` guard is the usual one, and every span is referenced only until the call returns.
+    /// `struct_size` guard is the usual one, and every span is read only until the call returns.
     struct micromap_desc {
         std::uint32_t struct_size = sizeof(micromap_desc);
         std::uint32_t triangle_count = 0;                  ///< how many micro-triangles
@@ -361,15 +361,15 @@ export namespace deren::promise::rhi {
     /// the any-hit shader. That is why a micromap that says "unknown" everywhere is a no-op and a decisive test
     /// at the same time, and it is what the mask bake uses it for.
     ///
-    /// IT HOLDS its SETUP MEMORY (the attributes, the records and the index array it was built from) and the
-    /// structure's storage: a caller that holds the handle cannot get the alignment or the index array wrong,
+    /// THE BACKEND BUILDS AND DESTROYS its SETUP MEMORY (the attributes, the records and the index array it was built from) and the
+    /// structure's storage: a caller that has the handle cannot get the alignment or the index array wrong,
     /// which is exactly what the engine used to do by hand.
     struct micromap : object {
 
         micromap() noexcept = default;
         virtual ~micromap() noexcept = default;
 
-        /// Release the caller's one reference (see `buffer::release()`): the backend destroys the structure and
+        /// Release the caller's one handle (see `buffer::release()`): the backend destroys the structure and
         /// gives its memory back.
         virtual void release() noexcept = 0;
     };
@@ -393,7 +393,7 @@ export namespace deren::promise::rhi {
         /// OPTIONAL: THE OPACITY MICROMAP this geometry consults, or null when no micromap is attached.
         /// A missing micromap still permits the hit group's any-hit alpha test.
         ///
-        /// ONE HANDLE AND NOTHING ELSE, deliberately: the micromap knows its usage record and holds the index
+        /// ONE HANDLE AND NOTHING ELSE, deliberately: the micromap knows its usage record and carries the index
         /// array the traversal reads (the backend built both), so a caller cannot get either wrong - which is
         /// exactly the pair the engine used to carry across this boundary by hand.
         micromap* opacity_micromap = nullptr;
@@ -431,7 +431,7 @@ export namespace deren::promise::rhi {
         acceleration_structure_flags flags = no_acceleration_structure_flags;
         acceleration_structure_geometry const* geometries = nullptr; ///< BOTTOM: referenced until the call returns
         std::uint32_t geometry_count = 0;                            ///< BOTTOM: how many
-        std::uint32_t instance_capacity = 0;                         ///< TOP: how many instances it must hold
+        std::uint32_t instance_capacity = 0;                         ///< TOP: how many instances must fit
     };
 
     /// AN ACCELERATION STRUCTURE (tier-1, like `buffer` and `image`).
@@ -443,19 +443,19 @@ export namespace deren::promise::rhi {
     /// forward declarations); with the object here, the ability is RETIRED and the capability question ("can
     /// this device run ray queries / a ray-tracing pipeline") is asked through `device_capabilities`.
     ///
-    /// WHO HOLDS THE MEMORY: the BACKEND. This is the whole point of the tier-1 shape - the storage the
+    /// WHO ALLOCATES AND FREES THE MEMORY: the BACKEND. This is the whole point of the tier-1 shape - the storage the
     /// structure lives in, the scratch a build needs, its alignment and the per-geometry offsets are the
     /// backend's business, and a caller that never sees them cannot depend on them. A second backend with no
     /// explicit acceleration structures at all can therefore answer `create_acceleration_structure` and
     /// `build_acceleration_structure` however it must.
     ///
-    /// ONE REFERENCE, released through `release()`, like every held handle in this contract.
+    /// ONE HANDLE, released through `release()`, like every factory product in this contract.
     struct acceleration_structure : object {
 
         acceleration_structure() noexcept = default;
         virtual ~acceleration_structure() noexcept = default;
 
-        /// Release the caller's one reference (see `buffer::release()`).
+        /// Release the caller's one handle (see `buffer::release()`).
         virtual void release() noexcept = 0;
 
         /// THE ADDRESS a shader (or an instance record's `structure_reference`) uses to reach this structure.
@@ -469,8 +469,8 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual std::uint64_t size_bytes() const noexcept = 0;
 
         /// TOP LEVEL ONLY: replace the instance list the NEXT build reads. Host work on memory the backend
-        /// holds, and the records are `acceleration_structure_instance` - so the caller of a top-level structure
-        /// never allocates the array the traversal reads, which is the same retention rule as everywhere else
+        /// allocates and frees, and the records are `acceleration_structure_instance` - so the caller of a top-level structure
+        /// never allocates the array the traversal reads, which is the same release rule as everywhere else
         /// here. Refused by name when the structure is a bottom-level one or the list is longer than the
         /// capacity it was created with.
         [[nodiscard]] virtual error write_instances(std::span<acceleration_structure_instance const> instances) = 0;
@@ -481,17 +481,17 @@ export namespace deren::promise::rhi {
         buffer() noexcept = default;
         virtual ~buffer() noexcept = default;
 
-        /// RELEASE THE CALLER'S ONE REFERENCE. Runs inside the backend, whatever the compiler's `delete`
+        /// RELEASE THE CALLER'S ONE HANDLE. Runs inside the backend, whatever the compiler's `delete`
         /// would have done, and **may free nothing**: the resource can be shared/reused, so the object
-        /// dies only with its last reference (see the retention note above). Do not touch the handle
-        /// afterwards. A referenced frame view carries no reference to release: callers MUST NOT invoke
-        /// release() on it, and the backend MAY terminate on that retention precondition violation.
+        /// dies only when its last caller releases (see the release note above). Do not touch the handle
+        /// afterwards. A frame view never came from a factory, so there is nothing to release: callers MUST
+        /// NOT invoke release() on it, and the backend MAY terminate on that lifecycle precondition violation.
         virtual void release() noexcept = 0;
 
         [[nodiscard]] virtual std::uint64_t size() const noexcept = 0;
         /// Direct bytes of a host-visible buffer; empty when it cannot be mapped. Successful host-mapped
-        /// intents require no explicit flush/invalidate calls. The span references the buffer's storage and
-        /// obeys its holder/frame lifetime. Calling mapped() neither waits nor inserts a barrier.
+        /// intents require no explicit flush/invalidate calls. The span points into the buffer's storage and
+        /// follows the lifetime of the buffer and of the frame it was mapped in. Calling mapped() neither waits nor inserts a barrier.
         /// Finish CPU writes before submitting GPU readers, and do not overwrite a range still in use.
         /// Before reading GPU writes, publish them for host_read and establish completion with a matching
         /// submission token, the frame protocol or wait_idle. Coherence alone supplies neither ordering
@@ -521,13 +521,13 @@ export namespace deren::promise::rhi {
         view_role role = view_role::sampled;
     };
 
-    /// An image, held by the backend and released by the caller through `release()`.
+    /// An image the backend creates and destroys; the caller releases it through `release()`.
     struct image : object {
 
         image() noexcept = default;
         virtual ~image() noexcept = default;
 
-        /// see `buffer::release()`: releases one reference inside the backend; the object may survive
+        /// see `buffer::release()`: runs inside the backend; the object may survive
         /// because a backend is allowed to serve identical content from one shared, content-keyed entry.
         virtual void release() noexcept = 0;
 
@@ -567,27 +567,27 @@ export namespace deren::promise::rhi {
         /// newer one must agree on what "no region" means, and that can only be the header's text.
         [[nodiscard]] virtual std::expected<image_content, error> get_content(image_copy_region const& region = {}) const = 0;
 
-        /// Copy a holding reference without consuming the caller's factory reference.
-        /// Referenced images and backends without shared retention return empty.
-        /// The api_core and backend library must outlive all strong and weak resource references.
-        /// While shared references exist, repeated calls use the same control block.
+        /// Copy a shared handle without consuming the caller's factory handle.
+        /// Frame images and backends without shared storage return empty.
+        /// The api_core and backend library must outlive every shared handle.
+        /// While shared handles exist, repeated calls use the same control block.
         /// Use this instead of constructing an independent `shared_object` from a raw image.
         [[nodiscard]] virtual shared_object<image> share() {
             return {};
         }
     };
 
-    /// A view of an image, held by the backend: the contract's substitute for a raw `VkImageView`.
-    /// Backends supporting shared parent references retain held images independently of the factory reference.
-    /// Views of referenced frame images retain no parent and must respect the frame lifetime.
+    /// A view of an image, created by the backend: the contract's substitute for a raw `VkImageView`.
+    /// Backends that share parent state keep an independent handle to the image alongside the factory handle.
+    /// Views of frame images keep no parent valid and must respect the frame lifetime.
     /// No native view crosses the contract (the escape's `native_image_view` was deleted in abi 42).
     struct image_view : object {
 
         image_view() noexcept = default;
         virtual ~image_view() noexcept = default;
-        /// Release the view, including its retained parent reference after native view destruction.
+        /// Release the view; the backend destroys the native view and then the parent handle it kept.
         virtual void release() noexcept = 0;
-        /// Copy the parent holder; empty for referenced swapchain images or unsupported backends.
+        /// Copy the parent handle; empty for frame images or unsupported backends.
         [[nodiscard]] virtual shared_object<image> get_image() const noexcept {
             return {};
         }
@@ -635,7 +635,7 @@ export namespace deren::promise::rhi {
         image_format format = image_format::unknown;    ///< a NAMED format, or `depth` ("a depth attachment")
         image_flags flags = no_image_flags;
         std::span<std::byte const> initial_bytes; ///< the texels to upload at creation; empty = allocate only
-        char const* debug_name = nullptr;         ///< what the backend logs on refusal; not retained
+        char const* debug_name = nullptr;         ///< what the backend logs on refusal; not copied by the backend
     };
 
     /// How a sampler addresses outside its last mip/edge: the modes this renderer's creation sites
@@ -750,7 +750,7 @@ export namespace deren::promise::rhi {
         std::uint32_t struct_size = sizeof(texture_group_info);
         deren::utility::vessel::array<std::optional<image*>, texture_group_capacity> textures{};
     };
-    /// Immutable sampled 2D slots. The device and backend must outlive all references.
+    /// Immutable sampled 2D slots. The device and backend must outlive every `texture_group`.
     struct texture_group : object {
         texture_group() noexcept = default;
         virtual ~texture_group() noexcept = default;
@@ -759,8 +759,8 @@ export namespace deren::promise::rhi {
     using texture_group_ref = shared_object<texture_group>;
 
     /// Immutable composition: texture_group is one member kind, not the general binding container.
-    /// `resource` must be a holding/alias shared reference of the kind declared. Buffer size 0 means
-    /// the remainder after offset. View selects an image subresource. Spans are referenced until return.
+    /// `resource` must be a shared handle of the kind declared (a factory product or an alias). Buffer size 0 means
+    /// the remainder after offset. View selects an image subresource. Spans are read until return.
     struct resource_group_entry {
         std::uint32_t binding = 0;
         resource_kind kind = resource_kind::texture_group;
@@ -773,7 +773,7 @@ export namespace deren::promise::rhi {
         std::uint32_t struct_size = sizeof(resource_group_desc);
         std::span<resource_group_entry const> entries;
     };
-    /// Group holds member references; recorded/pending commands retain the group. Core/backend must
+    /// The group keeps its members valid; recorded/pending commands keep the group valid. Core/backend must
     /// outlive every group. Immutability covers bindings, not resource content or synchronization.
     struct resource_group : object {
         resource_group() noexcept = default;
@@ -781,8 +781,8 @@ export namespace deren::promise::rhi {
         virtual void release() noexcept = 0;
     };
     using resource_group_ref = shared_object<resource_group>;
-    /// Referenced resource creation interface. Empty products mean creation was refused/failed.
-    /// Descriptors are referenced until return; products retain their existing retention rules.
+    /// Resource creation interface reached by pointer. Empty products mean creation was refused/failed.
+    /// Descriptors are read until return; products follow their existing release rules.
     /// Shared immutable payload. Other aliases must not mutate bytes during the resource lifetime.
     using lazy_data = std::shared_ptr<deren::utility::vessel::vector<std::uint8_t> const>;
     enum class lazy_state : std::uint32_t { unloaded,
@@ -819,7 +819,7 @@ export namespace deren::promise::rhi {
     struct lazy_buffer : buffer {
         using buffer::buffer;
         [[nodiscard]] virtual lazy_state state() const noexcept = 0;
-        /// Nonblocking: not_ready while loading or retained by a view/binding/recording.
+        /// Nonblocking: not_ready while loading, or while a view, binding, or recording still needs the native object.
         /// Source and metadata survive; the next native demand reloads the initial bytes.
         [[nodiscard]] virtual error unload() noexcept = 0;
     };

@@ -31,8 +31,8 @@ import deren.engine.render_graph.visibility;
 import deren.engine.pass.transparent;
 import deren.engine.pass.taa;
 import deren.engine.pass;
-import deren.engine.pass.hzb_build; // the runtime-held HZB build pass (lane 22) and its header constants
-import deren.engine.pass.hzb_cull;  // the runtime-held HZB cull pass (lane 21, M3 phase B2)
+import deren.engine.pass.hzb_build; // the HZB build pass the runtime creates (lane 22) and its header constants
+import deren.engine.pass.hzb_cull;  // the HZB cull pass the runtime creates (lane 21, M3 phase B2)
 import deren.engine.pass.software_visibility;
 import deren.engine.pass.software_merge;
 import deren.engine.pass.output_targets;
@@ -54,7 +54,7 @@ namespace deren::engine {
         // are sized and indexed by the compiler instead of by a hand-kept table, and `lane_slot()` is the only
         // conversion between a lane and an array index.
         //
-        // THE POST CHAIN HOLDS 0..5 AND IS WALKED BY INDEX (the static_assert below guards that), every
+        // THE POST CHAIN COVERS 0..5 AND IS WALKED BY INDEX (the static_assert below guards that), every
         // other lane is reached by name only.
         enum class lane : std::uint8_t {
             // the post chain: six contiguous lanes, ios[0..5]
@@ -183,7 +183,7 @@ namespace deren::engine {
     } // namespace
     rhi::error runtime::record_post_graph() {
         this->radiance_recorded = false;
-        using lease = resource_lease<rhi::image>;
+        using access = resource_handle<rhi::image>;
         // The HZB probe may only dump a frame whose build lane RECORDED it (see the probe block at the end of
         // this function): cleared here, once per frame, and set by that lane's recorder. A frame that is not a
         // main graph frame never runs the visibility lanes, so it must not inherit the previous frame's flag.
@@ -201,7 +201,7 @@ namespace deren::engine {
         // after that record succeeds, so a failed preparation/record cannot make the next frame read stale history.
         bool reflection_denoise_recorded = false;
         auto commands = this->frame_command_buffer();
-        if (!commands || !this->cluster_retention_open) {
+        if (!commands || !this->cluster_window_open) {
             return rhi::error::not_ready;
         }
         bool const residency = texture_streaming.enabled && visibility_lane_frame == visibility::opaque_lane::visibility && !active_features().rt_shadow;
@@ -249,18 +249,18 @@ namespace deren::engine {
             return rhi::error::invalid_argument;
         }
         auto frames = rhi::query_extension<rhi::frame_resources>(this->rhi_face());
-        rhi::shared_object<rhi::image> frame = frames ? frames->retain_image() : rhi::shared_object<rhi::image>{};
+        rhi::shared_object<rhi::image> frame = frames ? frames->snapshot_image() : rhi::shared_object<rhi::image>{};
         if (!frame) {
             return rhi::error::not_ready;
         }
-        this->post_graph_output = lease::from_shared(this->core_lifetime, frame);
+        this->post_graph_output = access::from_shared(this->core_lifetime, frame);
         auto frame_cluster = this->create_resource_cluster("post frame");
         auto view = frame_cluster->create_image_view(this->post_graph_output, {});
         if (!view) {
             return view.error();
         }
-        auto& retained = this->frame_graph_retention[this->cluster_retention_slot];
-        retained.push_back(frame_cluster);
+        auto& attached = this->frame_graph_attachments[this->cluster_attachment_slot];
+        attached.push_back(frame_cluster);
         graph::post::options settings{};
         graph::resource_state input_state{graph::resource_layout::shader_read_only, graph::pipeline_stage::fragment_shader, graph::memory_access::read};
         if (this->main_graph_frame) {
@@ -290,7 +290,7 @@ namespace deren::engine {
                 ++it;
             }
         }
-        auto retain = [&](uint32_t family, uint32_t pending, graph::resource_state& state) -> lease {
+        auto access_for = [&](uint32_t family, uint32_t pending, graph::resource_state& state) -> access {
             auto generation = this->output_resource_views[family].find(pass::output_targets_pass::ids[family]);
             if (!generation || generation->device.get() != this->core_lifetime.get() || index >= generation->objects.size()) {
                 return {};
@@ -307,9 +307,9 @@ namespace deren::engine {
                 }
                 this->bloom_graph_pending_generations[pending] = generation;
             }
-            return lease::from_shared(this->core_lifetime, rhi::shared_object<rhi::image>{std::move(generation), image});
+            return access::from_shared(this->core_lifetime, rhi::shared_object<rhi::image>{std::move(generation), image});
         };
-        auto input = retain(0, graph::invalid_index, input_state);
+        auto input = access_for(0, graph::invalid_index, input_state);
         if (!input || input.get() != this->hdr_images[index].get()) {
             return rhi::error::not_ready;
         }
@@ -329,7 +329,7 @@ namespace deren::engine {
         rhi::image* taa_history_image = nullptr;
         if (this->graph_taa_frame) {
             graph::resource_state taa_scene_state{};
-            auto taa_scene = retain(5, graph::invalid_index, taa_scene_state);
+            auto taa_scene = access_for(5, graph::invalid_index, taa_scene_state);
             auto const& ids = pass::output_targets_pass::ids;
             if (!taa_scene || !this->output_resource_views[5].find(ids[5])) {
                 return rhi::error::not_ready;
@@ -341,8 +341,8 @@ namespace deren::engine {
             scene_target = *taa_scene_ref;
             scene_target_image = taa_scene.get();
             graph::resource_state history_state{};
-            auto taa_history_lease = retain(7, graph::invalid_index, history_state);
-            if (!taa_history_lease || !this->output_resource_views[7].find(ids[7])) {
+            auto taa_history_handle = access_for(7, graph::invalid_index, history_state);
+            if (!taa_history_handle || !this->output_resource_views[7].find(ids[7])) {
                 return rhi::error::not_ready;
             }
             // THE HISTORY'S FIRST USE: the graph can only import "defined contents in a KNOWN layout", and a history
@@ -350,7 +350,7 @@ namespace deren::engine {
             // transition the removed legacy pass performed for itself, keeping the invariant every frame relies on: the
             // history is SAMPLED whenever the graph starts. (After this, the post-record hand-back keeps it so.)
             if (index >= this->taa_history_initialized.size() || !this->taa_history_initialized[index]) {
-                auto const first_use = commands->barrier(rhi::image_barrier{.resource = taa_history_lease.get(),
+                auto const first_use = commands->barrier(rhi::image_barrier{.resource = taa_history_handle.get(),
                                                                             .from = rhi::image_use::undefined,
                                                                             .to = rhi::image_use::shader_read,
                                                                             .range = {}});
@@ -360,12 +360,12 @@ namespace deren::engine {
                 this->taa_history_initialized[index] = true;
             }
             graph::resource_state const history_prior{graph::resource_layout::shader_read_only, graph::pipeline_stage::fragment_shader, graph::memory_access::read};
-            auto taa_history_ref = build.import_texture(taa_history_lease, {graph::initial_contents::defined, history_prior}, "TAA history");
+            auto taa_history_ref = build.import_texture(taa_history_handle, {graph::initial_contents::defined, history_prior}, "TAA history");
             if (!taa_history_ref) {
                 return post_build_error(taa_history_ref.error());
             }
             taa_history = *taa_history_ref;
-            taa_history_image = taa_history_lease.get();
+            taa_history_image = taa_history_handle.get();
         }
         // THE REMOVED LEGACY TAA frame transitioned the history for itself (its first-use barrier) and left it sampled by its
         // the hand-back: record that too, so a later graph frame imports a KNOWN layout instead of re-issuing the
@@ -374,7 +374,7 @@ namespace deren::engine {
             this->taa_history_initialized[index] = true;
         }
         for (uint32_t i = 0; i < 4; ++i) {
-            auto level = retain(9 + i, i, level_states[i]);
+            auto level = access_for(9 + i, i, level_states[i]);
             if (!level || level.get() != this->bloom_images[i][index].get()) {
                 return rhi::error::not_ready;
             }
@@ -384,9 +384,9 @@ namespace deren::engine {
             }
             inputs.bloom[i] = *level_ref;
         }
-        lease ldr;
+        access ldr;
         if (settings.resolution != graph::post::resolve::none) {
-            ldr = retain(8, 4, ldr_state);
+            ldr = access_for(8, 4, ldr_state);
             if (!ldr || ldr.get() != this->ldr_images[index].get()) {
                 return rhi::error::not_ready;
             }
@@ -397,13 +397,13 @@ namespace deren::engine {
             inputs.ldr = *ldr_ref;
         }
         if (this->post_lut_image) {
-            auto lut = lease::from_shared(this->core_lifetime, this->post_lut_image);
+            auto lut = access::from_shared(this->core_lifetime, this->post_lut_image);
             auto lut_ref = build.import_texture(lut, {graph::initial_contents::defined, {graph::resource_layout::shader_read_only, graph::pipeline_stage::fragment_shader, graph::memory_access::read}}, "post LUT");
             if (!lut_ref) {
                 return post_build_error(lut_ref.error());
             }
             inputs.lut = *lut_ref;
-            auto kept = build.retain(this->post_lut_view);
+            auto kept = build.attach(this->post_lut_view);
             if (!kept) {
                 return post_build_error(kept.error());
             }
@@ -425,7 +425,7 @@ namespace deren::engine {
         if (this->main_graph_frame) {
             // THE TWO STATICALLY BOUND IMAGES' LAYOUT PROTOCOL (stage 2B): the deferred lighting descriptor keeps the
             // RT visibility and MegaLights resolve images bound even when their producers are predicated out, and the
-            // graph cannot declare a read of contents that are undefined by design. The runtime holds that ONE
+            // graph cannot declare a read of contents that are undefined by design. The runtime records that ONE
             // initialization transition - but only once per GENERATION (the same boundary rule the TAA history's
             // first use follows): no eligible graph frame runs those producers, so after the seed the images stay
             // sampled and every later frame is barrier-free from the runtime's side.
@@ -445,7 +445,7 @@ namespace deren::engine {
             lighting_inputs.color = scene_target;
             for (uint32_t i = 0; i < 3; ++i) {
                 graph::resource_state state{};
-                auto surface = retain(1 + i, graph::invalid_index, state);
+                auto surface = access_for(1 + i, graph::invalid_index, state);
                 if (!surface || surface.get() != this->gbuffer_images[i][index].get()) {
                     return rhi::error::not_ready;
                 }
@@ -456,7 +456,7 @@ namespace deren::engine {
                 lighting_inputs.surface[i] = *ref;
             }
             graph::resource_state depth_state{};
-            auto depth = retain(6, graph::invalid_index, depth_state);
+            auto depth = access_for(6, graph::invalid_index, depth_state);
             if (!depth || depth.get() != this->gbuffer_depth_images[index].get()) {
                 return rhi::error::not_ready;
             }
@@ -466,7 +466,7 @@ namespace deren::engine {
             }
             lighting_inputs.depth = *depth_ref;
             graph::resource_state velocity_state{};
-            auto velocity = retain(4, graph::invalid_index, velocity_state);
+            auto velocity = access_for(4, graph::invalid_index, velocity_state);
             if (!velocity || velocity.get() != this->velocity_images[index].get()) {
                 return rhi::error::not_ready;
             }
@@ -487,8 +487,8 @@ namespace deren::engine {
                     if (!this->ibl_images[i]) {
                         continue;
                     }
-                    auto ibl_lease = lease::from_shared(this->core_lifetime, this->ibl_images[i]);
-                    auto ref = build.import_texture(ibl_lease,
+                    auto ibl_handle = access::from_shared(this->core_lifetime, this->ibl_images[i]);
+                    auto ref = build.import_texture(ibl_handle,
                                                     {graph::initial_contents::defined,
                                                      {graph::resource_layout::shader_read_only, graph::pipeline_stage::fragment_shader, graph::memory_access::read}},
                                                     names[i]);
@@ -525,28 +525,28 @@ namespace deren::engine {
                 if (!counts || !indices) {
                     return rhi::error::not_ready;
                 }
-                auto counts_lease = resource_lease<rhi::buffer>::from_shared(this->core_lifetime, rhi::shared_object<rhi::buffer>{std::move(counts_generation), counts});
+                auto counts_handle = resource_handle<rhi::buffer>::from_shared(this->core_lifetime, rhi::shared_object<rhi::buffer>{std::move(counts_generation), counts});
                 auto counts_import =
-                    build.import_buffer(counts_lease,
+                    build.import_buffer(counts_handle,
                                         {graph::initial_contents::defined,
                                          {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::read | graph::memory_access::write}},
                                         "cluster counts");
                 if (!counts_import) {
                     return post_build_error(counts_import.error());
                 }
-                auto indices_lease = resource_lease<rhi::buffer>::from_shared(this->core_lifetime, rhi::shared_object<rhi::buffer>{std::move(indices_generation), indices});
-                auto indices_import = build.import_buffer(indices_lease, {}, "cluster indices");
+                auto indices_handle = resource_handle<rhi::buffer>::from_shared(this->core_lifetime, rhi::shared_object<rhi::buffer>{std::move(indices_generation), indices});
+                auto indices_import = build.import_buffer(indices_handle, {}, "cluster indices");
                 if (!indices_import) {
                     return post_build_error(indices_import.error());
                 }
                 cluster_counts_ref = *counts_import;
                 cluster_indices_ref = *indices_import;
             }
-            // THE CASCADED SHADOW MAP (adoption stage 2H). Two shapes, depending on who holds the producer this frame:
+            // THE CASCADED SHADOW MAP (adoption stage 2H). Two shapes, depending on which producer runs this frame:
             // - a GRAPH-RECORDED shadow pass (the maps are stale) writes the array, so the import declares its prior
             //   contents UNDEFINED: the first frame's image really is in UNDEFINED layout, and the producer's write
-            //   (the only access) is allowed to discard it - the graph then emits the attachment transition the
-            //   pass's legacy record used to hold;
+            //   (the only access) is allowed to discard it - the graph then emits the attachment transition that used
+            //   to sit in the pass's legacy record;
             // - otherwise (a reused map, or a frame that cannot record the pass) the map was handed back as sampled
             //   by the renderer before the graph records, and only the lighting reads are declared.
             std::optional<graph::texture_ref> shadow_cascades{};
@@ -555,13 +555,13 @@ namespace deren::engine {
                 if (shadow_generation && shadow_generation->device.get() == this->core_lifetime.get() && slot < shadow_generation->objects.size()) {
                     auto* shadow_image = shadow_generation->objects[slot].image.get();
                     if (shadow_image) {
-                        auto shadow_lease = lease::from_shared(this->core_lifetime, rhi::shared_object<rhi::image>{std::move(shadow_generation), shadow_image});
+                        auto shadow_handle = access::from_shared(this->core_lifetime, rhi::shared_object<rhi::image>{std::move(shadow_generation), shadow_image});
                         graph::execution::import_state const shadow_import =
                             this->graph_shadow_frame
                                 ? graph::execution::import_state{graph::initial_contents::undefined, {}}
                                 : graph::execution::import_state{graph::initial_contents::defined,
                                                                  {graph::resource_layout::shader_read_only, graph::pipeline_stage::fragment_shader, graph::memory_access::read}};
-                        auto shadow_ref = build.import_texture(shadow_lease, shadow_import, "shadow cascades");
+                        auto shadow_ref = build.import_texture(shadow_handle, shadow_import, "shadow cascades");
                         if (!shadow_ref) {
                             return post_build_error(shadow_ref.error());
                         }
@@ -620,8 +620,8 @@ namespace deren::engine {
                 if (!buffer || buffer != entry.expected) {
                     return rhi::error::invalid_argument;
                 }
-                auto retained_buffer = resource_lease<rhi::buffer>::from_shared(this->core_lifetime, rhi::shared_object<rhi::buffer>{std::move(generation), buffer});
-                auto imported = build.import_buffer(retained_buffer, {graph::initial_contents::defined, {graph::resource_layout::general, entry.stages, entry.access}}, entry.name);
+                auto imported_buffer = resource_handle<rhi::buffer>::from_shared(this->core_lifetime, rhi::shared_object<rhi::buffer>{std::move(generation), buffer});
+                auto imported = build.import_buffer(imported_buffer, {graph::initial_contents::defined, {graph::resource_layout::general, entry.stages, entry.access}}, entry.name);
                 if (!imported) {
                     return post_build_error(imported.error());
                 }
@@ -630,14 +630,14 @@ namespace deren::engine {
             graph::geometry::shared_inputs shared_geometry{shared_refs[0], shared_refs[1], shared_refs[2], shared_refs[3], shared_refs[4], shared_refs[5], shared_refs[6]};
             shared_geometry.meshlets = graph::geometry::meshlet_inputs{shared_refs[8], shared_refs[9], shared_refs[10], shared_refs[11]};
             // THE RAY-TRACED VISIBILITY IMAGE (RT stage 2b): its producer is a lane of this graph and the lighting
-            // stage declares the matching sampled read, so the graph holds the write -> hand-off pair the pass's
+            // stage declares the matching sampled read, so the graph records the write -> hand-off pair the pass's
             // legacy record issues itself. Imported with a KNOWN sampled state: the 2B seed transitioned it once
             // this generation, and the per-frame write is the layout transition the plan emits.
             std::optional<graph::texture_ref> rt_visibility{};
             if (this->graph_rt_frame) {
                 // The family's publication is per FRAME SLOT (one visibility image per structure/FIF slot), which is why
-                // this is the shadow map's shape rather than `retain`'s: the lease comes from the generation's object at
-                // the slot, and it is checked against the referenced array the pass's descriptor sees.
+                // this is the shadow map's shape rather than the previous `attach` call's: the import is built from the generation's object at
+                // the slot, and it is checked against the array the pass's descriptor sees.
                 auto const rt_slot = this->frame_ring().position();
                 auto rt_generation = this->output_resource_views[13].find(pass::output_targets_pass::ids[13]);
                 if (!rt_generation || rt_generation->device.get() != this->core_lifetime.get() || rt_slot >= rt_generation->objects.size()) {
@@ -647,14 +647,14 @@ namespace deren::engine {
                 if (!rt_image || !this->rt_shadow_image_views[rt_slot] || rt_image != this->rt_shadow_images[rt_slot].get()) {
                     return rhi::error::not_ready;
                 }
-                auto rt_lease = lease::from_shared(this->core_lifetime, rhi::shared_object<rhi::image>{std::move(rt_generation), rt_image});
-                if (!rt_lease) {
+                auto rt_handle = access::from_shared(this->core_lifetime, rhi::shared_object<rhi::image>{std::move(rt_generation), rt_image});
+                if (!rt_handle) {
                     return rhi::error::not_ready;
                 }
                 graph::execution::import_state const rt_import{
                     graph::initial_contents::defined,
                     graph::resource_state{graph::resource_layout::shader_read_only, graph::pipeline_stage::fragment_shader, graph::memory_access::read}};
-                auto rt_ref = build.import_texture(rt_lease, rt_import, "RT shadow visibility");
+                auto rt_ref = build.import_texture(rt_handle, rt_import, "RT shadow visibility");
                 if (!rt_ref) {
                     return post_build_error(rt_ref.error());
                 }
@@ -675,14 +675,14 @@ namespace deren::engine {
                 if (!reflection_image || !this->rt_reflection_image_views[reflection_slot] || reflection_image != this->rt_reflection_images[reflection_slot].get()) {
                     return rhi::error::not_ready;
                 }
-                auto reflection_lease = lease::from_shared(this->core_lifetime, rhi::shared_object<rhi::image>{std::move(reflection_generation), reflection_image});
-                if (!reflection_lease) {
+                auto reflection_handle = access::from_shared(this->core_lifetime, rhi::shared_object<rhi::image>{std::move(reflection_generation), reflection_image});
+                if (!reflection_handle) {
                     return rhi::error::not_ready;
                 }
                 graph::execution::import_state const reflection_import{
                     graph::initial_contents::undefined,
                     graph::resource_state{graph::resource_layout::undefined, graph::pipeline_stage::none, graph::memory_access::none}};
-                auto reflection_ref = build.import_texture(reflection_lease, reflection_import, "RT reflection");
+                auto reflection_ref = build.import_texture(reflection_handle, reflection_import, "RT reflection");
                 if (!reflection_ref) {
                     return post_build_error(reflection_ref.error());
                 }
@@ -722,15 +722,15 @@ namespace deren::engine {
                     if (!image || !views[reflection_slot] || image != images[reflection_slot].get()) {
                         return std::nullopt;
                     }
-                    auto lease = lease::from_shared(this->core_lifetime, rhi::shared_object<rhi::image>{std::move(generation), image});
-                    if (!lease) {
+                    auto access = access::from_shared(this->core_lifetime, rhi::shared_object<rhi::image>{std::move(generation), image});
+                    if (!access) {
                         return std::nullopt;
                     }
                     graph::execution::import_state const state{
                         history ? graph::initial_contents::defined : graph::initial_contents::undefined,
                         history ? graph::resource_state{graph::resource_layout::shader_read_only, graph::pipeline_stage::compute_shader, graph::memory_access::read}
                                 : graph::resource_state{graph::resource_layout::undefined, graph::pipeline_stage::none, graph::memory_access::none}};
-                    auto imported = build.import_texture(lease, state, name);
+                    auto imported = build.import_texture(access, state, name);
                     if (!imported) {
                         return std::nullopt;
                     }
@@ -776,7 +776,7 @@ namespace deren::engine {
             lighting_inputs.shared = lighting_shared;
             // THE CLUSTERED-LIGHT SORT AS A GRAPH PASS (adoption stage 2G): its two per-slot buffers are imported
             // above and declared by the adapter, the lighting pass declares the same buffers as reads, and the
-            // graph holds the producer -> consumer dependency - the removed legacy path kept its two barriers
+            // graph records the producer -> consumer dependency - the removed legacy path kept its two barriers
             // for the frames it alone recorded, and its recorder here uses the barrier-free record_content entry.
             if (this->graph_cluster_frame) {
                 auto cluster_added = build.append([&](graph::builder& description) noexcept {
@@ -889,17 +889,17 @@ namespace deren::engine {
                 if (!generation || generation->device.get() != this->core_lifetime.get() || generation->objects.empty() || !generation->objects[0].buffer) {
                     return rhi::error::not_ready;
                 }
-                auto retained = resource_lease<rhi::buffer>::from_shared(this->core_lifetime, rhi::shared_object<rhi::buffer>{generation, generation->objects[0].buffer.get()});
-                auto imported = build.import_buffer(retained, {graph::initial_contents::defined, {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::read}}, "software work list");
+                auto imported_source = resource_handle<rhi::buffer>::from_shared(this->core_lifetime, rhi::shared_object<rhi::buffer>{generation, generation->objects[0].buffer.get()});
+                auto imported = build.import_buffer(imported_source, {graph::initial_contents::defined, {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::read}}, "software work list");
                 if (!imported) {
                     return post_build_error(imported.error());
                 }
                 software_tiles_ref = *imported;
             }
             if (this->software_gpu_route_active_frame) {
-                auto metadata = build.import_buffer(resource_lease<rhi::buffer>::from_shared(this->core_lifetime, this->software_visibility->route_metadata_buffer()),
+                auto metadata = build.import_buffer(resource_handle<rhi::buffer>::from_shared(this->core_lifetime, this->software_visibility->route_metadata_buffer()),
                                                     {graph::initial_contents::defined, {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::read}}, "software route metadata");
-                auto arguments = build.import_buffer(resource_lease<rhi::buffer>::from_shared(this->core_lifetime, this->software_visibility->route_arguments_buffer()),
+                auto arguments = build.import_buffer(resource_handle<rhi::buffer>::from_shared(this->core_lifetime, this->software_visibility->route_arguments_buffer()),
                                                      {graph::initial_contents::defined, {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::write}}, "software route arguments");
                 if (!metadata || !arguments) {
                     return post_build_error(!metadata ? metadata.error() : arguments.error());
@@ -1017,11 +1017,11 @@ namespace deren::engine {
             std::optional<graph::pass_ref> visibility_pass_ref{}, visibility_recovery_ref{}, hzb_build_pass_ref{};
             if (visibility_frame) {
                 graph::resource_state visibility_id_state{};
-                auto visibility_lease = retain(14, graph::invalid_index, visibility_id_state);
-                if (!visibility_lease || visibility_lease.get() != this->visibility_images[index].get()) {
+                auto visibility_handle = access_for(14, graph::invalid_index, visibility_id_state);
+                if (!visibility_handle || visibility_handle.get() != this->visibility_images[index].get()) {
                     return rhi::error::not_ready;
                 }
-                auto visibility_import = build.import_texture(visibility_lease, {graph::initial_contents::undefined, {}}, "visibility buffer");
+                auto visibility_import = build.import_texture(visibility_handle, {graph::initial_contents::undefined, {}}, "visibility buffer");
                 if (!visibility_import) {
                     return post_build_error(visibility_import.error());
                 }
@@ -1055,8 +1055,8 @@ namespace deren::engine {
                         if (!image) {
                             return {};
                         }
-                        auto image_lease = lease::from_shared(this->core_lifetime, rhi::shared_object<rhi::image>{std::move(generation), image});
-                        auto imported = build.import_texture(image_lease, {graph::initial_contents::undefined, {}}, name);
+                        auto image_handle = access::from_shared(this->core_lifetime, rhi::shared_object<rhi::image>{std::move(generation), image});
+                        auto imported = build.import_texture(image_handle, {graph::initial_contents::undefined, {}}, name);
                         return imported ? std::optional<graph::texture_ref>{*imported} : std::optional<graph::texture_ref>{};
                     };
                     auto depth_import = import_software_image(15u, "software visibility depth");
@@ -1315,8 +1315,8 @@ namespace deren::engine {
                     resolve_inputs.software_id = software_id_ref;
                 }
                 if (residency && progressive_mips) {
-                    auto mip_lease = resource_lease<rhi::buffer>::from_shared(core_lifetime, mip_feedback_slots[frame_ring().position()]);
-                    auto mip_ref = build.import_buffer(mip_lease, {graph::initial_contents::defined, {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::read | graph::memory_access::write}}, "screen mip feedback");
+                    auto mip_handle = resource_handle<rhi::buffer>::from_shared(core_lifetime, mip_feedback_slots[frame_ring().position()]);
+                    auto mip_ref = build.import_buffer(mip_handle, {graph::initial_contents::defined, {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::read | graph::memory_access::write}}, "screen mip feedback");
                     if (!mip_ref) {
                         return post_build_error(mip_ref.error());
                     }
@@ -1331,8 +1331,8 @@ namespace deren::engine {
                 if (residency) {
                     constexpr graph::access_scope storage{graph::resource_usage::storage, graph::pipeline_stage::compute_shader};
                     constexpr graph::access_scope sampled{graph::resource_usage::sampled, graph::pipeline_stage::compute_shader};
-                    auto result_lease = resource_lease<rhi::buffer>::from_shared(core_lifetime, visibility_feedback_buffer);
-                    auto feedback_ref = build.import_buffer(result_lease, {graph::initial_contents::defined, {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::read | graph::memory_access::write}}, "material feedback");
+                    auto result_handle = resource_handle<rhi::buffer>::from_shared(core_lifetime, visibility_feedback_buffer);
+                    auto feedback_ref = build.import_buffer(result_handle, {graph::initial_contents::defined, {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::read | graph::memory_access::write}}, "material feedback");
                     if (!feedback_ref) {
                         return post_build_error(feedback_ref.error());
                     }
@@ -1479,7 +1479,7 @@ namespace deren::engine {
             // THE RAY-TRACED SHADOW LANE (RT stage 2b): recorded between the G-buffer producer and the lighting stage its
             // visibility feeds. The adapter declares the storage write from the ray-tracing stage plus the G-buffer
             // reads the tracer reconstructs its ray origins from, so the graph orders geometry -> trace -> lighting and
-            // holds the image's two transitions; the pass's record_content keeps the launch alone.
+            // records the image's two transitions; the pass's record_content keeps the launch alone.
             if (this->graph_rt_frame && rt_visibility) {
                 pass::stage rt_stage{.name = "rt_shadow", .passes = this->rt_shadow_pass};
                 this->prepare_stage(rt_stage);
@@ -1634,7 +1634,7 @@ namespace deren::engine {
                 if (!this->radiance_readback) {
                     return rhi::error::operation_failed;
                 }
-                auto target = build.import_buffer(resource_lease<rhi::buffer>::from_shared(this->core_lifetime, this->radiance_readback), {}, "radiance staging");
+                auto target = build.import_buffer(resource_handle<rhi::buffer>::from_shared(this->core_lifetime, this->radiance_readback), {}, "radiance staging");
                 if (!target) {
                     return post_build_error(target.error());
                 }
@@ -1667,7 +1667,7 @@ namespace deren::engine {
             // THE GAUSSIAN RASTER AS A GRAPH PASS (adoption stage 2O): the removed legacy tail ran it BEFORE transparency
             // (lighting -> gaussian -> transparent), so it is appended here. Its GPU compute chain keeps its
             // buffer barriers inside the recorder - the snapshot's private buffers, no other pass touches them - and
-            // the graph holds the pass-level boundary: the working image as a preserve write and the depth as a read.
+            // the graph records the pass-level boundary: the working image as a preserve write and the depth as a read.
             if (this->gaussian_active()) {
                 pass::stage gaussian_stage{.name = "gaussian", .passes = this->gaussian_pass};
                 this->prepare_stage(gaussian_stage);
@@ -1696,7 +1696,7 @@ namespace deren::engine {
                 }
             }
             // THE TRANSPARENT PASS AS A GRAPH PASS (adoption stage 2K): it blends the alpha geometry over the lit
-            // working image and reads the opaque depth. The graph holds the two hand-off transitions the pass's
+            // working image and reads the opaque depth. The graph records the two hand-off transitions the pass's
             // removed legacy record issued, and this declaration is what orders lighting -> transparent -> TAA.
             if (this->active_features().transparent) {
                 pass::stage transparent_stage{.name = "transparent", .passes = this->transparent_pass};
@@ -1822,8 +1822,8 @@ namespace deren::engine {
             }
             // THE TAA RESOLVE AND ITS HISTORY COPY (adoption stage 2I): TWO graph passes from the one pass object.
             // The resolve turns the working image (which geometry and lighting just wrote) into this HDR image;
-            // the copy moves that HDR image into the history. The graph holds the attachment transition, the
-            // transfer round trip and the ordering between them - kept by the pass's removed legacy record.
+            // the copy moves that HDR image into the history. The graph records the attachment transition, the
+            // transfer round trip and the ordering between them, which the pass's removed legacy record also emitted.
             // (The legacy frames it alone recorded are gone with that path.)
             if (this->graph_taa_frame && taa_history) {
                 pass::stage taa_stage{.name = "taa", .passes = this->taa_pass};
@@ -1951,7 +1951,7 @@ namespace deren::engine {
         if (!prepared) {
             return post_build_error(prepared.error());
         }
-        retained.push_back(prepared->retention());
+        attached.push_back(prepared->shared_state());
         rhi::error error;
         if (residency_resolve_index) {
             graph::execution::prepared_graph prefix, suffix;
@@ -1983,7 +1983,7 @@ namespace deren::engine {
         // THE TAA HISTORY'S HAND-BACK (adoption stage 2I): the graph's copy leaves the history image in
         // transfer-destination, and the invariant every frame's import relies on is "the history is sampled outside
         // the graph" - so the frame that wrote it hands it back, as the removed legacy TAA record did for its
-        // frame. The graph cannot hold a state that outlives its plan, which is why this stays the runtime's.
+        // frame. The graph cannot carry a state that outlives its plan, which is why this stays the runtime's.
         if (this->graph_taa_frame && taa_history_image != nullptr) {
             auto const hand_back = commands->barrier(rhi::image_barrier{.resource = taa_history_image,
                                                                         .from = rhi::image_use::transfer_destination,
@@ -2197,7 +2197,7 @@ namespace deren::engine {
                 deren::utility::log("hzb probe capture: FAIL allocation");
             } else if (!this->hzb_recorded_this_frame) {
                 // The build lane is pruned on a frame that is not a visibility frame (or whose gate/resources are
-                // not ready): the buffers hold a PREVIOUS frame's pyramid and its header, so a dump here would
+                // not ready): the buffers still carry a PREVIOUS frame's pyramid and its header, so a dump here would
                 // pass the script's magic/extent check and silently describe the wrong frame. Refuse instead.
                 deren::utility::log("hzb probe capture: skipped - the HZB build lane did not record on this screenshot frame");
             } else {
@@ -2263,7 +2263,7 @@ namespace deren::engine {
         if (!prepared) {
             return prepared.error().code;
         }
-        this->frame_graph_retention[this->cluster_retention_slot].push_back(prepared->retention());
+        this->frame_graph_attachments[this->cluster_attachment_slot].push_back(prepared->shared_state());
         return prepared->record(*this->frame_command_buffer(), [](graph::execution::record_context const&) noexcept { return rhi::error::ok; });
     }
 } // namespace deren::engine

@@ -150,7 +150,7 @@ namespace {
         CHECK(std::all_of(plan->barriers.begin(), plan->barriers.end(), [](auto const& b) { return b.before_pass == 2 && b.memory_dependency && !b.layout_transition; }));
         auto overlap = std::find_if(plan->barriers.begin(), plan->barriers.end(), [](auto const& b) { return std::get<rg::buffer_range>(b.range).offset == 8; });
         CHECK(overlap != plan->barriers.end() && (overlap->before.stages & (rg::pipeline_stage::vertex_input | rg::pipeline_stage::draw_indirect)) == (rg::pipeline_stage::vertex_input | rg::pipeline_stage::draw_indirect));
-        // Untouched bytes retain the import frontier.
+        // Untouched bytes keep the import frontier.
         auto untouched = std::find_if(plan->final_states.begin(), plan->final_states.end(), [](auto const& s) { return std::get<rg::buffer_range>(s.range).offset == 24; });
         CHECK(untouched != plan->final_states.end() && untouched->state.access == rg::memory_access::read);
     }

@@ -87,7 +87,7 @@ namespace deren::utility::diagnostics {
                     break;
                 }
                 offsets[j - i] = next.offset;
-                // Always retain raw evidence, including when symbols are missing or a child fails.
+                // Always keep raw evidence, including when symbols are missing or a child fails.
                 result.text += vessel::format("frame pc=0x{:x} base=0x{:x} rva=0x{:x} module={}\n",
                                               trace.addresses[j], next.base, trace.addresses[j] - next.base, next.module);
             }

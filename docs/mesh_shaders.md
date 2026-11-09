@@ -49,8 +49,8 @@ that wedged the GPU, the culling's two-way acceptance and the backface negative 
   every record after the first was read four bytes off - and not anything about meshlets.
 - The SECOND mechanism step 3 names - cull in a COMPUTE pass and dispatch with `vkCmdDrawMeshTasksIndirectEXT` - has
   its SEAM in the tree: every meshlet dispatch already goes through the indirect entry point, reading its counts out
-  of a command table at a slot the primitive holds. The CULLING itself closed on the HOST instead of in that pass (the
-  host already holds the meshlets, the model matrix and the camera), which is measured: 33,866 of Sponza's 42,800
+  of a command table at a slot that belongs to the primitive. The CULLING itself closed on the HOST instead of in that pass (the
+  host already has the meshlets, the model matrix and the camera), which is measured: 33,866 of Sponza's 42,800
   culled workgroups over 40 frames are never launched, with the triangles emitted identical to the digit. (The first,
   cursor-driven version of the seam made `sponza` flaky and was reverted; both designs are in section 5.)
 - Step 4 is DONE: the vertex geometry path is removed and `VK_EXT_mesh_shader` is a REQUIREMENT - a device without it
@@ -247,7 +247,7 @@ possible). A step is not done until its route says so, plus `ctest` 10/10, `spir
 vulkan1.3` on every emitted `.spv`, and zero validation findings.
 
 **A NOTE ON NAMES, because every step below is named after the stage it converted.** "`pbr.vert` becomes a mesh
-stage" means "the geometry entry `source/shaders/scene/pbr.slang` used to hold is replaced by its `mesh_main`": the Slang
+stage" means "the geometry entry `source/shaders/scene/pbr.slang` used to contain is replaced by its `mesh_main`": the Slang
 migration made every shader source a `.slang` file (the GLSL originals live in `source/reference/shaders/glsl.old/`), and step 4
 deleted those two vertex entries outright. So `pbr.vert` / `shadow.vert` below name A PATH, not a file that exists
 in the tree today - and `source/shaders/scene/pbr.slang` / `source/shaders/lighting/shadow.slang` are where the entries actually are.
@@ -437,7 +437,7 @@ meshlets: 3145 over 103 primitives (85 triangles each at most, object-space sphe
 ```
 
 THE TABLE is `heap_slots_meshlets` (`heap_slot_base + 1257`), one 48-byte record per meshlet, host-visible and
-written ONCE while the scene imports - which is why it holds ONE slot rather than the per-frame pair every
+written ONCE while the scene imports - which is why it occupies ONE slot rather than the per-frame pair every
 frame-varying buffer has: there is no frame in flight whose contents could
 disagree with it (the TLAS is the counter-example, and the reason that rule exists). The host record's fields land
 at the same byte offsets the shader reads them at - first index (0), count (4), base vertex (8), a pad word (12),
@@ -619,7 +619,7 @@ session - so the figures below are totals over a scenario's 40 frames and are co
 WHAT THAT SAYS, and what it does not. It says the frustum test rejects a third of the meshlet workgroups on the
 heavy scene - that geometry is never fetched and never rasterized, which is the culling's actual effect. It does NOT
 say what that is worth in time: **nothing here was timed**, and the counters are counts of work, not of milliseconds.
-It also does not hold the shadow pass from the G-buffer (both add to the same counters), and a DEFORMING draw is
+It also counts the shadow pass as well as the G-buffer (both add to the same counters), and a DEFORMING draw is
 never culled at all by design, so its meshlets are in `emitted` whatever the frustum says.
 
 The same counter answers the question the culling pass was about: a rejected meshlet still costs a WORKGROUP LAUNCH today, so
@@ -629,7 +629,7 @@ counts inform and the timings (which do not exist yet) would settle.
 
 **THE CULLING NOW HAPPENS BEFORE THE DISPATCH, AND IT CLOSED ON THE HOST RATHER THAN IN THE COMPUTE PASS THIS
 DOCUMENT HAD PLANNED.** The numbers above are what decided it: a rejected meshlet still cost a workgroup launch, and
-a compute pass would have moved that test off the entry point - but the HOST already holds the three things the test
+a compute pass would have moved that test off the entry point - but the HOST already has the three things the test
 needs (the primitive's meshlets, the draw's model matrix and the camera), so it needs no new pass, no per-frame draw
 list, no ordering rule and no command buffer. Measured, `sponza`, 40 frames, one binary before and one after:
 
@@ -784,13 +784,13 @@ form it replaced.
   fails it by name.
 - **AN INCLUDE THE BUILD DOES NOT KNOW ABOUT IS STALE SPIR-V.** `mesh_geometry.slang` (and, since the Slang
   migration, `heap_access.slang`) were included by every geometry leaf and absent from CMakeLists'
-  `VR_SHADER_INCLUDES`, so the build tree held binaries compiled before the geometry lanes existed while the
+  `VR_SHADER_INCLUDES`, so the build tree contained binaries compiled before the geometry lanes existed while the
   mesh entries sharing their source had been rebuilt - one pipeline whose two stages declared different push
   blocks, and no validation finding, no wrong picture and no build error anywhere. It surfaced as a byte
   difference against the scripts' output (21 of 27 identical, 6 not) and is now a test check: every `#include`
   found in `source/shaders/` must be in `VR_SHADER_INCLUDES`.
 - **A mesh stage's outputs are WRITE-ONLY.** `E54005: cannot read values from mesh shader outputs` - so
-  the "keep a fetch alive through a branch the fragment stage never takes" idiom does not compile. The
+  the "keep a fetch valid through a branch the fragment stage never takes" idiom does not compile. The
   probe writes the fetched value into an output lane no fragment stage reads
   (`[[vk::location(1)]] float heap_probe_lane`); a multiply by zero would be folded away WITH the fetch.
 - **The vertex-input state must not be PARSED from a mesh module.** `make_pipeline` derives a raster pipeline's
@@ -800,7 +800,7 @@ form it replaced.
 - **A VERTEX-ERA TRAP, retired by step 4, kept because the reasoning is what would bite again.** `shadow.vert`'s
   vertex input layout was derived from its declarations, so a normal that Slang could prove unused disappeared
   from the module and the stride shrank from 64 to 52 with no error anywhere. The never-taken `isnan && isinf` branch
-  that kept it alive lives in the SHARED body, so it is still there and still harmless - and a vertex entry that came
+  that kept it valid lives in the SHARED body, so it is still there and still harmless - and a vertex entry that came
   back would need it back.
 - **Slang rejects west-const in a parameter list and in a pointer declarator.** `MeshVertex const v` /
   `uint const* words` are both `E20001 unexpected token`; Slang's spelling is `const MeshVertex v` and `uint*`.

@@ -2,7 +2,7 @@
 
 /**
  * @file source/engine/render_resource/shared.cppm
- * @brief Referenced RHI objects shared by resource declarations, in a nested module.
+ * @brief RHI objects shared by resource declarations, in a nested module.
  * @defgroup engine_render_resource_shared Render Resource Shared Handles
  *
  * WHY THIS IS A separate MODULE rather than part of `deren.engine.render_resource`, and it is not tidiness: the
@@ -10,13 +10,13 @@
  * invariants (usage is a subset of the schema, kind and access fit, a pass's bindings are contiguous, a
  * pool count is derivable) be checked in `ctest` on a machine with no GPU. The capture gate cannot run in CI
  * at all, because its references are tied to one machine's driver, so that property is the only verification
- * this layer can have there. Referenced device objects live HERE, nested under
+ * this layer can have there. Device objects shared from outside live HERE, nested under
  * the same region - the repository's convention (`deren.vulkan.core:vma_handles`, `deren.vulkan.core.pipeline`) is
  * that a region's internal parts nest while peer areas stay flat.
  *
  * WHAT BELONGS HERE: handles for resources the SCHEMA declares as shared (`resource_scope::device_wide` and
- * the ones every pass may reference), filled ONCE by the runtime and passed around by const reference. The
- * rule for admitting something is that more than one consumer needs it and none of them holds it - a pass's
+ * the ones every pass may use), filled ONCE by the runtime and passed around by const reference. The
+ * rule for admitting something is that more than one consumer needs it and no single consumer creates and destroys it - a pass's
  * family stays with that pass, and anything only the frame loop touches stays in the frame loop.
  *
  * WHAT IS HERE TODAY AND WHAT WILL JOIN IT: the samplers, because they are process-wide objects that a
@@ -41,7 +41,7 @@ import deren.promise.rhi;
 export namespace deren::engine::render_resource::shared {
 
     /**
-     * @brief the samplers this renderer holds, addressed by what a declaration asks for
+     * @brief the samplers this renderer provides, addressed by what a declaration asks for
      * @ingroup engine_render_resource_shared
      *
      * FIVE of them have a `sampler_hint` a declaration can choose by (see `of`). `textures` is the sixth and
@@ -61,7 +61,7 @@ export namespace deren::engine::render_resource::shared {
 
         /// @brief the sampler a declared hint means; `none` is "this binding has no sampler", which the
         ///        declaration's validator enforces exactly
-        /// Referenced from the runtime: never release these objects or keep them beyond its lifetime.
+        /// Supplied by the runtime: never release these objects or use them beyond its lifetime.
         [[nodiscard]] constexpr deren::promise::rhi::sampler* of(sampler_hint const hint) const noexcept {
             switch (hint) {
             case sampler_hint::none:

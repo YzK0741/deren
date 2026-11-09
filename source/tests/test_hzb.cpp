@@ -1088,7 +1088,7 @@ namespace {
             auto projection = perspective_matrix(.1, 100., 1.0471975511965976, 16. / 9.);
             projection[8] = jitter;
             projection[9] = -jitter;
-            CHECK_MSG(!keeps(camera_at_origin(projection), translation_matrix(0., 0., -20.), hzb::hzb_sphere{{0., 0., 0.}, .5}, scene), "jittered perspective must retain useful conservative occlusion");
+            CHECK_MSG(!keeps(camera_at_origin(projection), translation_matrix(0., 0., -20.), hzb::hzb_sphere{{0., 0., 0.}, .5}, scene), "jittered perspective must stay conservative enough to be useful");
         }
         auto z_shear = perspective_matrix(.1, 100., 1.0471975511965976, 16. / 9.);
         z_shear[2] = .02;

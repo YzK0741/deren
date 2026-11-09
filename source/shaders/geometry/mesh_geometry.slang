@@ -10,7 +10,7 @@
 // (`(uint*)address`), which GLSL spells GL_EXT_buffer_reference and Slang spells as a C-style cast (see
 // shaders/compute_skin.slang, which does exactly this against the same 80-byte interleaved vertex). The
 // GLSL sources are archived in shaders/glsl.old/ and no longer built, so there is no second consumer to
-// keep a GLSL spelling alive for.
+// keep a GLSL spelling for.
 //
 // THE LAYOUT IS NOT NEGOTIATED HERE: `mesh_vertex_at` reads the engine's ONE interleaved vertex record,
 // byte for byte the one the loader writes and the one shaders/compute_skin.slang skins. Position (float3,

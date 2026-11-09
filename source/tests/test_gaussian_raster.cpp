@@ -371,11 +371,11 @@ namespace {
                 CHECK(std::memcmp(references->objects[0].buffer->mapped().data(), frame.references().data(), frame.references().size_bytes()) == 0);
             }
         } else {
-            CHECK_MSG(false, "CPU raster uploads must be held by a passchain snapshot");
+            CHECK_MSG(false, "CPU raster uploads must be registered in a passchain snapshot");
         }
     }
     template <typename core_type>
-    rhi::shared_object<rhi::api_core> test_lease(core_type& core) {
+    rhi::shared_object<rhi::api_core> test_device_root(core_type& core) {
         return rhi::shared_object<rhi::api_core>{std::shared_ptr<core_type>(&core, [](core_type*) {})};
     }
     /// the descriptor heap run_raster_probe asks for before it runs any case.
@@ -403,7 +403,7 @@ namespace {
             return rhi::error::ok;
         }
     };
-    /// the fixture PLUS the descriptor heap the probe requires: together with a lease this is what lets a probe
+    /// the fixture PLUS the descriptor heap the probe requires: together with a core that outlives the probe this is what lets a probe
     /// run reach its first real case instead of stopping at the setup checks.
     struct heap_probe_core : raster_probe_core {
         probe_heap heap;
@@ -413,14 +413,14 @@ namespace {
     };
     void test_frame_upload() {
         raster_probe_core probe;
-        auto lease = test_lease(probe);
-        auto asset = gs::make_raster_asset(probe, raster_source(), {}, lease);
+        auto access = test_device_root(probe);
+        auto asset = gs::make_raster_asset(probe, raster_source(), {}, access);
         CHECK(asset);
         if (!asset) {
             return;
         }
         auto prepare = [&](auto const& items, auto const& camera_value, gs::foundation_limits limits = {}, gs::raster_frame* reuse = nullptr) {
-            return gs::prepare_raster_frame(probe, items, camera_value, limits, reuse, lease);
+            return gs::prepare_raster_frame(probe, items, camera_value, limits, reuse, access);
         };
         CHECK(probe.calls == 2);
         deren::utility::vessel::array<gs::raster_instance, 2> items = {gs::raster_instance{*asset, glm::mat4{1}, 20}, gs::raster_instance{*asset, glm::translate(glm::mat4{1}, glm::vec3{0, 0, -1}), 10}};
@@ -478,21 +478,21 @@ namespace {
             item.asset.reset();
         }
         CHECK(!weak.expired());
-        reused->reset(); // the reuse result holds the same frame now, so it is one reference to drop
+        reused->reset(); // the reuse result points at the same frame now, so only that copy needs dropping
         (*frame).reset();
         CHECK(weak.expired());
         raster_probe_core empty_probe;
         empty_probe.supported = false;
-        auto empty = gs::prepare_raster_frame(empty_probe, {}, camera(), {}, nullptr, test_lease(empty_probe));
+        auto empty = gs::prepare_raster_frame(empty_probe, {}, camera(), {}, nullptr, test_device_root(empty_probe));
         CHECK(empty && (*empty)->params().visible_count == 0);
         CHECK(empty_probe.calls == 0);
     }
     void test_managed_frame_replacement() {
-        auto leased = std::make_shared<raster_probe_core>();
-        std::weak_ptr<raster_probe_core> root = leased;
-        auto asset = gs::make_raster_asset(*leased, raster_source(), {}, leased);
+        auto accessed = std::make_shared<raster_probe_core>();
+        std::weak_ptr<raster_probe_core> root = accessed;
+        auto asset = gs::make_raster_asset(*accessed, raster_source(), {}, accessed);
         deren::utility::vessel::array<gs::raster_instance, 1> one{gs::raster_instance{*asset, glm::mat4{1}, 1}};
-        auto frame = gs::prepare_raster_frame(*leased, one, camera(), {}, nullptr, rhi::shared_object<rhi::api_core>{leased});
+        auto frame = gs::prepare_raster_frame(*accessed, one, camera(), {}, nullptr, rhi::shared_object<rhi::api_core>{accessed});
         CHECK(frame);
         if (!frame) {
             return;
@@ -502,59 +502,59 @@ namespace {
         auto push = reuse->params();
         auto references = deren::utility::vessel::vector<gs::draw_reference>{reuse->references().begin(), reuse->references().end()};
         deren::utility::vessel::array<gs::raster_instance, 2> growth{one[0], gs::raster_instance{*asset, glm::mat4{1}, 2}};
-        leased->address.zero_at = leased->calls + 1;
-        auto failed = gs::prepare_raster_frame(*leased, growth, camera(), {}, reuse, leased);
+        accessed->address.zero_at = accessed->calls + 1;
+        auto failed = gs::prepare_raster_frame(*accessed, growth, camera(), {}, reuse, accessed);
         CHECK(!failed && failed.error().code == gs::error_code::invalid_address);
         CHECK(reuse->resources().same(old));
         CHECK(reuse->params().visible_count == push.visible_count && reuse->params().references_address == push.references_address);
         CHECK(reuse->references().size() == references.size() && std::memcmp(reuse->references().data(), references.data(), references.size() * sizeof(gs::draw_reference)) == 0);
         CHECK(std::memcmp(old.find(deren::engine::render_resource::resource_id::gaussian_references)->objects[0].buffer->mapped().data(), references.data(), references.size() * sizeof(gs::draw_reference)) == 0);
-        leased->address.zero_at = 0;
-        auto grown = gs::prepare_raster_frame(*leased, growth, camera(), {}, reuse, leased);
+        accessed->address.zero_at = 0;
+        auto grown = gs::prepare_raster_frame(*accessed, growth, camera(), {}, reuse, accessed);
         CHECK(grown && grown->get() == reuse && !reuse->resources().same(old));
         check_frame_storage(*reuse);
         CHECK(old.find(deren::engine::render_resource::resource_id::gaussian_references)->objects[0].buffer->size() < reuse->resources().find(deren::engine::render_resource::resource_id::gaussian_references)->objects[0].buffer->size());
-        auto retained = reuse->resources();
+        auto tracked = reuse->resources();
         one = {};
         growth = {};
         asset->reset();
-        grown->reset(); // holding reuse handle
-        leased.reset();
+        grown->reset(); // keeps reuse valid
+        accessed.reset();
         frame->reset();
         CHECK(!root.expired());
         old = {};
-        retained = {};
+        tracked = {};
         CHECK(root.expired());
     }
-    void test_raster_lease_contract() {
-        auto leased = std::make_shared<raster_probe_core>();
-        auto asset = gs::make_raster_asset(*leased, raster_source(), {}, leased);
+    void test_raster_device_root_contract() {
+        auto accessed = std::make_shared<raster_probe_core>();
+        auto asset = gs::make_raster_asset(*accessed, raster_source(), {}, accessed);
         deren::utility::vessel::array<gs::raster_instance, 1> one{gs::raster_instance{*asset, glm::mat4{1}, 1}};
-        auto frame = gs::prepare_raster_frame(*leased, one, camera(), {}, nullptr, leased);
+        auto frame = gs::prepare_raster_frame(*accessed, one, camera(), {}, nullptr, accessed);
         CHECK(frame);
         if (!frame) {
             return;
         }
         auto* reuse = const_cast<gs::raster_frame*>(frame->get());
         auto old = reuse->resources();
-        auto promoted = gs::prepare_raster_frame(*leased, one, camera(), {}, reuse, rhi::shared_object<rhi::api_core>{leased});
+        auto promoted = gs::prepare_raster_frame(*accessed, one, camera(), {}, reuse, rhi::shared_object<rhi::api_core>{accessed});
         CHECK(promoted && promoted->get() == reuse && reuse->resources().same(old));
         raster_probe_core other;
         auto foreign = gs::prepare_raster_frame(other, one, camera(), {}, reuse);
         CHECK(!foreign && foreign.error().code == gs::error_code::invalid_argument && other.calls == 0);
-        auto count = leased->calls;
+        auto count = accessed->calls;
         for (int i = 0; i < 4; ++i) {
-            auto updated = gs::prepare_raster_frame(*leased, one, camera(), {}, reuse, leased);
+            auto updated = gs::prepare_raster_frame(*accessed, one, camera(), {}, reuse, accessed);
             CHECK(updated && updated->get() == reuse && reuse->resources().same(old));
         }
-        CHECK(leased->calls == count && leased->idle_calls == 0);
-        auto cleared = gs::prepare_raster_frame(*leased, {}, camera(), {}, reuse, leased);
+        CHECK(accessed->calls == count && accessed->idle_calls == 0);
+        auto cleared = gs::prepare_raster_frame(*accessed, {}, camera(), {}, reuse, accessed);
         CHECK(cleared && reuse->params().visible_count == 0 && reuse->references().empty());
-        CHECK(reuse->resources().same(old) && leased->calls == count);
+        CHECK(reuse->resources().same(old) && accessed->calls == count);
     }
     void test_view_dependent_sh_overflow() {
         raster_probe_core core;
-        auto lease = test_lease(core);
+        auto access = test_device_root(core);
         auto source = raster_source();
         source.sh_degree = 2;
         source.particles.resize(1);
@@ -562,14 +562,14 @@ namespace {
         source.particles[0].sh[0] = std::numeric_limits<float>::max();
         source.particles[0].sh[6] = -std::numeric_limits<float>::max();
         source.particles[0].sh[18] = std::numeric_limits<float>::max();
-        auto asset = gs::make_raster_asset(core, std::move(source), {}, lease);
+        auto asset = gs::make_raster_asset(core, std::move(source), {}, access);
         CHECK(asset);
         if (!asset) {
             return;
         }
         unsigned const before = core.calls;
         deren::utility::vessel::array<gs::raster_instance, 1> const items = {gs::raster_instance{*asset, glm::mat4{1}, 1}};
-        auto frame = gs::prepare_raster_frame(core, items, camera(), {}, nullptr, lease);
+        auto frame = gs::prepare_raster_frame(core, items, camera(), {}, nullptr, access);
         CHECK(!frame && frame.error().code == gs::error_code::invalid_argument);
         CHECK(core.calls == before);
     }
@@ -585,7 +585,7 @@ namespace {
     void test_raster_pass() {
         namespace pass = deren::engine::pass;
         raster_probe_core core;
-        auto lease = test_lease(core);
+        auto access = test_device_root(core);
         pass::gaussian_splatting_pass p;
         deren::utility::vessel::array<std::uint8_t, 4> shader = {3, 2, 35, 7};
         pass::pass_context context{.face = &core, .shader = [](void* parent, std::string_view) { return std::span<std::uint8_t const>{*static_cast<deren::utility::vessel::array<std::uint8_t, 4>*>(parent)}; }, .depth_format = rhi::image_format::depth, .parent = &shader};
@@ -595,13 +595,13 @@ namespace {
         CHECK(core.depth_test);
         CHECK(core.blends.size() == 1 && core.blends[0] == rhi::blend_mode::alpha);
         CHECK(p.io().name == "gaussian");
-        auto asset = gs::make_raster_asset(core, raster_source(), {}, lease);
+        auto asset = gs::make_raster_asset(core, raster_source(), {}, access);
         CHECK(asset);
         if (!asset) {
             return;
         }
         deren::utility::vessel::array<gs::raster_instance, 1> items = {gs::raster_instance{*asset, glm::mat4{1}, 1}};
-        auto frame = gs::prepare_raster_frame(core, items, camera(), {}, nullptr, lease);
+        auto frame = gs::prepare_raster_frame(core, items, camera(), {}, nullptr, access);
         CHECK(frame);
         if (!frame) {
             return;
@@ -652,10 +652,10 @@ namespace {
 } // namespace
 int main() {
     test_managed_frame_replacement();
-    test_raster_lease_contract();
+    test_raster_device_root_contract();
     {
         raster_probe_core core;
-        auto lease = test_lease(core);
+        auto access = test_device_root(core);
         auto empty = gs::prepare_gpu_frame(core, {}, camera());
         CHECK(empty && (*empty)->candidate_count() == 0u && core.calls == 0u);
         deren::utility::vessel::array<gs::raster_instance, 1> const invalid = {gs::raster_instance{}};
@@ -664,7 +664,7 @@ int main() {
         auto bad_camera = camera();
         bad_camera.extent.width = 0u;
         CHECK(!gs::prepare_gpu_frame(core, {}, bad_camera));
-        auto asset = gs::make_raster_asset(core, raster_source(), {}, lease);
+        auto asset = gs::make_raster_asset(core, raster_source(), {}, access);
         CHECK(asset);
         deren::utility::vessel::array<gs::raster_instance, 1> const items = {gs::raster_instance{*asset, glm::mat4{1}, 1}};
         auto unsupported = gs::prepare_gpu_frame(core, items, camera());
@@ -689,16 +689,16 @@ int main() {
     auto unsupported = gs::run_raster_probe(unsupported_probe, dummy_shader, dummy_shader);
     CHECK(!unsupported && unsupported.error().code == gs::error_code::unsupported);
     CHECK(unsupported_probe.calls == 0);
-    // EVEN A FULLY SET UP RUN NEEDS A LEASE: with the descriptor heap in place the probe gets past its setup
-    // checks, and the empty lease is refused before a single case prepares anything.
-    heap_probe_core lease_required_probe;
-    auto missing_lease = gs::run_raster_probe(lease_required_probe, dummy_shader, dummy_shader);
-    CHECK(!missing_lease && missing_lease.error().code == gs::error_code::invalid_argument);
-    CHECK(lease_required_probe.calls == 0);
-    // THE LEASE IS WHAT CARRIES THE PROBE INTO A REAL CASE: the asset and the frame are prepared (the fixture
+    // EVEN A FULLY SET UP RUN NEEDS A CORE THAT OUTLIVES IT: with the descriptor heap in place the probe gets past its setup
+    // checks, and an empty one is refused before a single case prepares anything.
+    heap_probe_core root_required_probe;
+    auto missing_root = gs::run_raster_probe(root_required_probe, dummy_shader, dummy_shader);
+    CHECK(!missing_root && missing_root.error().code == gs::error_code::invalid_argument);
+    CHECK(root_required_probe.calls == 0);
+    // PROVIDING THAT CORE IS WHAT CARRIES THE PROBE INTO A REAL CASE: the asset and the frame are prepared (the fixture
     // allocates their buffers) before the target image, which this fixture does not create, refuses the readback.
     heap_probe_core reachable_probe;
-    auto reachable = gs::run_raster_probe(reachable_probe, dummy_shader, dummy_shader, {}, false, test_lease(reachable_probe));
+    auto reachable = gs::run_raster_probe(reachable_probe, dummy_shader, dummy_shader, {}, false, test_device_root(reachable_probe));
     CHECK(!reachable && reachable.error().code == gs::error_code::allocation_failure);
     CHECK(reachable_probe.calls > 0);
     return deren::vk_test::finish("gaussian_raster");

@@ -172,7 +172,7 @@ target_link_libraries(deren_vulkan
         # and of nothing else in the backend's direction (source/promise/rhi/*.cppm imports nothing back).
         promise
         # The Vulkan constexpr builders both halves compile (see the target's comment above): the
-        # backend keeps using them unchanged, they simply stop being a backend-held module.
+        # backend keeps using them unchanged, they simply stop being a module the backend target provides.
         vulkan_constant_init
         renderer_layout
         Vulkan::Vulkan

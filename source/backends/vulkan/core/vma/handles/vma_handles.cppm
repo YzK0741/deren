@@ -9,17 +9,17 @@ import deren.vstd;
 /**
  * @defgroup vulkan_vma_handles Vulkan VMA Handles' RAII Wrapper
  * @file vma_handles.cppm
- * @brief RAII holders for GPU buffers / images allocated through vma_allocator
+ * @brief RAII wrappers for GPU buffers / images allocated through vma_allocator
  *
- * The allocator hands out raw uint64 handles today, which makes retention implicit: every
+ * The allocator hands out raw uint64 handles today, which makes the free rule implicit: every
  * call site must remember to free exactly once, and shared (deduplicated) images rely on a
- * reference count nobody can see. These wrappers make retention structural:
+ * count nobody can see. These wrappers make the rule structural:
  *   - copying a vk_buffer / vk_image shares the underlying resource (the allocator's
- *     reference count is bumped through the injected retain callback);
- *   - destroying one releases exactly one reference (the release callback; the allocator
+ *     count is incremented through the injected add_use callback);
+ *   - destroying one releases exactly one share (the release callback; the allocator
  *     really destroys the GPU object when the count reaches zero).
- * The retain/release callbacks are injected by vma_allocator when it creates the wrapper
- * (see deren.vulkan.core:vma), which lets the allocator keep free/retain private - there is no
+ * The add_use/release callbacks are injected by vma_allocator when it creates the wrapper
+ * (see deren.vulkan.core:vma), which lets the allocator keep `free` and `add_use` private - there is no
  * public raw-handle release path left to misuse.
  *
  * vk_buffer / vk_image deliberately know nothing about vma_allocator (they only store the
@@ -28,23 +28,23 @@ import deren.vstd;
 namespace deren::vulkan {
     /**
      * @ingroup vulkan_vma_handles
-     * @brief holding reference to one GPU buffer allocated through vma_allocator
-     * @note copy = share (allocator refcount +1), destroy = release (refcount -1);
-     *       default-constructed / moved-from wrappers are empty and hold nothing
+     * @brief a wrapper for one GPU buffer allocated through vma_allocator
+     * @note copy = share (the allocator's count goes up by one), destroy = release (the count goes
+     *       down by one); default-constructed / moved-from wrappers are empty
      */
     export class vk_buffer {
     public:
         vk_buffer() noexcept = default;
 
         /**
-         * @brief adopt one reference to @p handle; @p retain / @p release adjust the
-         *        allocator's reference count (injected by vma_allocator::create_buffer)
+         * @brief adopt one share of @p handle; @p add_use / @p release adjust the
+         *        allocator's count (injected by vma_allocator::create_buffer)
          */
         explicit vk_buffer(uint64_t handle,
-                           std::function<void(uint64_t)> retain,
+                           std::function<void(uint64_t)> add_use,
                            std::function<void(uint64_t)> release) noexcept
             : native_handle{handle}
-            , retain_fn{std::move(retain)}
+            , add_use_fn{std::move(add_use)}
             , release_fn{std::move(release)} {
         }
 
@@ -54,10 +54,10 @@ namespace deren::vulkan {
 
         vk_buffer(vk_buffer const& other)
             : native_handle{other.native_handle}
-            , retain_fn{other.retain_fn}
+            , add_use_fn{other.add_use_fn}
             , release_fn{other.release_fn} {
-            if (this->native_handle != 0 && this->retain_fn) {
-                this->retain_fn(this->native_handle); // share: bump the allocator's reference count
+            if (this->native_handle != 0 && this->add_use_fn) {
+                this->add_use_fn(this->native_handle); // share: raise the allocator's count
             }
         }
 
@@ -65,10 +65,10 @@ namespace deren::vulkan {
             if (this != &other) {
                 this->release();
                 this->native_handle = other.native_handle;
-                this->retain_fn = other.retain_fn;
+                this->add_use_fn = other.add_use_fn;
                 this->release_fn = other.release_fn;
-                if (this->native_handle != 0 && this->retain_fn) {
-                    this->retain_fn(this->native_handle);
+                if (this->native_handle != 0 && this->add_use_fn) {
+                    this->add_use_fn(this->native_handle);
                 }
             }
             return *this;
@@ -76,16 +76,16 @@ namespace deren::vulkan {
 
         vk_buffer(vk_buffer&& other) noexcept
             : native_handle{other.native_handle}
-            , retain_fn{std::move(other.retain_fn)}
+            , add_use_fn{std::move(other.add_use_fn)}
             , release_fn{std::move(other.release_fn)} {
-            other.native_handle = 0; // moved-from holds nothing
+            other.native_handle = 0; // moved-from is empty
         }
 
         vk_buffer& operator=(vk_buffer&& other) noexcept {
             if (this != &other) {
                 this->release();
                 this->native_handle = other.native_handle;
-                this->retain_fn = std::move(other.retain_fn);
+                this->add_use_fn = std::move(other.add_use_fn);
                 this->release_fn = std::move(other.release_fn);
                 other.native_handle = 0;
             }
@@ -97,12 +97,12 @@ namespace deren::vulkan {
             return this->native_handle;
         }
 
-        /** @brief whether this wrapper holds a reference */
+        /** @brief whether this wrapper is non-empty */
         [[nodiscard]] bool valid() const noexcept {
             return this->native_handle != 0;
         }
 
-        /** @brief release this reference and become empty (idempotent) */
+        /** @brief give up this share and become empty (idempotent) */
         void reset() noexcept {
             this->release();
         }
@@ -113,33 +113,33 @@ namespace deren::vulkan {
                 this->release_fn(this->native_handle);
             }
             this->native_handle = 0;
-            this->retain_fn = {};
+            this->add_use_fn = {};
             this->release_fn = {};
         }
 
         // called native_handle, not handle: the handle() accessor of this class would collide with a member of that name
-        // called retain_fn, not retain: the retain parameter of the constructor would hide a member of that name and
+        // called add_use_fn, not add_use: the add_use parameter of the constructor would hide a member of that name and
         // MSVC /W4 reports C4458, an error under /WX
         // called release_fn, not release: the release() method of this class would collide with a member of that name
         uint64_t native_handle = 0;
-        std::function<void(uint64_t)> retain_fn = {};
+        std::function<void(uint64_t)> add_use_fn = {};
         std::function<void(uint64_t)> release_fn = {};
     };
 
     /**
      * @ingroup vulkan_vma_handles
-     * @brief holding reference to one GPU image allocated through vma_allocator
-     * @note same retention semantics as vk_buffer: copy = share, destroy = release
+     * @brief a wrapper for one GPU image allocated through vma_allocator
+     * @note same copy and destroy rules as vk_buffer: copy = share, destroy = release
      */
     export class vk_image {
     public:
         vk_image() noexcept = default;
 
         explicit vk_image(uint64_t handle,
-                          std::function<void(uint64_t)> retain,
+                          std::function<void(uint64_t)> add_use,
                           std::function<void(uint64_t)> release) noexcept
             : native_handle{handle}
-            , retain_fn{std::move(retain)}
+            , add_use_fn{std::move(add_use)}
             , release_fn{std::move(release)} {
         }
 
@@ -149,10 +149,10 @@ namespace deren::vulkan {
 
         vk_image(vk_image const& other)
             : native_handle{other.native_handle}
-            , retain_fn{other.retain_fn}
+            , add_use_fn{other.add_use_fn}
             , release_fn{other.release_fn} {
-            if (this->native_handle != 0 && this->retain_fn) {
-                this->retain_fn(this->native_handle);
+            if (this->native_handle != 0 && this->add_use_fn) {
+                this->add_use_fn(this->native_handle);
             }
         }
 
@@ -160,10 +160,10 @@ namespace deren::vulkan {
             if (this != &other) {
                 this->release();
                 this->native_handle = other.native_handle;
-                this->retain_fn = other.retain_fn;
+                this->add_use_fn = other.add_use_fn;
                 this->release_fn = other.release_fn;
-                if (this->native_handle != 0 && this->retain_fn) {
-                    this->retain_fn(this->native_handle);
+                if (this->native_handle != 0 && this->add_use_fn) {
+                    this->add_use_fn(this->native_handle);
                 }
             }
             return *this;
@@ -171,7 +171,7 @@ namespace deren::vulkan {
 
         vk_image(vk_image&& other) noexcept
             : native_handle{other.native_handle}
-            , retain_fn{std::move(other.retain_fn)}
+            , add_use_fn{std::move(other.add_use_fn)}
             , release_fn{std::move(other.release_fn)} {
             other.native_handle = 0;
         }
@@ -180,7 +180,7 @@ namespace deren::vulkan {
             if (this != &other) {
                 this->release();
                 this->native_handle = other.native_handle;
-                this->retain_fn = std::move(other.retain_fn);
+                this->add_use_fn = std::move(other.add_use_fn);
                 this->release_fn = std::move(other.release_fn);
                 other.native_handle = 0;
             }
@@ -192,12 +192,12 @@ namespace deren::vulkan {
             return this->native_handle;
         }
 
-        /** @brief whether this wrapper holds a reference */
+        /** @brief whether this wrapper is non-empty */
         [[nodiscard]] bool valid() const noexcept {
             return this->native_handle != 0;
         }
 
-        /** @brief release this reference and become empty (idempotent) */
+        /** @brief give up this share and become empty (idempotent) */
         void reset() noexcept {
             this->release();
         }
@@ -208,16 +208,16 @@ namespace deren::vulkan {
                 this->release_fn(this->native_handle);
             }
             this->native_handle = 0;
-            this->retain_fn = {};
+            this->add_use_fn = {};
             this->release_fn = {};
         }
 
         // called native_handle, not handle: the handle() accessor of this class would collide with a member of that name
-        // called retain_fn, not retain: the retain parameter of the constructor would hide a member of that name and
+        // called add_use_fn, not add_use: the add_use parameter of the constructor would hide a member of that name and
         // MSVC /W4 reports C4458, an error under /WX
         // called release_fn, not release: the release() method of this class would collide with a member of that name
         uint64_t native_handle = 0;
-        std::function<void(uint64_t)> retain_fn = {};
+        std::function<void(uint64_t)> add_use_fn = {};
         std::function<void(uint64_t)> release_fn = {};
     };
 } // namespace deren::vulkan

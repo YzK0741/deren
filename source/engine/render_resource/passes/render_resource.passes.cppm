@@ -62,7 +62,7 @@ export namespace deren::engine::render_resource {
     };
 
     // =============================================================================================
-    // 6. THE THIRD DECLARATION - the scene pass, which holds no binding at all
+    // 6. THE THIRD DECLARATION - the scene pass, which declares no separate binding at all
     // =============================================================================================
 
     /**
@@ -71,13 +71,13 @@ export namespace deren::engine::render_resource {
      * THIS IS THE FIRST DECLARATION WITH NO dedicated BINDINGS AT ALL, and that is what the pass IS: it draws the
      * scene's primitives into the frame's surface targets. The material table, the texture array, the camera
      * and light UBOs, the shadow map, the instance table and the top level structure all reach its shaders
-     * through the frame's heap, whose contents its holders publish - so this declaration names no binding for
-     * any of them. Those are `binding_scope::shared` resources the pass only USES, not holds.
+     * through the frame's heap, whose contents the runtime publishes - so this declaration names no binding for
+     * any of them. Those are `binding_scope::shared` resources the pass only USES, never declares.
      *
      * THE TARGETS ARE THE FRAME'S SURFACE, in the order the rendering instance needs them: the three stored
      * G-buffer targets, the motion-vector target, the scene colour target the lighting stage adds on top of,
      * and the G-buffer's depth. The per-leaf push constants are the LEAVES' (a model matrix, a material
-     * index), pushed through the draw path the primitive holds, so this declaration has no push block.
+     * index), pushed through the primitive's draw path, so this declaration has no push block.
      *
      * `scene_color` IS AN ALIAS, and deliberately: the resolver maps it to the image the frame's scene pass
      * stores the nearest surface's emissive in, which selects the HDR target normally, and the
@@ -96,7 +96,7 @@ export namespace deren::engine::render_resource {
     }};
 
     // cl 19.44 (MSVC 14.44) ICEs on this shape - and ONLY this shape: a module-interface-scope constexpr
-    // variable whose value holds a DISENGAGED std::optional (fatal error C1001 in msc1.cpp:1589, exit
+    // variable whose value is a DISENGAGED std::optional (fatal error C1001 in msc1.cpp:1589, exit
     // 0xC0000005). The four pass declarations whose push block is ABSENT (scene, transparent,
     // character_forward, cluster) are exactly that, each one independently - fixing any three still crashes.
     // constinit keeps the constant initialisation (the object is still statically initialised and immutable)
@@ -149,7 +149,7 @@ export namespace deren::engine::render_resource {
      *
      * The difference from `transparent_io` is entirely in the pipeline and the raster state, none of which
      * a declaration names (see render_target): depth compare EQUAL rather than LESS_OR_EQUAL, depth write
-     * OFF and held off, and blending OFF because this pass overwrites rather than composites.
+     * OFF and locked off, and blending OFF because this pass overwrites rather than composites.
      *
      * It declares no separate binding: it reads the same materials, camera and light the scene pass does,
      * and all of those reach its shaders through the frame's heap.
@@ -209,7 +209,7 @@ export namespace deren::engine::render_resource {
      * character stage produced (additive blend, LOAD, no depth attachment, no separate barrier; the G-buffer it
      * samples is published by the renderer's stage preamble). IT IS A SECOND DECLARATION RATHER THAN A SECOND
      * TARGET ON THAT ONE because the two rims are mutually exclusive by construction: `toon_screen_rim` is the
-     * ARTICLE's contour and the holder's feature table switches it OFF whenever `runtime::goo_toon_active()` -
+     * ARTICLE's contour and the runtime's feature table switches it OFF whenever `runtime::goo_toon_active()` -
      * this pass's gate - is true.
      *
      * THE PUSH BLOCK IS 72 BYTES - the frame's inverse view-projection (64) and the two depth-linearization terms
@@ -233,7 +233,7 @@ export namespace deren::engine::render_resource {
     };
 
     // =============================================================================================
-    // 7. THE SHARED RESOURCES - what a full-screen compute pass reaches without holding a binding
+    // 7. THE SHARED RESOURCES - what a full-screen compute pass reaches without declaring a binding
     // =============================================================================================
 
     /**
@@ -254,7 +254,7 @@ export namespace deren::engine::render_resource {
      *
      * The traced-compute shape, with the frame's resolution instead of half: its shaders reach the frame's
      * shared resources (the camera, the light UBO, the top level structure at binding 16, the G-buffer surface
-     * each ray starts from) through the heap, it holds no descriptor at all, and it names the one image it
+     * each ray starts from) through the heap, it declares no descriptor at all, and it names the one image it
      * rewrites through `barrier_images`. Its push block is the camera's inverse view-projection and four
      * ray-offset terms.
      */
@@ -371,7 +371,7 @@ export namespace deren::engine::render_resource {
      *    four elements - see its `count`);
      *  * `barrier_images` is the level it READS, which is also the image the pass has to move to a sampled layout
      *    before it renders. Level 0 reads the HDR target instead, and that transition is deliberately NOT here:
-     *    the host holds it, because the composite reads HDR too and because it is needed on the frames the whole
+     *    the host performs it, because the composite reads HDR too and because it is needed on the frames the whole
      *    bloom chain is skipped (see `post_composite_io`);
      *  * the LAST level's pass also hands its output back to a sampled layout, from its target - the
      *    composite samples all four levels, and level 3 has no successor to do it (the writer's hand-back the GI
@@ -381,7 +381,7 @@ export namespace deren::engine::render_resource {
      * writes a different `mode` into it, and the bytes the stages do not read are pushed with the same defaults
      * they always were - the prefilter passes `mode = 0`, the three downsamples `mode = 1`.
      */
-    /// the levels' named target and source lists: a `pass_io` holds SPANS, so every list it names has to outlive
+    /// the levels' named target and source lists: a `pass_io` stores SPANS, so every list it names has to outlive
     /// it (a brace-initialized array inside the initializer would be a temporary the span dangles on)
     inline constexpr deren::utility::vessel::array<render_target, 1> post_bloom_0_target = {{render_target{.resource = resource_id::bloom, .element = 0, .kind = target_kind::color}}};
     inline constexpr deren::utility::vessel::array<render_target, 1> post_bloom_1_target = {{render_target{.resource = resource_id::bloom, .element = 1, .kind = target_kind::color}}};
@@ -431,8 +431,8 @@ export namespace deren::engine::render_resource {
      *
      * NO BARRIER IMAGE IS DECLARED, and that is the host's half rather than an omission: the HDR target's
      * transition to a sampled layout happens before the chain on EVERY frame (the composite reads it whether or
-     * not bloom runs, and the bloom chain's prefilter reads it as well), so it has exactly one holder and that
-     * holder has to be the frame loop. The four bloom levels arrive already sampled - the levels' passes
+     * not bloom runs, and the bloom chain's prefilter reads it as well), so it has exactly one place that records
+     * it, and that place has to be the frame loop. The four bloom levels arrive already sampled - the levels' passes
      * moved them, or the host's off path did on a frame the chain was skipped.
      */
     inline constexpr pass_io post_composite_io = {
@@ -508,7 +508,7 @@ export namespace deren::engine::render_resource {
      * tidiness: both read the same LDR image, both want to be the frame's last writer, and FXAA's edge filter
      * is defined at the resolution it filters - so on a frame this pass resolves, FXAA must not run at all
      * (its result would be resampled away). `runtime::post_fxaa_active` carries that exclusion, and the
-     * composite's target choice, the frame's `write_ldr` and the overlay's holder all read the two predicates
+     * composite's target choice, the frame's `write_ldr` and the overlay all read the two predicates
      * from `frame_facts` so nothing can disagree.
      *
      * The push block is this pass's and is 72 bytes - EASU's four constants (4 x float4) and the two scalar
@@ -543,7 +543,7 @@ export namespace deren::engine::render_resource {
      * Everything it READS is one of the frame's shared G-buffer resources (the three targets, the depth, the
      * velocity), so it declares no separate binding - and the DEPTH is deliberately not among its barrier
      * images: its old layout depends on whether the G-buffer instance rendered this frame, which is shared
-     * per-image bookkeeping the host holds (the same hand-back the deferred stage's frame carries as a callback).
+     * per-image bookkeeping the host keeps (the same hand-back the deferred stage's frame carries as a callback).
      * The velocity target IS declared, because the debug view runs INSTEAD of the lighting stage and is therefore
      * the only stage that hands it to a sampler on those frames.
      *
@@ -575,7 +575,7 @@ export namespace deren::engine::render_resource {
      *
      * The PUSH BLOCK is four bytes at offset 96 - the cascade index, pushed at `deren::engine::scene_cascade_push_offset`
      * (`scene_push_constant_size`), which is where the scene's push block ends: this pass draws the scene's
-     * leaves through the SCENE pipeline layout, so its push shares that layout's range rather than holding one. The
+     * leaves through the SCENE pipeline layout, so its push shares that layout's range rather than declaring one. The
      * literal is checked against the constant where both are visible (`deren.engine.pass.shadow`'s static_assert), the
      * same "two copies, one size" rule the other pass blocks follow.
      *

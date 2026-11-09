@@ -1,6 +1,6 @@
 # `VK_KHR_unified_image_layouts`: what this renderer requires of it, and what it deleted
 
-Every image this renderer holds lives in `VK_IMAGE_LAYOUT_GENERAL`, and the device is now REQUIRED to
+Every image this renderer creates lives in `VK_IMAGE_LAYOUT_GENERAL`, and the device is now REQUIRED to
 support `VK_KHR_unified_image_layouts` - the extension whose promise is that GENERAL is as efficient as
 the purpose-built layouts. This document records the contract that made that safe, the two layouts that
 survive it, the mechanical change it caused across the tree, and the measurements the change was gated
@@ -68,7 +68,7 @@ unchanged (section 4).
   history and says why step 4 no longer takes a layout as input.
 
 `source/third_party/imgui` still names `VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL`; it is third-party code and
-out of scope, and the engine never lets imgui hold an image that this renderer transitions.
+out of scope, and the engine never lets imgui keep an image that this renderer transitions.
 
 ## 3. The retired layouts, counted
 

@@ -1,6 +1,6 @@
 # Stack diagnostics
 
-`deren.utility.shared` holds the diagnostic service, including across plugins.
+`deren.utility.shared` hosts the diagnostic service, including across plugins.
 
 ```cpp
 import deren.utility.shared;
@@ -11,7 +11,7 @@ auto readable = diag::symbolize(trace); // Healthy context: allocates and starts
 ```
 
 Capture uses fixed storage for at most 64 addresses. Depth zero returns an empty
-trace; skip excludes additional caller frames. Raw records retain PC, module base,
+trace; skip excludes additional caller frames. Raw records keep PC, module base,
 object address and module path. Windows records use a module base and RVA;
 POSIX records use the load bias and object virtual address. A resolved non-PIE
 ELF can have `base=0x0`; an empty module path identifies an unresolved frame. Symbolization keeps
@@ -19,7 +19,7 @@ these records when symbols or the tool are unavailable, and a tool that writes
 nothing is `unavailable` rather than `ok`. Its timeout applies across module groups;
 output is bounded. `symbolizer_options::executable = "off"` selects raw output only.
 
-A captured frame holds a RETURN address, so it is decoded at `pc - 1`. A fault PC is
+A captured frame records a RETURN address, so it is decoded at `pc - 1`. A fault PC is
 EXACT - the crash handler's first frame is the exception address itself - and moving
 it one byte back decodes the instruction before the fault. `stack_trace::exact_address_count`
 names the leading addresses that are exact: those are symbolized unchanged, every
@@ -67,14 +67,14 @@ exception code, the fault PC and - for an access violation - the access kind and
 the data address, before best effort unwinding from the actual x64 exception
 context. Stack overflow writes only the fault PC and an unwind-skipped marker.
 Corrupted stacks or loader state can prevent further output - but the module lookup is not
-hostage to the loader lock: MEASURED with a DLL whose `DllMain` holds that lock while
+hostage to the loader lock: MEASURED with a DLL whose `DllMain` takes that lock while
 another thread faults, the record still comes out complete, and a fault raised INSIDE
 `DllMain` never reaches the handler at all (the loader turns it into a failed load).
 
 Overflow reserve is per thread. The project thread pool, logging worker and Gaussian chunk workers call
 `prepare_crash_thread()` at entry. External workers should do the same. This does
 not install or replace the process exception filter. Other libraries may replace
-that filter; ASAN holds native fault reporting in sanitizer builds, where the
+that filter; ASAN takes over native fault reporting in sanitizer builds, where the
 native-fault assertions are skipped. They run in the optimized Release suite.
 Windows Clang is validated; POSIX behavior is described below.
 
@@ -113,7 +113,7 @@ A small independent Linux CI job runs the same tests.
 
 `VR_DIAGNOSTICS=ON` is the default. Release keeps optimization at O2, debug data,
 unwind tables and frame pointers, disables sibling-call optimization and omits
-LTO and executable stripping. Exceptions remain disabled. OFF retains the lean
+LTO and executable stripping. Exceptions remain disabled. OFF keeps the lean
 Release options; useful stacks and line information are not guaranteed there.
 
 CMake locates `llvm-symbolizer` beside the compiler or on its configure-time
@@ -134,7 +134,7 @@ python scripts/diagnostics/symbolize_stacktrace.py crash.log --module-dir archiv
 The script applies the same rule this service does - the first frame after each
 `deren crash` line is exact, every later frame is a return address - and prints every
 raw line unchanged. Missing modules/symbols can produce partial results and a nonzero
-exit code; a module the archive does not hold is reported as
+exit code; a module the archive does not contain is reported as
 `warning: missing module file <path>` on stderr, once per distinct file, rather than
 being handed to a child that can only fail on it. `--budget` bounds the whole decode
 across frames (default 30 seconds) and `--timeout` bounds one tool call (10 seconds);

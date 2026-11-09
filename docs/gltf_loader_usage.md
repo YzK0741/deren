@@ -73,7 +73,7 @@ namespace gltf {
 
 **Semantics**
 
-- The node hierarchy is **kept**: `scene.nodes` holds every node reachable from the scene
+- The node hierarchy is **kept**: `scene.nodes` contains every node reachable from the scene
   roots in **DFS pre-order** (roots first, then each subtree), and `root_indices` lists the
   indices of the scene's roots inside `nodes`. Each node records its direct children as
   indices into the same `nodes` list (`node.children`, always greater than the node's
@@ -82,14 +82,14 @@ namespace gltf {
 - `local_transform` is the node's transform relative to its parent (TRS-composed
   matrix, or the raw matrix when the asset stored one). `transform_matrix` keeps the
   accumulated **world-space** matrix (`parent_world * local_transform`)  -  same value the
-  loader exposed before the hierarchy was retained, so existing world-space consumers keep
+  loader exposed before the hierarchy was kept, so existing world-space consumers keep
   working unchanged.
 - Keys of `primitive.vertex` are glTF attribute names (`POSITION` / `NORMAL` / `TEXCOORD_0` / `COLOR_0` ...).
 - Vertex and index data are **de-interleaved raw bytes**; their type is described by `component` / `index_component_type` (byteStride and sparse accessors are already handled by fastgltf).
-- `scenes.materials` holds one entry per glTF material (in material order); each `material.texture_indices` uses the fixed roles `albedo` / `metallic_roughness` / `normal` / `occlusion` / `emissive`, and the values index into `scenes::textures` (in glTF texture order). `primitive.material_index` selects the primitive's material (`UINT32_MAX` when the glTF primitive has none).
+- `scenes.materials` contains one entry per glTF material (in material order); each `material.texture_indices` uses the fixed roles `albedo` / `metallic_roughness` / `normal` / `occlusion` / `emissive`, and the values index into `scenes::textures` (in glTF texture order). `primitive.material_index` selects the primitive's material (`UINT32_MAX` when the glTF primitive has none).
 - The glTF alpha mode and the double-sided flag are decoded onto the material: `material.factors.alpha_mask` (`alphaMode` MASK, with `alpha_cutoff`), `material.factors.alpha_blend` (`alphaMode` BLEND) and `material.double_sided`. They are what decides which pass draws a primitive - the engine imports `alpha_blend` as the primitive's `transparent` flag - so a consumer must forward all three rather than only the five texture slots.
-- `scenes.animations` holds the file's keyframe animations in glTF order (see [section 8 Animations](#8-animations)). An animation is file-scoped  -  its channels can target nodes of any scene. Channel targets reference nodes by their **asset node index**, which each scene-pool `node.source_index` records.
-- `scenes.node_by_source` is the **asset-level node lookup**: glTF asset node index (`node::source_index`) -> the loader's `node` copy for it (first scene pool that contains it; a node referenced from several scenes has identical copies). Consumers that animate or skin the nodes of a *runtime* scene tree  -  where each tree node only carries its `source_index`  -  look loader metadata up here instead of iterating every scene pool: `scenes.node_by_source.at(tree_node->source_index)` yields that node's TRS base pose, `skin_index`, attached meshes etc. (`animation::controller` does exactly this: the scene tree is the authoritative host, the loader table is pure data.)
+- `scenes.animations` contains the file's keyframe animations in glTF order (see [section 8 Animations](#8-animations)). An animation is file-scoped  -  its channels can target nodes of any scene. Channel targets name nodes by their **asset node index**, which each scene-pool `node.source_index` records.
+- `scenes.node_by_source` is the **asset-level node lookup**: glTF asset node index (`node::source_index`) -> the loader's `node` copy for it (first scene pool that contains it; a node used from several scenes has identical copies). Consumers that animate or skin the nodes of a *runtime* scene tree  -  where each tree node only carries its `source_index`  -  look loader metadata up here instead of iterating every scene pool: `scenes.node_by_source.at(tree_node->source_index)` yields that node's TRS base pose, `skin_index`, attached meshes etc. (`animation::controller` does exactly this: the scene tree is the authoritative host, the loader table is pure data.)
 
 ---
 
@@ -239,8 +239,8 @@ interleaved record, which the engine's importer builds from these de-interleaved
 - Runtime dependencies: this module and its vendored parser (fastgltf + simdjson, from `source/third_party/`) build
   into `deren_assets.dll`, which the host links; nothing else is needed beyond the OS and the C++ runtime.
 - Static render data (meshes, vertices/indices, textures, materials), **keyframe animations** (section 8), **skins** (section 9) and **morph targets** (section 10) are exported. Non-indexed glTF primitives are supported: the loader synthesizes a sequential uint32 index buffer.
-- Cameras and punctual lights (KHR_lights_punctual) are exported too: `scenes.cameras` / `scenes.lights` hold the file's cameras and lights in glTF order, and each node records its attachment through `camera_index` / `light_index`. `main.cpp` consumes authored cameras as orbit-camera viewpoint seeds and loads point/spot lights into the runtime's editable light slots (up to the GPU cap), so they light the scene and stay adjustable in the overlay. KHR *directional* lights are not mapped: the engine's sun is the shadow-casting analytic light configured by `enable_shadows()`, so the loader logs them as ignored.
-- `log_scene_diagnostics(scenes)` is a one-call diagnostic dump: it logs the contents summary (textures/materials/primitives), the world AABB framing numbers (min/max/center/radius), the retained hierarchy shape (per-node tree lines) and the animations/skins/morph targets/cameras/lights present in the file, and returns the `scene_bounds` (panics when the model has no drawable primitives). `main.cpp` calls it once after loading, before framing the orbit camera.
+- Cameras and punctual lights (KHR_lights_punctual) are exported too: `scenes.cameras` / `scenes.lights` contain the file's cameras and lights in glTF order, and each node records its attachment through `camera_index` / `light_index`. `main.cpp` consumes authored cameras as orbit-camera viewpoint seeds and loads point/spot lights into the runtime's editable light slots (up to the GPU cap), so they light the scene and stay adjustable in the overlay. KHR *directional* lights are not mapped: the engine's sun is the shadow-casting analytic light configured by `enable_shadows()`, so the loader logs them as ignored.
+- `log_scene_diagnostics(scenes)` is a one-call diagnostic dump: it logs the contents summary (textures/materials/primitives), the world AABB framing numbers (min/max/center/radius), the kept hierarchy shape (per-node tree lines) and the animations/skins/morph targets/cameras/lights present in the file, and returns the `scene_bounds` (panics when the model has no drawable primitives). `main.cpp` calls it once after loading, before framing the orbit camera.
 - All `asset.scenes` are loaded; `asset.defaultScene` is not separately marked yet.
 - Verified samples (in `main.cpp`): the glTF/GLB variants of `glTF-Sample-Assets/Models/{Box, BoxInterleaved, BoxTextured}`, covering ASCII + external bin, binary containers, interleaved byteStride, embedded textures, and the missing-file error code.
 
@@ -260,12 +260,12 @@ animation            // name + samplers + channels
 |     interpolation  //   linear | step | cubic_spline
 `-- channels[j]      // animation_channel: animate one property of one node
       path           //   translation | rotation | scale | weights (morph)
-      sampler        //   index into the holding animation's samplers
+      sampler        //   index into the parent animation's samplers
       target_node    //   index in the glTF asset's node table (NOT a scene pool index)
 ```
 
-- `values` layout: LINEAR / STEP hold `key_count * components` floats  -  3 per key for
-  `translation`/`scale` (xyz triplets), 4 for `rotation` (xyzw, `w` scalar). CUBICSPLINE holds
+- `values` layout: LINEAR / STEP store `key_count * components` floats  -  3 per key for
+  `translation`/`scale` (xyz triplets), 4 for `rotation` (xyzw, `w` scalar). CUBICSPLINE stores
   `key_count * components * 3` floats, grouped per keyframe in glTF order: in-tangent, value,
   out-tangent.
 - glTF only allows float animation accessors, but any numeric component type is converted to
@@ -297,7 +297,7 @@ for (const auto& ch : anim.channels) {
 
 **TRS base pose**
 
-`node.translation` / `node.rotation` (`glm::quat`, identity when unset) / `node.scale` hold the
+`node.translation` / `node.rotation` (`glm::quat`, identity when unset) / `node.scale` store the
 declared TRS when the node's file transform is TRS  -  the only form the glTF spec allows
 animation to target. Nodes declared as matrices keep identity TRS (they are never animatable);
 only their composed `local_transform` matters. To evaluate keyframes later, compose
@@ -326,7 +326,7 @@ if (pose.any_channel) {
   sampler yields `valid == false`.
 - Interpolation follows the sampler's mode: LINEAR lerps translations/scales and slerps
   rotations along the shortest arc (one endpoint is flipped when the quaternions are far
-  apart); STEP holds the previous keyframe; CUBICSPLINE evaluates the Hermite spline with the
+  apart); STEP uses the previous keyframe; CUBICSPLINE evaluates the Hermite spline with the
   per-key in/out tangents (tangents scaled by the segment duration, rotation results
   normalized afterwards, as the spec requires).
 - Playback itself is a consumer concern: `main.cpp` plays the first channel-bearing animation
@@ -338,7 +338,7 @@ if (pose.any_channel) {
 
 ## 9. Skinning
 
-`scenes.skins` holds the file's skins in glTF order:
+`scenes.skins` contains the file's skins in glTF order:
 
 ```cpp
 struct skin {

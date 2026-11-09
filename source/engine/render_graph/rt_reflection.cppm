@@ -9,7 +9,7 @@ export namespace deren::engine::render_graph::rt_reflection {
     /// THE GRAPH'S MODEL OF IT: the reflection image is a STORAGE write from the RAY-TRACING stage (a traceRays
     /// launch), and the G-buffer surfaces + depth are sampled reads because the tracer reconstructs each ray's
     /// origin and direction from them. The lighting stage declares the matching reflection read, which is the
-    /// write -> hand-off edge that orders trace -> lighting and holds the image's transition to sampled.
+    /// write -> hand-off edge that orders trace -> lighting and records the image's transition to sampled.
     struct inputs {
         texture_ref reflection;
         std::array<texture_ref, 3> surface;

@@ -109,7 +109,7 @@ namespace deren::engine::pass {
             }
         }
         // THE SCOPE: the id target CLEARS to zero (0 = "no geometry"), the shared G-buffer depth CLEARS to the far
-        // plane - the exact pair the geometry pass clears when IT holds the frame. This pass replaces the geometry lane
+        // plane - the exact pair the geometry pass clears when IT records the frame. This pass replaces the geometry lane
         // on an admitted frame (v0.5), so these clears ARE the frame's, not a private copy: the lighting and toon
         // stages read the depth written here.
         std::array<rhi::color_attachment, 1> const colors = {
@@ -153,7 +153,7 @@ namespace deren::engine::pass {
             return begun;
         }
         // BIND + RE-EMIT the dynamic state the handle stores. THE STORED VIEWPORT IS WRITTEN FIRST, because
-        // `begin_pipeline` re-emits the handle's state and a pipeline this pass holds starts with a {0,0,0,0}
+        // `begin_pipeline` re-emits the handle's state and a pipeline this pass creates starts with a {0,0,0,0}
         // viewport - recording that is a validation error (VUID-VkViewport-width-01770), which is how the first
         // run that actually executed this pass found it. After this assignment the bind and the explicit sets
         // below name the same numbers, for the same "the record step cannot know this pass's extent" reason the

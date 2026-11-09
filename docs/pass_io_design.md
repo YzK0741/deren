@@ -47,7 +47,7 @@ Three ideas, and everything else follows from them.
    project's documented per-image-lifetime trap is the difference between a per-frame-slot resource (shadow
    maps, light/camera/skin buffers, scene sets) and a per-swapchain-image one (TAA history, every GI image,
    the probe's ping-pong), and it has already produced a real bug (one first-use flag guarding a per-image
-   resource). In this model a resource cannot be referenced without saying which it is.
+   resource). In this model a resource cannot be named without saying which it is.
 3. **The declaration is data, and it lives beside the pass.** Constexpr tables, no allocation, no registration
    order, no discovery: the same style as `gbuffer_formats`, `gpu_timing_labels` and the `static_assert`s that
    pin `light_ubo`'s and `instance_record`'s layouts.
@@ -55,7 +55,7 @@ Three ideas, and everything else follows from them.
 ## 3. Naming
 
 The repository's conventions, which this follows: module names are flat peers under `deren.engine.` / `deren.vulkan.`, the namespace
-mirrors the module's suffix (`namespace deren::engine::render_resource`), types are `snake_case`, a builder's result is named for the type it builds (no retention suffix), and capacities/constants are lower_snake_case.
+mirrors the module's suffix (`namespace deren::engine::render_resource`), types are `snake_case`, a builder's result is named for the type it builds (no lifetime suffix), and capacities/constants are lower_snake_case.
 
     module            deren.engine.render_resource               (doxygen: @defgroup engine_render_resource)
     namespace         deren::engine::render_resource
@@ -65,28 +65,28 @@ mirrors the module's suffix (`namespace deren::engine::render_resource`), types 
 
 | name | kind | what it is | why this name |
 | --- | --- | --- | --- |
-| `resource_id` | `enum class : uint32_t` | one enumerator per resource FAMILY that `core` already holds (`gbuffer_albedo`, `gi_trace`, `gi_spec_reproject`, `shadow_map`, ...) | the family is the unit `core` creates, destroys and recreates; UNLIKE `gpu_mark_id`, **the order carries no meaning** - only identity |
+| `resource_id` | `enum class : uint32_t` | one enumerator per resource FAMILY that `core` already declares (`gbuffer_albedo`, `gi_trace`, `gi_spec_reproject`, `shadow_map`, ...) | the family is the unit `core` creates, destroys and recreates; UNLIKE `gpu_mark_id`, **the order carries no meaning** - only identity |
 | `resource_scope` | `enum class : uint8_t` | `per_frame_slot` / `per_swapchain_image` / `device_wide` | the project's vocabulary for the trap (`docs/runtime_split.md` C6) |
-| `resource_lifetime` | `enum class : uint8_t` | `per_frame` / `persistent` / `imported` (`imported` = the swapchain image, held outside) | says whether a first-use transition or a clear is needed at all |
+| `resource_lifetime` | `enum class : uint8_t` | `per_frame` / `persistent` / `imported` (`imported` = the swapchain image, which comes from outside) | says whether a first-use transition or a clear is needed at all |
 | `resource_info` | `struct` | `{ resource_id id; std::string_view name; resource_kind kind; resource_scope scope; resource_lifetime lifetime; }` | mirrors `VkDescriptorSetLayoutBinding`'s role for resources: what it is, not where it lives |
 | `resource_kind` | `enum class : uint8_t` | `image2d` / `image3d` / `image_cube` / `buffer` / `accel_struct` | decides the descriptor type together with `binding_kind` |
 | `binding_kind` | `enum class : uint8_t` | `sampled_image` / `storage_image` / `sampler` / `uniform_buffer` / `storage_buffer` / `input_attachment` | 1:1 with `VkDescriptorType`; named after the Vulkan concept rather than "read/write" because the DESCRIPTOR is what the layout is built from |
 | `binding_access` | `enum class : uint8_t` | `read` / `write` / `read_write` | the access is NOT derivable from the descriptor type (the spatial filter only READS its `gi_input` storage image), and it is what a later barrier stage keys on |
 | `sampler_hint` | `enum class : uint8_t` | `gbuffer` / `taa` / `post` / `nearest` / `shadow` | this renderer creates SIX shared samplers today (`texture_sampler`, `gbuffer_sampler`, `taa_sampler`, `post_sampler`, `post_nearest_sampler`, `shadow_sampler`) and which one a binding gets is currently a ternary; naming the choices makes it a field. Five of the six have a hint - `texture_sampler` is the bindless array's, and `deren.engine.render_resource.shared`'s `sampler_set` says so |
 | `pass_binding` | `struct` | `{ uint32_t binding; binding_scope parent; binding_kind kind; resource_id resource; uint16_t element; uint16_t descriptor_count; binding_access access; sampler_hint sampler; stage_flag stages; }` | **the heart**: one binding, one use. `binding` alone would collide with the `deren.vulkan.bindings` module, hence the `pass_` prefix |
-| `image_layout` | **REMOVED** | was `sampled` (SHADER_READ_ONLY_OPTIMAL) / `general` / `color_attachment` (COLOR_ATTACHMENT_OPTIMAL) | REMOVED WITH `VK_KHR_unified_image_layouts`: every image this renderer holds is in GENERAL now, so a declaration has no layout left to state and the validator's "a storage image must declare GENERAL" rule has nothing to check. It had been ADDED after the first conversion because the layout was NOT derivable from the kind (the separate probe cache kept all nine bindings in GENERAL, so a descriptor claiming SHADER_READ for one of them was a lie validation rejects). The history is kept here for one reason: it is why step 4 below no longer takes a layout as input at all |
+| `image_layout` | **REMOVED** | was `sampled` (SHADER_READ_ONLY_OPTIMAL) / `general` / `color_attachment` (COLOR_ATTACHMENT_OPTIMAL) | REMOVED WITH `VK_KHR_unified_image_layouts`: every image this renderer creates is in GENERAL now, so a declaration has no layout left to state and the validator's "a storage image must declare GENERAL" rule has nothing to check. It had been ADDED after the first conversion because the layout was NOT derivable from the kind (the separate probe cache kept all nine bindings in GENERAL, so a descriptor claiming SHADER_READ for one of them was a lie validation rejects). The history is kept here for one reason: it is why step 4 below no longer takes a layout as input at all |
 | `render_target` | `struct` | `{ resource_id resource; uint16_t element; }` | an image a pass RENDERS INTO. Not a binding, and the distinction is not cosmetic: a binding is a descriptor, the layout generator walks that list, and a colour attachment has no `VkDescriptorType` at all - it is bound by `vkCmdBeginRendering`. The load op and clear value are deliberately NOT declared: the pass that renders into the image is the one that opens the rendering instance, so it is the one that says whether the old contents matter |
 | `push_block` | `struct` | `{ uint32_t offset; uint32_t size; VkShaderStageFlags stages; }` | the second push range already exists in this codebase (`scene_cascade_push_offset/size`), so the shape is not hypothetical |
 | `pass_io` | `struct` | `{ std::string_view name; std::span<pass_binding const> bindings; std::span<render_target const> targets; std::span<barrier_image const> barrier_images; std::span<barrier_buffer const> barrier_buffers; std::optional<push_block> push; }` | the declaration. `name` is for the error messages the validator produces, not for dispatch |
 | `make_set_layout` | function | `expected<VkDescriptorSetLayout, std::string> make_set_layout(VkDevice, pass_io const&, uint32_t set)` | a straight replacement for the hand-written binding loops in `pipelines.cppm`. It takes the DEVICE rather than the core, as the generators and the descriptor families now all do: they need nothing else, and that is what lets a PASS build its layout and write its sets out of what its host hands it |
 | `set_pool_requirements` | function | per-`VkDescriptorType` counts for one set | the number that had to equal the layout by hand and did not once |
 | `write_set` | function | `expected<void, std::string> write_set(VkDevice, pass_io const&, uint32_t set, VkDescriptorSet, span<VkImageView const>, span<VkBuffer const>, sampler_set const&)` | replaces the parallel arrays and ternaries in `ensure_*_descriptors` |
-| `resource_views` | `struct` | the holder hands in the actual `VkImageView`/`VkBuffer` per `resource_id` for one (image_index, slot) | the one thing that must stay with the resource's holder; it is why this layer needs no `runtime&` |
+| `resource_views` | `struct` | the code that creates a resource hands in the actual `VkImageView`/`VkBuffer` per `resource_id` for one (image_index, slot) | the one thing that must stay with whoever creates the resource; it is why this layer needs no `runtime&` |
 | `validate` | function | `expected<void, std::string> validate(pass_io const&, spirv_reflection const&)` | checks the declaration against what the SHADER actually declares, using the existing `deren.vulkan.core.pipeline:spirv_parser` |
 
 Names considered and rejected: `vulkan.graph` (implies order derivation, which is a later stage and not what
-this module is), `vulkan.descriptors` / `vulkan.sets` (the repository already has `deren.vulkan.bindings`, which holds
-set RETENTION and pool lifetime; this module holds DECLARATION), `vulkan.resources` (it holds no resources),
+this module is), `vulkan.descriptors` / `vulkan.sets` (the repository already has `deren.vulkan.bindings`, which manages
+set LIFETIME and pool lifetime; this module only DECLARES), `vulkan.resources` (it creates no resources),
 `vulkan.passes` (reads like pass implementations, which is what it is meant to keep out).
 
 ## 4. Implementation overview, in the order it gets built
@@ -164,9 +164,9 @@ Failure modes to refuse in advance:
 
 * **the declaration drifts from the shader** - the reason step 3 exists, and the reason the validator itself
   needs a test that it FAILS on a wrong declaration;
-* **the layer becomes a mini-RHI** - it must never allocate an image, hold a queue, or hide a Vulkan type it is
+* **the layer becomes a mini-RHI** - it must never allocate an image, wrap a queue, or hide a Vulkan type it is
   not generating;
-* **`resource_id` becomes a god-enum** - it stays held by `deren.engine.render_resource` and grows only when a family is added there;
+* **`resource_id` becomes a god-enum** - it stays declared in `deren.engine.render_resource` and grows only when a family is added there;
   its order is never a contract (that is the difference between it and `gpu_mark_id`);
 * **push-constant size**: declared plus `static_assert`-pinned (as `light_ubo` and `instance_record` already
   are), never computed from the declaration against a shader block whose layout this layer cannot see;
@@ -177,8 +177,8 @@ Failure modes to refuse in advance:
 ## 8. What a pass needs from Vulkan, and the three decisions that settled the interface
 
 AT CREATE TIME, once per device generation: the device; the shaders' SPIR-V; for each declared set, a
-`VkDescriptorSetLayout` (the pass's generated from its declaration, the shared ones referenced from their
-holders); a `VkPipelineLayout` from those plus the declared push range; the pipelines themselves; for a graphics
+`VkDescriptorSetLayout` (the pass's generated from its declaration, the shared ones taken from where they are
+declared); a `VkPipelineLayout` from those plus the declared push range; the pipelines themselves; for a graphics
 pass the colour/depth formats and blend state; a descriptor family (the pool lives in `deren.vulkan.bindings`, not in
 a pass); and one of the renderer's six samplers per sampled binding.
 
@@ -193,20 +193,20 @@ taking over an image family, which is a resource-layer change and must be argued
 THREE DECISIONS, taken while the interface was being written and recorded because each one closes a gap that
 was open in the first draft of this document:
 
-* **shared sets are simply given.** `resolved_io` carries them as they are (one slot per holder: scene, G-buffer,
-  post) and a pass that declared usage of one may bind it. No retention mechanism, no per-set abstraction: the
+* **shared sets are simply given.** `resolved_io` carries them as they are (one slot per shared set: scene, G-buffer,
+  post) and a pass that declared usage of one may bind it. No separate lifetime mechanism, no per-set abstraction: the
   runtime already binds the scene set before a draw, and the G-buffer set is shared by six passes by
   construction.
 * **the command buffer is handed out per frame, at recording time, and never stored.** That is what lets a pass
-  hold no device state between frames - and it closes the first draft's hard gap, in which a pass had nothing to
+  keep no device state between frames - and it closes the first draft's hard gap, in which a pass had nothing to
   record into at all.
-* **pipelines are referenced by NAME for now**, and this costs nothing new: `deren.engine.runtime` already keys its
+* **pipelines are identified by NAME for now**, and this costs nothing new: `deren.engine.runtime` already keys its
   pipelines by name (`make_pipeline` / `set_default_pipeline` / `get_pipeline`), so a pass names what it records
   with and the host resolves those names into `resolved_io::pipelines`, in order. The 840 lines of
   `deren.engine.pipelines` stay where they are, with the pipeline layouts still built there.
-* **handles stay with their holder, and the SHARED ones get a nested module.** The rule is the schema's
-  scopes applied to retention: a pass's private family belongs to that pass, anything the frame loop alone
-  touches stays in the frame loop, and a handle more than one consumer needs and none holds goes to
+* **handles stay with the pass that creates them, and the SHARED ones get a nested module.** The rule is the
+  schema's scopes applied to lifetime: a pass's private family belongs to that pass, anything the frame loop alone
+  touches stays in the frame loop, and a handle more than one consumer needs and no single one of them creates goes to
   `deren.engine.render_resource.shared` - nested, because this layer must stay pure CPU (section 1) while
   `VkSampler` is not. The six samplers are its first tenant: a declaration names a `sampler_hint` and never a
   `VkSampler`, so a pass cannot pick the wrong filter, and `bindings::write_set` resolves the hint against a
@@ -216,23 +216,23 @@ was open in the first draft of this document:
 * **EXCLUSIVE means exclusive, the pipeline included.** The probe cache's pipeline and pipeline layout stayed
   in the renderer through the first pass of this work, on the argument that a pass only names what it records
   with. That was the separate rule applied to the convenient half range: a handle ONLY that pass names and ONLY
-  that pass needs is that pass's to build and to destroy, and leaving it behind meant the pass held its
+  that pass needs is that pass's to build and to destroy, and leaving it behind meant the pass built its
   family but not the pipeline that family's sets are bound through. So a pass now builds its pipeline from
   its declaration, which needed exactly two create-time facts added: its shader's SPIR-V (the app loads
   shaders and registers them; a pass asks for its by file name) and the layout of the shared set its
   pipeline layout must be built against (asked by SET INDEX, the same vocabulary the declaration already uses).
-  The runner still binds the pipeline before the pass records - retention and binding are different questions -
+  The runner still binds the pipeline before the pass records - lifetime and binding are different questions -
   and `resolved_io::pipelines` stays the channel it does it through, filled from the pass's
-  handles when the pass holds them (`pipeline_layout` went with the descriptor sets: a heap pipeline has none).
-* **CREATE AND RECORD ARE TWO STRUCTS, because they have two holders.** Once a pass builds its objects, what
+  handles when the pass creates them (`pipeline_layout` went with the descriptor sets: a heap pipeline has none).
+* **CREATE AND RECORD ARE TWO STRUCTS, because two different parties fill them.** Once a pass builds its objects, what
   it needs at create time (a device, the six samplers, a shared-set-layout lookup, its shader bytes) and what a
   frame loop needs to run one (the frame, the feature registry, the resolver, the behaviour step, the marks)
   stopped being the same list. Merging them had produced one struct that grew with every pass - the context
   object this layer exists to avoid - and it conflated "who may create a pass" with "who may run a frame",
-  which is false: an editor, a tool or a test can fill a `pass_context` and hold a pass, and a runtime is only
-  one such holder. So `frame_pass::create(pass_context const&)` and `create_stage(stage, context)` take the
+  which is false: an editor, a tool or a test can fill a `pass_context` and run a pass, and a runtime is only
+  one such party. So `frame_pass::create(pass_context const&)` and `create_stage(stage, context)` take the
   context ALONE, `pass_host` stays the runner's, and the framework's create path still needs no separate device (the ctest fills a fake context, which the design's `core_filter` could not have allowed: that class
-  holds a `core*` and cannot be faked).
+  stores a `core*` and cannot be faked).
 
 STILL OPEN, stated rather than implied: parallel recording (`main_segments` + the task pool) is not expressible
 in `stage` yet.
@@ -242,8 +242,8 @@ neither a resource nor a behaviour: the values in them (scene bounds, an instanc
 global light direction) are the RENDERER's, while the block's shape and its per-dispatch lanes belong to the
 PASS that declared the shader. So the split follows the values: the HOST composes the block and `resolved_io`
 carries it as raw bytes (`std::span<std::byte const> push`, whose size the declaration's `push` block
-contracts), and the PASS reads it as the struct it declared, changes the lanes it holds and sends it through
-`resolved_io::push_block` - a `push_endpoint` (holder plus callback), not a pipeline layout, because every heap
+contracts), and the PASS reads it as the struct it declared, changes the lanes that belong to it and sends it through
+`resolved_io::push_block` - a `push_endpoint` (the pass plus a callback), not a pipeline layout, because every heap
 pipeline is created with `layout = VK_NULL_HANDLE` and the block travels through `vkCmdPushDataEXT`. The
 alternative - the host pushing on the pass's
 behalf - would have meant the host knowing every pass's push block: the same fact in two places, which is the
@@ -260,11 +260,11 @@ one thing this layer exists to prevent.
                                                         discover, added in two rounds: the generation's
                                                         image count in frame_identity, the pipeline layout
                                                         and the host-composed push bytes in resolved_io, a
-                                                        non-const record (a pass that holds a descriptor
+                                                        non-const record (a pass that creates a descriptor
                                                         family has to ensure it), an image handle next to
                                                         the view, and finally the CREATE/RECORD split - so
                                                         what a pass builds itself from is fillable by any
-                                                        holder and not only by a frame loop
+                                                        caller and not only by a frame loop
     the graphics half: render targets +            DONE as a framework step: a pass declares the images it renders
     the fullscreen behaviour                            into (`render_target`, apart from the bindings because an
                                                         attachment is not a descriptor), `resolved_io::targets`
@@ -321,7 +321,7 @@ one thing this layer exists to prevent.
                                                         A separate declaration
     step 3: the SPIR-V check                      NOT STARTED
     step 4: barrier and order derivation          NOT STARTED, and deliberately last (see section 7)
-    the first consumer: vulkan.pass.gi_probe      DONE, and it is the probe cache: the pass holds its set
+    the first consumer: vulkan.pass.gi_probe      DONE, and it is the probe cache: the pass keeps its set
                                                         layout, its two-set ping-pong family, its pipeline
                                                         layout, its pipeline, its barriers, its clear and
                                                         its push, while the renderer keeps the switch and
@@ -333,7 +333,7 @@ one thing this layer exists to prevent.
                                                         `sponza_gi` back to 58EC848DFABE654A, 12 x 2 with 0
                                                         changed and 0 flaky. The pass's create step logs its outcome, and `runtime::register_shader` +
                                                         `runtime::create_passes` are the app's two calls:
-                                                        the app holds the FILE, the pass holds the PIPELINE.
+                                                        the app keeps the FILE, the pass keeps the PIPELINE.
                                                         WHAT IT DISCOVERED is in `deren.engine.pass` itself (the
                                                         create-time host, the generation's image count, the
                                                         layout and the host-composed push, non-const record,
@@ -356,6 +356,6 @@ worth what the instrument can decide: the capture gate is a RELEASE instrument. 
 or ASan+UBSan build, two runs of the SAME binary differ - measured on `sponza_gi` and on `deferred_ssao_off`,
 which runs none of the GI chain at all - so those builds are not deterministic here and cannot be gated against
 the Release references. That is why every acceptance number in this sequence comes from the Release build, and
-why Debug/ASan+UBSan are held to "clean build, ctest 85/85 (7 device-labelled skipped), and a run that reports no validation or sanitizer
+why Debug/ASan+UBSan must only meet "clean build, ctest 85/85 (7 device-labelled skipped), and a run that reports no validation or sanitizer
 finding" instead.
 

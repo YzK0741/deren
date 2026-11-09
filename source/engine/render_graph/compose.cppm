@@ -73,7 +73,7 @@ export namespace deren::engine::render_graph::execution {
         std::optional<build_error> error_;
         deren::utility::vessel::vector<resource_binding> bindings_;
         deren::utility::vessel::vector<std::shared_ptr<detail::recorder const>> recorders_;
-        deren::utility::vessel::vector<std::shared_ptr<void const>> retained_;
+        deren::utility::vessel::vector<std::shared_ptr<void const>> attached_;
         build_error latch(build_error error) {
             if (!error_) {
                 error_ = std::move(error);
@@ -109,28 +109,28 @@ export namespace deren::engine::render_graph::execution {
             return {};
         }
         template <class T>
-        auto import_resource(resource_lease<T> lease, import_state initial, std::string_view name) {
+        auto import_resource(resource_handle<T> access, import_state initial, std::string_view name) {
             using ref_type = std::conditional_t<std::is_same_v<T, rhi::image>, texture_ref, buffer_ref>;
             using result_type = std::expected<ref_type, build_error>;
             if (auto error = blocked()) {
                 return result_type(std::unexpected(*error));
             }
-            auto identity = identify(lease);
-            if (!core_ || !identity.object || lease.device() != core_.get()) {
+            auto identity = identify(access);
+            if (!core_ || !identity.object || access.device() != core_.get()) {
                 return result_type(std::unexpected(execution_error_of({rhi::error::invalid_argument}, name)));
             }
             auto sync = rhi::query_extension<rhi::scoped_synchronization>(*core_);
             auto ref = [&]() -> std::expected<ref_type, graph_error> {
                 if constexpr (std::is_same_v<T, rhi::image>) {
                     rhi::scoped_image_info info{};
-                    if (sync->describe(*lease.get(), info) != rhi::error::ok) {
+                    if (sync->describe(*access.get(), info) != rhi::error::ok) {
                         return std::unexpected(graph_error{.code = error_code::invalid_identity, .pass_name = {}, .resource_name = {}});
                     }
                     return graph_.import_texture(identity, initial.contents, name,
                                                  {info.mip_levels, info.array_layers, static_cast<texture_aspect>(info.aspects)}, initial.state);
                 } else {
                     rhi::scoped_buffer_info info{};
-                    if (sync->describe(*lease.get(), info) != rhi::error::ok) {
+                    if (sync->describe(*access.get(), info) != rhi::error::ok) {
                         return std::unexpected(graph_error{.code = error_code::invalid_identity, .pass_name = {}, .resource_name = {}});
                     }
                     return graph_.import_buffer(identity, initial.contents, name, {info.byte_size}, initial.state);
@@ -147,7 +147,7 @@ export namespace deren::engine::render_graph::execution {
                 }
             }
             if (!found) {
-                bindings_.push_back(std::move(lease));
+                bindings_.push_back(std::move(access));
             }
             return result_type(*ref);
         }
@@ -173,11 +173,11 @@ export namespace deren::engine::render_graph::execution {
         }
         builder(builder const&) = delete ("builder is non-copyable: pass it by reference or construct a new instance");
         builder& operator=(builder const&) = delete ("builder is non-copyable: modify the existing instance instead");
-        auto import_texture(resource_lease<rhi::image> lease, import_state state, std::string_view name) {
-            return import_resource(std::move(lease), state, name);
+        auto import_texture(resource_handle<rhi::image> access, import_state state, std::string_view name) {
+            return import_resource(std::move(access), state, name);
         }
-        auto import_buffer(resource_lease<rhi::buffer> lease, import_state state, std::string_view name) {
-            return import_resource(std::move(lease), state, name);
+        auto import_buffer(resource_handle<rhi::buffer> access, import_state state, std::string_view name) {
+            return import_resource(std::move(access), state, name);
         }
         template <class F>
             requires graph_appender<F>
@@ -257,26 +257,26 @@ export namespace deren::engine::render_graph::execution {
         }
         template <class T>
             requires std::convertible_to<std::shared_ptr<T>, std::shared_ptr<void const>>
-        std::expected<void, build_error> retain(std::shared_ptr<T> parent) {
+        std::expected<void, build_error> attach(std::shared_ptr<T> parent) {
             if (auto error = blocked()) {
                 return std::unexpected(*error);
             }
             if (!parent) {
                 return std::unexpected(latch({.code = build_error_code::invalid_argument}));
             }
-            retained_.push_back(std::move(parent));
+            attached_.push_back(std::move(parent));
             return {};
         }
-        /// a SHARED RHI HANDLE is retained too (the post chain keeps the LUT view alive this way)
+        /// a SHARED RHI HANDLE stays valid too (the post chain keeps the LUT view valid this way)
         template <typename T>
-        std::expected<void, build_error> retain(deren::promise::rhi::shared_object<T> parent) {
+        std::expected<void, build_error> attach(deren::promise::rhi::shared_object<T> parent) {
             if (auto error = blocked()) {
                 return std::unexpected(*error);
             }
             if (!parent) {
                 return std::unexpected(latch({.code = build_error_code::invalid_argument}));
             }
-            retained_.push_back(std::make_shared<deren::promise::rhi::shared_object<T>>(std::move(parent)));
+            attached_.push_back(std::make_shared<deren::promise::rhi::shared_object<T>>(std::move(parent)));
             return {};
         }
         std::expected<prepared_graph, build_error> prepare() {
@@ -301,7 +301,7 @@ export namespace deren::engine::render_graph::execution {
                     recorders_[i].reset();
                 }
             }
-            auto prepared = detail::composition_access::prepare(core_, std::move(*plan), bindings_, std::move(recorders_), std::move(retained_));
+            auto prepared = detail::composition_access::prepare(core_, std::move(*plan), bindings_, std::move(recorders_), std::move(attached_));
             if (!prepared) {
                 return std::unexpected(execution_error_of(prepared.error()));
             }

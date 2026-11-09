@@ -698,7 +698,7 @@ namespace {
         CHECK(sanitised.scene.objects[2].name.empty());
         std::filesystem::remove("scene-objects-invalid.toml");
 
-        // The list is capped because every entry builds a full retained hierarchy.
+        // The list is capped because every entry imports a complete node hierarchy into memory.
         {
             std::ofstream out("scene-objects-capped.toml");
             for (std::size_t i = 0; i < max_scene_objects + 4; ++i) {

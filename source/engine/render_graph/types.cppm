@@ -219,7 +219,7 @@ export namespace deren::engine::render_graph {
         deren::utility::vessel::vector<range_contents> final_ranges = {};
         std::optional<resource_state> initial_state = std::nullopt;
     };
-    /// Holds a const parameter value; copying a plan shares the same snapshot.
+    /// Carries a const parameter value; copying a plan shares the same snapshot.
     class parameter_snapshot {
         friend class builder;
         std::shared_ptr<void const> value_;

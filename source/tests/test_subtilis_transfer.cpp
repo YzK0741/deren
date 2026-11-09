@@ -82,8 +82,8 @@ namespace {
         std::array payloads{std::as_bytes(source->vertices()), std::as_bytes(source->indices())};
         sync::scope readers{sync::stage::vertex_input | sync::stage::compute_shader | sync::stage::vertex_shader | sync::stage::fragment_shader, sync::access::read};
         for (unsigned i = 0; i < 2; ++i) {
-            auto lease = engine::resource_lease<rhi::buffer>::from_shared(core, rhi::shared_object<rhi::buffer>{*result, buffers[i]});
-            auto output = batch.readback(std::move(lease), 0, payloads[i].size(), readers, readers);
+            auto access = engine::resource_handle<rhi::buffer>::from_shared(core, rhi::shared_object<rhi::buffer>{*result, buffers[i]});
+            auto output = batch.readback(std::move(access), 0, payloads[i].size(), readers, readers);
             CHECK(output && *output == i);
         }
         auto receipt = transfers.submit(std::move(batch));
@@ -159,7 +159,7 @@ namespace {
                     if (trial >= 4) {
                         times[lane].push_back(std::chrono::duration<double, std::micro>(stop - start).count());
                     }
-                    // Drop outside the measured region; do not retain an identical-content generation
+                    // Drop outside the measured region; do not keep an identical-content generation
                     // that would turn the synchronous path into a native content-cache hit.
                 }
             }

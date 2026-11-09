@@ -8,7 +8,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL
     "Generate compile_commands.json for clangd and VS Code.")
 
 # Unsanitized DLLs import the same libc++ BMIs as sanitizer-enabled executables.
-# Their templates must not retain optional container-overflow runtime calls.
+# Their templates must not keep optional container-overflow runtime calls.
 # Compiler ASan/UBSan instrumentation remains enabled in the sanitized targets.
 if(MINGW AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     add_compile_definitions(__SANITIZER_DISABLE_CONTAINER_OVERFLOW__)
@@ -251,7 +251,7 @@ else()
             $<$<CONFIG:Release>:-Wl,--gc-sections>
     )
 
-    # Strip only lean Release builds. Diagnostic builds retain the exact executable
+    # Strip only lean Release builds. Diagnostic builds keep the exact executable
     # and debug data for online/offline symbolization.
     target_link_options(${PROJECT_NAME} PRIVATE
             $<$<AND:$<CONFIG:Release>,$<NOT:$<BOOL:${VR_DIAGNOSTICS}>>>:-s>
@@ -311,7 +311,7 @@ add_dependencies(test_submission_completion deren_vulkan)
 
 # ---- THE ACCELERATION-STRUCTURE DEVICE PROBE (plan S1's P0) ------------------------------------------
 #
-# The default mode runs CPU retention/allocation checks and belongs to VR_TEST_TARGETS.
+# The default mode runs CPU lifetime/allocation checks and belongs to VR_TEST_TARGETS.
 # --with-device additionally exercises the three-vertex Vulkan instrument. Keep that executable
 # available when headless tests are disabled, without registering or creating the target twice.
 if(NOT TARGET test_acceleration_structures)
@@ -806,7 +806,7 @@ set(VR_SLANG_SOURCES
     # goo_rim.slang is THE REWRITTEN CHAIN'S rim, and it is A separate stage for the constraint its header
     # records: the reference's rim is a PRODUCT of three attenuations and a screen-space depth factor, and the
     # depth it samples is the character-forward stage's ATTACHMENT - so the surface shader cannot compute it.
-    # It is gated by `[render] goo_toon` (through a name the chain holder composes), so, like the two entries above,
+    # It is gated by `[render] goo_toon` (through a name the chain wiring composes), so, like the two entries above,
     # no capture scenario records it until one turns the rewritten chain on.
     # overlay.slang is the article's TWO FRAMEBUFFER MULTIPLIES (an eye shadow and a hair shadow), drawn by the
     # `character_forward` stage's overlay group with the multiply blend and gated by that same feature - so, like

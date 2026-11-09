@@ -87,8 +87,8 @@ namespace deren::engine::pass {
 
     void post_composite_pass::on_swapchain_recreated(pass_host const&) {
         // Nothing to reset: the two pipelines depend on the surface's FORMAT (a session-stable device fact) and
-        // on nothing whose size changes, and the sets this pass binds belong to the post family, whose holder
-        // retires them (the record step calls this so a pass that held a family could not forget to - see
+        // on nothing whose size changes, and the sets this pass binds belong to the post family, which retires
+        // them (the record step calls this so a pass that had a family could not forget to - see
         // recreate_stage).
     }
 
@@ -121,7 +121,7 @@ namespace deren::engine::pass {
     }
 
     void post_composite_pass::set_overlay(draw_callback const overlay) noexcept {
-        // The host's hook, installed once by whoever holds the passes. It is STORED, not put in the frame: what the
+        // The host's hook, installed once by whoever creates the passes. It is STORED, not put in the frame: what the
         // frame decides per frame is whether THIS pass is the frame's last writer (see prepare_frame).
         this->overlay_callback = overlay;
     }
@@ -289,14 +289,14 @@ namespace deren::engine::pass {
 
     void post_bloom_pass::create(pass_context const&) {
         // NOTHING TO BUILD, and that is this pass's whole shape: it records with the chain's R16F pipeline, which
-        // the COMPOSITE holds - one push block serves all five stages (one shader, one `mode` lane), so a copy per
+        // the COMPOSITE builds - one push block serves all five stages (one shader, one `mode` lane), so a copy per
         // level would be five identical objects and five chances to disagree about the push block. Its target
         // is A separate element declaration and its extent comes from the declaration's rule, which is why it has
         // no error path here either.
     }
 
     void post_bloom_pass::on_swapchain_recreated(pass_host const&) {
-        // Nothing to reset: this pass holds no handle at all (its pipeline arrives through resolved_io::pipelines
+        // Nothing to reset: this pass creates no handle at all (its pipeline arrives through resolved_io::pipelines
         // and its target through its declaration).
     }
 

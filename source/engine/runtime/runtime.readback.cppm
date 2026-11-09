@@ -61,7 +61,7 @@ namespace deren::engine {
         // (main.cpp), and consume_screenshot_request() CLEARS the flag while answering it - so a check
         // here fired on every SUCCESSFUL capture and reported "no captured frame" for a frame that had
         // just been captured (measured: 14/14 scenarios came back "no screenshot produced"). What is
-        // checked instead is what actually has to hold: a frame image with an extent, and a backend slot
+        // checked instead is what actually has to be true: a frame image with an extent, and a backend slot
         // that is mapped and large enough.
         rhi::api_core& device = this->core_face;
         // THE SAME IMAGE AND THE SAME SLOT THE COPY USED. `frame_image()` answers for the image the last
@@ -185,7 +185,7 @@ namespace deren::engine {
                 lists.entry_count = static_cast<std::uint32_t>(lists.entries.size());
                 auto reference = software::rasterize_tiles(lists, {.camera = camera, .items = references});
                 // THE CPU REFERENCE IS THE IMAGE ORACLE, AND IT IS PUBLISHED (route.json, above) ONLY WHEN IT MATCHED;
-                // a scene whose retained geometry is incomplete fails HERE, after the partition report exists but
+                // a scene whose imported geometry is incomplete fails HERE, after the partition report exists but
                 // BEFORE any image dump or manifest - the closeout's "CPU oracle failure must gate GPU-only dumps".
                 if (!reference) {
                     return fail();

@@ -57,7 +57,7 @@ RAW_TWO_RECORDS = (
 class ScratchDirectory:
     """A directory under the working directory, removed on exit.
 
-    NOT `tempfile.TemporaryDirectory`: it creates its directory with holder-only permissions
+    NOT `tempfile.TemporaryDirectory`: it creates its directory with creator-only permissions
     (0o700), and on Windows a process can then be refused when writing INSIDE it (measured:
     PermissionError from `Path.write_text`, and again from the cleanup) even though creating the
     directory and writing beside it both succeed. The working directory is where this suite

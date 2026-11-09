@@ -19,7 +19,7 @@ every shader names the heap natively, and every pipeline is created heap-native.
 ## Why it is one commit and not one pass at a time (measured)
 
 Binding the heap is command-buffer state that takes over **every** stage recorded after it. With the bind
-recorded at the start of the frame and every mapping switched off - so the heap held nothing any shader had
+recorded at the start of the frame and every mapping switched off - so the heap contained nothing any shader had
 asked for - all nine gate scenarios came back as the **same** frame:
 
 ```
@@ -192,7 +192,7 @@ build, so it is written down: the TLAS this renderer uses is built by **`ray_tra
 `handle(frame_slot)`, `instance_table(frame_slot)`, `casters()`, `attempted()`, `ready()`. The
 `acceleration_structure` module's `top_level_structure` also creates a top level structure with
 `create.size = sizes.accelerationStructureSize`, and that is the module the first version of this note pointed at;
-pointing there made the write compile against a class the runtime does not hold (the error names the type:
+pointing there made the write compile against a class the runtime does not contain (the error names the type:
 `no member named 'structure_size' in 'deren::vulkan::ray_tracing::structure_set'`).
 
 So the next step is: publish the size from `structure_set` - it is known where the structure is created, next to
@@ -340,7 +340,7 @@ change per site:
 
 **Pipeline layouts that must become null, with the heap flag replacing them (13).**
 `source/engine/pipelines/pipelines.cppm` creates one per builder (lines 240, 337, 378, 417, 462, 640, 737, 810, 960,
-1001, 1070); `source/backends/vulkan/core/core.cpp` creates the shared `scene_pipeline_layout` (1542) - which is RETAINED but
+1001, 1070); `source/backends/vulkan/core/core.cpp` creates the shared `scene_pipeline_layout` (1542) - which is still created but
 never handed to a converted pipeline, because a set layout is still what the not-yet-converted passes name; and
 the compute pipelines are created at lines 437, 482, 674, 709 (the probe, already flagged), 757, 980, plus the
 ray-tracing one at ~907.
@@ -367,7 +367,7 @@ scenarios against a frozen reference set: the mapping shim, then the classic des
 family and their per-frame writes), then the last of the mapping machinery that the first commit's
 deletion had exposed. The declaration layer lost its set vocabulary with them: a `pass_binding` names a
 resource and its `binding_scope` (`local` for the pass's private per-image targets, `shared` for
-frame-held heap bindings), not a set it lives in.
+frame-lifetime heap bindings), not a set it lives in.
 
 **What is already proven, and therefore not in doubt.** The grid is reserved and covered (every slot the header
 names is written by host code, checked by a test); the heaps are bound by `record_bind`; the native path works
@@ -509,7 +509,7 @@ descriptor heap: slot grid at 1048576 (1024 slots x 64 B; textures 0 materials 5
 
 The run above is the migration's snapshot; this section is the one place in this file that was allowed to
 change the GRID's numbers, and it records why. The bindless texture array's grid run was 512 slots
-(`textures = 0`, `materials = 512`) while the runtime's hard cap was 128, and neither could hold the textured
+(`textures = 0`, `materials = 512`) while the runtime's hard cap was 128, and neither could accommodate the textured
 Bistro acceptance asset: 6006 nodes, 254 materials, 811 glTF texture records, 597 distinct image files, which
 the runtime's content+format dedup collapses to **516 runtime texture slots** plus the white fallback at index
 0. The measured need is therefore 517 slots, above both old limits - and a capacity below it is silent, not an
@@ -519,7 +519,7 @@ What changed:
 
 - **The texture run is the capacity.** `scene_texture_capacity = 1024` is DERIVED in
   `source/engine/render_layout/render_layout.cppm` as `heap_slots::materials - heap_slots::textures`, and a
-  `static_assert` holds the equality. `core::scene_texture_capacity` and `runtime_detail::scene_texture_capacity`
+  `static_assert` checks the equality. `core::scene_texture_capacity` and `runtime_detail::scene_texture_capacity`
   both alias that derivation now; the old pair of mirrored literals (128 on each side) is gone, so there is no
   second place for the number to drift.
 - **The grid grew to 2048 slots.** The texture run is slots 0..1023, the material table starts at 1024, and

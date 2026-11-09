@@ -41,7 +41,7 @@ import deren.engine.frame_constants; // one frame's shared constants (see update
 namespace deren::engine {
     rhi::shared_object<rhi::command_buffer> runtime::make_probe_commands(std::string_view const what) {
         // ONE PROBE'S RECORDING SESSION, THROUGH THE CONTRACT (abi 22): a primary command buffer the backend
-        // holds, begun with the one-time-submit usage the raw pool's TRANSIENT flag used to spell. The pool, the
+        // creates, begun with the one-time-submit usage the raw pool's TRANSIENT flag used to spell. The pool, the
         // queue family and the submission are the backend's now - the probe keeps what it always had, which is a
         // buffer that nothing else records into (the mask bake looked isolated too and turned out to
         // record into the frame's buffer; this one really is).
@@ -61,10 +61,10 @@ namespace deren::engine {
     }
 
     bool runtime::submit_probe_commands(rhi::command_buffer& commands) {
-        // THE CONTRACT SUBMITS IT (plan X4): `api_core::submit()` takes a list the CALLER holds as well as the
+        // THE CONTRACT SUBMITS IT (plan X4): `api_core::submit()` takes the caller's own list as well as the
         // frame's, so an isolated probe buffer no longer goes to the queue through the escape - the raw
-        // `vkQueueSubmit` that stood here was this file's second and last Vulkan call. NOTHING IS PRESENTED for an
-        // held list (no swapchain image, no acquire state), and the wait afterwards is still the contract's
+        // `vkQueueSubmit` that stood here was this file's second and last Vulkan call. NOTHING IS PRESENTED for
+        // such a list (no swapchain image, no acquire state), and the wait afterwards is still the contract's
         // `wait_idle()`, which the callers already perform.
         return this->rhi_face().commands->submit(commands) == rhi::error::ok;
     }
@@ -94,7 +94,7 @@ namespace deren::engine {
         }
 
         // The answer's buffer: 16 bytes, host-visible, and ADDRESSABLE because the push carries its address.
-        // THE CONTRACT HOLDS IT (unique_object releases the reference on every path out of this function,
+        // THE CONTRACT DESTROYS IT (unique_object releases it on every path out of this function,
         // including the two early returns below), and `mapped()` is the byte view `create_buffer` threw away
         // for everything that is not host-visible.
         rhi::unique_object<rhi::buffer> answer{this->core_face.resources->create_buffer(rhi::buffer_desc{
@@ -113,7 +113,7 @@ namespace deren::engine {
         // A separate contract command buffer, the heap bind and the push through the `descriptor_heap` ability's
         // DEDICATED VERBS, a contract `dispatch`, a contract `submit` and a device idle. The hand-made
         // `VkCommandPool`/`VkCommandBuffer`/`VkFence`/`vkQueueSubmit`/`vkWaitForFences` that stood here named a
-        // device and a queue the contract already holds, and the pipeline arrives as the CONTRACT object the
+        // device and a queue the contract already created, and the pipeline arrives as the CONTRACT object the
         // builder returned (no `get_pipeline()`).
         rhi::shared_object<rhi::command_buffer> const commands = this->make_probe_commands("the heap-native probe");
         if (commands == nullptr) {

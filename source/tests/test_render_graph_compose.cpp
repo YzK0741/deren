@@ -123,10 +123,10 @@ int main() {
     if (prepared) {
         CHECK(prepared->record(*core->frames->begin_commands(), [](ex::record_context const&) noexcept { return rhi::error::ok; }) == rhi::error::invalid_argument);
         CHECK(prepared->record(*core->frames->begin_commands()) == rhi::error::ok && calls == 2);
-        auto retention = prepared->retention();
+        auto state = prepared->shared_state();
         prepared = std::unexpected(ex::build_error{});
         CHECK(!weak.expired());
-        retention.reset();
+        state.reset();
         CHECK(weak.expired());
     }
     for (unsigned failure = 0; failure < 5; ++failure) {
@@ -164,7 +164,7 @@ int main() {
         CHECK(frame.bind_barrier_only(*pass));
         auto parent = std::make_shared<int>(1);
         std::weak_ptr<int> weak_handle = parent;
-        CHECK(frame.retain(parent));
+        CHECK(frame.attach(parent));
         parent.reset();
         auto ready = frame.prepare();
         CHECK(ready && ready->record(*core->frames->begin_commands()) == rhi::error::ok && !weak_handle.expired());
@@ -214,7 +214,7 @@ int main() {
     }
     {
         auto frames = rhi::query_extension<rhi::frame_resources>(*core);
-        auto snapshot = deren::engine::resource_lease<rhi::image>::from_shared(core, frames->retain_image());
+        auto snapshot = deren::engine::resource_handle<rhi::image>::from_shared(core, frames->snapshot_image());
         (void)core->frames->frame_begin();
         ex::builder frame(core);
         CHECK(!frame.import_texture(snapshot, {}, "stale") && !frame.prepare());

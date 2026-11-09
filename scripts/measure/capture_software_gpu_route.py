@@ -198,8 +198,8 @@ def run(args: argparse.Namespace) -> dict:
         failures.append('validation/log findings in the capture log')
     covered = 0
     if args.partition_only:
-        # PARTITION EVIDENCE ONLY: the report is validated before the CPU raster runs, so a scene with incomplete
-        # retained geometry still proves the HW/SW partition; the image dumps and the manifest must NOT appear.
+        # PARTITION EVIDENCE ONLY: the report is validated before the CPU raster runs, so a scene whose imported
+        # geometry is incomplete still proves the HW/SW partition; the image dumps and the manifest must NOT appear.
         if 'software GPU capture: partition valid' not in text:
             failures.append('the partition validation did not pass')
         if 'screenshot failed: software GPU capture: invalid partition or reference' not in text:
@@ -299,7 +299,7 @@ def main() -> int:
     parser.add_argument('--expect-capture-failure', action='store_true',
                         help='negative control: the CPU oracle must fail and NO GPU image may be published')
     parser.add_argument('--partition-only', action='store_true',
-                        help='accept a partition report without the CPU image oracle (incomplete retained geometry)')
+                        help='accept a partition report without the CPU image oracle (incomplete stored geometry)')
     parser.add_argument('--min-covered', type=int, default=1)
     parser.add_argument('--verify-pixels', type=int, default=1280 * 720)
     parser.add_argument('--max-depth-ulp', type=int, default=8)

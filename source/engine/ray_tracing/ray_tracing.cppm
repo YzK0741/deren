@@ -6,14 +6,14 @@
 // which caster each one was built from, and the COPIES the hit-shading path reads that geometry through (the
 // MASK expansion and the skinned vertices).
 //
-// WHY IT IS A MODULE AND NOT PART OF vulkan.acceleration_structure: that module holds the GPU OBJECTS and says so
+// WHY IT IS A MODULE AND NOT PART OF vulkan.acceleration_structure: that module creates and destroys the GPU OBJECTS and says so
 // in its header - "nothing in this module knows what a primitive, a material or a draw call is" - and what is
 // here is exactly that knowledge: which casters, which material is alphaMode MASK, which primitive is skinned,
 // which buffer a hit must be read from. The two layers are `add`/`record_build` (there) and the POLICY plus the
 // GATHER (here).
 //
 // WHY IT IS NOT A PASS, although it is one of the frame's phases: the structures are read by THREE consumers
-// (the ray-traced shadow pass's binding), so by this project's retention rule they belong to the SHARED holder rather than to any one pass -
+// (the ray-traced shadow pass's binding), so this project's rules place them in shared state rather than in any one pass -
 // and the phase is recorded BEFORE any rendering instance opens, which no pass's stage can express. What the
 // renderer keeps is the POLICY (the three knobs and the two predicates), the caster set, the ORDER of the phase,
 // and the scene-set binding it publishes the handle through.
@@ -28,7 +28,7 @@ module;
 export module deren.engine.ray_tracing;
 export import deren.utility.shared;
 
-import deren.promise.rhi; // the contract's buffer handle + unique_object: the copies this phase holds
+import deren.promise.rhi; // the contract's buffer handle + unique_object: the copies this phase creates
 import deren.engine.pass.chain;
 import deren.engine.pass.buffer_storage;
 import deren.engine.render_resource;
@@ -45,15 +45,15 @@ import deren.utility;
  *        that says which caster each one was built from, and the copies the hit-shading path reads that
  *        geometry through (the MASK expansion and the skinned vertices).
  *
- * WHY IT IS A MODULE AND NOT PART OF vulkan.acceleration_structure: that module holds the GPU objects and
+ * WHY IT IS A MODULE AND NOT PART OF vulkan.acceleration_structure: that module creates and destroys the GPU objects and
  * says so in its header - "nothing in this module knows what a primitive, a material or a draw call
  * is" - and what is here is exactly that knowledge: which casters, which material is alphaMode MASK, which
  * primitive is skinned, which buffer a hit must be read from. The two layers are `add`/`record_build`
  * (there) and the POLICY plus the GATHER (here).
  *
  * WHY IT IS NOT A PASS, although it is one of the frame's phases: the structures are read by three
- * consumers (the ray-traced shadow pass among them), so by this project's retention rule they belong to
- * the SHARED holder rather than to any one pass - and the phase is recorded BEFORE any rendering instance
+ * consumers (the ray-traced shadow pass among them), so this project's rules place them in shared state
+ * rather than in any one pass - and the phase is recorded BEFORE any rendering instance
  * opens, which no pass's stage can express. What the renderer keeps is the POLICY (the three knobs and the
  * two predicates), the caster set, the ORDER of the phase, and the scene block's slot it publishes the
  * handle through.
@@ -61,7 +61,7 @@ import deren.utility;
 
 export import deren.vstd;
 // (③-D/E step 1b: the `export import deren.vulkan.core;` that used to sit here is GONE - this class
-//  holds `rhi::api_core&` plus a device resolved through the escape, so the module no longer imports
+//  carries `rhi::api_core&` plus a device resolved through the escape, so the module no longer imports
 //  the backend at all.)
 export import deren.engine.primitive;
 
@@ -95,9 +95,9 @@ export namespace deren::engine::ray_tracing {
     };
 
     /**
-     * @brief THE TWO JOBS THIS PHASE DRIVES, handed in rather than held
+     * @brief THE TWO JOBS THIS PHASE DRIVES, handed in, not created here
      *
-     * The one-shot MASK bake and the per-frame compute skinning are GPU-holding objects built from a
+     * The one-shot MASK bake and the per-frame compute skinning are GPU objects built from a
      * `pass_context`, and they are the renderer's members today: this module drives them through these hooks so
      * that it does not depend on the passes that implement them (and so that moving them in, when that slice
      * comes, changes one side only).
@@ -106,7 +106,7 @@ export namespace deren::engine::ray_tracing {
         void* parent = nullptr;
         /// whether the MASK bake can take a request (its pipeline exists)
         bool (*mask_ready)(void* parent) = nullptr;
-        /// bake ONE caster's alphaMode MASK into an expanded vertex buffer (the job holds the pipeline and the set)
+        /// bake ONE caster's alphaMode MASK into an expanded vertex buffer (the job carries the pipeline and the set)
         void (*record_mask_bake)(void* parent, rhi::command_buffer& command_buffer, pass::mask_bake_request const& request) = nullptr;
         /// whether the skinning job can take a request (its pipeline and sets exist)
         bool (*skin_ready)(void* parent) = nullptr;
@@ -151,10 +151,10 @@ export namespace deren::engine::ray_tracing {
     };
 
     /**
-     * @brief THE STRUCTURES, THE CASTER MAP AND THE COPIES, as one value the renderer holds and drives
+     * @brief THE STRUCTURES, THE CASTER MAP AND THE COPIES, as one value the renderer drives
      *
      * BUILT ONCE, REFITTED AND RE-INSTANCED EVERY FRAME: the bottom levels are built from the geometry the
-     * primitive uploads already hold (their device addresses), so nothing is copied except the two cases that
+     * primitive uploads already created (their device addresses), so nothing is copied except the two cases that
      * cannot be read directly - an alphaMode MASK material, whose holes have to be baked into an expanded vertex
      * list because an inline ray query has no any-hit stage to run the discard, and a skinned caster, whose
      * deformed vertices exist only in the vertex shader. The top level structure is rebuilt EVERY frame: the
@@ -163,7 +163,7 @@ export namespace deren::engine::ray_tracing {
      */
     class structure_set {
     public:
-        explicit structure_set(rhi::api_core& face, rhi::shared_object<rhi::api_core> lease = {}) noexcept;
+        explicit structure_set(rhi::api_core& face, rhi::shared_object<rhi::api_core> access = {}) noexcept;
         structure_set(structure_set const&) = delete ("structure_set is non-copyable: pass it by reference or construct a new instance");
         structure_set& operator=(structure_set const&) = delete ("structure_set is non-copyable: modify the existing instance instead");
 
@@ -210,7 +210,7 @@ export namespace deren::engine::ray_tracing {
         /// @brief the casters that were built, in the order they were added (see caster_level)
         [[nodiscard]] std::span<caster_level const> casters() const noexcept;
         /**
-         * @brief destroy the micromaps this set holds
+         * @brief destroy the micromaps this set builds
          * @note EXPLICIT, and it runs from the destructor as well as from abandon(): VkMicromapEXT is a child
          *       object of the device that nothing in this project wraps in RAII, and validation reports a
          *       surviving one at vkDestroyDevice (measured: it does, as soon as the micromaps exist).
@@ -242,7 +242,7 @@ export namespace deren::engine::ray_tracing {
 
         /// The injected backend-independent device root.
         rhi::api_core* contract = nullptr;
-        rhi::shared_object<rhi::api_core> device_lease;
+        rhi::shared_object<rhi::api_core> device_root;
         std::optional<acceleration_structure::bottom_level_structures> bottom = {};
         /// named `top_level` rather than `top`: `build` keeps a local `auto& top`, and a member of that name
         /// would be hidden by it - MSVC /W4 reports C4458, which /WX makes an error
@@ -250,9 +250,9 @@ export namespace deren::engine::ray_tracing {
         /// named `caster_list` rather than `casters`: the accessor above is `casters()`, and dropping the
         /// underscore would declare the same name twice
         deren::utility::vessel::vector<caster_level> caster_list = {};
-        /// the MASK expansions and the skinned vertex buffers: held here for as long as the structures are, so
-        /// the addresses inside `caster_list` stay valid. Contract holders now, so the GPU memory dies with
-        /// this object's last reference rather than through the allocator's map.
+        /// the MASK expansions and the skinned vertex buffers: stored here for as long as the structures are, so
+        /// the addresses inside `caster_list` stay valid. Contract handles now, so the GPU memory is freed with
+        /// this object rather than through the allocator's map.
         deren::utility::vessel::vector<std::shared_ptr<pass::pass_chain>> mask_buffers = {};
         deren::utility::vessel::vector<std::shared_ptr<pass::pass_chain>> skin_buffers = {};
         /// the bottom levels a per-frame refit touches, by index
@@ -271,25 +271,25 @@ export namespace deren::engine::ray_tracing {
         /**
          * @ingroup engine_ray_tracing
          * @brief ONE built opacity micromap and every buffer that describes it
-         * @note the retention of `micromap` is explicit rather than RAII: VkMicromapEXT has no wrapper in this
+         * @note the destruction of `micromap` is explicit rather than RAII: VkMicromapEXT has no wrapper in this
          *       project (it is not a buffer, an image or a pipeline), so `structure_set::abandon()` destroys it
-         *       with vkDestroyMicromapEXT and the buffers below release their contract references with this
+         *       with vkDestroyMicromapEXT and the buffers below release their contract handles with this
          *       struct.
          * @note the five buffers are the micromap's memory (`storage`, created with MICROMAP_STORAGE), the
          *       packed opacity states (`data`), the per-triangle descriptor array (`triangles`), the build's
          *       scratch and the per-triangle index the GEOMETRY reads to find its micromap triangle (`indices` -
          *       the attachment's input, filled here so the two halves of the mechanism are created together).
-         *       A managed scene subchain holds each contract object; BLAS retains its generation lease.
+         *       A managed scene subchain stores each contract object; BLAS shares its generation handle.
          */
         struct micromap_resource {
-            /// THE TIER-1 OBJECT (plan S1's P4): it holds the storage, the scratch, the alignment and the
+            /// THE TIER-1 OBJECT (plan S1's P4): it creates and destroys the storage, the scratch, the alignment and the
             /// setup buffers the build reads, so this struct keeps ONE handle where it kept seven members and
             /// four addresses - which is what the migration bought.
             std::shared_ptr<pass::pass_chain> resources;
             render_resource::instances::view<deren::promise::rhi::micromap> handle = {};
             uint32_t triangle_count = 0; ///< for the report line (the attachment no longer repeats the usage)
         };
-        /// @brief the micromaps this set holds, one per alphaMode MASK caster (see build())
+        /// @brief the micromaps this set builds, one per alphaMode MASK caster (see build())
         [[nodiscard]] std::span<micromap_resource const> micromaps() const noexcept {
             return this->micromap_resources;
         }

@@ -26,7 +26,7 @@ export namespace deren::promise::rhi {
         // The swapchain was created once at startup and is rebuilt IN PLACE - never replaced - so
         // the verbs below are APPENDED to this interface rather than new methods on `api_core`: a
         // rebuild is the swapchain's behaviour (the caller supplies nothing - the backend
-        // re-derives the extent from the window it holds, which is the one place the current size
+        // re-derives the extent from the window it was created for, which is the one place the current size
         // lives).
         /// Rebuild the swapchain and its images for the window's current size.
         /// `ok` = a new generation was built; `not_ready` = the window reports a zero extent (a
@@ -102,8 +102,8 @@ export namespace deren::promise::rhi {
     /// `swapchain::image_count()` route is for.
     inline constexpr std::uint32_t max_swapchain_images = 4u;
 
-    /// The frame ring's cursor, as a VIEW - the `command_buffer` shape, not the held-handle
-    /// one: a view carries no reference, so `unique_object` must not wrap it (its release panics).
+    /// The frame ring's cursor, as a VIEW - the `command_buffer` shape, not a wrapper with a control
+    /// block: a view has no control block, so `unique_object` must not wrap it (its release panics).
     /// `api_core` hands out the same object every call.
     ///
     /// WHY THE RING IS A CONTRACT FACE AT ALL: the cursor's one home is the backend's frame
@@ -142,8 +142,8 @@ export namespace deren::promise::rhi {
     /// rule as `frame_walker`).
     ///
     /// The REPORT, not the recording: marks are written by the backend while a frame is recorded
-    /// (a mark's semantic name rides the mark itself - the engine's static text, held as a pointer,
-    /// the same rule as `window_title`), and the backend latches a slot's finished frame when its
+    /// (a mark's semantic name rides the mark itself - the engine's static text, pointed at rather than
+    /// copied, the same rule as `window_title`), and the backend latches a slot's finished frame when its
     /// timeline is waited. Reading is then pure host-side work the CALLER orders: after
     /// `wait_and_acquire()` answers, this face describes the frame that JUST completed.
     ///
@@ -169,17 +169,17 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual error get_stage_info(std::uint32_t index, std::string_view* name, std::uint64_t* duration_ns) const noexcept = 0;
     };
 
-    /// Referenced resource creation interface. Empty products mean creation was refused/failed.
-    /// Descriptors are referenced until return; products retain their existing retention rules.
+    /// Resource creation interface reached by pointer. Empty products mean creation was refused/failed.
+    /// Descriptors are read until return; products follow their existing release rules.
     /// Shared immutable payload. Other aliases must not mutate bytes during the resource lifetime.
-    /// Referenced frame/presentation interface, also present for offscreen frames (present is unsupported).
+    /// Frame/presentation interface reached by pointer, also present for offscreen frames (present is unsupported).
     /// Walker/profiler/surface are stable views: never release/delete them.
     struct frame_context {
         frame_context() noexcept = default;
         virtual ~frame_context() noexcept = default;
-        frame_context(frame_context const&) = delete ("frame_context is a referenced interface; use the reference supplied by the runtime");
-        frame_context& operator=(frame_context const&) = delete ("frame_context is a referenced interface; use the reference supplied by the runtime");
-        /// Current frame's primary, or null outside recording. Referenced until frame submission.
+        frame_context(frame_context const&) = delete ("frame_context is an interface reached by pointer; use the pointer the runtime supplies");
+        frame_context& operator=(frame_context const&) = delete ("frame_context is an interface reached by pointer; use the pointer the runtime supplies");
+        /// Current frame's primary, or null outside recording. Read until frame submission.
         [[nodiscard]] virtual command_buffer* begin_commands() = 0;
         /// Last acquired image; null before first acquire, valid through submit until the next acquire.
         [[nodiscard]] virtual image* frame_image() noexcept = 0;
@@ -191,7 +191,7 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual frame_walker* walk_frames() noexcept = 0;
         [[nodiscard]] virtual gpu_profiler* profiler() noexcept = 0;
         [[nodiscard]] virtual swapchain* frame_swapchain() noexcept = 0;
-        /// Submit the current frame using backend-held acquire/presentation state.
+        /// Submit the current frame using the acquire/presentation state the backend tracks internally.
         [[nodiscard]] virtual error submit() = 0;
     };
 

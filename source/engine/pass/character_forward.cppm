@@ -19,7 +19,7 @@
  * lit frame) and before the resolve. A toon character drawn before the lighting stage would be lit by
  * it, which is the single thing this pass exists to prevent.
  *
- * WHAT IT HOLDS: the two targets entered with LOAD, the two barriers that hand the depth between
+ * WHAT IT RECORDS: the two targets entered with LOAD, the two barriers that hand the depth between
  * "sampled" and "attachment" layouts (it is what takes it out of SHADER_READ and what puts it back), and
  * the raster state the stage needs - depth compare EQUAL comes from the PIPELINE
  * (`core::make_character_forward_pipeline`); depth WRITE off is a dynamic state this pass records and
@@ -32,7 +32,7 @@
  * instance, on the same depth: the multiply has to see the toon-shaded pixel, and the depth test is what
  * confines the mask to the surface it was authored over.
  *
- * WHAT IT DOES NOT hold: the geometry. Its leaves are the SCENE's, re-drawn - the renderer hands over the
+ * WHAT IT DOES NOT CREATE: the geometry. Its leaves are the SCENE's, re-drawn - the renderer hands over the
  * same list the scene pass drew, which is what makes the two agree about which surfaces exist.
  *
  * IT IS BEHIND A FEATURE ("character_forward") THAT DEFAULTS OFF, so a frame from a scene with no toon
@@ -167,8 +167,8 @@ export namespace deren::engine::pass {
         /// \brief the record body alone - none of this pass's ordering
         ///
         /// The graph recorder calls THIS entry and the graph emits the input transitions and the target write the
-        /// removed legacy path held; one submission therefore never runs both barrier paths. character_forward's removed legacy
-        /// record keeps its two hand-offs and its depth hand-back; the two rim passes hold no barriers at all (their
+        /// removed legacy path recorded; one submission therefore never runs both barrier paths. character_forward's removed legacy
+        /// record keeps its two hand-offs and its depth hand-back; the two rim passes record no barriers at all (their
         /// sampled inputs are declared here, because the graph orders and transitions what the record only indexes).
         deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
 

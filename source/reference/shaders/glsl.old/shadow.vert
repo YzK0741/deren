@@ -12,7 +12,7 @@
  * The vertex input layout MUST stay identical to pbr.vert (locations 0,1,2,4,5, interleaved 64-byte
  * stride): the shadow pass draws the very same vertex/index buffers, and the pipeline derives its
  * vertex input stride from the shader's inputs. Normals/uv have no role in the depth pass but are
- * declared and kept alive by a never-taken branch below so a driver/compiler cannot prune them and
+ * declared and kept valid by a never-taken branch below so a driver/compiler cannot prune them and
  * shrink the stride below pbr.vert's.
  *
  * Skinning and morphing are applied exactly like pbr.vert (both passes must agree on where the
@@ -131,7 +131,7 @@ void main() {
     gl_Position = light[heap_light_slot].light_view_proj[push.cascade] * world_pos;
     v_uv = in_uv;
 
-    // Keep the input without a role in the depth pass (location 1, the normal) alive so the vertex
+    // Keep the input without a role in the depth pass (location 1, the normal) valid so the vertex
     // input layout - and thus the bound buffer stride - stays identical to pbr.vert's (64 bytes,
     // locations 0,1,2,4,5). This branch can never run.
     if (isnan(in_position.x) && isinf(in_normal.x)) {

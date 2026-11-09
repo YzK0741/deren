@@ -382,7 +382,7 @@ export namespace deren::engine::visibility::hzb {
     // ================================================================================================
     // 2. THE MAX PYRAMID (spec §4.1/§4.2)
     //
-    //    A VIEW over the words, not a holder: the GPU's buffer and this reference's storage have the same layout,
+    //    A VIEW over the words, not a shared handle: the GPU's buffer and this reference's storage have the same layout,
     //    so the test can build one from synthetic depth and hand it to the occlusion test exactly as the cull pass
     //    would hand it the built buffer. The accessor is deliberately unchecked - it is the hot loop's inner read
     //    on the GPU side too - and `valid()` is the one gate a caller must pass first.

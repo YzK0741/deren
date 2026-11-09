@@ -16,7 +16,7 @@ module;
 /// that cannot drift - two BMIs of one module name cannot both be visible to one TU.
 ///
 /// THE NUMBERS ARE MIRRORED IN source/shaders/heap_slots.glsl AND source/shaders/heap_slot_constants.glsl, and
-/// source/tests/test_render_resources.cpp holds the two sides equal by parsing BOTH files; that test's path
+/// source/tests/test_render_resources.cpp checks the two sides equal by parsing BOTH files; that test's path
 /// moved here with the grid.
 export module deren.engine.render_layout;
 export import deren.vstd;
@@ -36,7 +36,7 @@ export namespace deren::engine::render_layout {
 
     /**
      * @brief format of the HDR scene target the deferred lighting stage renders into and the post-process
-     *        pass samples: the scene color target uses it, and each swapchain image holds one
+     *        pass samples: the scene color target uses it, and each swapchain image carries one
      *        single-sample resolve target in it.
      */
     inline constexpr deren::promise::rhi::image_format hdr_format = deren::promise::rhi::image_format::r16g16b16a16_sfloat;
@@ -88,7 +88,7 @@ export namespace deren::engine::render_layout {
      *        `max(1, render >> (level + 1))`, rendered into and sampled by the next one, and the grid packs
      *        them `heap_image_capacity` apart.
      *
-     * @note IT LIVES HERE FOR THE SAME REASON `hdr_format` DOES (A1.0): the ENGINE now creates and holds the
+     * @note IT LIVES HERE FOR THE SAME REASON `hdr_format` DOES (A1.0): the ENGINE now creates and destroys the
      *       bloom targets, so it has to size its per-level arrays by this number without importing the
      *       backend - and a value compiled once and linked by both halves is the only arrangement that
      *       cannot drift. `core` keeps an alias plus a `static_assert`, so the backend's bloom arrays
@@ -181,7 +181,7 @@ export namespace deren::engine::render_layout {
          *        per-frame buffers above
          *
          * @note THE TLAS IS REBUILT EVERY FRAME (see runtime::write_rt_structure_binding, which is called per
-         *       frame slot), so a single slot would hold one frame's structure while the other frame is still
+         *       frame slot), so a single slot would carry one frame's structure while the other frame is still
          *       in flight - the same hazard the camera and light UBOs have, and they are two slots each for it.
          *       This was first laid out as ONE slot beside the per-frame buffers, which is the kind of mistake
          *       a picture cannot show until the shaders read the heap: the fix is cheap now and would have been
@@ -195,7 +195,7 @@ export namespace deren::engine::render_layout {
          * @note ONE SLOT, not a per-frame pair, and that is a property of the data rather than a shortcut: the
          *       table is written ONCE, while the scene is imported and before any frame is recorded, and never
          *       touched again - so there is no frame in flight whose contents could disagree with it. (The TLAS
-         *       above is the counter-example: it is rebuilt every frame, which is why it holds two slots.)
+         *       above is the counter-example: it is rebuilt every frame, which is why it uses two slots.)
          * @note it lives at the END of the used region for the reason stated there: the arrays above are
          *       numbered by their position, so growing one in place would renumber everything after it.
          */
@@ -271,11 +271,11 @@ export namespace deren::engine::render_layout {
         // materials reads from the first one. See the "材质去重键补上 colour lanes" section of `remaining_port_spec.md` for the probe.
         static constexpr uint32_t toon_colours = heap_slot_base + 1264u;
         /// THE ARTICLE'S POST LUT: see `runtime::set_post_lut` and `heap_slots_post_lut` in the shader's slot
-        /// file, which `test_render_resources` holds against this spelling.
+        /// file, which `test_render_resources` checks against this spelling.
         static constexpr uint32_t post_lut = heap_slot_base + 1265u;
         /**
          * THE GOO REFERENCE'S PRE-INTEGRATED FGD LOOKUP TABLE (see `runtime::set_goo_fgd_lut` and
-         * `heap_slots_goo_fgd_lut` in the shader's slot file, which `test_render_resources` holds against this
+         * `heap_slots_goo_fgd_lut` in the shader's slot file, which `test_render_resources` checks against this
          * spelling).
          *
          * 1266 AND NOT 1262: `scene_head` is a PER-FRAME-SLOT array and occupies 1261 AND 1262 - the note on
@@ -526,10 +526,10 @@ export namespace deren::engine::render_layout {
      * compiled by both halves, which is what lets one number replace the pair of mirrored literals.
      *
      * 1024 AND THE MEASUREMENT THAT SET IT: the run was 512 slots and the old hard cap was 128, and neither
-     * could hold the textured Bistro acceptance asset: 6006 nodes, 254 materials, 811 glTF texture records,
+     * could fit the textured Bistro acceptance asset: 6006 nodes, 254 materials, 811 glTF texture records,
      * 597 distinct image files - which the runtime's content+format dedup collapses to 516 runtime slots,
      * plus the white fallback at index 0. 1024 leaves 507 slots of headroom and keeps the whole used region
-     * (base + 1313) inside the grid's 2048 slots. The grid grew with it: 1024 slots could not hold both the
+     * (base + 1313) inside the grid's 2048 slots. The grid grew with it: 1024 slots could not fit both the
      * 1024-slot texture run and the 512-slot region that used to follow it.
      */
     inline constexpr uint32_t scene_texture_capacity = 1024;
@@ -562,7 +562,7 @@ export namespace deren::engine::render_layout {
                   "the software id storage run must follow the software depth storage run");
 
     // ================================================================================================
-    // THE RENDER SCALE'S ONE CLAMP (③-D/E step 2's merged slice, ruling: ONE holder of the rule)
+    // THE RENDER SCALE'S ONE CLAMP (③-D/E step 2's merged slice, ruling: ONE place that states the rule)
     // ================================================================================================
     /**
      * @brief THE ONE CLAMP OF `create_info::render_scale`, and the reason it is a function in a module

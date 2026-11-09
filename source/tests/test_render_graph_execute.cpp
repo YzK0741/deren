@@ -142,10 +142,10 @@ int main() {
         buffer_plan.resources[0].shape = rg::buffer_shape{64};
         CHECK(!execute::prepared_graph::prepare(core, std::move(buffer_plan), buffer_bindings));
     }
-    auto token = ready->retention();
+    auto token = ready->shared_state();
     rhi::shared_object<rhi::api_core>::weak weak = core;
     ready = std::unexpected(execute::execution_error{rhi::error::operation_failed});
-    bindings[0] = deren::engine::resource_lease<rhi::image>{};
+    bindings[0] = deren::engine::resource_handle<rhi::image>{};
     duplicate = {};
     image = {};
     alias = {};

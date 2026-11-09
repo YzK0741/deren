@@ -58,7 +58,7 @@ the composed geometry path.
 |---|---|
 | subtilis | Offline cluster/DAG construction, geometry generation validation, screen-error LOD selection, HZB geometry occlusion and optional hardware/software geometry routing. |
 | amnis | Visible-material texture demand, screen mip demand, texture prefetch/upload scheduling, fallback quality and texture residency budgets. |
-| Shared infrastructure | Visibility-buffer raster/resolve, render graph and synchronization, RHI allocation/upload/unload and retention, task execution and memory statistics. |
+| Shared infrastructure | Visibility-buffer raster/resolve, render graph and synchronization, RHI allocation/upload/unload and lifetime, task execution and memory statistics. |
 
 The geometry path supplies selected/surviving geometry to visibility rendering. The visibility resolve
 can produce material and screen-footprint feedback that amnis consumes to schedule texture residency.
@@ -101,7 +101,7 @@ when the comparison matters):
   original LOD0 prefix;
 - group decisions are closed along dependencies before stable cluster IDs are scanned, preserving
   cross-group reuse instead of projecting it into a forest. The older explicit CPU builder still produces
-  a forest (and a validated DAG wrapper) and retains its existing selector for compatibility;
+  a forest (and a validated DAG wrapper) and keeps its existing selector for compatibility;
 - at run time a **deterministic CPU screen-error cut** picks, per visible item, either a coarse group run or
   the full LOD0 run, writes the selected cluster records into the existing per-frame host-culled meshlet
   table, and publishes the raster/resolve/indirect metadata from that one result;
@@ -115,9 +115,8 @@ when the comparison matters):
 | Step | What happens | Where |
 | --- | --- | --- |
 | Offline asset | shared-vertex cluster DAG, complete LOD0 prefix and appended coarse indices | `tools/subtilis`, `source/asset/subtilis/` |
-| Loader/import | opt-in held raw bytes; engine checks profile/source binding, structure and windows; CPU and GPU generations shared by source/payload identity | `gltf_loader`, `subtilis_dag_import.cppm`, `runtime::import_scene` |
+| Loader/import | opt-in raw byte input; engine checks profile/source binding, structure and windows; CPU and GPU generations shared by source/payload identity | `gltf_loader`, `subtilis_dag_import.cppm`, `runtime::import_scene` |
 | Validation | DAG factory checks producer/consumer reciprocity, references, coverage, bounds/errors and index windows; full geometry validation stays offline | `subtilis_dag_asset.cppm`; legacy forest: `subtilis_asset.cppm` |
-| Upload | adopted payload or explicit `subtilis_geometry` becomes a shared generation: CPU hierarchy + two GPU buffers retained through the pass chain; normal draws/shadows/BLAS stay on LOD0 | `subtilis_upload.cppm`, `primitive_create_info::subtilis_geometry` |
 | Per-frame cut | `subtilis::prepare_item` uses the current model, frozen view/jittered projection and render extent; picks a complete run, or LOD0 on any fallback | `runtime.cpp` (`record_visibility_items`), `subtilis_selection.cppm`, `subtilis_dag_lod.cppm` (legacy: `subtilis_lod.cppm`) |
 | Publication | one run drives the visible record table, the resolve `draw_item` row, the raster push block and the indirect group count - no half-published metadata | `runtime.cpp`, `visibility.cppm` |
 | Raster/resolve | the visibility lane consumes the run exactly as it consumed host-culled LOD0 records | `source/shaders/scene/visibility.slang`, `visibility_resolve.slang` |
@@ -144,7 +143,7 @@ reports a shared/LOD0 fallback - the frame never mixes two G-buffer producers.
 - **Errors are conservative heuristics**, not strict Hausdorff or per-pixel guarantees. Imported DAGs
   match the converter's `sqrt(norm1*normInfinity)` scale bound, projection and closest-sphere depth rule;
   unsupported/nonfinite views or near crossings prevent unsafe coarse selection. The legacy forest
-  selector retains its older Frobenius bound.
+  selector keeps its older Frobenius bound.
 
 ## 4. Code map
 
@@ -173,7 +172,7 @@ subtilis_hysteresis = false # imported DAGs: coarsen at 80%, refine above 100%
 
 - Offline files use the `DEREN_subtilis` extension. Only static OPAQUE shared-vertex profiles are
   adopted; unsupported attributes (including TANGENT), malformed/source-mismatched data and capacity
-  refusal retain ordinary LOD0. Full converter validation belongs in the trusted offline asset pipeline.
+  refusal fall back to ordinary LOD0. Full converter validation belongs in the trusted offline asset pipeline.
 - The app uses one switch for loader extraction and runtime adoption. Custom callers can use
   `gltf::load_options{.extract_subtilis_payload=true}`. An OFF startup does not extract/decode payloads;
   toggling runtime ON later cannot create a hierarchy that was never imported.
@@ -185,7 +184,7 @@ subtilis_hysteresis = false # imported DAGs: coarsen at 80%, refine above 100%
 - With hysteresis disabled, the imported DAG cut matches the offline reference. Optional history is
   per primitive lifetime/generation; address reuse cannot inherit a destroyed instance's decisions.
   Scene notification/rebinding, resize, a camera jump (the existing HZB motion limits), model changes
-  and generation replacement invalidate it. It does not retain GPU generations. The per-item planning
+  and generation replacement invalidate it. It does not keep GPU generations valid. The per-item planning
   phase is parallel (thread pool), with an item-ordered
   overlap resolution so alias/shared items keep the serial semantics byte for byte.
 - With the subtilis DAG/LOD option off: no hierarchy cut runs, and the visibility lane uses the complete LOD0
@@ -305,7 +304,7 @@ is summarized here; its raw records are not distributed with this repository.
 6. The screen-error cut is a heuristic with a recorded conservative bound, not a strict per-pixel error
    guarantee; image differences and tiny near-view OFF variation are quantified in the runtime report.
 7. Optional imported-DAG hysteresis defaults off; toon exact-depth redraw, unsupported strategies,
-   shadows and BLAS keep LOD0. Real Bistro retains pre-existing core-validator errors; no source cleanup
+   shadows and BLAS keep LOD0. Real Bistro keeps pre-existing core-validator errors; no source cleanup
    is silently performed by runtime import.
 
 ## 9. Document index
@@ -337,8 +336,8 @@ the consumer lanes are documented in the [visibility-buffer lane](visibility_buf
 
 ## Geometry upload update (2026-10-25)
 
-Immutable vertex/index uploads now use one buffer-transfer batch on capable holding cores, while keeping
+Immutable vertex/index uploads now use one buffer-transfer batch on capable cores, while keeping
 the public ready-on-return contract. Synchronous creation remains available for older/test backends and
 explicit comparisons. This affects asset upload latency, not per-frame raster performance. See the
-[transfer guide](buffer_transfers.md) for modes, retention and cache limits; the local consumer
+[transfer guide](buffer_transfers.md) for modes, lifetime and cache limits; the local consumer
 measurements are not distributed with this repository.

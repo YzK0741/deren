@@ -218,7 +218,7 @@ namespace deren::engine::render_graph::detail {
                 }
             }
         }
-        // Retain the outstanding writer scope for a subsequent graph reading in a new stage.
+        // Keep the outstanding writer scope for a subsequent graph reading in a new stage.
         for (uint32_t r = 0; r < states.size(); ++r) {
             for (auto const& cell : states[r]) {
                 graph.final_states.push_back({r, cell.range, join_writer(cell.current, cell.writer)});

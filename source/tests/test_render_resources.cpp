@@ -38,7 +38,7 @@ namespace {
     namespace rr = deren::engine::render_resource;
     namespace up = deren::engine::pass;
 
-    /// validate a declaration that holds exactly one binding, so a wrong one can be built in one line
+    /// validate a declaration that names exactly one binding, so a wrong one can be built in one line
     std::expected<void, deren::utility::vessel::string> validate_one(rr::pass_binding const& binding) {
         rr::pass_io const io = {
             .name = "probe",
@@ -229,13 +229,13 @@ int32_t main() {
     CHECK(rr::find(rr::resource_id::taa_history)->scope == rr::resource_scope::per_swapchain_image);
     CHECK(rr::find(rr::resource_id::furnace_cube)->scope == rr::resource_scope::device_wide);
 
-    // The binding holder decides which rules apply: the pass's bindings must be numbered contiguously from
+    // Whether a binding is `separate` or `shared` decides which rules apply: the pass's bindings must be numbered contiguously from
     // zero, while a `shared` binding only USES a resource the frame's heap provides and carries no such
     // requirement - which is the distinction the resolver and this declaration layer key on.
     {
         deren::utility::vessel::array<rr::pass_binding, 2> const mixed = {
             good_binding, // the pass's binding 0
-            // One of the SCENE's resources, reached through the frame's heap rather than held - deliberately
+            // One of the SCENE's resources, reached through the frame's heap rather than created here - deliberately
             // numbered 4, which would be a contiguity error if it were an `separate` binding
             {.binding = 4,
              .parent = rr::binding_scope::shared,
@@ -664,7 +664,7 @@ int32_t main() {
         rr::pass_io const overlap = {.name = "post_hdr", .bindings = {}, .targets = overlapping, .push = std::nullopt};
         CHECK(!rr::validate(overlap).has_value());
         // ... while two runs that TOUCH but do not overlap are legal, which keeps the rule about the IMAGES a
-        // declaration claims rather than about adjacency
+        // declaration names rather than about adjacency
         deren::utility::vessel::array<rr::render_target, 2> const adjacent = {rr::render_target{.resource = rr::resource_id::bloom, .element = 0, .count = 2},
                                                                               rr::render_target{.resource = rr::resource_id::bloom, .element = 2, .count = 2}};
         rr::pass_io const touching = {.name = "post_hdr", .bindings = {}, .targets = adjacent, .push = std::nullopt};
@@ -929,7 +929,7 @@ int32_t main() {
         // writes is a name for memory nothing put a descriptor in, and a heap-native shader indexing it reads
         // whatever the heap happened to contain - silently, which is the failure mode this whole file exists to
         // catch. The host side is text too (runtime.cpp, core.cpp and the initialisation partition that now
-        // holds core's render-target heap writes are where every heap write lives), so the check is the same
+        // carries core's render-target heap writes are where every heap write lives), so the check is the same
         // kind as the one above, with ONE documented exception: the bloom chain writes its levels with
         // arithmetic (`bloom_l0 + level * heap_image_capacity`), so l1..l3 are named in the header and never
         // spelled out in the host. Every other exception is a BUG, not a style choice.

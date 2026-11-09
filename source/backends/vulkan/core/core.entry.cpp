@@ -4,7 +4,7 @@
 //
 // THE REAL BACKEND'S C ABI SURFACE (abi 18): the ONE
 // `extern "C"` symbol source/promise/rhi/backend_entry.hpp declares, DEFINED here for
-// deren::vulkan::core - the object that already holds the instance, the device
+// deren::vulkan::core - the object that already created the instance, the device
 // and the swapchain, and that already derives from deren::promise::rhi::api_core
 // (source/backends/vulkan/core/declarations/core.declarations.cppm:271). There is no wrapper type: the object the
 // engine gets back from deren_make_api_core() IS the core.
@@ -19,8 +19,8 @@
 // THE ABI'S SHAPE (backend_entry.hpp) IS TAKEN AS GIVEN, AND SINCE abi 18 IT IS ONE
 // FUNCTION: the version arrives as the first ARGUMENT (a mismatch is refused here, before any
 // object exists, with the backend's number written into the diagnostic), the creation
-// descriptor arrives by pointer and is referenced for the length of the call, and RETENTION
-// TRAVELS IN THE RETURNED `shared_object` (abi 44) - its control block's last copy calls the
+// descriptor arrives by pointer and is read only for the length of the call, and THE
+// CONTROL BLOCK TRAVELS IN THE RETURNED `shared_object` (abi 44) - its last copy calls the
 // contract's `release()`, whose implementation below deletes the root in THIS image without the
 // host ever naming a deleter symbol. The two former entry points
 // are gone by consequence, not by taste: `deren_destroy_api_core` had nothing left to do, and
@@ -78,14 +78,14 @@ deren_make_api_core(std::uint32_t abi_version, rhi::create_info const* desc, rhi
     if (out_error_info != nullptr) {
         *out_error_info = rhi::error_info{}; // ok: a zeroed diagnostic says ok, api unknown - nobody failed
     }
-    // RETENTION TRANSFER, IN THE CONTROL BLOCK: the root is heap-allocated in THIS image, and the
-    // returned `shared_object` (its control block is created right here, abi 44) holds the contract's one
-    // reference - its last copy, wherever it is dropped, calls `release()`, whose implementation below
+    // THE CONTROL BLOCK, IN THE RETURNED HANDLE: the root is heap-allocated in THIS image, and the
+    // returned `shared_object` (its control block is created right here, abi 44) carries the contract
+    // handle - its last copy, wherever it is destroyed, calls `release()`, whose implementation below
     // deletes the object in the allocator that made it. That is safe HERE for the measured reason the
     // header states: one C++ runtime and one heap (libc++.dll + UCRT) shared by every image, checked by
     // the gate.
     //
-    // The descriptor is read by the constructor and not kept: its `window_title` is referenced only
+    // The descriptor is read by the constructor and not kept: its `window_title` is read only
     // until this call returns (GLFW copies the text into the window), which the contract's note
     // states and the constructor's member note repeats.
     //

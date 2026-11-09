@@ -91,7 +91,7 @@ export namespace deren::promise::rhi::recording {
     }
     inline void simplify_selection(deren::utility::vessel::vector<render_operation const*>& result, bool final, bool optimize = true);
     class operation_stream {
-        // Contiguous command-held slots; no virtual object is allocated separately.
+        // Contiguous slots inside this stream; no virtual object is allocated separately.
         deren::utility::vessel::vector<operation_value> storage;
 
     public:
@@ -178,7 +178,7 @@ export namespace deren::promise::rhi::recording {
         void clear() noexcept {
             storage.clear();
         }
-        /// Referenced pointers remain valid until this stream is modified. Reuse caller capacity.
+        /// The pointers point into this stream and stay valid until the stream is modified. Reuse caller capacity.
         void simplify_into(deren::utility::vessel::vector<render_operation const*>& result, bool final, bool optimize = true) const {
             result.clear();
             result.reserve(storage.size());

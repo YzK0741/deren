@@ -153,14 +153,14 @@ int main(int argc, char** argv) {
         auto value = core->resources->create_lazy_buffer({.resource = {.size = 16, .usage = rhi::buffer_usage::vertex}, .data = source});
         CHECK(value);
         if (value) {
-            auto retained = core->commands->create_command_buffer({});
-            CHECK(retained->begin_recording({}) == rhi::error::ok);
+            auto candidate = core->commands->create_command_buffer({});
+            CHECK(candidate->begin_recording({}) == rhi::error::ok);
             rhi::buffer_barrier barrier{.resource = value->get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::shader_read};
-            CHECK(retained->barrier({.buffers = std::span(&barrier, 1)}) == rhi::error::ok);
-            CHECK(retained->end_recording() == rhi::error::ok);
+            CHECK(candidate->barrier({.buffers = std::span(&barrier, 1)}) == rhi::error::ok);
+            CHECK(candidate->end_recording() == rhi::error::ok);
             auto& context = static_cast<deren::vulkan::main_context_view&>(*core->main_context());
             queue_gate gate(context.device, context.graphics_queue);
-            auto token = completion->submit(*retained);
+            auto token = completion->submit(*candidate);
             CHECK(token);
             if (token && gate.armed) {
                 CHECK(completion->poll(*token) == rhi::error::not_ready);
@@ -170,15 +170,15 @@ int main(int argc, char** argv) {
             if (token) {
                 CHECK(completion->wait(*token, UINT64_MAX) == rhi::error::ok);
             }
-            CHECK((*value)->unload() == rhi::error::not_ready); // reusable recording still holds the allocation
-            CHECK(retained->begin_recording({}) == rhi::error::ok);
+            CHECK((*value)->unload() == rhi::error::not_ready); // reusable recording still keeps the allocation
+            CHECK(candidate->begin_recording({}) == rhi::error::ok);
             CHECK((*value)->unload() == rhi::error::ok);
-            CHECK(retained->barrier({.buffers = std::span(&barrier, 1)}) == rhi::error::ok);
-            CHECK(retained->end_recording() == rhi::error::ok);
+            CHECK(candidate->barrier({.buffers = std::span(&barrier, 1)}) == rhi::error::ok);
+            CHECK(candidate->end_recording() == rhi::error::ok);
             queue_gate pending_gate(context.device, context.graphics_queue);
-            auto pending_token = completion->submit(*retained);
+            auto pending_token = completion->submit(*candidate);
             CHECK(pending_token);
-            retained.reset(); // pending submission alone must retain the physical allocation
+            candidate.reset(); // pending submission alone must keep the physical allocation valid
             if (pending_token && pending_gate.armed) {
                 CHECK(completion->poll(*pending_token) == rhi::error::not_ready);
                 CHECK((*value)->unload() == rhi::error::not_ready);
@@ -408,7 +408,7 @@ int main(int argc, char** argv) {
         if (!temporary) {
             break;
         }
-        rhi::resource_group_ref::weak retained(*temporary);
+        rhi::resource_group_ref::weak candidate(*temporary);
         auto segment = core->commands->make_mergeable_command_buffer({});
         CHECK(segment);
         if (!segment) {
@@ -442,16 +442,16 @@ int main(int argc, char** argv) {
         if (token) {
             CHECK(completion->wait(*token, UINT64_MAX) == rhi::error::ok);
         }
-        CHECK(retained.expired());
+        CHECK(candidate.expired());
         auto* values = reinterpret_cast<std::uint32_t const*>(output->mapped().data()) + index * 5;
         CHECK(values[0] == 73 && values[1] == 255 && values[2] == 1 && values[3] == 255 && values[4] == 41);
     }
-    // Acquired-frame commands retain a general group, then release recorded state on next begin.
+    // Acquired-frame commands keep a general group valid, then release recorded state on next begin.
     {
         auto temporary = create();
         CHECK(temporary);
         if (temporary) {
-            rhi::resource_group_ref::weak retained(*temporary);
+            rhi::resource_group_ref::weak candidate(*temporary);
             (void)core->frames->frame_begin();
             auto* frame = core->frames->begin_commands();
             CHECK(frame);
@@ -468,7 +468,7 @@ int main(int argc, char** argv) {
                 CHECK(frame->barrier({.buffers = std::span(&host, 1)}) == rhi::error::ok);
                 CHECK(frame->end_recording() == rhi::error::ok);
                 temporary = std::unexpected(rhi::error::unsupported);
-                CHECK(!retained.expired());
+                CHECK(!candidate.expired());
                 CHECK(core->frames->submit() == rhi::error::ok);
                 core->wait_idle();
                 auto* values = reinterpret_cast<std::uint32_t const*>(output->mapped().data()) + 15;
@@ -478,7 +478,7 @@ int main(int argc, char** argv) {
                 CHECK(frame);
                 if (frame) {
                     CHECK(frame->begin_recording({}) == rhi::error::ok);
-                    CHECK(retained.expired());
+                    CHECK(candidate.expired());
                     CHECK(frame->end_recording() == rhi::error::ok);
                     CHECK(core->frames->submit() == rhi::error::ok);
                     core->wait_idle();

@@ -12,17 +12,17 @@
  * `GetCharacterDirectRimLightArea`, both comparing the depth here against the depth at a screen offset.
  *
  * WHY IT IS A PASS AND NOT A STEP IN THE CHARACTER-FORWARD STAGE - the Vulkan rule, not a preference: that
- * stage holds the depth image as its DEPTH ATTACHMENT, which is what makes its `ZTest Equal` possible, and an
+ * stage uses the depth image as its DEPTH ATTACHMENT, which is what makes its `ZTest Equal` possible, and an
  * image cannot be a depth attachment and a sampled texture in the same instance. Here the depth is only
  * SAMPLED: this pass declares NO depth attachment, so the comparison is legal. It needs no depth COPY, which
- * the reference has only because its depth attachment is the sole copy it holds - this renderer publishes
+ * the reference has only because its depth attachment is the sole copy it has - this renderer publishes
  * `gbuffer_depth` as a heap slot a fullscreen stage can read, and the stage preamble below is what puts it in
  * a sampled layout.
  *
- * WHAT IT HOLDS: its pipeline (the ONE target is the scene colour with ADDITIVE blending, so the pass adds to
+ * WHAT IT BUILDS: its pipeline (the ONE target is the scene colour with ADDITIVE blending, so the pass adds to
  * the frame instead of reading and rewriting it), the 48-byte push block, and the draw.
  *
- * WHAT IT DOES NOT hold: the geometry (there is none - it is a fullscreen triangle), the G-buffer and the
+ * WHAT IT DOES NOT record: the geometry (there is none - it is a fullscreen triangle), the G-buffer and the
  * depth (per-image heap slots `publish_frame_resources` writes every frame), and their transition to a
  * sampled layout, which is the RENDERER's per-image bookkeeping because it belongs to the pass that WROTE
  * them - the same rule the ray-traced shadow and the stochastic lighting stages follow.
@@ -84,8 +84,8 @@ export namespace deren::engine::pass {
         /// \brief the record body alone - none of this pass's ordering
         ///
         /// The graph recorder calls THIS entry and the graph emits the input transitions and the target write the
-        /// removed legacy path held; one submission therefore never runs both barrier paths. character_forward's removed legacy
-        /// record keeps its two hand-offs and its depth hand-back; the two rim passes hold no barriers at all (their
+        /// removed legacy path recorded; one submission therefore never runs both barrier paths. character_forward's removed legacy
+        /// record keeps its two hand-offs and its depth hand-back; the two rim passes record no barriers at all (their
         /// sampled inputs are declared here, because the graph orders and transitions what the record only indexes).
         void record_impl(resolved_io const& io);
         deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;

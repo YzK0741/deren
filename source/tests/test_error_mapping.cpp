@@ -21,7 +21,7 @@
 
 import deren.promise.rhi;
 // NO BACKEND MODULE IS IMPORTED ANY MORE (the SHARED flip): the translators and `failed` live in
-// `deren.vulkan.error_tables`, a NEUTRAL module held by the static target `vulkan_error_tables`,
+// `deren.vulkan.error_tables`, a NEUTRAL module compiled into the static target `vulkan_error_tables`,
 // which this test links. So the test drives the REAL tables without needing the DLL to export a module
 // interface - the thing the flip's one-export rule forbids - and without a second copy of them.
 import deren.vulkan.error_tables;

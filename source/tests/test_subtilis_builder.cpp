@@ -292,7 +292,7 @@ int main() {
         CHECK(preserved == 1);
     }
     // Duplicate the middle column on its right side: UV and normal discontinuities
-    // must retain both copies of every seam edge, including at mixed LODs.
+    // must keep both copies of every seam edge, including at mixed LODs.
     auto seam_vertices = grid;
     auto seam_indices = triangles;
     constexpr unsigned middle = side / 2;

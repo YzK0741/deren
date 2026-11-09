@@ -1,6 +1,6 @@
 // M4 hybrid software visibility producer. One 8x8 workgroup holds a 16x16 tile.
 // Each candidate triangle is fetched/projected once per workgroup, cached in shared memory, then tested only
-// against pixel centers inside its conservative screen-space bounding box. Pixel retention remains unique so the
+// against pixel centers inside its conservative screen-space bounding box. Pixel preservation remains unique so the
 // (depth, ID) ordering is deterministic without requiring device-wide atomics.
 #include "common/heap_access.slang"
 #include "common/material_record.slang"

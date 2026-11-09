@@ -40,7 +40,7 @@ namespace deren::engine::pass {
     }
 
     void transparent_pass::on_swapchain_recreated(pass_host const&) {
-        // Nothing is per-image here; the secondary is the frame loop's and the leaves hold their buffers.
+        // Nothing is per-image here; the secondary is the frame loop's and the leaves carry their buffers.
     }
 
     void transparent_pass::set_frame(transparent_frame const& frame) noexcept {

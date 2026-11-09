@@ -71,7 +71,7 @@ namespace deren::vulkan {
             commands.executable = false;
             return commands.recording_error;
         }
-        // Never hold the queue lock during the host wait. A failed final wait cannot safely free/reset.
+        // Do not take the queue lock during the host wait. A failed final wait cannot safely free/reset.
         status = vkWaitForFences(parent->device.logical_device, 1, &submission->fence, VK_TRUE, UINT64_MAX);
         if (status != VK_SUCCESS) {
             deren::utility::fast_panic("frame checkpoint completion wait failed");

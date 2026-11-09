@@ -39,7 +39,7 @@ import deren.engine.primitive;  // GPU leaf primitive + scene capacity constants
  *        per-slot buffers.
  *
  * The controller never depends on the concrete host class (deren::engine::runtime) NOR on a concrete
- * animation source format: it talks to whatever holds the scene through an injected
+ * animation source format: it talks to the scene through an injected
  * backend (callbacks + a scene&), and init() is a TEMPLATE over a source concept - any type
  * exposing the required member shapes (an animations table, a skins table, an asset-node
  * lookup) can drive it. deren::gltf::scenes satisfies the concept and is instantiated at the call
@@ -92,7 +92,7 @@ namespace deren::engine::animation {
     /** @brief one animation channel: animate one property of a node from a sampler */
     export struct channel {
         channel_path path = channel_path::translation;
-        std::size_t sampler = 0;     // index into the holding clip's samplers
+        std::size_t sampler = 0;     // index into the clip's samplers
         std::size_t target_node = 0; // animated node's source index (asset node index)
     };
 
@@ -292,7 +292,7 @@ namespace deren::engine::animation {
 
     /**
      * @ingroup engine_animation
-     * @brief plays keyframe animation on a scene tree: holds the playback clock and the
+     * @brief plays keyframe animation on a scene tree: stores the playback clock and the
      *        value-copied clip/skin data, samples the active clip into scene node locals and
      *        rebuilds the per-frame skin matrices + morph weights into the host's per-slot
      *        buffers.
@@ -373,7 +373,7 @@ namespace deren::engine::animation {
             // asset-level node table (scenes.node_by_source) instead of iterating per-scene node
             // pools - a node referenced by several scenes has identical copies, and the tree only
             // contains the nodes that were actually imported. The pose is value-copied into the
-            // controller's node_pose (no source type retained).
+            // controller's node_pose (no source type is stored).
             for (auto const& [source, targets] : this->source_nodes) {
                 auto const loader_it = scenes.node_by_source.find(source);
                 if (loader_it == scenes.node_by_source.end()) {
@@ -824,7 +824,7 @@ namespace deren::engine::animation {
             uint32_t vertex_count = 0;
             uint32_t target_count = 0;
             uint32_t morph_base = 0; // float index into the morph buffer
-            std::size_t source = 0;  // holding loader node (weights channel target)
+            std::size_t source = 0;  // loader node the weights channel targets
             // baked rest weights (target_count floats): written when no clip animates this
             // source's weights, so a previous clip's weights cannot linger after a clip switch
             deren::utility::vessel::vector<float> default_weights = {};
@@ -834,9 +834,9 @@ namespace deren::engine::animation {
         backend host; // injected host surface (scene + callbacks); scene == nullptr when unbound
         glm::vec3 import_shift{};
         uint64_t import_id = 0;
-        uint32_t skin_region_base = 4;     // first skin block held by this controller
+        uint32_t skin_region_base = 4;     // first skin block this controller may use
         uint32_t skin_blocks_used = 0;     // blocks allocated by init() in that region
-        uint32_t morph_region_base = 0;    // first morph float held by this controller
+        uint32_t morph_region_base = 0;    // first morph float this controller may use
         std::size_t morph_floats_used = 0; // floats allocated by init() in that region
         // whether this scene's animation is heavy enough to fan sampling out over the backend's
         // shared task pool (many channels over many sources): decided in init(), used by update()

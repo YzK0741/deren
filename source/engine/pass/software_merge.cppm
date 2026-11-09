@@ -74,7 +74,7 @@ export namespace deren::engine::pass {
             return {}; // no feature knob: whether the lane exists is the graph's decision (Task 4 wires the selection)
         }
 
-        /// @brief whether the pass has the depth-only pipeline it needs (not `ready()`: the framework holds that name)
+        /// @brief whether the pass has the depth-only pipeline it needs (not `ready()`: the framework uses that name)
         [[nodiscard]] bool has_pipeline() const noexcept {
             return this->merge_pipeline.has_value();
         }

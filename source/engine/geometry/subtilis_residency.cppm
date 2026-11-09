@@ -61,8 +61,8 @@ export namespace deren::engine::subtilis {
         friend std::expected<page_manager, residency_error> make_page_manager(std::span<page_entry const>, std::span<std::uint32_t const>, residency_limits);
 
     public:
-        page_manager(page_manager const&) = delete ("page_manager holds the resident table and its LRU state; move or share it instead");
-        page_manager& operator=(page_manager const&) = delete ("page_manager holds the resident table and its LRU state; move or share it instead");
+        page_manager(page_manager const&) = delete ("page_manager stores the resident table and its LRU state; move or share it instead");
+        page_manager& operator=(page_manager const&) = delete ("page_manager stores the resident table and its LRU state; move or share it instead");
         page_manager(page_manager&&) = default;
         page_manager& operator=(page_manager&&) = default;
 

@@ -14,12 +14,12 @@ import deren.utility.shared;
 export namespace deren::promise::rhi {
 
     /// Concrete implementation identity, reported by `get_tag()` from the concrete type's static `tag`.
-    /// A tag is not proof of device retention or object lifetime.
+    /// A tag is not proof that the device still exists or that the object is still valid.
     class object {
     public:
         [[nodiscard]] virtual std::string_view get_tag() const noexcept = 0;
 
-        /// Release the caller's one reference to this object.
+        /// Release this handle once; the object dies when its last caller releases it.
         virtual void release() noexcept = 0;
 
     protected:
@@ -38,18 +38,18 @@ export namespace deren::promise::rhi {
     template <typename candidate>
     concept object_type = std::derived_from<candidate, object>;
 
-    /// ONE REFERENCE TO AN RHI OBJECT - the factories' return type.
+    /// ONE HANDLE FROM A FACTORY - the factories' return type.
     ///
-    /// Move-only RAII and nothing else: the destructor calls `release()`, the contract's "release the
-    /// caller's ONE reference" (not `delete`: the backend answers reference counting itself and a shared
-    /// resource may outlive the call). Deliberately not a standard-library pointer - its release is a
-    /// contract verb, and spelling that as a deleter type turns one verb into two spellings.
+    /// Move-only RAII and nothing else: the destructor calls `release()` (not `delete`: the backend does the
+    /// bookkeeping itself, and a resource shared with other callers may outlive this call). Deliberately not a
+    /// standard-library pointer - its release is a contract verb, and spelling that as a deleter type turns
+    /// one verb into two spellings.
     template <typename rhi_object>
     class unique_object {
     public:
         unique_object() noexcept = default;
 
-        /// take the reference @p instance carries (null is allowed: a factory refusal answers with one)
+        /// take over releasing @p instance (null is allowed: a factory refusal answers with one)
         unique_object(rhi_object* const instance) noexcept
             : instance{instance} {
             static_assert(object_type<rhi_object>, "unique_object manages only a contract object handle");
@@ -69,14 +69,14 @@ export namespace deren::promise::rhi {
             return *this;
         }
 
-        unique_object(unique_object const&) = delete ("unique_object is move-only: transfer retention with std::move");
+        unique_object(unique_object const&) = delete ("unique_object is move-only: transfer the handle with std::move");
         unique_object& operator=(unique_object const&) = delete ("unique_object is move-only: assign from an rvalue, not a copy");
 
         ~unique_object() noexcept {
             this->reset();
         }
 
-        /// RELEASE THE REFERENCE, ONCE (idempotent): a shared resource may outlive this call
+        /// RELEASE THE HANDLE, ONCE (idempotent): a shared resource may outlive this call
         void reset() noexcept {
             static_assert(object_type<rhi_object>, "unique_object manages only a contract object handle");
             if (this->instance != nullptr) {
@@ -85,7 +85,7 @@ export namespace deren::promise::rhi {
             }
         }
 
-        /// give up the reference WITHOUT releasing it (the caller takes over the `release()`)
+        /// give up the handle WITHOUT releasing it (the caller takes over the `release()`)
         [[nodiscard]] rhi_object* release() noexcept {
             rhi_object* const released = this->instance;
             this->instance = nullptr;
@@ -129,48 +129,48 @@ export namespace deren::promise::rhi {
     };
 
     namespace detail {
-        /// THE ONE CONTROL BLOCK `shared_object` and `weak_object` count: the strong count holds the
-        /// single `release()` the factory reference stands for, the `release` callback performs that
-        /// contract call (null = a non-holding handle: it holds no reference and releases nothing), and the
-        /// weak count keeps the block alive for the weak handles.
+        /// THE ONE CONTROL BLOCK `shared_object` and `weak_object` count: the strong count is how many
+        /// copies still owe the single `release()` the factory handle stands for, the `release` callback
+        /// performs that contract call (null = a handle with nothing to release), and the
+        /// weak count keeps the block allocated for the weak handles.
         struct shared_object_control final {
             shared_object_control(void (*release_instance)(void*) noexcept, void* const instance_handle) noexcept
                 : instance{instance_handle}
                 , release{release_instance} {
             }
-            /// the object whose reference the block holds; NOT the alias target (an aliasing handle may
+            /// the instance the `release` callback is called on; NOT the alias target (an aliasing handle may
             /// point at a different object than the one the control block releases)
             void* instance = nullptr;
             std::atomic<std::uint32_t> strong{1};
-            /// One implicit weak reference belongs to the strong group until object destruction
+            /// One implicit weak count belongs to the strong group until object destruction
             /// finishes. External weak releases can never delete a block still used by the release callback.
             std::atomic<std::uint32_t> weak{1};
             void (*release)(void*) noexcept = nullptr;
         };
     } // namespace detail
 
-    /// THE NON-HOLDING OBSERVER OF A SHARED HANDLE: defined after `shared_object` so its `lock()` can
-    /// answer the holding handle directly; this forward declaration lets `shared_object` keep the familiar
-    /// `shared_object<T>::weak` spelling as an alias.
+    /// THE OBSERVER OF A SHARED HANDLE: it does not control the target's destruction; defined after `shared_object` so its
+    /// `lock()` can answer the shared handle directly; this forward declaration lets `shared_object` keep the
+    /// familiar `shared_object<T>::weak` spelling as an alias.
     template <typename rhi_object>
     class weak_object;
 
-    /// SHARED HANDLE TO ONE RHI REFERENCE - the contract's counterpart of a shared pointer.
+    /// SHARED HANDLE THAT RELEASES A RHI OBJECT ONCE - the contract's counterpart of a shared pointer.
     ///
-    /// Copies share ONE control block, so the factory's single reference is released EXACTLY ONCE when the
+    /// Copies share ONE control block, so the factory's single `release()` runs EXACTLY ONCE when the
     /// last copy goes (`release()`, as in `unique_object`). The aliasing constructor keeps a handle to a
-    /// DERIVED object while sharing the control block of the object that holds the reference.
+    /// DERIVED object while sharing the control block of the object that performs the release.
     template <typename rhi_object>
     class shared_object {
     public:
-        /// the non-holding observer of a shared handle (see `lock()`)
+        /// the observer of a shared handle; it does not control the target's destruction (see `lock()`)
         using weak = weak_object<rhi_object>;
 
         shared_object() noexcept = default;
         shared_object(std::nullptr_t) noexcept {
         }
 
-        /// take retention of the one reference @p instance carries
+        /// take over releasing @p instance (the factory's one release)
         explicit shared_object(rhi_object* const instance) noexcept
             : instance{instance} {
             static_assert(object_type<rhi_object>, "shared_object manages only a contract object handle");
@@ -184,7 +184,7 @@ export namespace deren::promise::rhi {
         }
 
         /// a handle to a DERIVED object as a handle to the interface: the SAME control block is shared,
-        /// so the one reference is still released exactly once.
+        /// so the one release still happens exactly once.
         template <typename derived_object>
             requires std::derived_from<derived_object, rhi_object>
         shared_object(shared_object<derived_object> const& other) noexcept
@@ -210,10 +210,10 @@ export namespace deren::promise::rhi {
             : shared_object(static_cast<rhi_object*>(parent.release())) {
         }
 
-        /// AN ALIAS TO A NON-HOLDING RHI POINTER tied to an engine holder's lifetime (the engine lease shape):
-        /// the holder keeps the resource alive and this handle holds no separate RHI reference.
-        /// an ENGINE-HOLDER handle (a test's std::make_shared<fake_root>, say) adopted as an alias: the
-        /// shared pointer's reference is the lifetime, so no RHI release runs.
+        /// AN ALIAS TO AN RHI POINTER THE ENGINE REFERENCES (the shape the engine's `resource_handle` uses): the
+        /// engine's shared_ptr controls the object's destruction, and this handle adds no separate RHI release.
+        /// an ENGINE-CREATED handle (a test's std::make_shared<fake_root>, say) adopted as an alias: the
+        /// shared pointer controls destruction, so no RHI release runs.
         template <typename parent_type>
             requires std::derived_from<parent_type, rhi_object>
         shared_object(std::shared_ptr<parent_type> parent) noexcept
@@ -227,8 +227,8 @@ export namespace deren::promise::rhi {
             , alias_lifetime{std::move(parent)} {
         }
 
-        /// the same alias with a CONTRACT-HOLDER root: shares that handle's control block (so the root
-        /// outlives the referenced pointer) without releasing A separate extra reference.
+        /// the same alias with a ROOT THAT IS ITSELF A CONTRACT HANDLE: shares that handle's control block
+        /// (so the root outlives the aliased pointer) without running a separate extra release.
         template <typename parent_object>
             requires std::derived_from<parent_object, object>
         shared_object(shared_object<parent_object> const& parent, rhi_object* const pointer) noexcept
@@ -276,7 +276,7 @@ export namespace deren::promise::rhi {
             this->reset();
         }
 
-        /// release this copy's share (the last copy performs the one `release()`)
+        /// drop this copy (the last copy performs the one `release()`)
         void reset() noexcept {
             if (this->control == nullptr) {
                 this->instance = nullptr;
@@ -318,16 +318,16 @@ export namespace deren::promise::rhi {
             return this->instance != nullptr;
         }
 
-        /// how many shared copies hold the reference (the aliased holder's count for an alias); 0 = empty
+        /// how many shared copies exist (for an alias, the count its shared_ptr reports); 0 = empty
         [[nodiscard]] std::uint32_t use_count() const noexcept {
             if (this->control != nullptr) {
                 return this->control->strong.load(std::memory_order_acquire);
             }
             return this->alias_lifetime != nullptr ? static_cast<std::uint32_t>(this->alias_lifetime.use_count()) : 0u;
         }
-        /// True for a holding reference or lifetime alias, false for an empty handle.
-        /// An alias holder must actually retain its target; this cannot inspect arbitrary holder types.
-        [[nodiscard]] bool retains_lifetime() const noexcept {
+        /// True for a handle that releases or for a lifetime alias, false for an empty handle.
+        /// An alias must actually keep its target valid; this cannot inspect arbitrary alias parent types.
+        [[nodiscard]] bool is_live() const noexcept {
             return instance != nullptr && ((control != nullptr && control->release != nullptr) || alias_lifetime != nullptr);
         }
         [[nodiscard]] bool unique() const noexcept {
@@ -374,8 +374,8 @@ export namespace deren::promise::rhi {
         std::shared_ptr<void const> alias_lifetime;
     };
 
-    /// THE NON-HOLDING OBSERVER OF A SHARED HANDLE, modeled on `std::weak_ptr`: it observes a control block
-    /// (or an engine-held alias) without keeping the target alive, and `lock()` answers a `shared_object`
+    /// THE OBSERVER OF A SHARED HANDLE, modeled on `std::weak_ptr`: it observes a control block
+    /// (or an engine-side alias) without keeping the target valid, and `lock()` answers a `shared_object`
     /// only while that lifetime is still there. `shared_object<T>::weak` is an alias for this spelling, so
     /// existing code keeps working while the observer itself has one top-level definition.
     template <typename rhi_object>
@@ -456,12 +456,12 @@ export namespace deren::promise::rhi {
             this->release_control();
         }
 
-        /// a shared handle while at least one strong reference (or the engine holder) is alive, empty otherwise
+        /// a shared handle while at least one strong copy (or the engine's handle) is valid, empty otherwise
         [[nodiscard]] shared_object<rhi_object> lock() const noexcept {
-            std::shared_ptr<void const> retained_alias;
+            std::shared_ptr<void const> pinned_alias;
             if (this->has_alias()) {
-                retained_alias = this->alias_lifetime.lock();
-                if (retained_alias == nullptr) {
+                pinned_alias = this->alias_lifetime.lock();
+                if (pinned_alias == nullptr) {
                     return {};
                 }
             }
@@ -472,16 +472,16 @@ export namespace deren::promise::rhi {
                         shared_object<rhi_object> locked;
                         locked.instance = this->instance;
                         locked.control = this->control;
-                        locked.alias_lifetime = std::move(retained_alias);
+                        locked.alias_lifetime = std::move(pinned_alias);
                         return locked;
                     }
                 }
                 return {};
             }
-            if (retained_alias != nullptr) {
+            if (pinned_alias != nullptr) {
                 shared_object<rhi_object> locked;
                 locked.instance = this->instance;
-                locked.alias_lifetime = std::move(retained_alias);
+                locked.alias_lifetime = std::move(pinned_alias);
                 return locked;
             }
             return {};
@@ -515,7 +515,7 @@ export namespace deren::promise::rhi {
             this->alias_lifetime.swap(other.alias_lifetime);
         }
 
-        /// whether @p other observes the same control block (or the same engine holder)
+        /// whether @p other observes the same control block (or the same engine handle)
         [[nodiscard]] bool shares_control(weak_object const& other) const noexcept {
             if (this->control != nullptr || other.control != nullptr) {
                 return this->control == other.control;
@@ -528,7 +528,7 @@ export namespace deren::promise::rhi {
             return !this->alias_lifetime.owner_before(other.alias_lifetime) && !other.alias_lifetime.owner_before(this->alias_lifetime);
         }
 
-        /// whether @p other shares this observer's control block or engine-holder identity
+        /// whether @p other shares this observer's control block or the identity of the engine's handle
         [[nodiscard]] bool shares_control(shared_object<rhi_object> const& other) const noexcept {
             if (this->control != nullptr || other.control != nullptr) {
                 return this->control == other.control;
@@ -570,13 +570,14 @@ export namespace deren::promise::rhi {
     };
 
     /// THE CONCRETE-IDENTITY MECHANISM, SHARED BY EVERY BACKEND: a handle's `get_tag()` is the concrete
-    /// implementation name (ABI 30), the backend HOLDS the name constants (and exposes the same value as a
+    /// implementation name (ABI 30), the backend DECLARES the name constants (and exposes the same value as a
     /// static `tag` for compile-time code), and the validate-then-cast operation lives HERE so a second
     /// backend cannot reinvent it (a D3D12 backend validates its names with the same two calls).
     ///
     /// WHY THE GRANULARITY IS CONCRETE, NOT THE INTERFACE: one interface has several concrete
-    /// implementations with different layouts behind it (`buffer` is held and, separately, the
-    /// backend's referenced read-back slot; `image` is held and the referenced swapchain image), so the
+    /// implementations with different layouts behind it (`buffer` names both a factory product and,
+    /// separately, the backend's read-back slot; `image` names both a factory product and the swapchain
+    /// image), so the
     /// `static_cast` a true answer permits is defined only for the ONE layout the name names.
     ///
     /// A FALSE ANSWER IS A CALLER CONDITION at the function's entrance: a handle this backend did not
@@ -594,7 +595,7 @@ export namespace deren::promise::rhi {
     /// PANICS ON A MISMATCH, AND THAT IS DELIBERATE: by the time this is called the provenance has
     /// already been established (registry membership, an object-identity comparison, ...), so a name
     /// that does not match is the BACKEND'S bookkeeping being inconsistent - a bug in the code
-    /// holding the invariant, which is what `deren::utility::panic` exists for ("a failure the code
+    /// that maintains the invariant, which is what `deren::utility::panic` exists for ("a failure the code
     /// EXPECTS travels as a value; a violated invariant terminates"). Callers that instead have a
     /// handle which may legitimately be foreign use `is_concrete()` and answer
     /// `rhi::error::invalid_argument`; they never route a container's caller bug through this cast.

@@ -3,7 +3,7 @@
 Shared resource and memory measurement used by [amnis](amnis.md), [subtilis](subtilis.md) and other clients.
 GPU snapshots cover an api_core's managed allocations; vessel snapshots cover the shared project allocator.
 Neither attributes allocations to an individual feature. Feature comparisons require controlled runs with
-other settings held constant.
+other settings kept constant.
 
 ```cpp
 auto gpu = core.resources->memory_statistics();
@@ -25,7 +25,7 @@ select the device-local fields when comparing resource VRAM allocations.
 
 Vulkan records successful VMA allocations and actual destruction, including internal buffers.
 Shared image handles/views count once. Unloaded lazy resources count zero until materialized;
-retained/in-flight resources continue to count until actually freed. Peaks last for the core's
+allocated/in-flight resources continue to count until actually freed. Peaks last for the core's
 lifetime, and the combined peak measures concurrent usage rather than adding category peaks.
 
 `allocator_allocation_bytes` reports VMA's current allocated bytes;

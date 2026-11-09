@@ -11,7 +11,7 @@ import deren.vulkan.constant_init;
 
 namespace {
     // Collects the Vulkan objects created during pipeline creation; the destructor frees the
-    // pipeline if any later step fails; on full success, release() surrenders retention to vk_pipeline.
+    // pipeline if any later step fails; on full success, release() hands cleanup to vk_pipeline.
     struct resource_guard {
         VkDevice device = VK_NULL_HANDLE;
         VkPipeline pipeline = VK_NULL_HANDLE;
@@ -225,7 +225,7 @@ namespace deren::vulkan {
             return fail("failed to create graphics pipeline");
         }
 
-        // ---- 8. Success: transfer retention to vk_pipeline; guard no longer cleans up ----
+        // ---- 8. Success: vk_pipeline takes over cleanup; guard no longer cleans up ----
         vk_pipeline result(guard.pipeline, device);
         guard.release();
         return result;

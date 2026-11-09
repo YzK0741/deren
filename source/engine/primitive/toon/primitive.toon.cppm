@@ -454,7 +454,7 @@ namespace deren::engine {
          * gets exactly what a material calling the group without stating it gets in Goo. `.a` IS NOT READ: the
          * reference's tint is `混合 = MULTIPLY(A = 混合.035.Result, B = 组输入.BaseColor)`, i.e. the whole RGBA, but
          * the albedo the port tints is a `float3` and its alpha is the coverage the pass blends with - a second
-         * holder of that channel would be a second statement about coverage.
+         * source for that channel would be a second statement about coverage.
          */
         goo_base_colour = 10, // `_GooBaseColour`: `PBRToonBase`'s `BaseColor` (`.rgb`; white = the group's default)
         /**
@@ -551,7 +551,7 @@ namespace deren::engine {
          * OVERRIDE the moment another asset states one (`M_actor_laevat_hair_01` states
          * `[0.0811, 0.0109, 0.0187]`, and the hair is out of this step's scope exactly because its composition is
          * a different one - see the shader's family note). `.a` is not read: the reference's mix has an alpha, but
-         * the port's occlusion is a scalar and the coverage alpha has one holder already.
+         * the port's occlusion is a scalar and the coverage alpha already has one source.
          *
          * BLACK IS NOT A NO-OP HERE, which is why the sentinel is NOT used: `lerp(black, white, AO)` is a valid
          * `directOcclusion` and the value the reference's assets produce, so `0.0` is a STATEMENT and cannot

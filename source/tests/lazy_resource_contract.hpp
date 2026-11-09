@@ -39,7 +39,7 @@ inline void check_lazy_resource_contract(rhi::api_core& core) {
     CHECK(value->state() == rhi::lazy_state::ready);
     CHECK(commands->end_recording() == rhi::error::ok);
     value.reset();
-    CHECK(!weak.expired()); // executable recording retains the lazy source/resource
+    CHECK(!weak.expired()); // the executable recording still uses the lazy source/resource
     commands.reset();
     CHECK(weak.expired());
 
@@ -93,7 +93,7 @@ inline void check_lazy_resource_contract(rhi::api_core& core) {
     }
     CHECK(descriptor_commands->end_recording() == rhi::error::ok);
     descriptor_commands.reset();
-    CHECK((*image)->unload() == rhi::error::not_ready); // view and fixed descriptor still retain it
+    CHECK((*image)->unload() == rhi::error::not_ready); // the view and the fixed descriptor still depend on it
     view.reset();
     CHECK((*image)->unload() == rhi::error::not_ready); // the fixed slot is a separate dependency
     rhi::image_desc replacement_desc{};
@@ -115,16 +115,16 @@ inline void check_lazy_resource_contract(rhi::api_core& core) {
     CHECK(descriptor_commands->end_recording() == rhi::error::ok);
     descriptor_commands.reset();
     CHECK(space->write_image({.slot = slot, .resource = replacement.get(), .view = &range}) == rhi::error::ok);
-    auto retained_view = (*image)->make_view({});
-    CHECK(retained_view);
+    auto live_view = (*image)->make_view({});
+    CHECK(live_view);
     CHECK((*image)->unload() == rhi::error::not_ready);
-    retained_view.reset();
+    live_view.reset();
     rhi::texture_group_info texture_info{};
     texture_info.textures[0] = image->get();
-    auto retained_textures = core.resources->assign_texture_group(texture_info);
-    CHECK(retained_textures);
+    auto texture_group_handle = core.resources->assign_texture_group(texture_info);
+    CHECK(texture_group_handle);
     CHECK((*image)->unload() == rhi::error::not_ready);
-    retained_textures.reset();
+    texture_group_handle.reset();
     CHECK((*image)->unload() == rhi::error::ok);
 
     auto grouped = core.resources->create_lazy_buffer({.resource = {.size = 16, .usage = rhi::buffer_usage::uniform_gpu_only, .flags = rhi::to_bits(rhi::buffer_flag::device_address)}, .data = pixels});
@@ -141,7 +141,7 @@ inline void check_lazy_resource_contract(rhi::api_core& core) {
     CHECK(group_commands->barrier({.buffers = std::span(&grouped_barrier, 1)}) == rhi::error::ok);
     CHECK(group_commands->end_recording() == rhi::error::ok);
     group_commands.reset();
-    CHECK(grouped_raw->unload() == rhi::error::not_ready); // logical group caches/holds this resource
+    CHECK(grouped_raw->unload() == rhi::error::not_ready); // the logical group still lists this resource
     group = std::unexpected(rhi::error::unsupported);
     CHECK(grouped_raw->unload() == rhi::error::ok);
 
@@ -184,7 +184,7 @@ inline void check_lazy_resource_contract(rhi::api_core& core) {
     CHECK(simplified->bind_vertex_buffer(**a, 0) == rhi::error::ok);
     CHECK(simplified->bind_vertex_buffer(**b, 0) == rhi::error::ok);
     CHECK(simplified->apply_operations() == rhi::error::ok);
-    // The developer control deliberately retains dead setters and materializes both buffers.
+    // The developer control deliberately keeps dead setters and materializes both buffers.
     auto const first_state = std::getenv("DEREN_RENDER_OPERATIONS_UNOPTIMIZED") ? rhi::lazy_state::ready : rhi::lazy_state::unloaded;
     CHECK((*a)->state() == first_state);
     CHECK((*b)->state() == rhi::lazy_state::ready);

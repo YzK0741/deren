@@ -295,7 +295,7 @@ namespace deren::app {
         }
 
         {
-            // The post chain is a PASS PAIR now (deren.engine.pass.post): the composite holds the chain's two pipelines,
+            // The post chain is a PASS PAIR now (deren.engine.pass.post): the composite builds the chain's two pipelines,
             // and the four bloom levels record with them. So the app REGISTERS the two shaders the pass builds
             // from (post.vert's synthetic triangle and post.frag, whose `mode` lane selects the stage) and the pass
             // does the rest in create_passes() below.
@@ -368,7 +368,7 @@ namespace deren::app {
                 deren::utility::log("gbuffer pipeline disabled: {}", gbuffer_result.error());
             } else {
                 // The debug view is a PASS (deren.engine.pass.geometry_buffer_debug): the app registers its two shaders and the
-                // pass builds its pipeline, which is all it holds. The samplers those declarations
+                // pass builds its pipeline, which is all it creates. The samplers those declarations
                 // choose between are the device root's now (`core::create_samplers`).
                 // ... AND THIS IS `post.vert.spv`, NOT A GEOMETRY STAGE: a synthetic fullscreen triangle, which is a
                 // vertex stage by nature and stays one (docs/mesh_shaders.md step 4 is about the geometry path).
@@ -530,7 +530,7 @@ namespace deren::app {
 
             // ... and now that every pass's and every job's shaders are registered, the pipelines can be built.
             // This block is where the SHADERS come from and nothing else: the ONE create step that builds what the
-            // passes and the jobs hold (a pipeline each) runs in main(), after the application has handed its chain
+            // passes and the jobs create (a pipeline each) runs in main(), after the application has handed its chain
             // over (`render_start_demo`) - see `runtime::create_passes`, which logs each object's outcome.
         }
     }

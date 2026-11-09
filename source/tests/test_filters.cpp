@@ -1,6 +1,6 @@
 // Headless unit test: deren.engine.filters - the pass-side resource table.
 //
-// THE CPU HALF ONLY. `user_filter` holds a device root (`rhi::shared_object<api_core>`) and is not
+// THE CPU HALF ONLY. `user_filter` stores a device root (`rhi::shared_object<api_core>`) and is not
 // constructed here; `pass_filter` touches nothing but its table, which is what makes it identical on
 // both sides of the backend boundary. The handles are stored and compared, never dereferenced.
 #include "vk_test.h"
@@ -73,7 +73,7 @@ namespace {
         auto* const second_view = reinterpret_cast<image_view*>(&stand_in_1);
         filter.register_resource(resource_id::hdr, 0, {.view = first_view, .buffer = nullptr, .image = nullptr});
         CHECK(filter.resource(resource_id::hdr, 0).view == first_view);
-        // the holder publishes once at create time; a second publication of the same (id, element) is the
+        // the filter publishes once at create time; a second publication of the same (id, element) is the
         // same question asked again, so the newest answer is the one the pass gets
         filter.register_resource(resource_id::hdr, 0, {.view = second_view, .buffer = nullptr, .image = nullptr});
         CHECK(filter.resource(resource_id::hdr, 0).view == second_view);

@@ -43,9 +43,9 @@ window restoration. See [the dynamic API](dynamic_runtime.md) for the null-windo
 
 The normal path does not wait for readback. Probes and screenshots explicitly wait for their submissions and should be disabled during performance measurements.
 
-## Frame pipeline and retention
+## Frame pipeline and lifetime
 
-Static geometry and SH tables are validated and uploaded once. The CPU updates only camera and instance metadata on the GPU path. Each completed frame-ring slot holds its dynamic buffers and retains every asset used by that submission; a swapchain image index is not a completion slot.
+Static geometry and SH tables are validated and uploaded once. The CPU updates only camera and instance metadata on the GPU path. Each completed frame-ring slot keeps its dynamic buffers, and every asset used by that submission stays valid until that slot completes; a swapchain image index is not a completion slot.
 
 The GPU frame records these operations before raster rendering:
 
@@ -57,7 +57,7 @@ The GPU frame records these operations before raster rendering:
 
 The pass runs after lighting and before transparent meshes. It LOADs lit HDR color and opaque depth, tests center depth, disables depth writes and culling, then draws six vertices per visible reference. The host `visible_count` is a candidate bound on the GPU path; the indirect command supplies the actual visible draw count. Completed statistics are read only after the slot's completion point.
 
-The engine/device/backend root must outlive its resource holders. Slot growth allocates replacements before publishing them, includes retained capacity and queried sorting scratch in its byte budget, and releases partial allocations on failure. No pending slot may be reused before completion.
+The engine/device/backend root must outlive every resource it creates. Slot growth allocates replacements before publishing them, includes spare capacity and queried sorting scratch in its byte budget, and releases partial allocations on failure. No pending slot may be reused before completion.
 
 ## Modules and entry points
 
@@ -67,7 +67,7 @@ The engine/device/backend root must outlive its resource holders. Slot growth al
 - `deren.engine.gaussian_splatting.gpu_frame`: `prepare_gpu_frame`, preparation command recording and completed-slot statistics.
 - `deren.engine.pass.gaussian_splatting`: mutually exclusive CPU/GPU snapshot setters and `last_error`.
 
-The asset factory retains both validated CPU data and immutable GPU tables. The CPU frame factory globally sorts in double precision, evaluates conservative visibility and uploads references. The GPU factory validates camera/instance metadata, prepares reusable slot resources and records the compute/sort/finalize sequence. It returns a holding shared frame; pipeline pointers used during recording are referenced from the pass.
+The asset factory keeps both validated CPU data and immutable GPU tables. The CPU frame factory globally sorts in double precision, evaluates conservative visibility and uploads references. The GPU factory validates camera/instance metadata, prepares reusable slot resources and records the compute/sort/finalize sequence. It returns a shared frame; pipeline pointers used during recording are obtained from the pass.
 
 ## Data layout and rendering rules
 
@@ -126,7 +126,7 @@ Six static/rotating before/after cache PNGs are pixel-exact; an additional pre-p
 
 ## Regression checks and repaired failures
 
-Headless tests cover loading, layouts, covariance/SH math, camera/model validation, budgets, sorting, allocation rollback, resource retention, indirect recording and runtime injection. Native probes cover 48 stable-sort cases and 11 GPU raster scenes; the latter compares 10,626 pixels with maximum HDR RGB error 0.0008074641, maximum depth difference 1 float32 ULP and zero small-sample double-order differences. Clean validation alone is not a pixel-correctness test.
+Headless tests cover loading, layouts, covariance/SH math, camera/model validation, budgets, sorting, allocation rollback, resource lifetime, indirect recording and runtime injection. Native probes cover 48 stable-sort cases and 11 GPU raster scenes; the latter compares 10,626 pixels with maximum HDR RGB error 0.0008074641, maximum depth difference 1 float32 ULP and zero small-sample double-order differences. Clean validation alone is not a pixel-correctness test.
 
 Reproduce image and performance checks with the Windows helpers:
 

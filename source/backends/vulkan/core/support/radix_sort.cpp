@@ -92,7 +92,7 @@ namespace deren::vulkan {
                 if (auto applied = list->prepare_native(); applied != rhi::error::ok) {
                     return applied;
                 }
-                // Acquire recording leases before reading native handles. Lazy operands may
+                // Resolve every lazy operand before reading native handles. Operands may
                 // materialize here, and cannot be unloaded while this recording can execute.
                 for (auto* resource : {keys, values, scratch}) {
                     if (auto ready = list->demand(*resource); ready != rhi::error::ok) {

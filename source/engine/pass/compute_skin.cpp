@@ -1,4 +1,4 @@
-// The compute-skinning job's implementation: the pipeline it holds and the per-caster dispatch plus the
+// The compute-skinning job's implementation: the pipeline it builds and the per-caster dispatch plus the
 // build-ordering barrier. Moved out of `runtime::make_compute_skin_pipeline` and
 // `runtime::record_compute_skin_pass` UNCHANGED in behaviour - the same layout-free heap path, the same
 // 32-byte push block, the same 64-wide workgroup, the same one dispatch per skinned caster
@@ -12,7 +12,7 @@ module deren.engine.pass.compute_skin;
 import deren.vstd;
 import deren.utility.shared;
 
-import deren.engine.pipelines; // build_compute_skin: the compute pipeline this job holds
+import deren.engine.pipelines; // build_compute_skin: the compute pipeline this job builds
 import deren.utility;
 
 namespace deren::engine::pass {

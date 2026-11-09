@@ -20,7 +20,7 @@ export namespace deren::app {
      *        imported "pbr" primitive as a grid_side x grid_side grid in ONE instanced draw call
      *        (an instanced_draw_primitive appended to the scene tree — the frame loop is
      *        untouched). No-op when grid_side <= 1 or the scene has no pbr primitive.
-     * @param runtime the initialized runtime holding the imported scene
+     * @param runtime the initialized runtime that carries the imported scene
      * @param grid_side grid side length from settings.grid_side (> 1 enables the grid)
      * @param scene_radius radius of the imported scene (grid spacing = 2.5 x radius, so
      *        instances stay apart: the demo measures draw scaling, not overdraw)

@@ -1,6 +1,6 @@
 // The ray-traced reflection pass's implementation. It follows ray_traced_shadow.cpp: describe the one target,
 // build the pipeline and its three shader binding table regions, then push the camera block and launch one to
-// four rays per pixel. The graph holds the target's transitions; this file only records the work.
+// four rays per pixel. The graph declares the target's transitions; this file only records the work.
 
 module;
 

@@ -250,7 +250,7 @@ export namespace deren::engine::render_graph::visibility {
 
     /// THE RESOLVE IS A COMPUTE PASS, and its write scope says so: the five G-buffer targets are written as STORAGE
     /// images (the compute stage's only route), not as colour attachments - the graphics scope belongs to the
-    /// geometry lane that holds the same images. The graph's WAW edge is what orders the two writers.
+    /// geometry lane that writes the same images. The graph's WAW edge is what orders the two writers.
     struct resolve_parameters {
         texture_read vis_id;
         texture_read depth;
@@ -463,7 +463,7 @@ export namespace deren::engine::render_graph::visibility {
     /**
      * @brief append the depth-only merge, declaring the order the winner rule depends on
      *
-     * Two explicit edges, and BOTH are this call's to record because it is the first point that holds the resolve
+     * Two explicit edges, and BOTH are this call's to record because it is the first point that has the resolve
      * and the software raster refs together: resolve AFTER software raster (it must read the candidates), merge
      * AFTER resolve (it must not overwrite the unmerged depth the resolve compares against). It also reads both
      * software images sampled and the G-buffer depth as a READ-WRITE depth attachment, which is what makes the

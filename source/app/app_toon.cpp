@@ -585,7 +585,7 @@ namespace deren::app::detail {
     // THE TWO LANES READ THEIR RAMP DIFFERENTLY, so one bake can no longer serve both. The specular lane reads
     // `.r` as a THRESHOLD, and the unit step above is exactly that. The diffuse lane reads RGB as a COLOUR mapping
     // and A as a LIGHTNESS (see the shading stage's `toon_diffuse`), and a grey step is wrong in BOTH channels for
-    // that use: its alpha is a constant 1, which claims every fragment is fully lit, and its RGB would tint the
+    // that use: its alpha is a constant 1, which says every fragment is fully lit, and its RGB would tint the
     // lit side as though the material's ramp had said so.
     //
     // SO THIS BAKE HOLDS THE ONLY CONTENT THAT MEANS "NO COLOUR MAPPING, AND AS LIT AS THE LIGHT TERM SAYS": WHITE
@@ -793,7 +793,7 @@ namespace deren::app::detail {
          //
          // THESE TWO ARE WRITTEN OUT RATHER THAN LEFT TO THE ARRAY'S TAIL, and that is not style: this array's
          // length is now `toon_colour_lane::count`, and what a VALUE-INITIALISED tail holds depends on GLM's
-         // `GLM_FORCE_CTOR_INIT` - so "27 entries plus a tail that happens to be zero" is a claim about a build
+         // `GLM_FORCE_CTOR_INIT` - so "27 entries plus a tail that happens to be zero" is a statement about a build
          // configuration rather than about this table. Stated zeros cannot drift with a define.
          //
          // AND THEY ARE NOT WHAT KEEPS THE TWENTY `Use RS_Eff? = 0` MATERIALS UNCHANGED. That is a property of

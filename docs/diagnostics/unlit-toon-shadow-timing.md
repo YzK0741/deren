@@ -7,7 +7,7 @@ Measurement date: 2026-11-06.
 The application disabled the shadow producer whenever deferred lighting was
 unlit. Character-forward shading remained enabled and continued sampling the
 map. Camera movement refitted and uploaded the light matrices while the map
-retained the old projection, producing incorrect dark regions on skin.
+kept the old projection, producing incorrect dark regions on skin.
 
 The shadow feature now stays active when either deferred lighting is lit or
 character-forward shading is active and ready. The shadow checkbox and pipeline
@@ -26,7 +26,7 @@ snapshot, instead of after the first submission.
 - Optional groups fill skipped positional marks without shifting later labels.
   The timestamp pool remains within its existing 32-mark capacity.
 - The overlay names GPU stages and separates CPU pacing/wait from recording and
-  submission/presentation wall time. The detailed logs retain all stages.
+  submission/presentation wall time. The detailed logs preserve all stages.
 
 ## Local measurements
 

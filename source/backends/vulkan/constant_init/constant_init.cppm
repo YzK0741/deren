@@ -29,7 +29,7 @@ export module deren.vulkan.constant_init;
  * Top-level module (sibling of deren.vulkan.core): it depends on nothing but the Vulkan headers, so
  * any Vulkan module can use it. The name sets it apart from deren.vulkan.core:init_utils - that
  * module performs the initialization PROCEDURES (instance/device/swapchain), while this one
- * holds the compile-time CONSTANTS of those calls: the fixed field values ("constant init").
+ * carries the compile-time CONSTANTS of those calls: the fixed field values ("constant init").
  *
  * The engine never hand-fills these structs at call sites: every fill is either
  *  - a constexpr factory returning the struct by value (each factory lists EVERY member with
@@ -38,7 +38,7 @@ export module deren.vulkan.constant_init;
  *  - a constinit "transition" default the caller copies and then overrides only the fields
  *    that actually differ (e.g. the target image of a per-frame layout transition).
  *
- * Pointer members always point at caller-held data (never at locals of the factory itself).
+ * Pointer members always point at caller-provided data (never at locals of the factory itself).
  * This module is header-only in effect: all definitions live in the interface, so callers can
  * constant-fold the factories.
  */
@@ -48,7 +48,7 @@ export namespace deren::vulkan {
     /**
      * @brief whether a colour format's attachment write path encodes linear -> sRGB in HARDWARE
      *
-     * WHY IT IS HERE rather than in the renderer that used to hold it: two PASSES need the answer (the composite
+     * WHY IT IS HERE rather than in the renderer that used to define it: two PASSES need the answer (the composite
      * and FXAA, which push the same block's `encode_gamma` lane) and a third thing needs it for the same reason
      * (the swapchain's format decides whether the display transfer function is hardware's or the shader's).
      * Writing a gamma-encoded value into one of these formats double-encodes it, and writing it into a UNORM
@@ -172,7 +172,7 @@ export namespace deren::vulkan {
     }
     /**
      * @brief one-queue device queue create info (one queue of @p queue_family)
-     * @param queue_priorities caller-held array of @p queue_family's queue priorities
+     * @param queue_priorities caller-provided array of @p queue_family's queue priorities
      */
     constexpr VkDeviceQueueCreateInfo make_device_queue_info(uint32_t const queue_family, float const* queue_priorities) noexcept {
         return {.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
@@ -437,7 +437,7 @@ export namespace deren::vulkan {
                 .signalSemaphoreValueCount = signal_count,
                 .pSignalSemaphoreValues = signal_values};
     }
-    /** @brief one shader module create info over caller-held SPIR-V words */
+    /** @brief one shader module create info over caller-provided SPIR-V words */
     constexpr VkShaderModuleCreateInfo make_shader_module_info(
         std::size_t const code_size, uint32_t const* const code,
         VkShaderModuleCreateFlags const flags = 0) noexcept {
@@ -458,7 +458,7 @@ export namespace deren::vulkan {
     // measured on the acceleration-structure module's property query before
     // `make_acceleration_structure_properties()` was the only way to build it. This module's header already
     // states the rule ("the engine never hand-fills these structs at call sites"); these factories are what makes
-    // the rule hold for a query chain, where the WHOLE POINT is a list of tagged members.
+    // the rule enforced for a query chain, where the WHOLE POINT is a list of tagged members.
     //
     // THE HEAD AND THE MEMBER ARE TWO CALLS, deliberately: a head takes the member's address and cannot be
     // built before it exists, so `make_properties_2(&member)` is the shape a caller writes - and neither call
@@ -466,7 +466,7 @@ export namespace deren::vulkan {
 
     /**
      * @brief the HEAD of a `VkPhysicalDeviceProperties2` chain
-     * @param next the first chained property structure (referenced for the call; null = no chain)
+     * @param next the first chained property structure (used for the duration of the call; null = no chain)
      */
     constexpr VkPhysicalDeviceProperties2 make_properties_2(void* const next = nullptr) noexcept {
         return {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, .pNext = next, .properties = {}};
@@ -474,7 +474,7 @@ export namespace deren::vulkan {
 
     /**
      * @brief the HEAD of a `VkPhysicalDeviceFeatures2` chain (the same shape, the query's other half)
-     * @param next the first chained feature structure (referenced for the call; null = no chain)
+     * @param next the first chained feature structure (used for the duration of the call; null = no chain)
      */
     constexpr VkPhysicalDeviceFeatures2 make_features_2(void* const next = nullptr) noexcept {
         return {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = next, .features = {}};
@@ -597,7 +597,7 @@ export namespace deren::vulkan {
      * @param dst_image destination image
      * @param dst_layout destination image layout
      * @param region_count number of regions
-     * @param regions caller-held image-copy array
+     * @param regions caller-provided image-copy array
      */
     constexpr VkCopyImageInfo2 make_copy_image_info_2(VkImage const src_image, VkImageLayout const src_layout, VkImage const dst_image, VkImageLayout const dst_layout, uint32_t const region_count, VkImageCopy2 const* regions) noexcept {
         return {.sType = VK_STRUCTURE_TYPE_COPY_IMAGE_INFO_2,
@@ -623,7 +623,7 @@ export namespace deren::vulkan {
      * @param src_buffer source buffer
      * @param dst_buffer destination buffer
      * @param region_count number of regions
-     * @param regions caller-held buffer-copy array
+     * @param regions caller-provided buffer-copy array
      */
     constexpr VkCopyBufferInfo2 make_copy_buffer_info_2(VkBuffer const src_buffer, VkBuffer const dst_buffer, uint32_t const region_count, VkBufferCopy2 const* regions) noexcept {
         return {.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2,
@@ -639,7 +639,7 @@ export namespace deren::vulkan {
     /**
      * @brief VkCommandBufferInheritanceInfo shell; only the pNext chain (the rendering info)
      *        differs per buffer
-     * @param p_next points at the VkCommandBufferInheritanceRenderingInfo (caller-held)
+     * @param p_next points at the VkCommandBufferInheritanceRenderingInfo (caller-provided)
      */
     constexpr VkCommandBufferInheritanceInfo make_inheritance_info(void const* p_next) noexcept {
         return {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO,
@@ -654,7 +654,7 @@ export namespace deren::vulkan {
     /**
      * @brief dynamic-rendering inheritance: which attachments a secondary may assume
      * @param has_color_attachment depth-only secondaries (shadow pass) pass false
-     * @param color_format_ptr caller-held color format (ignored when has_color_attachment
+     * @param color_format_ptr caller-provided color format (ignored when has_color_attachment
      *        is false)
      * @param depth_format the depth attachment's format (VK_FORMAT_UNDEFINED if none)
      * @param rasterization_samples the instance's sample count (always 1 in this engine)
@@ -673,7 +673,7 @@ export namespace deren::vulkan {
     /**
      * @brief dynamic-rendering inheritance with N color attachments: a secondary recorded for a
      *        multi-target instance (the G-buffer) must declare every format it may write
-     * @param color_formats caller-held array of @p color_count formats, in attachment order
+     * @param color_formats caller-provided array of @p color_count formats, in attachment order
      * @param color_count number of color attachments declared
      * @param depth_format the depth attachment's format (VK_FORMAT_UNDEFINED if none)
      * @param rasterization_samples the instance's sample count (always 1 in this engine)
@@ -692,11 +692,11 @@ export namespace deren::vulkan {
     /**
      * @brief one barrier pass with any mix of memory, buffer, and image barriers
      * @param image_count number of image barriers
-     * @param images caller-held image barrier array
+     * @param images caller-provided image barrier array
      * @param buffer_count number of buffer barriers
-     * @param buffers caller-held buffer barrier array
+     * @param buffers caller-provided buffer barrier array
      * @param memory_count number of global memory barriers
-     * @param memories caller-held memory barrier array
+     * @param memories caller-provided memory barrier array
      */
     constexpr VkDependencyInfo make_dependency_info(uint32_t const image_count, VkImageMemoryBarrier2 const* images, uint32_t const buffer_count, VkBufferMemoryBarrier2 const* buffers, uint32_t const memory_count = 0, VkMemoryBarrier2 const* memories = nullptr) noexcept {
         return {.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
@@ -712,7 +712,7 @@ export namespace deren::vulkan {
     /**
      * @brief one barrier pass: VkDependencyInfo with only image memory barriers
      * @param image_barrier_count number of barriers
-     * @param barriers caller-held barrier array
+     * @param barriers caller-provided barrier array
      */
     constexpr VkDependencyInfo make_image_dependency_info(uint32_t const image_barrier_count, VkImageMemoryBarrier2 const* barriers) noexcept {
         return make_dependency_info(image_barrier_count, barriers, 0, nullptr);
@@ -855,7 +855,7 @@ export namespace deren::vulkan {
      *        albedo/metallic, normal/roughness, material id/AO/flags)
      * @param flags e.g. VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT
      * @param render_area the area to render into (the pipelines apply their viewport/scissor)
-     * @param color_attachments caller-held array of @p color_count attachments (in the order the
+     * @param color_attachments caller-provided array of @p color_count attachments (in the order the
      *        fragment shader's layout(location = i) outputs address)
      * @param color_count number of color attachments (0 for a depth-only pass, same as passing
      *        false to the single-attachment overload above)
@@ -905,7 +905,7 @@ export namespace deren::vulkan {
                 .scissorCount = 1,
                 .pScissors = nullptr};
     }
-    /** @brief dynamic state list (caller-held array) */
+    /** @brief dynamic state list (caller-provided array) */
     constexpr VkPipelineDynamicStateCreateInfo make_dynamic_state(VkDynamicState const* states, uint32_t const count) noexcept {
         return {.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
                 .pNext = nullptr,
@@ -1065,7 +1065,7 @@ export namespace deren::vulkan {
     }
     /**
      * @brief blend state for one attachment; depth-only pipelines have no color attachment
-     * @param attachment caller-held blend attachment (ignored when has_color_attachment false)
+     * @param attachment caller-provided blend attachment (ignored when has_color_attachment false)
      */
     constexpr VkPipelineColorBlendStateCreateInfo make_color_blend_state(bool const has_color_attachment, VkPipelineColorBlendAttachmentState const* attachment) noexcept {
         return {.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
@@ -1079,7 +1079,7 @@ export namespace deren::vulkan {
     }
     /**
      * @brief blend state with N attachments, same blend constants
-     * @param attachments caller-held array of @p count blend attachments, in attachment order
+     * @param attachments caller-provided array of @p count blend attachments, in attachment order
      * @param count number of attachments (0 for a depth-only pipeline)
      */
     constexpr VkPipelineColorBlendStateCreateInfo make_color_blend_state(VkPipelineColorBlendAttachmentState const* attachments, uint32_t const count) noexcept {
@@ -1106,7 +1106,7 @@ export namespace deren::vulkan {
     }
     /**
      * @brief dynamic-rendering attachment declaration (replaces render pass + subpass)
-     * @param color_format_ptr pointer to the caller's color format: the returned info holds
+     * @param color_format_ptr pointer to the caller's color format: the returned info stores
      *        that pointer, so it must outlive the struct
      * @param depth_format the depth attachment format (VK_FORMAT_UNDEFINED for depth-only)
      */
@@ -1122,7 +1122,7 @@ export namespace deren::vulkan {
     /**
      * @brief dynamic-rendering attachment declaration for an N-target pipeline (the G-buffer
      *        pipeline declares its three targets, in the order its fragment outputs address them)
-     * @param color_formats pointer to the caller's format array (retained by the struct, so it
+     * @param color_formats pointer to the caller's format array (stored by the struct, so it
      *        must outlive it - pass the core's static gbuffer_formats)
      * @param color_count number of color attachment formats declared
      * @param depth_format the depth attachment format (VK_FORMAT_UNDEFINED if none)
@@ -1485,8 +1485,8 @@ export namespace deren::vulkan {
     };
     /** @brief attachment write -> transfer read (GENERAL -> GENERAL), screenshot read-back copy
      *         (vkCmdCopyImageToBuffer). Recorded INSIDE the frame's command buffer, while the
-     *         swapchain image is still held by the app: after vkQueuePresentKHR the presentation
-     *         engine holds it and transitioning it again violates the WSI rules. */
+     *         swapchain image is still controlled by the app: after vkQueuePresentKHR the presentation
+     *         engine takes it for display and transitioning it again violates the WSI rules. */
     inline constexpr VkImageMemoryBarrier2 color_attachment_to_transfer_transition = {
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
         .pNext = nullptr,

@@ -25,7 +25,7 @@ extension, without its `hostImageCopy` feature, whose entry points do not resolv
 
 `vkCopyImageToMemoryEXT` takes an `VkCopyImageToMemoryInfoEXT` naming a source image, its CURRENT layout and one or
 more `VkImageToMemoryCopyEXT` regions, each with a host pointer, a subresource and an extent. The implementation
-performs the copy; the app records nothing, submits nothing and holds no staging memory. It is an EXTENSION command,
+performs the copy; the app records nothing, submits nothing and keeps no staging memory. It is an EXTENSION command,
 so it is resolved with `vkGetDeviceProcAddr` and cached on `core` (`copy_image_to_memory`), the same way the mesh
 dispatch commands are (`source/backends/vulkan/core/declarations/core.declarations.cppm`, `source/backends/vulkan/core/core.constructor.cppm`).
 
@@ -99,7 +99,7 @@ reason:
 2. THE COPY MUST BE RECORDED INSIDE THE FRAME, AND SINCE S2 BATCH 2 IT IS RECORDED THROUGH THE CONTRACT. Moving
    the read-back behind the contract as a frame-domain, synchronously-ordered call was implemented once and
    MEASURED TO FAIL: it ran after `submit_and_present()`, when the swapchain image is `VK_IMAGE_LAYOUT_PRESENT_SRC_KHR`
-   and held by the presentation engine, and validation reported
+   and used by the presentation engine, and validation reported
    `vkQueueSubmit(): ... expects VkImage ... to be in layout VK_IMAGE_LAYOUT_GENERAL--instead, current layout is
    VK_IMAGE_LAYOUT_PRESENT_SRC_KHR` for every capturing scene. THE FAILURE WAS THE TIMING, NOT THE INTERFACE, and
    the recording surface that fixes the timing now exists (`api_core::begin_commands()`, `image::format()`,

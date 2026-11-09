@@ -6,7 +6,7 @@
 // module version: 1.2.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // GPU scene contents (namespace deren::engine):
-//   - deren::engine::primitive (holds geometry buffers + material push constants,
+//   - deren::engine::primitive (carries geometry buffers + material push constants,
 //     implements the pure-CPU abstract scene_tree::primitive) and its draw
 //     strategies normal_draw_primitive / instanced_draw_primitive /
 //     static_draw_primitive
@@ -24,7 +24,7 @@
  * @defgroup engine_primitive Engine GPU Primitives
  * @brief the drawable GPU primitives plus the material / camera / light UBO
  *        records of the GPU scene set.
- * @details each primitive holds its geometry buffers and material push
+ * @details each primitive carries its geometry buffers and material push
  *          constants and implements the abstract scene_tree::primitive leaf
  *          (set_world); draw(render_environment&) records through the
  *          per-recording-worker environment.

@@ -22,12 +22,12 @@ namespace deren::vulkan {
         }
     }
 
-    rhi::shared_object<rhi::image> core::frame_resources_view::retain_image() noexcept {
+    rhi::shared_object<rhi::image> core::frame_resources_view::snapshot_image() noexcept {
         if (!parent || !parent->frame.frame_in_flight || !parent->frame.frame_acquired) {
             return {};
         }
-        auto keep_core = parent->self.lock();
-        if (!keep_core || parent->frame.frame_image_view.handle() == VK_NULL_HANDLE) {
+        auto core_reference = parent->self.lock();
+        if (!core_reference || parent->frame.frame_image_view.handle() == VK_NULL_HANDLE) {
             return {};
         }
         if (auto cached = parent->frame.frame_snapshot_cache.lock(); cached && cached->current()) {
@@ -35,7 +35,7 @@ namespace deren::vulkan {
         }
         rhi::shared_object<frame_snapshot> result{new frame_snapshot()};
         result->parent = parent;
-        result->keep_alive = keep_core;
+        result->root_reference = core_reference;
         result->self = result;
         result->native_handle = parent->frame.frame_image_view.handle();
         result->captured_extent = parent->frame.frame_image_view.extent();
@@ -68,9 +68,9 @@ namespace deren::vulkan {
     }
 
     void core::frame_snapshot::release() noexcept {
-        // THE SNAPSHOT IS HANDED OUT AS A `shared_object` (`frame_resources::retain_image()`), and this IS
-        // the drop its control block performs at the last copy - the same one-reference rule every other
-        // RHI handle follows. The destructor unregisters the snapshot from the core's set.
+        // THE SNAPSHOT IS HANDED OUT AS A `shared_object` (`frame_resources::snapshot_image()`), and this IS
+        // the teardown its control block runs at the last copy - the same release-on-last-copy rule every
+        // other RHI handle follows. The destructor unregisters the snapshot from the core's set.
         delete this;
     }
 } // namespace deren::vulkan

@@ -3,9 +3,9 @@
 // module version: 0.1.1  (independent of the app version in CMakeLists project(VERSION))
 //
 // The runtime's initialization utilities: the resource-creation patterns its init
-// functions repeat. Sister module: deren.vulkan.core:init_utils holds the DEVICE-side
+// functions repeat. Sister module: deren.vulkan.core:init_utils provides the DEVICE-side
 // equivalents (device/queue/swapchain selection, memory-type and format queries);
-// this one holds the RENDERER-side ones - the host-visible buffers, the recording
+// this one provides the RENDERER-side ones - the host-visible buffers, the recording
 // pools and the uploaded textures the runtime's members are made of - and imports
 // deren.vulkan.core, never the other way round.
 //
@@ -71,7 +71,7 @@ namespace deren::vulkan::init_utils {
      * @param type the buffer's usage/memory type (see buffer_type: host-visible ones are the *_coherent
      *        variants, which is what makes the mapped pointer usable)
      * @param what what the resource is called in the failure log ("camera ubo buffer")
-     * @param buffer receives the holding handle; empty on entry, valid on return
+     * @param buffer receives the created handle; empty on entry, valid on return
      * @param mapped receives VMA's mapped pointer for that allocation
      * @note panics (with @p what in the message) when the buffer cannot be created or its detail cannot
      *       be looked up - the failure mode the call sites all handled by hand before
@@ -96,7 +96,7 @@ namespace deren::vulkan::init_utils {
      * @param initial the bytes each one starts with
      * @param type the buffer's usage/memory type
      * @param what what the resource is called in the failure log
-     * @param buffers receives the holding handles, appended in slot order
+     * @param buffers receives the created handles, appended in slot order
      * @param mapped receives the mapped pointers in the same order; pass nullptr for a buffer the host
      *        never writes through (the cluster index rows, which only the GPU fills)
      * @note the per-slot shape exists for a reason (a frame in flight must not share the buffer the next
@@ -118,7 +118,7 @@ namespace deren::vulkan::init_utils {
      * @brief an uploaded 2D texture together with the view that samples it
      */
     export struct texture_2d {
-        /// the holding image (the RAII wrapper keeps the allocation alive)
+        /// the created image (the RAII wrapper destroys the allocation)
         vk_image image = {};
         /// a 2D color view of it, which is what a descriptor binds
         vk_image_view view = {};
@@ -131,7 +131,7 @@ namespace deren::vulkan::init_utils {
      * @param pixels the texel data; its size must match what @p info describes
      * @param info width/height/mip levels/layer count/format (the caller's shape)
      * @param what what the texture is called in the failure log ("white fallback texture")
-     * @return the image and its view, both in SHADER_READ_ONLY layout terms - the caller holds the
+     * @return the image and its view, both in SHADER_READ_ONLY layout terms - the caller performs the
      *         layout transition and the descriptor write, this only creates
      * @note panics (with @p what in the message) when the image cannot be created or its detail cannot
      *       be looked up

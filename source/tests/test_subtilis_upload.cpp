@@ -178,18 +178,18 @@ int main() {
     CHECK(!leaf.bind_subtilis_geometry({}));
     CHECK(leaf.bind_subtilis_geometry(*second));
     CHECK(leaf.vertex_buffer.get() == (*second)->vertices() && leaf.index_buffer.get() == (*second)->indices());
-    CHECK(leaf.vertex_buffer.lease() == leaf.index_buffer.lease());
+    CHECK(leaf.vertex_buffer.access() == leaf.index_buffer.access());
     CHECK(leaf.draw_index_count == second_source->lod0_index_count() && leaf.index_type == rhi::index_type::uint32);
     CHECK(leaf.vertex_count == second_source->vertex_count() && leaf.vertex_stride == second_source->vertex_stride());
     CHECK(leaf.subtilis_geometry == *second && leaf.is_valid());
     CHECK(!leaf.bind_subtilis_geometry(*second));
-    auto old_lease = leaf.vertex_buffer.lease();
+    auto old_access = leaf.vertex_buffer.access();
     std::weak_ptr<sub::uploaded_geometry const> old = *second;
     second->reset();
     leaf.destroy();
     CHECK(!leaf.vertex_buffer && !leaf.index_buffer && !leaf.subtilis_geometry && !leaf.geometry_resources);
     CHECK(!old.expired());
-    old_lease.reset();
+    old_access.reset();
     CHECK(old.expired());
     {
         rhi::create_info options{};
@@ -215,11 +215,11 @@ int main() {
                 CHECK(created->index_type == rhi::index_type::uint32 && created->index_buffer->size() == second_source->indices().size_bytes());
                 CHECK(created->has_bounds && created->local_aabb_min.x == 100);
                 CHECK(created->meshlet_count == second_source->hierarchy().lod0_count());
-                auto lease = created->index_buffer.lease();
+                auto access = created->index_buffer.access();
                 deren::vk_test::probe_resource_failure(*device, 1);
                 CHECK(runtime.make_primitive("upload_probe", explicit_source) == nullptr);
                 deren::vk_test::probe_resource_failure(*device, -1);
-                CHECK(created->index_buffer.lease() == lease && created->is_valid());
+                CHECK(created->index_buffer.access() == access && created->is_valid());
                 auto raw_info = explicit_source;
                 raw_info.subtilis_geometry.reset();
                 raw_info.vertex_data = second_source->vertices();

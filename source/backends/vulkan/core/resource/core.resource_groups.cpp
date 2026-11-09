@@ -80,7 +80,7 @@ namespace deren::vulkan {
         if (!parent) {
             return;
         }
-        // Unlock before member-holder destruction: those destructors enter other registries.
+        // Unlock before the members are destroyed: those destructors enter other registries.
         std::lock_guard lock(parent->resource.resource_groups_mutex);
         parent->resource.resource_groups.erase(this);
         for (auto allocation : allocations) {
@@ -96,7 +96,7 @@ namespace deren::vulkan {
         if (!recording || native() == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
         }
-        if (!group.retains_lifetime()) {
+        if (!group.is_live()) {
             return rhi::error::invalid_argument;
         }
         {
@@ -122,7 +122,7 @@ namespace deren::vulkan {
         if (layout.size() != concrete.entries.size()) {
             return rhi::error::invalid_argument;
         }
-        // Check every member before any native call or recorded reference is published.
+        // Check every member before any native call is made or the group is recorded.
         for (std::size_t i = 0; i < layout.size(); ++i) {
             if (layout[i].binding != concrete.entries[i].binding || layout[i].kind != concrete.entries[i].kind) {
                 return rhi::error::invalid_argument;

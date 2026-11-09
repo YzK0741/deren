@@ -626,7 +626,7 @@ namespace deren::utility::detail::trace_native {
                 break;
             }
             // The loop already broke when the child exited with nothing left to read, and the
-            // job's kill-on-close cleanup ends any descendant still holding the write end. This
+            // job's kill-on-close cleanup ends any descendant that still has the write end open. This
             // wait only paces the next PeekNamedPipe; it is NOT a wait for descendants' output.
             static_cast<void>(WaitForSingleObject(process.hProcess, 1));
         }

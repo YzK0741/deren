@@ -94,14 +94,14 @@ namespace deren::engine {
     // The heavy CPU stages get _async siblings returning std::future; the caller only blocks
     // in get() when the result is actually needed, so independent stages can overlap.
     // @note span parameters are taken by view: the pointed-to data (e.g. the env cubemap)
-    //       must stay alive until the returned future is consumed.
+    //       must stay valid until the returned future is consumed.
 
     export std::future<deren::utility::vessel::vector<float>> generate_environment_cubemap_async(int32_t size, deren::utility::vessel::array<float, 3> sun_direction = {0.3f, 1.0f, 0.5f});
     /**
      * @ingroup engine_math
      * @brief async twin of generate_environment_cubemap_from_equirect()
-     * @note UNLIKE the span-taking twins above, this one HOLDS its input: the pixels come from a file the
-     *       caller loads a few lines earlier, and it would otherwise have to keep that buffer alive across
+     * @note UNLIKE the span-taking twins above, this one TAKES its input by value: the pixels come from a file the
+     *       caller loads a few lines earlier, and it would otherwise have to keep that buffer valid across
      *       a whole startup stage - the exact lifetime a moved-in vector makes impossible to get wrong.
      */
     export std::future<deren::utility::vessel::vector<float>> generate_environment_cubemap_from_equirect_async(deren::utility::vessel::vector<float> equirect, int32_t width, int32_t height, int32_t size, float intensity = 1.0f);

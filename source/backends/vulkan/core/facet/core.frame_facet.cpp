@@ -2,7 +2,7 @@
 // ============================================================================
 // file: source/backends/vulkan/core/facet/core.frame_facet.cpp
 //
-// The frame face holds the swapchain, the frame ring and the frame's referenced
+// The frame face stores the swapchain, the frame ring and the frame's non-counted
 // views. Its virtual entry points implement the frame lifecycle here; the root
 // keeps thin forwarders for its callers.
 // ============================================================================
@@ -96,7 +96,7 @@ namespace deren::vulkan {
         VkResult const acquired = this->full_core.acquire_next_image(image_index);
         if (acquired != VK_SUCCESS && acquired != VK_SUBOPTIMAL_KHR) {
             // tier-1's frame_begin() has no error channel (plan §3.3): a zeroed answer is the contract's
-            // way of saying "no frame started", and the caller's pacing path holds the diagnosis.
+            // way of saying "no frame started", and the caller's pacing path has the diagnosis.
             return rhi::submit_info{};
         }
         // The contract's "index in the frame-in-flight ring" IS this core's frame slot.
@@ -133,10 +133,10 @@ namespace deren::vulkan {
 
     // ---- the frame face (abi 13) ----------------------------------------------------------------
     //
-    // THE ACCESSORS hand out this core's two views - the same object every call, the
-    // constructor set their `holder`. The views' methods compose the machinery this class already
-    // held: the walker is today's frame prologue fused (wait -> latch timings -> acquire -> report),
-    // the profiler reads the timing snapshot the walker's latch produced.
+    // THE ACCESSORS hand out this core's two views - the same object every call, with `parent` set by
+    // the constructor. The views' methods compose the machinery this class already had: the walker is
+    // today's frame prologue fused (wait -> latch timings -> acquire -> report), the profiler reads the
+    // timing snapshot the walker's latch produced.
 
     rhi::frame_walker* core::frame_facet::walk_frames() noexcept {
         return &this->frames_view;

@@ -18,7 +18,7 @@ export namespace deren::engine::render_graph::lighting {
     };
     /// The clustered-light sort's per-slot output, which the lighting stage reads as storage buffers (the
     /// heap bindings the sort's removed legacy path published with its two barriers). Declared here, the graph
-    /// holds the producer -> consumer dependency instead of the pass.
+    /// records the producer -> consumer dependency instead of the pass.
     struct cluster_inputs {
         buffer_ref counts, indices;
     };
@@ -44,7 +44,7 @@ export namespace deren::engine::render_graph::lighting {
         std::optional<texture_ref> rt_visibility = {};
         /// THE RAY-TRACED REFLECTION IMAGE: the deferred stage samples the radiance target the reflection lane
         /// produced. Declaring the read pairs it with that lane's storage write, so the graph orders trace ->
-        /// lighting and holds the image's transition to sampled.
+        /// lighting and records the image's transition to sampled.
         std::optional<texture_ref> rt_reflection = {};
     };
     struct shared_parameters {
@@ -77,7 +77,7 @@ export namespace deren::engine::render_graph::lighting {
         texture_ref color;
         pass_ref pass;
     };
-    // Mesh/material textures, the cluster/shadow producers and the transient feature images retain their
+    // Mesh/material textures, the cluster/shadow producers and the transient feature images keep their
     // external protocols; the scene-wide IBL images are declared through `shared_inputs` because they are
     // real sampled resources the lighting stage reads every frame.
     [[nodiscard]] std::expected<outputs, graph_error> append(builder& graph, inputs const& in) noexcept {

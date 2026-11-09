@@ -1,5 +1,5 @@
 #pragma once
-// Included in the primary module after imports; these are private module-held types.
+// Included in the primary module after imports; these are private types of this module.
 namespace deren::engine::subtilis::builder_detail {
     template <class T>
     using vector = deren::utility::vessel::vector<T>;

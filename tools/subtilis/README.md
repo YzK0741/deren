@@ -54,7 +54,7 @@ third-party allocations and are reported as such, not counted as exact peaks.
 `export-cut` writes ordinary glTF indices for the selected model-space error
 threshold and removes the consumed extension. Material, attributes and instances
 keep their original identities. Exported files can be opened by standard GLB
-viewers. Unreferenced old binary ranges are retained to preserve other IDs.
+viewers. Unreferenced old binary ranges are kept to preserve other IDs.
 
 Current milestone: local glTF/GLB and base64 data URI input, GLB or glTF
 directory-package output, deterministic bounded multi-core build. Local buffer

@@ -97,7 +97,7 @@ int main() {
     CHECK(result[2]->kind() == rec::operation_kind::draw);
     stream.clear();
 
-    // Push bytes are held; partial overlaps must preserve the earlier non-overwritten bytes.
+    // Push bytes are copied; partial overlaps must preserve the earlier non-overwritten bytes.
     std::array bytes{std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4},
                      std::byte{5}, std::byte{6}, std::byte{7}, std::byte{8}};
     stream.append<rec::operation_kind::push>({0}, bytes);

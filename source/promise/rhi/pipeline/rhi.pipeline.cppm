@@ -38,7 +38,7 @@ export namespace deren::promise::rhi {
         std::uint32_t struct_size = sizeof(shader_desc); ///< size of this structure as the CALLER compiled it
         shader_stage stage = shader_stage::vertex;
         std::span<std::byte const> code;  ///< the SPIR-V
-        char const* debug_name = nullptr; ///< what the backend logs on refusal; not retained
+        char const* debug_name = nullptr; ///< what the backend logs on refusal; not copied by the backend
     };
 
     /// THE FOUR BLEND RECIPES this renderer's pipelines actually use (the survey found exactly these
@@ -119,7 +119,7 @@ export namespace deren::promise::rhi {
         float depth_bias_clamp = 0.0f;
         std::span<blend_mode const> blend_modes; ///< per color attachment; empty = all opaque
         depth_compare compare = depth_compare::less_or_equal;
-        char const* debug_name = nullptr; ///< what the backend logs on refusal; not retained
+        char const* debug_name = nullptr; ///< what the backend logs on refusal; not copied by the backend
         /**
          * THE COMPUTE SPELLING (APPENDED, guarded by `struct_size`, so an older caller keeps the graphics
          * meaning it compiled against).
@@ -174,8 +174,8 @@ export namespace deren::promise::rhi {
     ///
     /// Each one is a polymorphic handle and not much more yet: the operations the engine
     /// performs on them (bind, draw, dispatch, barrier, present) are exactly the S1
-    /// design surface, held back by §6.4's "explicit barrier first, then shadow mode"
-    /// decision. What they carry today is retention: destroying one through this base
+    /// design surface, deferred by §6.4's "explicit barrier first, then shadow mode"
+    /// decision. What they add today is release: destroying one through this base
     /// has to reach the backend's destructor, which is the property the boundary rests
     /// on.
     struct shader : object {

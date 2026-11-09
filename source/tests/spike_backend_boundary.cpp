@@ -49,7 +49,7 @@
 //                          flags, and the result is recorded in the spike's report.
 //   Q3 two mimalloc        likewise a property of the LINK, not of a call: measured with
 //                          `llvm-nm` over both images (both must contain `mi_malloc`/`mi_free`)
-//                          plus the holding-STL audit in scripts/checks/check_backend_boundary.py.
+//                          plus the STL usage audit in scripts/checks/check_backend_boundary.py.
 //
 // THE SAFE DEFAULT: without `--with-device` this test never creates a window or a device, so
 // it runs anywhere and still answers Q4 (weak form), Q5, Q6 and the ABI handshake. With
@@ -109,7 +109,7 @@ namespace {
     // which does search %PATH% - a different question).
     constexpr std::string_view spike_dll_path = VR_SPIKE_BACKEND_DLL;
 
-    // abi 18: the entry returns the holding handle, so the resolved symbol IS the whole surface - the
+    // abi 18: the entry returns the shared handle, so the resolved symbol IS the whole surface - the
     // contract's typedef keeps this file from spelling a signature that could drift from the header.
     using make_core_fn = deren_make_api_core_fn;
 
@@ -139,7 +139,7 @@ namespace {
         [[nodiscard]] std::string_view get_tag() const noexcept override {
             return identity_marker;
         }
-        // the holder-side lifecycle, in the same everything-refused shape: this stand-in is "not
+        // the release-side lifecycle, in the same everything-refused shape: this stand-in is "not
         // handed out by the backend" for BOTH questions the contract asks (submit's list and
         // execute's buffer), so one class answers both.
         void release() noexcept override {
@@ -239,7 +239,7 @@ namespace {
     /**
      * @brief a command buffer the REAL backend never handed out (abi 15's provenance rule)
      *
-     * `command_buffer::execute()` must tell a buffer this backend made from a pointer a caller holds;
+     * `command_buffer::execute()` must tell a buffer this backend made from a pointer the caller supplies;
      * without RTTI the contract's precondition is the caller's, and a backend that cannot recognise
      * the buffer must refuse it BY NAME (`invalid_argument`) rather than cast an unknown pointer. This
      * stand-in is the "not mine" case, and it lives in the SPIKE because "not handed out by the
@@ -254,8 +254,8 @@ namespace {
         // diagnostic, so the assertions below read the fields a bare `error` could not carry. (abi 14
         // did not change this structure, and neither did abi 15: the frame verbs - `api_core::submit()` /
         // `frame_swapchain()`, `swapchain::recreate()` / `extent()`, the two timing verbs on
-        // `command_buffer` is the ONE recording face now (abi 21), and abi 15 appended the held
-        // `api_core::create_command_buffer()`, with `present()`'s return changing from void to error in
+        // `command_buffer` is the ONE recording face now (abi 21), and abi 15 added the `create_command_buffer()`
+        // handle on `api_core`, with `present()`'s return changing from void to error in
         // 14 - exactly the vtable case the number exists for; the number itself is compared symbolically
         // below, never spelled here, so a renumbering cannot silently pass this file.)
         rhi::create_info const creation{};
@@ -337,18 +337,18 @@ namespace {
             }
 
             // The resource factories are the S3 design surface and answer nullptr today; what this
-            // ---- THE FIRST HELD RESOURCE ACROSS THE CONTRACT -------------------------------------
+            // ---- THE FIRST RESOURCE HANDLE ACROSS THE CONTRACT -------------------------------------
             // `create_buffer` was the S3 gate ("it must answer null, not crash") until step 2a gave the
             // descriptor a shape and the backend a real implementation. What is checked now is the
-            // whole held-handle path on a REAL allocation: the factory builds the buffer inside the
+            // whole handle path on a REAL allocation: the factory builds the buffer inside the
             // DLL, the descriptor's size and its HOST-VISIBILITY decide what `mapped()` answers, and the
-            // caller's single `release()` gives the reference back to the allocator (which is the
+            // caller's single `release()` returns the allocation to the allocator (which is the
             // decrement `free_buffer` performs - release, not necessarily destruction).
             //
             // THE INITIAL BYTES ARE IN THE DESCRIPTOR rather than a second upload call: a backend that
             // keys resources on CONTENT can only recognise identical content if it is handed the content
             // at creation (rhi.api_core.cppm's `buffer_desc` note), so this is the shape that keeps the
-            // renderer's deduplication alive across the boundary.
+            // renderer's deduplication valid across the boundary.
             deren::utility::vessel::array<std::byte, 64> initial_bytes{};
             for (std::size_t index = 0; index < initial_bytes.size(); ++index) {
                 initial_bytes[index] = static_cast<std::byte>(index);
@@ -599,7 +599,7 @@ namespace {
             CHECK_MSG(core->frames->present() == rhi::error::not_ready,
                       "present with no acquired frame is refused by name, not run");
 
-            // ---- THE HELD COMMAND BUFFER (abi 15), ON THE REAL DEVICE ---------------------------
+            // ---- THE COMMAND BUFFER HANDLE (abi 15), ON THE REAL DEVICE ---------------------------
             // This is the one part of abi 15 that CAN be driven without a frame, and it is driven end
             // to end: two buffers are created (each with its command pool), both are recorded, the
             // primary executes the secondary and submits without a frame. Presentation is covered
@@ -616,12 +616,12 @@ namespace {
             if (primary && secondary != nullptr) {
                 CHECK(primary->get_tag() == "deren_command_buffer_vulkan");
                 // THE REFERENCED RECORDING VIEW IS GONE WITH `command_list` (its `recording()` and the
-                // view it returned): the held buffer IS the recording face now, so the distinction
+                // view it returned): the buffer IS the recording face now, so the distinction
                 // this line used to draw - the view is NOT the frame's list - is drawn against the
                 // frame's buffer instead: `begin_commands()` answers nothing outside a frame
-                // (checked above), and the held buffer is a different object from it.
+                // (checked above), and the buffer handle is a different object from it.
                 CHECK(core->frames->begin_commands() != static_cast<rhi::command_buffer*>(&*primary));
-                // X4 accepts recorded caller-held primaries; submit is tested after end_recording
+                // X4 accepts recorded primaries the caller created; submit is tested after end_recording
                 // below. An allocated but unrecorded native buffer is not valid submission input.
                 rhi::error const timing_open = primary->begin_gpu_timing();
                 CHECK_MSG(timing_open == rhi::error::not_ready,
@@ -629,7 +629,7 @@ namespace {
                 rhi::error const timing_mark = primary->mark_gpu_timing(0, "not the frame's");
                 CHECK_MSG(timing_mark == rhi::error::not_ready,
                           "the frame-scoped mark verb refuses the same way");
-                // THE NATIVE HANDLE: the backend main context resolves a buffer the CALLER holds, outside
+                // THE NATIVE HANDLE: the backend main context resolves a buffer the CALLER created, outside
                 // any frame - which is the read-back's case (its read runs after the frame has landed).
                 CHECK_MSG(deren::vulkan::is_command_buffer(*primary), "an buffer command buffer's concrete tag is shared");
                 if (deren::vulkan::is_command_buffer(*primary)) {
@@ -717,7 +717,7 @@ namespace {
                 CHECK(primary->end_recording() == rhi::error::ok);
                 CHECK_MSG(core->commands->submit(*primary) == rhi::error::ok,
                           "a recorded buffer primary submits without acquiring a frame");
-                core->wait_idle(); // keep both buffers alive until execution completes
+                core->wait_idle(); // keep both buffers valid until execution completes
             }
 
             mark("about to leave the scope: two releases and the DLL's deleter (core teardown) run next");

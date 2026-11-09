@@ -17,8 +17,8 @@ Available aliases cover array, vector/deque/list, basic_string and five characte
 string types, map/multimap, set/multiset, the four unordered containers, and
 queue/stack/priority_queue. Adapters default to vessel storage; callers
 supplying another underlying container choose its allocation policy.
-Allocator-backed istringstream/ostringstream/stringstream also hold vessel strings.
-`to_string` supports integers. Nested holding strings and containers should
+Allocator-backed istringstream/ostringstream/stringstream also use vessel strings for their storage.
+`to_string` supports integers. Nested strings and containers that themselves allocate should
 also use vessel: an outer allocator cannot replace an element's allocator.
 
 ## Allocation failure
@@ -40,7 +40,7 @@ does not prevent termination, but diagnostics cannot then be guaranteed.
 For recoverable OOM, use try_allocate and handle its expected result.
 Standard containers do not provide allocation failure as a return value,
 and vessel does not invent that contract. Element construction, user
-hash/comparator callbacks, bounds checks, and length checks retain STL
+hash/comparator callbacks, bounds checks, and length checks keep STL
 semantics. Container methods are not universally noexcept.
 
 ## Memory statistics
@@ -48,7 +48,7 @@ semantics. Container methods are not universally noexcept.
 `deren::utility::memory::statistics()` and `vessel::memory_statistics()` return the same
 shared-service snapshot: `current_bytes`, `peak_bytes`, `current_allocations`, and
 `peak_allocations`. Bytes use mimalloc's `mi_usable_size`, including size-class/alignment
-rounding and unused container capacity. `clear()` can retain that capacity; destruction or
+rounding and unused container capacity. `clear()` can keep that capacity; destruction or
 capacity release reduces current usage. Peaks are lifetime totals and do not reset after a free.
 
 The allocator entry points in shared_utility record successful allocations and frees, including
@@ -72,8 +72,8 @@ a PUBLIC shared_utility link dependency and rebuilt consumers. No PMR
 default-resource registration or startup hook is needed. Global operator
 new is unchanged.
 
-Held containers in engine, utility, application, configuration, loaders,
-backends, RHI/GUI contracts, and tests use vessel. Referenced APIs retain
+Allocator-backed containers in engine, utility, application, configuration, loaders,
+backends, RHI/GUI contracts, and tests use vessel. APIs that return views keep
 span/string_view. Third-party libraries and vstd standard-library exports
 keep their existing types. RHI ABI61 and GUI ABI6 require rebuilt matching
 plugins; factories reject mismatched versions before returning typed objects.

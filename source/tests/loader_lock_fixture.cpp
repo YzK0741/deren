@@ -5,7 +5,7 @@
 // DLLs' static initialization run in that same window).
 //
 // The two events are looked up BY NAME: DllMain runs INSIDE LoadLibrary, so the loading thread
-// cannot call an exported setter first. The holder (a test child process) creates both events with
+// cannot call an exported setter first. The test child process creates both events with
 // the same name and never signals the release one.
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -64,8 +64,8 @@ BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID) {
     HANDLE const release = open_event(release_prefix);
     if (release != nullptr) {
         // Deliberately pathological, and deliberately test-only: THE LOADER LOCK IS HELD HERE
-        // until the holder terminates the process. (A real plugin never does this; what this
-        // simulates is a holder that is stuck, which is one of the two ways a crash filter can
+        // until the test child terminates the process. (A real plugin never does this; what this
+        // simulates is a thread that is stuck, which is one of the two ways a crash filter can
         // meet a held lock.)
         static_cast<void>(WaitForSingleObject(release, INFINITE));
         CloseHandle(release);

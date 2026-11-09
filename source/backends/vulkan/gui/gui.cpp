@@ -93,7 +93,7 @@ namespace deren::vulkan::gui {
         // enabled, so declare the scene depth format here - the pipeline still does no depth
         // test/write (the backend's depth stencil state is all-disabled).
         // LIFETIME: pColorAttachmentFormats points at info.color_format (this init() call's
-        // argument, alive for the whole call). The struct is only consumed inside
+        // argument, valid for the whole call). The struct is only consumed inside
         // ImGui_ImplVulkan_Init, whose vendored backend DEEP-COPIES the format list into its
         // storage before returning - if that ever stops copying, the pointer must be promoted to
         // a member/static instead of pointing at the transient parameter.

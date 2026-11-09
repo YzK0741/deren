@@ -6,35 +6,35 @@
  *        initialization (`pass_filter`).
  * @defgroup engine_filters Engine Filters
  *
- * WHY FILTERS AT ALL, and why two: the device root holds the instance, the device, the swapchain, the
+ * WHY FILTERS AT ALL, and why two: the device root bundles the instance, the device, the swapchain, the
  * allocator, every image and every descriptor pool. Handing that whole interface to a consumer hands it the
  * ability to do anything to the device, and the consumer then has no way to say what it actually needs. A
  * filter is a NAMED, narrow view of that root: the app gets one, a pass's init gets another, and each can
  * grow the operations its consumer is allowed to have.
  *
  * THE ROOT IS THE CONTRACT'S `rhi::api_core` NOW (dynamic-backend migration, step 2 / S2's shared batch).
- * This file used to hold `std::shared_ptr<core>` / `core*` and to reach the concrete class for the facts
+ * This file used to carry `std::shared_ptr<core>` / `core*` and to reach the concrete class for the facts
  * behind a handful of accessors (`logical_device`, `window`, `swap_chain_extent`,
  * `swap_chain_image_format`, `vma`). MEASURED BEFORE CONVERTING, and the measurement is why this batch is
  * mostly a DELETION: of the eleven accessors those facts answered, TEN had ZERO callers anywhere in the
  * repository, and the eleventh is `user_filter::wait_idle()` - main.cpp's one call through `operator->`.
  * In particular `get_vma()` and `vma()` had no caller at all: the allocator never escapes a filter, and a
- * pass that allocates goes through `register_resource()`/`resource()`, the holder's published-resource
+ * pass that allocates goes through `register_resource()`/`resource()`, the filter's published-resource
  * channel, which touches no backend type. So the concrete class leaves WITHOUT a replacement contract
  * virtual and WITHOUT an ABI bump - adding a `vma_allocator` face to the contract would have been adding an
  * interface for a caller that does not exist.
  *
  * THE TWO FILTERS, and the line between them:
  *
- *  * `user_filter` - what the RUNTIME exposes to the application through its `operator->`. It holds a
- *    `rhi::shared_object<rhi::api_core>` (so it keeps the device alive while it exists) and forwards
+ *  * `user_filter` - what the RUNTIME exposes to the application through its `operator->`. It carries a
+ *    `rhi::shared_object<rhi::api_core>` (so the device stays valid while it exists) and forwards
  *    `wait_idle()`, the one accessor a consumer actually calls. It used to forward the window, the
  *    swapchain's extent and format, the current frame, the device and the allocator as well; every one of
  *    those had zero callers.
  *
  *  * `pass_filter` - what a PASS's create step is given. It answers exactly the questions a pass cannot
- *    answer from its declaration: session-stable handles of the resources the holder registered. It
- *    holds NO device root at all - its two live members touch nothing but its table, which is what
+ *    answer from its declaration: session-stable handles of the resources the runtime registered. It has
+ *    NO device root at all - its two live members touch nothing but its table, which is what
  *    makes it identical on both sides of the boundary.
  */
 
@@ -74,7 +74,7 @@ export namespace deren::engine {
      * @ingroup engine_filters
      * @brief the application's view of the device root, exposed by `runtime::operator->`
      * @note
-     *      - holds a `rhi::shared_object<rhi::api_core>`, so it keeps the device alive while it exists and it
+     *      - carries a `rhi::shared_object<rhi::api_core>`, so the device stays valid while the filter exists and it
      *        is the SAME interface on both sides of the boundary (before the flip the vtable points into
      *        the static archive, after it into the loaded library)
      *      - the runtime exposes it via `operator->`, so external code never sees the raw device root
@@ -82,9 +82,9 @@ export namespace deren::engine {
      *        runtime
      */
     class user_filter {
-        // called core_reference, not holder: the holder parameter of the constructor would hide a member of that name and
+        // named core_reference so no constructor parameter repeats the member name: one of the same name would hide it and
         // MSVC /W4 reports C4458, an error under /WX
-        /// the share that keeps the device alive, and the interface pointer the one forwarded call goes through
+        /// the shared device root (the device stays valid while this filter exists), and the interface pointer the one forwarded call goes through
         deren::promise::rhi::shared_object<deren::promise::rhi::api_core> core_reference;
         deren::promise::rhi::api_core* core_face = nullptr;
 
@@ -103,14 +103,14 @@ export namespace deren::engine {
 
     /**
      * @ingroup engine_filters
-     * @brief the view a PASS's create step is handed: the resources the holder published, and nothing else
+     * @brief the view a PASS's create step is handed: the resources the runtime published, and nothing else
      *
      * WHAT IT IS FOR, in one sentence: a pass must be able to NAME the session-stable resources its
      * declaration lists, without being handed the device root - which is what the runtime did on its behalf
      * before this filter existed (see `runtime::create_mask_bake` and `runtime::create_compute_skin`, whose
      * bespoke input structs this replaces).
      *
-     * IT HOLDS NO DEVICE ROOT, and that is a measured fact rather than a design preference (S2's shared
+     * IT HAS NO DEVICE ROOT, and that is a measured fact rather than a design preference (S2's shared
      * batch): its two live members - `register_resource` (called by the runtime) and `resource` (called by
      * the pass framework) - touch nothing but the table below. It used to hoist `shared_ptr<core>` for a
      * device, a surface format, a surface extent and an allocator, none of which had a caller.
@@ -125,12 +125,12 @@ export namespace deren::engine {
      */
     class pass_filter {
         /**
-         * What the HOLDER (the runtime) has published for its passes to name.
+         * What the RUNTIME has published for its passes to name.
          *
          * A vector rather than a map: the resources a pass may ask for are a handful, this is filled once at
          * startup, and the lookup happens during create - so the smallest container that works is the honest
          * one. A `resource_id` that was never registered resolves to a null handle, which is what a pass's
-         * "this holder has none" branch already handles.
+         * "missing resource" branch already handles.
          */
         deren::utility::vessel::vector<std::pair<uint32_t, resource_handles>> registered;
 
@@ -138,10 +138,10 @@ export namespace deren::engine {
         /// an empty table: the runtime publishes what it has through `register_resource`
         pass_filter() noexcept = default;
 
-        /// @brief publish one of the holder's resources, by the DECLARATION's identity (resource + element)
+        /// @brief publish one of the runtime's resources, by the DECLARATION's identity (resource + element)
         void register_resource(render_resource::resource_id id, uint32_t element, resource_handles handles) noexcept;
         /**
-         * @brief what this pass declared, if the holder has it: session-stable handles, or all-null
+         * @brief what this pass declared, if it was registered: session-stable handles, or all-null
          * @param id the resource, from the same `resource_id` vocabulary the declaration uses
          * @param element which one of the family: the frame SLOT for a per-frame-slot resource (the skin
          *        matrices, the cluster bins), or 0 for a device-wide one

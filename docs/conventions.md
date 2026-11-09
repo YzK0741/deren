@@ -57,7 +57,7 @@ They are not interchangeable, and the difference is what makes a call site reada
 `set_shadow_cascades` is a knob, `create_shadow_resources` allocates, `prepare_scene_resources`
 prepares shared resources and bindings for a frame, and `record_shadow_content` draws.
 Prefer these concrete verbs over `ensure_` in new or revised names. Existing `ensure_` helpers
-outside the shared scene-resource initialization path retain their names until their code is revised.
+outside the shared scene-resource initialization path keep their names until their code is revised.
 
 ## Partitions
 
@@ -105,5 +105,5 @@ which is a CHARACTER type: only `unsigned char` / `signed char` are spelled `uin
 
 The rules above are about NAMES. The rules that follow from the toolchains this is built against are a separate
 page, each with the measurement behind it: what a module interface may not do with an incomplete type, why
-`NOMINMAX` is guarded before `<windows.h>`, and why the project holds `deren::utility::print`/`println` instead of using
+`NOMINMAX` is guarded before `<windows.h>`, and why the project ships `deren::utility::print`/`println` instead of using
 `std::print`. See \ref md_docs_2compiler__tolerance "Compiler tolerance".

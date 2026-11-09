@@ -708,7 +708,7 @@ namespace deren::app_config {
         if (toml::table const* scene = table.get_as<toml::table>("scene")) {
             // `[[scene.objects]]`: an ordered list of placements for the ONE loaded model. Absent or empty
             // keeps the historic single-object import; the list is capped because each entry builds a full
-            // retained hierarchy and draws its submeshes.
+            // hierarchy in memory and draws its submeshes.
             if (toml::array const* objects = scene->get_as<toml::array>("objects")) {
                 auto const read_vec3 = [](toml::table const& source, char const* key, deren::utility::vessel::array<float, 3>& target) {
                     if (toml::node const* node = source.get(key)) {

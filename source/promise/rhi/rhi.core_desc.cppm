@@ -24,7 +24,7 @@
 //
 //   - the title is `char const*` (UTF-8, NUL-terminated) and NOT `deren::utility::vessel::string`: a `deren::utility::vessel::string` here
 //     would make "same standard library, same allocator" a premise of the boundary, and the backend
-//     copies the text into the window system's storage at construction anyway. It is REFERENCED
+//     copies the text into the window system's storage at construction anyway. It is READ
 //     ONLY UNTIL THE CALL RETURNS - a caller passing a temporary's `.c_str()` is the bug this note
 //     exists to prevent (main.cpp spells the valid shape: the text outlives the call).
 //   - a caller-provided window is `void*` and not `GLFWwindow*`: the contract does not know what a
@@ -63,14 +63,14 @@ export namespace deren::promise::rhi {
      * - The program fills it once, at startup, and hands it to `deren_make_api_core()`, whose pointer
      *   parameter is this type. It is THE creation descriptor: there is no backend-side twin and no
      *   translation step, because the backend's constructor takes this structure directly.
-     * - `native_window` is referenced, never held: when it is not null the backend binds to that window
-     *   and does not create or destroy one, and the caller has to keep it alive for as long as the
+     * - `native_window` is read in place, never stored: when it is not null the backend binds to that window
+     *   and does not create or destroy one, and the caller has to keep it valid for as long as the
      *   context lives. When it is null the backend creates the window from the fields above.
      */
     struct create_info {
         /// size of this structure as the CALLER compiled it (ABI guard, see the banner)
         std::uint32_t struct_size = sizeof(create_info);
-        /// window title, UTF-8 and NUL-terminated; referenced only until the call returns
+        /// window title, UTF-8 and NUL-terminated; read only until the call returns
         char const* window_title = "deren";
         std::int32_t window_width = 1080;
         std::int32_t window_height = 960;
@@ -85,8 +85,8 @@ export namespace deren::promise::rhi {
         bool validation_layers = false;
         /// legacy compatibility field; the separate caller controls visibility window
         bool window_visible = true;
-        /// a window the CALLER holds (an HWND/GLFWwindow*/whatever the backend understands), or null to
-        /// select windowless rendering. Referenced, never freed by the backend.
+        /// a window the CALLER created and destroys (an HWND/GLFWwindow*/whatever the backend understands), or null to
+        /// select windowless rendering. Read, never freed by the backend.
         void* native_window = nullptr;
     };
 

@@ -1,4 +1,4 @@
-// Immutable texture-group retention and allocation. GPU publication is separate.
+// Immutable texture-group lifetime and allocation. GPU publication is separate.
 module;
 #include <cstddef>
 #include <cstdint>
@@ -136,13 +136,13 @@ namespace deren::vulkan {
 
     rhi::error core::write_group_texture_locked(core::texture_group& group, std::uint32_t const index,
                                                 rhi::image& texture) noexcept {
-        // THE ONE WRITE PATH (registration + descriptor_space::write): the caller holds resource.texture_groups.mutex,
+        // THE ONE WRITE PATH (registration + descriptor_space::write): the caller has locked resource.texture_groups.mutex,
         // has established that `texture` is this backend's image, and has checked the group/index.
         if (group.allocation >= texture_group_state::group_capacity || !resource.texture_groups.group_live(group.allocation) ||
             index >= rhi::texture_group_capacity) {
             return rhi::error::invalid_argument;
         }
-        // The lease cache is keyed by the image alone because the group profile's view is fixed (all mips,
+        // The view cache is keyed by the image alone because the group profile's view is fixed (all mips,
         // one layer, sampled role) - two groups sharing an image therefore share one descriptor slot, which
         // is exactly the sharing the pre-descriptor-space code did.
         auto const& lazy = static_cast<core::image const&>(texture);
@@ -153,14 +153,14 @@ namespace deren::vulkan {
             return rhi::error::ok;
         }
         auto& cached = resource.texture_groups.cache[&texture];
-        auto lease = cached.lock();
-        if (!lease) {
+        auto shared_view = cached.lock();
+        if (!shared_view) {
             auto const free = resource.texture_groups.first_free_texture_slot();
             if (free == texture_group_state::texture_capacity) {
                 return rhi::error::out_of_device_memory;
             }
-            auto fresh = std::shared_ptr<texture_group_state::sampled_view_lease>(
-                new (std::nothrow) texture_group_state::sampled_view_lease);
+            auto fresh = std::shared_ptr<texture_group_state::sampled_view_entry>(
+                new (std::nothrow) texture_group_state::sampled_view_entry);
             if (!fresh) {
                 return rhi::error::out_of_host_memory;
             }
@@ -178,11 +178,11 @@ namespace deren::vulkan {
             resource.texture_groups.set_texture_slot_live(free, true);
             fresh->state = &resource.texture_groups;
             cached = fresh;
-            lease = std::move(fresh);
+            shared_view = std::move(fresh);
         }
-        group.record.indices[index] = lease->slot;
+        group.record.indices[index] = shared_view->slot;
         group.record.present_mask |= 1u << index;
-        group.views[index] = std::move(lease);
+        group.views[index] = std::move(shared_view);
         group.deferred_images[index] = {};
         // THE RECORD IS THE SHADER-FACING HALF of the write: the group table descriptor (slot 32768) points at
         // this buffer, and the pushed token selects the record. Publishing here keeps "one slot written" and
@@ -196,7 +196,7 @@ namespace deren::vulkan {
         return rhi::error::ok;
     }
 
-    core::texture_group_state::sampled_view_lease::~sampled_view_lease() noexcept {
+    core::texture_group_state::sampled_view_entry::~sampled_view_entry() noexcept {
         if (state != nullptr) {
             std::lock_guard lock(state->mutex);
             state->set_texture_slot_live(slot, false);

@@ -53,8 +53,8 @@ int main() {
     desc.format = rhi::image_format::r16g16b16a16_sfloat;
     desc.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::color_attachment);
     auto input = *cluster->create_image(desc);
-    std::array<deren::engine::resource_lease<rhi::image>, 4> levels;
-    std::array<deren::engine::resource_lease<rhi::image_view>, 4> views;
+    std::array<deren::engine::resource_handle<rhi::image>, 4> levels;
+    std::array<deren::engine::resource_handle<rhi::image_view>, 4> views;
     bloom::description description{};
     description.input = rg::execution::identify(input);
     description.input_state = {rg::resource_layout::shader_read_only, rg::pipeline_stage::fragment_shader, rg::memory_access::read};

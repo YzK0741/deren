@@ -24,7 +24,7 @@ subtilis_cache extract_subtilis_payloads(fastgltf::GltfDataGetter& file, Asset c
         [](void*, void* old, size_t before, size_t n) -> void* {auto* next=deren::utility::memory::allocate(n);if(old)std::memcpy(next,old,std::min(before,n));deren::utility::memory::deallocate(old);return next; },
         [](void*, void* p) { deren::utility::memory::deallocate(p); }, nullptr};
     auto* document = yyjson_read_opts(reinterpret_cast<char*>(const_cast<std::byte*>(json.data())), json.size(), 0, &allocator, nullptr);
-    std::unique_ptr<yyjson_doc, decltype(&yyjson_doc_free)> holder(document, yyjson_doc_free);
+    std::unique_ptr<yyjson_doc, decltype(&yyjson_doc_free)> document_guard(document, yyjson_doc_free);
     if (!document)
         return cache;
     auto* meshes = yyjson_obj_get(yyjson_doc_get_root(document), "meshes");

@@ -88,8 +88,8 @@ namespace deren::engine::gaussian_splatting {
             return bounds;
         }
     } // namespace
-    std::expected<std::shared_ptr<gpu_asset const>, foundation_error> upload_asset(deren::promise::rhi::api_core& core, packed_asset const& asset, foundation_limits const& limits, deren::promise::rhi::shared_object<deren::promise::rhi::api_core> device_lease) {
-        // Validate before making the legacy interface's holding copy. Production transfers packed storage.
+    std::expected<std::shared_ptr<gpu_asset const>, foundation_error> upload_asset(deren::promise::rhi::api_core& core, packed_asset const& asset, foundation_limits const& limits, deren::promise::rhi::shared_object<deren::promise::rhi::api_core> device_root) {
+        // Validate before copying the source for the legacy interface. Production transfers packed storage.
         auto size = packed_byte_size(asset.geometry.size(), limits);
         if (!size) {
             return std::unexpected(size.error());
@@ -98,12 +98,12 @@ namespace deren::engine::gaussian_splatting {
         if (!bounds) {
             return std::unexpected(bounds.error());
         }
-        return upload_asset(core, std::make_shared<packed_asset const>(asset), limits, std::move(device_lease));
+        return upload_asset(core, std::make_shared<packed_asset const>(asset), limits, std::move(device_root));
     }
-    // NOLINTNEXTLINE(performance-unnecessary-value-param): Pin source retention throughout upload and creation of aliasing payload holders.
-    std::expected<std::shared_ptr<gpu_asset const>, foundation_error> upload_asset(deren::promise::rhi::api_core& core, std::shared_ptr<packed_asset const> source, foundation_limits const& limits, deren::promise::rhi::shared_object<deren::promise::rhi::api_core> device_lease) {
-        if (!source || (device_lease && device_lease.get() != &core)) {
-            return failure(error_code::invalid_argument, "Invalid Gaussian source or device lease");
+    // NOLINTNEXTLINE(performance-unnecessary-value-param): Share the source throughout upload and creation of aliasing payload handles.
+    std::expected<std::shared_ptr<gpu_asset const>, foundation_error> upload_asset(deren::promise::rhi::api_core& core, std::shared_ptr<packed_asset const> source, foundation_limits const& limits, deren::promise::rhi::shared_object<deren::promise::rhi::api_core> device_root) {
+        if (!source || (device_root && device_root.get() != &core)) {
+            return failure(error_code::invalid_argument, "Invalid Gaussian source or device handle");
         }
         auto const& asset = *source;
         namespace rhi = deren::promise::rhi;
@@ -119,7 +119,7 @@ namespace deren::engine::gaussian_splatting {
         }
         deren::utility::log("gaussian upload: packed data validated");
         std::shared_ptr<gpu_asset> result(new gpu_asset{});
-        result->device_lease = std::move(device_lease);
+        result->device_root = std::move(device_root);
         result->count = static_cast<std::uint32_t>(asset.geometry.size());
         result->degree = asset.sh_degree;
         result->bytes = *size;
@@ -193,10 +193,10 @@ namespace deren::engine::gaussian_splatting {
             }
             return rhi::error::ok;
         };
-        if (!result->device_lease) {
-            return failure(error_code::invalid_argument, "Gaussian upload requires a holding device lease");
+        if (!result->device_root) {
+            return failure(error_code::invalid_argument, "Gaussian upload requires a shared device handle");
         }
-        auto root = result->device_lease;
+        auto root = result->device_root;
         managed::resource_context const context{};
         if (result->storage_chain.prepare_resources(root, context, admit) != rhi::error::ok) {
             return failure(admission_code, admission_message);

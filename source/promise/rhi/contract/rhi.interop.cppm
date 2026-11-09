@@ -11,7 +11,7 @@ import :object;
 
 export namespace deren::promise::rhi {
 
-    /// A REFERENCED, BACKEND-HELD MAIN-THREAD CONTEXT (abi 39).
+    /// A MAIN-THREAD CONTEXT THE BACKEND CREATES AND DESTROYS (abi 39).
     ///
     /// The device-side state a non-engine consumer on the main thread brings itself up from - the GUI
     /// overlay is the caller, and it is the reason this exists: that consumer needs the API's handles,
@@ -25,9 +25,8 @@ export namespace deren::promise::rhi {
     /// backend/plugin pair rather than with this contract). A contract that named the layout would put the
     /// native vocabulary right back.
     ///
-    /// RETENTION: the `api_core` holds it; `api_core::main_context()` answers a REFERENCED pointer valid for
-    /// the context's lifetime. There is no `release()` and no reference to keep - the caller must never
-    /// delete it.
+    /// LIFETIME: the `api_core` creates and destroys it; `api_core::main_context()` answers a pointer valid
+    /// for the context's lifetime. There is no `release()` to call - the caller must never delete it.
     struct main_context_view : object {
         main_context_view() noexcept = default;
     };

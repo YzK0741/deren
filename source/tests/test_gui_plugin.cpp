@@ -18,18 +18,18 @@ import deren.utility.dynamic_link;
 static_assert(deren::gui::gui_abi_version == 6u, "GUI ABI6 follows the RHI object tag refactor that changed main_context's vtable");
 
 // Exercise the overlay's actual storage without needing a graphics device. Hosts
-// retain panel references, so deleting a different panel must preserve its address.
-static void retained_panel_addresses_survive_middle_removal() {
+// keep panel addresses, so deleting a different panel must preserve them.
+static void stable_panel_addresses_survive_middle_removal() {
     struct panel_identity {
         int id;
     };
     constexpr int count = 7;
     for (int removed : {2, 4}) {
         deren::vulkan::gui::detail::panel_adapter_storage<panel_identity> panels;
-        deren::utility::vessel::array<panel_identity const*, count> retained{};
+        deren::utility::vessel::array<panel_identity const*, count> panel_addresses{};
         for (int id = 0; id < count; ++id) {
             panels.emplace_back(id);
-            retained[id] = &panels.back();
+            panel_addresses[id] = &panels.back();
         }
         panels.erase(std::next(panels.begin(), removed));
         CHECK(panels.size() == count - 1);
@@ -41,16 +41,16 @@ static void retained_panel_addresses_survive_middle_removal() {
                                         [id](panel_identity const& panel) { return panel.id == id; });
             CHECK(current != panels.end());
             if (current != panels.end()) {
-                // Never dereference a retained pointer: the broken storage can
+                // Never dereference a remembered pointer: the broken storage can
                 // invalidate it, and this regression must not rely on UB.
-                CHECK_MSG(&*current == retained[id], "removing another panel changed a retained panel address");
+                CHECK_MSG(&*current == panel_addresses[id], "removing another panel changed a panel address");
             }
         }
     }
 }
 
 int main() {
-    retained_panel_addresses_survive_middle_removal();
+    stable_panel_addresses_survive_middle_removal();
     auto library = deren::utility::dynamic_link::load(VR_GUI_PLUGIN_DLL);
     CHECK(library.has_value());
     if (!library) {

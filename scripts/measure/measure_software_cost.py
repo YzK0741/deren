@@ -1,7 +1,7 @@
 """Measure an individual software-raster optimization stage with fixed settings.
 
 Uses the corrected all-enabled baseline's asset/cameras/threshold and three rounds.
-Keep each stage in a fresh output directory and retain its executable/shader hashes.
+Keep each stage in a fresh output directory and preserve its executable/shader hashes.
 """
 import argparse
 import json

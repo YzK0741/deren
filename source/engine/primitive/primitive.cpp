@@ -132,7 +132,7 @@ namespace deren::engine {
         lanes.vertex_address = geometry.vertex_buffer ? env.buffer_address(env.push_source, *geometry.vertex_buffer) : 0;
         lanes.index_address = geometry.index_buffer ? env.buffer_address(env.push_source, *geometry.index_buffer) : 0;
         // A MESHLET SESSION CARRIES THE MESHLET RUN HERE (docs/mesh_shaders.md step 3): the meshlet entry reads each
-        // record's window, so these two fields describe WHICH RECORDS this draw holds; the buffer addresses and
+        // record's window, so these two fields describe WHICH RECORDS this draw renders; the buffer addresses and
         // the index width are still the draw's, which is why the lanes carry both kinds of fact.
         lanes.first_index = env.meshlets ? geometry.meshlet_base : first_index;
         lanes.index_count = env.meshlets ? geometry.meshlet_count : index_count;
@@ -248,8 +248,8 @@ namespace deren::engine {
     }
 
     void normal_draw_primitive::destroy() noexcept {
-        // Drop this leaf's views, then drain its managed subchain. BLAS dependency leases may
-        // keep the actual immutable geometry allocation alive until the structures release.
+        // Drop this leaf's views, then drain its managed subchain. The BLAS dependency handles share the
+        // actual immutable geometry allocation, so it is destroyed only when those structures release it.
         this->vertex_buffer.reset();
         this->index_buffer.reset();
         this->subtilis_geometry.reset();
@@ -282,7 +282,8 @@ namespace deren::engine {
     }
 
     void instanced_draw_primitive::destroy() noexcept {
-        // holds nothing: the instance transform buffer is runtime-held, geometry is source's
+        // nothing to release: the instance transform buffer is created and destroyed by the runtime,
+        // and the geometry comes from `source`
     }
 
     bool instanced_draw_primitive::is_valid() const noexcept {
@@ -321,8 +322,8 @@ namespace deren::engine {
     }
 
     void static_draw_primitive::destroy() noexcept {
-        // holds the merged buffers: dropping the two handles' references frees the GPU memory when the
-        // last reference goes (see the note on normal_draw_primitive::destroy above)
+        // releases the merged buffers: dropping the two handles is what frees the GPU memory when the
+        // last user is done (see the note on normal_draw_primitive::destroy above)
         this->vertex_buffer.reset();
         this->index_buffer.reset();
         this->draw_index_count = 0;

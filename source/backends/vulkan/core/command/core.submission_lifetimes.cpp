@@ -8,7 +8,7 @@ import deren.vulkan.constant_init;
 import :declarations;
 
 namespace deren::vulkan {
-    std::shared_ptr<core::command_buffer> core::retain_command(core::command_buffer& command, bool recorded_secondary) {
+    std::shared_ptr<core::command_buffer> core::reference_command(core::command_buffer& command, bool recorded_secondary) {
         command.references.fetch_add(1, std::memory_order_relaxed);
         if (recorded_secondary) {
             command.recording_users.fetch_add(1, std::memory_order_relaxed);
@@ -65,8 +65,8 @@ namespace deren::vulkan {
             }
             timeline = command.completion_timeline;
         }
-        // The core holds this semaphore until teardown; callers keep the core alive.
-        // Never block while holding queue/submission locks: another host thread can submit or signal.
+        // The semaphore stays valid until the core tears down; the core must not die before this call returns.
+        // Never block with the queue/submission locks taken: another host thread can submit or signal.
         VkResult status;
         if (wait) {
             VkSemaphoreWaitInfo const info = make_semaphore_wait_info(1, &timeline, &token.sequence);

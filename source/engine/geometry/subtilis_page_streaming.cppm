@@ -161,8 +161,8 @@ export namespace deren::engine::subtilis {
 
     public:
         explicit page_streamer(page_manager manager, std::uint32_t capacity = 64);
-        page_streamer(page_streamer const&) = delete ("page_streamer holds one in-flight plan; move it instead");
-        page_streamer& operator=(page_streamer const&) = delete ("page_streamer holds one in-flight plan; move it instead");
+        page_streamer(page_streamer const&) = delete ("page_streamer tracks one in-flight plan; move it instead");
+        page_streamer& operator=(page_streamer const&) = delete ("page_streamer tracks one in-flight plan; move it instead");
         page_streamer(page_streamer&&) = default;
         page_streamer& operator=(page_streamer&&) = default;
 

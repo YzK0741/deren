@@ -81,7 +81,7 @@ namespace {
  *
  * This is the primitive the RHI plan's backend boundary is built on (plan §7.4): the
  * backend is a DLL next to the executable, the front end loads it by path, asks for a
- * handful of C entry points, and keeps the handle alive for as long as it uses them.
+ * handful of C entry points, and keeps the handle valid for as long as it uses them.
  *
  * @details
  * - Nothing here throws: every failure is a `load_error` (code + text) returned in a
@@ -153,11 +153,11 @@ export namespace deren::utility::dynamic_link {
          * @brief resolve one exported `extern "C"` symbol
          * @param name the symbol's exact name (`GetProcAddress`/`dlsym` are case-sensitive)
          * @return the raw address, or the reason it is not there
-         * @warning the address is only valid while this `library` is alive
+         * @warning the address is only valid while this `library` is valid
          */
         [[nodiscard]] std::expected<void const*, load_error> symbol(std::string_view name) const noexcept;
 
-        /** @brief the raw platform handle (nullptr when empty); held by this object, never freed by the caller */
+        /** @brief the raw platform handle (nullptr when empty); stored in this object, never freed by the caller */
         [[nodiscard]] void* native_handle() const noexcept {
             return this->handle;
         }
@@ -177,7 +177,7 @@ export namespace deren::utility::dynamic_link {
          *
          * AFTER DETACH THIS OBJECT IS EMPTY: `native_handle()` answers nullptr and `symbol()` refuses
          * with "the library is not loaded", so detach is the last call a caller makes on it. Whoever
-         * holds the returned handle holds the decision to free it, and the product's answer is that
+         * receives the detached handle decides to free it, and the product's answer is that
          * nobody does.
          */
         [[nodiscard]] void* detach() noexcept {

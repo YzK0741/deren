@@ -106,7 +106,7 @@ int main() {
     ++leaf.meshlets.back().first_index;
     require_mismatch();
     --leaf.meshlets.back().first_index;
-    auto parent = leaf.vertex_buffer.lease();
+    auto parent = leaf.vertex_buffer.access();
     auto* buffer = leaf.vertex_buffer.get();
     leaf.vertex_buffer.bind(buffer, std::shared_ptr<void const>{uploaded->get(), [](void const*) {}});
     require_mismatch();

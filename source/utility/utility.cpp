@@ -245,8 +245,8 @@ std::expected<void, deren::utility::vessel::string> deren::utility::write_png(st
     }
 
     // Everything is streamed to the file in binary mode (std::ios::binary matters on Windows: text
-    // mode would translate '\n' and corrupt the image). The old encoder held three copies of the
-    // frame - scanlines, the zlib stream and the finished PNG - this one holds the scanlines only.
+    // mode would translate '\n' and corrupt the image). The old encoder kept three copies of the
+    // frame - scanlines, the zlib stream and the finished PNG - this one keeps the scanlines only.
     std::ofstream file(path, std::ios::binary | std::ios::trunc);
     if (!file) {
         return std::unexpected(deren::utility::vessel::format("write_png: cannot open '{}'", path.string()));

@@ -19,13 +19,13 @@ int main() {
         auto parent = deren::vk_test::probe_make_core({}, rhi::abi_version, true);
         auto raw = parent->resources->create_buffer({.size = 4});
         CHECK(raw);
-        auto lease = deren::engine::resource_lease<rhi::buffer>::from_shared(parent, rhi::shared_object<rhi::buffer>(std::move(raw)));
-        CHECK(lease);
+        auto access = deren::engine::resource_handle<rhi::buffer>::from_shared(parent, rhi::shared_object<rhi::buffer>(std::move(raw)));
+        CHECK(access);
         deren::engine::buffer_transfer_service transfers(parent);
         auto batch = transfers.make_batch();
         std::uint32_t payload = 17;
         rhi::synchronization::scope after{rhi::synchronization::stage::transfer, rhi::synchronization::access::read};
-        CHECK(batch.upload(lease, 0, std::as_bytes(std::span(&payload, 1)), {}, after) == rhi::error::unsupported);
+        CHECK(batch.upload(access, 0, std::as_bytes(std::span(&payload, 1)), {}, after) == rhi::error::unsupported);
         CHECK(transfers.pending_count() == 0);
         CHECK(transfers.collect() == rhi::error::ok);
         CHECK(transfers.drain(0) == rhi::error::ok);
@@ -60,7 +60,7 @@ int main() {
         CHECK(foreign->share(*buffer) == rhi::error::invalid_argument);
         CHECK(foreign->empty());
     }
-    CHECK(shared->share(deren::engine::resource_lease<rhi::buffer>{}) == rhi::error::invalid_argument);
+    CHECK(shared->share(deren::engine::resource_handle<rhi::buffer>{}) == rhi::error::invalid_argument);
     deren::vk_test::probe_resource_failure(*device, 0);
     auto failed = cluster->create_buffer(buffer_desc);
     CHECK(!failed && failed.error() == rhi::error::operation_failed);
@@ -83,7 +83,7 @@ int main() {
         CHECK(shared->resource_count() == before_bad_view);
         CHECK(!foreign->create_image_view(*image, {}));
         rhi::shared_object<rhi::api_core>::weak weak_device = device;
-        // Views keep their parent image and core alive independently of its creating cluster.
+        // Views keep their parent image and core valid independently of its creating cluster.
         auto* view_buffer = buffer ? buffer->get() : nullptr;
         buffer = std::unexpected(rhi::error::not_ready);
         cluster.reset();
@@ -108,13 +108,13 @@ int main() {
         engine.set_scene(scene);
         auto frame_cluster = engine.create_resource_cluster("frame");
         CHECK(frame_cluster && frame_cluster->empty());
-        CHECK(engine.retain_resource_cluster_for_frame(frame_cluster) == rhi::error::not_ready);
+        CHECK(engine.add_resource_cluster_for_frame(frame_cluster) == rhi::error::not_ready);
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
-        CHECK(engine.retain_resource_cluster_for_frame(foreign) == rhi::error::invalid_argument);
-        CHECK(engine.retain_resource_cluster_for_frame(nullptr) == rhi::error::invalid_argument);
-        CHECK(engine.retain_resource_cluster_for_frame(frame_cluster) == rhi::error::ok);
+        CHECK(engine.add_resource_cluster_for_frame(foreign) == rhi::error::invalid_argument);
+        CHECK(engine.add_resource_cluster_for_frame(nullptr) == rhi::error::invalid_argument);
+        CHECK(engine.add_resource_cluster_for_frame(frame_cluster) == rhi::error::ok);
         auto const references = frame_cluster.use_count();
-        CHECK(engine.retain_resource_cluster_for_frame(frame_cluster) == rhi::error::ok);
+        CHECK(engine.add_resource_cluster_for_frame(frame_cluster) == rhi::error::ok);
         CHECK(frame_cluster.use_count() == references);
         std::weak_ptr<resource_cluster> weak = frame_cluster;
         frame_cluster.reset();
@@ -127,7 +127,7 @@ int main() {
         };
         finish();
         CHECK(!weak.expired());
-        CHECK(engine.retain_resource_cluster_for_frame(engine.create_resource_cluster()) == rhi::error::not_ready);
+        CHECK(engine.add_resource_cluster_for_frame(engine.create_resource_cluster()) == rhi::error::not_ready);
         for (std::uint32_t i = 1; i < rhi::max_frames_in_flight; ++i) {
             CHECK(engine.render_frame() == deren::engine::frame_status::proceed);
             CHECK(!weak.expired());

@@ -18,7 +18,7 @@
 //   - the heap is reached through the shared accessors.
 //
 // Native matrix products use mul(vector, matrix); basis vectors construct rows.
-// Together these retain the old GLSL column-vector and TBN semantics.
+// Together these preserve the old GLSL column-vector and TBN semantics.
 // The frozen render gate verifies the SSAO and lighting outputs.
 //
 // THE INCLUDE ORDER IS PART OF THE CONTRACT: the shim, then sky.slang (pure math), then this stage's

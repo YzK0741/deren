@@ -8,7 +8,7 @@ a grep; it is (a) the executable's IMPORT TABLE, (b) the UNRESOLVED SYMBOLS of t
 fails while any of them is non-empty.
 
 THE ENGINE SCOPE is source/engine/ plus source/app/. Graphics plugin sources are
-excluded according to their actual CMake target retention. Every portable module,
+excluded according to their actual CMake target membership. Every portable module,
 including the shared render layout, is checked without source exemptions.
 
 USAGE

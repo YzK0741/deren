@@ -281,7 +281,7 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context_view co
     parameters data{addresses->buffer_address(*output, 0), 0, 0};
     CHECK(commands.get()->push_constants(0u, std::as_bytes(std::span(&data.destination, 1))) == rhi::error::ok);
     CHECK(commands.get()->push_constants(8, std::as_bytes(std::span(&data.token, 1))) == rhi::error::invalid_argument);
-    // The batch-only holder uses the same pipeline-reserved push range as a primary.
+    // The batch-only path uses the same pipeline-reserved push range as a primary.
     auto segment = core.commands->make_mergeable_command_buffer({});
     CHECK(segment);
     if (segment) {
@@ -349,7 +349,7 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context_view co
     CHECK(lifetime_a.expired() && lifetime_b.expired());
     if (space != nullptr) {
         // THE STALE POSITION: the token is gone (or reused), so the write is refused by name. The image
-        // pointer is only compared, never dereferenced: the group that held it was released just above.
+        // pointer is only compared, never dereferenced: the group that contained it was released just above.
         rhi::descriptor_write stale{};
         stale.where = position_a;
         stale.index = 0u;
@@ -467,7 +467,7 @@ int main(int argc, char** argv) {
         return deren::vk_test::finish("test_texture_group");
     }
     // abi 42: the fill travels through the CONTRACT (a copy from a host-initialised buffer), because the
-    // escape no longer lends a native buffer handle - only the recording target a third-party renderer needs.
+    // escape no longer hands out a native buffer handle - only the recording target a third-party renderer needs.
     std::array<std::byte, 4> const source_value{std::byte{0x44}, std::byte{0x33}, std::byte{0x22}, std::byte{0x11}};
     rhi::unique_object<rhi::buffer> source{core->resources->create_buffer({.size = 4,
                                                                            .usage = rhi::buffer_usage::storage_coherent,

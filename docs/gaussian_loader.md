@@ -18,8 +18,8 @@ Supported PLY 1.0 encodings: ASCII and binary little endian. Only one vertex ele
 
 Values use the INRIA convention: exp scale, stable sigmoid opacity, normalized wxyz quaternion, channel-major file SH converted to coefficient-major RGB. Unused entries in the 48-float SH array are zero. Bounds reflect rotated 3-sigma ellipsoids. Empty assets have zero bounds.
 
-Default limits: 4,000,000 particles, 1 GiB file bytes, 1 GiB output bytes. Header is limited to 64 KiB and 256 attributes. Count arithmetic and binary payload length are checked before particle allocation. Budgets concern file and resulting asset, not total process peak memory. STL allocation failure retains the project's existing no-exceptions behavior; these limits do not promise recoverable system OOM.
+Default limits: 4,000,000 particles, 1 GiB file bytes, 1 GiB output bytes. Header is limited to 64 KiB and 256 attributes. Count arithmetic and binary payload length are checked before particle allocation. Budgets concern file and resulting asset, not total process peak memory. STL allocation failure keeps the project's existing no-exceptions behavior; these limits do not promise recoverable system OOM.
 
 Malformed fields, nonfinite values, zero quaternions, unusable float32 scales/covariance, trailing payload, truncation and exceeded limits return errors. No partially converted asset is returned. Diagnostics identify byte offset and property when available.
 
-This module does not upload resources or display a scene by itself. The viewer now integrates static upload, CPU/GPU preparation and raster rendering; see \ref md_docs_2gaussian__splatting "Gaussian splatting" for the current frame pipeline, retention, controls and validation.
+This module does not upload resources or display a scene by itself. The viewer now integrates static upload, CPU/GPU preparation and raster rendering; see \ref md_docs_2gaussian__splatting "Gaussian splatting" for the current frame pipeline, lifetime, controls and validation.

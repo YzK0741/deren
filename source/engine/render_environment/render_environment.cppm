@@ -19,7 +19,7 @@ import deren.promise.rhi;
  * thread-local - workers never share them. The environment carries the session's command
  * buffer, its default pipeline and the injected binder, and lets a primitive's draw() bind the
  * pipeline it wants through that callback; the real vkCmdBindPipeline lives in the callback
- * (held by the runtime, which captures its pipeline cache). The environment itself holds no
+ * (supplied by the runtime, which captures its pipeline cache). The environment itself creates and destroys no
  * Vulkan objects - only the handle typedefs it needs to forward them.
  *
  * Bindings are deduplicated: bind_default() / bind_pipeline() no-op when the requested
@@ -32,7 +32,7 @@ namespace deren::engine {
      * @brief per-recording-session render state handed to primitive::draw().
      *
      * Members are set by the recording site (the runtime) before the session's leaves draw:
-     * - command_buffer: the buffer being recorded into (each session holds its, so draw()
+     * - command_buffer: the buffer being recorded into (each session carries its own, so draw()
      *   needs no separate command-buffer parameter)
      * - default_name: this pass's default pipeline ("pbr" for the main pass, the shadow
      *   pipeline for the shadow pass) - the fallback a default-semantics primitive wants
@@ -58,14 +58,15 @@ namespace deren::engine {
      *
      * The engine's multithreaded passes record into `mergeable_command_buffer` segments (their batches are
      * merged into the frame's primary with `command_buffer::execute(span)`), while the single-threaded passes
-     * still record straight into a `command_buffer`. Typed holders preserve their lifetime and submission
+     * still record straight into a `command_buffer`. The typed variants preserve their lifetime and submission
      * permissions; get() exposes their common recording interface without branching at each verb.
      */
     export struct recording_target {
         deren::promise::rhi::shared_object<deren::promise::rhi::command_buffer> command = {};
         deren::promise::rhi::mergeable_command_buffer_ref mergeable = {};
-        /// A NON-HOLDING view for the frame's core-held buffer (or any caller-held one): the target records
-        /// through it without taking a reference. Null means the view was not supplied.
+        /// A view that does NOT keep the buffer valid, for the frame's buffer (created by the core) or one
+        /// supplied by the caller: the target records through it without extending any lifetime. Null means
+        /// the view was not supplied.
         deren::promise::rhi::command_recorder* view = nullptr;
 
         recording_target() noexcept = default;
@@ -125,9 +126,9 @@ namespace deren::engine {
     export struct render_environment {
         /**
          * THE SESSION'S RECORDING TARGET (abi 21). `deren::promise::rhi::shared_object<deren::promise::rhi::command_buffer>` -
-         * the same REFERENCED handle `resolved_io::cmd` carries, or the caller-held secondary the pass is
+         * the same handle `resolved_io::cmd` carries, or the secondary supplied by the caller that the pass is
          * recording into. `bind`, `set_depth_write_fn` and `set_cull_mode_fn` take it by value, so a session
-         * that was handed a secondary keeps that secondary alive for exactly as long as it can record into it;
+         * that was handed a secondary references that secondary for exactly as long as it can record into it;
          * a primitive that needs the raw handle derives it through the runtime's escape (the runtime's
          * `push_block` / `push_at` / `draw_mesh_tasks*` endpoints do that themselves, which is why a leaf never
          * spells a `VkCommandBuffer`).
@@ -146,7 +147,7 @@ namespace deren::engine {
          * heap, and this session object is what it does have, so the runtime supplies these two recording endpoints. The endpoint appends the heap's two indices
          * (frame slot, swapchain image) to the block.
          *
-         * NOT a `std::function`: this is copied into every worker's session every frame, and a raw holder plus a
+         * NOT a `std::function`: this is copied into every worker's session every frame, and a raw pointer plus a
          * function pointer is what a per-draw call can afford.
          *
          * IT TAKES THE CONTRACT'S `command_buffer&`, not a native handle (abi 21): the session's target is a
@@ -172,7 +173,7 @@ namespace deren::engine {
          * reach the shader as DATA instead.
          *
          * These are set only on a session whose pass draws with a mesh pipeline (`mesh_stage`), and every one
-         * of them is a raw holder/function-pointer pair for the same reason `push_block` is: this struct is
+         * of them is a raw pointer/function-pointer pair for the same reason `push_block` is: this struct is
          * copied into every worker's session every frame, once per draw.
          *
          * - `buffer_address`: the device address of a bound buffer. The primitive knows WHICH buffer and the
@@ -201,7 +202,7 @@ namespace deren::engine {
          * primitive's meshlets against the camera, writes the survivors into this frame's culled table and asks the
          * dispatch for exactly that many workgroups - so a culled meshlet costs nothing at all.
          *
-         * THE HOST IS THE CHEAP STAGE HERE, not a fallback for one: it already holds the primitive's meshlets, the
+         * THE HOST IS THE CHEAP STAGE HERE, not a fallback for one: it already has the primitive's meshlets, the
          * draw's model matrix and the camera (the same three things the stage reads), so the test costs no new pass,
          * no command buffer, no ordering rule and no draw list. It is FALSE for the shadow pass on purpose - that
          * pass's frustum is per cascade, and it dispatches its casters per cascade.
@@ -228,14 +229,14 @@ namespace deren::engine {
          * session's stages declare no lanes" (a fullscreen pass's block, a compute push).
          */
         uint32_t mesh_geometry_push_offset = 0;
-        /// The device address of a contract buffer, asked for by the HOLDER (the runtime), which is the
-        /// side that holds the escape and the `device_address` ability.
+        /// The device address of a contract buffer, asked for by the runtime, which is the side that has the
+        /// escape and the `device_address` ability.
         ///
         /// IT TAKES A CONTRACT BUFFER, NOT A `VkBuffer`, AND THAT IS A DELIBERATE NARROWING: the
         /// primitive's buffers are contract handles now (the migration for which this hook was
         /// rewritten), and a hook that demanded a raw handle would have forced every primitive to keep
         /// one - i.e. to keep reaching into the backend for exactly the thing the migration removes. The
-        /// `holder` void* is the runtime's state, and the address comes back through
+        /// `parent` void* is the runtime's state, and the address comes back through
         /// `device_address::buffer_address()` on that side (no native buffer handle is involved).
         std::uintptr_t (*buffer_address)(void* parent, deren::promise::rhi::buffer const& buffer) = nullptr;
         bool (*push_at)(void* parent, recording_target const& target, uint32_t offset, std::span<std::byte const> bytes) = nullptr;
@@ -269,7 +270,7 @@ namespace deren::engine {
         bool depth_write_recorded = true;
         bool depth_write_known = false;
         /**
-         * WHETHER THE SESSION, RATHER THAN THE LEAF, HOLDS THE DEPTH-WRITE STATE.
+         * WHETHER THE SESSION, RATHER THAN THE LEAF, CONTROLS THE DEPTH-WRITE STATE.
          *
          * Every primitive's draw() sets its depth write (`set_depth_write(!this->transparent)`), which is
          * right for the scene, shadow and transparent passes - an opaque surface writes depth and a blended

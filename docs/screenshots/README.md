@@ -19,7 +19,7 @@ Both use input HDR intensity 1, environment rotation 0 degrees, a 256-pixel cube
 16-pixel irradiance and a 128-pixel BRDF LUT. The different camera and relative strength values
 are deliberate presentation choices; these two images are not an A/B material comparison.
 
-The compressed [capture manifest](pbr-captures-2026-10-29.json.gz) retains the 2026-10-29 TOML,
+The compressed [capture manifest](pbr-captures-2026-10-29.json.gz) preserves the 2026-10-29 TOML,
 command, executable and final PNG hashes, resolved camera logs and HDR provenance for the original
 helmet captures; its DamagedHelmet entry predates the RT re-capture above, so it reproduces the
 pre-RT image. Its paths are repository-relative. To reproduce the published RT image, extract the
@@ -34,10 +34,10 @@ PNG compression is lossless: decoded bytes were checked against each original re
 No crop, resize, retouching or colour adjustment was applied. Compressed sizes are 479322 bytes
 for DamagedHelmet and 319816 bytes for FlightHelmet.
 
-Studio Neutral: Copyright 2020 Amazon, LLC, distributed by Khronos Group, CC-BY-4.0; retained
+Studio Neutral: Copyright 2020 Amazon, LLC, distributed by Khronos Group, CC-BY-4.0; preserved
 asset hashes/license provenance are in the manifest and the fetched `neutral.hdr.license`.
 FlightHelmet model-associated files are CC0-1.0 in glTF-Sample-Assets; its terms are kept in
-`asset/FlightHelmet/LICENSE.md`. DamagedHelmet retains the terms in `asset/DamagedHelmet/LICENSE.md`. These material previews do not establish pixel equivalence
+`asset/FlightHelmet/LICENSE.md`. DamagedHelmet uses the terms in `asset/DamagedHelmet/LICENSE.md`. These material previews do not establish pixel equivalence
 to Sample Viewer.
 
 ## CharacterForward.png

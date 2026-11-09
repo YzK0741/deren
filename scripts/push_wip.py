@@ -172,9 +172,9 @@ def publish(branch, remote, force, dry_run):
     describe(branch, remote)
     command = ["push"]
     if force:
-        # --force-with-lease, not --force: rewriting your backup branch keeps the ergonomics
+        # --force-with-access, not --force: rewriting your backup branch keeps the ergonomics
         # while still refusing to clobber a concurrent update someone else pushed there.
-        command.append("--force-with-lease")
+        command.append("--force-with-access")
     if dry_run:
         command.append("--dry-run")
     command.extend(["-u", remote, branch])
@@ -231,7 +231,7 @@ def main(argv=None):
     parser.add_argument("-r", "--remote", default=DEFAULT_REMOTE, metavar="NAME",
                         help="remote to push to (default: %(default)s)")
     parser.add_argument("-f", "--force", action="store_true",
-                        help="rewrite the remote wip branch (git push --force-with-lease)")
+                        help="rewrite the remote wip branch (git push --force-with-access)")
     parser.add_argument("-n", "--dry-run", action="store_true",
                         help="run git push --dry-run and publish nothing")
     parser.add_argument("--delete", action="store_true",

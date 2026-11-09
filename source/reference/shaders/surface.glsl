@@ -25,7 +25,7 @@
 #ifndef DEREN_SURFACE_GLSL
 #define DEREN_SURFACE_GLSL
 
-// THE GEOMETRY LANES A MESH STAGE OF THIS FILE'S HOLDERS NEEDS (docs/mesh_shaders.md step 2). The block below ends
+// THE GEOMETRY LANES A MESH STAGE OF THIS FILE'S STRUCTURES NEEDS (docs/mesh_shaders.md step 2). The block below ends
 // with them because their offsets are the block's: the material fields (96 B), the two heap index lanes (8 B) and
 // then `MeshGeometryLanes` - whose first member is a `uint2`, so it lands on the 8-byte boundary at
 // mesh_geometry_offset (112) that the host pushes them at. The VERTEX and FRAGMENT entries of every stage that

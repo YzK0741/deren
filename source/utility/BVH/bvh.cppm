@@ -17,7 +17,7 @@ export import :data_block;
  * @ingroup utility
  * @brief BVH acceleration structure: AABB boxes, morton-code building, ray hit test and frustum culling
  * @note
- *      - leaf nodes live in an internal deque, internal nodes live in a contiguous pool held by the bvh
+ *      - leaf nodes live in an internal deque, internal nodes live in a contiguous pool stored in the bvh
  *      - make() builds the tree, rebuild() rebuilds it after leaves change
  *      - consumed by the renderer: the runtime builds a per-frame bvh over scene leaf world
  *        AABBs and frustum_culls the main pass against the camera frustum
@@ -125,7 +125,7 @@ namespace deren::utility {
 
     /**
      * @ingroup bvh
-     * @brief node of the BVH tree; leaves and internal nodes are held by the containing bvh
+     * @brief node of the BVH tree; leaves and internal nodes are stored in the containing bvh
      * @tparam T type of the attached user data
      */
     export template <typename T>
@@ -216,7 +216,7 @@ namespace deren::utility {
         deren::utility::vessel::deque<bvh_node<T>> leaves;
         // CONTIGUOUS NODE POOL: the build used to call `new` once per internal node and delete the
         // subtree recursively. One reserved vector makes those nodes one allocation and keeps them
-        // cache-local; `root` is a NON-HOLDING pointer into this pool (or into `leaves` for the
+        // cache-local; `root` is a plain pointer into this pool (or into `leaves` for the
         // single-leaf tree). The vector must never grow after the build: every internal node points
         // at its children's addresses. `build_from_leaves` reserves exactly `leaves.size() - 1`.
         deren::utility::vessel::vector<bvh_node<T>> nodes;
@@ -329,9 +329,9 @@ namespace deren::utility {
                 }
             }
 
-            // The root is a non-holding pointer: for a single leaf it points into `leaves`, and for
+            // The root is a plain pointer: for a single leaf it points into `leaves`, and for
             // every larger tree it points into `nodes`. Neither container is modified after the
-            // build, so no retention transfer or extra root copy is needed.
+            // build, so no transfer back or extra root copy is needed.
             return layers.back()[0];
         }
 

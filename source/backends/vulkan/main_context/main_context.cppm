@@ -13,9 +13,9 @@
 // compare at their handshakes.
 //
 // WHAT IT CARRIES: exactly what the GUI plugin's ImGui Vulkan backend needs to come up - the RHI core
-// (for the version handshake) and the native handles/numbers that core already holds. Nothing here is
-// contract vocabulary. The per-frame RECORDING TARGETS are not a callback here: the GUI overlay holds two
-// contract `mergeable_command_buffer` segments (gui abi 5) and reads their native VkCommandBuffer through
+// (for the version handshake) and the native handles/numbers that core created. Nothing here is
+// contract vocabulary. The per-frame RECORDING TARGETS are not a callback here: the GUI overlay records
+// into two contract `mergeable_command_buffer` segments (gui abi 5) and reads their native VkCommandBuffer through
 // the shared `denen.vulkan.command_buffer` class's `get()`, after checking the concrete tag (the same
 // opaque-handle + tag + shared-layout rule).
 // ============================================================================
@@ -47,13 +47,13 @@ export namespace deren::vulkan {
         [[nodiscard]] std::string_view get_tag() const noexcept override {
             return tag;
         }
-        /// The backend holds this referenced context; the object contract's release is a no-op.
+        /// The backend fills this view and destroys it with the core; the object contract's release is a no-op.
         void release() noexcept override {
         }
         main_context_view() noexcept = default;
 
-        /// referenced: the backend holds the RHI root and the overlay must keep it alive (it does - the host
-        /// holds both for the session, and the overlay is released before the runtime)
+        /// a view, not a claim: the RHI root lives in the backend, and the overlay must finish before the
+        /// runtime (the host creates both for the session and releases the overlay first)
         deren::promise::rhi::api_core* core = nullptr;
         VkInstance instance = VK_NULL_HANDLE;
         VkPhysicalDevice physical_device = VK_NULL_HANDLE;

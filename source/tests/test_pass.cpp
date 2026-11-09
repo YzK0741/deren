@@ -470,7 +470,7 @@ void check_managed_resource_api() {
     if constexpr (requires(Chain& chain) { chain.resources(); }) {
         CHECK(true);
     } else {
-        CHECK_MSG(false, "passchain must hold the resource registry");
+        CHECK_MSG(false, "passchain must store the resource registry");
     }
 }
 
@@ -777,7 +777,7 @@ int32_t main() {
         CHECK(local_count == 4);
     }
 
-    // ---- THE CHAIN: a value that holds a run of passes and its ORDER, plus the lookups an parent uses - the
+    // ---- THE CHAIN: a value that stores a run of passes and its ORDER, plus the lookups an parent uses - the
     //      runner steps it used to wrap (`init`/`record`) went with the legacy runner, and the graph's builder takes
     //      the same pass list through `stage` ----
     {
@@ -815,8 +815,8 @@ int32_t main() {
 
     // ---- the chain also KEPT objects that are not passes (`keep`, whose only users were the renderer's two jobs).
     //      THE PROMISE WENT WITH THE FUNCTION: those two jobs are ordinary members of the renderer now, because they
-    //      are the only non-pass GPU-holding objects left, and a container that exists to hold exactly two objects of
-    //      two known types is more machinery than two members. Nothing tests it any more; `emplace`, the holding form
+    //      are the only non-pass objects left that create and release GPU resources, and a container that exists to store exactly two objects of
+    //      two known types is more machinery than two members. Nothing tests it any more; `emplace`, the container form
     //      for a PASS, is covered by the stage and list assertions above ----
 
     // ---- the resource table: what EXISTS, keyed the way a DECLARATION names it (resource + element + instance).
@@ -1001,7 +1001,7 @@ int32_t main() {
         CHECK(pass.resolve(context, io));
         CHECK(io.local_per_image[0].size() == 2);                                          // one view per image of the generation
         CHECK(io.local_per_image[0][1] == family_views[1]);                                // ... in instance order
-        CHECK(io.local_per_image[3].data() == family_views.data());                        // and it is the HOLDER's run, not a copy
+        CHECK(io.local_per_image[3].data() == family_views.data());                        // and it is family_views' run, not a copy
         CHECK(io.local[frame.image_index].view_handle == family_views[frame.image_index]); // find() answers from the family too
         CHECK(io.targets[0].image_handle == family_images[frame.image_index]);
         CHECK(parent.table.instances_of(rr::resource_id::hdr, 0) == 2);

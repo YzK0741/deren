@@ -45,7 +45,7 @@ namespace deren::engine::pass {
     std::string_view upscale_pass::feature() const noexcept {
         // THE NAME THE RENDERER ALREADY ANSWERS: `f.upscale` = "the render chain is smaller than the output AND
         // this pass built its pipeline" (`runtime::post_upscale_active`), which is one definition shared with
-        // the composite's target choice and the overlay's holder - so the record step's gate, the frame's target and
+        // the composite's target choice and the choice of which pass draws the overlay - so the record step's gate, the frame's target and
         // the overlay cannot disagree about whether this pass runs. At render_scale = 1.0 it answers false and
         // the pass is never resolved or recorded, which is what keeps every scale-1.0 frame byte-identical.
         return "upscale";
@@ -83,7 +83,7 @@ namespace deren::engine::pass {
     void upscale_pass::on_swapchain_recreated(pass_host const&) {
         // Nothing to reset: the pipeline depends on the surface's FORMAT (a session-stable device fact) and not
         // on its size - the viewport is resynced by the record step from `io.extent`, which is the swapchain's
-        // extent this time (see pass_behaviour) - and this pass holds no descriptor family.
+        // extent this time (see pass_behaviour) - and this pass creates no descriptor family.
     }
 
     bool upscale_pass::pipeline_ready() const noexcept {

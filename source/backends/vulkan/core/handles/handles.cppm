@@ -17,16 +17,16 @@ namespace deren::vulkan {
      * @brief raii wrapper of VkCommandBuffer - and of the VkCommandPool it was allocated from
      * @note
      *     - use operator* or get() to get naked handle
-     *     - SOLE RETENTION, OF BOTH: the wrapper holds the command buffer and, on the one path that
-     *       creates it (make_command_buffer below), THE POOL TOO. release() destroys the pool, which
+     *     - ONE DESTRUCTION POINT FOR BOTH: the wrapper creates the command buffer's pool on the one
+     *       path that creates the buffer (make_command_buffer below) and destroys it in release(), which
      *       frees its buffers with it - so a command buffer is ONE self-contained device resource and
-     *       the caller has no second object to keep alive. A pool per command buffer is the canonical
+     *       the caller has no second object to release. A pool per command buffer is the canonical
      *       Vulkan shape for per-slot / per-thread recording, because a VkCommandPool is not thread
-     *       safe and every recording thread must hold its.
+     *       safe and every recording thread needs a separate one.
      *     - THE POOL CARRIES VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT (constant_init's
      *       make_command_pool_info), which is what lets vkBeginCommandBuffer implicitly reset a buffer
      *       that has already been recorded - the frame loop re-records the same primary every frame.
-     *     - the pool is reachable only through this wrapper: nothing outside holds or destroys it
+     *     - the pool is reachable only through this wrapper: nothing outside creates or destroys it
      */
     export class vk_command_buffer {
         VkCommandBuffer command_buffer = VK_NULL_HANDLE;
@@ -36,7 +36,7 @@ namespace deren::vulkan {
         bool destroys_pool = false;
 
     public:
-        /// THE EMPTY HANDLE, for a holder that fills it in later: the backend's held command buffer
+        /// THE EMPTY HANDLE, for a member filled in later: the backend's command-buffer object
         /// default-constructs its member and then assigns the factory's result to it.
         vk_command_buffer() noexcept = default;
         [[nodiscard]] VkCommandBuffer const& get() const noexcept;
@@ -45,9 +45,9 @@ namespace deren::vulkan {
         explicit vk_command_buffer(VkCommandBuffer command_buffer, VkDevice device, VkCommandPool pool, bool destroys_pool) noexcept;
         ~vk_command_buffer() noexcept;
 
-        explicit vk_command_buffer(vk_command_buffer& command_buffer) = delete ("vk_command_buffer holds a Vulkan handle; construct a distinct handle or move it with std::move");
+        explicit vk_command_buffer(vk_command_buffer& command_buffer) = delete ("vk_command_buffer manages a Vulkan handle; construct a distinct handle or move it with std::move");
         vk_command_buffer(vk_command_buffer&& other) noexcept;
-        vk_command_buffer& operator=(vk_command_buffer& other) = delete ("vk_command_buffer holds a Vulkan handle; move-assign it with std::move");
+        vk_command_buffer& operator=(vk_command_buffer& other) = delete ("vk_command_buffer manages a Vulkan handle; move-assign it with std::move");
         vk_command_buffer& operator=(vk_command_buffer&& other) noexcept;
     };
 
@@ -56,7 +56,7 @@ namespace deren::vulkan {
      * @param device valid VkDevice
      * @param queue_family the queue family the buffer's command pool belongs to
      * @param level VK_COMMAND_BUFFER_LEVEL_PRIMARY or _SECONDARY
-     * @return raii VkCommandBuffer wrapper that HOLDS its command pool: it creates the pool, allocates
+     * @return raii VkCommandBuffer wrapper that CREATES AND DESTROYS its command pool: it creates the pool, allocates
      *         the buffer from it, and `release()`/destruction destroys the pool (freeing the buffer)
      */
     export vk_command_buffer make_command_buffer(VkDevice device, uint32_t queue_family, VkCommandBufferLevel level) noexcept;
@@ -66,7 +66,7 @@ namespace deren::vulkan {
      * @brief raii wrapper of VkShaderModule
      * @note
      *     - use operator* or get() to get naked handle
-     *     - sole retention
+     *     - one destruction point (this wrapper)
      */
     export class vk_shader_module {
         VkShaderModule shader_module = VK_NULL_HANDLE;
@@ -79,9 +79,9 @@ namespace deren::vulkan {
         explicit vk_shader_module(VkShaderModule shader_module, VkDevice device) noexcept;
         ~vk_shader_module() noexcept;
 
-        explicit vk_shader_module(vk_shader_module& shader_module) = delete ("vk_shader_module holds a Vulkan handle; construct a distinct handle or move it with std::move");
+        explicit vk_shader_module(vk_shader_module& shader_module) = delete ("vk_shader_module manages a Vulkan handle; construct a distinct handle or move it with std::move");
         vk_shader_module(vk_shader_module&& other) noexcept;
-        vk_shader_module& operator=(vk_shader_module& other) = delete ("vk_shader_module holds a Vulkan handle; move-assign it with std::move");
+        vk_shader_module& operator=(vk_shader_module& other) = delete ("vk_shader_module manages a Vulkan handle; move-assign it with std::move");
         vk_shader_module& operator=(vk_shader_module&& other) noexcept;
     };
 
@@ -100,8 +100,8 @@ namespace deren::vulkan {
      * @brief raii wrapper of VkPipeline
      * @note
      *     - use operator* or get() to get naked handle
-     *     - sole retention
-     *     - viewport/scissor hold the full-screen viewport for this pipeline;
+     *     - one destruction point (this wrapper)
+     *     - viewport/scissor store the full-screen viewport for this pipeline;
      *       set at creation by core::make_pipeline, use them with vkCmdSetViewport/Scissor
      */
     export struct vk_pipeline {
@@ -125,9 +125,9 @@ namespace deren::vulkan {
          */
         void begin_pipeline(VkCommandBuffer command_buffer) const;
 
-        vk_pipeline(vk_pipeline&) = delete ("vk_pipeline holds a Vulkan handle; construct a distinct handle or move it with std::move");
+        vk_pipeline(vk_pipeline&) = delete ("vk_pipeline manages a Vulkan handle; construct a distinct handle or move it with std::move");
         vk_pipeline(vk_pipeline&& other) noexcept;
-        vk_pipeline& operator=(vk_pipeline& other) = delete ("vk_pipeline holds a Vulkan handle; move-assign it with std::move");
+        vk_pipeline& operator=(vk_pipeline& other) = delete ("vk_pipeline manages a Vulkan handle; move-assign it with std::move");
         vk_pipeline& operator=(vk_pipeline&& other) noexcept;
         void release() noexcept;
     };
@@ -137,7 +137,7 @@ namespace deren::vulkan {
      * @brief raii wrapper of VkImageView
      * @note
      *     - use operator* or get() to get naked handle
-     *     - sole retention
+     *     - one destruction point (this wrapper)
      */
     export class vk_image_view {
         VkImageView image_view = VK_NULL_HANDLE;
@@ -151,9 +151,9 @@ namespace deren::vulkan {
         explicit vk_image_view(VkImageView image_view, VkDevice device) noexcept;
         ~vk_image_view() noexcept;
 
-        explicit vk_image_view(vk_image_view&) = delete ("vk_image_view holds a Vulkan handle; construct a distinct handle or move it with std::move");
+        explicit vk_image_view(vk_image_view&) = delete ("vk_image_view manages a Vulkan handle; construct a distinct handle or move it with std::move");
         vk_image_view(vk_image_view&& other) noexcept;
-        vk_image_view& operator=(vk_image_view&) = delete ("vk_image_view holds a Vulkan handle; move-assign it with std::move");
+        vk_image_view& operator=(vk_image_view&) = delete ("vk_image_view manages a Vulkan handle; move-assign it with std::move");
         vk_image_view& operator=(vk_image_view&& other) noexcept;
     };
 
@@ -162,7 +162,7 @@ namespace deren::vulkan {
      * @brief raii wrapper of VkSampler
      * @note
      *     - use operator* or get() to get naked handle
-     *     - sole retention
+     *     - one destruction point (this wrapper)
      */
     export class vk_sampler {
         VkSampler sampler = VK_NULL_HANDLE;
@@ -176,9 +176,9 @@ namespace deren::vulkan {
         explicit vk_sampler(VkSampler sampler, VkDevice device) noexcept;
         ~vk_sampler() noexcept;
 
-        explicit vk_sampler(vk_sampler&) = delete ("vk_sampler holds a Vulkan handle; construct a distinct handle or move it with std::move");
+        explicit vk_sampler(vk_sampler&) = delete ("vk_sampler manages a Vulkan handle; construct a distinct handle or move it with std::move");
         vk_sampler(vk_sampler&& other) noexcept;
-        vk_sampler& operator=(vk_sampler&) = delete ("vk_sampler holds a Vulkan handle; move-assign it with std::move");
+        vk_sampler& operator=(vk_sampler&) = delete ("vk_sampler manages a Vulkan handle; move-assign it with std::move");
         vk_sampler& operator=(vk_sampler&& other) noexcept;
     };
 } // namespace deren::vulkan

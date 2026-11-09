@@ -170,7 +170,7 @@ int main(int const argc, char** const argv) {
 
     // refused (`check_core_contract` in source/tests/test_dynamic_link.cpp drives the mismatch case).
 
-    // abi 21 is the recording face's holder half (`api_core::make_command_buffer`); this pin moves with the
+    // abi 21 is the recording face's `shared_ptr` half (`api_core::make_command_buffer`); this pin moves with the
 
     // contract's constant, and the two spellings must never drift (see test_dynamic_link.cpp's note).
 
@@ -226,11 +226,11 @@ int main(int const argc, char** const argv) {
             return deren::vk_test::finish("test_runtime_dyn");
         }
 
-        // THE ACQUISITION IS THE APP’S, THE RETENTION IS THE RUNTIME’S: take the identity before the
+        // THE ACQUISITION IS THE APP’S, THE DESTRUCTION IS THE RUNTIME’S: take the identity before the
 
-        // move and check both afterwards - the renderer holds THAT object (not a wrapper, not a copy of its
+        // move and check both afterwards - the renderer uses THAT object (not a wrapper, not a copy of its
 
-        // hold), so the layering claim of batch ⑥ is observable on a REAL root rather than only argued.
+        // handle), so the layering point of batch ⑥ is observable on a REAL root rather than only argued.
 
         rhi::api_core* const acquired = core.get();
 
@@ -248,7 +248,7 @@ int main(int const argc, char** const argv) {
 
         rhi::api_core& face = dynamic.rhi_face();
 
-        // ABI 39: the main-thread context the GUI plugin casts. On a real backend it is the referenced, backend-held
+        // ABI 39: the main-thread context the GUI plugin casts. On a real backend it is the referenced
 
         // handle whose concrete tag names the Vulkan layout; the plugin's test covers the refusal paths.
 
@@ -262,7 +262,7 @@ int main(int const argc, char** const argv) {
 
                 CHECK(main->get_tag() == "deren_main_context_vulkan");
 
-                CHECK(dynamic.rhi_face().main_context() == main); // one backend-held object, answered again
+                CHECK(dynamic.rhi_face().main_context() == main); // one object created by the backend, answered again
             }
         }
 
@@ -270,7 +270,7 @@ int main(int const argc, char** const argv) {
 
             // ABI 37: the multithreaded recording paths use mergeable segments merged in batches; the
 
-            // retention rule (a recorded primary keeps the merged segment alive until it is released) is
+            // lifetime rule (a recorded primary keeps the merged segment valid until it is released) is
 
             // measured on the same real device here.
 
@@ -294,7 +294,7 @@ int main(int const argc, char** const argv) {
 
                 CHECK_MSG(secondary->begin_recording({}) == rhi::error::not_ready,
 
-                          "a segment retained by a recorded primary must not be overwritten");
+                          "a segment referenced by a recorded primary must not be overwritten");
 
                 primary.reset();
 
@@ -335,7 +335,7 @@ int main(int const argc, char** const argv) {
             CHECK(commands->end_recording() == rhi::error::ok);
         }
 
-        // A view and a copied parent reference each retain the original image identity.
+        // A view and a copied parent handle each keep the original image identity.
 
         rhi::texture_group_info empty_info{};
 
@@ -416,13 +416,13 @@ int main(int const argc, char** const argv) {
 
                 info.textures[15] = original.get();
 
-                auto retained = original->share();
+                auto shared_copy = original->share();
 
-                rhi::shared_object<rhi::image>::weak lifetime = retained;
+                rhi::shared_object<rhi::image>::weak lifetime = shared_copy;
 
                 auto group = face.resources->assign_texture_group(info, &group_error);
 
-                retained.reset();
+                shared_copy.reset();
 
                 CHECK(group && group_error == rhi::error::ok);
 
@@ -496,9 +496,9 @@ int main(int const argc, char** const argv) {
 
                 rhi::unique_object<rhi::image> released{face.resources->create_image(parent_desc)};
 
-                auto retained = released->share();
+                auto shared_copy = released->share();
 
-                rhi::shared_object<rhi::image>::weak lifetime = retained;
+                rhi::shared_object<rhi::image>::weak lifetime = shared_copy;
 
                 rhi::texture_group_info info{};
 
@@ -506,7 +506,7 @@ int main(int const argc, char** const argv) {
 
                 auto group = face.resources->assign_texture_group(info, &group_error);
 
-                retained.reset();
+                shared_copy.reset();
 
                 CHECK(group && group_error == rhi::error::ok);
 
@@ -545,7 +545,7 @@ int main(int const argc, char** const argv) {
 
                 auto parent = view->get_image();
 
-                CHECK_MSG(parent != nullptr, "a held image view must retain its parent");
+                CHECK_MSG(parent != nullptr, "an image view must keep its parent valid");
 
                 if (parent) {
 
@@ -563,7 +563,7 @@ int main(int const argc, char** const argv) {
 
                     original.reset();
 
-                    CHECK(!lifetime.expired()); // only the view retains it
+                    CHECK(!lifetime.expired()); // only the view references it
 
                     parent = view->get_image();
 
@@ -620,7 +620,7 @@ int main(int const argc, char** const argv) {
 
         CHECK(allocation_only);
 
-        std::fflush(stdout); // retain preceding failures if an invalid heap call crashes the old backend
+        std::fflush(stdout); // keep preceding failures if an invalid heap call crashes the old backend
 
         auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
 
@@ -641,7 +641,7 @@ int main(int const argc, char** const argv) {
 
         // ABI 43: the escape ability is RETIRED, and the bit never comes back (bits are never reused). The GUI
 
-        // overlay's per-frame recording target is resolved through the backend-held main context now.
+        // overlay's per-frame recording target is resolved through the main context the backend provides now.
 
         CHECK(!rhi::has_ability(abilities, rhi::extension_kind::vulkan_escape));
 

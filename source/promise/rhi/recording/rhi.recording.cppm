@@ -25,7 +25,7 @@ export namespace deren::promise::rhi {
     // WHAT THE VOCABULARY DELIBERATELY DOES NOT CARRY, each one a MEASURED verdict rather
     // than an omission: no HOST-ACCESS masks (the two host-visible barrier sites were raw through the
     // escape when this block was written, runtime.probes.cppm / ray_tracing.cpp - the `host_read` roles
-    // carry them now), no QUEUE-FAMILY retention-transfer field (there
+    // carry them now), no QUEUE-FAMILY handover field (there
     // is no cross-queue submission; the 46 VK_QUEUE_FAMILY_* tokens are IGNORED initialisations), no
     // `resolve`/`resolveMode` and no `viewMask` (no path resolves MSAA in a rendering scope and none
     // uses multi-view - and both can be APPENDED later because `rendering_info` carries `struct_size`),
@@ -191,7 +191,7 @@ export namespace deren::promise::rhi {
     ///
     /// GROWS BY `struct_size` (plan §6): it is its FIRST member, and the backend reads a field only when
     /// the caller's declared size covers it (the `covered_by` rule `sanitize_sampler_desc` already uses),
-    /// so a later addition is additive rather than an abi break. The spans are REFERENCED for the call
+    /// so a later addition is additive rather than an abi break. The spans are read for the call
     /// only, the same rule every other array in this contract follows.
     struct barrier_group {
         std::uint32_t struct_size = sizeof(barrier_group);
@@ -348,7 +348,7 @@ export namespace deren::promise::rhi {
         buffer* scratch = nullptr;
         std::uint64_t keys_offset = 0, values_offset = 0, scratch_offset = 0;
     };
-    /// Stable ascending uint32 key/value sort. Operands are referenced until GPU completion.
+    /// Stable ascending uint32 key/value sort. Operands must stay valid until GPU completion.
     /// Caller publishes writes before record and publishes output reads afterward.
     /// Internal native bindings may be overwritten; logical recorder state is preserved for later RHI consumers.
     struct radix_sorter : object {
@@ -359,27 +359,27 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual error record(command_recorder&, radix_sort_info const&) = 0;
     };
 
-    // ---- THE COMMAND BUFFER: THE HELD RECORDING HANDLE (abi 15) ------------------------------------
+    // ---- THE COMMAND BUFFER: THE RECORDING HANDLE THE CALLER CREATES (abi 15) ----------------------
     //
-    // `command_buffer` used to be a REFERENCED view of a recording with no `release()` of its (abi
+    // `command_buffer` used to be a view of a recording with no `release()` at all (abi
     // 1/2/14); what the contract never had was the RESOURCE behind it - a command buffer the caller can
     // create, keep, begin, end and execute, which is what the engine's per-slot primaries, its
     // per-cascade and per-worker secondaries and the read-back's one-shot buffer need. Since abi 15
-    // `command_buffer` IS that resource, in the retention shape `buffer` / `image` established: the
-    // factory hands out ONE reference, `release()` releases it inside the backend, and
-    // `rhi::unique_object<T>` is the holder spelling. The frame's list is still the ONE referenced
-    // instance of the type (`begin_commands()` answers it; its `release()` panics).
+    // `command_buffer` IS that resource, in the shape `buffer` / `image` established: the
+    // factory hands out ONE handle, `release()` runs inside the backend, and
+    // `rhi::unique_object<T>` is the wrapper spelling. The frame's list is still the ONE instance of the
+    // type that belongs to the frame (`begin_commands()` answers it; its `release()` panics).
     //
     // WHAT DOES NOT CROSS THIS BOUNDARY, and it is the decision this type rests on: the ALLOCATOR. A
     // command buffer is allocated from an API-specific pool/allocator whose lifetime is entangled with
     // GPU progress (it may be reset only once the device is done with it), and neither Vulkan's
     // `VkCommandPool` nor D3D12's allocator nor Metal's queue is a portable concept. This backend's
-    // wrapper HOLDS its POOL (source/backends/vulkan/core/handles/handles.cppm), so the one lifetime rule is the
+    // wrapper carries its POOL as a member (source/backends/vulkan/core/handles/handles.cppm), so the one lifetime rule is the
     // handle's and no allocator, pool or reset verb appears here; a backend that needs one keeps
     // it behind `begin_recording()` / `release()`.
     // ----------------------------------------------------------------------------------------------
 
-    /// HOW A COMMAND BUFFER IS USED BY ITS HOLDER (abi 15).
+    /// HOW A COMMAND BUFFER IS USED (abi 15).
     ///
     /// A PRIMARY buffer is handed to the device as a unit of work; it is the ONLY role a caller can
     /// create in abi 37 (the secondary role is retired - see the VALUE below). The multithreaded
@@ -439,11 +439,11 @@ export namespace deren::promise::rhi {
     /// the chain. A backend that cannot serve a chain REFUSES THE CALL BY NAME (`unsupported`) rather
     /// than dropping it, which is the rule the heap requests already follow ("never silently drop the chain").
     ///
-    /// `struct_size` is the same ABI guard `command_buffer_desc` carries; `next` is referenced only
+    /// `struct_size` is the same ABI guard `command_buffer_desc` carries; `next` is read only
     /// until the call returns.
     /// Attachment compatibility for a secondary recording. Formats use RHI values;
     /// `depth` requests the backend's chosen depth format, `unknown` means no depth.
-    /// Referenced only until begin_recording returns. Appending a tagged POD changes no vtable.
+    /// Read only until begin_recording returns. Appending a tagged POD changes no vtable.
     struct command_buffer_inheritance_info {
         static constexpr std::string_view tag = "deren.rhi.structure.command_buffer_inheritance";
         structure_header header{structure_type::command_buffer_inheritance, sizeof(command_buffer_inheritance_info), nullptr};
@@ -535,20 +535,20 @@ export namespace deren::promise::rhi {
     /// The segment's shared handle: a `shared_object` over the batch-only handle (abi 44).
     using mergeable_command_buffer_ref = shared_object<mergeable_command_buffer>;
 
-    /// Shared recording vocabulary (ABI 49). Holders expose these verbs directly.
+    /// Shared recording vocabulary (ABI 49). Every recording handle exposes these verbs directly.
     /// This base carries no individual submission or batch execution permission.
     struct command_recorder : object {
 
         command_recorder() noexcept = default;
         virtual ~command_recorder() noexcept = default;
 
-        /// RELEASE THE CALLER'S ONE REFERENCE (see `buffer::release()`): the recording session and the
-        /// allocation behind it die with the last reference, inside the backend.
+        /// RELEASE THE CALLER'S ONE HANDLE (see `buffer::release()`): the recording session and the
+        /// allocation behind it die when the last caller releases, inside the backend.
         virtual void release() noexcept = 0;
 
         /// Open this buffer's recording session.
         ///
-        /// `ok` = recording; `not_ready` = this handle holds no reference any more, or the backend's
+        /// `ok` = recording; `not_ready` = this handle has already been released, or the backend's
         /// recording context is not available; `unsupported` = a usage bit or a chain entry this
         /// backend cannot serve (REFUSED BY NAME, never silently dropped); device-level failures
         /// (`device_lost`, `out_of_*_memory`) travel as themselves.
@@ -560,13 +560,13 @@ export namespace deren::promise::rhi {
 
         /// Apply pending CPU operations in order, preserving final state for later recording.
         /// end_recording applies automatically. Deferred errors make the recording non-executable.
-        /// Referenced pipeline/buffer holders must live through pending recording AND GPU completion.
+        /// Pipelines and buffers the caller binds must stay valid through pending recording AND GPU completion.
         [[nodiscard]] virtual error apply_operations() noexcept {
             return error::unsupported;
         }
 
-        // ---- THE RECORDING SERIES, NOW ON THE HOLDER (user's ruling) ------------------------------
-        // command_list is GONE: the recording verbs live on the one handle a caller holds, so a
+        // ---- THE RECORDING SERIES, NOW ON THE HANDLE (user's ruling) ------------------------------
+        // command_list is GONE: the recording verbs live on the one handle the caller has, so a
         // call site is `buffer->draw(...)` / `->barrier(...)` with no view in between. The
         // non-virtual forwarders this type used to carry are gone with it: these ARE the series.
 
@@ -577,7 +577,7 @@ export namespace deren::promise::rhi {
         /// barrier describes what the CALLER just did, and the backend cannot know the "from" of a
         /// recording it was not told about.
         ///
-        /// THE CALLER HOLDS THE CORRECTNESS: a missing pair, or a reversed one, is a WRONG barrier - the
+        /// THE CORRECTNESS IS THE CALLER'S: a missing pair, or a reversed one, is a WRONG barrier - the
         /// one failure this contract cannot catch for you. The shadow gate compares the barriers this
         /// produces, field by field, against the recipes the renderer ships with.
         ///
@@ -599,7 +599,7 @@ export namespace deren::promise::rhi {
         // ---- the GPU timing recording verbs (abi 14) -------------------------------------------
         // One mark's duration is the interval it OPENS: stage i runs from mark i to mark i + 1 and is
         // named by the name mark i carries (read back through `gpu_profiler`). WHICH PIPELINE STAGE a
-        // timestamp resolves at is a MEASUREMENT detail of the backend that holds the query pool, not
+        // timestamp resolves at is a MEASUREMENT detail of the backend that allocates the query pool, not
         // a caller decision - the caller marks pass boundaries in order and names them; the contract
         // deliberately does not carry a pipeline-stage vocabulary (that would import one API's
         // execution model into every backend).
@@ -618,8 +618,8 @@ export namespace deren::promise::rhi {
 
         // ---- the portable record series (abi 20) ------------------------------------------------
         // THE RECORDING SURFACE'S VOCABULARY: the verbs this renderer's passes actually record,
-        // replacing 140 raw `vkCmd*` call sites in the engine's sources. Declared ONCE on the holding
-        // `command_recorder`; sibling holders retain different submit rules. Shader parameter pushes
+        // replacing 140 raw `vkCmd*` call sites in the engine's sources. Declared ONCE on
+        // `command_recorder`, which every recording handle wraps; each kind of handle keeps separate submit rules. Shader parameter pushes
         // are recorded here too, independent of the backend's descriptor storage.
         //
         // THE ANSWERING RULE, and the one place it deliberately deviates from the obvious shape: a verb that
@@ -640,7 +640,7 @@ export namespace deren::promise::rhi {
         // host-visible half now (the escape itself is deleted in abi 43).
 
         /// Immediate binding; exact binding-number/kind match with the current pipeline is required.
-        /// Validates before native recording; retains group through recorded and pending GPU use.
+        /// Validates before native recording; leaves the group valid through recorded and pending GPU use.
         [[nodiscard]] virtual error load_resource_group(resource_group_ref const& /*unused*/) {
             return error::unsupported;
         }
@@ -653,7 +653,7 @@ export namespace deren::promise::rhi {
         /// Require recording, nonempty four-byte units and containment within the capacity reported by
         /// device_capabilities::max_push_constants_size(). Reject overlap with bound pipeline resource
         /// group/texture token fields. A pipeline need not already be bound. Unsupported implementations
-        /// refuse explicitly; no pointer or parameter storage is retained by the default operation.
+        /// refuse explicitly; the default operation copies no bytes and stores no pointer.
         [[nodiscard]] virtual error push_constants(std::uint32_t /*unused*/, std::span<std::byte const> /*unused*/) noexcept {
             return error::unsupported;
         }
@@ -697,7 +697,7 @@ export namespace deren::promise::rhi {
                                 shader_binding_table_region const& callable, std::uint32_t width, std::uint32_t height, std::uint32_t depth) noexcept = 0;
 
         /// APPENDED IN ABI 26: record the BUILD of @p target - its geometries (a bottom-level structure) or its
-        /// instance list (a top-level one), whichever it was created with, over the memory the backend holds.
+        /// instance list (a top-level one), whichever it was created with, over the memory the backend allocates.
         /// `ok` = recorded; `not_ready` = this buffer is not recording; `invalid_argument` = a handle this
         /// backend did not hand out; `unsupported` = a level or a shape it cannot serve (REFUSED BY NAME, never
         /// silently skipped - a missing build would produce an empty traversal, which is a wrong picture rather
@@ -717,7 +717,7 @@ export namespace deren::promise::rhi {
         /// cannot serve, refused BY NAME.
         ///
         /// A MICROMAP MUST BE BUILT BEFORE THE GEOMETRY THAT CONSULTS IT: that is the order the caller records
-        /// them in, and the ordering this verb holds (the barrier is the backend's, as it is for a build).
+        /// them in, and the ordering this verb enforces (the barrier is the backend's, as it is for a build).
         [[nodiscard]] virtual error build_micromap(micromap& target) = 0;
 
         // dynamic state
@@ -736,13 +736,13 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual error copy_buffer(buffer& destination, buffer const& source, std::uint64_t size, std::uint64_t source_offset, std::uint64_t destination_offset) = 0;
         [[nodiscard]] virtual error clear_color_image(image const& target, deren::utility::vessel::array<float, 4> const& color, subresource_range const& range) = 0;
 
-        /// ABI 31. Success retains the group for recorded work; nullptr clears it.
+        /// ABI 31. Success leaves the group valid for recorded work; nullptr clears it.
         [[nodiscard]] virtual error load_texture_group(texture_group_ref const& /*group*/) {
             return error::unsupported;
         }
     };
 
-    /// Individually submittable holder and receiver of mergeable batches.
+    /// Individually submittable handle and receiver of mergeable batches.
     struct command_buffer : command_recorder {
         command_buffer() noexcept = default;
         ~command_buffer() noexcept override = default;
@@ -756,7 +756,7 @@ export namespace deren::promise::rhi {
         }
     };
 
-    /// Batch-only holder: ordered, self-contained segments retained until completion.
+    /// Batch-only handle: ordered, self-contained segments valid until completion.
     /// Sibling of command_buffer; cannot receive execute() or be submitted individually.
     struct mergeable_command_buffer : command_recorder {
         mergeable_command_buffer() noexcept = default;
@@ -765,8 +765,8 @@ export namespace deren::promise::rhi {
     struct command_context {
         command_context() noexcept = default;
         virtual ~command_context() noexcept = default;
-        command_context(command_context const&) = delete ("command_context is a referenced interface; use the reference supplied by the runtime");
-        command_context& operator=(command_context const&) = delete ("command_context is a referenced interface; use the reference supplied by the runtime");
+        command_context(command_context const&) = delete ("command_context is an interface reached by pointer; use the pointer the runtime supplies");
+        command_context& operator=(command_context const&) = delete ("command_context is an interface reached by pointer; use the pointer the runtime supplies");
         [[nodiscard]] virtual unique_object<command_buffer> create_command_buffer(command_buffer_desc const& desc) = 0;
         [[nodiscard]] virtual shared_object<command_buffer> make_command_buffer(command_buffer_desc const& desc) = 0;
         [[nodiscard]] virtual mergeable_command_buffer_ref make_mergeable_command_buffer(command_buffer_desc const& desc) = 0;

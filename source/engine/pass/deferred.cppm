@@ -5,7 +5,7 @@
  * @brief The eleventh real pass: the deferred lighting stage, which shades every pixel from the G-buffer.
  * @defgroup engine_pass_deferred Deferred Lighting Pass
  *
- * WHAT IT HOLDS: its pipeline (built at create time from its shader, with the ADDITIVE blend the stage needs),
+ * WHAT IT BUILDS: its pipeline (built at create time from its shader, with the ADDITIVE blend the stage needs),
  * the frame's recording - the scene-colour dependency barrier, the LOAD instance over the frame's scene target,
  * the push block and the draw - and its frame data (the callback that performs the two per-image input
  * transitions).
@@ -15,7 +15,7 @@
  * `render_target` names one resource today, so the declaration names the TAA path's and the resolver hands over the
  * frame's; the deviation is recorded in `render_resource::deferred_io`.
  *
- * WHAT IT DOES NOT hold: the images it reads. The stored surface and the G-buffer depth are heap slots the shader
+ * WHAT IT DOES NOT CREATE OR DESTROY: the images it reads. The stored surface and the G-buffer depth are heap slots the shader
  * names itself, and a frame the shader cannot address is not a frame this pass has anything to do with.
  */
 
@@ -65,7 +65,7 @@ export namespace deren::engine::pass {
         [[nodiscard]] deren::engine::pass::behaviour const& behaviour() const noexcept override;
         [[nodiscard]] std::string_view feature() const noexcept override;
         /// @brief WIP: keep the requested radiance capture state on the pass
-        /// @brief whether the reflection heap slot holds the denoiser's output rather than the raw trace
+        /// @brief whether the reflection heap slot carries the denoiser's output rather than the raw trace
         void set_reflection_denoised(bool enabled) noexcept override {
             this->reflection_denoised = enabled;
         }
@@ -78,7 +78,7 @@ export namespace deren::engine::pass {
 
         /// @brief whether the pass built what it records with (the renderer gates the deferred path on this)
         [[nodiscard]] bool pipeline_ready() const noexcept;
-        /// @brief the framework's generic form of the same question, so a holder holding only a chain can ask it
+        /// @brief the framework's generic form of the same question, so a caller that has only a chain can ask it
         ///        (a pass with nothing separate to build keeps the interface's `true`; see `frame_pass::ready`)
         [[nodiscard]] bool ready() const noexcept override {
             return this->pipeline_ready();
@@ -159,7 +159,7 @@ export namespace deren::engine::pass {
         bool rt_reflections_on = false;
         /// the composite's multiplier; the push lane carries it so 0 also means "off" (see set_rt_reflection_strength)
         float rt_reflection_strength = 0.35f;
-        /// whether the reflection heap slot holds the denoiser's output (see set_reflection_denoised)
+        /// whether the reflection heap slot carries the denoiser's output (see set_reflection_denoised)
         bool reflection_denoised = false;
         // called pass_frame, not frame: set_frame()'s frame parameter in deferred.cpp would hide a member of that name
         // and MSVC /W4 reports C4458 (an error under /WX).

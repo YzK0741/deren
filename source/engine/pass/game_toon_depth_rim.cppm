@@ -9,7 +9,7 @@
  * is drawing (see `toon_screen_rim_pass::feature`), and the Goo chain has its `goo_rim` stage. The third
  * chain - the game-shader model ported from the pinned MyZmdShaders sources - has no such stage: its rim is
  * computed INLINE in the character fragment while the captured viewer's hair/face contour is a DEPTH-CONTOUR
- * term, which a fragment stage cannot sample (the depth is its attachment). The renderer already holds the
+ * term, which a fragment stage cannot sample (the depth is its attachment). The renderer already has the
  * only legal way to read that depth: a fullscreen additive pass after the character stage and before the resolve,
  * with the depth SAMPLED and no depth attachment. This is that pass for the game chain, added as a SEPARATE
  * declaration rather than a mode of `toon_screen_rim`, because `feature_active` is asked once per NAME: "the
@@ -21,16 +21,16 @@
  * captured viewer's simple depth-contour term, and it takes its colour and shape from THIS pass's parameters.
  * Sharing the stage would make the two chains' rim constants one lane.
  *
- * WHAT IT HOLDS: its pipeline (ONE target, the scene colour, ADDITIVE blending, so the pass adds to the frame
+ * WHAT IT BUILDS: its pipeline (ONE target, the scene colour, ADDITIVE blending, so the pass adds to the frame
  * instead of reading and rewriting it), the 48-byte push block, and the draw.
  *
- * WHAT IT DOES NOT hold: the geometry (a synthetic fullscreen triangle), the G-buffer and the depth (per-image
+ * WHAT IT DOES NOT CREATE: the geometry (a synthetic fullscreen triangle), the G-buffer and the depth (per-image
  * heap slots), and their transition to a sampled layout, which is the graph's/rendering bookkeeping.
  *
  * IT IS GATED BY `runtime::game_toon_active()` AND THE CHARACTER STAGE'S EXISTENCE at the post-graph lane (see
  * runtime.post_graph.cpp): the silhouette belongs to the game-shaded character and means nothing without it.
  * its `feature()` still names its feature - `"game_toon_depth_rim"` - so the declaration carries the question
- * it answers even though the holder's table does not need a second branch to ask the composed predicate directly.
+ * it answers even though the renderer's table does not need a second branch to ask the composed predicate directly.
  */
 
 module;
@@ -105,7 +105,7 @@ export namespace deren::engine::pass {
         /// \brief the record body alone - none of this pass's ordering
         ///
         /// The graph recorder calls THIS entry and the graph emits the input transitions and the target write;
-        /// the pass holds no barriers (its sampled inputs are heap slots the graph declares on its behalf).
+        /// the pass records no barriers (its sampled inputs are heap slots the graph declares on its behalf).
         void record_impl(resolved_io const& io);
         deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
 

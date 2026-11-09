@@ -54,7 +54,7 @@ export namespace deren::engine::gaussian_splatting {
     class raster_asset {
     public:
         raster_asset(raster_asset const&) = delete ("raster_asset is non-copyable: construct it in place and keep its identity");
-        raster_asset& operator=(raster_asset const&) = delete ("raster_asset is non-copyable: configure it through its holding API");
+        raster_asset& operator=(raster_asset const&) = delete ("raster_asset is non-copyable: configure the object in place");
         raster_asset(raster_asset&&) = delete ("raster_asset is non-movable: its resources are tied to the current address");
         raster_asset& operator=(raster_asset&&) = delete ("raster_asset is non-movable: its resources are tied to the current address");
         [[nodiscard]] deren::gaussian::asset const& source() const noexcept {
@@ -77,7 +77,7 @@ export namespace deren::engine::gaussian_splatting {
     class raster_frame : public std::enable_shared_from_this<raster_frame> {
     public:
         raster_frame(raster_frame const&) = delete ("raster_frame is non-copyable: construct it in place and keep its identity");
-        raster_frame& operator=(raster_frame const&) = delete ("raster_frame is non-copyable: configure it through its holding API");
+        raster_frame& operator=(raster_frame const&) = delete ("raster_frame is non-copyable: configure the object in place");
         raster_frame(raster_frame&&) = delete ("raster_frame is non-movable: its resources are tied to the current address");
         raster_frame& operator=(raster_frame&&) = delete ("raster_frame is non-movable: its resources are tied to the current address");
         [[nodiscard]] raster_push const& params() const noexcept {
@@ -113,9 +113,9 @@ export namespace deren::engine::gaussian_splatting {
         deren::utility::vessel::vector<draw_reference> staging_reference_data;
         deren::utility::vessel::vector<instance_record> instance_data;
         deren::promise::rhi::api_core* parent = nullptr;
-        // These leases outlive the storage subchain's completion drain.
-        deren::promise::rhi::shared_object<deren::promise::rhi::api_core> device_lease;
-        deren::utility::vessel::vector<std::shared_ptr<raster_asset const>> retained_assets;
+        // These shared device handles outlive the storage subchain's completion drain.
+        deren::promise::rhi::shared_object<deren::promise::rhi::api_core> device_root;
+        deren::utility::vessel::vector<std::shared_ptr<raster_asset const>> cached_assets;
         deren::utility::vessel::vector<std::shared_ptr<raster_asset const>> staging_handles;
         deren::engine::pass::pass_chain storage_chain;
         deren::engine::pass::buffer_storage_pass* storage_provider = nullptr;
@@ -126,11 +126,11 @@ export namespace deren::engine::gaussian_splatting {
     };
     // NOLINTNEXTLINE(readability-trailing-comma): Clang 23 mislocates commas around empty module default arguments.
     [[nodiscard]] std::expected<std::shared_ptr<raster_asset const>, foundation_error> make_raster_asset(deren::promise::rhi::api_core&, deren::gaussian::asset, foundation_limits const& = {}, deren::promise::rhi::shared_object<deren::promise::rhi::api_core> = {});
-    /// @param reuse an optional frame to REFILL (the caller may keep it alive; the returned handle holds the frame
-    ///        when it is given, exactly like a freshly prepared one), which is how a steady-state frame allocates
-    ///        nothing. @see raster_frame's retained buffer capacities and the plan's Task 8.
-    /// A reference-only caller retains the core. Production supplies a holding lease initially;
-    /// an allocated legacy frame cannot gain a holding lease by reuse. Reuse must be a completed slot.
+    /// @param reuse an optional frame to REFILL (the caller can pass a live frame back; the returned handle carries that same frame
+    ///        when one is given, exactly like a freshly prepared one), which is how a steady-state frame allocates
+    ///        nothing. @see raster_frame's reused buffer capacities and the plan's Task 8.
+    /// A caller that passes no shared device handle must guarantee the core outlives the frame. Production supplies one
+    /// initially; an allocated legacy frame cannot gain a shared device handle by reuse. Reuse must be a completed slot.
     // NOLINTNEXTLINE(readability-trailing-comma): Clang 23 mislocates commas around empty module default arguments.
     [[nodiscard]] std::expected<std::shared_ptr<raster_frame const>, foundation_error> prepare_raster_frame(deren::promise::rhi::api_core&, std::span<raster_instance const>, raster_camera const&, foundation_limits const& = {}, raster_frame* = nullptr, deren::promise::rhi::shared_object<deren::promise::rhi::api_core> = {});
 } // namespace deren::engine::gaussian_splatting

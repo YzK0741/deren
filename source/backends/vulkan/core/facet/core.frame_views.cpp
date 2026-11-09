@@ -3,7 +3,7 @@
 // file: source/backends/vulkan/core/facet/core.frame_views.cpp
 //
 // The frame face's views and the frame/profiler entry points, split
-// out of core.api_core.cpp. This translation unit holds no separate state:
+// out of core.api_core.cpp. This translation unit defines no separate state:
 // every definition here is a member of `core` over the frame and command
 // facets, exactly as before the move.
 // ============================================================================
@@ -96,12 +96,12 @@ namespace deren::vulkan {
             // WHAT THIS WIDENING IS FOR, and it is a WIDENING rather than a new slot (the signature does not
             // move, so abi 27 stands): the probes record their read-back into a buffer THEY created
             // (`create_command_buffer()`), and they used to hand it to the queue through the escape with a raw
-            // `vkQueueSubmit` (the escape is deleted in abi 43) - the last Vulkan reference the engine half had.
-            // A one-shot list the caller holds is the same operation the frame's list is (record -> submit to
+            // `vkQueueSubmit` (the escape is deleted in abi 43) - the last Vulkan call the engine half made.
+            // A one-shot list the caller records into is the same operation the frame's list is (record -> submit to
             // the graphics queue); what differs is
             // that NOTHING IS PRESENTED, so the acquire state, the swapchain image and the semaphores are not
             // involved. THE ORDERING STAYS THE CALLER'S (`wait_idle()`), exactly as it was when it submitted by
-            // hand - the contract has no fence for a held buffer, and inventing one is not this batch's call.
+            // hand - the contract has no fence for a caller-created buffer, and inventing one is not this batch's call.
             {
                 std::lock_guard const lock(this->command.contract_command_buffers_mutex);
                 if (!this->command.contract_command_buffers.contains(&commands)) {
@@ -122,7 +122,7 @@ namespace deren::vulkan {
             VkSubmitInfo one_shot = make_submit_info(&native);
             auto submission = std::make_unique<pending_submission>();
             submission->parent = this;
-            submission->primary = retain_command(concrete, false);
+            submission->primary = reference_command(concrete, false);
             submission->groups = concrete.group_refs;
             submission->resources = concrete.resource_refs;
             submission->lazy_refs = concrete.lazy_refs;
@@ -203,10 +203,10 @@ namespace deren::vulkan {
 
     // ---- the frame face (abi 13) ----------------------------------------------------------------
     //
-    // THE ACCESSORS hand out this core's two views - the same object every call, the
-    // constructor set their `holder`. The views' methods compose the machinery this class already
-    // held: the walker is today's frame prologue fused (wait -> latch timings -> acquire -> report),
-    // the profiler reads the timing snapshot the walker's latch produced.
+    // THE ACCESSORS hand out this core's two views - the same object every call, with `parent` set by
+    // the constructor. The views' methods compose the machinery this class already had: the walker is
+    // today's frame prologue fused (wait -> latch timings -> acquire -> report), the profiler reads the
+    // timing snapshot the walker's latch produced.
 
     std::uint32_t core::frame_walker_view::slot_count() const noexcept {
         return static_cast<std::uint32_t>(this->parent->frame.frames_in_flight);
@@ -367,8 +367,8 @@ namespace deren::vulkan {
                 total += count;
             }
             deren::utility::log("render operations: total={}", total);
-            deren::utility::log("render operations lowered: requested={} retained={} setters={} work={}",
-                                deferred_requested, deferred_retained, emitted_setters, emitted_work);
+            deren::utility::log("render operations lowered: requested={} deferred={} setters={} work={}",
+                                deferred_requested, deferred_referenced, emitted_setters, emitted_work);
             if (operation_requests[0]) {
                 deren::utility::log("render operations: push_constants={}", operation_requests[0]);
             }
@@ -470,6 +470,6 @@ namespace deren::vulkan {
             }
         }
         operation_requests.fill(0);
-        deferred_requested = deferred_retained = emitted_setters = emitted_work = 0;
+        deferred_requested = deferred_referenced = emitted_setters = emitted_work = 0;
     }
 } // namespace deren::vulkan

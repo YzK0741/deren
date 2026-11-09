@@ -123,7 +123,7 @@ int main() {
         CHECK(!sub::make_page_manager(t.pages, t.dependencies, budget(300)));
     }
     {
-        // The manager consumes the real page table retained by imported_asset, not a copy of the
+        // The manager reads the real page table from the imported asset, not a copy of the
         // offline builder's private payload.
         auto fixture = subtilis_fixture::cross_dag();
         CHECK(wire::compute_pages(fixture.data, {}));

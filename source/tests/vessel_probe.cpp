@@ -19,6 +19,6 @@ extern "C" VESSEL_PROBE_EXPORT void vessel_probe_free(void* pointer) noexcept {
 #endif
 extern "C" VESSEL_PROBE_EXPORT PROBE_NOINLINE void vessel_probe_trace(void (*callback)(void*), void* state) {
     callback(state);
-    void* volatile retained = state;
-    static_cast<void>(retained);
+    void* volatile escaped = state;
+    static_cast<void>(escaped);
 }
