@@ -822,7 +822,9 @@ int main(int const argc, char** const argv) {
             } else {
                 auto bytes = value->objects[0].buffer->mapped();
                 CHECK(std::equal(table_bytes[i].begin(), table_bytes[i].end(), bytes.begin()));
-                CHECK(deren::vk_test::probe_heap_buffer(*device, layout::heap_slot_offset(pass::scene_tables_pass::heap_slots[i])).data() == bytes.data());
+                if (pass::scene_tables_pass::heap_slots[i] != 0) {
+                    CHECK(deren::vk_test::probe_heap_buffer(*device, layout::heap_slot_offset(pass::scene_tables_pass::heap_slots[i])).data() == bytes.data());
+                }
             }
         }
         auto finish = [&] {

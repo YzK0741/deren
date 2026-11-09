@@ -1708,6 +1708,9 @@ namespace deren::engine {
         if (auto const compute_skin_result = this->compute_skin.create(build); !compute_skin_result) {
             deren::utility::log("skinned shadow refit unavailable: {} (a traced shadow keeps the bind pose)", compute_skin_result.error());
         }
+        if (auto const cut_result = this->cut_job.create(build); !cut_result) {
+            deren::utility::log("GPU subtilis cut unavailable: {} (the CPU cut remains active)", cut_result.error());
+        }
     }
 
     render_resource::shared::sampler_set runtime::shared_samplers() const noexcept {
@@ -2196,6 +2199,12 @@ namespace deren::engine {
     pass::visibility_frame runtime::make_visibility_frame(bool const recovery) noexcept {
         pass::visibility_frame frame{};
         static bool const parallel = std::getenv("DEREN_PARALLEL_VISIBILITY") != nullptr;
+        // A GPU cut keeps its compute dispatch and its item draws in different command streams: the dispatch
+        // must be recorded into the primary BEFORE the pass opens the rendering instance, while the draws can
+        // only execute inside it. Secondary segments are what make that split possible (the same mechanism the
+        // parallel visibility path already uses), so a GPU-cut frame takes the segment path even when
+        // DEREN_PARALLEL_VISIBILITY is unset.
+        bool const gpu_cut = this->subtilis_gpu_cut && this->cut_job.ready();
         frame.record_items = [](void* parent, deren::promise::rhi::command_buffer& command_buffer,
                                 std::span<rhi::mergeable_command_buffer_ref const> segments,
                                 pass::visibility_frame::bind_segment_fn bind_segment, void* segment_context,
@@ -2211,7 +2220,7 @@ namespace deren::engine {
                                     std::uint32_t& recorded) {
                 return static_cast<runtime*>(parent)->record_visibility_recovery(command_buffer, recorded);
             };
-        } else if (parallel) {
+        } else if (parallel || gpu_cut) {
             auto& segments = this->visibility_segments[static_cast<std::size_t>(this->frame_ring().position())];
             if (segments.empty()) {
                 // Lazily after the scene startup peak: the visibility lane's small segment set must not tip

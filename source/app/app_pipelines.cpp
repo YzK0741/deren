@@ -463,6 +463,9 @@ namespace deren::app {
             deren::utility::vessel::vector<std::uint8_t> compute_skin_code;
             load_shader(shaders_dir, "compute_skin.comp.spv", compute_skin_code);
             runtime.register_shader("compute_skin.comp.spv", compute_skin_code);
+            deren::utility::vessel::vector<std::uint8_t> subtilis_cut_code;
+            load_shader(shaders_dir, "subtilis_cut.comp.spv", subtilis_cut_code);
+            runtime.register_shader("subtilis_cut.comp.spv", subtilis_cut_code);
 
             // The HEAP-NATIVE PROBE (source/shaders/debug/heap_probe_comp.slang): registered like the jobs above, and for a purpose
             // of the same kind - it is not part of any frame, it runs once at scene setup in a command buffer of

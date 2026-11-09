@@ -194,6 +194,13 @@ if(VR_BUILD_TESTS)
     target_link_libraries(test_subtilis_upload deren_engine probe_backend_static promise)
     target_link_libraries(test_subtilis_selection deren_engine probe_backend_static promise)
     target_link_libraries(test_subtilis_frame deren_engine asset_subtilis_core probe_backend_static promise)
+    # A real Vulkan device test, so it is registered by the device lane in CMakeLists.txt rather than
+    # as a headless test. Being built by the headless ASan job also pulled deren_vulkan.dll into a
+    # build where the DLL intentionally disables sanitizers while this static library is instrumented.
+    add_executable(test_subtilis_cut_gpu source/tests/test_subtilis_cut_gpu.cpp)
+    target_link_libraries(test_subtilis_cut_gpu deren_engine backend_loader static_utility vstd_lib)
+    target_compile_definitions(test_subtilis_cut_gpu PRIVATE VR_SHADER_DIR="${CMAKE_BINARY_DIR}/shaders")
+    add_dependencies(test_subtilis_cut_gpu deren_vulkan)
     target_link_libraries(test_subtilis_asset deren_engine vstd_lib)
     target_link_libraries(test_subtilis_dag_asset deren_engine vstd_lib)
     target_link_libraries(test_subtilis_dag_lod deren_engine asset_subtilis_core yyjson_vendored)

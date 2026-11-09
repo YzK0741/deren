@@ -6,45 +6,45 @@
   </picture>
 </p>
 
-**deren** is a real-time renderer that chases the newest C++ and graphics API features. Its portable engine uses RHI and GUI contracts to load graphics implementations as DLLs. The current baseline combines C++26 modules, PBR, anime-style toon shading, Gaussian splatting, Slang shaders, and a backend-independent RHI with a Vulkan backend.
+**deren** is a real-time renderer built around current C++ and graphics APIs. The engine is portable: it talks to graphics implementations through RHI and GUI contracts and loads them as DLLs. The current baseline combines C++26 modules, deferred PBR, toon shading, Gaussian splatting, Slang shaders, and a backend-independent RHI with a Vulkan backend.
 
-> The project was renamed from `vulkan_render` to `deren` on 2026-10-02. Portable modules now use `deren.engine.*` and `deren::engine`; native Vulkan implementations retain `deren.vulkan.*` and `deren::vulkan`.
+> The project was renamed from `vulkan_render` to `deren` on 2026-10-02. Portable modules use `deren.engine.*` / `deren::engine`; native Vulkan implementations keep `deren.vulkan.*` / `deren::vulkan`.
 
-![The Gaussian viewer: NVIDIA's Bouquet of Flowers (CC BY 4.0), 562,974 splats, rendered by deren](docs/screenshots/gaussian-viewer.jpg)
+![The Gaussian viewer: NVIDIA's Bouquet of Flowers (CC BY 4.0), 562,974 splats](docs/screenshots/gaussian-viewer.jpg)
 
-[Gaussian splatting details and viewer setup](#gaussian-splatting).
+[Gaussian splatting details](#gaussian-splatting).
 
 <p align="center">
-  <img src="docs/screenshots/DamagedHelmet.png" width="49%" alt="DamagedHelmet with Studio Neutral HDR lighting, PBR Neutral tone mapping and ray-traced reflections enabled" />
-  <img src="docs/screenshots/FlightHelmet.png" width="49%" alt="FlightHelmet with Studio Neutral HDR lighting and PBR Neutral tone mapping" />
+  <img src="docs/screenshots/DamagedHelmet.png" width="49%" alt="DamagedHelmet with PBR, IBL and ray-traced reflections" />
+  <img src="docs/screenshots/FlightHelmet.png" width="49%" alt="FlightHelmet with PBR and IBL" />
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/GameToon.png" width="48%" alt="Laevatain rendered with GameToon, showing eye and lip highlights and leather reflections" />
-  <img src="docs/screenshots/GameToonFace.png" width="48%" alt="Laevatain face close-up showing iris catchlights and the lower-lip highlight" />
+  <img src="docs/screenshots/GameToon.png" width="48%" alt="Laevatain rendered with GameToon" />
+  <img src="docs/screenshots/GameToonFace.png" width="48%" alt="Laevatain face close-up rendered with GameToon" />
 </p>
 
-<sub>The two helmet shots use deferred PBR with Studio Neutral HDR lighting, a solid grey background and
-Khronos PBR Neutral tone mapping, captured at 1080x960 with fixed cameras. DamagedHelmet has
-ray-traced reflections enabled (`rt_reflections`, the `Material_MR` material, strength 1.0);
-FlightHelmet is the raster/IBL reference. These are material previews with direct sun, shadows,
-SSAO and temporal/post effects disabled.
-The Laevatain half-body and face shots use the GameToon profile with the captured light rig and display transform.
-Both were captured directly from the renderer with TAA and FXAA enabled and exposure set to 0.92.
-See [`docs/screenshots/README.md`](docs/screenshots/README.md) for the capture settings.</sub>
+<sub>DamagedHelmet and FlightHelmet use deferred PBR with Studio Neutral HDR lighting and Khronos PBR Neutral tone mapping; DamagedHelmet adds ray-traced reflections. The Laevatain shots use the GameToon profile with its captured light rig. See [`docs/screenshots/README.md`](docs/screenshots/README.md) for capture settings.</sub>
+
+## Features
+
+- **Engine runtime and modular boundaries**: `deren.engine.runtime` owns the scene-wide GPU resources and drives a frame through explicit phases (`poll_events`, `pace_and_acquire`, `begin_recording`, `record_main_drawcalls`, `end_recording`, `submit_and_present`). CPU-only modules such as `deren.gltf_loader`, `deren.application_configuration` and `deren.utility` do not depend on Vulkan; the backend is loaded through `deren.engine.backend_loader`.
+- **Scene and draw model**: a caller-owned scene tree is walked once per frame into world matrices; GPU drawables live in `deren.engine.primitive`. Leaves either use default pipeline semantics or request a named pipeline, so several pipelines and material strategies coexist in one scene. Parallel recording workers each build their own `render_environment`. A BVH over leaf bounds culls the scene against the camera and is reused while the scene and camera are static; `static_draw_primitive` merges static sub-meshes into one vertex/index buffer with a per-chunk draw table.
+- **Vulkan 1.3 backend**: dynamic rendering (no render passes or framebuffers), a descriptor heap instead of descriptor sets, timeline semaphores, ray queries, mesh/task shaders, host image copies, and buffer device addresses. The RHI/GUI boundary is process-level and backend implementations are loaded by name.
+- **Deferred rendering**: a G-buffer pass writes surface targets; the lighting stage shades them into an HDR target with IBL, punctual lights, cascaded shadows and optional ray-traced sun shadows. Post-processing adds exposure, ACES tone mapping, bloom and FXAA; TAA is available separately. The analytic `furnace` mode is an exactness check for the lighting path.
+- **Lighting and effects**: metallic-roughness PBR with five texture slots and glTF alpha modes; GGX/Smith by default with selectable direct-light BRDFs; prefiltered environment maps and a BRDF LUT; 1-4 cascaded shadow maps with PCF; clustered light culling; hemisphere-sampling SSAO; ray-traced reflections for PBR and toon materials.
+- **subtilis geometry LOD**: visibility buffer + Cluster DAG LOD + HZB occlusion/recovery is the shipping path. DAG+HZB remains the accepted optimization; the software-raster lane is experimental, opt-in and default-off. **M2 GPU cut** (`[render] subtilis_gpu_cut`) is implemented but **off by default**: a persistent-workgroup compute shader selects the cut and writes the indirect command for static, non-skinned, non-morphed meshes on the 80-byte vertex layout, with hysteresis, HZB and software raster disabled. `test_subtilis_cut_gpu` checks parity against the CPU oracle. On textured Bistro at 1280x720 the GPU path dispatched 251 of 2906 items and produced a byte-identical image to the CPU cut, but the frame remained GPU-bound (46.2 fps vs 46.0-46.3 fps); the value is CPU headroom and scale, not a current FPS win. M5 page streaming has not started. See [the subtilis overview](docs/subtilis.md) and [the M2/M5 plan](docs/subtilis_m2_m5_plan.md).
+- **amnis texture residency**: an opt-in texture-residency system independent of the geometry cuts. Visibility and screen-footprint feedback request whole-image, two-tier or progressive mip streaming; bounded async uploads and low-resolution fallbacks keep frames moving. See [`docs/amnis.md`](docs/amnis.md).
+- **Gaussian splatting**: `.ply` files load as Gaussian clouds, are packed onto the GPU once, and are drawn by a dedicated stage between lighting and blended geometry. The GPU path prepares, sorts, finalizes and rasterizes without CPU readback.
+- **glTF, animation and skinning**: `.gltf` / `.glb` loading with hierarchy, skins, morph targets and keyframe animations; a format-neutral animation controller samples into the scene tree and updates skin/morph buffers per frame.
+- **Debug GUI, profiling and capture**: a Dear ImGui overlay (F1) exposes only features that can affect the current frame. `[render] gpu_timings` records pass boundaries with `vkCmdWriteTimestamp` without waiting on the GPU. F12 saves a PNG through the frame's own command buffer; `--capture-frames`, `--capture-camera`, `--capture-sweep` and `--capture-animation-sweep` make headless captures reproducible.
+- **Engineering**: C++26 modules, exceptions and RTTI disabled, `-Wall -Wextra -Werror`, automatic `clang-format`, LTO and dead-code elimination in Release, and a per-module CMake target graph.
 
 ## Build helpers
 
-The repo ships platform **setup** scripts plus unified Python **build / run / documentation** entry
-points under `scripts/build_helpers/` (Python 3.8+). Setup stays shell because it installs the toolchain that
-provides Python; the same entry points exist on **Windows** (MSYS2 clang64) and **POSIX** (Linux / WSL /
-macOS), but only Windows is built by CI - POSIX is source-tree support, not a verified configuration (see
-*Platform* below).
+The repository ships platform **setup** scripts and unified Python **build / run / documentation** entry points under `scripts/build_helpers/` (Python 3.8+). Setup stays a shell script because it installs the toolchain that provides Python. The same entry points exist on **Windows** (MSYS2 clang64) and **POSIX** (Linux / WSL / macOS), but only Windows is built by CI; POSIX is source-tree support, not a verified configuration.
 
-Commit and CI rules are in [`CONTRIBUTING.md`](CONTRIBUTING.md); use `scripts/commit.ps1` and
-`scripts/push.ps1` rather than direct `git commit` / `git push`. Unfinished work can be backed up
-on a `wip/*` branch with `python scripts/push_wip.py` (cross-platform; no local gate, no CI job
-runs for it, never merged - see [the WIP channel](CONTRIBUTING.md#the-wip-channel-wip)).
+Commit and CI rules are in [`CONTRIBUTING.md`](CONTRIBUTING.md). Use `scripts/commit.ps1` and `scripts/push.ps1` instead of direct `git commit` / `git push`. Unfinished work can be backed up on a `wip/*` branch with `python scripts/push_wip.py` (no local gate, no CI job, never merged; see [the WIP channel](CONTRIBUTING.md#the-wip-channel-wip)).
 
 **Setup**
 
@@ -54,11 +54,11 @@ runs for it, never merged - see [the WIP channel](CONTRIBUTING.md#the-wip-channe
 sh scripts/setup/windows.sh
 
 # POSIX: detect distro, install glfw/glm/toml++/Vulkan via apt/dnf/pacman/brew
-# (source-tree support only - no CI job builds the project on POSIX; see Platform)
+# (source-tree support only - no CI job builds the project on POSIX)
 sh scripts/setup/posix.sh
 ```
 
-**Build / run / docs (shared entry points; CI builds Windows only)**
+**Build / run / docs**
 
 ```bash
 # configure + build Debug and Release
@@ -76,424 +76,201 @@ python scripts/build_helpers/run.py --model path/to/model.glb -- --demo gui
 python scripts/build_helpers/build_docs.py
 ```
 
-Release builds go to `build/` and Debug builds to `build-debug/`; pass `--build-dir` to either helper to override.
-Windows-only capture, gate and probe scripts live in `scripts/gates/`; platform environment setup
-lives in `scripts/setup/`. There are no per-platform build/run wrappers any more.
+Release builds go to `build/` and Debug builds to `build-debug/`; pass `--build-dir` to either helper to override. Windows-only capture, gate and probe scripts live in `scripts/gates/`.
 
-Python also drives the config generators (cross-platform, no shell needed):
+Python also drives the config generators:
 
 ```bash
-python scripts/config/make_default_config.py     # copy config.example.toml as-is (asks where to put it)
-python scripts/config/make_config.py             # interactive: asks every setting (types + defaults shown)
-python scripts/config/make_config.py path/to/dir # write config.toml into an explicit directory
+python scripts/config/make_default_config.py     # copy config.example.toml as-is
+python scripts/config/make_config.py             # interactive: every setting, with types and defaults
+python scripts/config/make_config.py path/to/dir # write config.toml into a directory
 ```
+
+## Version
+
+**0.6.0** — the single source of truth is `project(VERSION)` in `CMakeLists.txt`. CMake injects `DEREN_VERSION_{MAJOR,MINOR,PATCH}` and surfaces the version through `--version`, the startup banner and the instance's `app_info`. Version-update rules and the synchronized copies are listed in [`AGENTS.md`](AGENTS.md); do not bump the version as a side effect of another change.
+
+Each independently reusable module set carries its own `module version` annotation at the top of its main interface unit. That annotation is authoritative, so this README does not mirror the full list. Modules evolve independently: MAJOR for breaking interface changes, MINOR for additive features, PATCH for fixes; an appended `a` marks an internal revision that does not consume a semver slot.
 
 ## Source layout
 
 C++ code and shader sources live under `source/`:
 
-- `engine/`: scene, animation, runtime, resources and passes; filters live in `engine/filters/`.
+- `engine/`: scene, animation, runtime, resources and passes; `engine/filters/` holds filters.
 - `backends/vulkan/`: native Vulkan implementation and GUI plugin.
 - `promise/`: backend-independent RHI and GUI contracts.
 - `app/`, `configuration/`, `gltf_loader/`, `utility/`, `vstd/`: application and supporting modules.
 - `tests/`, `shaders/`, `third_party/`: tests, shader inputs and vendored code.
 
-Development and build tools live in root-level `scripts/`; README images live in `docs/screenshots/`.
+The engine CMake target is `deren_engine` (`deren::engine`). Shader outputs go to `<build>/shaders/`. Documentation and screenshots live in `docs/`; configuration lives at the root; models live under `asset/<name>/` (see [`asset/README.md`](asset/README.md)).
 
-The engine CMake target is `deren_engine` (`deren::engine`). Build shader outputs remain in `<build>/shaders/`; manual shader tools write to the repository `shaders/` output directory. Documentation and screenshots live in `docs/`; configuration stays at the root, and models live under `asset/<name>/` (see [`asset/README.md`](asset/README.md)).
-
-## Version
-
-**0.5.0** — single source of truth is `project(VERSION)` in `CMakeLists.txt`; CMake injects
-`DEREN_VERSION_{MAJOR,MINOR,PATCH}` into the code. To release a new version, bump it
-there and update the tracked copies named in `AGENTS.md` (this line and `docs/mainpage.md`). The
-version is surfaced by `--version`,
-the startup log banner (`deren x.y.z`), and the instance's `app_info`
-(`applicationVersion` / `engineVersion`).
-
-Each **independently reusable module set** also carries its own `module version` annotation
-in a comment block at the top of its main interface unit. The authoritative value is that
-annotation; the main reusable sets are `deren.utility` 3.0.1 (with `deren.utility.shared`
-1.3.1), `deren.vstd` 0.1.2a (the trimmed `std` replacement), `deren.gltf_loader` 2.1.1,
-`deren.application_configuration` 1.0.1, `deren.engine.math` 1.0.1,
-`deren.vulkan.constant_init` 0.9.2 (the compile-time info-struct builders that
-`deren.vulkan.core` and `deren.engine.runtime` embed), `deren.vulkan.core` 0.24.1,
-`deren.engine.runtime` 1.1.1, `deren.engine.profiling` 1.0.1, `deren.engine.pipelines` 1.0.1,
-`deren.engine.shadow_fit` 1.0.1, `deren.engine.acceleration_structure` 2.0.1,
-`deren.engine.scene_tree` 1.0.1, `deren.engine.primitive` 1.1.2, `deren.engine.animation` 1.0.1,
-`deren.vulkan.graphical_user_interface` 1.0.1 and `deren.app.renderer` 0.2.1. The pass-level
-modules and the render-resource/backend helpers carry the same annotation; their unit headers
-are authoritative.
-They evolve on their own cadence (bump MAJOR on breaking interface changes, MINOR on additive
-features, PATCH on fixes), independent of the app version and of each other. An appended `a`
-suffix marks an **internal revision**: source-compatible style, comment or import-graph changes
-that do not consume a semver slot (e.g. `deren.gltf_loader` 0.1.0a after the switch from the vendored
-`std` module to `deren.vstd`, or `deren.engine.animation` 0.1.1a after `deren.engine.primitive` was split out of
-`deren.engine.scene_tree`).
-
-## Features
-
-> **subtilis/M4 status update (2026-10-23):** the software-raster path remains **experimental, opt-in,
-> default-off and NOT accepted as a shipping optimization**. A fresh review confirmed the negative result:
-> corrected same-build textured measurements put DAG+HZB at 10.44/5.64 ms versus DAG+HZB+software
-> 12.12/6.32 ms, and opt-in GPU survivor routing removes CPU routing cost but has no stable whole-frame
-> win. The historical 5.22 ms / approximately 26x software-enabled row is withdrawn (it predates three
-> wiring fixes). DAG+HZB is the shipping gain.
-
-> **Modular by design — free to combine.** Most modules here are independent,
-> dependency-light units that talk to each other through narrow interfaces, so
-> you can pick the pieces you need and assemble them however fits your project:
->
-> - `deren.gltf_loader`, `deren.application_configuration` and `deren.utility` are **pure CPU with no Vulkan
->   dependency** — usable as standalone libraries in any host application;
-> - `deren.engine.animation` is **format-neutral and runtime-agnostic**: it is driven
->   by an injected `backend` surface and a structural `source` concept, so it
->   neither imports a loader nor depends on `deren::engine::runtime` — swap in another
->   format or drive it from your own scene storage;
-> - `deren.vulkan.core` / `deren.engine.runtime` expose a configured facade
->   (`create_info`, per-frame phase calls), and the top-level
->   `main.cpp` + `deren.chores` are just a thin glue layer — replace them with your own
->   entry point, or wire only the stages you want.
->
-> In short: extend this renderer (add a pass, a primitive strategy, a loader) or
-> embed its modules into your own project — the build is per-module CMake
-> targets, so you link only what you use.
->
-> **The frontier of the API is a feature here, not the foundation.** Descriptor
-> heaps instead of descriptor sets, dynamic rendering, timeline semaphores, ray
-> queries, mesh shaders and host image copies are in because each one buys
-> something measurable; the modules below the backend are deliberately not API
-> modules, and the backend boundary itself is still being drawn.
-
-- **Engine runtime (`deren.engine.runtime`)**: C++ modules wrapping the full initialization flow. `deren::engine::runtime` is created from a `create_info` (window, vsync, validation, or a caller-provided `GLFWwindow`) and drives each frame through granular phases - `poll_events()` → `recreate_if_minimized()` → `pace_and_acquire()` → `begin_recording()` → `record_main_drawcalls()` → `end_recording()` → `submit_and_present()` - each returning a `frame_status`, with `render_frame()` running them all for callers that have no interleaved per-frame updates; the runtime owns the scene-wide GPU resources. Frame pacing uses timeline semaphores (one per frame slot, no fences) while acquire/present signals stay binary, and pass recording is multi-threaded into per-slot mergeable command segments.
-- **Scene tree / GPU primitives (`deren.engine.scene_tree` + `deren.engine.primitive`)**: a pure-CPU tree of nodes (deren.engine.scene_tree), walked once per frame to accumulate world matrices; GPU drawables live in the peer `deren.engine.primitive`: every one is a `primitive` subclass with a polymorphic `draw()`. `scene_node` / `scene` expose mounting helpers (`add_root()` / `add_child()` / `attach()` / `find_node()`). **Pipeline binding is decoupled from the scene tree**: a leaf carries either *default semantics* (empty `pipeline_name`) or an explicit pipeline name, and `draw(render_environment&)` requests the pipeline through the `deren.engine.render_environment` (`bind_default()` / `bind_pipeline(name)`); default leaves are pipeline-agnostic, so the same geometry renders under any default. The tree is **caller-owned** (`runtime::set_scene()`), and must be destroyed before the runtime, so its leaves' GPU buffers (`vk_buffer`/`vk_image` RAII owners from `deren.vulkan.core:vma_handles`) release through the still-alive allocator.
-- **Multi-pipeline scenes (`deren.engine.render_environment`)**: pipelines are named and cached in the runtime (`make_pipeline(name, vs, frag)`); the **first created pipeline becomes the implicit default**, `set_default_pipeline(name)` overrides. Every pipeline reads the same flat scene heap slots, so any number can coexist in one scene — leaves choose per draw. Each parallel recording worker builds its own `render_environment` (thread-local bind state, never shared), which describes the session's available pipelines and hands `draw()` a deduplicated binder: default leaves request the session default, custom strategies request a name. The shadow pass binds its depth-only pipeline through the same mechanism (its environment ignores the requested name), so custom leaves still cast their geometry into the shadow map.
-- **BVH frustum culling**: per-frame, a BVH is built over every leaf's world AABB and tested against the camera frustum; the tree is rebuilt only when the scene changed and the culled result is reused while the camera is static. Toggle with `set_frustum_culling()`.
-- **Dynamic rendering**: the engine requires Vulkan 1.3 (device selection enforces `apiVersion >= 1.3`), so every frame records through `vkCmdBeginRendering` — no render pass / framebuffer objects exist. The shadow pass is depth-only dynamic rendering.
-- **Static/merged batching (`static_draw_primitive`)**: one primitive OWNS a merged vertex/index buffer and draws a chunk table over it — one buffer bind, then one offset draw per chunk with each chunk's own material. N static sub-meshes cost 1 bind + N draws instead of N binds + N draws; the same buffer can carry many different materials. The shape is declared by `static_draw_create_info` in `deren.engine.primitive` (the packing stays at the call site); no runtime factory and no demo call site build one today.
-- **Descriptor heap, not descriptor sets**: every stage's resources come from ONE resource heap and ONE sampler heap the frame binds once (`descriptor_heap::record_bind`) and every pipeline is heap-native — `VkPipelineCreateFlags2CreateInfo` carrying `VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT` with `layout = VK_NULL_HANDLE`, so no set layout, pool, descriptor set or pipeline layout exists. The heap is a flat grid of 64-byte slots at a 1 MiB base (`core::heap_slots`, an alias of `deren::engine::render_layout::heap_slots`, whose constants are mirrored by `source/shaders/common/heap_slot_constants.slang`): the bindless texture array, the GPU material table, the per-frame-slot camera / light / cluster / instance / skin / morph arrays, the IBL cubes and BRDF LUT, the shadow map and the G-buffer / post / ray-traced-visibility images, the TLAS, the storage-descriptor twins, and the scene's own per-slot block. Which frame slot or swapchain image a stage reads travels in its own push block (`vkCmdPushDataEXT`, the `heap_frame_slot` / `heap_image_index` lanes), so ONE pipeline serves both frames in flight.
-- **GPU material table**: each material is one `material_record` in the storage buffer (5 texture-array indices + factors + flags). A primitive references a material by index, the shader reads `materials[push.material_index]` and samples `textures[<index>]` — material data is stored once on the GPU and shareable between primitives.
-- **GUI priority over the camera**: while the cursor is over the debug overlay (or a widget is being dragged / the wheel scrolls inside a panel) the GLFW mouse callbacks are suppressed, so tuning a slider never rotates or zooms the view; the cursor position is still tracked so leaving a panel does not jump the camera.
-- **Camera keyboard panning**: the **arrow keys** move the camera - LEFT/RIGHT strafe along the camera's right vector, UP/DOWN rise and fall along **world up** (not the view direction, which would read as a zoom), **SHIFT** for 4x. The pan translates the orbit *target*, so the rig slides without the view rotating: yaw / pitch / distance are untouched. The speed is tied to the orbit distance (0.75 x distance per second, 0.1-unit floor), the step is `speed x elapsed time` off `glfwGetTime` (frame-rate independent, `dt` clamped to 0.25 s), both axes are normalized together, and a frame with **no arrow held leaves the camera untouched**. The arithmetic is the exported pure function `deren::engine::orbit_camera_pan_delta` (`source/engine/primitive`), checked headlessly in `test_math`. There is no gui guard, because the debug overlay has no keyboard-capturing widget (`gui_content` exposes `wants_mouse` only).
-- **Screenshots**: press **F12** - the runtime records a copy of the frame's swapchain image into a persistent host-visible read-back buffer **inside the frame's own command buffer** (right after the post pass, before the present transition), then `runtime::acquire_current_frame_image()` waits for the GPU and hands back the pixels (8-bit RGBA), which the demo writes as `screenshot_<timestamp>.png` via `deren::utility::write_png()` (a dependency-free PNG encoder). The base directory comes from `[paths] screenshot_dir` (empty = current working directory, created on demand). The swapchain is created with `VK_IMAGE_USAGE_TRANSFER_SRC_BIT` (added only when `supportedUsageFlags` allows it); on a surface that cannot do that, the runtime logs it once and F12 stays disabled instead of issuing an illegal copy. One F12 (or one `request_screenshot()`) is **one** attempt: the captured flag is consumed by `consume_screenshot_request()` whether or not the read-back succeeded.
-- **Exposure**: a linear exposure scale applied before the ACES tonemapper in the lighting stage (gui "exposure" slider -> `runtime::set_exposure`).
-- **Binary output (`deren::utility::write_binary`)**: a small append-only writer that every binary format in the project goes through - PNG today, anything else later. `write_binary(sink, args...)` folds its arguments into any sink (`std::ostream`, an `std::ofstream`, or a five-line test sink), `write_binary_file(path, args...)` opens one for you in binary mode, and `write_single` accepts a closed set of shapes: a scalar tagged with `be()`/`le()` (byte order is explicit), a contiguous one-byte range (`std::span` / `std::array` / `std::vector` / `std::string_view`) written as exactly `size()` bytes with no length prefix, a contiguous range of trivially copyable values as one block write, and a plain struct as its native representation. Unsupported types (raw pointers, enums, a range of non-trivial elements) are rejected by the `binary_writable` concept at compile time, and the first failed write aborts the fold with an error. `deren::utility::write_png` is built on it: the frame streams straight to the file through a CRC-ing sink.
-- **Cel/toon shading**: the `toon shading` combo (off / 2 / 3 / 4 / 5 / 6 / 8 bands) plus the `toon softness` slider quantize the direct-light diffuse falloff into bands, harden the shadow edge and turn the specular lobe into a hard highlight block. Fewer bands = harder cel look (more bands converge back to smooth PBR), and a small softness keeps the band edges crisp; only the shading response is banded - geometry, silhouettes and the IBL ambient stay smooth.
-- **Post-processing**: the G-buffer pass writes its 1x surface targets and the lighting stage shades them into an **HDR offscreen target** (RGBA16F); a fullscreen post pass applies the linear **exposure** scale and ACES tonemapping. The composite outputs a **linear** tonemapped image: the swapchain is an sRGB attachment (`B8G8R8A8_SRGB`), so the hardware encodes to display values on write. Encoding gamma in the shader as well is a double encode (a linear 0.5 stored as 188 instead of 128), so the shader's manual sRGB transfer function only runs for a non-sRGB format (`post_push_constants::encode_gamma`). All display-referred processing lives in `source/shaders/post/post.slang`, which also runs the **bloom** chain: a four-level prefilter / downsample / composite back into the HDR image (gui "bloom intensity" (0..3) / "bloom threshold" (0..0.75); defaults 0.35 and 0.8). The bloom stages render into `R16F` levels while the composite renders the swapchain, so `pipelines::build_post` builds **two** pipelines from the one shader pair, one per color format.
-- **PBR rendering**: standard metallic-roughness workflow with five texture slots (albedo (sRGB), metallic-roughness, normal, occlusion, emissive) and glTF alpha modes (`OPAQUE`, `MASK` discard at `alphaCutoff`, `BLEND` in a separate back-to-front pass). The BRDF theory model is switchable live from the debug GUI ("brdf model" / "diffuse model") - GGX + Smith by default, plus Beckmann, Blinn-Phong, Lambert and Oren-Nayar variants - but the presets drive the direct lights only, the IBL ambient always using the fixed GGX model. Punctual lights are configured via `runtime::set_point_lights(std::span<deren::engine::punctual_light>)` (up to `deren::engine::max_punctual_lights` = 128).
-- **IBL lighting**: CPU-precomputed environment cubemap → GGX importance-sampled prefiltered environment (mip chain), irradiance map, and BRDF LUT (split-sum), uploaded as `R16G16B16A16_SFLOAT` cubemaps / `R16G16_SFLOAT` LUT. Precompute resolutions are configurable.
-- **Directional shadows / cascaded shadow maps**: an orthographic shadow pass renders the scene's depth from the sun into a 2048² **2D-array** depth image (`[render] shadow_cascades` = 1..4, 3 by default). The fitted view range is split by the practical split scheme (Zhang et al., lambda 0.75) into per-cascade light-space boxes. The fragment shader picks its cascade from the **view-space depth** and blends over `shadow_cascade_blend`. Each cascade is recorded into its own per-slot mergeable command segment over a lazily created layered image. The ortho box **follows the camera every frame**, center-snapped to the texel grid with the size rounded to whole texels, with **normal-offset bias + 3x3 PCF** through a LINEAR `sampler2DArrayShadow`; every caster is rasterized **two-sided**, and masked (`alphaMode MASK`) casters are alpha-tested **inside the depth pass**. Depth bias is dynamic state, tunable live from the debug GUI. Shadow casters are selected per scene size: scenes up to 1500 leaves render every leaf, heavier scenes only the camera-visible leaves plus those the BVH reports inside a cascade's shadow frustum.
-- **Clustered light culling**: the punctual lights are sorted into a screen-tile x exponential-depth-slice grid by a COMPUTE pass (`source/shaders/lighting/light_cluster.slang`). The grid is 64 px tiles x 16 depth slices, each cluster holding a fixed-capacity list of up to 32 light indices - one atomic counter per cluster, no prefix sum or linked list, so the fragment stage reads `count` and indexes that many. Both the compute dispatch and the shading loop use the same `cluster_slice_of()` slice boundaries. The light UBO carries **128** lights now (up from 4, still inside the 16 KB `maxUniformBufferRange` guarantee) and `[lighting] demo_lights` spawns a helix of them for stress. Verified: with 64 lights at 960x720 the shading pass drops from 1.28 ms to 0.44 ms, the clustered and brute-force images are **byte-identical**, and `[render] clustered_lights = false` is the brute-force reference. Lights are culled by bounding sphere (`range`, 0 = no cutoff), spot cones conservatively as spheres.
-- **Anti-aliasing (FXAA)**: an optional final fullscreen pass (`source/shaders/post/fxaa.slang`, Lottes' FXAA 3.11 quality variant) over the **tonemapped, gamma-encoded** image - display-referred data is what its relative luma thresholds are defined on. It needs its own input, so with FXAA on the composite renders into a per-swapchain-image display-referred target (`core::ldr_images`, R16F holding gamma-encoded values) and FXAA writes the swapchain; with FXAA off the composite writes the swapchain directly. The debug overlay is drawn **after** FXAA. Knobs: `runtime::set_fxaa(enabled, subpixel, edge_threshold)` / `[render] fxaa` + two overlay sliders - the sub-pixel term (0 = pure directional blend) and the relative edge threshold (0.166 is the FXAA default). It is a screen-space edge blur, so it fixes geometry jaggies cheaply but cannot remove sub-pixel shimmer in motion (that needs TAA) and does soften fine detail.
-- **GPU pass timings (profiling)**: `[render] gpu_timings` (on by default) writes a `vkCmdWriteTimestamp` at each pass boundary (the `gpu_timing_labels` ladder: rt, shadow, visibility raster, scene, rt shadow, lighting, the four gaussian stages, transparent, taa, debug, bloom, composite, fxaa and the tail) into the slot's own query range and reads it back without waiting on the GPU; a pass that did not record still writes its mark, so the label-to-interval mapping never shifts. The same 60-frame window reports the CPU frame phases, which is what explains a frame above a few hundred fps: measured on the RTX 4060 at 960x720, the PBR frame spends 1.32 ms of CPU in the main recording phase against 0.52 ms of GPU in the whole frame, and the shadow pass alone is 1.00 ms of that 1.32 ms of serial command recording.
-- **G-buffer / deferred path**: the opaque pass stores the surface instead of shading it - the engine's only scene path - writing three single-sampled targets plus the HDR target the emissive term is added into, and `source/shaders/lighting/deferred.slang` reshades every pixel from those targets in screen space. `source/shaders/common/surface.slang` owns the material-surface gather and `source/shaders/lighting/shading.slang` the lighting - the single shading entry point every stage calls now that the forward path is gone - and the deferred stage writes additively over `source/shaders/lighting/sky.slang`'s analytic sky. `runtime::set_gbuffer_debug(true)` / `[render] gbuffer_debug` draws the same G-buffer as a channel view instead (albedo / normal / roughness / metallic / AO / material id / depth / flags / motion), because a G-buffer's contents cannot be judged from a shaded screenshot.
-- **subtilis large-scene rendering optimization system**: visibility buffer + Cluster DAG LOD + HZB occlusion/recovery is the shipping path. Corrected three-round textured Bistro measurements favor **DAG+HZB: 10.44ms far / 5.64ms near**, versus 25.52/22.98ms for the same-build visibility baseline. The optional software-raster lane is experimental/default-off and NOT accepted: it increases the medians to 12.12/6.32ms; the historical approximately 26x software-enabled headline is withdrawn. The subtilis phase is **closed (2026-10-23)** with no further Software-raster optimization planned. See [system overview](docs/subtilis.md).
-- **amnis texture residency (named feature)**: an opt-in texture-residency system independent of the subtilis geometry cuts. Visibility-material and screen-footprint feedback request whole-image, two-tier or progressive mip streaming; bounded async uploads and low-resolution fallbacks keep frames moving, and immutable source owners let eager/streaming paths share mip data instead of duplicating it. The name covers the subsystem, not a new default or API switch. See [docs/amnis.md](docs/amnis.md) for the responsibility boundary, modes, subfeatures and measured CPU/memory limits.
-- **Screen-space ambient occlusion**: the deferred lighting stage traces a golden-angle hemisphere of samples around each pixel against the G-buffer depth (plus the world normal from RT1) and folds the result into the `shade_input` ao, so it scales the IBL ambient exactly like a material's baked AO map - no extra pass, no extra render target. The kernel rotates per pixel (a hash of `gl_FragCoord`), and the range check fades each contact out over the radius. Knobs: `[render] ssao` / `ssao_radius` / `ssao_intensity` / `ssao_samples` (1..16 samples) plus an overlay checkbox and three sliders. Measured at 960x720 on Sponza: mean absolute luminance 0.77/255 over 1.4% of pixels at a 2.0-unit radius, and with SSAO off the frame is BYTE-IDENTICAL to the pre-M6 reference. Honest limits, both inherent: it scales the ambient only (the direct sun is never occluded), and the radius is in world units, so a distant view shows less contact darkening than a close one. It is the classic hemisphere-sampling SSAO, not a horizon-based GTAO.
-
-- **Ray-traced sun shadows and the acceleration structures**: `[render] rt_shadows` traces one ray per pixel against a TLAS built from the shadow-caster set, so a shadow answers visibility for the exact point rather than for a texel of a cascade; off by default and granted only on a device with `VK_KHR_ray_query`, so the cascaded maps keep running elsewhere. It runs on a ray-tracing PIPELINE whose any-hit shader refuses `MASK` hits below the material's alpha cutoff, measured on the AlphaBlendModeTest asset at 3.0/255 of mean absolute difference from the raster shadow against 136.6/255 without it.
-- **A verification mode, not a look (`[render] furnace`)**: the sun is turned off and the environment becomes a constant level, which makes the correct frame computable by hand - a diffuse surface's outgoing radiance is then exactly `albedo * L`. It is the one reference here that no estimator of its own can flatter, and its premise is narrower than it looks: the identity needs the incident radiance to be `L` from EVERY direction, which is true of a convex object and false inside a building, so its acceptance is an exactness test on a scene whose premise holds.
-
-- **Render feature registry + pass gating**: `runtime::render_features` / `active_features()` is the single derivation of what actually runs this frame - config + GUI state, the pipelines that exist, and the real gates. `runtime::feature_active(name)` answers the same question by name, and BOTH the pass recording and the debug overlay read it: the overlay offers a control only when switching it could change the frame. The first gates: the shadow pass does not record in the flat (unlit) render mode, and the cluster dispatch is skipped then too, and also when no punctual light is active. Measured at 960x720 on Sponza, 150 frames: unlit 0.40 -> 0.19 ms while the PBR frames are unchanged and all four images are BYTE-IDENTICAL to the pre-gating captures. The fps counter cannot see sub-millisecond wins, so feature cost is read from the per-pass GPU timings instead.
-
-- **Static shadow-map reuse**: the shadow pass fills a frame slot's cascade maps only when they would change and otherwise skips recording entirely. Two signals: a versioned counter on the fitted cascade matrices, and an XXH3-64 fingerprint of the caster geometry (`runtime::shadow_geometry_signature()`). The geometry half is what makes the skip safe - a skinned mesh keeps a constant `push.model`, so hashing world matrices alone left the animated Fox with a frozen shadow map. Measured at 960x720 on Sponza with 3 cascades: the CPU `shadow*` phase drops 0.61 -> 0.00 ms and the visible-window probe goes 822 -> 2278 fps.
-- **Debug GUI (`deren.vulkan.graphical_user_interface`)**: a Dear ImGui overlay driven inside the runtime's frame steps (**F1** shows/hides it, and initializes it on demand when `[gui] show` started false); widget subclasses stack into `debug_panel`s registered via `runtime::debug_gui()`, and a control is offered only when the session can use it (`visible_when`). The demo panel shows fps and the per-pass GPU timing line and drives the frame's switches - frustum culling, the shadow pass, FXAA, clustered light culling, SSAO, the G-buffer debug channel, the pbr/unlit render mode via `runtime::set_unlit`, TAA, the shadow bias and cascade count, and the four editable punctual-light slots.
-- **glTF loading (`deren.gltf_loader` module)**: standalone CPU module built on [fastgltf](https://github.com/spnda/fastgltf), supporting `.gltf` / `.glb` / data URIs and exporting both a flattened drawable stream and the retained node hierarchy (name + local transform + children, plus per-node TRS base pose, asset-node index, skin and morph references) with raw de-interleaved vertex/index data (JOINTS_0 / WEIGHTS_0 and morph-target deltas included) — and the file's keyframe animations (channels/samplers incl. morph `weights`, times + values decoded to floats, with pure-CPU LINEAR/STEP/CUBICSPLINE sampling), skins (joints + inverse bind matrices) and morph targets (POSITION/NORMAL deltas + default weights). Meshes without a `NORMAL` attribute get per-vertex normals **generated from the triangle connectivity** (smooth, area-weighted).
-- **Keyframe animation + skinning + morph targets (`deren.engine.animation`)**: `deren::engine::animation::controller` plays channel-bearing animations automatically on a loop — it samples animations into the scene tree's node locals, rebuilds the per-frame skin matrices (`inv(W_mesh) · W_joint · IBM`) and updates the active morph weights into the runtime's per-frame-slot buffers. It is **format-neutral**: animation data is value-copied into its own `deren::engine::animation` structures at init, and `init()` is a template over the `source` concept, so any loader exposing the required member shapes can drive it. Heavy animations fan the per-source sampling out over a small `deren.utility:thread_pool`, up to 840 channels over 924 nodes in the stress sample. The `gui` overlay adds play/pause, a time scrubber and an animation dropdown.
-- **Orbit camera**: left-drag to rotate, wheel to zoom; one shared camera UBO is updated once per frame, with `MAX_FRAMES_IN_FLIGHT` frames in flight.
-- **Utility library (`deren.utility` module)**: handle distribution, stack-style destructor mixin, thread pool (`deren.utility:thread_pool`: RAII pool of `jthread` workers with priority queue + `wait_until_free()`, used by the animation sampling fan-out), BVH (used by frustum culling), data block, a per-frame stamped clock (`deren.utility:frame_clock`: single-writer stamps, atomic-load readers), and more. A mimalloc-backed allocator (`deren::utility::memory`, vendored under `source/third_party/mimalloc`) is what the project's `vessel` containers allocate through: `std::pmr` plays no part any more, and the containers carry `memory::allocator<T>` directly — including the runtime's per-frame cull/visible vectors (see [docs/vessel.md](docs/vessel.md)); no startup hook or default-resource registration is involved. Content hashing for GPU-resource dedup is [xxHash](https://github.com/Cyan4973/xxHash) `XXH3_128bits` (`deren::utility::xxh3_128bits`, vendored under `source/third_party/xxhash`); the narrower `deren::utility::xxh3_64bits` fingerprints the per-frame shadow-reuse signature.
-- **Startup configuration (`deren.application_configuration` module)**: TOML config (`config.toml`, `--config <path>` override) merged with argv, covering model / instancing grid, resource paths, window/render settings (size, title, vsync, clear color, initial camera framing, shadow/fxaa/gpu-timings toggles, the cascade count + blend band of the shadow pass, the G-buffer debug view and its channel) and IBL resolutions. See `config.example.toml`.
-- **Engineering practices**: automatic `clang-format` before every build, `-Wall -Wextra -Werror`, and **exceptions disabled in all build configurations** (`-fno-exceptions`; the vendored `std` module makes this work), plus `-flto -march=native -fno-rtti` in Release builds (LTO also covers the vendored libs). Release additionally runs dead-code elimination (`-ffunction-sections -fdata-sections` on every target + link-time `--gc-sections`) and strips symbols at link (`-s`), which shrinks the executable with no runtime cost.
+```
+source/app/main.cpp          # demo entry point
+source/engine/               # runtime, passes, scene, animation, render resources
+source/backends/vulkan/      # Vulkan backend (deren_vulkan.dll, deren_gui_vulkan.dll)
+source/promise/              # RHI and GUI contracts
+source/shaders/              # Slang sources
+scripts/                     # setup, build helpers, gates, config, checks, tools
+asset/                       # sample models and clouds
+docs/                        # guides, screenshots, generated docs (gitignored)
+```
 
 ## Gaussian splatting
 
-A `.ply` in the `model` key IS a Gaussian splat cloud and nothing else: the extension picks the loader (`.gltf`/`.glb` to the scene importer, `.ply` to `deren::gaussian::load_ply`, anything else refused by name), the cloud is packed onto the device once, and a `gaussian` stage the renderer records between the lighting stage and the blended geometry draws it every frame over the opaque depth. No model is loaded with it - the frame's only other leaf is a placeholder the application builds itself - so what you see is the cloud over the environment.
+A `.ply` in the `model` key is a Gaussian splat cloud, not a mesh: the extension selects `deren::gaussian::load_ply`, the cloud is packed onto the device once, and a `gaussian` stage draws it over the opaque depth. No model is loaded with it; the frame's only other leaf is a placeholder built by the application.
 
-Measured on the screenshot above (RTX 4060 Laptop, 1280x720): **562,974 splats**, SH degree 3, **135.1 MB** of static tables uploaded once, **zero** validation errors. The per-frame work now runs on the GPU - the CPU only prepares instance/camera metadata (about 0.002 ms) - and the panel's live counter reads a steady **~410 fps**. Measured on the current build (three 1500-frame static runs, GUI/TAA/VSync/validation off, `[render] gpu_timings` at its default): the stable one-second windows read 409.7 / 410.7 / 410.3 fps (2.44 ms per presented frame), and the session-average GPU frame is **2.50-2.67 ms**, of which the Gaussian stages are prepare 0.87-1.03 ms + sort 0.20 ms + finalize 0.01-0.02 ms + raster 0.87-0.88 ms. That is roughly 40x the 9.7 fps the CPU-sorting path showed (67 ms depth sort + 33 ms projection/SH on 16 threads); those numbers belong to the pre-GPU-frame build and are kept only as history. The per-stage method and its limits are in [docs/gaussian_splatting.md](docs/gaussian_splatting.md).
+Measured on the screenshot above (RTX 4060 Laptop, 1280x720): **562,974 splats**, SH degree 3, **135.1 MB** of static tables uploaded once, zero validation errors. Per-frame work runs on the GPU (the CPU prepares instance/camera metadata in about 0.002 ms), and the steady state is **~410 fps**. The session-average GPU frame is **2.50-2.67 ms**, split across prepare, sort, finalize and raster. The per-stage method and its limits are in [`docs/gaussian_splatting.md`](docs/gaussian_splatting.md).
 
 ```powershell
-# the cloud is checked in under asset/flowers (CC BY 4.0, Git LFS); after cloning:
+# the cloud is checked in under asset/flowers (CC BY 4.0, Git LFS)
 git lfs pull
-#   config.toml:  model = "asset/flowers/flowers_1.ply"
-./build/deren.exe    # left-drag orbit, wheel zoom, F12 screenshot, F1 panel, ESC quit
+# config.toml: model = "asset/flowers/flowers_1.ply"
+./build/deren.exe    # orbit, zoom, F12 screenshot, F1 panel, ESC quit
 ```
-
-`docs/gaussian_splatting.md` carries the pipeline, the numbers, the two engine gaps still open and the placeholder triangle's reasons; `docs/gaussian_loader.md` is the loader itself.
 
 ## Documentation
 
-The project uses **Doxygen** for API documentation; every module, class, interface **and shader** is annotated in-source with `@defgroup` / `@brief`. The shader sources are part of the generated reference too: `Doxyfile` maps `*.slang` (and the retired `*.vert` / `*.frag` / `*.comp` extensions, plus the `*.glsl` includes) to the C++ parser (`EXTENSION_MAPPING` + `FILE_PATTERNS`), so each shader gets a file page with its documented functions, all collected under the `shaders` group (see [docs/shaders.md](docs/shaders.md) for the pass chain, the shared scene-set binding table and the push-constant contract, and [docs/conventions.md](docs/conventions.md) for the module-name, verb-prefix and partition rules). The generated HTML and the LaTeX manual are **not** committed to the repo (they would drown the source tree in generated files) — build them whenever you need them with `scripts/build_helpers/build_docs.py`. It runs `doxygen Doxyfile`, then compiles the LaTeX manual into `docs/latex/refman.pdf`:
+The project uses **Doxygen**; every module, class, interface and shader is annotated in-source with `@defgroup` / `@brief`. Shader sources are part of the generated reference: `Doxyfile` maps `*.slang` to the C++ parser, so each shader gets a file page under the `shaders` group. Generated HTML and LaTeX are **not** committed.
 
 ```bash
 python scripts/build_helpers/build_docs.py
 ```
 
-Raw equivalent: `doxygen Doxyfile` (HTML only). `Doxyfile` names the project `deren` (kept in step with `project()` in `CMakeLists.txt`), uses `docs/mainpage.md` as the manual's front page, and lists the `docs/*.md` pages one at a time rather than pointing at the whole directory - `docs/` also holds doxygen's own output and the two reference sets that are not this project's prose, so a new page has to be added to its `INPUT`, and the order of those lines is the manual's chapter order.
+Output: `docs/html/` (open `docs/html/index.html`) and `docs/latex/refman.pdf`. The LaTeX step needs a TeX distribution (`pdflatex` / `makeindex`). The build script handles the intermittent `epstopdf` failure by regenerating graphs and retrying once.
 
-Output: `docs/html/` (open `docs/html/index.html`) and `docs/latex/` + `docs/latex/refman.pdf` (all gitignored). The LaTeX step needs a TeX distribution (`pdflatex`/`makeindex`; `make`, `latexmk`, or bare `pdflatex` all work — MiKTeX's per-user install under `%LOCALAPPDATA%` is found automatically). The non-ASCII characters the sources are allowed to keep are what the new `docs/latex_unicode.sty` is for: `Doxyfile` sets `LATEX_EXTRA_STYLESHEET` to it, and pdflatex stops on the first such character without it.
+Development docs:
 
-**One step of that build is intermittent, and the script already handles it:** doxygen converts its dependency graphs with `epstopdf`, and occasionally the resulting image PDF is written truncated, so pdflatex stops with `Problems running epstopdf` / `xpdf: reading PDF image failed` and produces no manual. `build_docs.ps1` clears the generated `docs/latex/*.pdf` cache before doxygen, clears `docs/html` (a page an earlier build left behind still links to *its* build's groups), and — if pdflatex still dies reading an image — regenerates the graphs and retries the LaTeX step **once**; only that signature is retried, every other failure stops the build immediately. The POSIX script does not carry those measures yet, so on Linux/macOS an `epstopdf` failure means re-running it. Reruns are always safe: both outputs are derived state.
-
-Development docs: the manual's own pages are listed one at a time in `Doxyfile`'s `INPUT`, and the design
-record for the dynamic backend is
-[docs/dynamic_runtime.md](docs/dynamic_runtime.md) (contract-only runtime, by-name-loaded backend, and the
-run-time package the executable ships as).
-
-Related source docs (tracked in the repo):
-
-- [gltf_loader usage guide](docs/gltf_loader_usage.md) (API semantics, data formats, Vulkan integration examples)
-- [shader reference](docs/shaders.md) (the pass chain, the shared scene set, push constants, conventions) — also the Doxygen `shaders` group description
-- [subtilis system: visibility buffer lane](docs/visibility_buffer.md) (experimental opaque producer: packed id raster plus a compute resolve, its gate and its measured limits)
-- [subtilis system: hierarchical cluster LOD](docs/subtilis.md) (the current entry point: M1a/M1b/M1c implemented and measured, CPU cut and fallbacks, code map, configuration and milestone status)
-- [subtilis glTF DAG converter](tools/subtilis/README.md) (standalone CPU offline tool for the `DEREN_subtilis` shared-vertex cluster DAG: deterministic multi-core build, workspace budgets, stage profiling, package/CLI)
-- [mesh shaders](docs/mesh_shaders.md) (what the stage buys here, this device's limits, the heap-native mesh probe, the shadow pass's mesh stage, and the migration plan)
-- [capture harness](scripts/gates/check_render.ps1) and the [measurement instruments](scripts/measure/README.md) every number in the docs came out of
-- [source/reference/shaders/official/](source/reference/shaders/official/): reference shaders (IBL / PBR / primitive)
-
-## Layout
-
-```
-├── source/app/main.cpp      # Demo entry point: start async loads -> runtime init -> scene import
-│                            #   -> animation/camera/gui setup -> granular frame-phase render loop
-├── source/app/app_*.cppm/.cpp # deren.app.config, .pipelines, .renderer, .ui, .animation, .instancing
-├── CMakeLists.txt           # CMake 4.3+, C++26 modules build
-├── config.example.toml      # Annotated startup-config reference (copy to config.toml)
-├── Doxyfile                 # Doxygen config (PROJECT_NAME: "deren")
-├── source/configuration/  # deren.application_configuration (TOML startup config + argv merge)
-├── source/promise/                 # THE CONTRACT, compiled by BOTH halves of the boundary: deren.promise.rhi
-│                            #   (the api_core virtual surface and the creation parameters) and
-│                            #   deren.promise.gui; the C entry points are source/promise/rhi/backend_entry.hpp
-├── source/engine/runtime/                 # THE RENDERER RUNTIME (deren.engine.runtime + its declarations/constructor/
-│                            #   frames/probes/readback partitions), plus the loader policies:
-│                            #   deren.engine.backend_loader (which backend DLL) and deren.engine.gui_loader
-├── source/backends/vulkan/                  # the Vulkan backend half, owned by deren_vulkan.dll: core/ (with
-│                            #   vma, handles, init_utils, pipeline, spirv_parser, descriptor_heap),
-│                            #   constant_init, init_utils, synchronization, error_tables and the GUI
-│                            #   plugin (deren.vulkan.graphical_user_interface, source/backends/vulkan/gui)
-├── source/engine/                  # the engine half: render_layout (the slot grid both halves compile),
-│                            #   runtime/, pass/, render_graph/, render_environment, render_resource,
-│                            #   pipelines, primitive, scene_tree, math, meshlet, acceleration_structure,
-│                            #   ray_tracing, animation, profiling, shadow_fit, frame_constants, filters,
-│                            #   resource_cluster, visibility and the per-frame probes
-├── source/utility/                 # utility module (data_block / memory / BVH / thread_pool / frame_clock)
-├── source/gltf_loader/             # gltf_loader + toon-material sidecar modules (CPU-side glTF/GLB loading),
-│                            #   built into deren_assets.dll
-├── source/vstd/                     # vstd module — modified from libc++ (LLVM), trimmed to the project's
-│                            #   STL usage (import deren.vstd; see source/vstd/README.md)
-├── source/shaders/                 # Slang sources (the build compiles them to SPIR-V with slangc; the binaries are
-│                            #   not tracked) in common/ geometry/ lighting/ post/ scene/ toon/ debug/
-│                            #   gaussian/ - documented in-source and grouped under the Doxygen "shaders"
-│                            #   group. The retired GLSL stage sources and the shared GLSL bodies they were
-│                            #   built on are archived under source/reference/shaders/
-├── asset/                    # Models/clouds, one folder per asset: DamagedHelmet/, FlightHelmet/, flowers/, laevatain/, tangtang/
-├── docs/                    # Usage guides, screenshots/ + reference shaders; Doxygen HTML is generated on demand (gitignored)
-├── scripts/                 # build_helpers/ (cross-platform Python build/run/docs), setup/ (platform
-│                            #   environment setup), gates/ (Windows capture/render/device probes), measure/
-│                            #   (the instruments every number in the feature docs came out of; see
-│                            #   measure/README.md), config/, checks/, diagnostics/, tools/, assets/
-└── source/third_party/             # Vendored dependencies (spirv-reflect, imgui, xxhash, fastgltf, simdjson, stb, vma, mimalloc, boost, vrdx)
-```
+- [glTF loader usage guide](docs/gltf_loader_usage.md)
+- [shader reference](docs/shaders.md): pass chain, shared scene set, push constants, conventions
+- [subtilis visibility buffer](docs/visibility_buffer.md) and [hierarchical cluster LOD](docs/subtilis.md)
+- [subtilis glTF DAG converter](tools/subtilis/README.md): offline `DEREN_subtilis` package builder
+- [subtilis M2/M5 plan](docs/subtilis_m2_m5_plan.md): GPU cut status and streaming design
+- [mesh shaders](docs/mesh_shaders.md)
+- [Doxygen front page](docs/mainpage.md), [dynamic runtime](docs/dynamic_runtime.md), [conventions](docs/conventions.md)
+- [capture harness](scripts/gates/check_render.ps1) and [measurement instruments](scripts/measure/README.md)
 
 ## Dependencies & Build
 
 ### Requirements
 
-- CMake ≥ 4.3 and a compiler with C++26 / C++20 modules support (this project builds with MSYS2 clang64's clang + libc++, the toolchain `source/vstd/vstd.cppm` and `.github/workflows/ci.yml` are both tied to)
-- [Vulkan SDK](https://vulkan.lunarg.com/sdk/home): what `find_package(Vulkan REQUIRED)` resolves against, and one of the places `slangc` can come from (`Bin/slangc.exe`; MSYS2 ships no Slang package). VMA is **not** taken from its `Include/`: `deren.vulkan.core:vma` includes the vendored `source/third_party/vma/vk_mem_alloc.h`, preferred because distro Vulkan packages do not ship that header
-- System packages: `glfw3`, `glm`, `tomlplusplus` (header-only; MSYS2 `mingw-w64-clang-x86_64-{glfw,glm,tomlplusplus}`)
-- Everything else is vendored under `source/third_party/`: `spirv-reflect`, Dear ImGui (GLFW/Vulkan backends), xxHash, **fastgltf + simdjson** (the glTF parser and its JSON backend, compiled from source into a `fastgltf_vendored` target), **stb_image** (texture decode), **mimalloc** (the allocator behind `deren::utility::memory` and therefore every `vessel` container, compiled into a `mimalloc_vendored` static target), **Boost.Graph** (the render-graph core's adjacency backend, vendored as headers) and **VRDX** (the GPU radix sort the Gaussian path uses, vendored as a single-header library). No system fastgltf/simdjson/mimalloc package and no network fetch is needed — the build is self-contained on both Windows/MSYS2 and Linux. `glfw3`, `mimalloc`, `xxHash` and the other vendored libraries are still linked statically, but the **Windows Release** executable is a dynamic-C++-runtime build: it imports `libc++.dll` and needs four first-party images beside it — `deren_assets.dll` (the asset-loading stack, linked through its import library so the loader brings it in before `main`), `deren_vulkan.dll` and `deren_gui_vulkan.dll` (the two graphics plugins, each exporting one `deren_*` entry and each resolved BY NAME at run time) and `shared_utility.dll` (the process-wide log sink) — plus the build's compiled `source/shaders/` directory. `build/deren.exe` is therefore no longer a single portable file, and the CI artifact uploads exactly this package. Debug builds are dynamic for the same reason.
-- **Toolchains**: the build files carry an **MSVC** branch beside the clang64 one, and it is not what the scripts or CI drive (`scripts/build_helpers/build.py` requires `clang++` and uses `build/` for Release and `build-debug/` for Debug; `.github/workflows/ci.yml` installs MSYS2 clang64). cl.exe cannot use the clang64 packages' include roots, so three cache variables point the build at unpacked copies instead: `VR_GLM_INCLUDE_DIR` (a directory containing the `glm/` subtree), `VR_GLFW_ROOT` (an unpacked GLFW release: `include/` + `lib-vc2022/`) and `VR_TOMLPP_INCLUDE_DIR` (the `toml++/` subtree). MSVC also builds `source/vstd/vstd_msvc.cppm` instead of `source/vstd/vstd.cppm`: the latter re-exports `std` partition by partition, which crashes cl.exe's front end (`C1001`) on `std::span` / `std::array` / `std::tuple` instantiation. The MSVC dialect is instead a vendored copy of the MSVC STL's own `modules/std.ixx` (renamed to `deren.vstd`), built as a normal source module without `import std;`, `CXX_MODULE_STD`, or CMake's experimental import-std gate; its STL semantics are MSVC's rather than libc++'s, and the copy is bound to the installed MSVC toolchain version. Some clang flags have no MSVC equivalent and are dropped instead of approximated - the comment above the MSVC branch in `CMakeLists.txt` lists them (`-fno-exceptions`, `-fno-rtti`, `-flto`, `-march=native`, `-static`, ...) - so the two toolchains do not produce the same binary shape (and neither Release build ships as a single file any more; see the bullet above).
+- CMake ≥ 4.3 and a compiler with C++26 / C++20 modules support. The reference and CI toolchain is MSYS2 clang64 with clang + libc++.
+- [Vulkan SDK](https://vulkan.lunarg.com/sdk/home): `find_package(Vulkan REQUIRED)` resolves against it, and it is one source of `slangc` (`Bin/slangc.exe`). VMA is vendored, not taken from the SDK.
+- System packages: `glfw3`, `glm`, `tomlplusplus` (header-only; MSYS2 `mingw-w64-clang-x86_64-{glfw,glm,tomlplusplus}`).
+- Everything else is vendored under `source/third_party/`: spirv-reflect, Dear ImGui, xxHash, fastgltf + simdjson, stb_image, mimalloc, Boost.Graph and VRDX.
+- **Windows Release runtime set**: `build/deren.exe` imports `libc++.dll` and needs `deren_assets.dll`, `deren_vulkan.dll`, `deren_gui_vulkan.dll`, `shared_utility.dll`, plus the build's compiled shader directory. CI uploads exactly this package.
 
-#### Platform
+### Platform
 
-- **Windows x64** is the shipped configuration: environment setup is `scripts/setup/windows.sh` (MSYS2), build/run use the Python entry points, Windows-only gates/probes live under `scripts/gates/`, and the Release build is the packaged runtime set described above (the executable plus the four first-party DLLs, `libc++.dll` and the compiled `source/shaders/`), so it runs on a machine with nothing installed but the GPU driver.
-- **POSIX (Linux / WSL / macOS)** is source-tree support, not a verified configuration. The `sh` scripts
-  and the same CMake files carry POSIX branches, but **no CI job configures or builds the project there**:
-  the only POSIX compilation in CI is the stacktrace diagnostics probe (`posix-stacktrace` in
-  `.github/workflows/ci.yml`, three files compiled directly, no CMake). Two known obstacles stand between
-  this tree and a POSIX build: the vendored `deren.vstd` module is byte-bound to MSYS2 clang64's libc++
-  (see `source/vstd/README.md`), and seven test translation units include `<windows.h>` unguarded. Treat
-  POSIX as experimental until a build job exists. The **MSVC** branch is maintained but is not what the
-  scripts or CI drive (see the *Toolchains* bullet above).
-- Measured reference platform: **Windows 11 build 26300, x64**, MSYS2 **clang64**.
+- **Windows x64** is the shipped configuration. Setup uses `scripts/setup/windows.sh` (MSYS2); the Release build runs on a machine with only the GPU driver installed.
+- **POSIX (Linux / WSL / macOS)** is source-tree support, not a verified configuration. No CI job configures or builds the project there. Two known obstacles remain: `deren.vstd` is tied to MSYS2 clang64's libc++, and several test translation units include `<windows.h>` unguarded.
+- Measured reference platform: **Windows 11, x64**, MSYS2 **clang64**.
 
-#### Toolchain
+### Toolchain
 
-The version column gives **the minimum the build actually enforces** where there is one (CMake, Python) and **the version measured on the reference machine** where the constraint is "this is what it works with" rather than a hard check. A newer version is therefore a risk to be retested, not an error — except at a stated minimum, where the build refuses.
-
-| | version | why it is required |
+| | version | why |
 |---|---|---|
-| **CMake** | **≥ 4.3** (`cmake_minimum_required` in `CMakeLists.txt`); 4.4.5 measured | |
-| **Clang + libc++ + lld** | MSYS2 **clang64**, clang **23.1.4** measured | C++26 with **C++20 modules** (`.cppm`). `source/vstd/vstd.cppm` is a trimmed fork of libc++'s generated `std` module, so the STL half of the build is tied to *libc++ from clang64* rather than to "a C++26 compiler" in the abstract — that is the toolchain `.github/workflows/ci.yml` installs and the one this tree's module/`import` semantics are tested on. |
-| **Ninja** | 1.13.2 measured | the generator every script and CI job uses |
-| **slangc** | **required**, pinned upstream release **2026.18.2** (`sha256 747602ae…`, the checksum CI verifies) | **Every shader stage is built from a `.slang` source and CMake refuses to configure without `slangc`** (`find_program` + `FATAL_ERROR`; the GLSL fallback and GLSL stage sources were both removed). MSYS2 ships no Slang package, so it comes from the upstream release zip or the Vulkan SDK's `Bin/`. Pass `-DVR_SLANGC_EXECUTABLE=<path>` or put it on `PATH`. |
-| **Python** | **≥ 3.8** for the scripts (3.14.7 measured) | `scripts/config/make_config.py`, `scripts/config/make_default_config.py`, and the boundary gate |
-| **PowerShell** | **7** (`pwsh`) | `scripts/gates/*`, including the render regression check |
-| **`llvm-nm`** | clang-tools-extra (`llvm-nm-18`/`-17` or GNU `nm` also work) | reads the static archives for `scripts/checks/check_backend_boundary.py` (the backend-boundary ratchet). Build-time optional; the gate needs one of them. |
+| CMake | **≥ 4.3** | enforced by `cmake_minimum_required` |
+| Clang + libc++ + lld | MSYS2 **clang64**, clang **23.1.4** measured | C++26 modules; `deren.vstd` is a trimmed fork of libc++'s generated `std` module |
+| Ninja | 1.13.2 measured | generator used by the scripts and CI |
+| slangc | **required**, pinned **2026.18.2** | every shader stage is built from `.slang`; CMake fails without it. Pass `-DVR_SLANGC_EXECUTABLE=<path>` or put it on `PATH`. |
+| Python | **≥ 3.8** | build helpers, config generators, boundary gate |
+| PowerShell | **7** (`pwsh`) | gates and render regression |
+| `llvm-nm` | clang-tools-extra, or GNU `nm` | backend-boundary check |
 
-**Compiler dialect** (not a preference — the tree depends on it): C++26, `-fno-rtti`, `-fno-exceptions`, `-Werror`, and `-march=native` for local Release builds (CI sets `-DVR_NATIVE_ARCH=OFF` because it uploads the binary).
+Compiler dialect: C++26, `-fno-rtti`, `-fno-exceptions`, `-Werror`; local Release builds use `-march=native` (CI sets `-DVR_NATIVE_ARCH=OFF`).
 
-#### Hardware (the Vulkan device)
+### Hardware
 
-**Mandatory — the renderer refuses to start without these:**
+Mandatory — the renderer refuses to start without these:
 
-- A Vulkan **1.3** device. Device selection enforces `apiVersion >= VK_API_VERSION_1_3`, because every frame records through `vkCmdBeginRendering` (dynamic rendering) — there are no render passes or framebuffer objects in this renderer at all.
-- **`VK_KHR_unified_image_layouts`** — a hard requirement, not an optimisation: `core.constructor.cppm` panics with *"VK_KHR_unified_image_layouts is required but not supported by the device"*.
-- **`VK_EXT_host_image_copy`**, and `GENERAL` must appear in the device's copy-**destination** layout list. Both are hard requirements: the renderer's image upload and read-back go through `vkCopyMemoryToImageEXT` / `vkCopyImageToMemoryEXT`, and it panics by name (*"required (image upload and read-back) but not usable on this device"*) if the extension is missing or if `GENERAL` is not a legal copy-destination layout.
-- `VK_KHR_swapchain`, and **`bufferDeviceAddress`** (core 1.2; the startup log prints it as part of the enabled 1.2 feature set) — this is what the bindless descriptor heap's writes and the acceleration-structure builds address their buffers with.
-- A Vulkan **1.3-capable driver**; the loader (`vulkan-1.dll`) is the only graphics-related dynamic dependency of the Release executable.
+- Vulkan **1.3** device (dynamic rendering is used every frame).
+- **`VK_KHR_unified_image_layouts`** (hard requirement).
+- **`VK_EXT_host_image_copy`**, with `GENERAL` in the copy-destination layout list (image upload and read-back).
+- `VK_KHR_swapchain` and **`bufferDeviceAddress`** (descriptor heap writes and acceleration-structure builds).
 
-> **"Vulkan 1.3" is necessary but not sufficient, and that is measured rather than inferred.** The three mandatory items above are *driver* features as much as device ones: on the reference machine (NVIDIA **616.92**) they are present, while the same GPU model on an older driver (**560.70**, Vulkan 1.3.280) lacks all three — and `deren.exe` then exits at `init_device_and_queue` with the named panic instead of rendering. Before reporting a rendering problem, check the startup log's capability block: the renderer prints what the device actually offers.
+Conditional features are queried at startup and degrade by name: ray queries, ray-tracing pipeline/SBT, opacity micromaps, bindless descriptor heap, and mesh/task shaders.
 
-**Conditional — each one buys a feature, and each degrades by name rather than silently.** These are the capabilities the renderer queries at startup and reports in its log; without them the corresponding paths stay off:
+Measured reference device: **NVIDIA GeForce RTX 4060 Laptop GPU, driver 616.92**. The log's capability block reports what the device actually offers; check it before reporting a rendering problem.
 
-| capability | extensions the code queries | what it turns off |
-|---|---|---|
-| ray queries (traced shadows / GI) | `VK_KHR_acceleration_structure`, `VK_KHR_ray_query`, `VK_KHR_deferred_host_operations` | the log says it outright: *"ray tracing: not available (ray-traced shadows and GI stay off)"* |
-| ray tracing pipeline + SBT | `VK_KHR_ray_tracing_pipeline` | the pipeline-based RT paths |
-| opacity micromaps | `VK_EXT_opacity_micromap` | the micromap paths (the log prints the 2-state/4-state subdivision limits when present) |
-| bindless descriptor heap | `VK_EXT_descriptor_heap` + one of its two dependencies (`VK_KHR_maintenance5` preferred, else `VK_KHR_extended_flags`), and `VK_KHR_shader_untyped_pointers` | the heap-native paths |
-| mesh and task shaders | `VK_EXT_mesh_shader` | mesh dispatch (falls back to the direct call, logged once) |
+### Disk & data
 
-Measured reference device (this repository's development machine, and the hardware the local regression baselines were taken on): **NVIDIA GeForce RTX 4060 Laptop GPU, NVIDIA driver 616.92**.
-
-#### Disk & data
-
-- Each build tree is **~3.2 GB** measured (a Release tree with all test targets, `build/`). A clean configure+build needs that much free space plus the object/PDB growth of a Debug tree if you keep one too.
-- **Sample assets ship in `asset/`; the larger regression character models do not.** The default model is `asset/DamagedHelmet/DamagedHelmet.gltf`, and the README screenshots use the assets under `asset/` (see [`asset/README.md`](asset/README.md) for their separate terms). The character models used for some regression scenarios are tens of megabytes each and are not in the repository: put those `.glb` files under `chars/` next to the executable, or point `model` in `config.toml` elsewhere. A scenario whose model file is absent fails at load with a panic naming the path — that is a missing input, not a rendering bug.
+- Each build tree is about **3.2 GB**.
+- Sample assets ship in `asset/`. Larger regression character models are not in the repository; put those files under `chars/` next to the executable or point `model` elsewhere.
 
 ### Manual build
-
-The scripts above are thin wrappers over the same two commands — configure
-once with Ninja + a C++26-module compiler, then build:
 
 ```bash
 cmake -S . -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
-> `clang-format` runs automatically before compilation; a `clang-format-check` target is also provided for CI (check-only, no modifications).
+`clang-format` runs automatically before compilation; a `clang-format-check` target is available for CI.
 
-### Run
+## Run
 
-Run from the project root or any build directory (the program walks upward to locate `source/shaders/` and `asset/` when they are not configured):
+Run from the project root or a build directory (the program walks upward to locate `source/shaders/` and `asset/`):
 
 ```bash
 ./build/deren                # or build\deren.exe on Windows
-# or load a different model / lay it out as an instancing grid:
 ./build/deren path/to/model.glb
 ./build/deren path/to/model.glb 8   # grid_side 8: one instanced draw call
 ```
 
-By default it loads `asset/DamagedHelmet/DamagedHelmet.gltf` and renders it with PBR + IBL. Controls: **left-drag** to orbit, **wheel** to zoom, **drag the window border** to resize (the swapchain is recreated on the fly), **ESC** to quit. Loaded models that carry keyframe animations (e.g. glTF-Sample-Assets `AnimatedCube` / `BoxAnimated`) play automatically on a loop.
+By default it loads `asset/DamagedHelmet/DamagedHelmet.gltf` with PBR + IBL. Controls: **left-drag** orbit, **wheel** zoom, **arrow keys** pan (SHIFT for 4x), **drag the window border** to resize, **F1** debug overlay, **F12** screenshot, **ESC** quit. Keyframe animations play on a loop.
 
-#### Startup configuration
+### Startup configuration
 
-Startup is driven by a TOML config file — copy `config.example.toml` to
-`config.toml` (working directory) or point at one explicitly:
+Startup is driven by a TOML file: copy `config.example.toml` to `config.toml`, or point at one explicitly:
 
 ```bash
 ./build/deren --config my_config.toml
 ```
 
-Two helpers generate `config.toml` for you: `make_default_config.py`
-(writes the example file as-is; only asks where to put it) and
-`make_config.py` (asks every setting with type hints and defaults) — see
-the [Build helpers](#build-helpers) section.
+Positional argv overrides the file: `argv[1]` is the model path, `argv[2]` is the grid side. The config covers model/instancing, paths, window and render settings, camera framing, shadows, TAA, render scale/upscale, ray tracing, SSAO, clustered lights, IBL, the subtilis switches and the debug GUI. See [`config.example.toml`](config.example.toml) for the full annotated list.
 
-Positional argv overrides the file: `argv[1]` = model path, `argv[2]` = grid side (a number). Configurable: model (or the value `"ask"`, which opens the platform's own file dialog at startup; cancelling it, or running where no dialog backend exists, falls back to the default model) / instancing grid, `shaders_dir` / `model_dir` paths, window size / title / vsync / clear color, the initial camera framing (`[render] camera_fit`), shadow & FXAA stage toggles, the render scale (`[render] render_scale`: the fraction of the window the RENDER chain runs at, which the frame's last pass resolves back up to the output extent - 1.0 is unscaled and exact) and which filter does that resolve (`[render] upscale`: `easu`, FSR 1's upsampler, or `linear` as the reference it is measured against), GPU pass timings (`[render] gpu_timings`), the G-buffer debug view (`[render] gbuffer_debug` / `gbuffer_channel`), TAA (`[render] taa` / `taa_blend_static` / `taa_blend_min`), cascaded shadow maps (`[render] shadow_cascades` / `shadow_cascade_blend` / `shadow_map_size`), ray-traced sun shadows (`[render] rt_shadows`, off by default and ignored on a device without ray queries) with their two dynamic-geometry mechanisms (`rt_mask_bake`, default off because its rule measured worse; `rt_skin_bake`, default off, a per-frame re-skin + BLAS refit), ray-traced reflections (`[render] rt_reflections`, off by default; `rt_reflection_cloth`, `rt_reflection_strength` and `rt_reflection_materials` restrict and scale the composite, and per-object `ray_tracing_reflection` can opt out), clustered light culling (`[render] clustered_lights` + `[lighting] demo_lights`), screen-space ambient occlusion (`[render] ssao` / `ssao_radius` / `ssao_intensity` / `ssao_samples`), the analytic verification mode (`[render] furnace`), pinning an animated scene's pose (`[render] animation_time`, negative = play, which is what makes a capture of an animated scene reproducible at all), the render mode (`[render] unlit`), IBL precompute resolutions, and the debug-panel default size. `config.example.toml` documents every key with the reasoning and the measured limits, and `scripts/config/make_config.py` generates a config interactively.
+Set `model = "ask"` to open the platform file dialog at startup; cancelling it, or running where no dialog backend exists, falls back to the default model.
 
-Two extra dev-tool flags make a render reproducible without a human at the keyboard (they are stripped from argv before the config merge, so the positional slots above keep their meaning):
+### Reproducible captures
 
 ```bash
-# render 120 frames, save a screenshot through the same path F12 uses, then quit
+# render 120 frames, save a screenshot, then quit
 ./build/deren --config my_config.toml --capture-frames 120
 
-# ... and force the view first: yaw,pitch,distance in degrees / scene units, plus an optional
-# orbit target (6 numbers instead of 3)
+# force the view: yaw,pitch,distance[,target x,y,z]
 ./build/deren --capture-frames 120 --capture-camera 31,0,10,0,-18,0
-```
 
-Two more make a capture of something that MOVES as reproducible as a still one, for the same reason: both advance by the **frame index** rather than by the wall clock, so two runs of one capture are byte-identical. `--capture-sweep <deg of yaw per frame>` orbits the camera (without it every reprojection path in the renderer is only ever exercised in its trivial case - a motion vector of zero), and `--capture-animation-sweep <seconds per frame>` advances the keyframe animation:
-
-```bash
-# move the camera 0.5 deg per frame, and the animation 0.02 s per frame
+# move the camera and the animation by frame index
 ./build/deren --capture-frames 40 --capture-sweep 0.5 --capture-animation-sweep 0.02
 ```
 
-`--capture-animation-sweep` is what makes a **deforming** mesh measurable at all: pinning the pose with `[render] animation_time` makes a capture reproducible but uploads the same skin matrices every frame, so the deformation term of every motion vector is exactly zero and the frame cannot tell a deformation-aware renderer from one that ignores deformation. The two flags are mutually exclusive - a pinned pose never advances the clock, and the run logs that it ignored the sweep.
+`--capture-sweep` and `--capture-animation-sweep` advance by frame index, so two runs of one capture are identical. `--capture-animation-sweep` is ignored when `[render] animation_time` pins the pose. The PNG goes to `[paths] screenshot_dir` and the log line prints its full path.
 
-The PNG goes to `[paths] screenshot_dir` and the log line prints its full path. Note the scene is placed in world space around the **orbit target** (`main` sinks the imported model so its centre sits at the target), so a "inside the building" camera needs target coordinates in that shifted space, not the loader's.
+## Screenshot regression check
 
-### Screenshot regression check (local)
-
-`scripts/gates/check_render.ps1` renders a fixed set of scenarios (fixed config, fixed camera,
-fixed frame count), screenshots each, and compares it to a reference captured earlier **on this
-machine**. It answers "did the frame change", not "is it better" - a difference means a change, and
-accepting one is the explicit `-Update` step that keeps it visible in review.
+`scripts/gates/check_render.ps1` renders a fixed set of scenarios (fixed config, camera and frame count), screenshots each, and compares it to a reference captured on the same machine. It answers "did the frame change", not "is it better".
 
 ```powershell
-pwsh -File scripts/gates/check_render.ps1 -List      # the scenarios, and which tier each is
-pwsh -File scripts/gates/check_render.ps1            # the CORE set: 5 scenarios, 10 renders
-pwsh -File scripts/gates/check_render.ps1 -Full      # all 15 legacy-path scenarios, 30 renders
-pwsh -File scripts/gates/check_render.ps1 -Update    # accept the current output as the reference
+pwsh -File scripts/gates/check_render.ps1 -List      # scenarios and tiers
+pwsh -File scripts/gates/check_render.ps1            # CORE: 5 scenarios, 10 renders
+pwsh -File scripts/gates/check_render.ps1 -Full      # all 15 legacy scenarios, 30 renders
+pwsh -File scripts/gates/check_render.ps1 -Update    # accept current output as reference
 ```
 
-Sixteen scenarios are defined: fifteen are tagged `core` or `extra` and the sixteenth is the
-visibility-path A/B, which `-Visibility` selects on its own. The default run is the **core five** -
-one per pipeline family whose wiring has broken before: the deferred G-buffer and its lighting, the
-forward unlit pipeline, the forward default pipeline with a BLEND leaf and a MASK discard, the heavy
-Sponza interior (cascaded shadows, clustered lights, IBL, and most of the mesh workload) and the one
-deforming mesh, whose frame is the motion channel itself. The `extra` ten vary one optional stage or
-use another model, so a default round costs 10 renders instead of 30; `-Full` runs all fifteen
-legacy-path scenarios, and
-`-Only <name>` runs one whatever its tier. `-Update` only re-baselines what actually ran, so use
-`-Update -Full` when a change is meant to move everything.
+There are 16 scenarios: 15 tagged `core` or `extra`, plus the visibility-path A/B selected by `-Visibility`. The core five cover deferred G-buffer/lighting, forward unlit, forward default with BLEND/MASK, the heavy Sponza interior, and a deforming mesh. `-Only <name>` runs one scenario; `-Update -Full` re-baselines everything that runs.
 
-It is deliberately **not** a CI test: CI has no GPU, and the references are tied to this machine's GPU
-and driver, so a shared baseline would be red for everyone else. The references therefore live outside
-the repository (`$env:LOCALAPPDATA\deren\baseline`, overridable with
-`VR_RENDER_BASELINE_DIR`) and an unseeded run says so instead of failing.
+This is intentionally **not** a CI test: CI has no GPU, and references are tied to the local GPU/driver. References live outside the repository (`$env:LOCALAPPDATA\deren\baseline`, overridable with `VR_RENDER_BASELINE_DIR`). The check depends on `[gui] show = false` (a live fps counter breaks determinism) and a fixed frame count (TAA accumulates); check mode renders each scenario twice and reports a mismatch as flaky. The debug overlay is on by default; disable it with `[gui] show = false`.
 
-Two properties it depends on, both measured rather than assumed. The frame is only deterministic with
-`[gui] show = false` - the overlay prints a live fps counter, and three consecutive runs of one binary
-produced three different hashes with it on and one hash with it off - so every scenario pins its own
-config file and the overlay off. And TAA accumulates over frames, so the frame count is fixed. Check
-mode runs each scenario **twice** and requires the two runs to agree before comparing against the
-reference, so a non-deterministic scenario is reported as flaky rather than as a regression; it also
-refuses to accept a run whose log carries validation errors.
+Windows builds are GUI-subsystem executables: no console window. Logs go to `deren-debug.log`; the previous session is rotated to `deren-debug.log.old`. Panic and crash evidence goes to `deren-crash.log`.
 
-The Dear ImGui debug overlay is on **by default** — disable it with `[gui] show = false` in the config.
+## Shaders
 
-> All Windows builds are GUI-subsystem executables: no console window appears when running, and the log output goes to `deren-debug.log` in the working directory (the previous session's content is rotated to `deren-debug.log.old` with a session timestamp on startup). Panic and crash evidence goes to `deren-crash.log`; log and panic routes do not write to stdout/stderr.
+CMake requires `slangc` and regenerates every `source/shaders/*.spv` from its `.slang` source during `cmake --build`. Shared `.glsl` includes are tracked as dependencies, so editing one recompiles the shaders that use it. The compiled directory is mirrored next to the executable, and that is what the runtime loads. `.spv` files are build outputs and are not tracked.
 
-### Recompile shaders
-
-The build does this for you, and it is the only path that matters: `CMakeLists.txt` requires `slangc`
-(Slang's compiler; MSYS2 ships no Slang package, so it comes from `PATH`, from the Vulkan SDK's
-`Bin/slangc.exe`, or from a `-DVR_SLANGC_EXECUTABLE=...` override, and configuring fails without it)
-and regenerates every `source/shaders/*.spv` from its `.slang` source as part of `cmake --build` - `slangc` is
-the only shader compiler the project has, since every stage is built from a `.slang` source and the
-GLSL stage sources are gone. The `.glsl` files several of them share (`surface.glsl`,
-`material_record.glsl`, `shading.glsl`, `sky.glsl`, ...) are dependencies, so editing one recompiles the
-shaders that pull it in. The compiled directory is then mirrored next to the executable, and that
-copy is what the runtime loads, so the shaders a run uses are always the ones its own build produced.
-
-The `.spv` binaries are **not tracked in the repository** - they are a build output, so there is
-nothing to commit, gitignore-by-hand, or forget to recompile. `slangc` is required rather than
-optional: without a shader compiler there is nothing to run, and an optional step is exactly how a
-stale binary gets loaded without anyone noticing.
-
-The two scripts below are a manual escape hatch for a machine without CMake; they compile in place,
-which is what the build does too.
-
-PowerShell (Windows):
+Manual escape hatch (compiles in place, same as the build):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File source/shaders/compile_shaders.ps1
 ```
-
-POSIX sh (git-bash / MSYS2 / WSL / Linux):
 
 ```bash
 sh source/shaders/compile_shaders.sh
@@ -503,18 +280,11 @@ sh source/shaders/compile_shaders.sh
 
 The engine source code is [MIT](LICENSE), copyright 2026 YzK0741.
 
-That MIT license does **not** cover the third-party sample assets under `asset/`. Each asset
-keeps its own terms, listed in [`asset/README.md`](asset/README.md) and in the notice beside it:
+The MIT license does **not** cover the third-party sample assets under `asset/`. Each asset keeps its own terms, listed in [`asset/README.md`](asset/README.md):
 
 - `asset/DamagedHelmet/` and `asset/FlightHelmet/`: see each folder's `LICENSE.md`.
-- `asset/flowers/`: NVIDIA's Bouquet of Flowers, CC BY 4.0; see
-  [`asset/flowers/README.md`](asset/flowers/README.md).
-- `asset/laevatain/`: the Laevatain / GameToon preview model and Toon sidecar, all rights
-  reserved by Hypergryph Network Technology Co., Ltd. The repository grants no license for
-  them: redistribution and reuse are not granted, and whether the files may be redistributed
-  at all is unresolved. See [`asset/laevatain/LICENSE.md`](asset/laevatain/LICENSE.md).
-- `asset/tangtang/`: the Tangtang / GameToon preview model and Toon sidecar, under the same
-  Hypergryph notice and the same unresolved redistribution status. See
-  [`asset/tangtang/LICENSE.md`](asset/tangtang/LICENSE.md).
+- `asset/flowers/`: NVIDIA's Bouquet of Flowers, CC BY 4.0; see [`asset/flowers/README.md`](asset/flowers/README.md).
+- `asset/laevatain/`: Laevatain / GameToon preview model and Toon sidecar, all rights reserved by Hypergryph Network Technology Co., Ltd. No license is granted; redistribution and reuse are not granted, and whether the files may be redistributed at all is unresolved. See [`asset/laevatain/LICENSE.md`](asset/laevatain/LICENSE.md).
+- `asset/tangtang/`: Tangtang / GameToon preview model and Toon sidecar, under the same Hypergryph notice and the same unresolved redistribution status. See [`asset/tangtang/LICENSE.md`](asset/tangtang/LICENSE.md).
 
 Consult those notices before redistributing any file under `asset/`.

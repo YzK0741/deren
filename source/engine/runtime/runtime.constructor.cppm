@@ -1574,12 +1574,12 @@ namespace deren::engine {
             this->rhi_face().wait_idle();
         }
         if (tables_changed) {
-            deren::utility::vessel::array<decltype(&this->material_buffer), 10> const handles{&this->material_buffer, &this->instance_buffer, &this->toon_colour_buffer, &this->toon_lane_buffer, &this->toon_rig_buffer,
+            deren::utility::vessel::array<decltype(&this->material_buffer), 11> const handles{&this->material_buffer, &this->instance_buffer, &this->toon_colour_buffer, &this->toon_lane_buffer, &this->toon_rig_buffer,
                                                                                               &this->meshlet_buffer, &this->mesh_indirect_buffer, &this->meshlet_stats_buffer, &this->meshlet_culled_buffer,
-                                                                                              &this->visibility_items_buffer};
-            deren::utility::vessel::array<decltype(&this->material_mapped), 10> const mappings{&this->material_mapped, &this->instance_mapped, &this->toon_colour_mapped, &this->toon_lane_mapped, &this->toon_rig_mapped,
+                                                                                              &this->visibility_items_buffer, &this->subtilis_cut_items_buffer};
+            deren::utility::vessel::array<decltype(&this->material_mapped), 11> const mappings{&this->material_mapped, &this->instance_mapped, &this->toon_colour_mapped, &this->toon_lane_mapped, &this->toon_rig_mapped,
                                                                                                &this->meshlet_mapped, &this->mesh_indirect_mapped, &this->meshlet_stats_mapped, &this->meshlet_culled_mapped,
-                                                                                               &this->visibility_items_mapped};
+                                                                                               &this->visibility_items_mapped, &this->subtilis_cut_items_mapped};
             for (size_t i = 0; i < tables.size(); ++i) {
                 if (this->scene_table_resource_views[i].find(required_tables[i].id) == tables[i]) {
                     continue;
@@ -1932,9 +1932,9 @@ namespace deren::engine {
     }
 
     void runtime::publish_scene_table_bindings() {
-        deren::utility::vessel::array<decltype(this->material_buffer), 10> const handles{this->material_buffer, this->instance_buffer, this->toon_colour_buffer, this->toon_lane_buffer, this->toon_rig_buffer,
+        deren::utility::vessel::array<decltype(this->material_buffer), 11> const handles{this->material_buffer, this->instance_buffer, this->toon_colour_buffer, this->toon_lane_buffer, this->toon_rig_buffer,
                                                                                          this->meshlet_buffer, this->mesh_indirect_buffer, this->meshlet_stats_buffer, this->meshlet_culled_buffer,
-                                                                                         this->visibility_items_buffer};
+                                                                                         this->visibility_items_buffer, this->subtilis_cut_items_buffer};
         auto const required = pass::scene_tables_pass::descriptions(render_resource::instances::resource_context{.frame_slots = this->frame_ring().slot_count()});
         if (!contract_descriptor_ready(this->rhi_face())) {
             return;

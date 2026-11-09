@@ -124,7 +124,7 @@ namespace deren::engine::pass {
                                              .clear_stencil = 0};
         this->pass_frame.bind_segment = &visibility_raster_pass::bind_segment;
         this->pass_frame.segment_context = this;
-        bool const parallel = !this->pass_frame.segments.empty() && this->pass_frame.bind_segment != nullptr;
+        bool const segmented = !this->pass_frame.segments.empty() && this->pass_frame.bind_segment != nullptr;
         rhi::rendering_info const rendering_info{
             .struct_size = sizeof(rhi::rendering_info),
             .area = {.offset_x = 0, .offset_y = 0, .width = this->pass_frame.extent.width, .height = this->pass_frame.extent.height},
@@ -132,9 +132,23 @@ namespace deren::engine::pass {
             .colors = std::span<rhi::color_attachment const>(colors.data(), colors.size()),
             .depth = depth,
             .has_depth = true,
-            // Parallel recording produces mergeable segments; the serial path records straight into the primary.
-            .secondary_contents = parallel,
+            // Segmented recording produces mergeable secondaries; the serial path records straight into the primary.
+            .secondary_contents = segmented,
         };
+        // THE GPU CUT NEEDS THE PRIMARY RENDERING INSTANCE TO BE CLOSED WHILE IT RECORDS. Its compute dispatch
+        // cannot be appended to a command buffer that is already inside dynamic rendering, so a frame with
+        // segments records its items FIRST (the cut dispatch lands in the primary, the item draws land in the
+        // mergeable secondaries) and only then opens the instance. A segment-free frame keeps the serial order:
+        // begin, record the draws straight into the primary, end.
+        std::uint32_t recorded = 0;
+        bool ok = true;
+        if (segmented) {
+            ok = this->pass_frame.record_items(this->pass_frame.parent, *io.list, this->pass_frame.segments,
+                                               this->pass_frame.bind_segment, this->pass_frame.segment_context, recorded);
+            if (!ok) {
+                return rhi::error::invalid_argument;
+            }
+        }
         if (rhi::error const begun = io.list->begin_rendering(rendering_info); begun != rhi::error::ok) {
             return begun;
         }
@@ -163,9 +177,12 @@ namespace deren::engine::pass {
         io.list->set_depth_write(true);
         io.list->set_viewport(this->raster_pipeline->viewport);
         io.list->set_scissor(this->raster_pipeline->scissor);
-        std::uint32_t recorded = 0;
-        bool const ok = this->pass_frame.record_items(this->pass_frame.parent, *io.list, this->pass_frame.segments,
-                                                      this->pass_frame.bind_segment, this->pass_frame.segment_context, recorded);
+        if (!segmented) {
+            ok = this->pass_frame.record_items(this->pass_frame.parent, *io.list, this->pass_frame.segments,
+                                               this->pass_frame.bind_segment, this->pass_frame.segment_context, recorded);
+        } else if (ok) {
+            ok = io.list->execute(this->pass_frame.segments) == rhi::error::ok;
+        }
         io.list->end_rendering();
         // THE LANE'S OWN WITNESS (visibility-buffer v0.4b): one line, once per run, saying that the item recorder
         // actually ran and how many mesh-task dispatches it issued. Until this existed the lane's only evidence was

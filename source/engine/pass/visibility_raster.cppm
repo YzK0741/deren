@@ -62,7 +62,9 @@ export namespace deren::engine::pass {
         /**
          * @brief record this frame's admitted draws: push one item block and issue its mesh-task dispatch each
          * @param owner the renderer
-         * @param command_buffer the frame's primary, already inside this pass's rendering instance
+         * @param command_buffer the frame's primary; when @p segments is empty this is already inside this pass's
+         *        rendering instance, otherwise it is still outside and the recorder may append the GPU cut's
+         *        compute dispatch into it
          * @param segments optional per-worker mergeable segments; empty records straight into the primary
          * @param bind_segment opens one segment and rebinds this pass's pipeline/dynamic state into it
          * @param segment_context the pass handed to @p bind_segment

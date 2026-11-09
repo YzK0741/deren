@@ -149,6 +149,12 @@ export namespace deren::engine::render_resource {
         /// the number of enumerators, so the schema's completeness can be checked by ITERATING rather than
         /// against a hand-kept list: `validate_schema()` requires exactly one entry per id in [1, count)
         local_probe,
+        /// the immutable GPU cut payload owned by one subtilis geometry generation
+        scene_cut_groups,
+        scene_cut_clusters,
+        scene_cut_references,
+        /// the per-frame GPU cut item table (frame header + one record per planned item)
+        subtilis_cut_items,
         count,
     };
 
@@ -323,6 +329,12 @@ export namespace deren::engine::render_resource {
         {.id = resource_id::software_depth, .name = "software_depth", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::per_frame},
         {.id = resource_id::software_id, .name = "software_id", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::per_frame},
         {.id = resource_id::software_tiles, .name = "software_tiles", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::per_frame},
+        // Immutable per-geometry cut input, created by subtilis's upload pass chain (not the frame graph):
+        // persistent for the generation's lifetime and addressable so a later compute cut needs no new binding.
+        {.id = resource_id::scene_cut_groups, .name = "scene_cut_groups", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
+        {.id = resource_id::scene_cut_clusters, .name = "scene_cut_clusters", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
+        {.id = resource_id::scene_cut_references, .name = "scene_cut_references", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::persistent},
+        {.id = resource_id::subtilis_cut_items, .name = "subtilis_cut_items", .kind = resource_kind::buffer, .scope = resource_scope::device_wide, .lifetime = resource_lifetime::per_frame},
     }};
 
     // =============================================================================================

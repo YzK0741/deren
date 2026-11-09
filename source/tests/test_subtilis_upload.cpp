@@ -117,6 +117,38 @@ int main() {
     CHECK(vertex_bytes.size() == original->vertices().size() && std::memcmp(vertex_bytes.data(), original->vertices().data(), vertex_bytes.size()) == 0);
     CHECK(index_bytes.size() == original->indices().size_bytes() && std::memcmp(index_bytes.data(), original->indices().data(), index_bytes.size()) == 0);
     CHECK(index_bytes.size() > original->lod0_index_count() * 4);
+    if (auto const* dag = original->hierarchy_dag(); dag && !dag->groups().empty()) {
+        CHECK(dag->groups().size() == generation.cut_group_count());
+        CHECK(dag->clusters().size() == generation.cut_cluster_count());
+        CHECK(dag->references().size() == generation.cut_reference_count());
+        CHECK(generation.cut_groups() != nullptr && generation.cut_references() != nullptr && generation.cut_clusters() != nullptr);
+        auto group_bytes = deren::vk_test::probe_buffer_initial_bytes(*device, *generation.cut_groups());
+        auto reference_bytes = deren::vk_test::probe_buffer_initial_bytes(*device, *generation.cut_references());
+        auto cluster_bytes = deren::vk_test::probe_buffer_initial_bytes(*device, *generation.cut_clusters());
+        CHECK(group_bytes.size() == dag->groups().size() * sizeof(sub::cut_group_record));
+        CHECK(reference_bytes.size() == dag->references().size() * sizeof(std::uint32_t));
+        CHECK(cluster_bytes.size() == dag->clusters().size() * sizeof(sub::cut_cluster_record));
+        CHECK(reference_bytes.size() == dag->references().size_bytes() && std::memcmp(reference_bytes.data(), dag->references().data(), reference_bytes.size()) == 0);
+        for (std::size_t i = 0; i < dag->groups().size(); ++i) {
+            sub::cut_group_record record{};
+            std::memcpy(&record, group_bytes.data() + i * sizeof(record), sizeof(record));
+            auto const& expected = dag->groups()[i];
+            CHECK(record.center_x == expected.lod.x && record.center_y == expected.lod.y && record.center_z == expected.lod.z);
+            CHECK(record.radius == expected.lod.radius && record.error == expected.error);
+            CHECK(record.fine_first == expected.fine.first && record.fine_count == expected.fine.count);
+            CHECK(record.coarse_first == expected.coarse.first && record.coarse_count == expected.coarse.count);
+        }
+        for (std::size_t i = 0; i < dag->clusters().size(); ++i) {
+            sub::cut_cluster_record record{};
+            std::memcpy(&record, cluster_bytes.data() + i * sizeof(record), sizeof(record));
+            auto const& expected = dag->clusters()[i];
+            CHECK(std::memcmp(&record.record, &expected.record, sizeof(expected.record)) == 0);
+            CHECK(record.producer == expected.producer && record.consumer == expected.consumer);
+        }
+    } else {
+        CHECK(generation.cut_groups() == nullptr && generation.cut_references() == nullptr && generation.cut_clusters() == nullptr);
+        CHECK(generation.cut_group_count() == 0 && generation.cut_reference_count() == 0 && generation.cut_cluster_count() == 0);
+    }
     auto second_source = source(100);
     auto second = sub::upload_geometry(device, second_source);
     CHECK(second && (*second)->vertices() != generation.vertices() && (*second)->indices() != generation.indices());
