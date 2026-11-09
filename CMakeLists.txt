@@ -1077,6 +1077,7 @@ set(VR_DEVICE_TEST_TARGETS
     test_submission_completion
     test_buffer_transfer
     test_subtilis_transfer
+    test_subtilis_cut_gpu
     test_gui_plugin
 )
 foreach(device_target IN ITEMS ${VR_DEVICE_TEST_TARGETS})
