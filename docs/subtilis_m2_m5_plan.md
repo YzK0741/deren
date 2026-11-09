@@ -1,7 +1,8 @@
 # Subtilis M2/M5 implementation plan
 
 Status: M2 v1 is implemented in this branch and is off by default
-(`[render] subtilis_gpu_cut`). M5 has not started. The v1 shader keeps one persistent
+(`[render] subtilis_gpu_cut`). M5a (offline page table) is implemented in this branch;
+runtime page residency and streaming are not started. The v1 shader keeps one persistent
 workgroup per item (64 lanes, word-owned coarsen bitset, iterated closure, contiguous
 chunk compaction); a global cross-item node/cluster queue is deliberately deferred
 until the flat group table gains explicit child links. `test_subtilis_cut_gpu` exercises
@@ -261,6 +262,36 @@ The offline builder emits:
 
 Page boundaries must split at cluster boundaries. A cluster's index window must not span two
 pages; otherwise index fetch would need a page-table lookup per index.
+
+#### 4.2.1 Wire format (M5a)
+
+Payloads without pages keep the version-1.0 layout: 7 sections and a 352-byte directory.
+A payload with pages is version 1.1: 9 sections and a 416-byte directory. The two new
+sections are `PAGES` (type 8, 32-byte entries) and `PAGE_DEPS` (type 9, 4-byte page ids).
+
+Each `PAGES` entry is:
+
+```
+u32 section;          // page_section: indices..roots
+u32 first;            // first element in that section
+u32 count;            // element count, never zero
+u32 bytes;            // count * section stride, at most 64 KiB
+u16 flags;            // bit 0: always resident
+u16 priority;
+u32 dependency_first; // index into PAGE_DEPS
+u32 dependency_count;
+u32 reserved;         // zero
+```
+
+`PAGE_DEPS` is a sorted, duplicate-free slice per page. Edges point from the consuming page
+to the page that stores the element (`groups -> references -> clusters -> indices`,
+`leaves/roots -> clusters`), so the dependency graph is a DAG. A page's `bytes` must match
+`count * stride` and fit in 64 KiB. Every section must be covered exactly once, in section
+order, and every cluster's index window must sit inside one index page. Residency is a
+closure: every dependency of an always-resident page must also be always-resident.
+`compute_pages` derives the cover; `validate_pages` enforces these invariants on both the
+builder output and decoded payloads. This milestone stores metadata only; all pages remain
+resident until M5b adds the runtime manager.
 
 ### 4.3 Runtime residency
 

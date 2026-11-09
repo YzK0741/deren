@@ -5,13 +5,21 @@ module;
 #include <yyjson.h>
 module deren.asset.subtilis.codec;
 import deren.vstd;
+import deren.asset.subtilis.pages;
 
 namespace deren::asset::subtilis {
     namespace {
-        constexpr uint32_t strides[]{4, 32, 48, 4, 4, 4, 1};
-        constexpr uint64_t directory_end = 352;
+        constexpr uint32_t strides[]{4, 32, 48, 4, 4, 4, 1, 32, 4};
+        constexpr uint64_t directory_end_v1_0 = 352;
+        constexpr uint64_t directory_end_v1_1 = 416;
         struct section {
             uint64_t count = 0, offset = 0, length = 0;
+        };
+        struct layout_result {
+            array<section, 9> sections{};
+            size_t count = 7;
+            uint64_t directory_end = directory_end_v1_0;
+            uint16_t minor = 0;
         };
         auto failure(error_code code, char const* context) {
             return std::unexpected(error{code, context, {}, {}});
@@ -69,27 +77,45 @@ namespace deren::asset::subtilis {
             yyjson_doc_free(doc);
             return object;
         }
-        result<array<section, 7>> layout(payload const& p, limits const& lim) {
-            array<uint64_t, 7> counts{p.indices.size(), p.clusters.size(), p.groups.size(), p.references.size(), p.leaves.size(), p.roots.size(), p.build_meta.size()};
-            array<section, 7> sections{};
-            uint64_t cursor = directory_end;
-            for (size_t i = 0; i < 7; ++i) {
-                if (counts[i] > lim.max_records || counts[i] > UINT32_MAX || ((i == 1 || i == 2) && counts[i] == none)) {
+        array<uint64_t, 7> element_counts(payload const& p) {
+            return {p.indices.size(), p.clusters.size(), p.groups.size(), p.references.size(), p.leaves.size(), p.roots.size(), p.build_meta.size()};
+        }
+        result<layout_result> layout(payload const& p, limits const& lim) {
+            auto const counts = element_counts(p);
+            bool const has_pages = !p.pages.empty();
+            if (!has_pages && !p.page_dependencies.empty()) {
+                return failure(error_code::invalid_payload, "page dependencies without pages");
+            }
+            if (has_pages) {
+                auto valid = validate_pages(p, lim);
+                if (!valid) {
+                    return std::unexpected(valid.error());
+                }
+            }
+            layout_result out;
+            out.count = has_pages ? 9 : 7;
+            out.directory_end = has_pages ? directory_end_v1_1 : directory_end_v1_0;
+            out.minor = has_pages ? 1 : 0;
+            uint64_t cursor = out.directory_end;
+            for (size_t i = 0; i < out.count; ++i) {
+                auto const count = i < 7 ? counts[i] : (i == 7 ? p.pages.size() : p.page_dependencies.size());
+                if (count > lim.max_records || count > UINT32_MAX || ((i == 1 || i == 2) && count == none)) {
                     return failure(error_code::capacity, "section count exceeds limit");
                 }
-                auto const length = counts[i] * strides[i];
+                auto const length = count * strides[i];
                 if (cursor > lim.max_payload_bytes || length > lim.max_payload_bytes - cursor || cursor + length > SIZE_MAX - 7) {
                     return failure(error_code::capacity, "payload exceeds byte limit");
                 }
-                sections[i] = {counts[i], cursor, length};
+                out.sections[i] = {count, cursor, length};
                 cursor = (cursor + length + 7) & ~uint64_t(7);
             }
             if (cursor > lim.max_payload_bytes) {
                 return failure(error_code::capacity, "payload padding exceeds byte limit");
             }
-            return sections;
+            return out;
         }
     } // namespace
+
     result<vector<byte>> encode(payload const& p, limits const& lim) {
         auto sections = layout(p, lim);
         if (!sections) {
@@ -108,30 +134,31 @@ namespace deren::asset::subtilis {
         if (!valid_meta(std::as_bytes(std::span(p.build_meta)))) {
             return failure(error_code::invalid_payload, "BUILD_META must be a strict UTF-8 JSON object");
         }
-        auto const total = (sections->back().offset + sections->back().length + 7) & ~uint64_t(7);
+        auto const total = (sections->sections[sections->count - 1].offset + sections->sections[sections->count - 1].length + 7) & ~uint64_t(7);
         vector<byte> bytes(static_cast<size_t>(total), byte{0});
         put(bytes, 0, 0x00474144534e5244ULL, 8);
         put(bytes, 8, 1, 2);
+        put(bytes, 10, sections->minor, 2);
         put(bytes, 12, 128, 4);
         put(bytes, 16, total, 8);
-        put(bytes, 24, 7, 4);
+        put(bytes, 24, sections->count, 4);
         std::copy(p.source_hash.begin(), p.source_hash.end(), bytes.begin() + 32);
         std::copy(p.build_hash.begin(), p.build_hash.end(), bytes.begin() + 64);
-        for (size_t i = 0; i < 7; ++i) {
+        for (size_t i = 0; i < sections->count; ++i) {
             size_t const d = 128 + i * 32;
-            auto const s = (*sections)[i];
+            auto const s = sections->sections[i];
             put(bytes, d, i + 1, 4);
             put(bytes, d + 4, strides[i], 4);
             put(bytes, d + 8, s.count, 8);
             put(bytes, d + 16, s.offset, 8);
             put(bytes, d + 24, s.length, 8);
         }
-        auto write_ids = [&](size_t id, vector<uint32_t> const& ids) { size_t at = (*sections)[id].offset; for (auto n : ids) { put(bytes, at, n, 4); at += 4; } };
+        auto write_ids = [&](size_t id, vector<uint32_t> const& ids) { size_t at = sections->sections[id].offset; for (auto n : ids) { put(bytes, at, n, 4); at += 4; } };
         write_ids(0, p.indices);
         write_ids(3, p.references);
         write_ids(4, p.leaves);
         write_ids(5, p.roots);
-        size_t at = (*sections)[1].offset;
+        size_t at = sections->sections[1].offset;
         for (auto const& c : p.clusters) {
             put(bytes, at, c.first_index, 4);
             put(bytes, at + 4, c.index_count, 4);
@@ -140,7 +167,7 @@ namespace deren::asset::subtilis {
             put_sphere(bytes, at + 16, c.geometry);
             at += 32;
         }
-        at = (*sections)[2].offset;
+        at = sections->sections[2].offset;
         for (auto const& g : p.groups) {
             put(bytes, at, g.fine_first, 4);
             put(bytes, at + 4, g.fine_count, 4);
@@ -150,31 +177,56 @@ namespace deren::asset::subtilis {
             put_float(bytes, at + 32, g.error);
             at += 48;
         }
-        std::memcpy(bytes.data() + (*sections)[6].offset, p.build_meta.data(), p.build_meta.size());
+        std::memcpy(bytes.data() + sections->sections[6].offset, p.build_meta.data(), p.build_meta.size());
+        if (!p.pages.empty()) {
+            at = sections->sections[7].offset;
+            for (auto const& page : p.pages) {
+                put(bytes, at, page.section, 4);
+                put(bytes, at + 4, page.first, 4);
+                put(bytes, at + 8, page.count, 4);
+                put(bytes, at + 12, page.bytes, 4);
+                put(bytes, at + 16, page.flags, 2);
+                put(bytes, at + 18, page.priority, 2);
+                put(bytes, at + 20, page.dependency_first, 4);
+                put(bytes, at + 24, page.dependency_count, 4);
+                put(bytes, at + 28, page.reserved, 4);
+                at += 32;
+            }
+            write_ids(8, p.page_dependencies);
+        }
         return bytes;
     }
+
     result<payload> decode(std::span<byte const> bytes, limits const& lim) {
         if (bytes.size() > lim.max_payload_bytes) {
             return failure(error_code::capacity, "payload exceeds byte limit");
         }
-        if (bytes.size() < directory_end) {
-            return failure(error_code::invalid_payload, "truncated header or directory");
+        if (bytes.size() < 32) {
+            return failure(error_code::invalid_payload, "truncated header");
         }
         if (read(bytes, 0, 8) != 0x00474144534e5244ULL) {
             return failure(error_code::invalid_payload, "invalid magic");
         }
-        if (read(bytes, 8, 2) != 1 || read(bytes, 10, 2) != 0) {
-            return failure(error_code::unsupported_version, "unsupported payload version");
+        if (read(bytes, 8, 2) != 1) {
+            return failure(error_code::unsupported_version, "unsupported payload major version");
         }
-        if (read(bytes, 12, 4) != 128 || read(bytes, 16, 8) != bytes.size() || read(bytes, 24, 4) != 7 || read(bytes, 28, 4) != 0 || !zero(bytes.subspan(96, 32))) {
+        auto const minor = read(bytes, 10, 2);
+        if (minor != 0 && minor != 1) {
+            return failure(error_code::unsupported_version, "unsupported payload minor version");
+        }
+        uint64_t const directory_end = minor ? directory_end_v1_1 : directory_end_v1_0;
+        if (bytes.size() < directory_end) {
+            return failure(error_code::invalid_payload, "truncated directory");
+        }
+        if (read(bytes, 12, 4) != 128 || read(bytes, 16, 8) != bytes.size() || read(bytes, 24, 4) != (minor ? 9 : 7) || read(bytes, 28, 4) != 0 || !zero(bytes.subspan(96, 32))) {
             return failure(error_code::invalid_payload, "invalid header fields");
         }
-        array<section, 7> sections{};
-        array<bool, 7> seen{};
-        for (size_t i = 0; i < 7; ++i) {
+        array<section, 9> sections{};
+        array<bool, 9> seen{};
+        for (size_t i = 0; i < (minor ? 9 : 7); ++i) {
             size_t const d = 128 + i * 32;
             auto const type = read(bytes, d, 4);
-            if (type < 1 || type > 7 || seen[type - 1]) {
+            if (type < 1 || type > 9 || seen[type - 1]) {
                 return failure(error_code::invalid_payload, "unknown or duplicate section");
             }
             size_t const slot = type - 1;
@@ -191,10 +243,16 @@ namespace deren::asset::subtilis {
             }
             sections[slot] = {count, offset, length};
         }
+        if (minor && (!seen[7] || !sections[7].count)) {
+            return failure(error_code::invalid_payload, "version 1.1 without a page table");
+        }
         auto sorted = sections;
         std::sort(sorted.begin(), sorted.end(), [](section a, section b) { return a.offset < b.offset || (a.offset == b.offset && a.length < b.length); });
         uint64_t cursor = directory_end;
         for (auto s : sorted) {
+            if (s.count == 0) {
+                continue;
+            }
             if (s.offset < cursor || !zero(bytes.subspan(cursor, s.offset - cursor))) {
                 return failure(error_code::invalid_payload, "overlapping sections or nonzero padding");
             }
@@ -237,6 +295,17 @@ namespace deren::asset::subtilis {
             p.groups.push_back({uint32_t(read(bytes, at, 4)), uint32_t(read(bytes, at + 4, 4)), uint32_t(read(bytes, at + 8, 4)), uint32_t(read(bytes, at + 12, 4)), read_sphere(bytes, at + 16), read_float(bytes, at + 32)});
         }
         p.build_meta.assign(reinterpret_cast<char const*>(meta.data()), meta.size());
+        if (minor) {
+            p.pages.reserve(sections[7].count);
+            for (uint64_t i = 0, at = sections[7].offset; i < sections[7].count; ++i, at += 32) {
+                p.pages.push_back({uint32_t(read(bytes, at, 4)), uint32_t(read(bytes, at + 4, 4)), uint32_t(read(bytes, at + 8, 4)), uint32_t(read(bytes, at + 12, 4)), uint16_t(read(bytes, at + 16, 2)), uint16_t(read(bytes, at + 18, 2)), uint32_t(read(bytes, at + 20, 4)), uint32_t(read(bytes, at + 24, 4)), uint32_t(read(bytes, at + 28, 4))});
+            }
+            read_ids(8, p.page_dependencies);
+            auto valid = validate_pages(p, lim);
+            if (!valid) {
+                return std::unexpected(valid.error());
+            }
+        }
         return p;
     }
 } // namespace deren::asset::subtilis
