@@ -102,6 +102,7 @@ $slangSources = @(
     "lighting/reflection_resolve.slang:main:compute:reflection_resolve.comp.spv",
     "lighting/reflection_copy_history.slang:main:compute:reflection_copy_history.comp.spv",
     "geometry/compute_skin.slang:comp_main:compute:compute_skin.comp.spv",
+    "geometry/subtilis_cut.slang:comp_main:compute:subtilis_cut.comp.spv",
     "geometry/mask_bake.slang:comp_main:compute:mask_bake.comp.spv",
     "lighting/deferred.slang:main:fragment:deferred.frag.spv"
 )

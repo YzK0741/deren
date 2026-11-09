@@ -70,22 +70,83 @@ namespace deren::engine::subtilis {
         }
         bool const batch_upload = mode != geometry_upload_mode::synchronous && available;
         namespace managed = render_resource::instances;
+        struct cut_payload_holder {
+            deren::utility::vessel::vector<cut_group_record> groups;
+            deren::utility::vessel::vector<std::uint32_t> references;
+            deren::utility::vessel::vector<cut_cluster_record> clusters;
+        };
+        std::shared_ptr<cut_payload_holder const> cut_payload;
+        if (auto const* dag = source->hierarchy_dag(); dag && !dag->groups().empty()) {
+            auto payload = std::make_shared<cut_payload_holder>();
+            payload->groups.reserve(dag->groups().size());
+            for (auto const& group : dag->groups()) {
+                payload->groups.push_back({
+                    group.fine.first,
+                    group.fine.count,
+                    group.coarse.first,
+                    group.coarse.count,
+                    group.lod.x,
+                    group.lod.y,
+                    group.lod.z,
+                    group.lod.radius,
+                    group.error,
+                });
+            }
+            payload->references.assign(dag->references().begin(), dag->references().end());
+            payload->clusters.reserve(dag->clusters().size());
+            for (auto const& cluster : dag->clusters()) {
+                payload->clusters.push_back({cluster.record, cluster.producer, cluster.consumer});
+            }
+            cut_payload = std::move(payload);
+        }
         auto resources = std::allocate_shared<pass::pass_chain>(deren::utility::memory::allocator<pass::pass_chain>{});
         auto& provider = resources->emplace<pass::resource_storage_pass>();
-        std::array<managed::request, 2> requests;
-        std::array<std::span<std::byte const>, 2> bytes{std::as_bytes(source->vertices()), std::as_bytes(source->indices())};
+        auto const request_count = cut_payload ? std::size_t{5} : std::size_t{2};
+        deren::utility::vessel::vector<managed::request> requests(request_count);
+        deren::utility::vessel::vector<std::span<std::byte const>> bytes(request_count);
+        bytes[0] = std::as_bytes(source->vertices());
+        bytes[1] = std::as_bytes(source->indices());
+        if (cut_payload) {
+            bytes[2] = std::as_bytes(std::span(cut_payload->groups));
+            bytes[3] = std::as_bytes(std::span(cut_payload->references));
+            bytes[4] = std::as_bytes(std::span(cut_payload->clusters));
+        }
+        render_resource::resource_id const request_ids[5] = {
+            render_resource::resource_id::scene_geometry_vertices,
+            render_resource::resource_id::scene_geometry_indices,
+            render_resource::resource_id::scene_cut_groups,
+            render_resource::resource_id::scene_cut_references,
+            render_resource::resource_id::scene_cut_clusters,
+        };
         for (std::size_t i = 0; i < requests.size(); ++i) {
             auto& request = requests[i];
-            request.id = i == 0 ? render_resource::resource_id::scene_geometry_vertices : render_resource::resource_id::scene_geometry_indices;
+            request.id = request_ids[i];
             request.type = managed::kind::buffer;
             request.life = managed::lifetime::scene;
-            request.buffer = {.size = bytes[i].size(), .usage = i == 0 ? upload_rhi::buffer_usage::vertex : upload_rhi::buffer_usage::index, .flags = flags};
-            if (!batch_upload) {
-                request.initial_data = std::shared_ptr<std::byte const>{source, bytes[i].data()};
-                request.initial_data_size = bytes[i].size();
-                request.initialization_key = source;
+            if (i < 2) {
+                request.buffer = {.size = bytes[i].size(), .usage = i == 0 ? upload_rhi::buffer_usage::vertex : upload_rhi::buffer_usage::index, .flags = flags};
+                request.dependencies.push_back(source);
+                if (!batch_upload) {
+                    request.initial_data = std::shared_ptr<std::byte const>{source, bytes[i].data()};
+                    request.initial_data_size = bytes[i].size();
+                    request.initialization_key = source;
+                }
+            } else {
+                // Small immutable payload read only by the future cut compute stage. storage_coherent
+                // (rather than storage_gpu_only) is required by the one-shot initial-data path.
+                request.buffer = {
+                    .size = bytes[i].size(),
+                    .usage = upload_rhi::buffer_usage::storage_coherent,
+                    .flags = upload_rhi::to_bits(upload_rhi::buffer_flag::device_address) |
+                             upload_rhi::to_bits(upload_rhi::buffer_flag::storage),
+                };
+                request.dependencies.push_back(cut_payload);
+                if (!batch_upload) {
+                    request.initial_data = std::shared_ptr<std::byte const>{cut_payload, bytes[i].data()};
+                    request.initial_data_size = bytes[i].size();
+                    request.initialization_key = cut_payload;
+                }
             }
-            request.dependencies.push_back(source);
         }
         provider.configure(requests);
         auto admit = [&](managed::resource_snapshot const& snapshot) {
@@ -103,8 +164,16 @@ namespace deren::engine::subtilis {
             return std::unexpected(status);
         }
         auto snapshot = resources->resources().snapshot();
-        auto vertices = snapshot.find(requests[0].id);
-        auto indices = snapshot.find(requests[1].id);
+        auto vertices = snapshot.find(render_resource::resource_id::scene_geometry_vertices);
+        auto indices = snapshot.find(render_resource::resource_id::scene_geometry_indices);
+        std::shared_ptr<managed::generation const> cut_groups;
+        std::shared_ptr<managed::generation const> cut_references;
+        std::shared_ptr<managed::generation const> cut_clusters;
+        if (cut_payload) {
+            cut_groups = snapshot.find(render_resource::resource_id::scene_cut_groups);
+            cut_references = snapshot.find(render_resource::resource_id::scene_cut_references);
+            cut_clusters = snapshot.find(render_resource::resource_id::scene_cut_clusters);
+        }
         if (batch_upload) {
             namespace sync = upload_rhi::synchronization;
             // Immutable geometry is read by vertex input and the available shader stages.
@@ -115,8 +184,15 @@ namespace deren::engine::subtilis {
             sync::scope const published{static_cast<sync::stage>(supported & static_cast<std::uint32_t>(readers)), sync::access::read};
             buffer_transfer_service transfers(device);
             auto batch = transfers.make_batch();
+            std::shared_ptr<managed::generation const> const generations[5] = {
+                vertices,
+                indices,
+                cut_groups,
+                cut_references,
+                cut_clusters,
+            };
             for (std::size_t i = 0; i < bytes.size(); ++i) {
-                auto generation = i == 0 ? vertices : indices;
+                auto generation = generations[i];
                 auto* buffer = generation->objects[0].buffer.get();
                 auto lease = resource_lease<upload_rhi::buffer>::from_shared(device, upload_rhi::shared_object<upload_rhi::buffer>{generation, buffer});
                 // clang-tidy 23 mistakes the required separator after {} for an initializer trailing comma.
@@ -164,6 +240,10 @@ namespace deren::engine::subtilis {
             });
         }
         return std::allocate_shared<uploaded_geometry>(deren::utility::memory::allocator<uploaded_geometry>{}, uploaded_geometry::construction_key{},
-                                                       std::move(resources), std::move(source), std::move(vertices), std::move(indices), std::move(edges));
+                                                       std::move(resources), std::move(source), std::move(vertices), std::move(indices), std::move(cut_groups),
+                                                       std::move(cut_references), std::move(cut_clusters),
+                                                       cut_payload ? static_cast<std::uint32_t>(cut_payload->groups.size()) : 0u,
+                                                       cut_payload ? static_cast<std::uint32_t>(cut_payload->references.size()) : 0u,
+                                                       cut_payload ? static_cast<std::uint32_t>(cut_payload->clusters.size()) : 0u, std::move(edges));
     }
 } // namespace deren::engine::subtilis

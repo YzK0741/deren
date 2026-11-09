@@ -35,6 +35,7 @@ target_sources(deren_engine
         source/engine/pass/ray_traced_reflection.cppm
         source/engine/pass/mask_bake.cppm
         source/engine/pass/compute_skin.cppm
+        source/engine/pass/subtilis_cut.cppm
         source/engine/pass/scene_constants.cppm
         source/engine/pass/scene_deformation.cppm
         source/engine/pass/scene_tables.cppm
@@ -68,6 +69,7 @@ target_sources(deren_engine
         source/engine/geometry/subtilis_dag_import.cppm
         source/engine/geometry/subtilis_builder.cppm
         source/engine/geometry/subtilis_upload.cppm
+        source/engine/geometry/subtilis_cut.cppm
         source/engine/geometry/subtilis_selection.cppm
         source/engine/geometry/subtilis.cppm
         source/engine/visibility/visibility.cppm
@@ -110,6 +112,7 @@ target_sources(deren_engine
         source/engine/pass/ray_traced_reflection.cpp
         source/engine/pass/mask_bake.cpp
         source/engine/pass/compute_skin.cpp
+        source/engine/pass/subtilis_cut.cpp
         source/engine/pass/cluster.cpp
         source/engine/pass/deferred.cpp
         source/engine/runtime/runtime.post_graph.cpp

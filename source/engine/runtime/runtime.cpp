@@ -1510,6 +1510,9 @@ namespace deren::engine {
         this->subtilis_hysteresis = enabled;
         this->subtilis_histories.clear();
     }
+    void runtime::set_subtilis_gpu_cut(bool enabled) noexcept {
+        this->subtilis_gpu_cut = enabled;
+    }
 
     void runtime::set_software_raster(bool const enabled) noexcept {
         this->software_raster_on = enabled;
@@ -2202,6 +2205,8 @@ namespace deren::engine {
             subtilis::visible_run run = {};
             subtilis::reservation space = {};
             std::uint32_t item_index = 0;
+            bool gpu_cut = false;
+            subtilis::uploaded_geometry const* cut_source = nullptr;
             uint32_t input_count = 0, selected_count = 0, fallback_count = 0;
             std::uint64_t input_triangles = 0, selected_triangles = 0;
             double cut_us = 0;
@@ -2412,6 +2417,8 @@ namespace deren::engine {
             visibility_item_plan& plan = plans[index];
             std::array<float, 16> model = {};
             plan.item_index = index;
+            plan.gpu_cut = false;
+            plan.cut_source = nullptr;
             plan.cull = cull_modes[index];
             std::memcpy(model.data(), &leaf.push.model, sizeof(model));
             std::uint32_t const index_width = leaf.index_type == rhi::index_type::uint16 ? 2u : 4u;
@@ -2444,21 +2451,41 @@ namespace deren::engine {
                 view.selection.target_error_px = this->subtilis_error_px;
                 subtilis::item_policy const policy{this->material_flags_of(leaf), exact_depth_redraw && !leaf.environment};
                 plan.software_allowed = subtilis::coarse_allowed(leaf, policy);
-                plan.run = subtilis::prepare_item(leaf, policy, view, selected, published, [this](uint32_t base, std::span<meshlet const> records) { return runtime::meshlet_culled_write(this, base, std::as_bytes(records)); }, histories.empty() ? nullptr : &histories[index], this->subtilis_view_epoch);
-                plan.input_count = plan.space.count;
-                if (this->gpu_timings_enabled) {
-                    plan.cut_us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - cut_started).count();
+                bool const cut_eligible =
+                    this->subtilis_gpu_cut && !this->subtilis_hysteresis && !this->hzb_cull_active_frame &&
+                    !this->software_raster_active_frame && this->cut_job.ready() && count <= subtilis::cut_item_capacity &&
+                    this->subtilis_cut_items_mapped != nullptr && plan.software_allowed &&
+                    std::isfinite(view.selection.near_plane) && leaf.subtilis_geometry != nullptr && plan.space.count != 0u &&
+                    leaf.subtilis_geometry->source().hierarchy_dag() != nullptr &&
+                    leaf.subtilis_geometry->cut_groups() != nullptr && leaf.subtilis_geometry->cut_references() != nullptr &&
+                    leaf.subtilis_geometry->cut_clusters() != nullptr && leaf.subtilis_geometry->cut_group_count() != 0u &&
+                    leaf.subtilis_geometry->cut_group_count() <= subtilis::cut_max_groups &&
+                    leaf.subtilis_geometry->source().hierarchy_dag()->maximum_selected_bound() <= leaf.subtilis_geometry->cut_cluster_count() &&
+                    leaf.subtilis_geometry->source().hierarchy_dag()->maximum_selected_bound() <= plan.space.count;
+                if (cut_eligible) {
+                    plan.run = subtilis::visible_run{plan.space.base, 0u, subtilis::run_source::visible, subtilis::fallback_reason::none};
+                    plan.gpu_cut = true;
+                    plan.cut_source = leaf.subtilis_geometry.get();
+                    plan.input_count = plan.space.count;
+                    plan.input_triangles = leaf.draw_index_count / 3;
+                    plan.selected_triangles = 0u;
+                } else {
+                    plan.run = subtilis::prepare_item(leaf, policy, view, selected, published, [this](uint32_t base, std::span<meshlet const> records) { return runtime::meshlet_culled_write(this, base, std::as_bytes(records)); }, histories.empty() ? nullptr : &histories[index], this->subtilis_view_epoch);
+                    plan.input_count = plan.space.count;
+                    if (this->gpu_timings_enabled) {
+                        plan.cut_us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - cut_started).count();
+                    }
+                    plan.selected_count = plan.run.count;
+                    plan.fallback_count = plan.run.reason != subtilis::fallback_reason::none ? 1u : 0u;
+                    plan.input_triangles = leaf.draw_index_count / 3;
                 }
-                plan.selected_count = plan.run.count;
-                plan.fallback_count = plan.run.reason != subtilis::fallback_reason::none ? 1u : 0u;
-                plan.input_triangles = leaf.draw_index_count / 3;
-                if (plan.run.source == subtilis::run_source::visible) {
+                if (!plan.gpu_cut && plan.run.source == subtilis::run_source::visible) {
                     std::uint64_t selected_triangles = 0;
                     for (auto const& record : selected) {
                         selected_triangles += record.index_count / 3;
                     }
                     plan.selected_triangles = selected_triangles;
-                } else {
+                } else if (!plan.gpu_cut) {
                     plan.selected_triangles = leaf.draw_index_count / 3;
                 }
             }
@@ -3138,7 +3165,7 @@ namespace deren::engine {
                 static_assert(runtime::mesh_command_capacity == deren::engine::visibility::hzb::hzb_mesh_command_capacity);
                 static_assert(runtime::visibility_command_run == deren::engine::visibility::hzb::hzb_visibility_command_run);
                 // ---- THE HZB CULL LANE'S PER-ITEM DESCRIPTION (spec §4.3) ----
-                if (this->hzb_cull_active_frame && this->hzb_items_mapped != nullptr) {
+                if (this->hzb_cull_active_frame && this->hzb_items_mapped != nullptr && !plan.gpu_cut) {
                     bool const cut_visible = deren::engine::visibility::apply_hzb_run(plan.row, plan.block, plan.run);
                     std::uint32_t const candidates = cut_visible ? plan.run.count : 0u;
                     auto* const table = static_cast<pass::hzb_item*>(this->hzb_items_mapped);
@@ -3161,7 +3188,9 @@ namespace deren::engine {
                     return false;
                 }
                 std::size_t const command_index = static_cast<std::size_t>(frame_slot) * runtime::mesh_command_capacity + runtime::visibility_command_run + index;
-                commands[command_index] = rhi::mesh_task_command{.groups_x = plan.block.geometry.index_count, .groups_y = 1u, .groups_z = 1u};
+                if (!plan.gpu_cut) {
+                    commands[command_index] = rhi::mesh_task_command{.groups_x = plan.block.geometry.index_count, .groups_y = 1u, .groups_z = 1u};
+                }
                 std::uint64_t const offset = static_cast<std::uint64_t>(command_index) * rhi::mesh_task_command_size;
                 if (target.draw_mesh_tasks_indirect(*this->mesh_indirect_buffer, offset, 1u, rhi::mesh_task_command_size) != rhi::error::ok) {
                     return false;
@@ -3185,6 +3214,62 @@ namespace deren::engine {
                 this->visibility_recovery_draws.push_back(draw);
             }
         };
+        // ---- THE GPU CUT (M2) ----
+        // One thread per GPU-cut item selects its run and writes its command; this dispatch must precede every
+        // segment that draws those items. The item table is host-mapped and copied per frame, so no descriptor
+        // is needed: item/group/reference/cluster/output/command addresses all travel as buffer device addresses.
+        std::uint32_t gpu_cut_items = 0u;
+        for (auto const& plan : plans) {
+            if (plan.gpu_cut) {
+                ++gpu_cut_items;
+            }
+        }
+        if (gpu_cut_items != 0u) {
+            if (gpu_cut_items > subtilis::cut_item_capacity) {
+                return false;
+            }
+            auto const view = subtilis::make_item_view(glm::mat4(1.0f), this->current_ubo.view, this->current_ubo.proj, extent.width, extent.height);
+            auto* const frame_bytes = static_cast<std::byte*>(this->subtilis_cut_items_mapped) + static_cast<std::size_t>(frame_slot) * subtilis::cut_frame_bytes();
+            auto* const frame = reinterpret_cast<subtilis::cut_frame*>(frame_bytes);
+            std::memcpy(frame->view, &view.selection.view, sizeof(frame->view));
+            std::memcpy(frame->projection, &view.selection.projection, sizeof(frame->projection));
+            frame->width = view.selection.width;
+            frame->height = view.selection.height;
+            frame->near_plane = view.selection.near_plane;
+            frame->target_error_px = this->subtilis_error_px;
+            frame->kind = view.selection.kind == subtilis::projection_kind::perspective ? 1u : 2u;
+            frame->item_offset = static_cast<std::uint32_t>(sizeof(subtilis::cut_frame));
+            frame->item_stride = static_cast<std::uint32_t>(sizeof(subtilis::cut_item));
+            frame->item_capacity = subtilis::cut_item_capacity;
+            auto* const items = reinterpret_cast<subtilis::cut_item*>(frame_bytes + sizeof(subtilis::cut_frame));
+            std::uint32_t item = 0u;
+            for (auto const& plan : plans) {
+                if (!plan.gpu_cut) {
+                    continue;
+                }
+                auto const& source = *plan.cut_source;
+                auto& cut = items[item++];
+                std::memcpy(cut.model, plan.block.model.data(), sizeof(cut.model));
+                cut.groups = runtime::buffer_address(*source.cut_groups());
+                cut.references = runtime::buffer_address(*source.cut_references());
+                cut.clusters = runtime::buffer_address(*source.cut_clusters());
+                cut.meshlets = runtime::buffer_address(*this->meshlet_culled_buffer) +
+                               (static_cast<std::size_t>(frame_slot) * deren::engine::meshlet_capacity + plan.space.base) * sizeof(meshlet);
+                cut.command = runtime::buffer_address(*this->mesh_indirect_buffer) +
+                              (static_cast<std::size_t>(frame_slot) * runtime::mesh_command_capacity + runtime::visibility_command_run + plan.item_index) * rhi::mesh_task_command_size;
+                cut.group_count = source.cut_group_count();
+                cut.cluster_count = source.cut_cluster_count();
+                cut.output_base = plan.space.base;
+                cut.output_capacity = plan.space.count;
+                cut.command_index = runtime::visibility_command_run + plan.item_index;
+                cut.flags = 0u;
+            }
+            std::uint64_t const items_address = runtime::buffer_address(*this->subtilis_cut_items_buffer) +
+                                                static_cast<std::size_t>(frame_slot) * subtilis::cut_frame_bytes();
+            if (!this->cut_job.record(command_buffer, items_address, gpu_cut_items, *this->mesh_indirect_buffer, *this->meshlet_culled_buffer)) {
+                return false;
+            }
+        }
         std::size_t const workers = std::min<std::size_t>(segments.size(), static_cast<std::size_t>(count));
         bool ok = true;
         if (workers == 0u) {

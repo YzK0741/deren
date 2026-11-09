@@ -1708,6 +1708,9 @@ namespace deren::engine {
         if (auto const compute_skin_result = this->compute_skin.create(build); !compute_skin_result) {
             deren::utility::log("skinned shadow refit unavailable: {} (a traced shadow keeps the bind pose)", compute_skin_result.error());
         }
+        if (auto const cut_result = this->cut_job.create(build); !cut_result) {
+            deren::utility::log("GPU subtilis cut unavailable: {} (the CPU cut remains active)", cut_result.error());
+        }
     }
 
     render_resource::shared::sampler_set runtime::shared_samplers() const noexcept {

@@ -930,6 +930,8 @@ set(VR_SLANG_SOURCES
     # compute_skin.slang feeds the acceleration structures the deformed vertex positions; its A/B needs the
     # skinned fixture with rt_shadow on (see docs/slang_migration.md).
     geometry/compute_skin.slang:comp_main:compute:compute_skin.comp.spv
+    # subtilis_cut.slang is M2's GPU cut (off by default; [render] subtilis_gpu_cut turns it on).
+    geometry/subtilis_cut.slang:comp_main:compute:subtilis_cut.comp.spv
     # mask_bake.slang is the alphaMode MASK bake (off by default; [render] rt_mask_bake turns it on, which is
     # also how its A/B is run).
     geometry/mask_bake.slang:comp_main:compute:mask_bake.comp.spv

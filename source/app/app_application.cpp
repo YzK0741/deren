@@ -663,6 +663,7 @@ namespace deren::app {
         runtime.set_subtilis(settings.render.subtilis);
         runtime.set_subtilis_error_px(settings.render.subtilis_error_px);
         runtime.set_subtilis_hysteresis(settings.render.subtilis_hysteresis);
+        runtime.set_subtilis_gpu_cut(settings.render.subtilis_gpu_cut);
         runtime.set_software_raster(settings.render.software_raster);
         runtime.set_software_raster_threshold_px(settings.render.software_raster_threshold_px);
 

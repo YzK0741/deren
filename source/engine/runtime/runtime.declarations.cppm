@@ -56,6 +56,7 @@ import deren.engine.pass.ray_traced_reflection; // ... and the ray-traced reflec
 import deren.engine.pass.reflection_denoise;    // ... and the AMD reflection denoiser's four compute stages
 import deren.engine.pass.mask_bake;             // ... and the one-shot MASK bake, which is a JOB rather than a frame pass
 import deren.engine.pass.compute_skin;          // ... and the compute-skinning job, which is a job for the same reason
+import deren.engine.pass.subtilis_cut;          // ... and the GPU cut job, whose compute pass writes an item's run
 import deren.engine.pass.geometry_buffer_debug; // the fifteenth: the G-buffer debug view
 import deren.engine.pass.shadow;                // the sixteenth: the directional shadow map, one depth-only cascade per layer
 import deren.engine.pass.cluster;
@@ -67,6 +68,7 @@ import deren.engine.visibility.hzb;          // the CPU reference + the phase-B 
 import deren.engine.subtilis;
 import deren.engine.subtilis.dag_import;
 import deren.engine.subtilis.upload;
+import deren.engine.subtilis.cut;
 import deren.engine.subtilis.dag_lod;
 import deren.engine.visibility; // the visibility buffer's packed id and draw-item record
 import deren.engine.texture_residency;
@@ -2397,6 +2399,12 @@ namespace deren::engine {
         render_resource::instances::borrowed<rhi::buffer> visibility_items_buffer = {};
         void* visibility_items_mapped = nullptr;
         std::uint32_t visibility_recorded_item_count = 0;
+        /// M2's per-frame cut payload: a camera header plus the compact item list the GPU dispatches.
+        render_resource::instances::borrowed<rhi::buffer> subtilis_cut_items_buffer = {};
+        void* subtilis_cut_items_mapped = nullptr;
+        /// The knob ([render] subtilis_gpu_cut). Default off: the CPU cut remains the authority.
+        bool subtilis_gpu_cut = false;
+        pass::subtilis_cut_job cut_job = {};
         render_resource::instances::borrowed<rhi::buffer> software_tiles_buffer = {};
         void* software_tiles_mapped = nullptr;
         render_resource::instances::resource_snapshot software_tiles_resource_view;
@@ -3871,6 +3879,8 @@ namespace deren::engine {
         void set_subtilis(bool enabled) noexcept;
         void set_subtilis_error_px(float value) noexcept;
         void set_subtilis_hysteresis(bool enabled) noexcept;
+        /// M2: let the GPU write an eligible item's cut run and mesh-task command instead of the CPU.
+        void set_subtilis_gpu_cut(bool enabled) noexcept;
         void set_software_raster(bool enabled) noexcept;
         void set_software_raster_threshold_px(float value) noexcept;
         [[nodiscard]] bool subtilis_enabled() const noexcept {

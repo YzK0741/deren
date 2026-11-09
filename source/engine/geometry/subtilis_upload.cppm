@@ -1,4 +1,5 @@
 module;
+#include <cstddef>
 #include <cstdint>
 export module deren.engine.subtilis.upload;
 export import deren.vstd;
@@ -22,6 +23,25 @@ export namespace deren::engine::subtilis {
                                       synchronous,
                                       batched,
     };
+    /// Immutable GPU cut input: one record per DAG group. Kept separate from the 48-byte
+    /// meshlet ABI so the render-side record can never grow into the meshlet contract.
+    struct cut_group_record {
+        std::uint32_t fine_first = 0, fine_count = 0, coarse_first = 0, coarse_count = 0;
+        float center_x = 0, center_y = 0, center_z = 0, radius = 0;
+        float error = 0;
+    };
+    static_assert(sizeof(cut_group_record) == 36u);
+    static_assert(offsetof(cut_group_record, fine_first) == 0u);
+    static_assert(offsetof(cut_group_record, coarse_count) == 12u);
+    static_assert(offsetof(cut_group_record, center_x) == 16u);
+    static_assert(offsetof(cut_group_record, error) == 32u);
+    /// One DAG cluster: the exact meshlet record the visibility pass consumes plus the
+    /// producer/consumer group ids used by the cut predicate.
+    struct cut_cluster_record {
+        meshlet record;
+        std::uint32_t producer = 0, consumer = 0;
+    };
+    static_assert(sizeof(cut_cluster_record) == 56u);
     class uploaded_geometry;
     /// The source must remain immutable through every alias after publication;
     /// do not move-assign or modify it through a separately retained mutable owner.
@@ -45,6 +65,8 @@ export namespace deren::engine::subtilis {
         std::shared_ptr<built_geometry const> source_;
         deren::utility::vessel::vector<triangle_edge_record> triangle_edges_;
         std::shared_ptr<render_resource::instances::generation const> vertices_, indices_;
+        std::shared_ptr<render_resource::instances::generation const> cut_groups_, cut_references_, cut_clusters_;
+        std::uint32_t cut_group_count_ = 0, cut_reference_count_ = 0, cut_cluster_count_ = 0;
         friend std::expected<std::shared_ptr<uploaded_geometry const>, upload_rhi::error>
         upload_geometry(upload_rhi::shared_object<upload_rhi::api_core> const&, std::shared_ptr<built_geometry const>, upload_rhi::buffer_flags, geometry_upload_mode);
 
@@ -52,12 +74,22 @@ export namespace deren::engine::subtilis {
         uploaded_geometry(construction_key /*unused*/, std::shared_ptr<void const> resources, std::shared_ptr<built_geometry const> source,
                           std::shared_ptr<render_resource::instances::generation const> vertices,
                           std::shared_ptr<render_resource::instances::generation const> indices,
+                          std::shared_ptr<render_resource::instances::generation const> cut_groups,
+                          std::shared_ptr<render_resource::instances::generation const> cut_references,
+                          std::shared_ptr<render_resource::instances::generation const> cut_clusters, std::uint32_t cut_group_count,
+                          std::uint32_t cut_reference_count, std::uint32_t cut_cluster_count,
                           deren::utility::vessel::vector<triangle_edge_record> edges)
             : resources_(std::move(resources))
             , source_(std::move(source))
             , triangle_edges_(std::move(edges))
             , vertices_(std::move(vertices))
-            , indices_(std::move(indices)) {
+            , indices_(std::move(indices))
+            , cut_groups_(std::move(cut_groups))
+            , cut_references_(std::move(cut_references))
+            , cut_clusters_(std::move(cut_clusters))
+            , cut_group_count_(cut_group_count)
+            , cut_reference_count_(cut_reference_count)
+            , cut_cluster_count_(cut_cluster_count) {
         }
 
         uploaded_geometry(uploaded_geometry const&) = delete ("uploaded_geometry is non-copyable: pass it by reference or construct a new instance");
@@ -74,6 +106,25 @@ export namespace deren::engine::subtilis {
         }
         [[nodiscard]] upload_rhi::buffer* indices() const noexcept {
             return indices_->objects[0].buffer.get();
+        }
+        /// Null when the source has no DAG payload (a plain LOD0 mesh).
+        [[nodiscard]] upload_rhi::buffer* cut_groups() const noexcept {
+            return cut_groups_ ? cut_groups_->objects[0].buffer.get() : nullptr;
+        }
+        [[nodiscard]] upload_rhi::buffer* cut_references() const noexcept {
+            return cut_references_ ? cut_references_->objects[0].buffer.get() : nullptr;
+        }
+        [[nodiscard]] upload_rhi::buffer* cut_clusters() const noexcept {
+            return cut_clusters_ ? cut_clusters_->objects[0].buffer.get() : nullptr;
+        }
+        [[nodiscard]] std::uint32_t cut_group_count() const noexcept {
+            return cut_group_count_;
+        }
+        [[nodiscard]] std::uint32_t cut_reference_count() const noexcept {
+            return cut_reference_count_;
+        }
+        [[nodiscard]] std::uint32_t cut_cluster_count() const noexcept {
+            return cut_cluster_count_;
         }
     };
 } // namespace deren::engine::subtilis

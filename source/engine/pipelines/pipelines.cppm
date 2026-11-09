@@ -168,6 +168,9 @@ namespace deren::engine::pipelines {
     /// the compute skinning pass: the scene block's per-joint matrices - see
     /// source/shaders/geometry/compute_skin.slang
     export std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_compute_skin(rhi::api_core& face, std::span<uint8_t const> compute_shader_code);
+    /// the GPU subtilis cut (source/shaders/geometry/subtilis_cut.slang): heap-native compute, all input and
+    /// output buffers addressed through the item record.
+    export std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_subtilis_cut(rhi::api_core& face, std::span<uint8_t const> compute_shader_code);
     /// the clustered-light sort (source/shaders/lighting/light_cluster.slang): heap-native, and NO push constants
     /// at all - the shader reads the light UBO and writes the two cluster buffers through heap slots, which is
     /// why this builder takes no push size. It is the first compute pipeline in this module
@@ -407,6 +410,23 @@ namespace deren::engine::pipelines {
         rhi::unique_object<rhi::pipeline> built = face.resources->create_pipeline(desc);
         if (!built) {
             return fail("compute skin: the contract's compute pipeline factory refused the descriptor");
+        }
+        out.trace = pipeline_handle(built.release());
+        return out;
+    }
+
+    // The GPU subtilis cut: the same heap-native compute shape as the compute-skinning pass above. Its inputs
+    // and outputs are device addresses in the item record, so the builder owns only the pipeline.
+    std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_subtilis_cut(rhi::api_core& face, std::span<uint8_t const> const compute_shader_code) {
+        using fail = std::unexpected<deren::utility::vessel::string>;
+        compute_pipeline_resources out;
+        rhi::pipeline_desc desc{};
+        desc.first_stage = rhi::shader_stage::compute;
+        desc.compute_code = std::as_bytes(compute_shader_code);
+        desc.debug_name = "subtilis cut";
+        rhi::unique_object<rhi::pipeline> built = face.resources->create_pipeline(desc);
+        if (!built) {
+            return fail("subtilis cut: the contract's compute pipeline factory refused the descriptor");
         }
         out.trace = pipeline_handle(built.release());
         return out;

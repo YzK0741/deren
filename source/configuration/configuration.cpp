@@ -418,6 +418,11 @@ namespace deren::app_config {
                     settings.render.subtilis_hysteresis = *value;
                 }
             }
+            if (auto const* node = render->get("subtilis_gpu_cut")) {
+                if (auto value = node->value<bool>()) {
+                    settings.render.subtilis_gpu_cut = *value;
+                }
+            }
             if (toml::node const* node = render->get("software_raster")) {
                 if (auto value = node->value<bool>()) {
                     settings.render.software_raster = *value;
