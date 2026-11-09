@@ -112,7 +112,7 @@ namespace {
 
     meshlet record(float const cx, float const cy, float const cz, float const radius,
                    std::uint32_t const index_count = 3u) {
-        return meshlet{.first_index = 0u, .index_count = index_count, .base_vertex = 0, ._pad = 0u, .center_x = cx, .center_y = cy, .center_z = cz, .radius = radius};
+        return meshlet{.first_index = 0u, .index_count = index_count, .base_vertex = 0, .page_id = 0u, .center_x = cx, .center_y = cy, .center_z = cz, .radius = radius};
     }
 
     bool nearly(double const a, double const b, double const tolerance = 1e-9) {
@@ -888,7 +888,7 @@ namespace {
         fixture.records = {meshlet{.first_index = 0u,
                                    .index_count = 3u,
                                    .base_vertex = 0,
-                                   ._pad = 0u,
+                                   .page_id = 0u,
                                    .center_x = 0.25f,
                                    .center_y = 0.25f,
                                    .center_z = z,

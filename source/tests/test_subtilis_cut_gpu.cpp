@@ -165,6 +165,13 @@ int main() {
     item->output_capacity = capacity;
     item->command_index = 0;
     item->flags = 0;
+    item->page_arena = 0;
+    item->page_table = 0;
+    item->page_requests = 0;
+    item->page_count = 0;
+    item->request_capacity = 0;
+    item->request_frame = 0;
+    item->lod0_count = 0;
 
     auto spirv = read_spirv();
     CHECK(!spirv.empty());

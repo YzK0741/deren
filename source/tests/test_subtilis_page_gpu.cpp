@@ -1,6 +1,7 @@
 // The streaming page image's real-device contract: an imported asset's encoded page table must
-// become one arena buffer, a fully resident page table, and an empty bounded request buffer. The
-// arena is checked against the wire record layout, not against the engine's padded DAG structs.
+// become one arena buffer, a page table whose state starts at the pinned set, and an empty bounded
+// request buffer. The arena is checked against the wire record layout, not against the engine's
+// padded DAG structs.
 #include "vk_test.h"
 
 #include <algorithm>
@@ -151,7 +152,8 @@ int main() {
         auto const& page = geometry->pages()[i];
         CHECK(row.page == i);
         CHECK(row.section == page.section && row.first == page.first && row.count == page.count && row.bytes == page.bytes);
-        CHECK(row.state == static_cast<std::uint32_t>(sub::gpu_page_state::resident));
+        bool const pinned = (page.flags & static_cast<std::uint16_t>(wire::page_flags::always_resident)) != 0;
+        CHECK(row.state == static_cast<std::uint32_t>(pinned ? sub::gpu_page_state::resident : sub::gpu_page_state::absent));
         CHECK(row.flags == page.flags);
         CHECK(row.offset % 64u == 0u);
         CHECK(std::uint64_t(row.offset) + row.bytes <= arena_bytes.size());
@@ -194,9 +196,42 @@ int main() {
     auto request_bytes = image.page_requests()->mapped();
     CHECK(request_bytes.size() == image.page_requests()->size());
     if (request_bytes.size() == image.page_requests()->size()) {
-        auto const* header = reinterpret_cast<sub::gpu_page_request_header const*>(request_bytes.data());
+        auto* header = reinterpret_cast<sub::gpu_page_request_header*>(request_bytes.data());
         CHECK(header->count == 0 && header->overflow == 0 && header->frame == 0);
         CHECK(header->capacity == image.page_request_capacity());
+
+        // The cut's request lane promotes an absent page only when the host budget admits it. Exercise
+        // both sides: a zero budget must keep the request queued and mark the row requested; a later
+        // pass must publish the row as resident and drain the queue.
+        std::uint32_t target = image.page_count();
+        for (std::uint32_t i = 0; i < image.page_count(); ++i) {
+            if (table[i].state == static_cast<std::uint32_t>(sub::gpu_page_state::absent) && table[i].bytes > 0u) {
+                target = i;
+                break;
+            }
+        }
+        CHECK(target != image.page_count());
+        if (target != image.page_count()) {
+            auto* entry = request_bytes.data() + sizeof(*header);
+            auto* request = reinterpret_cast<sub::gpu_page_request*>(entry);
+            header->count = 1;
+            request->page = target;
+            request->priority = 0;
+            request->item = 0;
+            request->frame = 0;
+
+            auto const queued = image.install_requested_pages(0, 7);
+            CHECK(queued.requests == 1 && queued.installed == 0 && queued.pending == 1);
+            CHECK(header->count == 1 && header->frame == 7);
+            CHECK(reinterpret_cast<sub::gpu_page_table_entry const*>(table_bytes.data())[target].state ==
+                  static_cast<std::uint32_t>(sub::gpu_page_state::requested));
+
+            auto const installed = image.install_requested_pages(1ull << 30, 8);
+            CHECK(installed.requests == 1 && installed.installed == 1 && installed.pending == 0);
+            CHECK(header->count == 0);
+            CHECK(reinterpret_cast<sub::gpu_page_table_entry const*>(table_bytes.data())[target].state ==
+                  static_cast<std::uint32_t>(sub::gpu_page_state::resident));
+        }
     }
     deren::vk_test::write_line("page image: {} pages, {} arena bytes, table {} bytes", image.page_count(), arena_bytes.size(), table_bytes.size());
     return deren::vk_test::finish("test_subtilis_page_gpu");

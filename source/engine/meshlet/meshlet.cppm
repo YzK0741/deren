@@ -66,15 +66,18 @@ namespace deren::engine {
         uint32_t index_count = 0; ///< indices it covers (always a multiple of three, never zero)
         int32_t base_vertex = 0;  ///< the draw's base vertex, repeated per meshlet: it is added to every index
         /**
-         * @brief padding, and it is a MEASURED requirement rather than tidiness: the GPU-side struct is a Vulkan
-         *        std430 `StructuredBuffer` element, where a `float3` has a 16-byte ALIGNMENT - so the shader puts
-         *        `center` at byte 16 and `radius` at 28, and a 28-byte host record (center at 12, radius at 24) made
-         *        every record after the first read four bytes off, with the sphere fields landing in the wrong
-         *        members entirely. The symptom was not a wrong picture but a WEDGED GPU: the window and base vertex
-         *        came out of the wrong bytes, the index fetch left the buffer, and the device never signalled another
-         *        fence (validation reported only the reuse of a command buffer whose work had not finished).
+         * @brief the streamed index page this record reads through, plus one; zero means the draw's own index buffer
+         *
+         * @note THE LANE AND ITS OFFSET ARE THE SHADER'S. The GPU-side struct is a Vulkan std430 `StructuredBuffer`
+         *       element, where a `float3` has a 16-byte ALIGNMENT - so the shader puts `center` at byte 16 and
+         *       `radius` at 28. This 4-byte lane sits at byte 12, exactly where the implicit padding used to be,
+         *       so naming it does not move any sphere or cone field and does not grow the 48-byte ABI.
+         *       A non-zero value is `page_id + 1` into the scene page table: the raster fetch resolves the page's
+         *       arena offset instead of reading `MeshGeometryLanes::index_address`. A zero value is the old path
+         *       (LOD0 and every non-streamed draw), where the record's `first_index` is an offset into the draw's
+         *       index buffer.
          */
-        uint32_t _pad = 0;
+        uint32_t page_id = 0;
         float center_x = 0.0f; ///< object-space centre of the bounding sphere
         float center_y = 0.0f;
         float center_z = 0.0f;
@@ -100,6 +103,7 @@ namespace deren::engine {
     static_assert(offsetof(meshlet, first_index) == 0);
     static_assert(offsetof(meshlet, index_count) == 4);
     static_assert(offsetof(meshlet, base_vertex) == 8);
+    static_assert(offsetof(meshlet, page_id) == 12);
     static_assert(offsetof(meshlet, center_x) == 16);
     static_assert(offsetof(meshlet, center_y) == 20);
     static_assert(offsetof(meshlet, center_z) == 24);

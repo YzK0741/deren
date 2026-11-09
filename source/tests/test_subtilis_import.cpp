@@ -319,7 +319,7 @@ int main() {
         }
         CHECK(a->cache_key().payload_hash == wire::sha256(std::as_bytes(std::span(f.payload))));
         for (auto const& c : a->hierarchy().clusters()) {
-            CHECK(c.record.base_vertex == 0 && c.record._pad == 0 && c.record.axis_x == 0 && c.record.axis_y == 0 && c.record.axis_z == 0 && c.record.cone_cos == 0);
+            CHECK(c.record.base_vertex == 0 && c.record.page_id == 0 && c.record.axis_x == 0 && c.record.axis_y == 0 && c.record.axis_z == 0 && c.record.cone_cos == 0);
         }
         auto repeated = sub::import_payload(f.input());
         CHECK(repeated && repeated->cache_key() == a->cache_key());

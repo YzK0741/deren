@@ -49,11 +49,24 @@ export namespace deren::engine::subtilis {
         std::uint32_t group_count = 0, cluster_count = 0;
         std::uint32_t output_base = 0, output_capacity = 0;
         std::uint32_t command_index = 0, flags = 0;
+        /// The streamed-index-page control block. `page_arena` and `page_table` address the uploaded page
+        /// cover; `page_requests` is the GPU-written request buffer the host drains next frame. Zero means
+        /// this geometry has no page cover and the cut keeps its old direct-index path.
+        std::uint64_t page_arena = 0, page_table = 0, page_requests = 0;
+        std::uint32_t page_count = 0;
+        std::uint32_t request_capacity = 0;
+        std::uint32_t request_frame = 0;
+        /// The number of real LOD0 records preloaded into this item's output slot. The shader falls back to
+        /// exactly this many records when any selected cluster needs an index page that is not resident.
+        std::uint32_t lod0_count = 0;
     };
-    static_assert(sizeof(cut_item) == 128u);
+    static_assert(sizeof(cut_item) == 168u);
     static_assert(offsetof(cut_item, groups) == 64u);
     static_assert(offsetof(cut_item, command) == 96u);
     static_assert(offsetof(cut_item, group_count) == 104u);
+    static_assert(offsetof(cut_item, page_arena) == 128u);
+    static_assert(offsetof(cut_item, page_count) == 152u);
+    static_assert(offsetof(cut_item, lod0_count) == 164u);
 
     /// Bytes in one frame's slice: the header followed by the item array.
     [[nodiscard]] constexpr std::uint64_t cut_frame_bytes() noexcept {
