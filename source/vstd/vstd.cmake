@@ -5,7 +5,7 @@ include_guard(GLOBAL)
 #
 #   clang64 (the shipped build): source/vstd/vstd.cppm - modified from libc++'s (LLVM) generated
 #     std-module output and trimmed to the headers the project uses (see source/vstd/README.md).
-#   MSVC: source/vstd/vstd_msvc.cppm - the MSVC STL's own modules/std.ixx, vendored from Visual
+#   MSVC: source/vstd/vstd_msvc.cppm - the MSVC STL's modules/std.ixx, vendored from Visual
 #     Studio 2022 17.14 / MSVC 14.44.35207 and renamed to `deren.vstd`. It includes the standard
 #     headers inside the module purview; `_BUILD_STD_MODULE` makes them export their entities.
 #

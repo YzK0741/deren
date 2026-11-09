@@ -3,7 +3,7 @@
 // sentinel and retains the host command, so both consumers use the original host-culled records.
 //
 // WHY ONE WORKGROUP PER ITEM. The item is the unit whose candidates the host already compacted into ONE run of the
-// host-culled meshlet table (runtime.cpp's record_visibility_items publishes `visible_run`s at the primitive's own
+// host-culled meshlet table (runtime.cpp's record_visibility_items publishes `visible_run`s at the primitive's
 // meshlet_base), and the run's count is known to the host, so `dispatch(item_count, 1, 1)` is exactly the work that
 // exists - no item-id table, no prefix sum, no indirect dispatch (§2.1: the RHI has no dispatch-indirect verb and
 // the cull does not need one). The workgroup is 64 threads because candidate counts are small (Bistro: ~13 per
@@ -41,7 +41,7 @@ struct HzbCullPush
     uint expected_width;  // the render extent the history header must describe (§7.2's header guard)
     uint expected_height;
     uint mode;            // 0=history prediction, 1=current-frame recovery
-    uint frame_slot;      // appended by the pass framework: which lane of every HZB table this frame owns
+    uint frame_slot;      // appended by the pass framework: which lane of every HZB table this frame holds
     uint image_index;     // appended by the pass framework; unused by this stage
 };
 [[vk::push_constant]] ConstantBuffer<HzbCullPush> push;
@@ -176,7 +176,7 @@ void main(uint3 group_id : SV_GroupID, uint thread_id : SV_GroupThreadID)
     }
     const uint slot = push.frame_slot;
     // THE PER-FRAME LANES ARE INDEXED INSIDE ONE DESCRIPTOR (§5.3): the slot is part of the INDEX, never added to
-    // the heap slot. `survivors` uses the meshlet table's own absolute index space, so the survivor's position and
+    // the heap slot. `survivors` uses the meshlet table's absolute index space, so the survivor's position and
     // the candidate's flags entry name the same candidate (§4.3).
     const uint results_lane_base = hzb_results_lane_base(slot);
     const uint survivors_lane_base = slot * hzb_candidate_capacity;
@@ -220,7 +220,7 @@ void main(uint3 group_id : SV_GroupID, uint thread_id : SV_GroupThreadID)
 
     StructuredBuffer<uint> draw_items = heap_at<StructuredBuffer<uint>>(heap_slots_visibility_items);
     const uint pipeline_item_row = slot * hzb_item_candidate_capacity + item;
-    // THE FLAGS AND THE SURVIVOR RECORDS LIVE IN THE MESHLET TABLE'S OWN ABSOLUTE INDEX SPACE (§4.3): candidate
+    // THE FLAGS AND THE SURVIVOR RECORDS LIVE IN THE MESHLET TABLE'S ABSOLUTE INDEX SPACE (§4.3): candidate
     // `meshlet_base + i` writes `flags[meshlet_base + i]`, and the k-th survivor is stored at
     // `survivors[meshlet_base + k]` of this frame slot's lane. `culled_meshlet_at` (mesh_geometry.slang) adds the
     // frame-slot lane itself, so reading a candidate and writing its survivor position is one index space - which

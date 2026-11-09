@@ -4,10 +4,10 @@
  * @file source/engine/pass/ray_traced_reflection.cppm
  * @brief The ray-traced reflection pass: one to four reflection rays per pixel into a per-frame-slot target.
  *
- * The pass follows the ray-traced shadow's shape: it owns its ray-tracing pipeline (raygen, miss and one
+ * The pass follows the ray-traced shadow's shape: it holds its ray-tracing pipeline (raygen, miss and one
  * triangles hit group carrying closest-hit plus alpha-mask any-hit), its three shader binding table regions,
  * the push block and the full-resolution
- * `traceRays` launch. It owns no descriptor set: the camera, light UBO, TLAS, G-buffer images and the
+ * `traceRays` launch. It holds no descriptor set: the camera, light UBO, TLAS, G-buffer images and the
  * reflection target are heap slots its shaders name themselves.
  *
  * The target is declared by `output_targets_pass` (index 17) and sampled by the deferred lighting stage.

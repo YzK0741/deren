@@ -1,11 +1,11 @@
 /**
  * @file source/app/app_ui.cppm
  * @defgroup app_ui Application Debug GUI
- * @brief the demo's Dear ImGui debug overlay: the live widget state the frame loop owns
+ * @brief the demo's Dear ImGui debug overlay: the live widget state the frame loop holds
  *        (gui_bindings), the panel assembly (setup_gui) and the once-per-frame push of the
  *        overlay's punctual-light slots into the runtime (apply_point_lights). Demo/application
  *        layer only - these helpers know about deren.engine.runtime, deren.engine.animation and
- *        the gui's own panel types, never about glTF (the loader's own diagnostics live in
+ *        the gui's panel types, never about glTF (the loader's diagnostics live in
  *        gltf_loader).
  * @note interface only - the implementations live in app_ui.cpp (the module follows the
  *       split interface/implementation pattern of the other app modules)
@@ -29,7 +29,7 @@ import deren.engine.runtime;
 export namespace deren::app {
     /**
      * @ingroup app_ui
-     * @brief live state the debug-gui widgets bind to. Owned by main (the frame loop keeps the
+     * @brief live state the debug-gui widgets bind to. Held by main (the frame loop keeps the
      *        fps text and the animation mirrors in sync each frame); setup_gui() wires the
      *        widgets to these fields.
      * @note defaults mirror the historic demo values; main overrides the ones that come from
@@ -88,7 +88,7 @@ export namespace deren::app {
         float taa_blend_static = 0.9f; // history weight for a static pixel (0.9 = 10% of the new frame)
         float taa_blend_min = 0.5f;    // history weight floor under motion (lower = less ghosting)
         // The TOON CHARACTER STAGE (runtime::set_character_forward): re-shades the scene's opaque leaves OVER
-        // the lit frame so a character can carry its own shading. Mirrored into the runtime every frame like
+        // the lit frame so a character can carry its shading. Mirrored into the runtime every frame like
         // the other render toggles, and the overlay only offers it when the renderer registered the pipeline
         // (see deren::app::app_renderer::feature_available).
         bool character_forward = false;
@@ -133,7 +133,7 @@ export namespace deren::app {
         float ssao_radius = 0.5f;
         float ssao_intensity = 1.0f;
         float ssao_samples = 8.0f; // slider value; main rounds it into the runtime call
-        // LIVE SCENE-OBJECT EDITING ([scene.objects]). The vector is OWNED BY main's app_settings
+        // LIVE SCENE-OBJECT EDITING ([scene.objects]). The vector is HELD BY main's app_settings
         // (stable for the whole run because the config loader never resizes it after startup), and
         // this pointer is null when the historic single-object path is running. main applies the
         // edited values to the matching wrapper nodes once per frame when the dirty flag is set -
@@ -193,7 +193,7 @@ export namespace deren::app {
      * @param on_camera_selected called with the combo index (0 = orbit, i = camera_names[i-1])
      *        when the user picks a camera; empty when the selector is not shown
      * @note when gui_bindings::scene_objects is set, setup_gui also adds a "scene object" panel
-     *       whose rows only appear for the selected object; main owns selection (see its click
+     *       whose rows only appear for the selected object; main holds selection (see its click
      *       pick) and applies the edited transforms
      * @note the overlay's glTF-side data (authored camera list, orbit seeding) stays in main:
      *       app_ui only ever sees display names and a callback, never glTF types

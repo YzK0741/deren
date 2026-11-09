@@ -114,7 +114,7 @@ export namespace deren::engine::visibility::software {
         invalid_reference,
     };
 
-    /// the matrices and extent the caller classifies with, in the renderer's own storage convention
+    /// the matrices and extent the caller classifies with, in the renderer's storage convention
     struct camera_parameters {
         std::array<float, 16> view{}; ///< world -> view, column-major storage as glm::mat4 (the runtime memcpys it)
         std::array<float, 16> proj{}; ///< view -> clip, column-major storage as glm::mat4
@@ -172,7 +172,7 @@ export namespace deren::engine::visibility::software {
         return result;
     }
 
-    /// which of the two supported projection shapes this matrix is, from its own last two lanes (the same tell
+    /// which of the two supported projection shapes this matrix is, from its last two lanes (the same tell
     /// deren.engine.subtilis.selection uses to build the cut's view_parameters, so both agree on the artifact)
     [[nodiscard]] inline projection_kind projection_kind_of(std::array<float, 16> const& proj) noexcept {
         // perspective: m[2][3] = -1, m[3][3] = 0. orthographic: m[2][3] = 0, m[3][3] = 1.
@@ -225,7 +225,7 @@ export namespace deren::engine::visibility::software {
         if (!std::isfinite(near_plane) || near_plane < 0.0) {
             return std::unexpected{software_error::unsupported_projection};
         }
-        // conservative: the near plane used by the test is never smaller than the camera's own
+        // conservative: the near plane used by the test is never smaller than the camera's
         near_plane = std::nextafter(near_plane, std::numeric_limits<double>::infinity());
         double const proj_scale = std::max(std::abs(static_cast<double>(parameters.proj[0u]) * parameters.width),
                                            std::abs(static_cast<double>(parameters.proj[1u * 4u + 1u]) * parameters.height));
@@ -479,7 +479,7 @@ export namespace deren::engine::visibility::software {
         return project(record, model, *camera, grid);
     }
 
-    /// one item's input records, with the model matrix that places them (the item's own, as the cut used)
+    /// one item's input records, with the model matrix that places them (the item's, as the cut used)
     struct item_records {
         std::uint32_t item_index = 0u;
         std::array<float, 16> model{};

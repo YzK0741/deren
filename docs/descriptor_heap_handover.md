@@ -26,9 +26,9 @@ The work rode on the `descriptor-heap-migration` branch while it was in flight, 
 4. **Every push travels as data.** `vkCmdPushConstants` appears **zero** times outside comments in
    `source/backends/vulkan/`: all 21 sites now go through `vkCmdPushDataEXT`. The frame's passes use
    `resolved_io::push_block`; the primitive draws use `render_environment::push_block`; the mask bake,
-   the skinning dispatch and the shadow cascade use endpoints of their own shape.
+   the skinning dispatch and the separate shadow cascade use endpoints shape.
 5. **The frame binds the heaps once**, in `runtime::begin_recording`, and the per-frame and
-   per-swapchain-image indices ride in each stage's own push block, appended by the endpoints
+   per-swapchain-image indices ride in each stage's push block, appended by the endpoints
    (`push_stage_block` = 3 lanes, `push_index_block` = 2, `push_raw_block` = 0).
 6. **The mechanism was proven before it was applied**: a compute probe and a graphics probe read a
    written slot and returned the written value, and a deliberately wrong slot returned a different
@@ -45,7 +45,7 @@ it records the buffer), plus the sets in `fxaa`, `gbuffer_debug`, `cluster`, `de
 record paths), `taa`, `megalights_trace`, `megalights_temporal`, `rt_shadow` and the shadow content in
 `runtime.cpp`. `scene_pass::record_segment` lost its `scene_set` parameter with them, which is why its
 call sites and its declaration in `scene.cppm` changed too, and `runtime::record_shadow_content` lost
-its only use of `pipeline_layout` (now `[[maybe_unused]]`, because the callback signature it must match
+Its only use of `pipeline_layout` (now `[[maybe_unused]]`, because the callback signature it must match
 belongs to the shadow pass).
 
 Note that the guards which gate on these binds (`io.pipeline_layout == VK_NULL_HANDLE`,
@@ -132,8 +132,7 @@ image crosses a function boundary. Indexing one declared array for every caller 
 heap array view is a view of the *same* resource heap - the slot chooses the image, the name does not. After
 this change the run reports **no `OpFunctionCall` error at all**: every shader module validates.
 
-**2. The inherited heap bind - FIXED, and it removed every validation error.** A secondary is validated on
-its own, so the primary's bind never reached it (`VUID-vkCmdDrawIndexed-None-11308`). The two bind infos
+**2. The inherited heap bind - FIXED, and it removed every validation error.** A secondary is validated alone, so the primary's bind never reached it (`VUID-vkCmdDrawIndexed-None-11308`). The two bind infos
 `record_bind` builds are now a separate `descriptor_heap::bind_infos` (one definition, two destinations),
 and all three secondaries chain a `VkCommandBufferInheritanceDescriptorHeapInfoEXT` whose `pNext` is the
 rendering info they already passed: `scene.cpp`'s segment begin, `transparent.cpp`, and the shadow
@@ -275,7 +274,7 @@ with `frame_readback_buffer()` as its destination; the old `record_screenshot_co
 
 ## The bug the write path hid: a fallback texture nobody gave a heap slot
 
-**Symptom, measured at the gate's own camera.** Sponza rendered every indirectly-lit surface solid
+**Symptom, measured at the gate's camera.** Sponza rendered every indirectly-lit surface solid
 black: mean luma 33.67 with 72.24% of pixels below luma 12, against the official reference's 61.17 /
 13.66%. It was NOT the shadows - `shadow = false` produced a BYTE-IDENTICAL frame - and not SSAO,
 SSGI or the stochastic chain either (`ssao = false`, `ssgi = false`, `megalights = false` and even
@@ -284,7 +283,7 @@ loaded). `unlit = true` was bright and complete (mean 120.04) and every G-buffer
 populated (albedo 118, normal 196), so geometry, textures and materials were fine and the fault was
 entirely in the shading.
 
-**The renderer had already said so.** Its own startup probe reads grid slot 16384 - the first slot of
+**The renderer had already said so.** its startup probe reads grid slot 16384 - the first slot of
 the bindless texture array - and the log had read for weeks:
 
     the heap-native probe sampled grid slot 16384 ... read back 0x00000000 (texture red 0x0000, alpha 0x0000)

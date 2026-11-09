@@ -2,17 +2,17 @@
 // module: deren.vulkan.error_tables
 // module version: 0.1.1a
 //
-// THE ERROR MECHANISM'S TRANSLATION TABLES, IN A MODULE OF THEIR OWN - which is what makes them
+// THE ERROR MECHANISM'S TRANSLATION TABLES, IN A separate MODULE - which is what makes them
 // reachable from BOTH halves of the RHI boundary now that the backend is a DLL (the SHARED flip).
 //
 // WHY THEY LEFT `deren.vulkan.core` (measured, not tidiness): until the flip these were `export`
-// declarations of the backend's module with definitions in one of its implementation units. A module
+// declarations of the backend's module with definitions in a separate one implementation units. A module
 // attachment is a LINK-TIME fact: a consumer that imports the module needs that module's initializer
 // and its decorated symbols, and a DLL can serve those only by exporting its whole module surface -
 // while `deren_vulkan.dll` exports EXACTLY ONE name by design (source/promise/rhi/backend_entry.hpp). The
 // tables' unit test (source/tests/test_error_mapping.cpp) legitimately wants the REAL translators, and the
 // backend itself calls them (core.api_core.cpp, core.cpp), so the shape that serves both is the one
-// this repository already uses for `vulkan_constant_init`: a NEUTRAL MODULE OWNED BY A TARGET BOTH
+// this repository already uses for `vulkan_constant_init`: a NEUTRAL MODULE HELD BY A TARGET BOTH
 // SIDES LINK. Neither side has to be a DLL consumer of the other.
 //
 // WHY A MODULE AND NOT A HEADER WITH THE SAME DECLARATIONS: the translators take `VkResult`, and
@@ -33,7 +33,7 @@
 // trimmed header, or a generated .inc. Almost none of those codes can reach this backend's call
 // sites; every unnamed code falls to `operation_failed` and keeps its raw value for the caller (the
 // producer side attaches it as error_info::native_code). The tables name exactly the codes this
-// backend can plausibly receive; the four headers of the fall-through are the contract's own four
+// backend can plausibly receive; the four headers of the fall-through are the contract's four
 // zones.
 // ============================================================================
 module;
@@ -121,10 +121,10 @@ namespace deren::vulkan {
 
     /// Translate a raw VkResult everywhere else (creation, queries, submission): this site has no
     /// swapchain-shaped knowledge, so neither SUBOPTIMAL (a state the acquire/present sites each read
-    /// their own way) nor OUT_OF_DATE is reinterpreted here - both fall through with everything else
+    /// their way) nor OUT_OF_DATE is reinterpreted here - both fall through with everything else
     /// the tables do not name, keeping the raw value for the caller. INITIALIZATION_FAILED and
     /// INCOMPATIBLE_DRIVER are creation-shaped failures, hence initialization_failed; the
-    /// *_NOT_PRESENT family and FORMAT_NOT_SUPPORTED are the unsupported mechanism's own codes.
+    /// *_NOT_PRESENT family and FORMAT_NOT_SUPPORTED are the unsupported mechanism's codes.
     export [[nodiscard]] deren::promise::rhi::error generic_error(VkResult const result) noexcept {
         switch (result) {
         case VK_ERROR_INITIALIZATION_FAILED:

@@ -35,7 +35,7 @@ resource counters, so concurrent operations can cause temporary differences. The
 VMA metadata; use a monitoring cadence rather than querying per draw. Unsupported backends
 return `supported == false`.
 
-These figures exclude driver allocations and borrowed native swapchain images, and do not
+These figures exclude driver allocations and referenced native swapchain images, and do not
 represent OS GPU residency. Allocation sizes include alignment requirements, not just image
 pixels or buffer payload.
 

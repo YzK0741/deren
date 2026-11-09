@@ -27,7 +27,7 @@
 //   2. Every ability derives from `extension`, whose only virtual is `kind()`.
 //      Adding a sixth ability therefore cannot disturb the vtable of the other
 //      five, and `query_extension()` stays a one-line lookup in the backend.
-//   3. These interfaces carry only the common immutable identity (ABI12), no owning state, no non-inline definition, no
+//   3. These interfaces carry only the common immutable identity (ABI12), no holding state, no non-inline definition, no
 //      `deren::utility::vessel::string`, no exception across the boundary (§4.2). The engine and the
 //      backend each compile this partition; neither exports a module symbol for it.
 //
@@ -74,7 +74,7 @@ export namespace deren::promise::rhi {
     // ability MUST override every method of it.
     //
     // DESCRIPTOR HEAP. A backend that announces `descriptor_heap` MUST provide a ready heap; otherwise the
-    // extension is absent. `write_image`/`write_buffer` write host-owned descriptors: the caller MUST keep the
+    // extension is absent. `write_image`/`write_buffer` write host-held descriptors: the caller MUST keep the
     // written image/view/buffer alive until GPU work using the descriptor completes; the heap does not retain
     // them. A heap write offset is a byte offset at the descriptor stride reported by `properties()`; a
     // backend whose indexing is not stride-relative must reject the write by name. `bind` binds the heaps for
@@ -95,15 +95,15 @@ export namespace deren::promise::rhi {
     // A caller sizing `out` from any other number violates the contract; a backend MUST reject a store smaller
     // than the records it would write.
     //
-    // SCOPED SYNCHRONIZATION. `describe`/`validate`/`record` reject objects owned by another core before
-    // casting. A fully empty group still validates command ownership/recording state. Depth/stencil-independent
+    // SCOPED SYNCHRONIZATION. `describe`/`validate`/`record` reject objects held by another core before
+    // casting. A fully empty group still validates command retention/recording state. Depth/stencil-independent
     // transitions are not served in ABI 53 and answer `unsupported`; `synchronization::error` maps to
     // `rhi::error` as published in the synchronization module (invalid argument/not ready/unsupported), and a
     // backend MUST not translate a device failure into success.
     //
     // FRAME RESOURCES. `retain_image()` returns one strong reference to the current acquired image and empty
     // outside a frame; the identity is stable only within one acquire epoch, and scoped describe/record
-    // rejects the snapshot once its epoch ends. The returned owner keeps the core alive, not the native image
+    // rejects the snapshot once its epoch ends. The returned holder keeps the core alive, not the native image
     // beyond the backend's acquire/submit protocol.
     //
     // ASYNC PRESENTATION. Only one presentation call may be outstanding: a second `begin()` before the first
@@ -161,11 +161,11 @@ export namespace deren::promise::rhi {
         ray_tracing = 1u << 3,     ///< RETIRED in abi 26: the acceleration-structure half became TIER-1 (`acceleration_structure` + the recording verbs), and "can this device trace rays" is answered by `device_capabilities`. The BIT stays (never reused).
         host_image_copy = 1u << 4, ///< vkCopyImageToMemoryEXT
         /// RETIRED in abi 43: the escape interface is gone - the GUI overlay receives the backend's opaque
-        /// `rhi::main_context_view` for its device handles (abi 39) and owns its recording targets as contract
+        /// `rhi::main_context_view` for its device handles (abi 39) and holds its recording targets as contract
         /// `mergeable_command_buffer` handles now (gui abi 5). The BIT stays (bits are never reused).
         vulkan_escape = 1u << 5,
         /// APPENDED (a new BIT; the six before it do not move - see the static_assert below): WHAT THE DEVICE
-        /// CAN DO, in the contract's own vocabulary. A backend announces it when it can answer every method,
+        /// CAN DO, in the contract's vocabulary. A backend announces it when it can answer every method,
         /// the same "a set bit is a promise about service" rule the others live by. The engine used to derive
         /// these facts ITSELF - `vkGetPhysicalDeviceFeatures2` for the two features,
         /// `vkGetPhysicalDeviceProperties` for the push-constant limit, `vkGetPhysicalDeviceQueueFamilyProperties`
@@ -255,13 +255,13 @@ export namespace deren::promise::rhi {
 
     public:
         virtual ~extension() noexcept = default;
-        /// Extensions are owned by their core or frame; the object contract's release is a no-op.
+        /// Extensions are held by their core or frame; the object contract's release is a no-op.
         void release() noexcept override {
         }
         [[nodiscard]] virtual extension_kind kind() const noexcept = 0;
     };
 
-    /// Snapshots pin the core, but the acquire/submit/resize protocol still owns native image lifetime.
+    /// Snapshots pin the core, but the acquire/submit/resize protocol still holds native image lifetime.
     /// Scoped describe/record rejects a snapshot once its acquire epoch ends; retain_image is empty outside a frame.
     struct frame_resources : extension {
         static constexpr extension_kind extension_id = extension_kind::frame_resources;
@@ -298,12 +298,12 @@ export namespace deren::promise::rhi {
             return extension_id;
         }
         [[nodiscard]] virtual synchronization::stage supported_stages() const noexcept = 0;
-        /// Describe only objects owned by this core. Foreign objects are rejected before casting.
+        /// Describe only objects held by this core. Foreign objects are rejected before casting.
         [[nodiscard]] virtual error describe(image const&, scoped_image_info&) const noexcept = 0;
         [[nodiscard]] virtual error describe(buffer const&, scoped_buffer_info&) const noexcept = 0;
         /// Validate every entry without recording any commands.
         [[nodiscard]] virtual error validate(std::span<scoped_image_barrier const>, std::span<scoped_buffer_barrier const>) const noexcept = 0;
-        /// Validate the complete group, then record it atomically. Empty groups still check command ownership/state.
+        /// Validate the complete group, then record it atomically. Empty groups still check command retention/state.
         [[nodiscard]] virtual error record(command_recorder&, std::span<scoped_image_barrier const>, std::span<scoped_buffer_barrier const>) const noexcept = 0;
     };
 
@@ -331,7 +331,7 @@ export namespace deren::promise::rhi {
         virtual std::shared_future<error> begin() = 0;
     };
 
-    /// Copyable, non-owning receipt for one successful submission. Not persistent across processes.
+    /// Copyable, non-holding receipt for one successful submission. Not persistent across processes.
     /// Keep the originating core alive while using it; releasing a token does not cancel GPU work.
     /// Treat its fields as an opaque issued pair: do not synthesize values or use it across cores.
     struct submission_token {
@@ -379,7 +379,7 @@ export namespace deren::promise::rhi {
         [[nodiscard]] extension_kind kind() const noexcept final {
             return extension_id;
         }
-        /// Returns one owning reference, or null on unsupported/allocation failure.
+        /// Returns one holding reference, or null on unsupported/allocation failure.
         [[nodiscard]] virtual radix_sorter* create_radix_sorter() = 0;
     };
 
@@ -433,7 +433,7 @@ export namespace deren::promise::rhi {
     /// WHY THIS IS A GENERAL RHI TYPE RATHER THAN A BACKEND STRUCT: the three numbers are the whole of what a
     /// launch must be told about a table, and every API in this family has a spelling of them - Vulkan's
     /// `VkStridedDeviceAddressRegionKHR` is one, and it is the type this was promoted FROM (the engine's
-    /// ray-traced shadow pass held four of those as native members, which put a Vulkan type in a pass's own state
+    /// ray-traced shadow pass held four of those as native members, which put a Vulkan type in a pass's state
     /// for no reason: the DATA is a device range, not a driver structure). A region is also the unit the CALLER
     /// BUILDS - the records come from a pipeline's shader-group handles, which only the pipeline's creator can
     /// read back - so it has to travel through the contract's vocabulary like every other descriptor.
@@ -441,7 +441,7 @@ export namespace deren::promise::rhi {
     /// IT LIVES IN THIS PARTITION (not `:api_core`) because `:extension` is the module's VOCABULARY partition -
     /// the one `:api_core` imports rather than the other way round - the same reason `descriptor_type` and the
     /// heap write PODs are here. Its consumers are the recording face's `command_buffer::trace_rays` (abi 24) and
-    /// the pass that builds the table; the `ray_tracing` ability's own copy of the launch was MOVED to the
+    /// the pass that builds the table; the `ray_tracing` ability's copy of the launch was MOVED to the
     /// recording face rather than kept here (see that verb's note).
     ///
     /// AN ALL-ZERO REGION (`address == 0`) IS THE "NO RECORDS" SPELLING, and it is the honest one for a table a
@@ -454,7 +454,7 @@ export namespace deren::promise::rhi {
     struct shader_binding_table_region {
         std::uint64_t address = 0; ///< device address of this region's first record (0 = no records)
         std::uint64_t size = 0;    ///< bytes this region spans
-        std::uint64_t stride = 0;  ///< bytes between consecutive records (the device's own alignment asks for it)
+        std::uint64_t stride = 0;  ///< bytes between consecutive records (the device's alignment asks for it)
     };
 
     /// THE THREE DEVICE FACTS A SHADER BINDING TABLE IS BUILT FROM: how many bytes one shader-group handle is,
@@ -467,18 +467,18 @@ export namespace deren::promise::rhi {
     /// removes, and it is what let the ray-traced shadow pass stop including a Vulkan header at all.
     ///
     /// ZEROED IS THE "NO RAY TRACING" SPELLING: a device without the pipeline extension answers zeros, which the
-    /// one caller reads as "build no table" (its own check, because zero is a legal value in no other sense).
+    /// one caller reads as "build no table" (its check, because zero is a legal value in no other sense).
     struct shader_binding_table_properties {
         std::uint32_t handle_size = 0;      ///< bytes per shader-group handle
         std::uint32_t handle_alignment = 0; ///< bytes between consecutive handles in the table
-        std::uint32_t base_alignment = 0;   ///< the table's own alignment
+        std::uint32_t base_alignment = 0;   ///< the table's alignment
     };
 
     // ---- `struct ray_tracing : extension` STOOD HERE, AND IT IS RETIRED (abi 26) ---------------------
     //
     // IT CARRIED THREE ACCELERATION-STRUCTURE VERBS whose operands (`acceleration_structure` /
     // `acceleration_structure_desc`) were never more than FORWARD DECLARATIONS in this file - so the ability
-    // announced a service no backend could implement, and its own note admitted it ("the backend still does
+    // announced a service no backend could implement, and its note admitted it ("the backend still does
     // not serve the verb"). The launch left first (abi 24, it is a recording command); now the rest has:
     //
     //   * `acceleration_structure` is TIER-1 FURNITURE (`rhi.api_core`, next to `buffer` and `image`), with
@@ -511,7 +511,7 @@ export namespace deren::promise::rhi {
                                                          image_copy_region const& region) noexcept = 0;
     };
 
-    /// tier-2 ability: WHAT THE DEVICE CAN DO, in the contract's own vocabulary.
+    /// tier-2 ability: WHAT THE DEVICE CAN DO, in the contract's vocabulary.
     ///
     /// WHY AN ABILITY RATHER THAN A METHOD ON `api_core`: the extension mechanism already IS the channel for
     /// "a capability a backend may or may not serve" - `abilities()` announces it with a bit, `query_extension()`
@@ -524,9 +524,9 @@ export namespace deren::promise::rhi {
     /// `ray_query()` means "this device can run ray queries", which in this backend is "the extension is
     /// ENABLED and its feature is present" - the TWO halves the engine used to re-derive itself from the
     /// enabled-extension list (by naming `VK_KHR_ray_query`) and from `vkGetPhysicalDeviceFeatures2`. Asking
-    /// the backend for the answer it already computed to make its own enabling decision is smaller, cannot
+    /// the backend for the answer it already computed to make its enabling decision is smaller, cannot
     /// disagree with it, and is the only shape a second backend can serve: a D3D12 backend answers the same
-    /// eight questions from ITS own caps, and the engine keeps compiling.
+    /// eight questions from Its caps, and the engine keeps compiling.
     ///
     /// THE METHODS ARE THE MEASURED SET, not a device dump: each one is read by the engine today. A fact nobody reads is dead
     /// vocabulary, so a later need adds a method rather than this type carrying a `VkPhysicalDeviceProperties`.
@@ -672,7 +672,7 @@ export namespace deren::promise::rhi {
 
     /// ONE PORTABLE SAMPLED-DESCRIPTOR WRITE: slot `index` of the group positioned at `where`.
     ///
-    /// `view == nullptr` means the group profile's own view (all mips, one array layer, sampled role).
+    /// `view == nullptr` means the group profile's view (all mips, one array layer, sampled role).
     /// The write is HOST-SIDE and must happen before the position is consumed by recorded work; the
     /// position's generation has to still be live (`invalid_argument` otherwise).
     struct descriptor_write {
@@ -691,7 +691,7 @@ export namespace deren::promise::rhi {
     };
     struct acceleration_structure;
     /// Fixed shader-profile writes, not physical heap locations. Space 0 is the main space.
-    /// Host updates borrow resources; callers synchronize replacement and retain GPU operands.
+    /// Host updates reference resources; callers synchronize replacement and retain GPU operands.
     /// Fixed slots last for the core lifetime and cannot address dynamic texture-group positions.
     struct descriptor_image_write {
         static constexpr std::string_view tag = "deren.rhi.structure.descriptor_image_write";
@@ -741,7 +741,7 @@ export namespace deren::promise::rhi {
         }
         [[nodiscard]] virtual bool ready() const noexcept = 0;
         [[nodiscard]] virtual descriptor_space_properties properties() const noexcept = 0;
-        /// The position `group` was registered at, or `count == 0` for anything this space does not own
+        /// The position `group` was registered at, or `count == 0` for anything this space does not hold
         /// (a foreign group, an already-released one, another core's).
         [[nodiscard]] virtual descriptor_position position(texture_group const& group) const noexcept = 0;
         /// Write one sampled descriptor into a live position. See `descriptor_write` for the rules.
@@ -770,11 +770,11 @@ export namespace deren::promise::rhi {
     // so the native struct and its tag are retired (the tag VALUE stays - values are never reused).
 
     // `vulkan_escape` STOOD HERE AND IS DELETED in abi 43. Its last content was one slot
-    // (`native_command_buffer`) that the GUI overlay's Dear ImGui backend used to record its own draw data.
+    // (`native_command_buffer`) that the GUI overlay's Dear ImGui backend used to record its draw data.
     // That hand-off then passed the CONTRACT's `command_buffer` handle, which the plugin cast to the shared
     // `denen.vulkan.command_buffer` layout after checking its concrete tag - so the contract names no escape
     // interface and no native type at all: the `extension_kind::vulkan_escape` BIT stays as a retired value
-    // (bits are never reused), and no backend announces it. Superseded by gui abi 5: the overlay owns two
+    // (bits are never reused), and no backend announces it. Superseded by gui abi 5: the overlay holds two
     // contract `mergeable_command_buffer` targets and records them itself (see deren.promise.gui).
 
 } // namespace deren::promise::rhi

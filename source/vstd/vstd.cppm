@@ -59,7 +59,7 @@ module;
 #endif
 
 // THE PORTABILITY LAYER, and the reason it sits exactly here: <__config> (where the toolchain has one)
-// is what makes the toolchain's own capability macros exist, and every partition below is written
+// is what makes the toolchain's capability macros exist, and every partition below is written
 // against the VSTD_* spelling this file defines - which under libc++ IS the _LIBCPP_* macro, so this
 // changes nothing here and everything for a toolchain that is not libc++ (see source/vstd/vstd_compat.inc).
 #include "vstd_compat.inc"
@@ -82,7 +82,7 @@ module;
 #  endif
 #endif
 // The same reasoning, and it was luck rather than agreement before: <atomic> was included under a
-// toolchain FLAG (`VSTD_HAS_ATOMIC_HEADER`, libc++'s own, undefined under libstdc++) while
+// toolchain FLAG (`VSTD_HAS_ATOMIC_HEADER`, libc++'s separate, undefined under libstdc++) while
 // std/atomic.inc is included unconditionally - it survived only because libstdc++ happens to declare
 // std::atomic through other headers. __has_include asks the question that actually matters.
 #if defined(__has_include)
@@ -202,7 +202,7 @@ module;
 // answers questions about the COMPILER and must run before any header; this one answers questions
 // about the LIBRARY (__cpp_lib_print, __cpp_lib_chrono) and can only run once a library header has
 // published those macros. Under libc++ it is a no-op - <__config> already answered them from libc++'s
-// own capability flags - so the module this project has been building stays the same module.
+// its capability flags - so the module this project has been building stays the same module.
 // See source/vstd/vstd_lib_capabilities.inc for the measurement that put it here.
 #include "vstd_lib_capabilities.inc"
 

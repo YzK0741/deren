@@ -5,7 +5,7 @@
 // THE RHI CONTRACT'S VIRTUALS, DEFINED FOR THE REAL BACKEND (S1-C; the
 // recording surface and the read-back slot are S2 batch 2).
 // `core` derives from `deren::promise::rhi::api_core` (source/backends/vulkan/core/declarations/core.declarations.cppm), so the
-// object that owns the instance / device / swapchain IS the object a host gets from
+// object that holds the instance / device / swapchain IS the object a host gets from
 // deren_make_api_core() - there is no wrapper type to keep in step with it.
 //
 // WHAT IS REAL HERE, AND WHAT IS DELIBERATELY NOT:
@@ -14,21 +14,21 @@
 //     every set bit, `query_extension(kind)` has to answer with an object that can carry out every
 //     operation that ability declares, on the objects this backend can produce. `vulkan_escape` IS NOT
 //     AMONG THEM ANY MORE (abi 43): the escape interface is deleted; the GUI overlay gets the device
-//     handles through the backend-owned `denen.vulkan.main_context` (abi 39) and owns its recording
+//     handles through the backend-held `denen.vulkan.main_context` (abi 39) and holds its recording
 //     targets as contract `mergeable_command_buffer` handles (gui abi 5).
 //   - `query_extension()`: the announced ability object for its kind, nullptr for everything else -
 //     exactly the two-way invariant the startup gate (core.constructor.cppm, G2) and
 //     source/tests/test_dynamic_link.cpp (G1) check.
 //   - the factories: REAL since S3 - each `create_*` answers the contract handle, or `nullptr` for a
 //     descriptor this backend cannot serve (§4.2: no throwing path across the boundary).
-//   - the recording surface: REAL, a borrowed view of objects this class already owns (the frame's
+//   - the recording surface: REAL, a referenced view of objects this class already holds (the frame's
 //     primary command buffer, the swapchain image the frame draws into, the read-back slot). See the
 //     view types in core.declarations.cppm.
 //   - the shadow gate (plan §8.3, gate A5): `use()` derives the barrier from the contract's role pair
 //     and the asserts right below prove - field by field, AT COMPILE TIME - that it lands exactly on
 //     the two recipes this renderer shipped by hand. The same dump is emitted once per pair at run
 //     time, so the log carries both sides.
-//   - the frame calls: moved to facet/core.frame_views.cpp with the frame face's borrowed views. The
+//   - the frame calls: moved to facet/core.frame_views.cpp with the frame face's referenced views. The
 //     machinery is unchanged - `wait_frame_slot`, `frame.image_available_semaphores`, `submit()`,
 //     `present()`, `wait_idle()`, and `frame_begin()`'s acquire, which is the backend's because the
 //     device and the swapchain are.
@@ -61,7 +61,7 @@ namespace deren::vulkan {
 
         /// ONE ROW OF THE DECLARATION TABLE: which pair, and the fields the pair's barrier carries.
         ///
-        /// THE FIELDS ARE COPIED FROM THE RENDERER'S OWN RECIPE CONSTANT, never transcribed - see
+        /// THE FIELDS ARE COPIED FROM THE RENDERER'S RECIPE CONSTANT, never transcribed - see
         /// `pair_of` below. Transcribing a mask into this table would create a SECOND truth beside
         /// `source/backends/vulkan/constant_init/constant_init.cppm`, and the whole point of this face is that the pair
         /// (the contract's vocabulary) derives the recipe, not that the two agree by review.
@@ -127,7 +127,7 @@ namespace deren::vulkan {
             pair_of(rhi::image_use::color_attachment, rhi::image_use::shader_read, deren::vulkan::hdr_sampling_transition),
             pair_of(rhi::image_use::color_attachment, rhi::image_use::transfer_source, deren::vulkan::color_attachment_to_transfer_transition),
             pair_of(rhi::image_use::color_attachment, rhi::image_use::present, deren::vulkan::present_transition),
-            // PLAN X4: the host-access role the census said the contract had none of. The probe reads its own
+            // PLAN X4: the host-access role the census said the contract had none of. The probe reads its
             // render back through `image::get_content()`, and this is the pair that says so.
             pair_of(rhi::image_use::color_attachment, rhi::image_use::host_read, deren::vulkan::color_attachment_to_host_transition),
             // THE DEPENDENCY (no layout change, store -> load inside one frame): see the note above
@@ -136,7 +136,7 @@ namespace deren::vulkan {
             pair_of(rhi::image_use::shader_write, rhi::image_use::shader_read, deren::vulkan::general_to_sampling_transition),
             pair_of(rhi::image_use::shader_write, rhi::image_use::transfer_source, deren::vulkan::general_to_transfer_src_transition),
             // a read-modify-write self barrier: the destination needs BOTH access bits, which is why the
-            // pair carries its own role (`shader_read_write`) instead of one of its halves
+            // pair carries its role (`shader_read_write`) instead of one of its halves
             pair_of(rhi::image_use::shader_write, rhi::image_use::shader_read_write, deren::vulkan::compute_storage_transition),
             // ---- the sampled family ----
             pair_of(rhi::image_use::shader_read, rhi::image_use::shader_write, deren::vulkan::sampling_to_general_transition),
@@ -177,7 +177,7 @@ namespace deren::vulkan {
         /// The barrier one (from, to) role pair needs: the TABLE's row, with the caller's image filled in.
         ///
         /// THE DERIVATION FROM THE PAIR IS THE POINT of the shadow gate: it is spelled here in the
-        /// contract's vocabulary (two roles), and the table's rows come from the renderer's own recipes -
+        /// contract's vocabulary (two roles), and the table's rows come from the renderer's recipes -
         /// so a pair that is transcribed cannot drift from the recipe it was measured from, and the
         /// asserts below keep proving it field for field. A pair NO ROW CARRIES has no stages and no
         /// accesses at all, which is the honest answer for a transition nobody has defined yet -
@@ -376,7 +376,7 @@ namespace deren::vulkan {
         /// THE FIRST COMBINATION THAT IS NEITHER IN THE TABLE NOR UNDER A RULE, ENCODED as from * 10 + to
         /// (100 = every combination is accounted for). NOTE the shape: the two sides are INDEPENDENT
         /// predicates, so "in the table AND under a rule" (a dummy row) is flagged just as loudly as
-        /// "neither" (a deleted row) - the first version compared a predicate with its own negation.
+        /// "neither" (a deleted row) - the first version compared a predicate with its negation.
         [[nodiscard]] consteval std::uint32_t first_uncovered_pair() noexcept {
             for (std::uint32_t from = 0; from < image_use_value_count; ++from) {
                 for (std::uint32_t to = 0; to < image_use_value_count; ++to) {
@@ -411,7 +411,7 @@ namespace deren::vulkan {
         static_assert(same_barrier(derived_transfer_to_attachment, deren::vulkan::transfer_to_color_attachment_transition),
                       "A5: use(transfer_source, color_attachment) must land field-for-field on transfer_to_color_attachment_transition");
         // abi 20's two new pairs, proved against the same shipped recipes (the post chain's barriers,
-        // the pilot's own transitions)
+        // the pilot's transitions)
         constexpr VkImageMemoryBarrier2 derived_undefined_to_attachment = barrier_for(rhi::image_use::undefined, rhi::image_use::color_attachment);
         constexpr VkImageMemoryBarrier2 derived_attachment_to_sampling = barrier_for(rhi::image_use::color_attachment, rhi::image_use::shader_read);
         static_assert(same_barrier(derived_undefined_to_attachment, deren::vulkan::color_attachment_transition),
@@ -451,7 +451,7 @@ namespace deren::vulkan {
     namespace {
 
         /// the contract's format name in this backend's spelling; UNDEFINED means "refuse" (unknown),
-        /// and the `depth` ROLE resolves to the device's own depth attachment format - which concrete
+        /// and the `depth` ROLE resolves to the device's depth attachment format - which concrete
         /// depth format a device serves is the backend's capability question, not the caller's (§17).
         [[nodiscard]] VkFormat native_image_format(deren::promise::rhi::image_format const format, VkFormat const depth_format) noexcept {
             using rhi_image_format = deren::promise::rhi::image_format;
@@ -520,7 +520,7 @@ namespace deren::vulkan {
     } // namespace
 
     // abi 39: THE MAIN-THREAD CONTEXT. Every handle it names is a stable member of this core, so the object
-    // is a view filled on demand rather than a second owner; the GUI plugin casts it back through the shared
+    // is a view filled on demand rather than a second holder; the GUI plugin casts it back through the shared
     // `deren.vulkan.main_context` layout and copies what it needs for the session.
     rhi::main_context_view* core::device_facet::main_context() noexcept {
         auto& root = this->full_core;
@@ -540,10 +540,10 @@ namespace deren::vulkan {
     }
 
     std::uint32_t core::api_version() const noexcept {
-        // THE OBJECT'S OWN ATTESTATION (abi 19): the number BOTH halves compiled from the contract
+        // THE OBJECT'S ATTESTATION (abi 19): the number BOTH halves compiled from the contract
         // module. The engine asks it before it uses this object, which covers the case the entry's
         // argument cannot - an `api_core` the engine did not create. Here it is trivially the constant
-        // this image compiled, and the returned type is the contract's own `std::uint32_t`.
+        // this image compiled, and the returned type is the contract's `std::uint32_t`.
         return rhi::abi_version;
     }
 
@@ -558,7 +558,7 @@ namespace deren::vulkan {
         //
         // `device_address` is served because a `buffer` is something `create_buffer()` hands out; its former
         // acceleration-structure half moved to `ray_tracing` (abi 5) so the bit would stop being hostage to a
-        // resource no backend could make - see rhi.extension.cppm's `device_address` note and the view's own.
+        // resource no backend could make - see rhi.extension.cppm's `device_address` note and the view's.
         //
         // descriptor_heap 只在 heap 真正可用时广播；mesh_shader 的绘制走 contract 的 `draw_mesh_tasks`，
         // ray_tracing ability 已在 abi 26 退役（launch 是 contract 的 `trace_rays`）。
@@ -577,7 +577,7 @@ namespace deren::vulkan {
                // promise about service, not a separate device fact.
                (this->resource.heap_view.ready() ? rhi::to_bits(rhi::extension_kind::descriptor_space) : 0u) |
                (this->device.host_image_copy_available ? rhi::to_bits(rhi::extension_kind::host_image_copy) : 0u) |
-               // AND THE DEVICE'S OWN FACTS, SERVABLE THE MOMENT THE DEVICE EXISTS (a device with no mesh shader
+               // AND THE DEVICE'S FACTS, SERVABLE THE MOMENT THE DEVICE EXISTS (a device with no mesh shader
                // ANSWERS false - that is an answer, not an unserved ability), which is why this bit carries no
                // device condition while the two above it do.
                rhi::to_bits(rhi::extension_kind::device_capabilities) |
@@ -650,7 +650,7 @@ namespace deren::vulkan {
             }
         } else {
             // Verify this core's live pointer before any implementation cast. A matching
-            // concrete tag alone does not prove a foreign object's layout or ownership.
+            // concrete tag alone does not prove a foreign object's layout or retention.
             {
                 std::lock_guard lock(command.contract_command_buffers_mutex);
                 if (command.contract_command_buffers.contains(commands)) {
@@ -703,7 +703,7 @@ namespace deren::vulkan {
         if (info.resource == nullptr || info.view == nullptr || info.view->struct_size < sizeof(rhi::image_view_desc)) {
             return rhi::error::invalid_argument;
         }
-        // 类型标签相同不代表具体布局相同；先核实本core发出的活跃image，再访问owned_image。
+        // 类型标签相同不代表具体布局相同；先核实本core发出的活跃image，再访问其持有的 image。
         {
             std::lock_guard const lock(this->parent->resource.contract_images_mutex);
             if (!this->parent->resource.contract_images.contains(info.resource)) {
@@ -813,7 +813,7 @@ namespace deren::vulkan {
         if (result != rhi::error::ok) {
             return result;
         }
-        // Protect backend-owned pipeline group bytes on either kind of recorder.
+        // Protect backend-held pipeline group bytes on either kind of recorder.
         if (bound_pipeline) {
             std::lock_guard lock(parent->resource.contract_pipelines_mutex);
             if (!parent->resource.contract_pipelines.contains(bound_pipeline)) {
@@ -926,14 +926,14 @@ namespace deren::vulkan {
             this->parent->resource.contract_buffers.erase(this);
         }
         // RELEASE IS THE ALLOCATOR'S REFERENCE-COUNT DECREMENT, and it happens inside the backend: the
-        // destructor resets the `vk_buffer` owner, whose release lambda reaches `free_buffer` - which
-        // destroys the buffer only if this was the last reference (rhi.api_core.cppm's ownership note;
-        // vma_allocator's own comment says the same). A heap object because the FACTORY made it, so the
-        // matching delete is the backend's own operator delete.
+        // destructor resets the `vk_buffer` holder, whose release lambda reaches `free_buffer` - which
+        // destroys the buffer only if this was the last reference (rhi.api_core.cppm's retention note;
+        // vma_allocator's comment says the same). A heap object because the FACTORY made it, so the
+        // matching delete is the backend's operator delete.
         delete this;
     }
 
-    // ---- THE OWNED IMAGE FACE'S OBJECTS (abi 7, §17's design) --------------------------------------
+    // ---- THE HELD IMAGE FACE'S OBJECTS (abi 7, §17's design) --------------------------------------
 
     rhi::image_extent core::image::extent() const noexcept {
         return {.width = this->width, .height = this->height, .depth = 1};
@@ -964,7 +964,7 @@ namespace deren::vulkan {
             return nullptr;
         }
 
-        // The role picks the aspect (the format is the image's own). The view TYPE follows the image's
+        // The role picks the aspect (the format is the image's). The view TYPE follows the image's
         // shape: a cube-compatible six-layer image viewed whole IS the cube view; any other
         // multi-layer image is a 2D array; everything else a plain 2D.
         VkImageAspectFlags const aspect = this->declared_format == rhi::image_format::depth
@@ -1033,8 +1033,8 @@ namespace deren::vulkan {
             std::lock_guard const lock(this->parent->resource.contract_images_mutex);
             this->parent->resource.contract_images.erase(this);
         }
-        // `delete this`: the destructor resets the `vk_image` RAII owner, which is the allocator's
-        // reference-count decrement (rhi.api_core.cppm's ownership note - release, not necessarily
+        // `delete this`: the destructor resets the `vk_image` RAII holder, which is the allocator's
+        // reference-count decrement (rhi.api_core.cppm's retention note - release, not necessarily
         // destruction: a content-deduplicated image dies when its LAST reference goes).
         delete this;
     }
@@ -1078,7 +1078,7 @@ namespace deren::vulkan {
     }
 
     /// THE COMPUTE PIPELINE, in the shape the engine's raw builders had (pipelines.cppm's
-    /// `vkCreateComputePipelines` sites) - the same heap-native rules, moved to the side that owns them.
+    /// `vkCreateComputePipelines` sites) - the same heap-native rules, moved to the side that holds them.
     ///
     /// TWO FACTS MAKE IT A SEPARATE PATH rather than a branch inside the graphics one:
     ///
@@ -1089,9 +1089,9 @@ namespace deren::vulkan {
     ///  * THE BIND POINT IS DECIDED HERE, ONCE. `core::pipeline::bind_point` is what `bind_pipeline` (abi 20)
     ///    hands the API, and the graphics path leaves it at its GRAPHICS default - a compute pipeline that
     ///    forgot to set it would be bound to the wrong point with no error anywhere. (`create_pipeline`'s
-    ///    own note explains why the contract made the bind point the backend's business.)
+    ///    hold note explains why the contract made the bind point the backend's business.)
     rhi::pipeline* core::create_compute_pipeline(rhi::pipeline_desc const& desc, char const* const what) {
-        // THE ONE REFUSAL OF THIS PATH, and it is the ABI guard's own consequence: a caller that declared only
+        // THE ONE REFUSAL OF THIS PATH, and it is the ABI guard's consequence: a caller that declared only
         // the graphics prefix has no `compute_code`, so "compute without SPIR-V" is refused by name instead of
         // being built from whatever the empty span points at.
         if (desc.compute_code.empty()) {
@@ -1158,9 +1158,9 @@ namespace deren::vulkan {
     }
 
     /// THE RAY-TRACING PIPELINE, in the shape the engine's raw builder had (pipelines.cppm's
-    /// `vkCreateRayTracingPipelinesKHR` site) - the same heap-native rules, on the side that owns them.
+    /// `vkCreateRayTracingPipelinesKHR` site) - the same heap-native rules, on the side that holds them.
     ///
-    /// THREE THINGS MAKE IT ITS OWN PATH: it is built from SEVERAL named entry points (one module each), its
+    /// THREE THINGS MAKE IT Its PATH: it is built from SEVERAL named entry points (one module each), its
     /// executor is a GROUP TABLE rather than a single stage (the group indices are positions in the stage
     /// list), and its entry point is not exported by the loader's import library - so it is resolved through
     /// `vkGetDeviceProcAddr` here, where the device is, rather than at the caller.
@@ -1202,7 +1202,7 @@ namespace deren::vulkan {
         // pipeline is created): the RAII wrappers below cover every path out, refusals included.
         // Ordinary AS bindings still read the same heap. This avoids ResourceHeapEXT-based AS
         // loads, which lose the device on the NVIDIA driver tested by the native traversal probe.
-        // Own all stage mapping arrays until pipeline creation has consumed them.
+        // Hold all stage mapping arrays until pipeline creation has consumed them.
         deren::utility::vessel::vector<deren::utility::vessel::vector<VkDescriptorSetAndBindingMappingEXT>> mappings(desc.ray_tracing_stages.size());
         deren::utility::vessel::vector<VkShaderDescriptorSetAndBindingMappingInfoEXT> mapping_infos(desc.ray_tracing_stages.size());
         for (auto const& binding : desc.acceleration_structure_bindings) {
@@ -1271,7 +1271,7 @@ namespace deren::vulkan {
                                                              .pName = "main", // every entry point this renderer builds is "main"
                                                              .pSpecializationInfo = nullptr});
         }
-        // THE GROUP TABLE, with the kind following from WHICH SLOTS ARE FILLED (the descriptor's own rule):
+        // THE GROUP TABLE, with the kind following from WHICH SLOTS ARE FILLED (the descriptor's rule):
         // any hit slot makes it a hit group, and `triangles` says whether its geometry is triangles. This is the
         // one place the two spellings meet, and it is a translation rather than a second vocabulary.
         deren::utility::vessel::vector<VkRayTracingShaderGroupCreateInfoKHR> groups;
@@ -1332,13 +1332,13 @@ namespace deren::vulkan {
         return answer;
     }
 
-    // ---- THE OWNED COMMAND BUFFER (abi 15) ----------------------------------------------------------
+    // ---- THE HELD COMMAND BUFFER (abi 15) ----------------------------------------------------------
 
     core::command_buffer* core::allocate_command_buffer(VkCommandBufferLevel const level) {
         auto* const answer = new core::command_buffer();
         answer->parent = this;
-        // ONE POOL PER BUFFER, created and owned by the wrapper (handles/handles.cppm): the handle is a
-        // self-contained device resource and the recording thread that owns it never shares a pool.
+        // ONE POOL PER BUFFER, created and held by the wrapper (handles/handles.cppm): the handle is a
+        // self-contained device resource and the recording thread that holds it never shares a pool.
         answer->buffer = ::deren::vulkan::make_command_buffer(this->device.logical_device, this->device.graphics_queue_family_index, level);
         if (*answer->buffer == VK_NULL_HANDLE) {
             delete answer;
@@ -1367,7 +1367,7 @@ namespace deren::vulkan {
             this->parent->command.contract_mergeable_buffers.erase(this);
         }
         // THE INNER SECONDARY IS DROPPED BY THE `std::shared_ptr` MEMBER - a backend-INTERNAL retain, not a
-        // contract handle: a submission that is still in flight holds its own reference (retain_command), so
+        // contract handle: a submission that is still in flight holds its reference (retain_command), so
         // the recording outlives this handle exactly as the contract's retention rule promises.
         delete this;
     }
@@ -1406,8 +1406,8 @@ namespace deren::vulkan {
             }
         }
 
-        // THE BACKEND-OWNED MERGE PRIMARY: an ordinary owned primary created here, so the EXISTING
-        // owned-primary submission path below does the retention, fence and pending bookkeeping - the batch
+        // THE BACKEND-HELD MERGE PRIMARY: an ordinary held primary created here, so the EXISTING
+        // held-primary submission path below does the retention, fence and pending bookkeeping - the batch
         // does not need a second submission mechanism.
         rhi::command_buffer_desc primary_desc{};
         primary_desc.kind = rhi::command_buffer_kind::primary;
@@ -1432,7 +1432,7 @@ namespace deren::vulkan {
         if (status == rhi::error::ok) {
             status = this->submit_commands(*raw_primary, token);
         }
-        // drop OUR one reference: after a successful submit the pending submission owns its own, and a failed
+        // drop OUR one reference: after a successful submit the pending submission holds its, and a failed
         // one has nothing in flight - either way the handle dies here, inside the backend.
         primary->release();
         return status;
@@ -1446,7 +1446,7 @@ namespace deren::vulkan {
             std::lock_guard const lock(this->parent->command.contract_command_buffers_mutex);
             this->parent->command.contract_command_buffers.erase(this);
         }
-        // `delete this`: the destructor releases the `vk_command_buffer`, whose own release DESTROYS THE
+        // `delete this`: the destructor releases the `vk_command_buffer`, whose hold release DESTROYS THE
         // COMMAND POOL it created - the contract's one reference is the whole lifetime rule here (there
         // is no allocator registry behind this resource, unlike a buffer or an image).
         delete this;
@@ -1471,7 +1471,7 @@ namespace deren::vulkan {
             return rhi::error::not_ready; // this handle holds no reference any more
         }
 
-        // The contract's colour formats, converted once into the API's own spelling (see the note below):
+        // The contract's colour formats, converted once into the API's spelling (see the note below):
         // eight is this backend's ceiling for inherited attachments, and a larger declaration is refused.
         deren::utility::vessel::array<VkFormat, 8> native_color_formats = {};
         VkCommandBufferInheritanceRenderingInfo rendering = make_inheritance_rendering_info(false, nullptr, VK_FORMAT_UNDEFINED, VK_SAMPLE_COUNT_1_BIT);
@@ -1524,27 +1524,27 @@ namespace deren::vulkan {
         // ---- THE DESCRIPTOR HEAPS A CONTINUATION INHERITS (VUID-vkCmdDrawIndexed-None-11308) -----------
         //
         // WHY THE BACKEND DERIVES THIS INSTEAD OF THE CALLER HANDING IT OVER: a descriptor heap is the
-        // BACKEND's own state - this class owns both heaps, `heap_inheritance`'s two bind infos come
+        // BACKEND's state - this class holds both heaps, `heap_inheritance`'s two bind infos come
         // straight out of `resource.descriptor_heaps` (the same two `record_bind` binds for a primary), and the
-        // CONTRACT's `begin_recording` says so in its own words: the parameter chain carries what the
-        // caller knows (which attachment formats the instance has), and "the backend owns the
+        // CONTRACT's `begin_recording` says so in its words: the parameter chain carries what the
+        // caller knows (which attachment formats the instance has), and "the backend holds the
         // compatibility rules" - which heap state a secondary is validated against is exactly such a
         // rule. Asking every caller to reach for `VkCommandBufferInheritanceDescriptorHeapInfoEXT`
         // would put this backend's heap layout into the engine half (the boundary this whole face
         // exists to hold), and a caller that forgot it would produce a BLACK secondary with the only
         // symptom being a VUID nobody reads.
         //
-        // A SECONDARY IS VALIDATED ON ITS OWN, so the bind the primary recorded never reaches it - and
+        // A SECONDARY IS VALIDATED alone, so the bind the primary recorded never reaches it - and
         // an inherited heap is only meaningful for a continuation, which is the one case where the
         // secondary's draws are validated against the instance the primary opened. It is chained in
-        // FRONT of whatever the caller's own chain put in `pNext` (the attachment inheritance above),
+        // FRONT of whatever the caller's chain put in `pNext` (the attachment inheritance above),
         // because a chain is a list and this entry is the backend's, not the caller's. Only when the
         // heap face is ACTIVE: a device without VK_EXT_descriptor_heap leaves both heaps unusable, the
         // bind infos stay zero, and chaining a heap the device never got would be worse than leaving it
         // out - the same "the heap is simply unused" state every other heap path in this file accepts.
         //
         // `inherit_descriptor_heaps` (abi 45) is the caller's one opt-OUT of that derivation: a THIRD-PARTY
-        // recorder that binds its own classic descriptor sets - the Dear ImGui Vulkan backend is the case the
+        // recorder that binds its classic descriptor sets - the Dear ImGui Vulkan backend is the case the
         // field exists for - starts its segment through the overlay's begin info with the flag false, because
         // a heap-inheriting continuation would trip VUID-...-11295/11296 on every one of its binds.
         bool inherit_descriptor_heaps = true;
@@ -1576,7 +1576,7 @@ namespace deren::vulkan {
         }
 
         // The inheritance info is passed whenever ANY of it was filled: the caller's attachment chain
-        // or this backend's own heap entry (see above). When neither applies - a primary, or a
+        // or this backend's heap entry (see above). When neither applies - a primary, or a
         // secondary begun for inline recording - `pInheritanceInfo` must be NULL.
         VkCommandBufferBeginInfo const begin =
             make_command_buffer_begin_info(flags, kind == rhi::command_buffer_kind::secondary ? &inheritance : nullptr);
@@ -1611,7 +1611,7 @@ namespace deren::vulkan {
             applied = rhi::error::invalid_argument;
         }
         if (applied != rhi::error::ok) {
-            // Reset also handles a native recording invalidated by a destroyed borrowed resource.
+            // Reset also handles a native recording invalidated by a destroyed referenced resource.
             static_cast<void>(vkResetCommandBuffer(*this->buffer, 0));
             recording = rendering_active = executable = false;
             return applied;
@@ -1624,16 +1624,16 @@ namespace deren::vulkan {
         return result;
     }
 
-    // ---- THE FRAME'S BORROWED BUFFER: the four lifecycle verbs, refused BY NAME (see the note in
+    // ---- THE FRAME'S REFERENCED BUFFER: the four lifecycle verbs, refused BY NAME (see the note in
     //      core.declarations.cppm). release() is the one that must not be silent - a caller that wrapped
     //      this view in unique_object<> has a bug - so it says so once, exactly as frame_image_slot does.
 
     void core::frame_commands::release() noexcept {
-        // A VIEW IS NOT A FACTORY PRODUCT: the core owns the frame's list, the view carries no reference, and
+        // A VIEW IS NOT A FACTORY PRODUCT: the core holds the frame's list, the view carries no reference, and
         // there is nothing to drop. Reaching here is a lifecycle PRECONDITION violation, so it terminates
-        // loudly instead of being tolerated with a log - the container-based ownership in this batch is what
+        // loudly instead of being tolerated with a log - the container-based retention in this batch is what
         // makes "who releases" unambiguous; this branch is the caller ignoring it.
-        deren::utility::panic("rhi: release() on the FRAME's command buffer - it is a borrowed view concrete by the core, "
+        deren::utility::panic("rhi: release() on the FRAME's command buffer - it is a referenced view concrete by the core, "
                               "and only factory products carry a reference to drop");
     }
 
@@ -1641,16 +1641,16 @@ namespace deren::vulkan {
         if (recording) {
             return rhi::error::not_ready;
         }
-        // THE FRAME'S OWN RECORDING RIDES THE CONTRACT NOW (abi 26), and the two verbs under this comment are
+        // THE FRAME'S RECORDING RIDES THE CONTRACT NOW (abi 26), and the two verbs under this comment are
         // why the frame loop stopped calling `vkBeginCommandBuffer`/`vkEndCommandBuffer` itself: the buffer is
         // the CORE's (`frame_command_buffer()`), the API's state machine behind it is exactly what the
-        // recording face exists to own, and the engine half must not name an entry point to open a frame.
+        // recording face exists to hold, and the engine half must not name an entry point to open a frame.
         //
         // WHAT THE REFUSAL THAT STOOD HERE WAS PROTECTING: "the frame loop begins the frame's recording, not a
-        // pass". That rule is still true and is now the CALLER's to keep - the contract's own `begin_recording`
-        // doc has always said a buffer's lifecycle is begun once and by its owner - while the pass layer never
+        // pass". That rule is still true and is now the CALLER's to keep - the contract's `begin_recording`
+        // doc has always said a buffer's lifecycle is begun once and by its holder - while the pass layer never
         // reaches this verb at all (a pass records into `resolved_io::list`, whose recording the RUNNER opened).
-        // A usage bit this backend cannot serve is still refused BY NAME, exactly as the owned form refuses it.
+        // A usage bit this backend cannot serve is still refused BY NAME, exactly as the held form refuses it.
         VkCommandBuffer const command_buffer = this->native();
         if (command_buffer == VK_NULL_HANDLE) {
             return rhi::error::not_ready; // no frame in flight: the same window `begin_commands()` answers in
@@ -1666,7 +1666,7 @@ namespace deren::vulkan {
         if (rhi::has_flag(usage, rhi::command_buffer_usage::simultaneous_use)) {
             flags |= VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
         }
-        // `render_pass_continue` is a SECONDARY's bit and the frame's buffer is a primary: the owned form refuses
+        // `render_pass_continue` is a SECONDARY's bit and the frame's buffer is a primary: the held form refuses
         // the combination it cannot spell rather than passing a flag the API rejects on a primary.
         if (rhi::has_flag(usage, rhi::command_buffer_usage::render_pass_continue)) {
             return rhi::error::unsupported;
@@ -1702,7 +1702,7 @@ namespace deren::vulkan {
             applied = rhi::error::invalid_argument;
         }
         if (applied != rhi::error::ok) {
-            // Reset also handles a native recording invalidated by a destroyed borrowed resource.
+            // Reset also handles a native recording invalidated by a destroyed referenced resource.
             static_cast<void>(vkResetCommandBuffer(command_buffer, 0));
             recording = rendering_active = executable = false;
             return applied;
@@ -1794,7 +1794,7 @@ namespace deren::vulkan {
     }
 
     // ---- the contract's frame-domain views ---------------------------------------------------------
-    // Every one of them answers for the core that owns it (`owner` is set in the constructor, and the
+    // Every one of them answers for the core that holds it (`holder` is set in the constructor, and the
     // view object is a member of that core, so it can never outlive it).
 
     rhi::image_extent core::frame_image_slot::extent() const noexcept {
@@ -1803,14 +1803,14 @@ namespace deren::vulkan {
     }
 
     rhi::unique_object<rhi::image_view> core::frame_image_slot::make_view(rhi::image_view_desc const& declared_desc) {
-        // A BORROWED IMAGE HANDS OUT OWNED VIEWS (③-D/E item B, abi 16). What is borrowed is the IMAGE -
-        // the swapchain image, owned by the presentation path - but a VIEW is a NEW backend object created
-        // right here, so `release()` on it is real and the contract's ownership rule applies to it exactly
+        // A REFERENCED IMAGE HANDS OUT HELD VIEWS (③-D/E item B, abi 16). What is referenced is the IMAGE -
+        // the swapchain image, held by the presentation path - but a VIEW is a NEW backend object created
+        // right here, so `release()` on it is real and the contract's retention rule applies to it exactly
         // as it does to `create_image()->make_view()`: one reference, dropped once, inside the backend.
         //
         // THE LIFETIME RULE THE CALLER MUST KEEP (and the reason this used to refuse): a view made over a
         // swapchain image dies with that image, so the caller has to release every view it created from a
-        // borrowed frame image BEFORE the swapchain is recreated (`swapchain::recreate()`, which the engine
+        // referenced frame image BEFORE the swapchain is recreated (`swapchain::recreate()`, which the engine
         // drives from `runtime::on_swapchain_recreated`). A view that outlives its image is a stale handle
         // the validation layer reports; this backend does not track the caller's views, so it cannot paper
         // over it. In this renderer the window is exactly one frame's worth: the engine makes the view while
@@ -1819,7 +1819,7 @@ namespace deren::vulkan {
         rhi::image_view_desc const desc = sanitize_image_view_desc(declared_desc);
         VkImage const image = this->handle();
         if (image == VK_NULL_HANDLE) {
-            deren::utility::log("rhi: make_view on the borrowed frame image refused: no image has been acquired yet");
+            deren::utility::log("rhi: make_view on the referenced frame image refused: no image has been acquired yet");
             return nullptr;
         }
         // THE SWAPCHAIN IMAGE'S SHAPE IS ONE LAYER AND ONE MIP, and that is a fact rather than a limit of
@@ -1829,7 +1829,7 @@ namespace deren::vulkan {
         uint32_t const layers = desc.layer_count == 0 ? 1u : desc.layer_count;
         uint32_t const mips = desc.mip_count == 0 ? 1u : desc.mip_count;
         if (desc.base_layer != 0u || layers != 1u || desc.base_mip != 0u || mips != 1u) {
-            deren::utility::log("rhi: make_view on the borrowed frame image refused: it is a single-layer, single-mip image "
+            deren::utility::log("rhi: make_view on the referenced frame image refused: it is a single-layer, single-mip image "
                                 "(asked for layer {} + {}, mip {} + {})",
                                 desc.base_layer, layers, desc.base_mip, mips);
             return nullptr;
@@ -1842,7 +1842,7 @@ namespace deren::vulkan {
                                                                      layers);
         VkImageView handle = VK_NULL_HANDLE;
         if (vkCreateImageView(this->parent->device.logical_device, &view_info, nullptr, &handle) != VK_SUCCESS || handle == VK_NULL_HANDLE) {
-            deren::utility::log("rhi: make_view on the borrowed frame image refused: vkCreateImageView failed");
+            deren::utility::log("rhi: make_view on the referenced frame image refused: vkCreateImageView failed");
             return nullptr;
         }
         auto* const answer = new core::image_view();
@@ -1855,7 +1855,7 @@ namespace deren::vulkan {
         // A VIEW IS NOT A FACTORY PRODUCT: this object is a member of the core, the swapchain image behind it
         // belongs to the swapchain, and the view carries no reference. Reaching here is a lifecycle
         // PRECONDITION violation and terminates loudly (see `frame_commands::release`).
-        deren::utility::panic("rhi: release() on a borrowed frame image view - it is concrete by the core and carries no reference; "
+        deren::utility::panic("rhi: release() on a referenced frame image view - it is concrete by the core and carries no reference; "
                               "only factory products carry a reference to drop");
     }
 
@@ -1874,9 +1874,9 @@ namespace deren::vulkan {
     }
 
     void core::frame_readback_slot::release() noexcept {
-        // BORROWED, same answer as the frame image view's: the read-back slot is the core's own allocation,
+        // REFERENCED, same answer as the frame image view's: the read-back slot is the core's allocation,
         // so a release here is a lifecycle precondition violation and terminates.
-        deren::utility::panic("rhi: release() on a borrowed frame read-back buffer - it is concrete by the core and carries no "
+        deren::utility::panic("rhi: release() on a referenced frame read-back buffer - it is concrete by the core and carries no "
                               "reference; only factory products carry a reference to drop");
     }
 
@@ -1911,7 +1911,7 @@ namespace deren::vulkan {
         if (this->target != VK_NULL_HANDLE) {
             // THE FRAME-SCOPED VERBS BELONG TO THE FRAME'S LIST (abi 15): `use()` declares the FRAME
             // image's role pair, and a list that records into a buffer the caller created has no frame
-            // image in it. `not_ready` is the contract's own word for it ("or the list is not this
+            // image in it. `not_ready` is the contract's word for it ("or the list is not this
             // frame's" - the window `use()` and `begin_commands()` share).
             return rhi::error::not_ready;
         }
@@ -1943,7 +1943,7 @@ namespace deren::vulkan {
 
         // ---- GATE A5, THE RUN-TIME HALF: BOTH SIDES OF THE BARRIER, ONCE PER PAIR ------------------
         // The static_asserts above prove the equality at compile time; this dump is what puts the two
-        // field lists in the run's own log (spec §6.1 A5 asks for both sides, not for a verdict).
+        // field lists in the run's log (spec §6.1 A5 asks for both sides, not for a verdict).
         std::uint32_t const pair_bit = (from == rhi::image_use::color_attachment) ? 1u : 2u;
         if ((this->shadow_gate_dumped & pair_bit) == 0) {
             this->shadow_gate_dumped |= pair_bit;
@@ -2032,7 +2032,7 @@ namespace deren::vulkan {
             vkCmdCopyImageToBuffer(this->native(), image.native_handle, VK_IMAGE_LAYOUT_GENERAL, buffer.native, 1u, &copy);
             return rhi::error::ok;
         }
-        // WHAT CAN SAY NO, in the contract's own vocabulary (batch-2 spec §6.1): `unsupported` = this
+        // WHAT CAN SAY NO, in the contract's vocabulary (batch-2 spec §6.1): `unsupported` = this
         // surface cannot be a copy source at all; `invalid_argument` = the region does not fit, or the
         // destination is too small; `not_ready` = there is no frame to record into.
         if (self == nullptr || !self->frame.frame_in_flight) {
@@ -2050,7 +2050,7 @@ namespace deren::vulkan {
         }
         if (!self->frame.swapchain_transfer_src_supported) {
             // The swapchain images lack TRANSFER_SRC, so copying out of one would violate
-            // VUID-vkCmdCopyImageToBuffer-srcImage-00186. The ENGINE owns the one-time log and the F12
+            // VUID-vkCmdCopyImageToBuffer-srcImage-00186. The ENGINE holds the one-time log and the F12
             // shutdown that go with this answer (runtime.frames.cppm); the judgement itself is the
             // backend's, because the swapchain is.
             return rhi::error::unsupported;
@@ -2151,12 +2151,12 @@ namespace deren::vulkan {
             case rhi::buffer_use::acceleration_structure_write:
                 // THE WRITER IS NOT A SHADER STAGE EITHER (the appended value): a bottom level the BUILD wrote
                 // must finish before the next build reads it (ray_tracing.cpp's build-ordering barrier). The
-                // access bit is the extension's own ACCELERATION_STRUCTURE_WRITE_KHR.
+                // access bit is the extension's ACCELERATION_STRUCTURE_WRITE_KHR.
                 stage = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
                 access = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
                 return true;
             case rhi::buffer_use::micromap_write:
-                // THE MICROMAP BUILD AS A WRITER (the appended value, and the spec's own pair): the opacity
+                // THE MICROMAP BUILD AS A WRITER (the appended value, and the spec's pair): the opacity
                 // micromap a build wrote must finish before the acceleration-structure build reads it.
                 stage = VK_PIPELINE_STAGE_2_MICROMAP_BUILD_BIT_EXT;
                 access = VK_ACCESS_2_MICROMAP_WRITE_BIT_EXT;
@@ -2265,7 +2265,7 @@ namespace deren::vulkan {
 
         /// The aspect a barrier on THIS image covers: the depth formats' one bit, colour everywhere
         /// else. The backend knows the resolved format - the caller never names an aspect, because
-        /// the format is the backend's own creation fact.
+        /// the format is the backend's creation fact.
         [[nodiscard]] constexpr VkImageAspectFlags aspect_for(VkFormat const format) noexcept {
             switch (format) {
             case VK_FORMAT_D16_UNORM:
@@ -2280,7 +2280,7 @@ namespace deren::vulkan {
         }
 
         // THE TRANSLATION TABLES' COMPILE-TIME WITNESS (the plan's §1 "table tests", in the shape the
-        // contract's own layout asserts take): the constexpr mappers above are pinned entry by entry,
+        // contract's layout asserts take): the constexpr mappers above are pinned entry by entry,
         // so a vocabulary change fails here instead of at a recording call site.
         static_assert([] {
             VkPipelineStageFlags2 stage = 0;
@@ -2318,9 +2318,9 @@ namespace deren::vulkan {
             return rhi::error::not_ready;
         }
         // The verified image handles: registry membership first (the heap-write rule - the cast is
-        // only defined once provenance is known), then the native handle out of the owned object. THE
-        // ONE IMAGE THE REGISTRY DOES NOT HOLD is the frame's own swapchain image - a BORROWED view the
-        // core itself owns (the same object `use()` accepts by identity) - so the identity check is the
+        // only defined once provenance is known), then the native handle out of the held object. THE
+        // ONE IMAGE THE REGISTRY DOES NOT HOLD is the frame's swapchain image - a REFERENCED view the
+        // core itself holds (the same object `use()` accepts by identity) - so the identity check is the
         // second acceptance, with the format the swapchain was created with.
         auto const resolve_image = [&](rhi::image const* const resource, VkImage& native, VkFormat& format) -> rhi::error {
             if (resource == nullptr || (!rhi::is_concrete(*resource, concrete::image) && !rhi::is_concrete(*resource, concrete::frame_image) && !rhi::is_concrete(*resource, concrete::frame_snapshot))) {
@@ -2504,7 +2504,7 @@ namespace deren::vulkan {
                 registered = parent->resource.contract_images.contains(resource);
             }
             if (!registered) {
-                continue; // borrowed frame target
+                continue; // referenced frame target
             }
             auto ready = demand(*resource);
             if (ready != rhi::error::ok) {
@@ -2564,8 +2564,8 @@ namespace deren::vulkan {
         };
         // THE BOUND IS THE PASS FRAMEWORK'S, NOT THIS FUNCTION'S: `pass::max_render_targets` is 8 and the
         // SCENE instance is the widest site (three surface targets + velocity + the scene colour + depth),
-        // so a 4-slot array refused the scene's own scope and the frame recorded no geometry. The contract
-        // places no bound of its own on `rendering_info::colors`; a scope wider than the widest DECLARED
+        // so a 4-slot array refused the scene's scope and the frame recorded no geometry. The contract
+        // places no bound of its on `rendering_info::colors`; a scope wider than the widest DECLARED
         // site is refused rather than silently truncated.
         deren::utility::vessel::array<VkRenderingAttachmentInfo, 8> attachments = {};
         std::uint32_t color_count = 0;
@@ -2721,7 +2721,7 @@ namespace deren::vulkan {
             // read zero instances while `ok` claimed a build happened. Refused by name instead.
             return rhi::error::invalid_argument;
         }
-        // THE BARRIER IS THE BACKEND'S NOW (the engine's module used to record its own): everything the build
+        // THE BARRIER IS THE BACKEND'S NOW (the engine's module used to record its): everything the build
         // READS was written by the host (the caller's vertex/index/instance writes, and this frame's transfers)
         // and the structure itself is written - one conservative memory barrier covers both.
         VkMemoryBarrier2 const barrier{
@@ -2803,7 +2803,7 @@ namespace deren::vulkan {
         return rhi::error::ok;
     }
 
-    // ---- the owned acceleration structure's own verbs -----------------------------------------------------
+    // ---- the held acceleration structure's verbs -----------------------------------------------------
 
     std::uint64_t core::acceleration_structure::device_address() const noexcept {
         return this->address;
@@ -3067,7 +3067,7 @@ namespace deren::vulkan {
     // ---- tier-2: device_address --------------------------------------------------------------------
 
     std::uint64_t core::buffer_address_view::buffer_address(rhi::buffer const& resource, std::uint64_t const offset) const noexcept {
-        // THE PRECONDITION IS THE CONTRACT'S OWN RULE, STATED RATHER THAN GUESSED AT: a caller may only
+        // THE PRECONDITION IS THE CONTRACT'S RULE, STATED RATHER THAN GUESSED AT: a caller may only
         // ask about a buffer THIS backend handed out (rhi.api_core.cppm says the same about every handle
         // it gives back). `frame_commands::use()` can afford a stricter check because its views are
         // singletons it compares addresses against; factory-created buffers are heap objects, so
@@ -3079,7 +3079,7 @@ namespace deren::vulkan {
         if (this->parent == nullptr || !concrete->addressable || concrete->source) {
             // ASKED FOR NOTHING, GET NOTHING: a buffer created without `buffer_flag::device_address` has
             // no address to report (Vulkan only allows the call for a buffer created with that usage),
-            // and 0 is the contract's spelling of "none" - the module's own guard, not a failure.
+            // and 0 is the contract's spelling of "none" - the module's guard, not a failure.
             return 0ull;
         }
         VkBufferDeviceAddressInfo const query = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = concrete->native};
@@ -3098,8 +3098,8 @@ namespace deren::vulkan {
     // class (`denen.vulkan::command_buffer`) and calls `get()`. THE BACKEND'S JOB is only to keep that handle
     // current, at the two moments a recording target changes:
     //
-    //   - an OWNED buffer: set once when its VkCommandBuffer is allocated (it never changes afterwards);
-    //   - the BORROWED frame view: set when a frame is acquired (frame.frame_in_flight) and cleared when the frame
+    //   - a HELD buffer: set once when its VkCommandBuffer is allocated (it never changes afterwards);
+    //   - the REFERENCED frame view: set when a frame is acquired (frame.frame_in_flight) and cleared when the frame
     //     is submitted or the slot advances - outside a frame it names nothing, which is the truthful answer.
 
     rhi::error core::frame_shader_group_access::read(rhi::pipeline const& resource, std::uint32_t const first_group,
@@ -3140,12 +3140,12 @@ namespace deren::vulkan {
                 return rhi::error::unsupported;
             }
             // THE REGION IS THE CALLER'S, TIGHTLY PACKED: the contract's `image_copy_region` says WHERE in
-            // the image (texels, subresource, offsets) and this maps it onto the API's own structure with the
-            // row/image strides left zero - which is the API's own spelling of "the region is tightly
+            // the image (texels, subresource, offsets) and this maps it onto the API's structure with the
+            // row/image strides left zero - which is the API's spelling of "the region is tightly
             // packed", i.e. exactly extent.width texels per row and extent.height rows deep. The aspect is
             // COLOUR: the contract's region carries no aspect, and every image this renderer copies out of
             // is a colour one.
-            // THE CONVERSIONS ARE EXPLICIT because the API's own structure is less wide here than the
+            // THE CONVERSIONS ARE EXPLICIT because the API's structure is less wide here than the
             // contract's region: `mipLevel` and the offsets are `int32_t` in Vulkan and `uint32_t` in the
             // region. A braced initializer would refuse the narrowing outright (-Wc++11-narrowing), which is
             // the compiler asking for the cast - and a region whose values do not fit is a caller bug the
@@ -3155,7 +3155,7 @@ namespace deren::vulkan {
                 make_image_subresource_layers(VK_IMAGE_ASPECT_COLOR_BIT, region.mip_level, region.base_array_layer, region.array_layer_count),
                 {static_cast<std::int32_t>(region.offset_x), static_cast<std::int32_t>(region.offset_y), static_cast<std::int32_t>(region.offset_z)},
                 {region.extent.width, region.extent.height, region.extent.depth});
-            // GENERAL, AND THAT IS THIS RENDERER'S OWN CONVENTION rather than a choice made here: every image
+            // GENERAL, AND THAT IS THIS RENDERER'S CONVENTION rather than a choice made here: every image
             // it creates is kept in GENERAL (the heap-native shaders index the grid directly), and the
             // device's host-copy source layouts list GENERAL among what it can read from - which is exactly
             // what `host_image_copy_available` verifies at startup.
@@ -3165,15 +3165,15 @@ namespace deren::vulkan {
         }
     } // namespace
 
-    // ---- tier-2 device_capabilities: THE DEVICE'S OWN FACTS, ANSWERED FROM WHAT THE CONSTRUCTOR QUERIED ----
+    // ---- tier-2 device_capabilities: THE DEVICE'S FACTS, ANSWERED FROM WHAT THE CONSTRUCTOR QUERIED ----
     //
     // NOT ONE OF THESE METHODS ASKS THE DEVICE ANYTHING. Every value is a member the constructor filled while it
     // decided what to enable (`gate G2` in init_utils.cppm verified the four-part capability sets), so the
     // engine's questions are answered from the record of the decision rather than by repeating its queries -
     // which is also what makes the answers UNABLE to disagree with the enabling they describe.
     //
-    // A MISSING DEVICE (`owner == nullptr`, a released core) answers the same defaults an unqueried device
-    // struct would have: false for the features, zero for the numbers - the callers' own guard rails treat a
+    // A MISSING DEVICE (`holder == nullptr`, a released core) answers the same defaults an unqueried device
+    // struct would have: false for the features, zero for the numbers - the callers' guard rails treat a
     // zero limit as "visibly not a device" (the note `physical_properties_of` used to carry).
     bool core::frame_device_capabilities::compute_indirect() const noexcept {
         return this->parent != nullptr;
@@ -3226,10 +3226,10 @@ namespace deren::vulkan {
             // null function pointer.
             return rhi::error::unsupported;
         }
-        // ONLY AN IMAGE THIS BACKEND CREATED, which is the contract's precondition for every borrowed
-        // native handle. The frame image (a BORROWED view) is NOT served HERE, and that is deliberate: this
-        // ability's contract is "an image a caller made", and reinterpreting the borrowed object as an owned
-        // one is the bug this pointer-identity check exists to avoid. The FRAME image has its own
+        // ONLY AN IMAGE THIS BACKEND CREATED, which is the contract's precondition for every referenced
+        // native handle. The frame image (a REFERENCED view) is NOT served HERE, and that is deliberate: this
+        // ability's contract is "an image a caller made", and reinterpreting the referenced object as a held
+        // one is the bug this pointer-identity check exists to avoid. The FRAME image has its
         // spelling now (`frame_image_slot::get_content()`), so nothing is lost by keeping this refusal.
         if (static_cast<void const*>(&source) == static_cast<void const*>(&self->frame.frame_image_view)) {
             return rhi::error::invalid_argument;

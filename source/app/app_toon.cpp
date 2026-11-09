@@ -17,21 +17,21 @@ namespace deren::app::detail {
     // ---- THE TOON MATERIAL LOOKUP, defined after main: the four lane/row tables, the four procedural
     // bakes (neutral ramp, diffuse ramp, shadow LUT, matcap) and the three callbacks the runtime calls
     // through toon_lookup, plus the sidecar diagnostic. All of it is CPU setup, not frame work. ----
-    // ---- THE ASSET'S OWN `extras` ROWS, WHICH THE LOADER CARRIES AND THE TOON LOOKUP CONSULTS FIRST ----
+    // ---- THE ASSET'S `extras` ROWS, WHICH THE LOADER CARRIES AND THE TOON LOOKUP CONSULTS FIRST ----
     //
     // THE THIRD DATA SOURCE, and the ordering between the three is the whole content of this helper. A toon
     // material's per-material facts can come from:
-    //   1. the ASSET'S `extras` block (`deren::gltf::material::extras_floats`, read by the loader from the game's own
+    //   1. the ASSET'S `extras` block (`deren::gltf::material::extras_floats`, read by the loader from the game's
     //      exported table that ships inside the .glb) - the ORIGINAL;
     //   2. the `.toon.tsv` SIDECAR beside the model - this port's TRANSCRIPTION of a subset of the same tables;
-    //   3. the family table in `source/shaders/toon/toon_params.slang` - the port's own fallback.
+    //   3. the family table in `source/shaders/toon/toon_params.slang` - the port's fallback.
     // EXTRAS WINS, and the reason is what the two files ARE rather than which is newer: extras is written by the
-    // game's own material pipeline and travels inside the asset, while the sidecar is a copy this repository made
+    // game's material pipeline and travels inside the asset, while the sidecar is a copy this repository made
     // from the game's JSON tables - a copy can be incomplete (it carries 109 of the 194 names) and can be stale,
     // and a copy must not outrank the thing it was copied from. The sidecar stays the fallback rather than being
-    // dropped because it carries facts the extras do not (the sidecar's own slot vocabulary, and every model
-    // whose .glb has no `extras` block at all), and the family table stays the last resort because some of its
-    // numbers are the port's own (see its note).
+    // dropped because it carries facts the extras do not (the sidecar's slot vocabulary, and every model
+    // whose .glb has no `extras` block at all), and the family table stays the separate last resort because some
+    // numbers are the port's (see its note).
     //
     // MEASURED, AND THE HONEST STATEMENT IS THAT THIS ORDER IS NOT SETTLED BY chen's FRAMES: on `chars\chen.glb`
     // the two sources never disagree - every name they share carries the same value in both - so no frame can
@@ -111,7 +111,7 @@ namespace deren::app::detail {
     struct toon_rs_sheet_choice {
         /// the name to look up in the model; empty means this material names no sheet at all
         std::string_view name = {};
-        /// true when `RS_Index` selected `_GooRSSheet1` AND that sheet's own `_UseGooRSSheet1` switch is on
+        /// true when `RS_Index` selected `_GooRSSheet1` AND that sheet's `_UseGooRSSheet1` switch is on
         bool second = false;
     };
 
@@ -127,11 +127,11 @@ namespace deren::app::detail {
     /// The count is 27 `PBRToonBase`-group instances in total, NOT 23: the `gooblender` dump has 23 (22 at `0.0`
     /// plus the single `1.0`, `M_actor_yvonne_cloth_03`, which is in no captured asset) and `chen_dump` adds 4
     /// more under `PBRToonBase.001`, ALL of them `0.0`. The union of those values is still `{0.0, 1.0}`, so ANY
-    /// threshold in `(0, 1)` agrees exactly; `0.5` is the reference's own 50/50 blend, i.e. the one value at which
+    /// threshold in `(0, 1)` agrees exactly; `0.5` is the reference's 50/50 blend, i.e. the one value at which
     /// neither sheet is closer than the other; and `>=` rather than `>` fixes the tie's direction here instead of
     /// leaving it to an operator accident (§9.2).
     ///
-    /// THE SECOND SHEET NEEDS ITS OWN SWITCH AS WELL AS THE LANE'S: `_UseGooRSSheet` was already asked by the
+    /// THE SECOND SHEET NEEDS its SWITCH AS WELL AS THE LANE'S: `_UseGooRSSheet` was already asked by the
     /// caller before this runs (see the flag gate at the top of `toon_texture`), and `_UseGooRSSheet1` is asked
     /// here - absent means off, the sidecar module's contract for every optional slot. So a material that names
     /// `_GooRSSheet1` without switching it on reads the FIRST sheet, and so does one that switches it on without
@@ -140,7 +140,7 @@ namespace deren::app::detail {
         toon_rs_sheet_choice choice = {};
         choice.name = sheet_a;
         // `RS_Index` IS THE `.x` OF A `color` ROW, so it sits in `others` VERBATIM and `scalar()` cannot see it
-        // (the module keeps a `color` row as text on purpose). THE PARSE IS LANE 29's OWN RULE - comma separated
+        // (the module keeps a `color` row as text on purpose). THE PARSE IS LANE 29's RULE - comma separated
         // components read with `from_chars` - but this function answers only the FIRST component (`.x`, the
         // `substr` below), because the row's other components (`RS ColorTint`) are a different question. A missing
         // or unparseable component keeps the NEUTRAL, which for this lane is 0.0, i.e. the first sheet. Reading the
@@ -165,7 +165,7 @@ namespace deren::app::detail {
         if (!(rs_index >= 0.5f)) {
             return choice;
         }
-        // THE SECOND SWITCH, asked by the flag's own name: `enabled("_GooRSSheet1")` is `_UseGooRSSheet1`, absent
+        // THE SECOND SWITCH, asked by the flag's name: `enabled("_GooRSSheet1")` is `_UseGooRSSheet1`, absent
         // meaning off (see the sidecar module's second rule).
         if (!material.enabled(toon_rs_sheet_b)) {
             return choice;
@@ -185,7 +185,7 @@ namespace deren::app::detail {
     // switched on by `_Use<Slot>`, but the MATCAP lane `_MatcapTex` is switched on by `_UseMatcap` - the slot's
     // `Tex` suffix is not in the flag, which is a fact about the pipeline rather than a rule. Deriving the flag
     // from the slot answered "off" for every matcap in the file, silently, which is the failure the sidecar
-    // module exists to prevent and precisely the one its own convention could not see: it is right for three
+    // module exists to prevent and precisely the one its convention could not see: it is right for three
     // lanes and wrong for the fourth.
     //
     // IT SITS HERE, ABOVE THE DIAGNOSTIC, because the diagnostic prints every slot in the file and has to answer
@@ -206,12 +206,12 @@ namespace deren::app::detail {
         // THE METALLIC/GLOSS LANE FOLLOWS THE `_Use<Slot>` CONVENTION, unlike the matcap above: `_UseMetallicGlossMap`
         // is what the material files carry (24 of the 45 materials across the five characters export one).
         {"_MetallicGlossMap", "_UseMetallicGlossMap"},
-        // THE FACE MASK IS SWITCHED ON BY THE SDF'S OWN FLAG, which is a fact about the material files rather than a
+        // THE FACE MASK IS SWITCHED ON BY THE SDF'S FLAG, which is a fact about the material files rather than a
         // convention: there is no `_UseSDFMask` in any of them (the census over the five characters has
         // `_UseSDFLightmap` on 10 materials and `_UseSDFMask` on none), and the mask is meaningless without the SDF
         // it belongs to - the two are authored for one face and read at one coordinate.
         {"_SDFMask", "_UseSDFLightmap"},
-        // THE EMOTION ATLAS HAS A FLAG OF ITS OWN (`_UseEmotionMap`, on the face and on nothing else in chen).
+        // THE separate EMOTION ATLAS HAS A FLAG (`_UseEmotionMap`, on the face and on nothing else in chen).
         {"_EmotionMap", "_UseEmotionMap"},
         // THE SPLIT NORMAL'S FLAG IS `_UseSpecBumpMap`, not `_UseSplitNormalMap` - the second slot in this table
         // whose flag does not follow the convention (the matcap is the first), and found the same way: by asking
@@ -219,14 +219,14 @@ namespace deren::app::detail {
         {"_SplitNormalMap", "_UseSpecBumpMap"},
         // THE GOO IRIS BALL'S FLAG FOLLOWS THE CONVENTION (`_UseGooMatcap05`), which is the only kind of name it
         // could have: the reference has no per-material switch for this texture at all (it is sampled from inside
-        // the group), so the flag is the port's own sidecar vocabulary rather than a row copied from an asset.
+        // the group), so the flag is the port's sidecar vocabulary rather than a row copied from an asset.
         // Keeping it in the `_Use<Slot>` shape is what lets the diagnostic above walk it like every other lane.
         {"_GooMatcap05", "_UseGooMatcap05"},
-        // THE GOO BASE RAMP'S FLAG FOLLOWS THE CONVENTION (`_UseGooBaseRamp`), for the matcap lane's own reason:
+        // THE GOO BASE RAMP'S FLAG FOLLOWS THE CONVENTION (`_UseGooBaseRamp`), for the matcap lane's reason:
         // the reference resolves this image INSIDE its `RampSelect` group and no material states a per-material
         // switch for it, so the flag is this port's sidecar vocabulary rather than a row copied from an asset -
         // and the `_Use<Slot>` shape is what lets the diagnostic above walk it like every other lane. The
-        // reference's own switch is `RampIndex`, which is not a flag but a SELECTOR, and it is resolved here (see
+        // reference's switch is `RampIndex`, which is not a flag but a SELECTOR, and it is resolved here (see
         // `toon_base_ramp_name` below): the four slots hold two distinct images and every material this asset
         // gives the group to states `0.0` or `1.0`, which is the spec's §2.6 + its A8.
         {"_GooBaseRamp", "_UseGooBaseRamp"},
@@ -234,7 +234,7 @@ namespace deren::app::detail {
         //
         // THE CONVENTION HOLDS FOR ALL THREE, and that is a fact about this port's vocabulary rather than about an
         // asset: the reference samples every one of them from INSIDE `PBRToonBaseFace` (they are not material
-        // inputs at all), so there is no game-side `_Use...` row to copy and the flag is this sidecar's own switch
+        // inputs at all), so there is no game-side `_Use...` row to copy and the flag is this sidecar's switch
         // - exactly as `_GooMatcap05` and `_GooBaseRamp` above are. Keeping the shape is what lets the diagnostic
         // walk them like every other lane.
         {"_GooFaceSDF", "_UseGooFaceSDF"},
@@ -244,7 +244,7 @@ namespace deren::app::detail {
         //
         // THE CONVENTION HOLDS, for the matcap-lane reason rather than an asset's: the reference samples `_M`
         // INSIDE its `Arknights: Endfield_PBRToonBase` group - it is a `组输入` socket, not a `_`-prefixed game
-        // property - so there is no game-side `_Use...` row to copy and `_UseGooRSMask` is this sidecar's own
+        // property - so there is no game-side `_Use...` row to copy and `_UseGooRSMask` is this sidecar's
         // switch. `_M` is the LEFT input of `混合.038 = _M ⊙ RS ColorTint` (mechanism table #14); its texel is a
         // Non-Color mask (uploaded UNORM) and the smoothstep that turns it into a factor is the shader's, because
         // its `max` is per material and rides `_GooRSTint.w`. See `toon_slot::goo_rs_mask`.
@@ -257,7 +257,7 @@ namespace deren::app::detail {
         // `_GooRSSheet` IS `armA`'s 256x1 `_RS` COLOUR SHEET, THE SIBLING OF THE MASK ABOVE AND THE OTHER HALF OF
         // MECHANISM TABLE #14's FIRST ARM. It is a texture lane rather than a colour lane because it is an image,
         // it is uploaded SRGB because it is a colour (the sampler decodes it, the shader does not), and it is
-        // `_GooRSSheet`/`_UseGooRSSheet` rather than a game property name for the mask's own reason: the reference
+        // `_GooRSSheet`/`_UseGooRSSheet` rather than a game property name for the mask's reason: the reference
         // reads it through a `组输入` socket, so there is no `_Use...` row to copy. A material with no row here and
         // `RS Model = 0` gets `arm0 = 0` - the branch must NOT fall back to the white texture at index 0. See
         // `toon_slot::goo_rs_sheet` and the `armA` block in `source/shaders/toon/goo_toon.slang`.
@@ -301,7 +301,7 @@ namespace deren::app::detail {
         "_Specular",
         // THE PARALLAX DEPTH'S ROW IS A `float` TOO, AND ON THIS ASSET THE SIDECAR CARRIES IT NOWHERE:
         // `chars\chen.glb.toon.tsv` has no `_ParallaxScale` row at all, so the asset's `extras` block is the only
-        // source that speaks for it here and the stage's own constant is the answer for every material it does
+        // source that speaks for it here and the stage's constant is the answer for every material it does
         // not speak for. The name still belongs in this table for the other direction: a model whose sidecar
         // holds the row is a model this lane can answer for without any `extras` block at all.
         //
@@ -314,32 +314,32 @@ namespace deren::app::detail {
         // THE GOO IRIS BRIGHTNESS LANE'S ROW IS A `color` AND NOT TWO `float`s, which is the shape the lane
         // forces rather than a choice: one lane is one `vec4` and the reference states its two numbers as two
         // SIBLING sockets of one group (`Eyes brightness` / `Eyes HightLight brightness`), read at the same two
-        // lines of it. The row's name is the port's own - the reference's sockets are neither `_`-prefixed game
-        // properties nor sidecar rows - and `.x` / `.y` are the two sockets IN THE REFERENCE'S OWN ORDER.
+        // lines of it. The row's name is the port's - the reference's sockets are neither `_`-prefixed game
+        // properties nor sidecar rows - and `.x` / `.y` are the two sockets IN THE REFERENCE'S ORDER.
         "_GooEyeBrightness",
         // THE REWRITTEN CHAIN'S RIM LANES, and BOTH rows are `color` - which is the shape the reference forces
         // rather than a choice: `Rim_Color` is an RGBA socket, and `Rim_ColorStrength` / `Rim_DirLightAtten` /
         // `ToonfresnelPow` / `Use Rimlimitation?` are FOUR SIBLING sockets of the same group instance, read at
-        // one composition, so one `vec4` row carries them in the reference's own order. `.w` is a BOOLEAN's
+        // one composition, so one `vec4` row carries them in the reference's order. `.w` is a BOOLEAN's
         // 0/1, which a `color` row states as a fourth float without loss.
         //
-        // THE NAMES ARE THE PORT'S OWN, on `_GooEyeBrightness`'s terms: the reference's sockets are neither
-        // `_`-prefixed game properties nor sidecar rows. They are spelled with the reference's own capitalisation
+        // THE NAMES ARE THE PORT'S, on `_GooEyeBrightness`'s terms: the reference's sockets are neither
+        // `_`-prefixed game properties nor sidecar rows. They are spelled with the reference's capitalisation
         // of `Rim` so a reader can find the socket they came from.
         "_GooRimColour",
         "_GooRimScalars",
-        // THE SCREEN-SPACE RIM'S TWO WIDTHS, and they are THEIR OWN ROW rather than two more floats on
+        // THE SCREEN-SPACE RIM'S TWO WIDTHS, and they are Their ROW rather than two more floats on
         // `_GooRimScalars` because they belong to the OTHER group the same material instantiates: the container
-        // reads `Rim_ColorStrength` / `Rim_DirLightAtten` from its own interface, while `Rim_width_X` /
+        // reads `Rim_ColorStrength` / `Rim_DirLightAtten` from its interface, while `Rim_width_X` /
         // `Rim_width_Y` are `DepthRim`'s two `组输入` sockets, reached through `群组.016`. `.z` / `.w` are
         // reserved. See `toon_colour_lane::goo_rim_widths`.
         "_GooRimWidths",
         // ---- STEP 4: THE BASE / SKIN / CLOTH DIRECT-DIFFUSE REPLACEMENT'S SIX LANES ----
         //
-        // ITS OWN `BaseColor` FIRST, and the row name is the REFERENCE'S OWN - `组输入.BaseColor` of
+        // its `BaseColor` FIRST, and the row name is the REFERENCE'S - `组输入.BaseColor` of
         // `Arknights: Endfield_PBRToonBase`. It is a `color` row in the material tree (`[1.1628, 0.9888, 1.0280]`
         // on `body_01`), so `.x` / `.y` / `.z` are the tint and nothing else is read; the reason the port needs it
-        // at all is that its own albedo carries no `baseColorFactor` (see `toon_colour_lane::goo_base_colour`).
+        // at all is that its albedo carries no `baseColorFactor` (see `toon_colour_lane::goo_base_colour`).
         "_GooBaseColour",
         // THE FOUR `SigmoidSharp` ARGUMENTS, in the order the reference's two call sites state them, and the
         // ordering is the lane's contract rather than a preference: `.x` / `.y` are the half-Lambert curve's
@@ -360,12 +360,12 @@ namespace deren::app::detail {
         // ---- STEP 5: THE REFERENCE'S DIRECT-SPECULAR / IBL-DIFFUSE / IBL-SPECULAR TERMS' FOUR LANES ----
         //
         // THE FOUR PER-MATERIAL NUMBERS THOSE TERMS CONSUME AND THE PORT COULD NOT CARRY, each one the
-        // REFERENCE'S OWN socket name (spec `goo_step5_specular_spec.md` §5.2/§7.3):
+        // REFERENCE'S socket name (spec `goo_step5_specular_spec.md` §5.2/§7.3):
         //
         //   * `specularFGD Strength` - the IBL specular's strength (`0.8` on `body_01`/`body_02`, the group's
         //     `1.0` on the cloth, and NO SOCKET AT ALL on the Face and Hair containers);
         //   * `dirLight_lightColor` - THE LIGHT COLOUR OF THE DIRECT TERMS, which the spec's §5.4 makes
-        //     authoritative over Goo's `Shader Info` and which closes step 4's own recorded substitution (its
+        //     authoritative over Goo's `Shader Info` and which closes step 4's recorded substitution (its
         //     result document §4 item 2). It is a `color` row with a 4.2% blue/green pull on every material;
         //   * `AmbientLightColorTint` - what the IBL diffuse multiplies the engine's probe irradiance by
         //     (`[1.5121498107910156] x3` on the body, white on the cloth).
@@ -377,7 +377,7 @@ namespace deren::app::detail {
         //
         // THE ROW NAMES ARE THE REFERENCE'S SOCKET NAMES, which is why they have no leading underscore: every other
         // entry above is a GAME property (`_BaseColor`, `_Specular`) or a name this port minted for a reference
-        // socket it had to name itself (`_GooRimColour`). These four are socket names the reference's own group
+        // socket it had to name itself (`_GooRimColour`). These four are socket names the reference's group
         // carries verbatim, so a reader can grep `nodes.json` for them - and `_GooBaseColour` above set that
         // precedent for `BaseColor`'s row.
         "_GooSpecularFGD",
@@ -386,9 +386,9 @@ namespace deren::app::detail {
         "_GooSpecularColor",
         // ---- STEP 7: THE FACE CONTAINER'S FOUR LANES ----
         //
-        // THE ROW NAMES ARE THE PORT'S OWN (the reference's sockets are neither `_`-prefixed game properties nor
+        // THE ROW NAMES ARE THE PORT'S (the reference's sockets are neither `_`-prefixed game properties nor
         // sidecar rows), on `_GooEyeBrightness`'s terms - and the two scalar rows carry FOUR SIBLING SOCKETS each,
-        // packed in the reference's own order, which is the shape one `vec4` forces and the same packing
+        // packed in the reference's order, which is the shape one `vec4` forces and the same packing
         // `_GooDiffuseA` / `_GooDiffuseB` already use:
         //
         //   * `_GooFaceScalarsA` = `chin_RemaphalfLambert_center`[x] / `_sharp`[y] / `sphereNormal_Strength`[z] /
@@ -397,7 +397,7 @@ namespace deren::app::detail {
         //     Pow`[z] / `Front R Smo`[w] - the emission-brightness switch's two arms and `Front transparent
         //     red`'s shape;
         //   * `_GooFaceNoseShadow` = `nose_shadow_Color` and `_GooFaceFrontR` = `Front R Color`, both `color` rows
-        //     whose NEUTRAL IS BLACK because black is the socket's own `interface[]` default (see the lane's note
+        //     whose NEUTRAL IS BLACK because black is the socket's `interface[]` default (see the lane's note
         //     in `deren::engine::toon_colour_lane`).
         //
         // THE AUDIT THAT KEPT THIS AT FOUR ROWS: eight more of the container's numbers already have carriers,
@@ -416,7 +416,7 @@ namespace deren::app::detail {
         // the FLAT tangent normal and the one the map's `xy` decodes to. It is a `float` row rather than a `color`
         // one (the port's rule for a lane whose payload is `.x` alone), so it does NOT go through the generic
         // `others` path below - its `float` kind lands in `material_sidecar::scalars`, which only `scalar()` reads,
-        // and that is why `toon_colour` has a branch of its own for it, the way `_Specular` and `_ParallaxScale` do.
+        // and that is why `toon_colour` has A separate branch for it, the way `_Specular` and `_ParallaxScale` do.
         //
         // THE VALUES ARE THE REFERENCE'S, NOT THE GLTF'S: `normalTexture.scale` is `1.0` on all 11 materials of
         // `chars\laevatain_goo.glb`, so it cannot be the source (the `_Specular` lane's `extras` precedence exists
@@ -424,11 +424,11 @@ namespace deren::app::detail {
         "_GooNormalStrength",
         // ---- STEP 10: THE ANISOTROPY GATE ----
         //
-        // ONE ROW FOR THREE SIBLING SOCKETS OF `PBRToonBase`, in the reference's own order, which is the shape
+        // ONE ROW FOR THREE SIBLING SOCKETS OF `PBRToonBase`, in the reference's order, which is the shape
         // `_GooRimScalars` and `_GooEyeBrightness` already use and the shape one `vec4` forces: `.x = Use
         // anisotropy?`, `.y = Anisotropic mask`, `.z = Use Toonaniso?`, `.w` reserved. `混合.016` (the direct
         // specular's arm selector) reads the first, `混合.017` multiplies by the second, and `混合.020` - the
-        // anisotropic lobe - switches on the third, which step 12 implemented (the lobe's own roughnesses ride
+        // anisotropic lobe - switches on the third, which step 12 implemented (the lobe's roughnesses ride
         // the lane below); the mask is `0.0` on every material of this asset, so none of it is reachable in a
         // frame this repository renders.
         //
@@ -440,14 +440,14 @@ namespace deren::app::detail {
         // ---- STEP 12: THE ANISOTROPIC LOBE'S TWO ROUGHNESSES ----
         //
         // ONE `color` ROW FOR THE TWO SIBLING SOCKETS `roughnessT` / `roughnessB` ARE BUILT FROM, spelled
-        // `Aniso_SmoothnessMaxT` / `Aniso_SmoothnessMaxB` in the reference's own graph (`.x` / `.y`, in that
+        // `Aniso_SmoothnessMaxT` / `Aniso_SmoothnessMaxB` in the reference's graph (`.x` / `.y`, in that
         // order; `.z` / `.w` reserved). The port's lobe computes `rT = (1 - lane.x)^2`, `rB = (1 - lane.y)^2`,
         // which is the two `Power` nodes the snapshot calls `roughnessT` / `roughnessB`.
         //
         // IT IS THE SAME KIND OF ROW AS `_GooAnisoGate` ABOVE AND TAKES THE SAME PATH, so it needs no branch in
         // `toon_colour`: a `color` row lands in `material_sidecar::others`, which is what the generic tail of that
         // lambda reads, and the four comma-separated components arrive one at a time. Its neutral is `(0,0,0,0)`
-        // - the reference's own group default rather than a sentinel - see `toon_colour_lane::goo_aniso_rough`.
+        // - the reference's group default rather than a sentinel - see `toon_colour_lane::goo_aniso_rough`.
         "_GooAnisoRough",
         // ---- STEP 13: THE TWO `RS EFF` LANES ----
         //
@@ -510,7 +510,7 @@ namespace deren::app::detail {
         return flag;
     };
 
-    // ---- THE PROCEDURAL RAMP, which is what replaces the game's own ramps on the read path ----
+    // ---- THE PROCEDURAL RAMP, which is what replaces the game's ramps on the read path ----
     //
     // WHY IT IS BAKED RATHER THAN SAMPLED FROM THE MODEL: the ramps a character ships with are the GAME's
     // textures, and `ASSET_LICENSE_BOUNDARY_CN.md` excludes those from redistribution - so a read path that
@@ -526,13 +526,13 @@ namespace deren::app::detail {
     // THE BAKE IS A NEUTRAL UNIT STEP, NOT ANY ONE FAMILY'S RAMP, and that is what lets a SINGLE redistributable
     // asset serve every family without copying the family table into this file. The texture holds the SHAPE -
     // zero through the shadow side, one through the lit side, a step at x = 0.5 - and the SHADER maps the
-    // family's own threshold and edge width onto that step when it builds the coordinate it reads at (see
+    // family's threshold and edge width onto that step when it builds the coordinate it reads at (see
     // `character_ramp_half_width` in character_forward.slang). The family's numbers therefore stay in ONE place,
     // in the shader, where the procedural branch and the rim stage already read them; what this file supplies is
     // the shape, and what the shader supplies is where along it this material's terminator sits.
     //
     // THAT IS NOT A WORKAROUND FOR THE TABLE BEING IN THE SHADER, it is the structure the reference uses: its
-    // ramp atlas is shared across materials and each material's own `_ShadowCenter` / `_ShadowSmoothness` decide
+    // ramp atlas is shared across materials and each material's `_ShadowCenter` / `_ShadowSmoothness` decide
     // the UV it is read at. A per-family BAKE would be the copy - and it would be a worse one, because the
     // family's edge width would be frozen into pixels at load time instead of staying a number the shader can
     // evaluate the procedural branch with.
@@ -541,7 +541,7 @@ namespace deren::app::detail {
     // `character_ramp_half_width`. The shader's remap inverts this bake exactly when the two agree, which is
     // what makes the texture branch and the procedural branch produce the same tint for the same family rather
     // than merely similar ones. `source/tests/test_toon_material_sidecar.cpp` reads both files and fails on drift -
-    // and it is there rather than in a test of its own because the contract is a sidecar-lane contract.
+    // and it is there rather than in A separate test because the contract is a sidecar-lane contract.
     constexpr uint32_t baked_ramp_width = 256;
     constexpr uint32_t baked_ramp_height = 8;
     constexpr float baked_ramp_half_width = 0.035f;
@@ -562,7 +562,7 @@ namespace deren::app::detail {
                 float const step = smoothstep(0.5f - baked_ramp_half_width, 0.5f + baked_ramp_half_width, x);
                 uint8_t* const texel = pixels.data() + (static_cast<std::size_t>(v) * baked_ramp_width + u) * 4u;
                 // GREY, and the SHADER READS `.r`: the ramp carries the step and nothing else, so the family's
-                // own `shadow_tint` is what colours the dark side rather than a bake that could only ever hold
+                // the `shadow_tint` is what colours the dark side rather than a bake that could only ever hold
                 // one family's tint. Writing the same value into R, G and B keeps the asset readable as a ramp
                 // by eye.
                 //
@@ -589,7 +589,7 @@ namespace deren::app::detail {
     // lit side as though the material's ramp had said so.
     //
     // SO THIS BAKE HOLDS THE ONLY CONTENT THAT MEANS "NO COLOUR MAPPING, AND AS LIT AS THE LIGHT TERM SAYS": WHITE
-    // in RGB and the identity lightness in A. A material whose model ships no ramp is then shaded by its own light
+    // in RGB and the identity lightness in A. A material whose model ships no ramp is then shaded by its light
     // term rather than by an invented band, which is the same neutrality the other bakes keep - and the real map
     // takes precedence whenever the model has one (`_DiffRampMap` is on every character material in this
     // repository, so the fallback is for fixtures and for models exported without it).
@@ -618,7 +618,7 @@ namespace deren::app::detail {
     //
     // IT IS THE ONE LANE THAT CANNOT REUSE THE UNIT RAMP, and the shape is the reason: a ramp answers "how deep
     // is the shadow here", a shadow LUT answers "what is THIS MATERIAL's colour in shadow" and is indexed by the
-    // material's own albedo. That is not a variation on the ramp - it is a function of a different variable -
+    // material's albedo. That is not a variation on the ramp - it is a function of a different variable -
     // and it is why the reference ships skin and cloth a `1024x32` cube at all rather than another band.
     //
     // THE LAYOUT IS THE REFERENCE'S, TO THE TILE COUNT: 32 horizontal `32x32` tiles holding a `32^3` cube, the
@@ -654,7 +654,7 @@ namespace deren::app::detail {
                 uint8_t* const texel = pixels.data() + (static_cast<std::size_t>(row) * baked_lut_width + column) * 4u;
                 for (int32_t c = 0; c < 3; ++c) {
                     // STORED AS THE DISPLAY-SPACE COORDINATE, which is what keeps the identity true now that the
-                    // shader indexes this lane by the DISPLAY-SPACE albedo (the game's own domain - see
+                    // shader indexes this lane by the DISPLAY-SPACE albedo (the game's domain - see
                     // character_forward.slang's toon_shadow_lut). The lane is uploaded as an sRGB texture, so the
                     // sampler DECODES whatever is stored: storing the encoded coordinate makes the shader receive
                     // the LINEAR value that coordinate means, which is exactly the albedo it looked up. Encoding the
@@ -668,17 +668,17 @@ namespace deren::app::detail {
         return pixels;
     };
 
-    // ---- THE MATCAP, WHICH IS BLACK, AND THAT IS THE WHOLE OF ITS NEUTRALITY ----
+    // ---- THE MATCAP, WHICH IS BLACK, AND THAT IS THE separate WHOLE NEUTRALITY ----
     //
     // THE THIRD SHAPE AND THE THIRD VARIABLE: a ramp is indexed by the shading term, the shadow LUT by the
     // material's albedo, and a matcap by the VIEW-SPACE NORMAL - `normalVS.xy * 0.5 + 0.5`, which is a sphere
-    // map's own UV and the reason a matcap image is a picture of a ball.
+    // map's UV and the reason a matcap image is a picture of a ball.
     //
     // BLACK IS NOT A PLACEHOLDER, IT IS THE ONLY CONTENT THAT IS NEUTRAL HERE, and the difference from the other
     // two lanes is worth stating because it looks like a weaker bake and is not. The ramps and the cube have a
     // procedural branch to reproduce, so their neutral bake is a SHAPE the shader already computed (`smoothstep`,
     // the identity). This stage had NO matcap term at all before this lane existed, so "the look without the
-    // artist's matcap" is the reference's own expression with the lookup at zero - `1 + 0 * strength` - and any
+    // artist's matcap" is the reference's expression with the lookup at zero - `1 + 0 * strength` - and any
     // other content would be this repository inventing art direction and calling it a substitute. The lane is
     // real, it is read, and what it is FOR is honouring an authored ball.
     constexpr uint32_t baked_matcap_size = 256;
@@ -692,8 +692,8 @@ namespace deren::app::detail {
     // ---- THE METALLIC/GLOSS NEUTRAL IS GONE, AND ITS ABSENCE IS THE CONTRACT ----
     //
     // A material with no `_MetallicGlossMap` is shaded by its FAMILY's `roughness` / `reflectivity` (see
-    // toon_params.slang), because those four channels are the material's own numbers rather than art this project
-    // would be reproducing - and a family default is the article's own answer for skin, which ships no such map.
+    // toon_params.slang), because those four channels are the material's numbers rather than art this project
+    // would be reproducing - and a family default is the article's answer for skin, which ships no such map.
     // The lane therefore answers "there is none" and the shading stage decides.
 
     // THE LOOKUP, whose lane vocabulary lives with the diagnostic above so that the two cannot disagree about
@@ -711,7 +711,7 @@ namespace deren::app::detail {
     // THE NEUTRAL IS PER LANE AND NOT ONE WHITE, AND THAT IS A CORRECTNESS MATTER RATHER THAN A REFINEMENT: three
     // of the outline lane's four floats are a tint, whose neutral is white, and the fourth is `_OutlineWidth`,
     // whose neutral is ZERO. A missing row answered with `vec4(1.0f)` would therefore mean a width of 1.0 - an
-    // outline around EVERY material that states none, which is the whole model (`toon_colour_lane`'s own note
+    // outline around EVERY material that states none, which is the whole model (`toon_colour_lane`'s note
     // states the same thing from the other side).
     //
     // THE SPECULAR LANE'S NEUTRAL IS `-1.0` AND IT IS A SENTINEL RATHER THAN A NO-OP, which is the first of the
@@ -722,7 +722,7 @@ namespace deren::app::detail {
     //
     // THE PARALLAX LANE'S NEUTRAL IS THE SAME `-1.0` FOR THE SAME KIND OF REASON: its `.x` is a DEPTH rather than a
     // tint, so there is no no-op number - `0` is a legitimate authored "no parallax", and any other in-range value
-    // would be a depth the port invented. The stage tests `>= 0.0` and falls back to its own
+    // would be a depth the port invented. The stage tests `>= 0.0` and falls back to its
     // `character_eye_parallax_depth` constant (see `toon_colour_lane::parallax_scale`).
     static constexpr deren::utility::vessel::array<glm::vec4, static_cast<std::size_t>(deren::engine::toon_colour_lane::count)> toon_colour_neutral = {
         {glm::vec4(1.0f), glm::vec4(1.0f), glm::vec4(1.0f), glm::vec4(1.0f, 1.0f, 1.0f, 0.0f), glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f), glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f), glm::vec4(-1.0f, -1.0f, 0.0f, 0.0f), glm::vec4(1.0f, 1.0f, 1.0f, 1.0f), glm::vec4(-1.0f, -1.0f, -1.0f, -1.0f), glm::vec4(-1.0f, -1.0f, -1.0f, -1.0f),
@@ -730,36 +730,36 @@ namespace deren::app::detail {
          // the whole point of a sentinel: two of their eight per-material numbers are AUTHORED NEGATIVES -
          // `CastShadow_center` is `-0.10000000149011612` on both body materials and
          // `GlobalShadowBrightnessAdjustment` is `-1.7999999523162842` on the cloth - so a neutral inside the
-         // values' own range would make the stage read an authored number as "not stated". See
+         // values' range would make the stage read an authored number as "not stated". See
          // `goo_lane_absent` in `source/shaders/toon/character_forward.slang` and each lane's note in
          // `deren::engine::toon_colour_lane`.
          glm::vec4(1.0f, 1.0f, 1.0f, 1.0f), glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f), glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f), glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f), glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f), glm::vec4(0.0f, 0.0f, 0.0f, 1.0f),
-         // STEP 5'S FOUR, WHOSE NEUTRALS ARE THE REFERENCE'S OWN `interface[]` DEFAULTS rather than the `-1000`
+         // STEP 5'S FOUR, WHOSE NEUTRALS ARE THE REFERENCE'S `interface[]` DEFAULTS rather than the `-1000`
          // sentinel four of step 4's lanes need - and the reason is the SOCKETS' RANGES, which is the check step 4's
-         // own root cause ("two of MY sockets are legitimately negative") says to make before reusing a sentinel.
+         // the root cause ("two of MY sockets are legitimately negative") says to make before reusing a sentinel.
          // None of these four numbers is negative in the reference's asset: `specularFGD Strength` is `0.8` or
          // `1.0`, `dirLight_lightColor` is `(1, 0.958..., 0.958...)`, `AmbientLightColorTint` is white or
          // `(1.512...)`, and `SpecularColor` is a positive HDR multiplier (`[4.2093, 3.7652, 3.7652]`). So `< 0`
-         // lies outside every one of their domains and is enough, while step 4's lanes had
+         // lies outside every a separate one domains and is enough, while step 4's lanes had
          // `CastShadow_center = -0.1` and `GlobalShadowBrightnessAdjustment = -1.8` - authored negatives that a `-1`
          // neutral would have swallowed. The scalar lane carries its sentinel in `.x` alone (the stage resolves
-         // that component to the reference's own `1.0`), and the three colour lanes fall back on their own four
+         // that component to the reference's `1.0`), and the three colour lanes fall back alone four
          // components, because a `-1` component of a light or a multiplier is not a state the reference has.
          glm::vec4(-1.0f, 1.0f, 1.0f, 1.0f), glm::vec4(1.0f, 1.0f, 1.0f, 1.0f), glm::vec4(1.0f, 1.0f, 1.0f, 1.0f), glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
          // STEP 7'S FOUR. THE TWO SCALAR LANES ARE `-1000` SENTINELS and the two colours are BLACK, each for the
-         // reason its own note gives: the scalars' zero is a meaningful value (`SmoothnessMax = 0` is "perfectly
+         // reason its note gives: the scalars' zero is a meaningful value (`SmoothnessMax = 0` is "perfectly
          // rough", and the two brightnesses are multiplied into the pixel), while the two colours' socket defaults
-         // in the reference's own interface ARE black - white would be the strongest possible statement about a
+         // in the reference's interface ARE black - white would be the strongest possible statement about a
          // nose shadow (`混合.017`'s A side) and about `Front transparent red`'s tint.
          glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f), glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),
          glm::vec4(0.0f, 0.0f, 0.0f, 1.0f), glm::vec4(0.0f, 0.0f, 0.0f, 1.0f),
          // STEP 8'S ONE. A `-1000` SENTINEL RATHER THAN THE REFERENCE'S GROUP DEFAULT `1.0`, and that is the whole
          // of this lane's contract: an absent row leaves the chain's previous normal in place instead of switching
          // the decode on for a material the port carried no measured value for. `NormalStrength = 0` is a value the
-         // reference's own materials state (`chen_body_01.001` is `1.3184...` with `Use NormalTex? = 0`), so a `0`
+         // reference's materials state (`chen_body_01.001` is `1.3184...` with `Use NormalTex? = 0`), so a `0`
          // neutral would be a statement; `-1000` is outside the socket's range and passes only as "not stated".
          glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),
-         // STEP 10'S ONE IS `(0, 0, 0, 0)` AND IT IS THE REFERENCE'S OWN GROUP DEFAULT, not a sentinel and not a
+         // STEP 10'S ONE IS `(0, 0, 0, 0)` AND IT IS THE REFERENCE'S GROUP DEFAULT, not a sentinel and not a
          // chosen number: `ng[2].interface[3]` (`Use anisotropy?`) is `0.0`, `interface[45]` (`Anisotropic mask`) is
          // `0.0` and `interface[4]` (`Use Toonaniso?`) is `0.0`. So a material that states no `_GooAnisoGate` row
          // gets the answer the graph gives a caller that states nothing - and because `混合.016` returns its A arm
@@ -770,9 +770,9 @@ namespace deren::app::detail {
          //
          // IT NEEDS NO BRANCH IN `toon_colour` BELOW AND GETS NO START-UP DIAGNOSTIC, and both follow from the same
          // fact: it is a `color` row with three components the reference states as plain numbers, so it carries no
-         // sentinel - step 8's lane needed its own branch only because a `float` row cannot travel the generic
+         // sentinel - step 8's lane needed its branch only because a `float` row cannot travel the generic
          // `others` path, and its `-1000` needed the `>= 0.0f` test because a sentinel has to be read as "not
-         // stated". Here `0.0` IS a stated value (it is the reference's own default), there is nothing to test for,
+         // stated". Here `0.0` IS a stated value (it is the reference's default), there is nothing to test for,
          // and the generic path at the end of `toon_colour` carries the row as it carries `_GooSpecularColor`.
          glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
          // STEP 12'S ONE IS ALSO `(0, 0, 0, 0)`, AND FOR STEP 10'S REASON RATHER THAN BY IMITATION: `ng[2].interface[20]`
@@ -786,7 +786,7 @@ namespace deren::app::detail {
          glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
          // STEP 13'S TWO ARE `(0, 0, 0, 0)` AS WELL, AND HERE THE ZERO IS NOT A GROUP DEFAULT BUT THE SWITCH
          // ITSELF: `_GooRSScalars.x` is `Use RS_Eff?`, so a material whose sidecar states no such row must read
-         // `Use = 0` - the reference's own `interface[]` default for that socket - and the stage's gate then
+         // `Use = 0` - the reference's `interface[]` default for that socket - and the stage's gate then
          // leaves the material's colour UNTOUCHED. Lane 28's `.w` is the mask's `SmoothStep.max` and zero there
          // means "unstated" rather than a literal zero-sized window, which the stage turns into `1.0` precisely so
          // that this neutral cannot divide by zero (see `toon_colour_lane::goo_rs_tint`, spec U7).
@@ -878,7 +878,7 @@ namespace deren::app::detail {
         // lanes stand in for maps whose content is a SHAPE the shading could describe itself (see bake_unit_ramp /
         // bake_shadow_lut / bake_matcap), so they take the bake whatever the model carries - the artist's switch
         // above still decides WHETHER there is a ramp or a LUT at all. The METALLIC/GLOSS lane is the other case:
-        // its four channels are the material's own NUMBERS rather than art this project would be reproducing, so
+        // its four channels are the material's NUMBERS rather than art this project would be reproducing, so
         // it READS THE MODEL'S MAP and falls back to a neutral texel when the model has none.
         //
         // THE MODEL'S IMAGE FOR THIS SLOT IS RESOLVED ONCE, here, for every lane below: the sidecar names a texture
@@ -894,10 +894,10 @@ namespace deren::app::detail {
                 }
             }
         }
-        // ---- THE METALLIC/GLOSS LANE READS THE MODEL'S OWN MAP, OR ANSWERS "THERE IS NONE" ----
+        // ---- THE METALLIC/GLOSS LANE READS THE MODEL'S MAP, OR ANSWERS "THERE IS NONE" ----
         //
         // IT DOES NOT GET A NEUTRAL TEXEL, unlike the ramps and the LUT below, and that is a change the SKIN forced:
-        // the four channels are the material's own numbers, and a material with no map for them is not a material
+        // the four channels are the material's numbers, and a material with no map for them is not a material
         // whose numbers are neutral - it is one whose numbers the FAMILY states (`toon_params`' `roughness` /
         // `reflectivity`, which is exactly where the article keeps its skin's). So a lane of 0 here means "ask the
         // family", and handing it a baked texel instead would override that with one invented surface.
@@ -911,7 +911,7 @@ namespace deren::app::detail {
             }
             return out;
         }
-        // ---- THE DIFFUSE RAMP READS THE MODEL'S OWN MAP, WHICH IS THE CHANGE THIS LANE WAS WAITING FOR ----
+        // ---- THE DIFFUSE RAMP READS THE MODEL'S MAP, WHICH IS THE CHANGE THIS LANE WAS WAITING FOR ----
         //
         // THE GAME'S RAMP IS THE ONE TOON ASSET WHOSE CONTENT IS NOT A SHAPE this stage could reconstruct: its
         // RGB is the artist's colour mapping along the light axis and its A the artist's lightness along the same
@@ -955,7 +955,7 @@ namespace deren::app::detail {
             out.valid = true;
             return out;
         }
-        // ---- THE SHADOW LUT READS THE MODEL'S OWN PALETTE, AND THIS IS THE SKIN'S BIGGEST LEVER ----
+        // ---- THE SHADOW LUT READS THE MODEL'S PALETTE, AND THIS IS THE SKIN'S BIGGEST LEVER ----
         //
         // THE ONE TOON LANE WHOSE CONTENT IS A COLOUR THE ARTIST CHOSE per skin tone: the game ships
         // `T_actor_common_femaleskincolorNN_lut_D` - a `1024x32` strip holding a `32^3` cube - and the shading reads
@@ -982,9 +982,9 @@ namespace deren::app::detail {
             }
             return out;
         }
-        // ---- THE MATCAP LANE READS THE MODEL'S OWN BALL, WITH THE BLACK BAKE AS ITS FALLBACK ----
+        // ---- THE MATCAP LANE READS THE MODEL'S BALL, WITH THE BLACK BAKE AS ITS FALLBACK ----
         //
-        // THE EYE'S HIGHLIGHT IS A MATCAP AND NOT A LOBE, which is the article's own arrangement for that family
+        // THE EYE'S HIGHLIGHT IS A MATCAP AND NOT A LOBE, which is the article's arrangement for that family
         // (`EF_EYE_IRIS_MATCAP05_STRENGTH` and a separate overlay material), and the game ships the ball as
         // `T_actor_common_matcap_06_D`. Reading it is what turns an iris from a flat dark disc into a surface with a
         // catchlight in it - and the bake below still covers a model whose material switches a matcap on without
@@ -1030,7 +1030,7 @@ namespace deren::app::detail {
         // the old chain's diffuse, which is the correct fallback and an invisible one in a log.
         if (lane == deren::engine::toon_slot::goo_base_ramp) {
             // TWO SOURCES, AND THE ORDER IS THE STATEMENT RATHER THAN A CONVENIENCE. `_GooBaseRamp` is the
-            // sidecar's own slot row and carries the name the reference's selector resolves to, already applied
+            // sidecar's slot row and carries the name the reference's selector resolves to, already applied
             // where the file was written; `_GooRampIndex` is the raw socket and is read only when the slot row is
             // absent, which is the case for a material whose sidecar states the index and no name. Both answer the
             // SAME name on every material this asset gives the group to, and `source/tests/test_goo_toon_math.cpp` asserts
@@ -1074,7 +1074,7 @@ namespace deren::app::detail {
         // THE FALLBACK IS THE FIRST SHEET, IN EVERY DIRECTION. A name that is absent, or whose image this model
         // does not carry, leaves the lane reading `_GooRSSheet` exactly as it read before this branch existed -
         // which is also what keeps every existing fixture and every shipped material (`RS_Index = 0`, no
-        // `_GooRSSheet1` row at all) byte-identical. `_GooRSSheet1`'s own `_UseGooRSSheet1` switch is asked
+        // `_GooRSSheet1` row at all) byte-identical. `_GooRSSheet1`'s `_UseGooRSSheet1` switch is asked
         // inside `toon_rs_sheet_of`, so "named but switched off" is the first sheet too.
         if (lane == deren::engine::toon_slot::goo_rs_sheet) {
             toon_rs_sheet_choice const choice = toon_rs_sheet_of(*material, texture_name);
@@ -1126,7 +1126,7 @@ namespace deren::app::detail {
         toon_lookup_state const& state = *static_cast<toon_lookup_state const*>(parent);
         // ---- THE SPECULAR STRENGTH IS READ BEFORE THE SIDECAR IS EVEN LOOKED FOR, AND THAT ORDER IS THE RULE ----
         //
-        // Its value is the ASSET'S (`extras_float_of`), the sidecar is only the fallback, and the FAMILY TABLE in
+        // its value is the ASSET'S (`extras_float_of`), the sidecar is only the fallback, and the FAMILY TABLE in
         // the shader is the fallback behind that - so this lane must answer even for a model that has extras and
         // NO sidecar at all, which is why it does not sit behind the two early returns below. `-1` is the third
         // answer (neither source speaks), and the stage reads it as "the family's number stands".
@@ -1151,7 +1151,7 @@ namespace deren::app::detail {
                     float const value = from_sidecar->scalar(toon_colour_row[lane_index], scalar.x);
                     // A SIDECAR ROW OUTSIDE THE SENTINEL'S SIDE OF ZERO IS IGNORED RATHER THAN TRUSTED, because
                     // `-1` is not a strength (nor a depth) and a negative one would shade nothing: a row that
-                    // parsed as a negative number is a row this lane cannot express, so the stage's own fallback
+                    // parsed as a negative number is a row this lane cannot express, so the stage's fallback
                     // answers instead.
                     if (value >= 0.0f) {
                         scalar.x = value;
@@ -1194,7 +1194,7 @@ namespace deren::app::detail {
         // `0.7999999523162842` and every cloth states `1.0`, and the shader read `-1.0` for all of them.
         //
         // THE NEUTRAL'S `.x` IS THE SENTINEL (`-1.0`, "this material's container states nothing") and the
-        // shader resolves it to the reference's own group default `1.0` - see
+        // shader resolves it to the reference's group default `1.0` - see
         // `deren::engine::toon_colour_lane::goo_specular_fgd`, whose contract is `< 0` and NOT the `-1000` sentinel
         // step 4's four lanes use.
         if (lane == deren::engine::toon_colour_lane::goo_specular_fgd) {
@@ -1213,7 +1213,7 @@ namespace deren::app::detail {
         // tint row exists for `M_actor_chen_cloth_01` ALONE (1,1,1,1), while `_OutlineWidth` exists for all five
         // materials (body 0.6 / cloth_01 0.6 / cloth_02 0.0 / face 0.5 / hair 0.5). Reading the width only when
         // the tint row is present would therefore outline one material out of five and silently drop the rest, so
-        // the width is read unconditionally and a missing tint answers white - the article's own `_OutlineColor`
+        // the width is read unconditionally and a missing tint answers white - the article's `_OutlineColor`
         // default is white, and white is what "the game states no tint" has to look like for a multiply.
         if (lane == deren::engine::toon_colour_lane::outline_edge) {
             glm::vec4 outline = toon_colour_neutral[lane_index]; // white tint, width 0 until a row says otherwise
@@ -1316,7 +1316,7 @@ namespace deren::app::detail {
                 deren::utility::log("      _GooNormalStrength = ABSENT | lane 24 keeps the chain's previous normal");
             }
             // LANE 16'S `float` ROW IS PRINTED BY NAME FOR THE SAME REASON, and here the distinction is the
-            // whole of debt (u): `ABSENT` makes the stage answer the reference's own group default `1.0`, while
+            // whole of debt (u): `ABSENT` makes the stage answer the reference's group default `1.0`, while
             // a value is what this lane exists to carry. The two body materials state `0.7999999523162842` and
             // every cloth states `1.0`, so a reader that sees `ABSENT` for them is looking at D1.
             if (auto const specular_fgd = material.scalars.find("_GooSpecularFGD"); specular_fgd != material.scalars.end()) {

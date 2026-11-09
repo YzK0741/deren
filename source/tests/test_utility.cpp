@@ -393,7 +393,7 @@ namespace {
         // underflow). The high bits of both readings are noise - a driver leaves everything above
         // timestampValidBits undefined, so they must be masked away and not leak into the result.
         check_near(deren::utility::timestamp_delta_milliseconds(0xDEADBEEF'FFFFFC00ull, 0x12345678'00000200ull, 32, 1.0f), 1536.0e-6, 1e-12, "32-bit wrap with undefined high bits");
-        // the same on a 36-bit counter, whose width is its own: from its maximum to 10 wraps to 11
+        // the same on a 36-bit counter, whose width is its: from its maximum to 10 wraps to 11
         // ticks, and the junk hex digits sit above bit 35 where the mask has to drop them
         check_near(deren::utility::timestamp_delta_milliseconds(0x1234567F'FFFFFFFFull, 0x98765430'0000000Aull, 36, 1.0f), 11.0e-6, 1e-12, "36-bit wrap");
     }
@@ -651,7 +651,7 @@ namespace {
     //  - wait_all() must return once the queue is drained even while other threads keep producing,
     //    which is the predicate the `accepting` shutdown gate was added to, and
     //  - it must not be missed by a lost wakeup, so the readers race the worker deliberately.
-    // The wait runs on its own thread with a watchdog: a regression here is a hang, and an
+    // The wait runs alone thread with a watchdog: a regression here is a hang, and an
     // unbounded unittest hang would be far worse to diagnose than a failed check.
     void test_log_sink_wait_all_under_concurrent_writers() {
         // Deliberately small: every message is a real line in the log this test writes to, and a
@@ -700,7 +700,7 @@ namespace {
     // The build's answer is to SANITIZE, not to fail: bvh<T>::normalize() maps a non-finite
     // normalized midpoint onto the origin (those leaves then share one morton code and stay in
     // insertion order, which is a sound order to build from), while
-    // generate_morton_from_midpoint()'s own finite check is the backstop for a direct caller that
+    // generate_morton_from_midpoint()'s intrinsic finite check is the backstop for a direct caller that
     // bypasses normalize(). So a build containing a non-finite AABB must SUCCEED and stay usable -
     // asserting a rejection here would be asserting the wrong contract.
     void test_bvh_non_finite_aabb_is_sanitized() {

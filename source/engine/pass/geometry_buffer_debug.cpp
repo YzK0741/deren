@@ -1,7 +1,7 @@
 // The G-buffer debug view's implementation: the four images the pass moves to a sampled layout, the frame's two
 // bookkeeping callbacks, the CLEAR instance over the HDR target, the one-set bind, the 16-byte push and the
 // fullscreen draw. Moved out of `runtime::record_gbuffer_debug_pass` UNCHANGED in behaviour except for the two
-// things the pass does not own - the HDR target's own transition and the missing-set fallback, both of which are
+// things the pass does not hold - the HDR target's transition and the missing-set fallback, both of which are
 // the frame loop's (see the pass's header) - so the knob-on A/B against the parent commit is what decides the move.
 
 module;
@@ -73,7 +73,7 @@ namespace deren::engine::pass {
 
     void gbuffer_debug_pass::on_swapchain_recreated(pass_host const&) {
         // Nothing to reset: the pipeline depends on the surface's FORMAT and on nothing whose size changes, and the
-        // set this pass binds belongs to the G-buffer family, whose owner retires it.
+        // set this pass binds belongs to the G-buffer family, whose holder retires it.
     }
 
     bool gbuffer_debug_pass::pipeline_ready() const noexcept {
@@ -85,7 +85,7 @@ namespace deren::engine::pass {
     }
 
     void gbuffer_debug_pass::set_channel(int32_t const channel) noexcept {
-        // The clamp came with the parameter: the count is the declaration's own `gbuffer_channel_count`, and a
+        // The clamp came with the parameter: the count is the declaration's `gbuffer_channel_count`, and a
         // channel outside it would index the shader's switch by a value it does not know.
         this->debug_channel = std::clamp(channel, 0, channel_count - 1);
     }
@@ -122,9 +122,9 @@ namespace deren::engine::pass {
         io.list->set_cull_mode(rhi::cull_mode::none); // the synthetic triangle has no facing to cull
         // No set to bind: the G-buffer images are per-swapchain-image heap slots the shader indexes itself with
         // the image index its push block carries (see source/shaders/debug/gbuffer_debug.slang and heap_slots.glsl).
-        // The push block is the pass's own now: the channel it owns, the frame's two projection terms (from
+        // The push block is the pass's now: the channel it holds, the frame's two projection terms (from
         // `resolved_io::constants`) and the motion gain, which scales itself across resolutions by using the frame's
-        // own width (four pixels saturate the motion channel).
+        // the width (four pixels saturate the motion channel).
         push_constants const push = {
             .channel = static_cast<float>(this->debug_channel),
             .proj_22 = io.constants.proj[2][2],

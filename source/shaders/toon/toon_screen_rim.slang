@@ -4,11 +4,11 @@
 // view-angle rim - is inside the character-forward stage and needs only a normal and a view vector. This one
 // catches what that cannot: a contour where the surface does NOT turn away from the camera but is simply
 // occluded by nearer geometry (an arm across a torso, a chin over a collar). Its mechanism is a DEPTH
-// COMPARISON at a screen offset, and the references do it in their own geometry passes:
+// COMPARISON at a screen offset, and the references do it in their geometry passes:
 //   * the MME pack's `Draw*ScreenRim` passes sample the viewport map's G channel (linear camera depth)
 //   * the reference's `GetCharacterDirectRimLightArea` samples `_CameraDepthTexture`
 //
-// WHY IT IS A PASS OF ITS OWN RATHER THAN A STEP IN THE CHARACTER-FORWARD STAGE, and the reason is a Vulkan
+// WHY IT IS A separate PASS RATHER THAN A STEP IN THE CHARACTER-FORWARD STAGE, and the reason is a Vulkan
 // rule rather than a layout preference: that stage holds the depth image as its DEPTH ATTACHMENT - which is
 // what makes its `ZTest Equal` possible - and an image cannot be a depth attachment and a sampled texture in
 // the same instance. Here the depth is only ever SAMPLED (this instance has no depth attachment at all), so
@@ -34,7 +34,7 @@
 // WHAT IT CANNOT DO YET, and this is the constraint recorded when the family table was made shared: it
 // cannot read the MATERIAL TABLE, because the `Material` struct is declared by `surface.slang` - along with
 // the shared scene push block, which is 144 bytes and over this path's 128-byte limit, so a fullscreen stage
-// cannot include it. The rim therefore takes its colour and strength from its own push block: ONE set for
+// cannot include it. The rim therefore takes its colour and strength from its push block: ONE set for
 // every character rather than one per family. The per-family refinement needs either a family id in the
 // G-buffer or a material struct declared where a fullscreen stage can reach it.
 
@@ -107,7 +107,7 @@ float4 main([[vk::location(0)]] float2 v_uv : TEXCOORD0) : SV_Target
 
     const float depth_here = rim_view_depth(stored_depth);
     // The offset SHRINKS WITH DISTANCE (`/ (eye_depth + 3)`) so a constant rim width in screen terms is a
-    // constant width on the SURFACE rather than on the image - the reference's own expression, including its
+    // constant width on the SURFACE rather than on the image - the reference's expression, including its
     // constant, and the 3.0 is what keeps the divisor away from zero for a surface at the near plane.
     const float step = pc.rim_width * 0.0044 / (depth_here + 3.0);
     const float depth_left = rim_view_depth(rim_depth_at(saturate(v_uv + float2(-step, 0.0))));

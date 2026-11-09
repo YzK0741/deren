@@ -10,7 +10,7 @@ export import deren.utility.shared;
 export import deren.promise.rhi;
 
 export namespace deren::gui {
-    /// The boundary's own version: an INCOMPATIBLE change to the interface or to `create_info` moves it, and
+    /// The boundary's version: an INCOMPATIBLE change to the interface or to `create_info` moves it, and
     /// the entry refuses a caller that hands over another number (the backend's abi handshake, one level up).
     inline constexpr std::uint32_t gui_abi_version = 6u;
 
@@ -38,8 +38,8 @@ export namespace deren::gui {
     /// The DLL a host looks for, without the extension or the directory.
     inline constexpr char const* gui_dll_prefix = "deren_gui_";
 
-    /// The device root is handed over as the RHI's OPAQUE MAIN-THREAD CONTEXT (abi 39), borrowed for the
-    /// overlay's lifetime; the runtime owns it. The GUI contract names no native vocabulary: the
+    /// The device root is handed over as the RHI's OPAQUE MAIN-THREAD CONTEXT (abi 39), referenced for the
+    /// overlay's lifetime; the runtime holds it. The GUI contract names no native vocabulary: the
     /// API-specific plugin checks the context's concrete tag and casts it to the layout its API's backend
     /// and plugin share (`denen.vulkan.main_context` for the Vulkan plugin), which is where the native
     /// handles and format numbers live. The overlay's RECORDING TARGETS are contract handles, not native
@@ -49,10 +49,10 @@ export namespace deren::gui {
         api_type api = api_type::none;
         deren::promise::rhi::main_context_view* main_context = nullptr;
         GLFWwindow* window = nullptr;
-        /// THE OVERLAY'S OWN RECORDING TARGETS (abi 5): two mergeable command buffers the HOST creates through
+        /// THE OVERLAY'S RECORDING TARGETS (abi 5): two mergeable command buffers the HOST creates through
         /// the contract and hands over - the overlay holds them, records ImGui into one per frame (the frame
         /// slot ring makes alternating reuse safe), and returns the recorded segment to the host, which
-        /// executes it in a secondary-contents rendering instance of its own after the pass instance ends.
+        /// executes it in A separate secondary-contents rendering instance after the pass instance ends.
         /// The handles are the contract's; no native vocabulary crosses this boundary.
         deren::promise::rhi::mergeable_command_buffer_ref recording_targets[2] = {};
     };
@@ -63,14 +63,14 @@ export namespace deren::gui {
     /// plugin's business.
     struct widget {
         virtual ~widget() = default;
-        /// draw this widget only while @p predicate is true (the panel's own visibility is separate)
+        /// draw this widget only while @p predicate is true (the panel's visibility is separate)
         virtual void set_visible_when(std::function<bool()> predicate) = 0;
     };
 
     /// ONE DEBUG PANEL: a titled window whose contents the HOST declares and the PLUGIN draws.
     ///
     /// The widgets are verbs rather than objects because the widget classes live inside the plugin: the host
-    /// hands over a callback and a pointer to its own state, and never sees what draws it. Each verb returns
+    /// hands over a callback and a pointer to its state, and never sees what draws it. Each verb returns
     /// the `widget` handle so a predicate can be attached to it.
     struct panel {
         virtual ~panel() = default;
@@ -102,11 +102,11 @@ export namespace deren::gui {
         virtual ~overlay() = default;
 
         /// Bring the overlay up on the device `info` describes. False = it stays inactive, with the plugin's
-        /// own named log saying why (a device without the features its backend needs, or a bad `api`).
+        /// a named log saying why (a device without the features its backend needs, or a bad `api`).
         [[nodiscard]] virtual bool init(create_info const& info) = 0;
         virtual void shutdown() = 0;
         [[nodiscard]] virtual bool is_active() const noexcept = 0;
-        /// true while the overlay owns the mouse (the runtime suppresses camera orbit/zoom with it)
+        /// true while the overlay holds the mouse (the runtime suppresses camera orbit/zoom with it)
         [[nodiscard]] virtual bool wants_mouse() const noexcept = 0;
 
         virtual panel& add_panel(deren::utility::vessel::string title) = 0;
@@ -116,16 +116,16 @@ export namespace deren::gui {
 
         /// begin a frame's UI (once per frame, after the acquire and before any content)
         virtual void new_frame() const = 0;
-        /// Record this frame's ImGui draw data into the CURRENT owned recording target and hand it back.
+        /// Record this frame's ImGui draw data into the CURRENT held recording target and hand it back.
         ///
         /// @p begin is the rendering-instance inheritance the HOST's currently open instance declares (the
-        /// overlay's segment records as a continuation of it and cannot begin an instance of its own): the
+        /// overlay's segment records as a continuation of it and cannot begin A separate instance): the
         /// plugin starts the segment with it, records ImGui, ends the segment and returns it - the host
         /// executes it in the secondary-contents instance it begins after that pass instance ends. An empty
         /// return is a named refusal (no target, a target still in flight, or ImGui recording failure).
         ///
         /// The host builds @p begin with `command_buffer_begin_info::inherit_descriptor_heaps = false` (rhi
-        /// abi 45): the Dear ImGui Vulkan backend binds its own classic descriptor sets, which a
+        /// abi 45): the Dear ImGui Vulkan backend binds its classic descriptor sets, which a
         /// heap-inheriting continuation would invalidate.
         [[nodiscard]] virtual deren::promise::rhi::mergeable_command_buffer_ref record(
             deren::promise::rhi::command_buffer_begin_info const& begin) = 0;
@@ -133,8 +133,8 @@ export namespace deren::gui {
         virtual void on_swapchain_recreated() const = 0;
     };
 
-    /// The one symbol a GUI plugin exports. An EMPTY pointer is "refused" (with the plugin's own log line as
-    /// the diagnosis); `info` is borrowed only until the call returns.
+    /// The one symbol a GUI plugin exports. An EMPTY pointer is "refused" (with the plugin's log line as
+    /// the diagnosis); `info` is referenced only until the call returns.
     ///
     /// THE HOST'S VIEW OF IT, as a type: what `deren::utility::dynamic_link`'s resolved address is cast to.
     using make_gui_fn = std::shared_ptr<overlay> (*)(std::uint32_t abi_version, create_info const* info);

@@ -76,7 +76,7 @@ try {
     # "No untracked-file dependencies" is a repository rule, so a marker written
     # while untracked files exist would attest to a tree nobody can reproduce.
     # Generated output is already covered by .gitignore (build-*/ and tmp/), which
-    # is why only these two locations are allowed here: the gate's own scratch and
+    # is why only these two locations are allowed here: the gate's scratch and
     # the build tree this run uses (a custom -BuildDir may not be ignored yet).
     # Everything else - a scratch header, a hand-copied asset, a local tool - is a
     # dependency that is not in the repository and blocks the marker.

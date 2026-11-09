@@ -2,9 +2,9 @@
 // ============================================================================
 // file: source/backends/vulkan/core/facet/core.resource_facet.cpp
 //
-// The resource face owns the descriptor heaps, samplers, texture groups,
+// The resource face holds the descriptor heaps, samplers, texture groups,
 // provenance sets and tier-2 resource views. Its virtual entry points implement
-// the creation logic here; the root keeps thin forwarders for its own callers.
+// the creation logic here; the root keeps thin forwarders for its callers.
 // ============================================================================
 module;
 #include "../vma/texture_upload_layout.h"
@@ -65,7 +65,7 @@ namespace deren::vulkan {
         }
 
         /// the contract's format name in this backend's spelling; UNDEFINED means "refuse" (unknown),
-        /// and the `depth` ROLE resolves to the device's own depth attachment format - which concrete
+        /// and the `depth` ROLE resolves to the device's depth attachment format - which concrete
         /// depth format a device serves is the backend's capability question, not the caller's (§17).
         [[nodiscard]] VkFormat native_image_format(deren::promise::rhi::image_format const format, VkFormat const depth_format) noexcept {
             using rhi_image_format = deren::promise::rhi::image_format;
@@ -375,7 +375,7 @@ namespace deren::vulkan {
             type = buffer_type::storage_gpu_only;
             break;
         // APPENDED for the frame-ordered upload: the staging side of a `copy_buffer` a frame records. One to one,
-        // like every other case here - the contract's own note says a new value must not silently become whatever
+        // like every other case here - the contract's note says a new value must not silently become whatever
         // the integer happens to mean in this backend.
         case rhi::buffer_usage::staging_source:
             type = buffer_type::staging_source;
@@ -402,12 +402,12 @@ namespace deren::vulkan {
         if (rhi::has_flag(desc.flags, rhi::buffer_flag::micromap_storage)) {
             extra_usage |= VK_BUFFER_USAGE_MICROMAP_STORAGE_BIT_EXT;
         }
-        // THE THREE THAT CAME FROM THE ENGINE'S OWN CENSUS RATHER THAN FROM A GUESS (the writers found
+        // THE THREE THAT CAME FROM THE ENGINE'S CENSUS RATHER THAN FROM A GUESS (the writers found
         // them, and each one is a case where a missing bit is a SILENT wrong-data bug rather than a
         // validation error):
         //   - `storage`: the renderer writes its per-slot uniform blocks as STORAGE descriptors and reads
         //     them through a Slang StorageBuffer pointer; without the bit the mismatch "reads as zeros
-        //     with NO validation finding" (source/engine/runtime/runtime.constructor.cppm's own note).
+        //     with NO validation finding" (source/engine/runtime/runtime.constructor.cppm's note).
         //   - `indirect`: a buffer that carries dispatch/draw commands.
         //   - `shader_binding_table`: a ray-tracing SBT.
         if (rhi::has_flag(desc.flags, rhi::buffer_flag::storage)) {
@@ -453,7 +453,7 @@ namespace deren::vulkan {
         answer->parent = &this->full_core;
 
         // THE DETAIL IS READ, NEVER KEPT: `get_buffer_detail` answers with a pointer into the
-        // allocator's own map and has already released its lock by the time it returns, so what is
+        // allocator's map and has already released its lock by the time it returns, so what is
         // copied out here are the two VALUES the contract needs - the Vulkan handle and the mapped
         // address - not the pointer to the record (see the type's note).
         auto const* const detail = this->full_core.device.vma.get_buffer_detail(answer->allocation.handle());
@@ -499,7 +499,7 @@ namespace deren::vulkan {
         }
 
         // ---- THE CONTRACT'S VOCABULARY IN THE BACKEND'S ------------------------------------------
-        // The format: named formats map one to one; the `depth` ROLE resolves to the device's own depth
+        // The format: named formats map one to one; the `depth` ROLE resolves to the device's depth
         // attachment format, which is the capability question §17 moved out of the caller's hands.
         VkFormat const native_format = native_image_format(desc.format, this->full_core.frame.depth_attachment_format);
         // The allocator's type: the shape flags pick it, because the type is what carries the memory
@@ -525,8 +525,8 @@ namespace deren::vulkan {
             .extra_usage = native_image_usage(desc.flags),
         };
 
-        // ---- THE ALLOCATION (the allocator's own dedup sees the content at creation) --------------
-        // create_image uploads the staging copy itself for data-carrying types and answers an owning
+        // ---- THE ALLOCATION (the allocator's dedup sees the content at creation) --------------
+        // create_image uploads the staging copy itself for data-carrying types and answers a holding
         // RAII handle (vma.cppm's type table); empty bytes mean allocate-only.
         vk_image const allocation = this->full_core.device.vma.create_image(
             reinterpret_cast<uint8_t const*>(desc.initial_bytes.data()), desc.initial_bytes.size(), create_info, type);
@@ -536,7 +536,7 @@ namespace deren::vulkan {
             return nullptr;
         }
 
-        // The detail lookup is an UNLOCKED BORROW: the VkImage is copied out NOW (the same rule
+        // The detail lookup is an UNLOCKED REFERENCE: the VkImage is copied out NOW (the same rule
         // core::buffer's comment states), never the pointer into the allocator's map.
         image_detail const* const detail = this->full_core.device.vma.get_image_detail(allocation.handle());
         if (detail == nullptr) {
@@ -587,7 +587,7 @@ namespace deren::vulkan {
             break;
         }
 
-        // abi 16's fields ride on the SAME builder the backend's own six samplers use
+        // abi 16's fields ride on the SAME builder the backend's six samplers use
         // (`make_texture_sampler_info`), so a description that spells out those six is value-for-value the
         // sampler the backend used to create on the engine's behalf - that equality is what keeps the
         // pictures identical, and it is why only the four knobs are overridden here.
@@ -682,7 +682,7 @@ namespace deren::vulkan {
         }
         char const* const what = desc.debug_name != nullptr ? desc.debug_name : "unnamed pipeline";
 
-        // ---- THE COMPUTE SPELLING IS ITS OWN PATH (abi 21) ---------------------------------------
+        // ---- THE COMPUTE SPELLING IS its PATH (abi 21) ---------------------------------------
         // ONE stage, no attachment state: `first_stage == compute` is the whole difference the caller
         // states, and everything the graphics path below derives from formats and blends is meaningless
         // here. The branch is FIRST so the graphics field reads below cannot be reached with a compute
@@ -698,14 +698,14 @@ namespace deren::vulkan {
         }
         // ---- AND THE RAY-TRACING SPELLING (abi 21) ------------------------------------------------
         // The switch is the STAGES, not a first stage: a ray-tracing pipeline is the only kind built from
-        // several named entry points and a group table (see the descriptor's own note), so their presence is
+        // several named entry points and a group table (see the descriptor's note), so their presence is
         // what says which path this is.
         if (!desc.ray_tracing_stages.empty()) {
             return rhi::unique_object<rhi::pipeline>{this->full_core.create_ray_tracing_pipeline(desc, what)};
         }
 
         // ---- THE CONTRACT'S VOCABULARY IN THE BACKEND'S ------------------------------------------
-        // Color formats one to one; the `depth` ROLE resolves to the device's own depth attachment
+        // Color formats one to one; the `depth` ROLE resolves to the device's depth attachment
         // format; `unknown` as the depth format means NO depth attachment (make_pipeline's
         // VK_FORMAT_UNDEFINED spelling).
         deren::utility::vessel::vector<VkFormat> color_formats(desc.color_formats.size());
@@ -856,7 +856,7 @@ namespace deren::vulkan {
         out->index_stride = static_cast<std::uint32_t>(sizeof(std::uint32_t));
         out->usage = VkMicromapUsageEXT{.count = triangle_count, .subdivisionLevel = 0u, .format = static_cast<std::uint32_t>(format)};
 
-        // ---- THE SETUP BUFFERS, AND THE ALIGNMENT THE API REQUIRES OF THEIR ADDRESSES --------------------
+        // ---- THE SETUP BUFFERS, AND THE separate ALIGNMENT THE API REQUIRES ADDRESSES --------------------
         // 256 BYTES ON THE DEVICE ADDRESS, not on the buffer: the allocator gives no such promise and the address
         // does not exist before the allocation, so each buffer carries one alignment worth of slack and the
         // payload is written at the first aligned address inside it. THIS IS THE ENGINE'S OLD JOB, and it is the
@@ -957,10 +957,10 @@ namespace deren::vulkan {
         // ---- THE ABI GUARD, THEN WHAT A CREATE ACTUALLY IS (tier-1 since abi 26) ------------------------
         //
         //   1. THE GEOMETRY, in the driver's words, built ONCE: the caller's records are PODs of the CONTRACT's
-        //      layout, and this is the ONE place the two spellings meet - the backend owns the conversion, the
+        //      layout, and this is the ONE place the two spellings meet - the backend holds the conversion, the
         //      same rule `mesh_task_command` follows.
         //   2. THE SIZES (`vkGetAccelerationStructureBuildSizesKHR`) and the memory: the storage the structure
-        //      lives in, allocated through this backend's own factory. The caller never sees the number.
+        //      lives in, allocated through this backend's factory. The caller never sees the number.
         //   3. THE HANDLE (`vkCreateAccelerationStructureKHR`) and its ADDRESS
         //      (`vkGetAccelerationStructureDeviceAddressKHR`), which is what a shader and an instance record use.
         //
@@ -1065,10 +1065,10 @@ namespace deren::vulkan {
                 triangles.indexType = source.index_address == 0 ? VK_INDEX_TYPE_NONE_KHR : static_cast<VkIndexType>(source.index_format);
                 triangles.indexData.deviceAddress = source.index_address;
                 triangles.transformData.deviceAddress = 0;
-                // THE OPACITY MICROMAP, CHAINED INTO THE TRIANGLES DATA (not into the geometry: the geometry's own
+                // THE OPACITY MICROMAP, CHAINED INTO THE TRIANGLES DATA (not into the geometry: the geometry's
                 // pNext accepts only the micromap-DATA struct, and validation named exactly that when the engine
                 // first attached it in the wrong place). THE INDEX ARRAY IS THIS BACKEND'S - it built the micromap
-                // and owns the buffer - which is what makes the contract's attachment one handle and a usage record.
+                // and holds the buffer - which is what makes the contract's attachment one handle and a usage record.
                 if (source.opacity_micromap != nullptr) {
                     if (!rhi::is_concrete(*source.opacity_micromap, concrete::micromap)) {
                         deren::utility::log("rhi: create_acceleration_structure refused: a geometry's opacity micromap is not a handle this backend handed out");
@@ -1093,7 +1093,7 @@ namespace deren::vulkan {
                         .ppUsageCounts = nullptr, // ... and this backend uses the single-record form
                         .micromap = micromap.native,
                     });
-                    // `pUsageCounts` points at the MICROMAP's own usage record, which lives as long as the caller
+                    // `pUsageCounts` points at the MICROMAP's usage record, which lives as long as the caller
                     // holds the micromap (the engine's structure set keeps every micromap it built alive for the
                     // whole session, which is why that is a safe anchor rather than a local).
                     structure->micromap_attachments.back().pUsageCounts = &micromap.usage;

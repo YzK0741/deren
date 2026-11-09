@@ -38,7 +38,7 @@ THE THIRD INSTRUMENT: THE IMPORT GRAPH
     A symbol count can reach zero while the engine keeps importing the backend's MODULES - and
     a module import is what actually forbids a SHARED backend, because the BMI would have to
     come from the DLL. `--require-zero` therefore also scans the engine/application sources and
-    fails on every import of a module `deren_vulkan` provides. Provenance comes from CMake's own
+    fails on every import of a module `deren_vulkan` provides. Provenance comes from CMake's
     `target_sources(deren_vulkan ...)` list, NOT from a name prefix: `source/engine/filters/
     filters.cppm` declares `deren.engine.filters` but belongs to the ENGINE, while
     `source/backends/vulkan/constant_init/constant_init.cppm` belongs to the BACKEND. Test sources are reported
@@ -49,7 +49,7 @@ THE SECOND NUMBER: STL CONTAINERS ACROSS THE BOUNDARY
     allocation that one image makes and the other frees (today:
     `init_utils::create_host_buffers(..., std::vector<vk_buffer>&, ...)`). The contract
     forbids it (no STL across the boundary), so the count is tracked
-    as a ratchet of its own - it is the one part of the migration where "it links" is not
+    as A separate ratchet - it is the one part of the migration where "it links" is not
     the same as "it is safe".
 
 HISTORICAL MEASUREMENT, build-release-clang64 (Release clang64):
@@ -64,12 +64,11 @@ BASELINES ARE PER TOOLCHAIN (the symbol sets are not comparable across them):
     `--update` can only reduce an existing set. Neither mutation obeys `--warn`.
 
 ONE CONFIGURATION, ONE PAIR (S5, the flip)
-    Step 2 built a SECOND runtime (`source/engine/runtime/`, contract-only) in its own tree, and while both existed the
+    Step 2 built a SECOND runtime (`source/engine/runtime/`, contract-only) in its tree, and while both existed the
     two trees crossed the boundary in DIFFERENT SHAPES: the legacy engine referenced the CONCRETE CLASS
     (`core::core(create_info const&)`), the dynamic one references the C ENTRY
     (`deren_make_api_core` / `deren_destroy_api_core`). Sharing one pair of files would have made each
-    tree report the other's symbols as STALE - noise, not a boundary - so each configuration carried its
-    OWN baseline and whitelist, both shrink-only, each with its reasons.
+    tree report the other's symbols as STALE - noise, not a boundary - so each configuration carried its baseline and whitelist, both shrink-only, each with its reasons.
 
     S5 DELETED THE LEGACY RUNTIME (`source/engine/runtime/`, which named `core`) and the legacy pair with it.
     What is left is the DYNAMIC configuration, whose boundary is the C entry - the DESIGNED boundary,
@@ -251,7 +250,7 @@ CPP_RUNTIME_DLL = "libc++.dll"
 # Every image that must import it, WHEN IT EXISTS. `deren_vulkan.dll` is the backend's SHARED spelling
 # (abi 18): the rule is symmetric, so the day that DLL is built this check covers it with no edit.
 # `deren_assets.dll` joined in the binary-balance batch: the asset-loading stack is a third image with
-# its own copy of the C++ runtime and its own calls into the process-wide sink, so it is held to the
+# its copy of the C++ runtime and its calls into the process-wide sink, so it is held to the
 # same two premises as the other two (measured on it: libc++.dll + shared_utility.dll both imported).
 CPP_RUNTIME_IMAGES = ("deren.exe", "deren_vulkan.dll", "deren_assets.dll")
 
@@ -295,20 +294,20 @@ def check_cpp_runtime(build_dir: str) -> dict:
 # The utility split's subject is STATE: the log sink must exist once per process. In this batch both
 # halves are STATIC, so "once" is a property of the LINK - and the link is decided by what the archives
 # carry. Two questions, both answerable from the archives alone:
-#   1. DOES A SECOND COPY OF THE SHARED TUs EXIST? `libshared_utility.a` owns them; if the engine or
+#   1. DOES A SECOND COPY OF THE SHARED TUs EXIST? `libshared_utility.a` holds them; if the engine or
 #      the backend archive also carried `shared_utility.cpp.obj` (or better_pmr / log_rotation_claim),
 #      then two copies of the sink are in the tree, whatever the link does with them.
 #   2. DOES THE OTHER HALF GO TO IT? The engine and backend archives must REFERENCE symbols this one
 #      archive DEFINES (their `log` / `panic` / `init_pmr` call sites). A half that references none is
-#      either not using the toolkit or carrying its own copy - and question 1 tells the two apart.
-# This is the batch's own witness (a): the engine archive and the backend archive reference the SAME
+#      either not using the toolkit or carrying its copy - and question 1 tells the two apart.
+# This is the batch's witness (a): the engine archive and the backend archive reference the SAME
 # shared utility rather than each having one, checked by member names + undefined/defined symbol sets
 # (`nm --defined-only` / `--undefined-only` over the four archives), not by reading the link line.
 UTILITY_SHARED_ARCHIVE = "libshared_utility.a"
 # Every other archive that links the toolkit; the two halves plus the engine library.
 UTILITY_SHARED_CONSUMERS = ("libstatic_utility.a", "libderen_engine.a", "libderen_vulkan.a")
 # The TUs that belong to the process-wide half. If one of these member names shows up in another
-# archive, that archive built its own copy of the shared code (the exact thing the split prevents).
+# archive, that archive built its copy of the shared code (the exact thing the split prevents).
 UTILITY_SHARED_MEMBERS = ("shared_utility.cpp.obj", "shared_utility.cppm.obj", "better_pmr.cpp.obj",
                           "memory.cpp.obj", "allocation_failure.cpp.obj", "stacktrace.cpp.obj",
                           "stacktrace_native.cpp.obj", "stacktrace_posix.cpp.obj", "log_rotation_claim.cpp.obj")
@@ -318,7 +317,7 @@ def check_shared_utility(build_dir: str, nm: str) -> dict:
     """(a) ONE COPY OF THE PROCESS-WIDE HALF, in whichever shape this tree has.
 
     STATIC REGIME (before the flip): the shared TUs live in `libshared_utility.a`, and "once per
-    process" is a property of the LINK - so the engine and the backend archives must not carry their own
+    process" is a property of the LINK - so the engine and the backend archives must not carry their
     copy, and each must reference symbols that archive defines.
 
     DLL REGIME (the flip, and the regime the split was for): `shared_utility.dll` IS the one copy,
@@ -412,7 +411,7 @@ def read_backend_exports(dll: str) -> list[str] | None:
 
 
 def check_dll_surface(build_dir: str) -> dict:
-    """(the flip's own instrument) WHAT THE BACKEND DLL OFFERS, AND WHICH HALVES ARE IN PLACE.
+    """(the flip's instrument) WHAT THE BACKEND DLL OFFERS, AND WHICH HALVES ARE IN PLACE.
 
     Three questions, all on the artifact rather than on the link line:
       1. the export table carries EXACTLY the one designed entry - `deren_make_api_core`. A second
@@ -532,12 +531,12 @@ SOURCE_SUFFIXES = (".cppm", ".cpp", ".hpp", ".h")
 
 
 def backend_modules_of(repo_root: str) -> tuple[set[str], set[str]]:
-    """({modules deren_vulkan owns}, {its source files, repo-relative}).
+    """({modules deren_vulkan holds}, {its source files, repo-relative}).
 
     PROVENANCE COMES FROM THE TARGET, NOT FROM THE NAME. `source/engine/filters/filters.cppm` declares
     `deren.engine.filters` but belongs to the ENGINE target (deren_engine), while
     `source/backends/vulkan/constant_init/constant_init.cppm` declares `deren.vulkan.constant_init` and belongs to the
-    BACKEND - so a name prefix would be wrong in both directions. The list is read out of CMake's own
+    BACKEND - so a name prefix would be wrong in both directions. The list is read out of CMake's
     `target_sources(deren_vulkan ...)` block, which is what makes this check self-maintaining.
     """
     cmake = os.path.join(repo_root, "CMakeLists.txt")
@@ -562,7 +561,7 @@ def backend_modules_of(repo_root: str) -> tuple[set[str], set[str]]:
 
 
 def scan_backend_imports(repo_root: str, backend_modules: set[str], backend_files: set[str]) -> dict:
-    """Which engine/application sources still import a module deren_vulkan owns.
+    """Which engine/application sources still import a module deren_vulkan holds.
 
     THE LAYER THE SYMBOL COUNT CANNOT SEE: a symbol dependency can fall to zero while the engine keeps
     importing the backend's modules, and a module import is what makes a SHARED backend impossible
@@ -641,7 +640,7 @@ def main() -> int:
     parser.add_argument("--require-zero", action="store_true",
                         help="enforce the flip gate: nothing measured outside the whitelist, no stale whitelist "
                              "entry, no whitelist entry the ratchet never tracked, application evidence, and no "
-                             "engine/application import of a module deren_vulkan owns")
+                             "engine/application import of a module deren_vulkan holds")
     parser.add_argument("--whitelist", default=None,
                         help="the flip gate's whitelist (default: scripts/backend_boundary_whitelist.json; "
                              "shrink-only, hand-edited, never written by --update)")
@@ -882,7 +881,7 @@ def main() -> int:
         # archive, and the engine and the backend reference what it defines.
         shared_utility = report["shared_utility"]
         if shared_utility["copies"]:
-            print(f"FAIL: {len(shared_utility['copies'])} archive(s) carry their OWN copy of the "
+            print(f"FAIL: {len(shared_utility['copies'])} archive(s) carry their copy of the "
                   f"process-wide utility TUs - the log sink would exist twice in one process")
             for copy in shared_utility["copies"]:
                 print(f"    COPY     {copy['archive']}: {', '.join(copy['members'])}")
@@ -890,12 +889,12 @@ def main() -> int:
         for archive_name, references in shared_utility["referenced_by"].items():
             if references == 0:
                 print(f"FAIL: {archive_name} references NONE of {UTILITY_SHARED_ARCHIVE}'s defined symbols - "
-                      f"it either does not use the shared toolkit or carries its own copy of it")
+                      f"it either does not use the shared toolkit or carries its copy of it")
                 failed = True
         if imports["engine"]:
             engine_files = sorted({record.split(":", 1)[0] for record in imports["engine"]})
             print(f"FAIL: {len(imports['engine'])} import site(s) in {len(engine_files)} engine/application file(s) "
-                  f"still import a module deren_vulkan owns - the backend cannot be a DLL while that is true")
+                  f"still import a module deren_vulkan holds - the backend cannot be a DLL while that is true")
             for record in imports["engine"]:
                 print(f"    IMPORT   {record}")
             failed = True
@@ -925,7 +924,7 @@ def main() -> int:
         else:
             print(f"cxx      no deren.exe/deren_vulkan.dll in this tree - nothing to read (see the flip gate's "
                   f"application evidence)")
-        # ---- THE DLL SURFACE (the flip's own instrument) ---------------------------------------
+        # ---- THE DLL SURFACE (the flip's instrument) ---------------------------------------
         # Three questions, all on the artifact: the export table carries exactly the one designed
         # entry, the DLL imports the process-wide half (one log sink per process), and the package's
         # second half is really there.
@@ -938,7 +937,7 @@ def main() -> int:
                 failed = True
             if not dll_surface["imports_shared_utility"]:
                 print(f"FAIL: {dll_surface['dll']} does not import {SHARED_UTILITY_DLL} - the process-wide half is "
-                      f"missing from the package, so the backend would carry its OWN copy of the log sink")
+                      f"missing from the package, so the backend would carry its copy of the log sink")
                 failed = True
         elif application_evidence and backend_archive is None:
             # A DLL tree must HAVE its DLL (the loader resolves it by name at run time); a static tree
@@ -951,7 +950,7 @@ def main() -> int:
         if shared_utility["defined_symbols"]:
             references = ", ".join(f"{name}={count}" for name, count in shared_utility["referenced_by"].items())
             print(f"shared   {(shared_utility['dll'] or shared_utility['archive']):<24} {shared_utility['defined_symbols']} defined symbols; "
-                  f"references to them: {references}; own copies elsewhere: {len(shared_utility['copies'])}")
+                  f"references to them: {references}; other copies elsewhere: {len(shared_utility['copies'])}")
         else:
             print("shared   no shared_utility.dll / libshared_utility.a in this tree - nothing to read")
         # the DLL surface, printed every run
@@ -998,7 +997,7 @@ def main() -> int:
         # THE IMPORT GRAPH (the layer the symbol count cannot see)
         engine_files = {record.split(":", 1)[0] for record in imports["engine"]}
         print(f"imports  engine/application: {len(imports['engine'])} site(s) in {len(engine_files)} file(s) import a "
-              f"module deren_vulkan owns (of {imports['scanned']} source(s) scanned; {len(backend_modules)} backend module(s))")
+              f"module deren_vulkan holds (of {imports['scanned']} source(s) scanned; {len(backend_modules)} backend module(s))")
         for record in imports["engine"][:10]:
             print(f"    IMPORT   {record}")
         if len(imports["engine"]) > 10:
@@ -1024,7 +1023,7 @@ def main() -> int:
         if not imports["engine"]:
             print("    (none)")
         print()
-        print("backend modules deren_vulkan owns (from CMake's target_sources):")
+        print("backend modules deren_vulkan holds (from CMake's target_sources):")
         for module in sorted(backend_modules):
             print(f"    {module}")
         print()

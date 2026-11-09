@@ -9,11 +9,11 @@ import deren.vstd;
 /**
  * @defgroup vulkan_vma_handles Vulkan VMA Handles' RAII Wrapper
  * @file vma_handles.cppm
- * @brief RAII owners for GPU buffers / images allocated through vma_allocator
+ * @brief RAII holders for GPU buffers / images allocated through vma_allocator
  *
- * The allocator hands out raw uint64 handles today, which makes ownership implicit: every
+ * The allocator hands out raw uint64 handles today, which makes retention implicit: every
  * call site must remember to free exactly once, and shared (deduplicated) images rely on a
- * reference count nobody can see. These wrappers make ownership structural:
+ * reference count nobody can see. These wrappers make retention structural:
  *   - copying a vk_buffer / vk_image shares the underlying resource (the allocator's
  *     reference count is bumped through the injected retain callback);
  *   - destroying one releases exactly one reference (the release callback; the allocator
@@ -28,9 +28,9 @@ import deren.vstd;
 namespace deren::vulkan {
     /**
      * @ingroup vulkan_vma_handles
-     * @brief owning reference to one GPU buffer allocated through vma_allocator
+     * @brief holding reference to one GPU buffer allocated through vma_allocator
      * @note copy = share (allocator refcount +1), destroy = release (refcount -1);
-     *       default-constructed / moved-from wrappers are empty and own nothing
+     *       default-constructed / moved-from wrappers are empty and hold nothing
      */
     export class vk_buffer {
     public:
@@ -78,7 +78,7 @@ namespace deren::vulkan {
             : native_handle{other.native_handle}
             , retain_fn{std::move(other.retain_fn)}
             , release_fn{std::move(other.release_fn)} {
-            other.native_handle = 0; // moved-from owns nothing
+            other.native_handle = 0; // moved-from holds nothing
         }
 
         vk_buffer& operator=(vk_buffer&& other) noexcept {
@@ -97,7 +97,7 @@ namespace deren::vulkan {
             return this->native_handle;
         }
 
-        /** @brief whether this wrapper owns a reference */
+        /** @brief whether this wrapper holds a reference */
         [[nodiscard]] bool valid() const noexcept {
             return this->native_handle != 0;
         }
@@ -128,8 +128,8 @@ namespace deren::vulkan {
 
     /**
      * @ingroup vulkan_vma_handles
-     * @brief owning reference to one GPU image allocated through vma_allocator
-     * @note same ownership semantics as vk_buffer: copy = share, destroy = release
+     * @brief holding reference to one GPU image allocated through vma_allocator
+     * @note same retention semantics as vk_buffer: copy = share, destroy = release
      */
     export class vk_image {
     public:
@@ -192,7 +192,7 @@ namespace deren::vulkan {
             return this->native_handle;
         }
 
-        /** @brief whether this wrapper owns a reference */
+        /** @brief whether this wrapper holds a reference */
         [[nodiscard]] bool valid() const noexcept {
             return this->native_handle != 0;
         }

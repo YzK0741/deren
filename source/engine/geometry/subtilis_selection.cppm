@@ -51,7 +51,7 @@ export namespace deren::engine::subtilis {
         return result;
     }
     /// Check both allocation identity and its retaining control block: raw pointer
-    /// equality alone would accept a non-owning alias with an unrelated lifetime.
+    /// equality alone would accept a non-holding alias with an unrelated lifetime.
     [[nodiscard]] inline bool matches_generation(primitive const& leaf) noexcept {
         auto const& generation = leaf.subtilis_geometry;
         if (!generation || leaf.vertex_buffer.get() != generation->vertices() || leaf.index_buffer.get() != generation->indices()) {

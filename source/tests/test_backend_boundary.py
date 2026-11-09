@@ -73,7 +73,7 @@ class BoundaryTests(unittest.TestCase):
                                "--repo-root", str(self.root), *args], capture_output=True, text=True)
 
     def run_with_config_default(self, *args):
-        """Run WITHOUT the explicit pair/build-dir, so `--config`'s own defaults are what is exercised.
+        """Run WITHOUT the explicit pair/build-dir, so `--config`'s defaults are what is exercised.
         The archives are placed in a directory named after neither real build tree, so the path the gate
         prints is the only thing under test here."""
         return subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True)
@@ -238,7 +238,7 @@ class BoundaryTests(unittest.TestCase):
         self.assertIn("imports  engine/application: 1 site(s) in 1 file(s)", result.stdout)
 
     def test_an_engine_file_that_is_not_a_backend_module_is_not_flagged(self):
-        # `deren.engine.filters` is declared by ENGINE code (deren_engine owns filters.cppm), so a
+        # `deren.engine.filters` is declared by ENGINE code (deren_engine holds filters.cppm), so a
         # name prefix must not put it in the backend's set: only CMake's target list may.
         core = self.root / "source" / "engine" / "filters"
         core.mkdir(parents=True, exist_ok=True)
@@ -332,7 +332,7 @@ class BoundaryTests(unittest.TestCase):
     #
     # The crash this guards against: the `--build-dir` default was `None` and reached `flavor_of()`'s
     # `os.path.join` before anything resolved it (TypeError in ntpath.join), so `--config` did not run at
-    # all. `--config` now (1) resolves the default build dir FIRST, (2) picks the configuration's own
+    # all. `--config` now (1) resolves the default build dir FIRST, (2) picks the configuration's
     # baseline+whitelist pair, and (3) PRINTS which configuration and which tree it measured, `--quiet`
     # included - a blind quiet run once read as a dynamic-tree measurement while measuring the legacy pair.
     #

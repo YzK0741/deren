@@ -7,7 +7,7 @@ include_guard(GLOBAL)
 add_dependencies(deren deren_gui_vulkan)
 
 # ============================================================================================
-# deren_gui_vulkan: THE GUI AS ITS OWN PLUGIN (plan X2, the user's ruling: one DLL per API).
+# deren_gui_vulkan: THE GUI AS Its PLUGIN (plan X2, the user's ruling: one DLL per API).
 #
 # WHAT LIVES HERE: the vendored ImGui sources (through the `imgui` static library, PRIVATE) and the whole
 # `deren.vulkan.graphical_user_interface` module, plus the C entry that adapts the module's overlay to the

@@ -5,7 +5,7 @@ include_guard(GLOBAL)
 #
 # WHY TWO, and it is a measured hazard rather than tidiness: the toolkit is STATIC and BOTH halves
 # of the RHI boundary link it, so one process holds one copy of everything - the log sink included.
-# THE FLIP BREAKS THAT: `deren_vulkan` becomes SHARED, the DLL carries its own copy of every
+# THE FLIP BREAKS THAT: `deren_vulkan` becomes SHARED, the DLL carries its copy of every
 # library it links, and the process then holds TWO sinks - two `ofstream`s on the same deren-debug.log,
 # two startup rotations, and `rotate_previous_log()` TRUNCATES the file the other copy still has
 # open and appends to (interleaved lines, holes, two sessions in one deren-debug.log.old). The boundary
@@ -24,18 +24,18 @@ include_guard(GLOBAL)
 # behaviour change (one sink today, exactly as before), and `shared_utility` becomes SHARED in the
 # same batch as `deren_vulkan`. Flipping the two together would make the split itself unverifiable.
 #
-# ONE TARGET PER MODULE NAME, EVEN THOUGH BOTH HALVES COMPILE EACH MODULE: `shared_utility` owns
-# `deren.utility.shared` (including the vessel allocator interface); `static_utility` owns `deren.utility`
+# ONE TARGET PER MODULE NAME, EVEN THOUGH BOTH HALVES COMPILE EACH MODULE: `shared_utility` holds
+# `deren.utility.shared` (including the vessel allocator interface); `static_utility` holds `deren.utility`
 # (with `:data_block` / `:bvh` / `:frame_clock` / `:frame_stats` / `:thread_pool`) and
 # `deren.utility.dynamic_link`. Listing one .cppm in two targets would produce two BMIs of one
 # module name, which a single translation unit cannot arbitrate - the same ruling that moved
-# deren.vulkan.constant_init into a target of its own (see that target's comment above).
+# deren.vulkan.constant_init into A separate target (see that target's comment above).
 #
 # `deren.utility` RE-EXPORTS `deren.utility.shared`, so the 52 existing `import deren.utility;`
 # sites keep working unchanged: a call site does not know which half a name came from.
 #
 # DEPENDENCY DIRECTION: static_utility MAY depend on shared_utility (it formats text and calls the
-# sink); the reverse is FORBIDDEN - the shared module writes its own file routes instead of calling this
+# sink); the reverse is FORBIDDEN - the shared module writes its file routes instead of calling this
 # module's `println`; logging/fatal routes have no console fallback. Neither utility target imports or links the RHI contract;
 # the contract depends on shared_utility. RHI failure types (`error`, `error_info`) belong to the contract.
 #
@@ -61,7 +61,7 @@ include_guard(GLOBAL)
 #      deren-debug.log.old). The heap/STL question is NOT the reason for this split and is deliberately not
 #      argued here - that is the `shared_object` line of work (abi 18).
 # WHERE THIS BATCH STILL PASSES A VIEW (`log_text(std::string_view)`), the reason is a design choice
-# rather than a prohibition: the sink copies what it queues on its own side, and the formatting stays
+# rather than a prohibition: the sink copies what it queues alone side, and the formatting stays
 # in the caller's template instantiation, so no template has to be an exported symbol. Nothing in the
 # rules above requires that - it is simply the shape the sink's door settled on.
 # THE PROCESS-WIDE GUARD IS THE ROTATION CLAIM (source/utility/shared/log_rotation_claim.cpp): an OS-named
@@ -70,7 +70,7 @@ include_guard(GLOBAL)
 # =============================================================================================
 # SHARED, IN THE SAME BATCH AS deren_vulkan, AND THIS IS THE MOMENT THE SPLIT WAS FOR: until now both
 # halves of the toolkit were STATIC, so the process happened to hold one sink even with two copies of
-# the code. A DLL carries its own copy of what it links, so with deren_vulkan SHARED the sink WOULD be
+# the code. A DLL carries its copy of what it links, so with deren_vulkan SHARED the sink WOULD be
 # duplicated - two `ofstream`s on one deren-debug.log, two startup rotations, and
 # `rotate_previous_log()` TRUNCATING the file the other copy still has open. `shared_utility` being a
 # DLL is what prevents it: the executable and deren_vulkan.dll both import THIS image, so the OS loads
@@ -134,9 +134,9 @@ target_sources(static_utility
         ${DEREN_REPO_ROOT}/source/utility/frame_stats/frame_stats.cppm
         ${DEREN_REPO_ROOT}/source/utility/thread_pool/thread_pool.cppm
         # The loader the RHI boundary is built on: the only place in the tree that
-        # asks the platform for a library. It is a module of its own rather than a `utility:` partition
+        # asks the platform for a library. It is A separate module rather than a `utility:` partition
         # because a partition cannot be imported by another target's module without dragging `deren.utility`
-        # in, and the boundary rule is that ONE module owns the platform load path. It declares the
+        # in, and the boundary rule is that ONE module holds the platform load path. It declares the
         # platform entry points itself (no <windows.h>, no <dlfcn.h> in a module's global fragment),
         # which is what keeps its importers platform-agnostic.
         # IT STAYS HERE, NOT IN shared_utility: it is the key that loads the backend, so putting it

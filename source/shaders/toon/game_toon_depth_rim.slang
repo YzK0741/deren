@@ -5,7 +5,7 @@
 // (`source/shaders/toon/game_toon/captured/depth.h`, transcribed from `readable:310-318`):
 //
 //     offset  = shading_normal_screen_xy * rimWidth * 0.006        (wf_depth_offset_uv, depth.h:183-184,263-266)
-//     factor  = smoothstep((abs(scene_view_distance) - own_view_distance - 0.1) * 10.0)   (depth.h:244-247)
+//     factor  = smoothstep((abs(scene_view_distance) - surface_view_distance - 0.1) * 10.0)   (depth.h:244-247)
 //     R29     = factor * S,  i.e. with the depth image live the captured rim IS this contour
 //
 // That stage cannot sample the depth image: in `character_forward` the depth is the DEPTH ATTACHMENT (an image
@@ -20,20 +20,20 @@
 //     sign-free reading `toon_screen_rim.slang` already documents: whichever side of the pixel contains the farther
 //     surface is the silhouette, and four probes find it on a vertical or a horizontal edge.
 //  2. THE COMPARISON IS ON LINEAR VIEW DISTANCES, as in the capture (`depth.h:234-239`): the stored window depth is
-//     inverted with the frame's own projection terms, and the capture's 0.1 world-unit bias and 10.0 gain are
+//     inverted with the frame's projection terms, and the capture's 0.1 world-unit bias and 10.0 gain are
 //     applied to that difference rather than to raw depth.
 //
-// The colour is THIS pass's own parameter (the profile's rim tint, through `runtime::set_toon_screen_rim`) and is
-// multiplied by `saturate(albedo + 0.3)` so a dark material's contour keeps its own hue, the MME pack's
+// The colour is THIS pass's parameter (the profile's rim tint, through `runtime::set_toon_screen_rim`) and is
+// multiplied by `saturate(albedo + 0.3)` so a dark material's contour keeps its hue, the MME pack's
 // `albedoRimColor` rule.
 //
 // 3. THE CONTOUR IS HAIR-ONLY, WHICH IS THE CAPTURED RULE RATHER THAN A TUNING. The captured depth block is
 //    compiled under `#ifdef FAMILY_HAIR` (`character.frag.readable.glsl:296`), so in the capture ONLY the hair
 //    surface carries this term; the eye's program has no depth term at all (`FAMILY_EYE` skips the rim-mode
 //    lights outright: `readable:238-241` `if(mode==3)continue`), and the skin/cloth/brow programs never compile
-//    the block. The fullscreen stage has no family of its own, so it recovers it from the G-BUFFER'S MATERIAL
+//    the block. The fullscreen stage has no family, so it recovers it from the G-BUFFER'S MATERIAL
 //    SIGNAL: `gbuffer_material` stores the material id in two UNORM bytes, and the material table answers
-//    `toon_family` for that id - the exact read `toon_screen_rim.slang:89-106` already performs for its own
+//    `toon_family` for that id - the exact read `toon_screen_rim.slang:89-106` already performs for its
 //    family gate. That is why no hair MASK TARGET and no extra render-graph input is needed here: the material
 //    target is one of the per-image G-buffer heap slots the renderer's stage preamble publishes for sampling,
 //    and this pass already indexes the same family of slots for depth and albedo. The gate is binary because the
@@ -89,7 +89,7 @@ float rim_depth_at(float2 uv)
 ///
 /// The capture's depth block is `#ifdef FAMILY_HAIR` (`character.frag.readable.glsl:296`), and its eye program
 /// explicitly skips the rim-mode lights that would reach it (`readable:238-241`), so hair is the only family the
-/// term belongs to. This pass has no surface of its own, so the family is recovered from the G-BUFFER'S MATERIAL
+/// term belongs to. This pass has no surface, so the family is recovered from the G-BUFFER'S MATERIAL
 /// SIGNAL: `gbuffer_material` holds the material id as two UNORM bytes, and the material table answers
 /// `toon_family` for that id - the same decode `toon_screen_rim.slang:95-99` performs. The gate is binary because
 /// the capture's is: the term exists for a hair fragment and does not exist for any other.
@@ -127,7 +127,7 @@ float4 main([[vk::location(0)]] float2 v_uv : TEXCOORD0) : SV_Target
         return float4(0.0, 0.0, 0.0, 0.0);
     }
 
-    const float own_distance = rim_view_distance(stored_depth);
+    const float surface_distance = rim_view_distance(stored_depth);
     // THE CAPTURED OFFSET LENGTH, probed on both screen axes (adaptation 1 above). `rim_width * 0.006` is a
     // fraction of the uv extent: 0.368 -> 0.0022 uv = a little over two pixels at 1000 px, which is the width the
     // captured viewer draws. (The ARTICLE's contour instead divides by `(eye_depth + 3)`, which at the same
@@ -141,7 +141,7 @@ float4 main([[vk::location(0)]] float2 v_uv : TEXCOORD0) : SV_Target
         // A FAR-PLANE NEIGHBOUR IS THE STRONGEST CONTOUR there is (the character against the background); the
         // captured comparison would linearize it to the far distance and saturate the same way.
         const float neighbour_distance = neighbour_depth >= 1.0 ? 1.0e6 : rim_view_distance(neighbour_depth);
-        rise = max(rise, neighbour_distance - own_distance);
+        rise = max(rise, neighbour_distance - surface_distance);
     }
 
     // THE CAPTURED COMPARISON (`depth.h:244-247`): smoothstep of the biased difference times the pass's gain.

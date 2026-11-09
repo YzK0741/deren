@@ -32,7 +32,7 @@ fails, the worker attempts the emergency file instead.
 `panic` first writes its bounded message and source location directly to `deren-crash.log`, then raw
 stack records and best-effort readable symbols. It never initializes or locks the async sink; an
 existing sink gets up to 250ms of atomic-prefix polling before termination. This limits log waiting,
-not kernel file I/O or the symbolizer's separate budget. `fast_panic` remains bounded plain text only,
+not kernel file I/O or the symbolizer's budget. `fast_panic` remains bounded plain text only,
 without formatting, stack capture, symbols or waiting for logs. Both files are best effort if storage
 is unavailable. The native emergency handle lives until process exit; paths follow the working
 directory at first open. POSIX signal reports only use output preopened during handler installation.
@@ -98,7 +98,7 @@ See the RHI standard for the per-counter rules.
 
 `frame_checkpoint` is the optional extension (bit 14) whose synchronous `checkpoint_and_wait()` closes,
 submits and waits for the current recording prefix outside rendering, releases the prefix leases and
-reopens the same borrowed recorder. Pipeline, push and binding state must be rebound afterwards; only
+reopens the same referenced recorder. Pipeline, push and binding state must be rebound afterwards; only
 the final submission signals frame-slot completion and presentation. See the RHI standard section 11
 for the timing-query, acquired-semaphore and failure semantics.
 
@@ -109,7 +109,7 @@ release the physical allocation reference, and return the object to unloaded for
 return not_ready while loading or while views, groups, fixed descriptor slots or recorded/pending
 commands retain dependencies. Reset/release those dependents first; this first version does not
 invalidate their native caches transparently. Failed resources remain failed. ABI 56 backends must be
-rebuilt with the host. See RHI standard section 10 for nonblocking and ownership rules.
+rebuilt with the host. See RHI standard section 10 for nonblocking and retention rules.
 
 ## Lazy resources (ABI 56)
 
@@ -128,7 +128,7 @@ ranges for these writes; Vulkan resolves and validates them internally. The fixe
 queried separately from texture-group support. Old ABI 54 DLLs must be rebuilt. The update/lifetime rules
 are stated in the RHI standard; the dated checkpoint record is not distributed with this repository.
 
-The root owns the device and exposes three borrowed public members with ordinary names:
+The root holds the device and exposes three referenced public members with ordinary names:
 
 ```cpp
 auto buffer = core.resources->create_buffer(desc);
@@ -146,16 +146,16 @@ auto frame_result = core.frames->submit();      // current frame, no buffer argu
 
 `api_core` retains release, ABI, capabilities/extensions, native device context and device-wide idle.
 `context_view<T>` is a pointer-sized wrapper: callers can use `->`, `get()` and a boolean test,
-but cannot assign, reset or rebind it. It owns nothing and must not outlive its core. Const access
+but cannot assign, reset or rebind it. It holds nothing and must not outlive its core. Const access
 protects the binding while still allowing the context's device operations.
 
-A derived backend can implement the interfaces as bases or own context objects as members. In its
+A derived backend can implement the interfaces as bases or hold context objects as members. In its
 constructor body, after those bases/members have been constructed, it calls
 `bind_views(resource_context, command_context, frame_context)` once before publication. There is no
 `const_cast`, mutable binding or extra allocation per view. Vulkan implements all three interfaces
 on the same core allocation. Context methods must not be used before binding.
 
-Independent submission rejects the borrowed current-frame primary with `invalid_argument`;
+Independent submission rejects the referenced current-frame primary with `invalid_argument`;
 `frames->submit()` uses the current frame protocol. This preserves command/resource retention,
 frame waits and token completion rules. Offscreen cores also expose the frame view; presentation
 still returns `unsupported`. The split changes root layout/vtables: rebuild executable, backend
@@ -167,7 +167,7 @@ and plugins together for ABI 50. The previous root factory/frame/submit entry po
 `texture_group` is one member kind alongside buffer ranges, image views, samplers and top-level AS.
 Pipelines declare logical numbered bindings and shader parameter locations; `load_resource_group`
 validates a complete matching group and retains it for recorded/pending work. Backend descriptor
-allocations remain private. See [resource groups](resource_groups.md) for usage, ownership and limits.
+allocations remain private. See [resource groups](resource_groups.md) for usage, retention and limits.
 ABI 51 itself recorded immediately; deferred/lazy state recording arrived in ABI 53 (see the ABI 53
 section below). Resource groups originated in ABI 51 and the subview split in ABI 50. The ABI 54
 removal retired the reserved factory-slot surface; current binaries use ABI 61.
@@ -186,7 +186,7 @@ The active extension list contains twelve entries and its mask is 0x7FD3.
 order and preserves the resulting state for later recording. `end_recording()` applies them automatically, so
 callers that never use the postponed form keep the previous behaviour. A deferred validation error makes the
 recording non-executable and must be reported; a recorder that cannot defer returns `error::unsupported` and
-applies operations immediately. Borrowed pipeline/buffer owners must stay alive through pending recording and
+applies operations immediately. Referenced pipeline/buffer holders must stay alive through pending recording and
 GPU completion. Immediate/native interop boundaries flush pending operations before the native call, and
 `command_buffer::execute`/`mergeable_command_buffer` forwarding keeps the same order. The API change is one
 appended virtual on the shared `command_recorder`, so backends without deferral remain valid and simply
@@ -209,7 +209,7 @@ auto result = commands.push_constants(offset, std::as_bytes(std::span(&parameter
 as logical state (ABI 52 recorded it immediately); it
 requires recording, nonempty four-byte units and a range within the reported capacity. A pipeline
 need not already be bound. When one is bound, application bytes cannot overlap its resource-group
-handle fields or legacy texture-group token. Internal group publication owns those protected bytes.
+handle fields or legacy texture-group token. Internal group publication holds those protected bytes.
 
 The public descriptor-heap push entry, request structure and push-limit field are removed. The
 structure_type value for the retired heap request remains reserved. The generic range helper is
@@ -229,7 +229,7 @@ once when armed). Neither is a product option.
 
 ## Recording and submission (ABI 49)
 
-`command_recorder` declares the shared recording lifecycle and verbs. Both owners expose them
+`command_recorder` declares the shared recording lifecycle and verbs. Both holders expose them
 directly, so callers still write `buffer->draw(...)`; there is no extra recording view.
 
 | contract | recording | individual submission | receive `execute(batch)` |
@@ -240,13 +240,13 @@ directly, so callers still write `buffer->draw(...)`; there is no extra recordin
 
 Heap bind/push requests carry one `command_recorder* commands`. Scoped synchronization, radix sorting
 and the mesh dispatch extension also accept the common recording interface. This does not grant
-submission permissions: factories and submit/execute inputs keep their specific owner types.
-The engine's recording target retains typed owners and exposes `get()` for common recording calls.
+submission permissions: factories and submit/execute inputs keep their specific holder types.
+The engine's recording target retains typed holders and exposes `get()` for common recording calls.
 
 Vulkan resolves extension targets against the core's live registries before casting. A foreign target,
-including one with an identical concrete name, returns `invalid_argument`; an owned target outside
+including one with an identical concrete name, returns `invalid_argument`; a held target outside
 recording returns `not_ready`. Heap pushes protect the pipeline's reserved group-token bytes for both
-primary and mergeable recording. Pool ownership, recorded-resource retention and pending submission
+primary and mergeable recording. Pool retention, recorded-resource retention and pending submission
 rules are unchanged. The existing internal mergeable adapter still delegates to its retained secondary;
 this change shares the public vocabulary and target validation without rebuilding submission machinery.
 
@@ -255,8 +255,8 @@ backend and GUI plugin together; the backend factory rejects mismatched RHI ABI 
 
 ## Submission completion values
 
-The optional `command_submission` extension submits caller-owned graphics commands and returns a
-copyable, non-owning `submission_token { device_id, sequence }`. It supports an ordinary command
+The optional `command_submission` extension submits caller-held graphics commands and returns a
+copyable, non-holding `submission_token { device_id, sequence }`. It supports an ordinary command
 buffer or an ordered mergeable batch; it does not submit/present the acquired frame. Existing
 `core.commands->submit(...)` provides submission without a completion token. A backend without this
 extension returns null from the query. The extension itself did not require an ABI bump; the subsequent
@@ -298,9 +298,9 @@ existing waits in this first iteration.
 Every contract handle derives from `rhi::object`, which carries ONE public member: `type`, a
 `std::string_view` holding the CONCRETE implementation name the backend chose (`deren_image_vulkan`,
 `deren_frame_image_vulkan`, ...). The name lives in static storage, and it is the identity the backend
-validates before it casts a handle to its own concrete layout. The granularity is CONCRETE, not the
-interface, because one interface has several layouts behind it: an owned image and the borrowed
-swapchain image are both `rhi::image`, and the frame's recording list and a caller-owned command buffer
+validates before it casts a handle to its concrete layout. The granularity is CONCRETE, not the
+interface, because one interface has several layouts behind it: a held image and the referenced
+swapchain image are both `rhi::image`, and the frame's recording list and a caller-held command buffer
 are both `rhi::command_buffer`.
 
 The check-then-cast operation belongs to the contract, in `:contract`, so every backend shares one
@@ -309,34 +309,34 @@ copy of the rule:
 | name | answer |
 | --- | --- |
 | `rhi::is_concrete(object const&, string_view name)` | false = a handle this backend did not hand out; the caller-facing answer is `error::invalid_argument` (a factory answers `nullptr`) |
-| `rhi::do_concrete<concrete_t>(object const& / object&, name, source_location = current())` | the handle as its concrete adapter type. A mismatch PANICS: by the time this is called the provenance (registry membership, an object-identity comparison) has already been established, so a mismatch is the backend's own bookkeeping being inconsistent - a bug in the code holding the invariant, not a caller condition |
+| `rhi::do_concrete<concrete_t>(object const& / object&, name, source_location = current())` | the handle as its concrete adapter type. A mismatch PANICS: by the time this is called the provenance (registry membership, an object-identity comparison) has already been established, so a mismatch is the backend's bookkeeping being inconsistent - a bug in the code holding the invariant, not a caller condition |
 
 The names are the BACKEND's, not the contract's: the Vulkan backend keeps its 29 constants in
 `deren::vulkan::concrete` and passes them to both calls, which is what lets a second backend apply the
-same rule with its own names. Moving the two helpers into `:contract` moved no `abi_version` - they are
+same rule with its names. Moving the two helpers into `:contract` moved no `abi_version` - they are
 inline and template free functions over the existing field (no vtable slot, no by-value POD, no
 entry-point signature) - and the only dependency they add to `:contract` is `deren.utility.shared`, the
 process-wide panic sink both halves already link.
 
 One documented-precondition cast remains: `device_address::buffer_address` `static_cast`s its operand on
 a DOCUMENTED PRECONDITION with no runtime check. Its operand is a handle the contract says only the
-owning backend may be asked about, so an invalid one is a caller bug rather than data to validate; the
-function's own note states it. (The raw-handle escape that used to share this rule is deleted - abi 43.)
+holding backend may be asked about, so an invalid one is a caller bug rather than data to validate; the
+function's note states it. (The raw-handle escape that used to share this rule is deleted - abi 43.)
 
 ## The C entry: one symbol, resolved by name
 
 `source/promise/rhi/backend_entry.hpp` declares the boundary's entire C ABI, and it is deliberately tiny.
 
 * **`deren_make_api_core` is the only export.** Its FIRST argument is `rhi::abi_version`, so a
-  mismatched backend is refused BEFORE an object exists, with the backend's own number in the
+  mismatched backend is refused BEFORE an object exists, with the backend's number in the
   `error_info` it fills.
-* **It returns an owning `rhi::shared_object<api_core>`**, the contract's own shared container, so there
-  is no second destroy entry and no raw-pointer ownership question. The container releases the root through
+* **It returns a holding `rhi::shared_object<api_core>`**, the contract's shared container, so there
+  is no second destroy entry and no raw-pointer retention question. The container releases the root through
   `api_core::release()` (for the root that call destroys it), exactly like every other RHI handle.
-* **The object attests its own number too**: the runtime checks `api_core::api_version()` after the
+* **The object attests its number too**: the runtime checks `api_core::api_version()` after the
   handshake, because a host may be handed an `api_core` it did not create.
 * **The GUI plugin takes the same shape**: `deren_gui_vulkan.dll` exports one name, `deren_make_gui`,
-  whose FIRST argument is the GUI boundary's own `gui::gui_abi_version` (6 today) - a mismatched caller
+  whose FIRST argument is the GUI boundary's `gui::gui_abi_version` (6 today) - a mismatched caller
   is refused before an overlay exists, exactly as the RHI entry refuses a mismatched backend.
 
 The keyword that makes a symbol visible across a DLL boundary lives in ONE header,
@@ -345,7 +345,7 @@ declaration.
 
 ## Windowed and windowless rendering
 
-The caller owns any window. A non-null `create_info::native_window` binds the backend to that
+The caller holds any window. A non-null `create_info::native_window` binds the backend to that
 window; null selects windowless rendering. The Vulkan backend then creates ordinary device-local
 images, with no GLFW initialization, surface, swapchain or WSI acquire/present calls. Output size
 comes from `window_width` and `window_height`; the images reuse the existing two frame slots and
@@ -365,7 +365,7 @@ offscreen = false   # true creates no application window
 `--capture-frames N` automatically selects windowless rendering and keeps image readback, animation
 stepping and GPU timings. `--capture-windowed` retains a hidden window for explicit resize/presentation
 regressions when `offscreen` is false. The GUI is disabled without a window. The Vulkan driver may
-create its own internal temporary HWND; the renderer creates none. Async presentation now reads the
+create its internal temporary HWND; the renderer creates none. Async presentation now reads the
 configuration key; `DEREN_ASYNC_PRESENT` no longer selects it in current builds. Historical benchmark
 snapshots retain the environment switch they were measured with.
 
@@ -374,8 +374,8 @@ snapshots retain the environment switch they were measured with.
 A command buffer records; `command_context::submit(command_buffer&)` submits one. For a batch there is a second,
 parallel type: `mergeable_command_buffer` (a sibling of `command_buffer`, not a subtype) can only be submitted
 through `command_context::submit(std::span<mergeable_command_buffer_ref const>)` - in span order, with the whole batch
-validated before anything is queued. The backend owns the merge: the Vulkan backend records the segments into a
-backend-owned primary and submits that, while a D3D12 backend can hand the command lists straight to
+validated before anything is queued. The backend holds the merge: the Vulkan backend records the segments into a
+backend-held primary and submits that, while a D3D12 backend can hand the command lists straight to
 `ExecuteCommandLists`. Segments are self-contained (state and render scopes do not cross a boundary), no memory
 barrier is inserted between them, and the backend retains the handles until the submission completes. The
 engine's multithreaded recording paths use EXACTLY this: the main pass's per-worker segments, the shadow
@@ -394,18 +394,18 @@ A backend is not asked what it is; it is asked what it can do.
   nothing. The device facts (`device_capabilities`), the shader-group access and the descriptor space are
   what the engine itself uses. THE ESCAPE IS GONE (abi 43): its last slot existed only so the GUI overlay's
   Dear ImGui Vulkan backend could get a host command buffer, and the overlay now gets no host recording
-  target at all. The GUI receives the opaque `rhi::main_context_view` (abi 39) for the device root plus its OWN
+  target at all. The GUI receives the opaque `rhi::main_context_view` (abi 39) for the device root plus its
   two contract `mergeable_command_buffer_ref` targets in `gui::create_info` (gui abi 6); `overlay::record()`
   starts the current target, records ImGui into that segment and returns it, and the host executes the
-  segment in a dedicated LOAD + secondary-contents rendering instance AFTER the pass's own instance ends
+  segment in a dedicated LOAD + secondary-contents rendering instance AFTER the pass's instance ends
   (a dynamic-rendering instance flagged for secondary contents may contain no primary draws, and the pass
-  keeps its own draw in the primary). The plugin still names no native type to the contract - it checks the
+  keeps its draw in the primary). The plugin still names no native type to the contract - it checks the
   target's concrete tag and casts it to the backend's shared `deren.vulkan.mergeable_command_buffer` class
   to `get()` the native handle, the same opaque-handle + concrete-tag + shared-layout rule
   `rhi::main_context_view` follows (the device root moved there in abi 39, and abi 40/42 deleted the
   resource/channel handles with their last callers). That segment's begin is the abi-45
   `command_buffer_begin_info::inherit_descriptor_heaps` opt-out: it passes false, because the Dear ImGui
-  Vulkan backend binds its own classic descriptor sets and inheriting the engine's heap bind made every
+  Vulkan backend binds its classic descriptor sets and inheriting the engine's heap bind made every
   one of those binds fail validation. `extension_kind::vulkan_escape` survives only as a retired bit value
   - never announced, never queried.
 * **A fact the engine needs is an answer, not a native query.** A graphics-API concept appearing in the
@@ -426,7 +426,7 @@ Four guarantees, each measured while the boundary was built:
 
 1. **An absolute path into the loader.** The DLL is looked for beside THIS executable
    (`executable_directory() / "deren_vulkan.dll"`) and passed as an absolute path, so the loader
-   searches the DLL's own directory and the system directories, and NEVER `%PATH%`.
+   searches the DLL's directory and the system directories, and NEVER `%PATH%`.
 2. **Once per process.** The load and the symbol lookup happen in one function-local static, so the
    image is opened once however many times a root is asked for.
 3. **Never unloaded.** The handle is detached from the loader object, because `FreeLibrary` after a
@@ -445,9 +445,9 @@ the GUI contract.
 The overlay's recording crosses the same way (gui abi 6): the host creates the two
 `mergeable_command_buffer` recording targets through `command_context::make_mergeable_command_buffer()` and
 hands them over in `gui::create_info`; the plugin holds them, records ImGui into one per frame and
-returns the recorded segment. The host's own command buffer is never handed to the plugin - only the
+returns the recorded segment. The host's command buffer is never handed to the plugin - only the
 `command_buffer_begin_info` inheritance of the instance the overlay segment has to match. The two
-targets alternate per frame, and the frame slot ring's own timeline wait makes alternating reuse safe.
+targets alternate per frame, and the frame slot ring's timeline wait makes alternating reuse safe.
 
 ## The run-time package
 
@@ -492,7 +492,7 @@ list, one configuration.
 
 Two things that bite at this seam are worth knowing before touching it. **A backend module cannot be
 imported by the engine** - the BMI would have to come from the DLL - which is why the import meter had
-to reach zero rather than merely shrink. And **the backend carries its own GLFW image**, so a
+to reach zero rather than merely shrink. And **the backend carries its GLFW image**, so a
 `GLFWwindow*` cannot cross the boundary: the window is translated to a native handle where the boundary
 is crossed.
 

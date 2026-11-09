@@ -10,7 +10,7 @@
 //
 // THE LAST CHECK IS NOT ABOUT THE SIDECAR READER AT ALL, and it is here deliberately: the host bakes the ramp
 // that fills a sidecar's `_DiffRampMap` LANE, and the stage that reads that lane inverts the bake using a
-// constant of its own. The two numbers are written in two languages in two files, so their agreement is a
+// separate constant. The two numbers are written in two languages in two files, so their agreement is a
 // contract nothing else can check - see `test_the_baked_ramp_and_the_shader_agree_on_its_width`.
 #include "vk_test.h"
 
@@ -28,7 +28,7 @@ import deren.toon_material_sidecar;
 
 namespace {
 
-    /// a well-formed sidecar, inline so the parser's own cases need no file on disk
+    /// a well-formed sidecar, inline so the parser's cases need no file on disk
     constexpr std::string_view good_text =
         "material\tkind\tname\tvalue\n"
         "M_body\tslot\t_DiffRampMap\tT_body_RD\n"
@@ -143,7 +143,7 @@ namespace {
     void test_rows_appended_for_an_existing_material_merge_into_its_entry() {
         // THE FILE SHAPE THIS EXISTS FOR, and it is not hypothetical: a sidecar extended by APPENDING rows rather
         // than inserting them beside the material's others - the natural way to add one, and how the rewritten
-        // chain's own rows arrived. It used to give one material TWO entries, and `find` returns the first, so the
+        // chain's rows arrived. It used to give one material TWO entries, and `find` returns the first, so the
         // consumer saw NONE of the appended rows while the file plainly contained them. The failure is invisible in
         // both directions: the log that walks the sidecar lists every row (twice), and the lookup that matters
         // silently falls back to the material's older state.
@@ -169,7 +169,7 @@ namespace {
     }
 
     void test_the_path_convention_appends_rather_than_replaces() {
-        // `x.glb` -> `x.glb.toon.tsv`, NOT `x.toon.tsv`: the model's own extension stays
+        // `x.glb` -> `x.glb.toon.tsv`, NOT `x.toon.tsv`: the model's extension stays
         std::filesystem::path const path = deren::toon::sidecar_path_for("models/hero.glb");
         CHECK(path.filename() == "hero.glb.toon.tsv");
         CHECK(path.parent_path() == "models");
@@ -295,7 +295,7 @@ namespace {
         CHECK(body->slot("_GooRSSheet1") != body->slot("_GooRSSheet"));
 
         // THE FLAG DERIVES FROM THE SLOT NAME, so the second sheet's switch needs no table either: the module's
-        // `_Use` + name-minus-leading-underscore rule is what makes `_UseGooRSSheet1` the file's own row.
+        // `_Use` + name-minus-leading-underscore rule is what makes `_UseGooRSSheet1` the file's row.
         CHECK(body->enabled("_GooRSSheet1"));
         // ...AND IT IS A SEPARATE SWITCH FROM THE FIRST SHEET'S, which is exactly why the host has to ask twice:
         // a material may name the second sheet and leave it off.
@@ -361,9 +361,9 @@ namespace {
         // is that the texture branch and the procedural branch stop agreeing and each family's terminator sits
         // at the wrong place. That is the silent-drift shape this project writes tests for.
         //
-        // IT LIVES HERE rather than in a test of its own because it is a contract between the host's sidecar
+        // IT LIVES HERE rather than in A separate test because it is a contract between the host's sidecar
         // LANE bake and the stage that reads that lane, which is what this test is about - and because a test
-        // target of its own would have to be mirrored into VR_TEST_TARGETS, the workflow and the docs.
+        // target would have to be mirrored into VR_TEST_TARGETS, the workflow and the docs.
         std::ifstream host_file{VR_TEST_SOURCE_DIR "/source/app/app_toon.cpp"};
         std::ifstream shader_file{VR_TEST_SOURCE_DIR "/source/shaders/toon/character_forward.slang"};
         CHECK(host_file.good());
@@ -388,7 +388,7 @@ namespace {
 
         // ONLY THE SPECULAR LANE IS STILL ON THIS CONTRACT, and the diffusive one's departure is the 终末地 port's
         // change - so it is asserted here rather than left to the reader. The diffuse lane now reads the GAME'S
-        // OWN `_DiffRampMap` as a colour mapping indexed by the light term, and its fallback is
+        // its `_DiffRampMap` as a colour mapping indexed by the light term, and its fallback is
         // `bake_neutral_ramp`, whose content (white RGB, identity lightness) inverts NOTHING: there is no neutral
         // step for it to undo and no half-width for it to divide by. The unit step still serves the specular lane,
         // whose `.r` is read as a THRESHOLD - and the host still bakes ONE unit-step asset for it, so this lane's
@@ -427,7 +427,7 @@ namespace {
             // being the (now 20-lane) ceiling.
             CHECK(shader.find("character_toon_colour_lanes = 46u") != deren::utility::vessel::string::npos);
             CHECK(primitive.find("count = 17,") != deren::utility::vessel::string::npos);
-            // ... AND THE OTHER READER OF THE SAME TABLE, which carries its OWN copy of the stride because a
+            // ... AND THE OTHER READER OF THE SAME TABLE, which carries its copy of the stride because a
             // stage cannot include `toon/character_forward.slang` without inheriting its entry point: the outline's
             // geometry stage. It reads ONE lane of the table and still needs the whole stride - a copy left at an
             // older lane count addresses a neighbouring MATERIAL's lane, which is why it is asserted here too.
@@ -465,7 +465,7 @@ namespace {
 
     void test_the_matcap_slot_does_not_follow_the_use_slot_rule() {
         // THE ONE SLOT WHOSE FLAG IS NOT `_Use<Slot>`, and it is a test because the failure is silent AND
-        // one-sided: the iris in this repository's own test model switches its matcap on with `_UseMatcap`, so a
+        // one-sided: the iris in this repository's test model switches its matcap on with `_UseMatcap`, so a
         // consumer asking `enabled("_MatcapTex")` builds `_UseMatcapTex`, finds nothing, and answers "off" -
         // correctly by this module's rule, and completely wrongly by the asset pipeline's. What that looks like
         // downstream is not an error: it is one material quietly missing a feature it asked for.
@@ -497,7 +497,7 @@ namespace {
         // dangles and the `enabled()` calls below read a freed `material_sidecar` - ASan reported exactly
         // that (heap-use-after-free in `scalar()`, freed by `__libcpp_deallocate<material_sidecar>`), while
         // the unsanitized run read the freed block and happened to pass. Every pointer `find()` hands out
-        // borrows from the object it was called on, so the object outlives the pointer or neither is used.
+        // references from the object it was called on, so the object outlives the pointer or neither is used.
         auto const parsed_good = deren::toon::parse_sidecar(good_text);
         CHECK(parsed_good.has_value());
         if (!parsed_good.has_value()) {
@@ -520,11 +520,11 @@ namespace {
     /// agree that the table has SIX lanes. What can still drift, silently, is (a) WHICH lane the shader reads -
     /// a wrong index reads a neighbouring material's colour and the frame merely looks odd - and (b) what "the
     /// asset states nothing" LOOKS LIKE, which is the one value on these lanes that cannot be a number in the
-    /// value's own range. A host that left the lane at the white neutral would shade every material that states
+    /// value's range. A host that left the lane at the white neutral would shade every material that states
     /// no `_Specular` with a full-strength highlight, and a host that sent `0` there would silently delete the
     /// highlight from every material - neither of which is visible in a log line. The parallax lane's failure is
     /// the same one lane over: white in `.x` is a depth of 1.0, i.e. an offset thirty-three times the stage's
-    /// own constant.
+    /// its constant.
     ///
     /// THE TWO LANES ARE CHECKED TOGETHER BECAUSE THEY ARE RESOLVED BY ONE BRANCH in the application's lookup and
     /// by one shape of read in the stage: two properties, one contract, and an edit to that shared branch is
@@ -559,7 +559,7 @@ namespace {
         CHECK(shader.find("+ 5u).x") != deren::utility::vessel::string::npos);
         // ... AND THE FALLBACK THE SHADER APPLIES WHEN THAT READ SAYS "NOTHING STATED". The family table must
         // still be reachable or the lane would have replaced a per-material value with a per-family default of
-        // its own - the exact inversion of what it is for. The parallax lane's fallback is the stage's own
+        // its - the exact inversion of what it is for. The parallax lane's fallback is the stage's
         // constant rather than a family number (the eye path is its only consumer), and that constant has to
         // still be the number the iris states or the material this lane was measured against would move too.
         CHECK(shader.find("extras_specular_strength >= 0.0 ? extras_specular_strength : params.spec_strength") != deren::utility::vessel::string::npos);
@@ -571,7 +571,7 @@ namespace {
         // looks exactly like "no bug".
         CHECK(shader.find("parallax_offset = offset_dir * parallax_depth * float2(1.0, 0.25)") != deren::utility::vessel::string::npos);
 
-        // (b) WHAT "NOTHING STATED" IS, at every site that writes it. Each search starts at the site's own
+        // (b) WHAT "NOTHING STATED" IS, at every site that writes it. Each search starts at the site's
         // symbol and looks forward, so an unrelated `-1` elsewhere in the file cannot satisfy it.
         std::size_t const toon_inputs_at = primitive.find("deren::utility::vessel::array<glm::vec4, static_cast<std::size_t>(toon_colour_lane::count)> colours");
         CHECK(toon_inputs_at != deren::utility::vessel::string::npos);
@@ -583,11 +583,11 @@ namespace {
         // A WARNING: the elements that are not written are VALUE-INITIALISED, and every lane after the omission
         // silently takes another lane's declared default. That is not hypothetical here - the table stated 23 of
         // the 29 before this check existed, with lanes 23..28 reading plain zero instead of the sentinels and the
-        // opaque black their own lanes document, and no frame anywhere could show it.
+        // opaque black their lanes document, and no frame anywhere could show it.
         //
-        // THE EXPECTED NUMBER IS THE ENUM'S OWN `count`, read out of the same file rather than restated: the two
+        // THE EXPECTED NUMBER IS THE ENUM'S `count`, read out of the same file rather than restated: the two
         // are the contract, and a host number written here a second time would be a third copy to drift. The
-        // check on `expected == 30u` is the parse's own guard - it fails if the search below found no number at
+        // check on `expected == 30u` is the parse's guard - it fails if the search below found no number at
         // all, which would otherwise make every comparison trivially true. (30 SINCE STEP 15, which added
         // `_GooRSArm0` as lane 29; it was 29 from step 13 through step 14.)
         std::size_t const colours_at = primitive.find("toon_colour_lane::count)> colours = {");
@@ -629,7 +629,7 @@ namespace {
         if (fill_at != deren::utility::vessel::string::npos) {
             CHECK(runtime.find("glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f)", fill_at) != deren::utility::vessel::string::npos);
         }
-        // the parallax lane's own initial fill in the runtime's table
+        // the parallax lane's initial fill in the runtime's table
         std::size_t const parallax_fill_at = runtime.find("toon_colour_lane::parallax_scale");
         CHECK(parallax_fill_at != deren::utility::vessel::string::npos);
         if (parallax_fill_at != deren::utility::vessel::string::npos) {
@@ -656,7 +656,7 @@ namespace {
             deren::utility::vessel::string const loader = slurp(loader_file);
             CHECK(loader.find("claimed_extras_floats = {\"_Specular\", \"_ParallaxScale\"}") != deren::utility::vessel::string::npos);
         }
-        // ... AND THE HOST'S OWN ROW TABLE, which is the name the lookup asks the loader with: `_ParallaxScale`
+        // ... AND THE HOST'S ROW TABLE, which is the name the lookup asks the loader with: `_ParallaxScale`
         // reaching the whitelist but not this table would import the row and never ask for it.
         CHECK(host.find("\"_ParallaxScale\",") != deren::utility::vessel::string::npos);
         CHECK(host.find("extras_float_of(state.scenes, material_name, toon_colour_row[lane_index])") != deren::utility::vessel::string::npos);
@@ -678,7 +678,7 @@ namespace {
     /// material with a byte-identical record and identical texture lanes, and that asset is built, measured and
     /// deleted in `remaining_port_spec.md`'s "材质去重键补上 colour lanes" section. MEASURED THERE, on the pre-fix tree: a copy of
     /// `M_actor_chen_hair_01` stating `_Specular = 0.0`, registered one node earlier than the hair, made the
-    /// hair render BYTE-FOR-BYTE like an asset whose hair states 0.0 - the hair's own 1.0 discarded.
+    /// hair render BYTE-FOR-BYTE like an asset whose hair states 0.0 - the hair's 1.0 discarded.
     void test_the_material_dedup_key_carries_the_colour_lanes() {
         std::ifstream declarations_file{VR_TEST_SOURCE_DIR "/source/engine/runtime/runtime.declarations.cppm"};
         std::ifstream runtime_file{VR_TEST_SOURCE_DIR "/source/engine/runtime/runtime.constructor.cppm"};
@@ -705,7 +705,7 @@ namespace {
         CHECK(runtime.find(key_type) != deren::utility::vessel::string::npos);
         // ... AND IT IS THE ENUM RATHER THAN A NUMBER, which is the drift this repository has already paid for
         // once: `count = 10` today, and a hand-written 4 or 5 would leave the NEWEST lanes - the two the asset's
-        // own `extras` block speaks for, the rewritten chain's iris brightnesses, its two rim lanes, its
+        // its `extras` block speaks for, the rewritten chain's iris brightnesses, its two rim lanes, its
         // screen-space rim widths, step 10/12's anisotropy pair and step 13's two `RS EFF` lanes - out of the key
         // while every existing asset continued to look right. THIS IS THE TEXTURE LANE'S COUNT (`toon_slot`), not
         // the colour lane's: step 13 raised it to 15 for `_GooRSMask`, STEP 15 raised it to 16 for `_GooRSSheet`,
@@ -752,7 +752,7 @@ namespace {
     /// `main.cpp` and this target does not link the application. The branch's EXISTENCE, its accessor and its
     /// POSITION before the generic `others` path are pinned as text in `test_goo_toon_math.cpp`'s `(c11)` block,
     /// and the shader's `< 0` contract is pinned there too; what could not be pinned anywhere else is this
-    /// routing, which is why it is a case of its own.
+    /// routing, which is why it is A separate case.
     void test_the_goo_specular_fgd_row_is_a_readable_float_row() {
         constexpr std::string_view text =
             "material\tkind\tname\tvalue\n"
@@ -768,7 +768,7 @@ namespace {
             return;
         }
         // (a) THE ACCESSOR THE FIX USES SEES THE ROW. `-1.0f` is passed as the fallback deliberately: it is the
-        // lane's own neutral, so a `-1.0` result here would be indistinguishable from "the row is missing", which
+        // lane's neutral, so a `-1.0` result here would be indistinguishable from "the row is missing", which
         // is the failure mode being ruled out.
         CHECK(material->scalar("_GooSpecularFGD", -1.0f) == 0.8f);
 
@@ -800,7 +800,7 @@ namespace {
     ///      block no accessor names; the shader then reads 0 - the Q326-absent arm - for every material, which is a
     ///      uniform hull and not a crash.
     ///  (b) THE APPLICATION'S VOCABULARY ROW. `main.cpp` resolves a slot row only through `toon_lane[]`; a lane
-    ///      missing there resolves no texture BEFORE the flag is even asked (the module's own note records this).
+    ///      missing there resolves no texture BEFORE the flag is even asked (the module's note records this).
     ///      The flag is the sidecar's `_EnableOutlineMask`, which is a REAL game property - not this port's
     ///      `_Use<Slot>` invention - because the captured viewer emits `#ifdef Q326` from it.
     ///  (c) THE HOST'S FORMAT ROW AND PACK WRITE. The format row is mandatory for the array's size, and the pack

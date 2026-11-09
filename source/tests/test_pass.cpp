@@ -31,7 +31,7 @@ namespace {
     namespace vp = deren::engine::pass;
     namespace rr = deren::engine::render_resource;
 
-    /// The own binding every fake pass carries: one sampled image of its OWN at binding 0. What a pass reaches
+    /// The dedicated binding every fake pass carries: one sampled image of it at binding 0. What a pass reaches
     /// through the frame's heap is not a declaration the fake host has to spell out - the framework has no set to
     /// resolve it into (every stage reads the descriptor heap).
     deren::utility::vessel::array<rr::pass_binding, 1> const fake_local_bindings = {{{.binding = 0,
@@ -56,7 +56,7 @@ namespace {
     /// IDENTITY - the host hands the frame's buffer down and the pass reads back what it was given -
     /// so the stand-in exists to BE that object and records nothing. It is not a device, and every
     /// verb that would need one is a no-op; the two timing verbs answer `unsupported`, the honest
-    /// answer for an object that cannot timestamp (the probe backend's own rule).
+    /// answer for an object that cannot timestamp (the probe backend's rule).
     struct contract_command_buffer final : deren::promise::rhi::command_buffer {
         static constexpr std::string_view tag = "contract_command_buffer";
         [[nodiscard]] std::string_view get_tag() const noexcept override {
@@ -337,7 +337,7 @@ namespace {
     static_assert(std::is_same_v<decltype(rr::shared::sampler_set{}.of(rr::sampler_hint::shadow)),
                                  deren::promise::rhi::sampler*>);
 
-    /// the host's own state: the log every callback writes, plus what the fake host answers
+    /// the host's state: the log every callback writes, plus what the fake host answers
     struct host_state {
         deren::utility::vessel::vector<deren::utility::vessel::string> log;
         vp::frame_identity frame = {.image_index = 3, .slot = 1, .image_count = 3, .extent = {640, 480}};
@@ -348,7 +348,7 @@ namespace {
         /// (THE DEVICE IS GONE FROM THE CONTEXT, abi 21: the builders are contract factories that take the face)
         deren::promise::rhi::sampler* created_with_sampler = nullptr;
         /// WHAT THE RESOLVER CAN READ OFF THE DECLARATION, recorded here because the extent rule is applied by
-        /// the HOST (see host_resolve): a rule that names a resource and one of its elements is only usable if
+        /// the HOST (see host_resolve): a rule that names a resource and a separate one elements is only usable if
         /// both halves of the pair reach the host that has to map them to a size.
         rr::resource_id last_extent_of = rr::resource_id::none;
         uint16_t last_extent_element = 0;
@@ -417,7 +417,7 @@ namespace {
             return feature_name;
         }
         /// the framework's generic readiness question: a fake that says it did not build anything (see the
-        /// `chain.ready(name)` checks) - the DEFAULT (a pass that builds nothing of its own) is the interface's `true`
+        /// `chain.ready(name)` checks) - the DEFAULT (a pass that builds nothing separate) is the interface's `true`
         [[nodiscard]] bool ready() const noexcept override {
             return this->is_ready;
         }
@@ -454,11 +454,11 @@ namespace {
         host_state* state_ptr;
     };
 
-    // the names are `deren.engine.runtime`'s own pipeline keys, which is what makes this cost nothing new
+    // the names are `deren.engine.runtime`'s pipeline keys, which is what makes this cost nothing new
     constexpr deren::utility::vessel::array<std::string_view, 1> compute_pipeline_names = {"compute_skin"};
     constexpr deren::utility::vessel::array<std::string_view, 2> fullscreen_pipeline_names = {"post_composite", "fxaa"};
     /// the fullscreen fake pass also declares one render TARGET: an attachment is a use that cannot be a
-    /// descriptor, so it is declared in its own list (see vulkan.render_resource::render_target)
+    /// descriptor, so it is declared in its list (see vulkan.render_resource::render_target)
     constexpr rr::render_target fullscreen_target = {.resource = rr::resource_id::hdr, .element = 0};
     constexpr deren::utility::vessel::array<rr::render_target, 1> fullscreen_targets = {fullscreen_target};
     constexpr vp::behaviour compute_behaviour = {.kind = vp::behaviour_kind::compute, .group_size_x = 4, .group_size_y = 4, .group_size_z = 4, .extent = vp::extent_rule::resource, .pipelines = compute_pipeline_names};
@@ -470,7 +470,7 @@ void check_managed_resource_api() {
     if constexpr (requires(Chain& chain) { chain.resources(); }) {
         CHECK(true);
     } else {
-        CHECK_MSG(false, "passchain must own the resource registry");
+        CHECK_MSG(false, "passchain must hold the resource registry");
     }
 }
 
@@ -701,7 +701,7 @@ int32_t main() {
         stage const st = {.name = "scene", .passes = passes};
         state.log.clear();
         run_report const report = create_stage(st, make_context());
-        CHECK(report.rejected == "bad"); // the pass's own name, for a startup message that says which one
+        CHECK(report.rejected == "bad"); // the pass's name, for a startup message that says which one
         CHECK(report.created == 1);      // and the stage stops there rather than running a bad declaration
         CHECK(!has(state.log, "create:bad"));
     }
@@ -712,7 +712,7 @@ int32_t main() {
         CHECK(create_stage(st, make_context()).created == 2); // a null slot is skipped, not counted
     }
 
-    // ---- the create-time context on its own: a pass is built from THIS and nothing else ----
+    // ---- the create-time context alone: a pass is built from THIS and nothing else ----
     {
         vp::pass_context const context = make_context();
         // a pass is built from the CONTEXT alone: no frame, no runner, no runtime - the property that makes a
@@ -756,7 +756,7 @@ int32_t main() {
         CHECK(has(state.log, "recreate:gated")); // even the pass this frame skipped
     }
 
-    // ---- borrowed contract samplers are selected by the declaration's hint ----
+    // ---- referenced contract samplers are selected by the declaration's hint ----
     {
         rr::shared::sampler_set const samplers = {.gbuffer = &gbuffer_sampler_object, .shadow = fake_shadow_sampler};
         CHECK(samplers.of(rr::sampler_hint::shadow) == fake_shadow_sampler);
@@ -764,7 +764,7 @@ int32_t main() {
         CHECK(samplers.of(rr::sampler_hint::none) == nullptr);
         CHECK(samplers.of(rr::sampler_hint::taa) == nullptr); // the parent published no object for this hint
         CHECK(samplers.of(static_cast<rr::sampler_hint>(255)) == nullptr);
-        // a declaration's own bindings are exactly the bindings its shader declares, in order - checked against the
+        // a declaration's bindings are exactly the bindings its shader declares, in order - checked against the
         // stochastic punctual lighting chain's temporal resolve, which is the shape the pipeline builder this
         // test covers still builds from (that declaration went with the removed chain)
         uint32_t local_count = 0;
@@ -789,7 +789,7 @@ int32_t main() {
         CHECK(chain.size() == 2);
         CHECK(chain.find("tail") == static_cast<frame_pass*>(&tail));
         CHECK(chain.find("nothing") == nullptr);
-        // ... and the stage it hands a resolver is its own name and its own list
+        // ... and the stage it hands a resolver is its name and its list
         CHECK(chain.as_stage().name == "gi");
         CHECK(chain.as_stage().passes.size() == 2);
     }
@@ -815,12 +815,12 @@ int32_t main() {
 
     // ---- the chain also KEPT objects that are not passes (`keep`, whose only users were the renderer's two jobs).
     //      THE PROMISE WENT WITH THE FUNCTION: those two jobs are ordinary members of the renderer now, because they
-    //      are the only non-pass GPU-owning objects left, and a container that exists to hold exactly two objects of
-    //      two known types is more machinery than two members. Nothing tests it any more; `emplace`, the owning form
+    //      are the only non-pass GPU-holding objects left, and a container that exists to hold exactly two objects of
+    //      two known types is more machinery than two members. Nothing tests it any more; `emplace`, the holding form
     //      for a PASS, is covered by the stage and list assertions above ----
 
     // ---- the resource table: what EXISTS, keyed the way a DECLARATION names it (resource + element + instance).
-    //      The instance rule is the schema's own SCOPE, and it is one function so the publisher and the reader
+    //      The instance rule is the schema's SCOPE, and it is one function so the publisher and the reader
     //      cannot disagree - which is the whole reason this container exists instead of sixteen resolvers ----
     {
         vp::frame_identity const frame = {.image_index = 2, .slot = 1, .image_count = 3, .extent = {64, 64}};
@@ -887,10 +887,10 @@ int32_t main() {
     //      only source of handles is the resource table. This is the piece the renderer's sixteen hand-written
     //      `resolve_*_pass` functions are being replaced by, one pass at a time, and the rules it enforces are
     //      the ones every one of them wrote by hand: a missing resource means the pass does not run, the frame's
-    //      instance comes from the SCHEMA's scope, and the push block is the pass's own business ----
+    //      instance comes from the SCHEMA's scope, and the push block is the pass's business ----
     {
         /// a pass whose declaration is all it needs. The TAA resolve's declaration is reused rather than
-        /// invented: four own bindings (all per-swapchain-image), one render target, and a declared push size
+        /// invented: four dedicated bindings (all per-swapchain-image), one render target, and a declared push size
         /// that the resolver must NOT fill.
         struct declared_pass final : vp::frame_pass {
             rr::pass_io const* declaration = &rr::taa_io;
@@ -905,7 +905,7 @@ int32_t main() {
             [[nodiscard]] std::string_view feature() const noexcept override {
                 return {};
             }
-            // the passes that build their OWN pipeline answer this, and the resolver must prefer it over a
+            // the passes that build their pipeline answer this, and the resolver must prefer it over a
             // registry entry that happens to share a `behaviour::pipelines` name
             [[nodiscard]] deren::promise::rhi::pipeline* pipeline_handle() const noexcept override {
                 return this->contract;
@@ -931,7 +931,7 @@ int32_t main() {
             .extent_of = [](void* o, rr::resource_id, uint32_t) { return static_cast<resolver_handle*>(o)->resource_extent; },
             .pipeline =
                 [](void* o, std::string_view const name) -> vp::pipeline_ref {
-                // the parent answers a NAME with a pipeline, or with nothing for a name it does not own
+                // the parent answers a NAME with a pipeline, or with nothing for a name it does not hold
                 return name == static_cast<resolver_handle*>(o)->unknown_pipeline
                            ? vp::pipeline_ref{}
                            : vp::pipeline_ref{.contract = static_cast<resolver_handle*>(o)->pipeline};
@@ -956,7 +956,7 @@ int32_t main() {
         CHECK(as_pass.resolve(context, io) && io.local.size() == 1 && io.local[0].structure_handle == structure);
         parent.table.clear();
         // the framework's DEFAULT readiness answer: this pass overrides `ready()` nowhere, because it builds nothing
-        // the run has to wait for - a pass with nothing of its own has nothing to be unready ABOUT (see
+        // the run has to wait for - a pass with nothing separate has nothing to be unready ABOUT (see
         // frame_pass::ready)
         CHECK(pass.ready());
 
@@ -977,20 +977,20 @@ int32_t main() {
         CHECK(pass.resolve(context, io));
         CHECK(io.cmd == fake_cmd.get());
         CHECK(io.frame.image_index == frame.image_index);
-        CHECK(io.local.size() == 4); // the four own bindings, in their own binding order
+        CHECK(io.local.size() == 4); // the four dedicated bindings, in their binding order
         CHECK(io.local[0].image_handle == reinterpret_cast<deren::promise::rhi::image*>(0x9000 + static_cast<uint64_t>(rr::resource_id::scene_color) + frame.image_index));
         CHECK(io.local[3].image_handle == reinterpret_cast<deren::promise::rhi::image*>(0x9000 + static_cast<uint64_t>(rr::resource_id::gbuffer_depth) + frame.image_index));
         CHECK(io.targets.size() == 1);
         CHECK(io.targets[0].view_handle == hdr_view);
         CHECK(io.extent.width == 64 && io.extent.height == 32); // the declaration's rule is `full`
-        CHECK(io.push.empty());                                 // a pass composes its own push block
+        CHECK(io.push.empty());                                 // a pass composes its push block
         CHECK(io.barrier_images.empty() && io.barrier_buffers.empty());
         // THE PER-IMAGE CHANNEL is empty here (these were published instance by instance), which is the shape the
         // one consumer reads: it checks each span's length before indexing it
         CHECK(io.local_per_image[0].empty());
 
         // ... and published AS A FAMILY, the same declaration also hands the pass every image's view - the run
-        // `views_of` returns, in the parent's own storage, which is what a per-image descriptor family writes from
+        // `views_of` returns, in the parent's storage, which is what a per-image descriptor family writes from
         deren::utility::vessel::array<deren::promise::rhi::image_view*, 2> const family_views = {reinterpret_cast<deren::promise::rhi::image_view*>(0xF0), reinterpret_cast<deren::promise::rhi::image_view*>(0xF1)};
         deren::utility::vessel::array<deren::promise::rhi::image*, 2> const family_images = {reinterpret_cast<deren::promise::rhi::image*>(0xE0), reinterpret_cast<deren::promise::rhi::image*>(0xE1)};
         parent.table.clear();
@@ -1001,7 +1001,7 @@ int32_t main() {
         CHECK(pass.resolve(context, io));
         CHECK(io.local_per_image[0].size() == 2);                                          // one view per image of the generation
         CHECK(io.local_per_image[0][1] == family_views[1]);                                // ... in instance order
-        CHECK(io.local_per_image[3].data() == family_views.data());                        // and it is the OWNER's run, not a copy
+        CHECK(io.local_per_image[3].data() == family_views.data());                        // and it is the HOLDER's run, not a copy
         CHECK(io.local[frame.image_index].view_handle == family_views[frame.image_index]); // find() answers from the family too
         CHECK(io.targets[0].image_handle == family_images[frame.image_index]);
         CHECK(parent.table.instances_of(rr::resource_id::hdr, 0) == 2);
@@ -1015,7 +1015,7 @@ int32_t main() {
         CHECK(!pass.resolve(context, io));
 
         // THE EXTENT RULES, applied by the framework from the behaviour: half is the formula the half-size images
-        // are created with, `resource` is the parent's answer, and `none` means the pass sizes its own work
+        // are created with, `resource` is the parent's answer, and `none` means the pass sizes its work
         parent.table.publish_family(rr::resource_id::hdr, 0, family_images, family_views);
         pass.how.extent = vp::extent_rule::half;
         CHECK(pass.resolve(context, io));
@@ -1027,7 +1027,7 @@ int32_t main() {
         CHECK(io.extent.width == 7 && io.extent.height == 9); // the parent's answer for that element
         pass.how.extent = vp::extent_rule::none;
         CHECK(pass.resolve(context, io));
-        CHECK(io.extent.width == 0 && io.extent.height == 0); // "I size my own work", not "the frame's size"
+        CHECK(io.extent.width == 0 && io.extent.height == 0); // "I size my work", not "the frame's size"
 
         // THE PIPELINES the behaviour names: resolved by name through the parent, and a name the parent cannot
         // answer means the frame cannot bind what the pass declared - so the pass does not run
@@ -1041,7 +1041,7 @@ int32_t main() {
         CHECK(!pass.resolve(context, io));
         parent.unknown_pipeline = {};
 
-        // ... and a pass that BUILT its own pipeline is handed its own, never the same-named registry entry: that
+        // ... and a pass that BUILT its pipeline is handed its, never the same-named registry entry: that
         // is the whole reason the interface asks the pass first
         pass.contract = reinterpret_cast<deren::promise::rhi::pipeline*>(0x1234);
         CHECK(pass.resolve(context, io));
@@ -1049,8 +1049,8 @@ int32_t main() {
         CHECK(io.pipelines[0] == pass.contract);
         pass.contract = nullptr;
 
-        // A DECLARATION WITH NO BINDING OF ITS OWN IS STILL A DECLARATION: the framework has no set to hand a pass
-        // (every stage reads its descriptors from the frame's heap), so such a declaration resolves with no own
+        // A DECLARATION WITH NO BINDING IS STILL A DECLARATION: the framework has no set to hand a pass
+        // (every stage reads its descriptors from the frame's heap), so such a declaration resolves with no dedicated
         // binding and no pipeline, and the extent rule is still applied. (The shared-set entries this block used
         // to assert were declaration-only facts; they went with the vocabulary.)
         rr::pass_io const shared_only = {.name = "shared", .bindings = {}, .targets = {}, .push = std::nullopt};
@@ -1058,7 +1058,7 @@ int32_t main() {
         shared_pass.declaration = &shared_only;
         vp::resolved_io shared_io = {};
         CHECK(shared_pass.resolve(context, shared_io));
-        CHECK(shared_io.local.empty());                      // the declaration names no own binding
+        CHECK(shared_io.local.empty());                      // the declaration names no dedicated binding
         CHECK(shared_io.pipelines.empty());                  // ... and no pipeline
         CHECK(shared_io.extent.width == frame.extent.width); // the extent rule is still applied
         CHECK(shared_pass.resolve(context, shared_io));      // resolving twice is idempotent (a per-frame contract)

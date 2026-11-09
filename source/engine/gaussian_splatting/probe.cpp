@@ -175,14 +175,14 @@ namespace deren::engine::gaussian_splatting {
             if (commands->end_recording() != rhi::error::ok || core.commands->submit(*commands) != rhi::error::ok) {
                 return failure("Gaussian probe submission refused");
             }
-            // All frame/asset/target owners remain in scope through completion.
+            // All frame/asset/target holders remain in scope through completion.
             core.wait_idle();
             auto content = color->get_content();
             if (!content || content->bytes_per_pixel != 8 || content->extent.width != camera.extent.width || content->extent.height != camera.extent.height ||
                 content->bytes.size() != static_cast<std::size_t>(camera.extent.width) * camera.extent.height * 8) {
                 return failure("Gaussian probe HDR readback failed");
             }
-            // RHI readback keeps its existing ABI container; the diagnostic owns a vessel copy.
+            // RHI readback keeps its existing ABI container; the diagnostic holds a vessel copy.
             return deren::utility::vessel::vector<std::byte>(content->bytes.begin(), content->bytes.end());
         }
         std::expected<void, foundation_error> verify_gpu_references(rhi::api_core& core, gpu_frame const& frame, std::span<raster_instance const> inputs, raster_camera const& camera, std::span<draw_reference const> cpu_references, raster_probe_report& report) {
@@ -332,7 +332,7 @@ namespace deren::engine::gaussian_splatting {
         // The probe's cases prepare real assets and frames, and every one of those retains the device root: an
         // empty lease is the probe asking to be run without one, which the upload paths would refuse deeper.
         if (!device_lease) {
-            return failure("Gaussian probe requires an owning device lease", error_code::invalid_argument);
+            return failure("Gaussian probe requires a holding device lease", error_code::invalid_argument);
         }
         foundation_limits const default_limits{};
         std::span<raster_instance const> const empty_inputs{};

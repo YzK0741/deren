@@ -68,7 +68,7 @@ Every `descriptor_heap` array in a shader **aliases the same heap from offset 0*
 `heap_lights[i]` reads `heapBase + i * stride(lights)`. Two declarations of different names but the same kind
 and stride are literally the same memory. The workable convention is therefore:
 
-- the host places a descriptor at an offset that is a multiple of its kind's descriptor stride
+- the host places A separate descriptor at an offset that is a multiple kind's descriptor stride
   (device properties: buffer 16 B / align 8, image 32 B / align 32, sampler 32 B / align 32);
 - a shader indexes with `byteOffset / stride`, i.e. indices are kind-relative **slot numbers**;
 - the values that vary per frame or per swapchain image (`frame slot`, `image index`, material id, texture id,
@@ -100,7 +100,7 @@ heap writes and `shading.slang`'s camera/light blocks): Slang's
 `DescriptorHandle<ConstantBuffer<T>>` always fetches through a `StorageBuffer`-class pointer - a Slang
 `ConstantBuffer` handle never emits `Uniform` - so the GLSL side had to declare those blocks `buffer` as
 well. The layout did not move, and that was CHECKED RATHER THAN ASSUMED: `CameraUBO` keeps its offsets
-(0, 64, 128, 144, 208) and the light block keeps every one of its members where std140 had them - including
+(0, 64, 128, 144, 208) and the light block keeps every a separate one members where std140 had them - including
 the 8576-byte size that comes from `punctual_lights[128]` at 352, `cluster_grid` at 8544 and
 `cluster_depth` at 8560, which is the member list a std140/std430 mismatch would have moved. The full
 finding, including what it cost to find and the two ruled-out suspects, is docs/slang_migration.md
@@ -128,9 +128,9 @@ the same classic binding numbers in `source/backends/vulkan/core/declarations/co
 | `compute_skin.comp` | 9 | - |
 | `mask_bake.comp` | 1, 5 | - |
 | `deferred.frag` | 14 rt shadow visibility | 0..3 G-buffer, 7 ml lighting |
-| `gbuffer_debug.frag` | - | 0..4 (its own set 0) |
+| `gbuffer_debug.frag` | - | 0..4 (its set 0) |
 | `megalights_trace.comp` | 16 TLAS | 0..3 G-buffer, 6 `image2D` out |
-| `megalights_temporal.comp` | 0..4 (its own set 0) | - |
+| `megalights_temporal.comp` | 0..4 (its set 0) | - |
 | `post.frag` | 0 source, 1..4 bloom, 7 depth, 8 normal | - |
 | `taa.frag` | 0..3 | - |
 | `fxaa.frag` | 5 display colour | - |
@@ -192,7 +192,7 @@ build, so it is written down: the TLAS this renderer uses is built by **`ray_tra
 `handle(frame_slot)`, `instance_table(frame_slot)`, `casters()`, `attempted()`, `ready()`. The
 `acceleration_structure` module's `top_level_structure` also creates a top level structure with
 `create.size = sizes.accelerationStructureSize`, and that is the module the first version of this note pointed at;
-pointing there made the write compile against a class the runtime does not own (the error names the type:
+pointing there made the write compile against a class the runtime does not hold (the error names the type:
 `no member named 'structure_size' in 'deren::vulkan::ray_tracing::structure_set'`).
 
 So the next step is: publish the size from `structure_set` - it is known where the structure is created, next to
@@ -202,7 +202,7 @@ frame_slot`, inside the existing `rt_binding_written[frame_slot] != tlas` guard.
 
 ## Where the work stands (measured, not claimed)
 
-POPULATED AND VERIFIED IN THE LOG. The grid is reserved at 1 MiB and every write below is proven by its own log
+POPULATED AND VERIFIED IN THE LOG. The grid is reserved at 1 MiB and every write below is proven by its log
 line, because a heap write has no picture to show for itself until the shaders read the heap:
 
 | what | grid slot(s) | evidence |
@@ -269,7 +269,7 @@ so they cost a search rather than a build:
   created with a pipeline layout or descriptor layouts" - which is why the shim built earlier is inert here.
 - The one exception worth knowing: mappings are still required for **embedded samplers and input attachments**.
   The native form sidesteps the first by taking samplers from the SAMPLER heap explicitly (`sampler2D(tex, samp)`
-  at the use site), which is why the grid gives the six shared samplers their own slots.
+  at the use site), which is why the grid gives the six shared samplers their slots.
 
 So the conversion is, in order: (1) every push site sends its block through `vkCmdPushDataEXT`; (2) every
 pipeline drops its set layouts and takes the flag with a null layout; (3) every shader converts its
@@ -367,7 +367,7 @@ scenarios against a frozen reference set: the mapping shim, then the classic des
 family and their per-frame writes), then the last of the mapping machinery that the first commit's
 deletion had exposed. The declaration layer lost its set vocabulary with them: a `pass_binding` names a
 resource and its `binding_scope` (`local` for the pass's private per-image targets, `shared` for
-frame-owned heap bindings), not a set it lives in.
+frame-held heap bindings), not a set it lives in.
 
 **What is already proven, and therefore not in doubt.** The grid is reserved and covered (every slot the header
 names is written by host code, checked by a test); the heaps are bound by `record_bind`; the native path works
@@ -397,7 +397,7 @@ descriptor heap: the heap-native GRAPHICS probe rendered grid slot 16897 ... rea
 ```
 
 - Item (1) - every descriptor written - is DONE and guarded: the grid is reserved at a fixed 1 MiB with a 64 B
-  stride, the sampler heap has its own 64 KiB base, every array the shader header names has a host write site (a
+  stride, the sampler heap has its 64 KiB base, every array the shader header names has a host write site (a
   test fails if one appears without), and the writes above are the evidence for the categories. The IMAGE side is
   written where each image is created - the G-buffer targets and depth, the motion vectors, the scene colour and
   TAA's history, the ray-traced visibility (as both a sampled and a storage descriptor), the megalights trace,

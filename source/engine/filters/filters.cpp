@@ -1,5 +1,5 @@
 // The two filtered views over a device root: the application's (what `runtime::operator->` returns) and a
-// pass's init view. The application's forwards one contract call; the pass's serves the owner's published
+// pass's init view. The application's forwards one contract call; the pass's serves the holder's published
 // resources. Neither manages a frame, and the measured reason this file is now ten accessors smaller is in
 // the header.
 
@@ -27,13 +27,13 @@ namespace deren::engine {
     }
 
     // =============================================================================================
-    // the pass's view: the resources the owner published - nothing that manages a frame, and no
+    // the pass's view: the resources the holder published - nothing that manages a frame, and no
     // per-generation handle
     // =============================================================================================
 
     void pass_filter::register_resource(render_resource::resource_id const id, uint32_t const element, resource_handles const handles) noexcept {
         // The key packs the declaration's identity: which resource, and which element of its family. A SECOND
-        // registration of the same key REPLACES the first, because the owner re-publishing a resource after a
+        // registration of the same key REPLACES the first, because the holder re-publishing a resource after a
         // rebuild is the same statement as publishing it.
         uint32_t const key = (static_cast<uint32_t>(id) << 8u) | (element & 0xFFu);
         for (auto& [existing, existing_handles] : this->registered) {

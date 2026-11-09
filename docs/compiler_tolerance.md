@@ -2,7 +2,7 @@
 
 What this project needs from a toolchain, and what was MEASURED when a second one was tried. The short
 version: the code is C++26 with C++20 modules and was written against **libc++**; three things in it turned out
-to be libc++-only and are fixed, and what still stops a second toolchain is the toolchain's own problem and one
+to be libc++-only and are fixed, and what still stops a second toolchain is the toolchain's problem and one
 vendored header's.
 
 ## What is supported
@@ -32,7 +32,7 @@ what happens if it is tried.
 
 ### `std::print` does not link on MinGW's libstdc++
 
-MinGW's libstdc++ 16.2 ships `<print>`'s **declarations** without the terminal-writing half of its
+MinGW's libstdc++ 16.2 ships `<print>`'s **declarations** without the separate terminal-writing half
 implementation, so a call site fails at LINK time with
 
 ```
@@ -42,7 +42,7 @@ undefined reference to `std::__write_to_terminal(void*, std::span<char, ...>)'
 
 `nm --defined-only libstdc++.a` finds no definition of either, and `bits/print.h`'s `vprint_unicode` is what
 references them. The tree therefore uses **`deren::utility::print` / `deren::utility::println`** (`source/utility/utility.cppm`),
-which are `std::print`'s semantics with the project owning them: `std::format_string` parameters, so the format
+which are `std::print`'s semantics with the project holding them: `std::format_string` parameters, so the format
 string is still checked at compile time, one `std::fwrite`, no flush, and `std::format` taken from `deren.vstd`.
 
 Two details in that family are load-bearing rather than style:
@@ -52,7 +52,7 @@ Two details in that family are load-bearing rather than style:
     textual `<cstdio>` in the module INTERFACE - declares libc++'s entities twice, once in the module's global
     fragment and once through `export import deren.vstd`. clang 22.1.8 answers that with a crash in code generation
     (`EmitBuiltinNewDeleteCall` on `std::__libcpp_allocate`), so the macro stays in the implementation unit.
-  - the family's own internal calls are **qualified** (`deren::utility::print(...)`), because an unqualified one is
+  - the family's internal calls are **qualified** (`deren::utility::print(...)`), because an unqualified one is
     ambiguous against libc++'s `std::print(std::FILE*, format_string<Args...>, Args&&...)`, which an unqualified
     lookup inside the namespace finds.
 
@@ -79,13 +79,12 @@ without an initializer, and the initialization happens in the implementation uni
 
 ## One clang bug, worked around rather than fixed
 
-`source/tests/vk_test.h` formats its own output (`std::format` + one `std::fwrite`) and deliberately does NOT call the
+`source/tests/vk_test.h` formats its output (`std::format` + one `std::fwrite`) and deliberately does NOT call the
 project's print family. The reason is a **clang 22.1.8 crash**: with an inline function in that header calling
 the module's variadic template, `test_shadow_fit.cpp` and `test_animation.cpp` die in code generation
 ("clang frontend command failed due to signal", inside `EmitBuiltinNewDeleteCall` /
 `std::__libcpp_allocate`). The minimal reproduction of that shape - a module exporting such a template, a header
-with an inline function calling it, and a translation unit that imports and then includes - compiles cleanly on
-its own, so the trigger is the combination of the two rather than either half. A test harness is not worth a
+with an inline function calling it, and a translation unit that imports and then includes - compiles cleanly alone, so the trigger is the combination of the two rather than either half. A test harness is not worth a
 compiler bug, so the harness formats here and every test stays a plain translation unit that imports only the
 module under test.
 
@@ -107,10 +106,10 @@ GCC?" is a sentence rather than a re-run:
 
 There is nothing to install for the second toolchain except GCC itself, but the dependency roots differ: the
 MSYS2 packages this project uses (`glm`, `toml++`, `glfw3`, the Vulkan headers) live in the **clang64** root, so
-a ucrt64 GCC build needs either their ucrt64 packages or the clang64 roots borrowed. What the audit did:
+a ucrt64 GCC build needs either their ucrt64 packages or the clang64 roots referenced. What the audit did:
 
   1. a **wrapper compiler** that appends `-Wno-error` after the project's `-Werror` (a `.bat` forwarding to
-     `g++.exe %* -Wno-error`), because `-Werror` is in the target's own options and therefore comes after
+     `g++.exe %* -Wno-error`), because `-Werror` is in the target's options and therefore comes after
      `CMAKE_CXX_FLAGS` - without it, the macro-redefinition warnings above stop the build before any of the
      interesting failures;
   2. `-DCMAKE_CXX_FLAGS="-isystem C:/msys64/clang64/include"` and

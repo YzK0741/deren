@@ -28,7 +28,7 @@ namespace deren::toon {
     }
 
     bool material_sidecar::enabled(std::string_view const slot_name) const noexcept {
-        // THE CONVENTION IS THE FILE'S OWN: a slot `_DiffRampMap` is switched on by `_UseDiffRampMap`, and the
+        // THE CONVENTION IS THE FILE'S: a slot `_DiffRampMap` is switched on by `_UseDiffRampMap`, and the
         // prefix replaces the slot's leading underscore rather than being inserted after it. A name that does
         // not start with one gets the prefix directly, so both spellings resolve.
         //

@@ -2,7 +2,7 @@
 // Lane R (the raster) is ONE pass with two attachments and three table reads; lane V (the resolve, v0.4c) is ONE
 // compute pass with two sampled reads, five storage writes and six buffer reads. These checks pin both declarations
 // so the runtime wiring cannot silently widen or mis-scope them. The full-frame acceptance is the capture gate (a
-// GPU artifact); what can run in CI is the graph's own arithmetic.
+// GPU artifact); what can run in CI is the graph's arithmetic.
 #include "vk_test.h"
 
 #include <algorithm>
@@ -216,7 +216,7 @@ namespace {
     //
     // The design's correctness argument is an ORDER (spec §3.2/§5.1): hardware raster -> software raster ->
     // RESOLVE -> MERGE, and the resolve reads the UNMERGED hardware depth. Task 4 wires it, but the declarations
-    // own the order NOW: `append_software_raster` explicitly follows the hardware raster, and
+    // hold the order NOW: `append_software_raster` explicitly follows the hardware raster, and
     // `append_software_merge` orders the resolve after the software raster and itself after the resolve. This
     // builds exactly that four-lane chain and inspects the compiled plan's explicit edges and execution order,
     // plus the merge's declared depth read/write shape.
@@ -502,7 +502,7 @@ int main() {
         CHECK(!visibility::append(graph, in).has_value());
     }
 
-    // ---- the RESOLVE lane (v0.4c; v0.5 made it the opaque producer so its depth input is the frame's own
+    // ---- the RESOLVE lane (v0.4c; v0.5 made it the opaque producer so its depth input is the frame's
     //      G-buffer depth): two sampled reads, five storage writes, six table reads ----
     for (bool with_mip_feedback : {false, true}) {
         for (bool with_culled : {false, true}) {

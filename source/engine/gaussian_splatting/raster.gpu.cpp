@@ -28,8 +28,8 @@ namespace deren::engine::gaussian_splatting {
 
         /// run @p work(index, begin, end) over @p count items, chunk 0 on the CALLING thread
         ///
-        /// Every worker owns one index and one half-open range, so nothing is shared but the range boundaries: each
-        /// writes into its own storage and the caller decides what the order between them means. That is what keeps a
+        /// Every worker holds one index and one half-open range, so nothing is shared but the range boundaries: each
+        /// writes into its storage and the caller decides what the order between them means. That is what keeps a
         /// parallel pass byte-for-byte the same as the serial one where the order is observable (the draw order).
         template <typename F>
         void run_in_parallel(std::size_t const workers, std::size_t const count, F const& work) {
@@ -61,7 +61,7 @@ namespace deren::engine::gaussian_splatting {
         if (device_lease && device_lease.get() != &core) {
             return failure(error_code::invalid_argument, "Gaussian asset device lease belongs to another core");
         }
-        // THE VIEWER'S OWN PROGRESS, at the two stages that can be slow or refuse: a 562,974-splat cloud is
+        // THE VIEWER'S PROGRESS, at the two stages that can be slow or refuse: a 562,974-splat cloud is
         // packed and uploaded once, and "which half" is the first question when it does not arrive.
         deren::utility::log("gaussian asset: packing {} particle(s) (SH degree {})", input.particles.size(), input.sh_degree);
         auto packed = pack_asset(input, limits);
@@ -89,7 +89,7 @@ namespace deren::engine::gaussian_splatting {
             return failure(error_code::invalid_argument, "Raster frame belongs to another core");
         }
         if (reuse && device_lease && !reuse->device_lease && reuse->storage_view.size()) {
-            return failure(error_code::invalid_argument, "Legacy raster storage cannot gain an owning device lease; prepare a new frame");
+            return failure(error_code::invalid_argument, "Legacy raster storage cannot gain a holding device lease; prepare a new frame");
         }
         auto const frame_started = std::chrono::steady_clock::now();
         auto sort_view = validate_raster_camera(camera);
@@ -180,8 +180,8 @@ namespace deren::engine::gaussian_splatting {
             reuse->total = result->total;
             reuse->near_omitted = result->near_omitted;
             reuse->outside = result->outside;
-            // The reuse result is the SAME frame, so hand out the one owner that already exists: a fresh shared_ptr
-            // with its own control block would look owning while keeping nothing alive.
+            // The reuse result is the SAME frame, so hand out the one holder that already exists: a fresh shared_ptr
+            // with its control block would look holding while keeping nothing alive.
             return reuse->shared_from_this();
         };
         result->total = static_cast<std::uint32_t>(sorted->size());
@@ -191,7 +191,7 @@ namespace deren::engine::gaussian_splatting {
         result->push.viewport_height = static_cast<float>(camera.extent.height);
         // ---- THE PER-SPLAT PASS, ON EVERY CORE IT CAN HAVE ----
         // The work is INDEPENDENT PER SPLAT and it is the frame's whole cost (see raster_worker_count's note). Each
-        // worker fills its own vector and counts its own rejections; the caller then concatenates those vectors IN
+        // worker fills its vector and counts its rejections; the caller then concatenates those vectors IN
         // CHUNK ORDER and sums the counts, so the draw order and the reported totals are exactly the serial ones -
         // the sort's answer, not the schedule's.
         struct projected_chunk {
@@ -317,7 +317,7 @@ namespace deren::engine::gaussian_splatting {
             }
             target->storage_provider->configure(requests);
             if (!target->device_lease) {
-                return failure(error_code::invalid_argument, "Raster frame storage requires an owning device lease");
+                return failure(error_code::invalid_argument, "Raster frame storage requires a holding device lease");
             }
             auto root = target->device_lease;
             if (target->storage_chain.prepare_resources(root, managed::resource_context{.frame_slots = 1, .output_images = 1}, admit) != rhi::error::ok) {

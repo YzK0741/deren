@@ -80,7 +80,7 @@ namespace deren::vulkan {
         if (!parent) {
             return;
         }
-        // Unlock before member-owner destruction: those destructors enter other registries.
+        // Unlock before member-holder destruction: those destructors enter other registries.
         std::lock_guard lock(parent->resource.resource_groups_mutex);
         parent->resource.resource_groups.erase(this);
         for (auto allocation : allocations) {

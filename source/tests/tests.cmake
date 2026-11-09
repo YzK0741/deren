@@ -18,7 +18,7 @@ if(VR_BUILD_TESTS)
     add_test(NAME test_software_raster_image_verifier
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/measure/verify_software_images.py" --self-test)
     # M4 Task 3 closeout: the deterministic fixture generator and the GPU-route acceptance capture harness have their
-    # own headless self-tests, so a broken fixture recipe or a capture whose markers/manifest expectations no longer
+    # dedicated headless self-tests, so a broken fixture recipe or a capture whose markers/manifest expectations no longer
     # match the runtime fails in CI instead of in a GPU-only acceptance run.
     add_test(NAME test_software_raster_fixture_generator
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/measure/make_software_raster_fixture.py" --self-test)
@@ -64,7 +64,7 @@ if(VR_BUILD_TESTS)
 
     set(VR_TEST_TARGETS test_acceleration_structures test_app_config test_asset_library test_subtilis test_subtilis_asset test_subtilis_dag_asset test_subtilis_dag_lod test_subtilis_import test_subtilis_lod test_subtilis_builder test_subtilis_residency test_subtilis_page_streaming test_subtilis_upload test_subtilis_selection test_subtilis_frame test_rhi_retention test_utility test_morton test_vessel test_stacktrace test_math test_profiling test_filters test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_gaussian_gpu_frame test_toon_material_sidecar test_shadow_fit test_render_resources test_resource_cluster test_boost_graph test_render_graph test_render_graph_ranges test_render_graph_parameters test_render_graph_sync test_render_graph_dump test_render_graph_lowering test_render_graph_execute test_render_graph_bloom test_render_graph_frame test_render_graph_post test_render_graph_compose test_render_graph_lighting test_pass test_shader_sources test_meshlet test_docs test_dynamic_link test_vulkan_capabilities test_progressive_texture test_texture_upload_layout test_error_mapping test_runtime_injection test_image_formats test_visibility_buffer test_render_graph_visibility test_visibility_raster_pass test_visibility_resolve_pass test_hzb test_visibility_software test_visibility_software_pass test_visibility_merge_pass test_render_operations)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run")
-    # EACH TEST GETS ITS OWN WORKING DIRECTORY (planned X5 housekeeping): several tests write and read files
+    # EACH TEST GETS Its WORKING DIRECTORY (planned X5 housekeeping): several tests write and read files
     # there - test_runtime_injection reads the panic text a CHILD process left behind - and with ONE shared
     # directory `ctest -j` made two of them read each other's files (measured: 18/19 in parallel, 19/19
     # serial). They cannot collide now.
@@ -168,8 +168,8 @@ if(VR_BUILD_TESTS)
     # is not exercised) are pure CPU, so both tests ride deren_engine for the same reason test_math does.
     target_link_libraries(test_profiling deren_engine vstd_lib)
     target_link_libraries(test_filters deren_engine promise vstd_lib)
-    # deren.engine.render_resource is pure CPU on purpose (its own enums, no Vulkan type): the invariants it exists
-    # for - usage is a subset of the schema, kind and access fit, a pass's own bindings are contiguous, a pool
+    # deren.engine.render_resource is pure CPU on purpose (its enums, no Vulkan type): the invariants it exists
+    # for - usage is a subset of the schema, kind and access fit, a pass's bindings are contiguous, a pool
     # count is derivable - are checkable WITHOUT a device, which is the only way they can be checked in CI.
     target_link_libraries(test_render_resources
             deren_engine
@@ -374,7 +374,7 @@ if(VR_BUILD_TESTS)
         target_link_options(probe_backend PRIVATE -fno-sanitize=all)
     endif()
     # Next to the test executables, which is where test_dynamic_link looks for it: the test asks argv[0]
-    # for its own directory at run time, so no path is ever spelled inside a string literal (a Windows
+    # for its directory at run time, so no path is ever spelled inside a string literal (a Windows
     # separator in one is exactly the bug that only shows up on the machine that has one).
     set_target_properties(probe_backend PROPERTIES
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
@@ -392,10 +392,10 @@ if(VR_BUILD_TESTS)
             vstd_lib
     )
     # THE INJECTION TEST (batch ⑥): the engine builds a renderer from a PROBE root, with no loader, no
-    # DLL and no device - which is the layering's own evidence - and covers the consumption-side
+    # DLL and no device - which is the layering's evidence - and covers the consumption-side
     # handshake by running the panic case in a CHILD process of itself (CreateProcessW, so the exit
     # status is not translated by a shell). It links the SAME probe TU the C entry lives in, so the knob
-    # (`probe_make_core` with a chosen `api_version()`) cannot drift from the entry's own behaviour.
+    # (`probe_make_core` with a chosen `api_version()`) cannot drift from the entry's behaviour.
     target_link_libraries(test_resource_cluster deren_engine probe_backend_static promise)
     target_link_libraries(test_runtime_injection
             promise
@@ -404,7 +404,7 @@ if(VR_BUILD_TESTS)
             probe_backend_static
             vstd_lib
     )
-    # The file NAME, not a path: the test composes the path from its own location (see above), so the
+    # The file NAME, not a path: the test composes the path from its location (see above), so the
     # name stays correct whichever prefix/suffix the platform's shared-library convention uses.
     target_compile_definitions(test_dynamic_link PRIVATE
             VR_TEST_PROBE_BACKEND_FILE_NAME="$<TARGET_FILE_NAME:probe_backend>")

@@ -193,7 +193,7 @@ namespace deren::tools::subtilis {
         if (is_glb && yyjson_mut_arr_size(buffers) && !member(yyjson_mut_arr_get(buffers, 0), "uri")) {
             d.state->append_buffer = 0;
         }
-        // Filter only our supported required extension in a parser-owned temporary copy.
+        // Filter only our supported required extension in a parser-held temporary copy.
         auto* original_required = member(root(d), "extensionsRequired");
         auto* used = member(root(d), "extensionsUsed");
         for (size_t i = 0; i < yyjson_mut_arr_size(original_required); ++i) {

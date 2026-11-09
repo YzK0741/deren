@@ -3,7 +3,7 @@
 Usage: python tiletab.py <with_cache.png> <without_cache.png>
 
 Prints a 4x4 table of the green-channel difference (with - without) for each tile, both
-as an absolute mean and as a percentage of that tile's own mean in the "without" frame -
+as an absolute mean and as a percentage of that tile's mean in the "without" frame -
 which is the form that shows whether an effect is ordered by the scene or by the material.
 """
 import sys
@@ -22,7 +22,7 @@ n = w * h
 
 print(f"{sys.argv[1]} - {sys.argv[2]}   ({w}x{h})")
 print(f"  frame mean: {sum(on)/n:.4f} - {sum(off)/n:.4f} = {sum(on)/n - sum(off)/n:+.4f}")
-print("  per tile: absolute mean difference and % of that tile's own 'without' mean")
+print("  per tile: absolute mean difference and % of that tile's 'without' mean")
 for ty in range(4):
     abs_row = []
     pct_row = []

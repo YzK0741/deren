@@ -7,7 +7,7 @@
     sample and released under CC BY-SA 4.0 (courtesy Jean-Eudes Marvie):
     http://developer.download.nvidia.com/ProGraphics/nvpro-samples/flowers_1.zip
 
-    IT IS NOT COMMITTED, and that is deliberate: it is a 133 MB binary with its own licence, and the repository
+    IT IS NOT COMMITTED, and that is deliberate: it is a 133 MB binary with its licence, and the repository
     is where code lives. This script fetches and unpacks it into the build tree (which is ignored), so the
     viewer can be run against the real thing, and the README of the viewer plan records where it came from.
 
@@ -22,7 +22,7 @@
 [CmdletBinding()]
 param(
     [string]$BuildDir = "build",
-    # The local proxy, when the machine needs one: the NVIDIA host is plain HTTP, which git's own proxy
+    # The local proxy, when the machine needs one: the NVIDIA host is plain HTTP, which git's proxy
     # configuration does not cover.
     [string]$Proxy = "",
     [switch]$Force

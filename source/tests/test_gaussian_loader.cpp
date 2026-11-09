@@ -153,7 +153,7 @@ int main() {
             push(0.5f);
             push(0.75f); // f_dc
             for (unsigned i = 0; i < 45; ++i) {
-                push(float(100 + i)); // f_rest: each value names its own slot
+                push(float(100 + i)); // f_rest: each value names its slot
             }
             push(2.0f); // opacity (logit)
             push(-3.0f);

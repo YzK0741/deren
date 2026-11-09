@@ -5,7 +5,7 @@
 // ONE FRAME'S SHARED CONSTANTS: the per-frame facts the frame loop produces and a
 // pass may read while it records.
 //
-// WHY A VALUE RATHER THAN A CALLBACK, and the reason is the framework's own rule
+// WHY A VALUE RATHER THAN A CALLBACK, and the reason is the framework's rule
 // (see vulkan.pass: `pass_host` is the RECORD STEP's interface and a pass never sees it,
 // because a context object that answers whatever the newest pass asks for is what
 // that rule exists to prevent). These are not answers to questions - they are the
@@ -37,7 +37,7 @@
 module;
 
 #include <glm/glm.hpp>
-// NO VULKAN HEADER: this module names no native type (it is the frame's facts in the contract's own
+// NO VULKAN HEADER: this module names no native type (it is the frame's facts in the contract's
 // vocabulary), so the boundary sweep no longer counts it.
 
 export module deren.engine.frame_constants;
@@ -50,7 +50,7 @@ export import deren.vstd;
  * @brief the per-frame facts the frame loop produces and a pass reads while it records
  *
  * One value type, filled once per frame by the renderer (`runtime::update_frame_constants`) and handed to every
- * pass through `vulkan.pass::resolved_io::constants`. It exists so that a pass can compose its own push block
+ * pass through `vulkan.pass::resolved_io::constants`. It exists so that a pass can compose its push block
  * instead of the renderer composing it for it - without a callback interface, which is the shape the pass
  * framework deliberately keeps away from passes (see `vulkan.pass::pass_host`).
  */
@@ -61,9 +61,9 @@ namespace deren::engine {
      * @brief the frame loop's RENDERER SETTINGS, for the ones more than one pass reads
      *
      * THE RULE THAT DECIDES WHAT IS HERE, and it is what keeps this from becoming a bag of knobs: a setting a pass
-     * reads ALONE is that pass's own parameter (the TAA resolve's two blend weights, the debug view's channel -
+     * reads ALONE is that pass's parameter (the TAA resolve's two blend weights, the debug view's channel -
      * they live in those passes, and the renderer's public setters forward to them); a setting SEVERAL passes read
-     * is the frame loop's, because no single pass can own a value its siblings must agree on. The post chain is
+     * is the frame loop's, because no single pass can hold a value its siblings must agree on. The post chain is
      * what made the distinction necessary: the composite, the four bloom levels and FXAA all push the exposure and
      * the bloom weights, and the composite and the GI spatial filter share one silhouette criterion.
      */
@@ -74,7 +74,7 @@ namespace deren::engine {
         /// the bloom sum's weight and the prefilter's threshold (the same three)
         float bloom_intensity = 0.0f;
         float bloom_threshold = 0.6f;
-        /// FXAA's two thresholds (its own pass, and the composite, which pushes the same block)
+        /// FXAA's two thresholds (its pass, and the composite, which pushes the same block)
         float fxaa_subpixel = 0.75f;
         float fxaa_edge_threshold = 0.166f;
     };

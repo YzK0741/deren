@@ -6,7 +6,7 @@
 // content hashing, the platform entry points, and the loader. Standalone - no Vulkan
 // or app dependency, link it into any host.
 //
-// THE STATIC (PER-HALF) HALF OF THE SPLIT (batch ④). This module owns everything that is
+// THE STATIC (PER-HALF) HALF OF THE SPLIT (batch ④). This module holds everything that is
 // per-object or pure, plus deren.utility.dynamic_link; the PROCESS-WIDE state (the log sink, its
 // rotation and file handle, panic convergence, the allocator hook) lives in deren.utility.shared,
 // which this module RE-EXPORTS. TWO THINGS WORTH KNOWING WHILE READING IT:
@@ -158,7 +158,7 @@ namespace deren::utility {
 
     /**
      * @ingroup utility
-     * @brief assert the caller's own precondition, in every build
+     * @brief assert the caller's precondition, in every build
      * @param condition the state the calling code requires to make sense
      * @param description what did not hold, for the panic message (may be empty)
      * @param source_location just use the default argument: it captures the CALLER's position
@@ -176,7 +176,7 @@ namespace deren::utility {
                        std::source_location source_location = std::source_location::current()) noexcept;
 
     namespace detail {
-        /// one write and no flush: the stream's own buffering decides, which is what `std::print` does too (and
+        /// one write and no flush: the stream's buffering decides, which is what `std::print` does too (and
         /// `stderr` is unbuffered, which is why the error path needs nothing more)
         inline void write_text(std::FILE* const stream, std::string_view const text) {
             if (!text.empty()) {
@@ -200,10 +200,10 @@ namespace deren::utility {
 
     /**
      * @ingroup utility
-     * @brief THE PROJECT'S OWN `std::print`: formatted text to a stream
+     * @brief THE PROJECT'S `std::print`: formatted text to a stream
      *
      * WHY THIS EXISTS INSTEAD OF `std::print`, and it is a MEASURED LINK FAILURE rather than taste. MinGW's
-     * libstdc++ 16.2 ships `<print>`'s declarations without the terminal-writing half of its implementation: a
+     * libstdc++ 16.2 ships `<print>`'s declarations without the separate terminal-writing half implementation: a
      * call site fails at link time with
      *
      *     undefined reference to `std::__open_terminal(_iobuf*)'
@@ -211,7 +211,7 @@ namespace deren::utility {
      *
      * (`nm --defined-only libstdc++.a` finds no definition of either, and both are referenced from
      * `bits/print.h`'s `vprint_unicode`.) `deren::utility::log` is the only thing in the engine that prints and the
-     * tests are the only thing that prints besides it, so owning these functions here removed the tree's last
+     * tests are the only thing that prints besides it, so holding these functions here removed the tree's last
      * use of `<print>` - which, together with one `std::unique_ptr` held over an incomplete type, was the whole
      * of what stopped the project linking with libstdc++ (see the compiler-tolerance audit).
      *
@@ -740,7 +740,7 @@ namespace deren::utility {
      * @ingroup utility
      *
      * The build emits the compiled shaders next to the executable, so this is how the runtime prefers
-     * the shaders its own build produced over any directory found by walking up from the working
+     * the shaders its build produced over any directory found by walking up from the working
      * directory - the difference between running the shaders you just edited and a stale copy.
      * @note deliberately narrow: it answers "where am I running from", a question only the loader can
      *       answer, and it answers it from the OS rather than from argv[0] (which may be a bare name
@@ -749,7 +749,7 @@ namespace deren::utility {
     export std::filesystem::path executable_directory();
 
     /**
-     * @brief ask the user for an existing file with the platform's own open dialog
+     * @brief ask the user for an existing file with the platform's open dialog
      * @param title window/prompt title; a backend that builds a command line refuses a shell-hostile one
      * @param filter_patterns `;`-separated glob patterns, e.g. "*.glb;*.gltf"; empty means all files
      * @return the chosen path, or std::nullopt when the user cancelled OR no backend could ask

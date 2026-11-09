@@ -230,7 +230,7 @@ int main() {
     {
         // THE CLUSTERED-LIGHT SORT AS A GRAPH PASS (adoption stage 2F): the producer declares the two per-slot
         // buffers (atomically incremented bins over a host-zeroed table, and the wholesale light lists) and the
-        // lighting stage declares their reads - so the graph, not the pass's two hand-issued barriers, owns the
+        // lighting stage declares their reads - so the graph, not the pass's two hand-issued barriers, holds the
         // producer -> consumer dependency.
         rg::builder graph;
         auto counts = *graph.import_buffer({61, 1}, rg::initial_contents::defined, "cluster counts", {64},
@@ -289,7 +289,7 @@ int main() {
     }
     {
         // THE CASCADED-SHADOW PRODUCER AND ITS CONSUMER (adoption stage 2H): the map is one layered depth array;
-        // the pass writes the ACTIVE cascade run and the lighting stage reads it - the graph owns the
+        // the pass writes the ACTIVE cascade run and the lighting stage reads it - the graph holds the
         // write -> read ordering that the runtime's hand-back barrier publishes for legacy frames.
         rg::builder graph;
         rg::resource_state const sampled{rg::resource_layout::shader_read_only, rg::pipeline_stage::fragment_shader, rg::memory_access::read};
@@ -341,7 +341,7 @@ int main() {
     {
         // THE TAA RESOLVE AND ITS HISTORY COPY (adoption stage 2I): TWO graph passes, because one pass cannot
         // both write the HDR target as a colour attachment and read it as a transfer source - the model holds one
-        // access per resource per pass. The graph owns both the attachment transition and the transfer round trip
+        // access per resource per pass. The graph holds both the attachment transition and the transfer round trip
         // the pass's legacy record issues itself.
         rg::builder graph;
         rg::resource_state const sampled{rg::resource_layout::shader_read_only, rg::pipeline_stage::fragment_shader, rg::memory_access::read};
@@ -483,7 +483,7 @@ int main() {
         CHECK(plan);
         if (plan) {
             // The claim is that the vocabulary reaches the LOWERING: at least one barrier for the visibility image
-            // names the ray-tracing stage on one of its sides, and the sampler's pass is ordered after the trace.
+            // names the ray-tracing stage on a separate one sides, and the sampler's pass is ordered after the trace.
             bool trace_stage_named = false;
             for (auto const& barrier : plan->barriers) {
                 if (barrier.resource == visibility.index() &&

@@ -215,19 +215,19 @@ namespace deren::engine::subtilis {
         deren::utility::vessel::vector<std::span<std::byte const>> bytes;
         bytes.reserve(request_count);
         auto append = [&](render_resource::resource_id id, std::span<std::byte const> data, upload_rhi::buffer_usage usage,
-                          upload_rhi::buffer_flags buffer_flags, std::shared_ptr<void const> const& owner) {
+                          upload_rhi::buffer_flags buffer_flags, std::shared_ptr<void const> const& holder) {
             requests.emplace_back();
             auto& request = requests.back();
             request.id = id;
             request.type = managed::kind::buffer;
             request.life = managed::lifetime::scene;
             request.buffer = {.size = data.size(), .usage = usage, .flags = buffer_flags};
-            auto alias = std::shared_ptr<std::byte const>{owner, data.data()};
-            request.dependencies.push_back(owner);
+            auto alias = std::shared_ptr<std::byte const>{holder, data.data()};
+            request.dependencies.push_back(holder);
             if (!batch_upload) {
                 request.initial_data = std::move(alias);
                 request.initial_data_size = data.size();
-                request.initialization_key = owner;
+                request.initialization_key = holder;
             }
             bytes.push_back(data);
         };
@@ -288,7 +288,7 @@ namespace deren::engine::subtilis {
         if (batch_upload) {
             namespace sync = upload_rhi::synchronization;
             // Immutable geometry is read by vertex input and the available shader stages.
-            // The AS build verb separately owns its transfer-write -> build-read pre-barrier.
+            // The AS build verb separately holds its transfer-write -> build-read pre-barrier.
             auto const readers = sync::stage::vertex_input | sync::stage::vertex_shader | sync::stage::fragment_shader |
                                  sync::stage::compute_shader | sync::stage::task_shader | sync::stage::mesh_shader | sync::stage::ray_tracing;
             auto const supported = static_cast<std::uint32_t>(scopes->supported_stages());
@@ -364,13 +364,13 @@ namespace deren::engine::subtilis {
 
     page_install_stats uploaded_geometry::install_requested_pages(std::uint64_t budget_bytes, std::uint32_t frame) const noexcept {
         page_install_stats stats;
-        auto* request_owner = this->page_requests();
-        auto* table_owner = this->page_table();
-        if (!request_owner || !table_owner || page_count_ == 0u || page_request_capacity_ == 0u) {
+        auto* request_buffer = this->page_requests();
+        auto* table_buffer = this->page_table();
+        if (!request_buffer || !table_buffer || page_count_ == 0u || page_request_capacity_ == 0u) {
             return stats;
         }
-        auto request_bytes = request_owner->mapped();
-        auto table_bytes = table_owner->mapped();
+        auto request_bytes = request_buffer->mapped();
+        auto table_bytes = table_buffer->mapped();
         constexpr std::size_t header_size = sizeof(gpu_page_request_header);
         constexpr std::size_t request_size = sizeof(gpu_page_request);
         constexpr std::size_t entry_size = sizeof(gpu_page_table_entry);

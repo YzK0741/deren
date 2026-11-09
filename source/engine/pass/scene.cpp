@@ -1,5 +1,5 @@
 // The scene pass's implementation: the rendering instance, the parallel segments, and the draw loop that used
-// to live in `deren.engine.pass.scene`'s own recording path and the runtime's segment callback. Keeps the
+// to live in `deren.engine.pass.scene`'s recording path and the runtime's segment callback. Keeps the
 // same attachment order, same clear values, same segment count rule, same per-segment bind and
 // draw order, same secondary inheritance - so the capture gate decides the move on the twelve scenarios, which
 // between them cover the deferred surface write, the forward shading path and the lighting stage that reads the
@@ -8,7 +8,7 @@
 module;
 #include <cstddef>
 #include <cstdint>
-#include <memory> // std::shared_ptr: the session's target is the contract buffer the frame borrowed
+#include <memory> // std::shared_ptr: the session's target is the contract buffer the frame referenced
 module deren.engine.pass.scene;
 import deren.vstd;
 import deren.utility.shared;
@@ -38,15 +38,15 @@ namespace deren::engine::pass {
     }
 
     void scene_pass::create(pass_context const&) {
-        // NOTHING TO BUILD, and that is the pass: it owns no set layout (its bindings all live in the shared
-        // scene set) and no pipeline (a leaf names the pipeline it wants, and the renderer's registry owns it).
+        // NOTHING TO BUILD, and that is the pass: it holds no set layout (its bindings all live in the shared
+        // scene set) and no pipeline (a leaf names the pipeline it wants, and the renderer's registry holds it).
         // A pass whose create is empty is not a pass that is missing something - it is a pass that draws other
         // people's content, which is exactly what a scene pass is.
     }
 
     void scene_pass::on_swapchain_recreated(pass_host const&) {
         // Nothing of this pass is per-image: the targets are the frame's, the secondaries are the frame loop's,
-        // and the leaves hold their own buffers.
+        // and the leaves hold their buffers.
     }
 
     void scene_pass::set_frame(scene_frame const& frame) noexcept {
@@ -59,7 +59,7 @@ namespace deren::engine::pass {
         //
         // THE INHERITANCE RIDES THE CONTRACT NOW (abi 20): the native colour formats, the depth format, the
         // sample count and the view mask the old `VkCommandBufferInheritanceRenderingInfo` carried are named in
-        // the contract's own tagged structure, and the BACKEND derives the descriptor-heap half itself from the
+        // the contract's tagged structure, and the BACKEND derives the descriptor-heap half itself from the
         // heaps it has bound (so the heap info is deliberately NOT chained here - the chain takes one entry,
         // and a second truth is what it refuses).
         deren::utility::vessel::array<rhi::image_format, max_render_targets> color_formats = {};
@@ -86,9 +86,9 @@ namespace deren::engine::pass {
     }
 
     void scene_pass::record_segment(rhi::mergeable_command_buffer_ref const& segment, std::span<primitive const* const> const leaves) const {
-        // THE SESSION'S TARGET: the frame hands a BORROWED contract buffer (the runtime owns this segment's
-        // buffer for the whole slot), and the session builder takes the owning handle, so the borrow is spelled
-        // with a NON-OWNING shared_ptr - the control block drops nothing (the shape the probe backend's static
+        // THE SESSION'S TARGET: the frame hands a REFERENCED contract buffer (the runtime holds this segment's
+        // buffer for the whole slot), and the session builder takes the holding handle, so the reference is spelled
+        // with a NON-HOLDING shared_ptr - the control block drops nothing (the shape the probe backend's static
         // buffer uses for the same reason).
         render_environment env = this->pass_frame.make_environment(this->pass_frame.parent, recording_target(segment), this->pass_frame.gbuffer);
         // NO DESCRIPTOR SET IS BOUND, and there is nothing left to bind: the frame bound the resource and sampler
@@ -98,7 +98,7 @@ namespace deren::engine::pass {
         // replaced existed because a secondary inherits no state from its primary; the heap bind has the same
         // property, and the runtime makes it when it records the segment's command buffer.
         for (primitive const* const leaf : leaves) {
-            leaf->draw(env); // polymorphic: normal / instanced / static / custom, each through its own pipeline
+            leaf->draw(env); // polymorphic: normal / instanced / static / custom, each through its pipeline
         }
     }
 
@@ -163,7 +163,7 @@ namespace deren::engine::pass {
             return rhi::error::ok;
         }
 
-        // THE SEGMENTS: the renderer's own rule, kept exactly - one segment when there is only one, or when
+        // THE SEGMENTS: the renderer's rule, kept exactly - one segment when there is only one, or when
         // there are too few leaves for the fan-out to pay for itself.
         std::size_t const leaf_count = this->pass_frame.leaves.size();
         std::size_t const segment_count = std::min<std::size_t>(this->pass_frame.segments.size(), std::max<std::size_t>(1, leaf_count));
@@ -188,9 +188,9 @@ namespace deren::engine::pass {
                 deren::utility::log("scene pass: main secondary begin failed - scene skipped this frame");
             }
         } else {
-            // One task per contiguous span of leaves, each recording its own secondary on its own pool (a pool
+            // One task per contiguous span of leaves, each recording its secondary alone pool (a pool
             // is not thread safe, and a worker never shares one). The tasks read shared state and write only
-            // their own command buffer; the batch is waited on before the primary executes the segments IN
+            // their command buffer; the batch is waited on before the primary executes the segments IN
             // ORDER, so the recorded command stream is the sequential one.
             deren::utility::vessel::vector<std::function<void()>> tasks;
             tasks.reserve(segment_count);
@@ -232,8 +232,8 @@ namespace deren::engine::pass {
             }
         }
 
-        // THE INSTANCE ENDS HERE, which is the whole point of the pass owning it: the lighting stage, the
-        // transparent pass, the resolve and the lighting stage all run after this, each opening its own.
+        // THE INSTANCE ENDS HERE, which is the whole point of the pass holding it: the lighting stage, the
+        // transparent pass, the resolve and the lighting stage all run after this, each opening its.
         io.list->end_rendering();
         return result;
     }

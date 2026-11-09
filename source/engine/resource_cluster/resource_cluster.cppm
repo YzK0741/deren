@@ -26,7 +26,7 @@ export namespace deren::engine {
     } // namespace resource_cluster_detail
     class resource_cluster;
 
-    /// An owning engine lease. get/operator-> borrow the underlying RHI object.
+    /// A holding engine lease. get/operator-> reference the underlying RHI object.
     /// Copies share one factory reference; its release() is called exactly once.
     template <typename T>
     class resource_lease {
@@ -43,8 +43,8 @@ export namespace deren::engine {
         [[nodiscard]] T* get() const noexcept {
             return value ? resource : nullptr;
         }
-        /// Retain an existing shared owner (including an aliasing generation owner).
-        /// The caller supplies the owning core; consumers still validate resource provenance.
+        /// Retain an existing shared holder (including an aliasing generation holder).
+        /// The caller supplies the holding core; consumers still validate resource provenance.
         [[nodiscard]] static resource_lease from_shared(
             deren::promise::rhi::shared_object<deren::promise::rhi::api_core> core, deren::promise::rhi::shared_object<T> resource) {
             if (!core || !resource || !resource.retains_lifetime()) {
@@ -67,7 +67,7 @@ export namespace deren::engine {
         }
     };
 
-    /// Append-only, single-writer resource ownership. No frame waits or backend API additions.
+    /// Append-only, single-writer resource retention. No frame waits or backend API additions.
     /// Escaped leases can outlive the cluster. GPU users must retain a lease/cluster until completion.
     class resource_cluster final {
         struct construction_key {
@@ -95,7 +95,7 @@ export namespace deren::engine {
             , label(name) {
         }
         resource_cluster(resource_cluster const&) = delete ("resource_cluster is non-copyable: construct it in place and keep its identity");
-        resource_cluster& operator=(resource_cluster const&) = delete ("resource_cluster is non-copyable: configure it through its owning API");
+        resource_cluster& operator=(resource_cluster const&) = delete ("resource_cluster is non-copyable: configure it through its holding API");
         resource_cluster(resource_cluster&&) = delete ("resource_cluster is non-movable: its resources are tied to the current address");
         resource_cluster& operator=(resource_cluster&&) = delete ("resource_cluster is non-movable: its resources are tied to the current address");
         ~resource_cluster() {

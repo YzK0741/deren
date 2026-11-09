@@ -133,7 +133,7 @@ int main(int argc, char** argv) {
         graph empty;
         auto none = reachable(empty, {});
         CHECK(stable_order(empty, {none.data()})->empty());
-        // No recursive DFS: large chains use explicit project-owned workspace.
+        // No recursive DFS: large chains use explicit project-held workspace.
         graph deep(20000);
         for (vertex i = 1; i < 20000; ++i) {
             boost::add_edge(i - 1, i, deep);

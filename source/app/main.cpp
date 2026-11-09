@@ -5,7 +5,7 @@
  * The entry point is deliberately thin. Crash handling, argument parsing, window/runtime startup, the
  * frame loop and teardown all live behind deren::app::run() in the deren.app.application module; the toon
  * material lookup lives in deren.app.toon. This mirrors the split the reference engine (and UE) uses: the
- * platform entry only forwards, the application module owns the lifecycle.
+ * platform entry only forwards, the application module holds the lifecycle.
  */
 
 import deren.app.application;

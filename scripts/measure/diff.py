@@ -14,7 +14,7 @@ for a frame whose decoded arrays differ in one BLUE texel by one step. The means
 trusted; the counts cannot be read as "no pixel changed", and every count this project
 recorded before that was noticed inherits the caveat. Not changed here on purpose -
 making the counter all-channel would silently invalidate those recorded numbers against
-their own record.
+their record.
 """
 import sys
 from PIL import Image

@@ -35,12 +35,12 @@ namespace deren::engine::pass {
     }
 
     void transparent_pass::create(pass_context const&) {
-        // Nothing to build: no own set (everything is in the shared scene block) and no pipeline (the leaves name
+        // Nothing to build: no dedicated set (everything is in the shared scene block) and no pipeline (the leaves name
         // theirs). See the scene pass.
     }
 
     void transparent_pass::on_swapchain_recreated(pass_host const&) {
-        // Nothing is per-image here; the secondary is the frame loop's and the leaves own their buffers.
+        // Nothing is per-image here; the secondary is the frame loop's and the leaves hold their buffers.
     }
 
     void transparent_pass::set_frame(transparent_frame const& frame) noexcept {
@@ -55,7 +55,7 @@ namespace deren::engine::pass {
         // The leaves go into the frame slot's transparent secondary, with inheritance matching the instance
         // below: ONE colour attachment at 1x. A secondary does not inherit state from its primary, so it binds
         // the shared scene block for itself - the same bind the scene pass's segments make.
-        // THE LIFECYCLE RIDES THE CONTRACT NOW (abi 20): the inheritance is the contract's own tagged structure
+        // THE LIFECYCLE RIDES THE CONTRACT NOW (abi 20): the inheritance is the contract's tagged structure
         // (native colour formats, the depth format, the sample count and the view mask the raw
         // VkCommandBufferInheritanceRenderingInfo carried), and the BACKEND derives the descriptor-heap half
         // itself - chaining it here is not possible and not needed.

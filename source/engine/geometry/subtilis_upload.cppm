@@ -56,18 +56,18 @@ export namespace deren::engine::subtilis {
     static_assert(sizeof(cut_cluster_record) == 56u);
     class uploaded_geometry;
     /// The source must remain immutable through every alias after publication;
-    /// do not move-assign or modify it through a separately retained mutable owner.
+    /// do not move-assign or modify it through a separately retained mutable holder.
     /// Returns only after both GPU buffers are ready. Automatic selects a single transfer batch
-    /// when owning core, submission and scoped synchronization are available; otherwise it uses
+    /// when holding core, submission and scoped synchronization are available; otherwise it uses
     /// synchronous creation. Forced batched mode refuses missing capabilities; failures are propagated.
-    /// Separate batched uploads do not share the backend's initial-content cache: reuse the returned owner.
+    /// Separate batched uploads do not share the backend's initial-content cache: reuse the returned holder.
     /// @details The feature overview, the measured numbers and the document index are in @ref md_docs_2subtilis.
     [[nodiscard]] std::expected<std::shared_ptr<uploaded_geometry const>, upload_rhi::error>
     upload_geometry(upload_rhi::shared_object<upload_rhi::api_core> const& device,
                     std::shared_ptr<built_geometry const> source,
                     upload_rhi::buffer_flags flags = upload_rhi::to_bits(upload_rhi::buffer_flag::device_address),
                     geometry_upload_mode mode = geometry_upload_mode::automatic);
-    /// One immutable CPU hierarchy and its complete GPU payload. Borrowed buffers
+    /// One immutable CPU hierarchy and its complete GPU payload. Referenced buffers
     /// are valid while this generation (or a view's lease of it) is retained.
     class uploaded_geometry {
         struct construction_key {

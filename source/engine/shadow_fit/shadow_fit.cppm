@@ -67,7 +67,7 @@ namespace deren::engine::shadow_fit {
         glm::vec3 camera_pos = {};
         /// the sun's direction, normalized here; `w` is ignored
         glm::vec4 light_dir = {};
-        /// a conservative sphere around the scene: the fit clips the camera's own (deliberately
+        /// a conservative sphere around the scene: the fit clips the camera's (deliberately
         /// generous) far plane to what can actually hold geometry, and the sphere is also the only
         /// sound bound for a caster whose geometry cannot be bounded
         glm::vec3 scene_center = {};
@@ -85,7 +85,7 @@ namespace deren::engine::shadow_fit {
         /// whether an unbounded caster was found (see fit_casters): its shadow can land anywhere, so
         /// the whole scene sphere's DEPTH range enters every cascade's fit
         bool unbounded_caster = false;
-        /// emit the one-time "shadow cascades: N over the view range ..." log. The caller owns the
+        /// emit the one-time "shadow cascades: N over the view range ..." log. The caller holds the
         /// once-only flag, because whether this is the first fit is its state, not the fit's.
         bool log_summary = false;
         /// every caster's light-space AABB (min, max), as produced by fit_casters()
@@ -118,10 +118,10 @@ namespace deren::engine::shadow_fit {
      * @brief collect every caster's light-space AABB, so one pass serves every cascade
      * @param world_boxes each caster's world-space AABB
      * @param light_dir the sun direction (normalized here)
-     * @param unbounded set to true when a caller could not bound one of its casters; that cascade fit
+     * @param unbounded set to true when a caller could not bound a separate one casters; that cascade fit
      *        then also merges the scene sphere's depth (see fit_params::unbounded_caster)
      * @return the light-space boxes, in light_dir order
-     * @note light space is a pure ROTATION - each cascade's translation comes from its own box centre
+     * @note light space is a pure ROTATION - each cascade's translation comes from its box centre
      *       - so one rotation serves every cascade, and with it one caster pass per frame instead of
      *       one per cascade
      */

@@ -5,9 +5,9 @@
 // barriers over the same two buffers - so the A/B against the parent commit decides it.
 //
 // It is the first compute pipeline this branch has taken out of `deren.vulkan.core`: `core::make_cluster_pipeline`
-// built it against the core's own scene pipeline layout, which a pass cannot own. The replacement builds the
+// built it against the core's scene pipeline layout, which a pass cannot hold. The replacement builds the
 // same shape in `deren.engine.pipelines` (no native set layout - the heap frame/image lanes are pushed at record time),
-// so what changes is WHO owns the layout, not what the driver is asked for.
+// so what changes is WHO holds the layout, not what the driver is asked for.
 
 module;
 
@@ -17,7 +17,7 @@ import deren.vstd;
 import deren.utility.shared;
 
 import deren.promise.rhi;      // the record series (abi 20): the dispatch and the two buffer barriers
-import deren.engine.pipelines; // build_cluster: the compute pipeline this pass owns
+import deren.engine.pipelines; // build_cluster: the compute pipeline this pass holds
 import deren.utility;
 import deren.engine.primitive;
 
@@ -83,7 +83,7 @@ namespace deren::engine::pass {
             return;
         }
         // NO SET LAYOUT IS ASKED FOR: the pipeline is heap-native (a null layout plus the heap flag), so the
-        // pass's descriptors come from the frame's bound heap and not from a set handed over by the owner.
+        // pass's descriptors come from the frame's bound heap and not from a set handed over by the holder.
         auto built = pipelines::build_cluster(*context.face, spirv);
         if (!built) {
             deren::utility::log("clustered lights disabled: {}", built.error());
@@ -117,7 +117,7 @@ namespace deren::engine::pass {
 
     void cluster_pass::on_swapchain_recreated(pass_host const&) {
         // Nothing to reset: the grid's DIMENSIONS are the renderer's frame data (it recomputes them from the new
-        // extent and hands them over every frame), and this pass owns no per-generation handle.
+        // extent and hands them over every frame), and this pass holds no per-generation handle.
     }
 
     rhi::error cluster_pass::record_content(resolved_io const& io) noexcept {
@@ -127,7 +127,7 @@ namespace deren::engine::pass {
         if (io.list == nullptr) {
             return rhi::error::invalid_argument;
         }
-        // The dispatch reads the frame's OWN camera and light slots and writes the same generation's cluster
+        // The dispatch reads the frame's camera and light slots and writes the same generation's cluster
         // buffers - and it needs no bind to do it: the frame bound the heaps once, and the two indices its push
         // block carries pick the slot. A compute stage is not part of a rendering instance, so this still records
         // before vkCmdBeginRendering.

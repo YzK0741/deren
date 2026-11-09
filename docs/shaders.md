@@ -5,8 +5,8 @@
  *
  * The renderer has no runtime shader compilation: prebuilt `.spv` files live in the build's `shaders/`
  * directory beside the executable, are loaded by `deren::app::setup_pipeline()` and are turned into
- * `vk_pipeline` objects through the `runtime::make_*_pipeline()` calls (which own the render
- * state: color format, depth, and the bindless heap - a heap pipeline has no pipeline layout to own).
+ * `vk_pipeline` objects through the `runtime::make_*_pipeline()` calls (which hold the render
+ * state: color format, depth, and the bindless heap - a heap pipeline has no pipeline layout to hold).
  * The tree's ONE reflection is `source/backends/vulkan/core/pipeline/spirv_parser.cppm` (SPIRV-Reflect),
  * which a VERTEX stage's input state is derived from; a mesh stage declares no vertex input, so nothing
  * is derived from it.
@@ -40,7 +40,7 @@
  * REQUIREMENT since docs/mesh_shaders.md step 4, so the geometry vertex entries (`pbr.vert`, `shadow.vert`) no longer
  * exist - neither as files nor in any registry. What runs is the MESHLET entry where one was built (one workgroup per
  * 85-triangle meshlet, culled against the pass's frustum) and the MESH entry otherwise (one workgroup per 85
- * triangles): the stage fetches its own vertices by device address because there is no input assembler, and every
+ * triangles): the stage fetches its vertices by device address because there is no input assembler, and every
  * mesh form shares the SAME fragment stage and the same projection body the vertex entry used to call - which is why
  * the capture gate is byte-identical to the references captured while that path was still there, and why removing it
  * changed no pixel. The fullscreen `post.vert` passes are not geometry stages and have no mesh form.
@@ -133,14 +133,14 @@
  *   shadow map's texel grid alternates between two alignments and a grazing-angle surface flickers
  *   between lit and shadowed - the TAA history then averages that flicker into a dark band.
  *
- * The motion vectors carry CAMERA motion, RIGID object motion and a DEFORMING mesh's own movement. The
+ * The motion vectors carry CAMERA motion, RIGID object motion and a DEFORMING mesh's movement. The
  * camera half is the unjittered view-projection pair; the object half is binding 13, where the geometry
  * stage (`pbr_shade_vertex` in `source/shaders/scene/pbr.slang` - one body for every entry in the file) reads the world
  * matrix this draw had one frame ago (`runtime::advance_motion_transforms()` publishes
  * it, once per frame, before anything is recorded) and passes the resulting previous world position down
- * as `v_prev_world_pos`. A vertex's movement INSIDE its own object space is the second half of that
+ * as `v_prev_world_pos`. A vertex's movement INSIDE its object space is the second half of that
  * position, and both of its sources are stored: the four joint matrices as they were one frame ago, from
- * a per-frame heap family of their own (`runtime::advance_motion_deformations()` publishes them into the
+ * A separate per-frame heap family (`runtime::advance_motion_deformations()` publishes them into the
  * CURRENT frame slot's buffer, so the shader reads them at the same `skin_base` and the same frame slot
  * it already carried), and the morph weights as they were one frame ago, which live in a second weight
  * region of each morph block (see `runtime::morph_scratch()` for the writer's side of that contract).
@@ -258,9 +258,9 @@
  * `calc_shadow_cascade()`, and - inside the last `cascade_blend` fraction of the range - samples
  * the next cascade too and mixes the two, so the resolution/offset step between cascades does not
  * show as a line. A receiver outside its cascade's fitted box is reported lit: each cascade's map
- * covers its own fitted box only, and `runtime::update_shadow_frustum()` keeps those boxes on the
+ * covers its fitted box only, and `runtime::update_shadow_frustum()` keeps those boxes on the
  * part of the scene the camera can see. The shadow pass renders the same caster set once per
- * cascade, each into its own array layer with its own `push_constant` cascade index - `shadow.slang`'s
+ * cascade, each into its array layer with its `push_constant` cascade index - `shadow.slang`'s
  * geometry entries declare the material fields AND that trailing `uint cascade` in ONE block, because a heap
  * pipeline has one push block per stage file, and the shared layout's single range covers both
  * (`scene_push_constant_size` + `scene_cascade_push_size`).
@@ -277,13 +277,13 @@
  * pipeline share a single push-constant range, so any stage that does not need a field still
  * declares it to keep the block layout identical - a mismatch here is silent corruption, not a
  * compile error. The post/FXAA pipelines are separate: they use `post_push_constants` (exposure,
- * bloom intensity/threshold, mode, encode_gamma, FXAA knobs) on their own layout, and the G-buffer
- * debug view uses its own `gbuffer_debug_push_constants` (channel selector + the two projection
- * terms that linearize depth) on its own layout.
+ * bloom intensity/threshold, mode, encode_gamma, FXAA knobs) alone layout, and the G-buffer
+ * debug view uses its `gbuffer_debug_push_constants` (channel selector + the two projection
+ * terms that linearize depth) alone layout.
  *
  * @section shader_compile Compiling
  *
- * The build owns this step: `cmake --build` regenerates every `.spv` from its `.slang` source (and from the
+ * The build holds this step: `cmake --build` regenerates every `.spv` from its `.slang` source (and from the
  * shared includes it lists as dependencies), so editing a shader is just editing a shader. The binaries
  * are **not** tracked in the repository and are not hand-synced - they are a build output, and the
  * directory is mirrored next to the executable, which is the copy the runtime loads
@@ -325,8 +325,8 @@
  * - **A multi-target pipeline must not use the forward blend state.** `make_color_blend_attachment()`
  *   blends with src alpha, which is the right convention while alpha means coverage (opaque draws
  *   have alpha 1, so the math reduces to an overwrite). In a G-buffer alpha carries DATA (metallic,
- *   roughness, flags), so the same state scales the surface by its own alpha and mixes it with the
- *   cleared target - a fully-rough fragment would erase its own albedo. G-buffer pipelines pass
+ *   roughness, flags), so the same state scales the surface by its alpha and mixes it with the
+ *   cleared target - a fully-rough fragment would erase its albedo. G-buffer pipelines pass
  *   `color_blending = false` and use `make_color_blend_attachment_opaque()`.
  * - **A ray payload is written by the stage that ENDS the ray, and never pre-initialised by the raygen.**
  *   A raygen that stores the same value the miss shader stores makes the miss shader's store redundant;

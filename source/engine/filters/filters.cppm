@@ -19,7 +19,7 @@
  * mostly a DELETION: of the eleven accessors those facts answered, TEN had ZERO callers anywhere in the
  * repository, and the eleventh is `user_filter::wait_idle()` - main.cpp's one call through `operator->`.
  * In particular `get_vma()` and `vma()` had no caller at all: the allocator never escapes a filter, and a
- * pass that allocates goes through `register_resource()`/`resource()`, the owner's published-resource
+ * pass that allocates goes through `register_resource()`/`resource()`, the holder's published-resource
  * channel, which touches no backend type. So the concrete class leaves WITHOUT a replacement contract
  * virtual and WITHOUT an ABI bump - adding a `vma_allocator` face to the contract would have been adding an
  * interface for a caller that does not exist.
@@ -33,8 +33,8 @@
  *    those had zero callers.
  *
  *  * `pass_filter` - what a PASS's create step is given. It answers exactly the questions a pass cannot
- *    answer from its own declaration: session-stable handles of the resources the owner registered. It
- *    holds NO device root at all - its two live members touch nothing but its own table, which is what
+ *    answer from its declaration: session-stable handles of the resources the holder registered. It
+ *    holds NO device root at all - its two live members touch nothing but its table, which is what
  *    makes it identical on both sides of the boundary.
  */
 
@@ -47,11 +47,11 @@ export import deren.utility.shared;
 // THIS FILE NO LONGER EXPORTS A BACKEND MODULE. It used to `export import deren.vulkan.core;`, which is
 // what made `deren.engine.filters` a re-porter of the whole concrete class (and why a consumer could
 // reach `core::MAX_FRAMES_IN_FLIGHT` through it transitively). The contract is imported PLAINLY below: the
-// two names a consumer needs are `rhi::max_frames_in_flight` (re-exported as this facade's own constant)
+// two names a consumer needs are `rhi::max_frames_in_flight` (re-exported as this facade's constant)
 // and `rhi::api_core` (a member type, not part of any consumer's spelling).
 export import deren.vstd;
 import deren.promise.rhi;                   // the contract's device root, and its ring depth
-export import deren.engine.render_resource; // resource_id: what a pass asks for, in the declaration's own vocabulary
+export import deren.engine.render_resource; // resource_id: what a pass asks for, in the declaration's vocabulary
 
 export namespace deren::engine {
 
@@ -82,7 +82,7 @@ export namespace deren::engine {
      *        runtime
      */
     class user_filter {
-        // called core_reference, not owner: the owner parameter of the constructor would hide a member of that name and
+        // called core_reference, not holder: the holder parameter of the constructor would hide a member of that name and
         // MSVC /W4 reports C4458, an error under /WX
         /// the share that keeps the device alive, and the interface pointer the one forwarded call goes through
         deren::promise::rhi::shared_object<deren::promise::rhi::api_core> core_reference;
@@ -92,7 +92,7 @@ export namespace deren::engine {
         explicit user_filter(deren::promise::rhi::shared_object<deren::promise::rhi::api_core> parent) noexcept;
 
         /// the ring depth the engine sizes its per-slot arrays by. THIS STAYS, and it is why the contract
-        /// import above is not an `export import`: the value is re-exported as this facade's own constant,
+        /// import above is not an `export import`: the value is re-exported as this facade's constant,
         /// so a consumer names `user_filter::max_frames_in_flight` and never a backend module.
         static constexpr int32_t max_frames_in_flight = static_cast<int32_t>(deren::promise::rhi::max_frames_in_flight);
 
@@ -103,9 +103,9 @@ export namespace deren::engine {
 
     /**
      * @ingroup engine_filters
-     * @brief the view a PASS's create step is handed: the resources the owner published, and nothing else
+     * @brief the view a PASS's create step is handed: the resources the holder published, and nothing else
      *
-     * WHAT IT IS FOR, in one sentence: a pass must be able to NAME the session-stable resources its own
+     * WHAT IT IS FOR, in one sentence: a pass must be able to NAME the session-stable resources its
      * declaration lists, without being handed the device root - which is what the runtime did on its behalf
      * before this filter existed (see `runtime::create_mask_bake` and `runtime::create_compute_skin`, whose
      * bespoke input structs this replaces).
@@ -116,21 +116,21 @@ export namespace deren::engine {
      * device, a surface format, a surface extent and an allocator, none of which had a caller.
      *
      * THE LIFETIME CONTRACT, and it is the reason this class is small: what `resource()` answers at CREATE time
-     * is a SESSION-STABLE handle. The runtime's own material table and its bindless texture array are created
+     * is a SESSION-STABLE handle. The runtime's material table and its bindless texture array are created
      * once and only ever have their CONTENTS rewritten; its per-frame-slot buffers (the skin matrices, the
      * cluster bins) are created once and rewritten per slot. A per-swapchain-image VIEW is NOT stable that way -
      * it is rebuilt with every generation - so those are deliberately not served here: a pass receives them per
-     * frame through `resolved_io` (the framework's `own` / `local_per_image` / `barrier_images` channels). Handing
+     * frame through `resolved_io` (the framework's / `local_per_image` / `barrier_images` channels). Handing
      * one out at create time would be the per-image-lifetime trap this branch has already paid for twice.
      */
     class pass_filter {
         /**
-         * What the OWNER (the runtime) has published for its passes to name.
+         * What the HOLDER (the runtime) has published for its passes to name.
          *
          * A vector rather than a map: the resources a pass may ask for are a handful, this is filled once at
          * startup, and the lookup happens during create - so the smallest container that works is the honest
          * one. A `resource_id` that was never registered resolves to a null handle, which is what a pass's
-         * "this owner has none" branch already handles.
+         * "this holder has none" branch already handles.
          */
         deren::utility::vessel::vector<std::pair<uint32_t, resource_handles>> registered;
 
@@ -138,10 +138,10 @@ export namespace deren::engine {
         /// an empty table: the runtime publishes what it has through `register_resource`
         pass_filter() noexcept = default;
 
-        /// @brief publish one of the owner's resources, by the DECLARATION's identity (resource + element)
+        /// @brief publish one of the holder's resources, by the DECLARATION's identity (resource + element)
         void register_resource(render_resource::resource_id id, uint32_t element, resource_handles handles) noexcept;
         /**
-         * @brief what this pass declared, if the owner has it: session-stable handles, or all-null
+         * @brief what this pass declared, if the holder has it: session-stable handles, or all-null
          * @param id the resource, from the same `resource_id` vocabulary the declaration uses
          * @param element which one of the family: the frame SLOT for a per-frame-slot resource (the skin
          *        matrices, the cluster bins), or 0 for a device-wide one

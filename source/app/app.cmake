@@ -26,16 +26,16 @@ set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE ON)
 # ============================================================================================
 # backend_loader - WHERE THE BACKEND IS LOADED AND THE DEVICE ROOT IS ACQUIRED (batch ⑥).
 #
-# WHY A TARGET OF ITS OWN: the runtime used to do this (it loaded deren_vulkan.dll, resolved the one
-# export and called it before its own construction), so the APPLICATION could not answer which
-# backend, from where, with which search rules, or what a failure means - and the renderer owned a
+# WHY A separate TARGET: the runtime used to do this (it loaded deren_vulkan.dll, resolved the one
+# export and called it before its construction), so the APPLICATION could not answer which
+# backend, from where, with which search rules, or what a failure means - and the renderer held a
 # policy that is not its job. The module now sits between them:
 #
 #     auto core = deren::vulkan::load_api_core(core_options);   // deren.app.application (the app decides)
 #     deren::vulkan::runtime runtime{core, core_options};       // the renderer (given a root)
 #
 # NOT IN static_utility, deliberately: that half is the pure-CPU toolkit with no loading semantics,
-# and deren.utility.dynamic_link (which it owns) is the MECHANISM - open a named image, resolve a
+# and deren.utility.dynamic_link (which it holds) is the MECHANISM - open a named image, resolve a
 # named symbol - not a policy about backends. This target is the policy: the file name, the search
 # rules, the creation-side handshake, the named diagnosis. It links BOTH the toolkit and glfw, because
 # it is also the module that crosses the image boundary and therefore translates the caller's window
@@ -59,7 +59,7 @@ target_link_libraries(backend_loader
 
 
 # Application-level support modules. The renderer's pass wiring lives here, not in deren_engine:
-# the engine records whatever chain it is handed, while this target owns the chain this app builds.
+# the engine records whatever chain it is handed, while this target holds the chain this app builds.
 # This is the former `chores` target split into focused modules: startup config, pipeline setup,
 # the renderer, the debug GUI, the animation backend and the instancing stress helper.
 add_library(app_support STATIC)
@@ -92,7 +92,7 @@ target_link_libraries(app_support
         deren_engine
         static_utility
         vstd_lib
-        backend_loader   # deren.app.application calls load_api_core(): the app owns the acquisition (batch ⑥)
+        backend_loader   # deren.app.application calls load_api_core(): the app holds the acquisition (batch ⑥)
 )
 
 target_link_libraries(${PROJECT_NAME}

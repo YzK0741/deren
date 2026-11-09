@@ -44,12 +44,12 @@ that wedged the GPU, the culling's two-way acceptance and the backface negative 
 - Step 3's culling half is BLOCKED BY A COMPILER BUG, not by design: `slangc` v2026.18.2 crashes (0xC0000005) on a
   task stage that takes push data or touches the heap, with a six-line reproducer (section 5, step 3).
 - The meshlet path ITSELF is in the tree and gate-green: the shadow pass and the G-buffer both prefer a meshlet
-  pipeline, one workgroup per meshlet, each meshlet culled against the pass's own frustum in the entry point. The GPU
+  pipeline, one workgroup per meshlet, each meshlet culled against the pass's frustum in the entry point. The GPU
   hang that stood in its way first was a LAYOUT BUG - a 28-byte host record against the shader's std430 stride, so
   every record after the first was read four bytes off - and not anything about meshlets.
 - The SECOND mechanism step 3 names - cull in a COMPUTE pass and dispatch with `vkCmdDrawMeshTasksIndirectEXT` - has
   its SEAM in the tree: every meshlet dispatch already goes through the indirect entry point, reading its counts out
-  of a command table at a slot the primitive owns. The CULLING itself closed on the HOST instead of in that pass (the
+  of a command table at a slot the primitive holds. The CULLING itself closed on the HOST instead of in that pass (the
   host already holds the meshlets, the model matrix and the camera), which is measured: 33,866 of Sponza's 42,800
   culled workgroups over 40 frames are never launched, with the triangles emitted identical to the digit. (The first,
   cursor-driven version of the seam made `sponza` flaky and was reverted; both designs are in section 5.)
@@ -108,14 +108,14 @@ Geometry used to reach the rasterizer through four vertex stages, and three of t
 | `post.vert.spv` | `post.slang:main` | the post chain's fullscreen triangle (no input) | kept: not a geometry stage |
 | `heap_probe.vert.spv` | `heap_probe.slang:main` | the binding probe (no input) | kept: the probe's control |
 
-A MESH stage replaces the vertex stage **and** the input assembler: the shader fetches its own vertices
+A MESH stage replaces the vertex stage **and** the input assembler: the shader fetches its vertices
 from buffers it names itself, and it emits primitives per WORKGROUP, which means a workgroup can decide
 not to emit anything after looking at all of its geometry. The vertex path could only reject a vertex, or a
 whole draw from the CPU.
 
 What that makes possible, and what it does not:
 
-- **implemented here, and measured**: per-meshlet LOD selection (the subtilis cut, [subtilis](subtilis.md)), per-meshlet occlusion culling against a GPU-built max-depth Hi-Z pyramid with history prediction + camera recovery (measured -78.6% near / -61.6% far GPU frame on moving Bistro views; the supporting record is not distributed with this repository), and the culling dispatch fed by the GPU itself through the existing indirect command buffer - no new RHI verb. The renderer already builds its own TLAS from the SAME vertex/index buffers, so the meshlet path is a second consumer of one structure rather than a parallel one.
+- **implemented here, and measured**: per-meshlet LOD selection (the subtilis cut, [subtilis](subtilis.md)), per-meshlet occlusion culling against a GPU-built max-depth Hi-Z pyramid with history prediction + camera recovery (measured -78.6% near / -61.6% far GPU frame on moving Bistro views; the supporting record is not distributed with this repository), and the culling dispatch fed by the GPU itself through the existing indirect command buffer - no new RHI verb. The renderer already builds its TLAS from the SAME vertex/index buffers, so the meshlet path is a second consumer of one structure rather than a parallel one.
 - **not possible**: the deferred lighting, SSAO, TAA, bloom, FXAA and cluster passes are fragment/compute
   work and cannot move to a mesh stage at all. A fullscreen triangle does not become cheaper either.
 - **therefore not the goal**: step 0 does not claim a win. It proves the stage is reachable from this
@@ -241,7 +241,7 @@ self-comparison. Steps 1-2 are the other way round - real geometry, verified by 
 ## 5. The plan
 
 Acceptance routes are the ones `docs/slang_migration.md` section 10 settled on: **gate** (byte-identical
-frame), **log comparison** (a probe that knows its own answer), **manual A/B** (an opt-in config key, for
+frame), **log comparison** (a probe that knows its answer), **manual A/B** (an opt-in config key, for
 a pass the gate's scenarios do not reach) and **shape-only** (SPIR-V/limit reasoning when neither is
 possible). A step is not done until its route says so, plus `ctest` 10/10, `spirv-val --target-env
 vulkan1.3` on every emitted `.spv`, and zero validation findings.
@@ -295,7 +295,7 @@ two addresses, first index, index count, base vertex, index width - as push data
 `maxMeshOutputPrimitives` are both 256 here, and a stage that writes each triangle's three vertices separately -
 which is the direct port of what the input assembler produced - spends three of the former per one of the latter:
 85 triangles = 255 vertices fits both, 86 would want 258. The host dispatches `ceil(triangles / 85)` workgroups and
-the STAGE decides how many of its 85 are real, so an index window that is not a multiple of 85 needs no second
+the separate STAGE decides how many 85 are real, so an index window that is not a multiple of 85 needs no second
 command.
 
 **The push budget, and the one measured deviation from the engine's 128-byte rule.** The stage block is
@@ -343,12 +343,11 @@ and the validation layer stayed clean with the mesh path active.
 ### Step 2 - `pbr.vert` becomes a mesh stage (DONE: the G-buffer, the forward/unlit/transparent leaves and the shadow pass all have mesh forms)
 
 `source/shaders/scene/pbr.slang` carries a third entry, `mesh_main`, built into a second G-buffer pipeline
-(`pbr.mesh.spv` + the SAME `gbuffer.frag`), and the scene session prefers it the way the shadow pass prefers its
-own: `runtime::make_gbuffer_pipeline` builds both pipelines from the code the app hands over, and
+(`pbr.mesh.spv` + the SAME `gbuffer.frag`), and the scene session prefers it the way the shadow pass prefers its: `runtime::make_gbuffer_pipeline` builds both pipelines from the code the app hands over, and
 `make_scene_environment` picks the mesh one and marks the session `mesh_stage`. The vertex body is now
 `pbr_shade_vertex(const MeshVertex, vertex_index, instance_index)` - the second half of the objective's "one shared
 fetch instead of two mirrored vertex-input declarations": `shadow.slang` and `pbr.slang` each declare their five
-attributes once, hand them to a body they share with their own `mesh_main`, and read the same 64-byte record through
+attributes once, hand them to a body they share with their `mesh_main`, and read the same 64-byte record through
 the same `source/shaders/geometry/mesh_geometry.slang` fetch.
 
 This is the widest coverage a geometry port can have: the G-buffer pass draws every opaque leaf of every scenario,
@@ -396,7 +395,7 @@ path with the widened block in the gate itself.
 | forced probe: `SetMeshOutputCounts(0, 0)` in `pbr.slang`'s mesh entry, then reverted | `deferred` CHANGED (8687703DA3BCA7EF vs FA1C1BED4DD611C5) - the model leaves the frame entirely |
 | gate forced off (`evaluate_mesh_shaders` returning false), then reverted | "mesh shaders: not used", zero validation findings, i.e. a device without the extension ran the vertex path cleanly (since step 4 that same condition is a startup PANIC - there is no vertex path to run) |
 
-The middle row is again what makes the first mean something, and this time the two failure modes have their own
+The middle row is again what makes the first mean something, and this time the two failure modes have their
 hashes: `61770EA9EBFE0714` was the frame with the G-buffer RIGHT and no shadows (a lane-offset bug that fed the
 shadow stage a window belonging to no draw), `8687703DA3BCA7EF` is the frame with no geometry at all.
 
@@ -404,7 +403,7 @@ The forward, unlit and transparent pipelines were the second half of this step, 
 pipeline in the registry can carry a mesh form under the same name (`runtime::make_pipeline(name, vertex, fragment,
 mesh_vertex)` fills a second map), and a session that binds by name picks the mesh form when there is one - which is
 what makes the transparent pass's leaves and the flat (unlit) render mode dispatches too. The choice is made PER BIND
-rather than per session there, because a forward session's leaves name their own pipelines; the G-buffer pass has one
+rather than per session there, because a forward session's leaves name their pipelines; the G-buffer pass has one
 fixed pipeline per session, which is why that half came first. Evidence, one line per name at startup:
 
 ```
@@ -414,7 +413,7 @@ scene: the leaves of 'pbr' are DISPATCHED (mesh stage)
 ```
 
 The third line is the transparent scenario (`transparent_blend`), whose blend leaf is the one that draws through the
-forward `pbr` pipeline. The flat render mode reaches the same code path through its own default name.
+forward `pbr` pipeline. The flat render mode reaches the same code path through its default name.
 
 ### Step 3 - a TASK stage, meshlets, and indirect dispatch
 
@@ -429,7 +428,7 @@ compiler bug (see the blocker note at the top) and turned out not to be needed f
 `meshlet_max_triangles` (85, the mesh stage's output budget from section 2) triangles in index order, each with an
 object-space bounding sphere over the axis-aligned box of the vertices it touches. `runtime::create_primitive`
 builds them at upload - where the geometry bytes and the layout are still in hand - appends them to the GPU table,
-keeps the primitive's own run (`meshlet_base`/`meshlet_count`, which the geometry lanes carry), and the scene import
+keeps the primitive's run (`meshlet_base`/`meshlet_count`, which the geometry lanes carry), and the scene import
 logs what it produced:
 
 ```
@@ -438,7 +437,7 @@ meshlets: 3145 over 103 primitives (85 triangles each at most, object-space sphe
 ```
 
 THE TABLE is `heap_slots_meshlets` (`heap_slot_base + 1257`), one 48-byte record per meshlet, host-visible and
-written ONCE while the scene imports - which is why it owns ONE slot rather than the per-frame pair every
+written ONCE while the scene imports - which is why it holds ONE slot rather than the per-frame pair every
 frame-varying buffer has: there is no frame in flight whose contents could
 disagree with it (the TLAS is the counter-example, and the reason that rule exists). The host record's fields land
 at the same byte offsets the shader reads them at - first index (0), count (4), base vertex (8), a pad word (12),
@@ -454,7 +453,7 @@ that a command buffer was reused before its work finished. The normal cone (adde
 made it 48, and the lesson is the one the layout asserts encode: **a host struct that a shader reads as a buffer
 element is a LAYOUT, not a struct** - compare the declared offsets against `spirv-dis` before blaming the GPU.
 
-IT IS A MODULE OF ITS OWN AND A PURE ONE on purpose: the split is arithmetic over vertex and index bytes, and its
+IT IS A separate MODULE AND A PURE ONE on purpose: the split is arithmetic over vertex and index bytes, and its
 bugs are the invisible kind - a sphere that is too small culls a visible meshlet (a hole in the shadow map, on the
 frames where it happens to face the light) and an overlapping window draws triangles twice (invisible in a depth
 pass, wrong for anything blended). Nothing in a captured frame says which of those happened, so the properties are
@@ -550,7 +549,7 @@ no malformed records: every meshlet window is inside its draw and under the 255-
 So the records a mesh stage would read are sound, and the hang is not an over-large window arriving from the TABLE.
 What is left is how the SHADER gets to a record (the lanes' base, suspect 1) and how many times it is dispatched
 (the per-chunk loop of suspect 2) - both host-side facts, both testable without guessing at the GPU. That check is
-worth keeping for the same reason the splitter's own tests are: a record's window is what a MESH stage hands to
+worth keeping for the same reason the splitter's tests are: a record's window is what a MESH stage hands to
 `SetMeshOutputCounts`, so a malformed one is not a wrong picture but a dispatch asking for output the device does
 not have.
 
@@ -558,7 +557,7 @@ not have.
 against the shader's std430 stride (see THE TABLE above) was found by a diagnostic dispatch of one workgroup per DRAW
 instead of one per meshlet - which still wedged, ruling out the volume of work in one dispatch - and then by
 comparing the host struct's field offsets against what the shader declares, field by field. With the padding in and
-asserted, the consumer went in for real: `shadow.slang`'s `meshlet_main` reads its own window out of the table, the
+asserted, the consumer went in for real: `shadow.slang`'s `meshlet_main` reads its window out of the table, the
 shadow pass prefers `shadow.meshlet.spv`, the lanes carry the primitive's run, and the gate came back 10/10 with 0
 changed and 0 flaky (commit `00b614f`, step by step below). (The first attempt was reverted in full first - shader,
 lanes, session flag, pipeline, registration, both script lists and the CMake rule, with `cmake` re-run because
@@ -577,7 +576,7 @@ from an atomic cursor reset per frame in flight, with a fixed capacity and a fal
 overflow; all ten scenarios stayed byte-identical, but `sponza` came out FLAKY (two runs, `FEF4F9E4AA0C2E6B` and
 `4AFE5C90284A1245`), i.e. a command the GPU read was not the command the host meant - a cursor makes WHEN a slot is
 rewritten a property of the frame's dispatch COUNT, and that count is not the same on every run. It was reverted in
-full (`ffe52fb`). THE REPLACEMENT MAKES THE SLOT THE PRIMITIVE'S OWN: it is `meshlet_base`, which the table's
+full (`ffe52fb`). THE REPLACEMENT MAKES THE SLOT THE PRIMITIVE'S: it is `meshlet_base`, which the table's
 append-at-import order already makes stable and unique per primitive, so a dispatch rewrites the same slot with the
 same counts, a frame's region belongs to one frame in flight (whose previous read the frame-slot wait has already
 finished), there is no cursor and no capacity left to exhaust.
@@ -605,11 +604,11 @@ point, 0 through the direct call`; and a FORCED PROBE - the command table writte
 the counts the GPU used are demonstrably the ones in the table.
 
 **WHAT THE CULLING BUYS, COUNTED (and this is the measurement the log could not carry before).** A rejected meshlet
-and a meshlet nobody dispatched are the same pixels, so the culling needed a witness of its own: the mesh entries now
+and a meshlet nobody dispatched are the same pixels, so the separate culling needed a witness: the mesh entries now
 add to counters on the heap (slot `meshlet_stats`, `deren::engine::render_layout::heap_slots::meshlet_stats` - the heap is a mesh stage's
 ONLY route to memory) and the host reads the buffer back once, at shutdown, where `wait_idle` has already made the
 numbers final. One atomic per workgroup per counter, sixteen uints per frame in flight (the pbr/shadow meshlet
-entries use ids 0..7; the visibility raster lane reports its own frustum cull in ids 8..11), cumulative for the
+entries use ids 0..7; the visibility raster lane reports its frustum cull in ids 8..11), cumulative for the
 session - so the figures below are totals over a scenario's 40 frames and are comparable between runs:
 
 | scenario (40 frames) | meshlet workgroups | emitted | culled | share culled | triangles emitted |
@@ -620,12 +619,12 @@ session - so the figures below are totals over a scenario's 40 frames and are co
 WHAT THAT SAYS, and what it does not. It says the frustum test rejects a third of the meshlet workgroups on the
 heavy scene - that geometry is never fetched and never rasterized, which is the culling's actual effect. It does NOT
 say what that is worth in time: **nothing here was timed**, and the counters are counts of work, not of milliseconds.
-It also does not separate the shadow pass from the G-buffer (both add to the same counters), and a DEFORMING draw is
+It also does not hold the shadow pass from the G-buffer (both add to the same counters), and a DEFORMING draw is
 never culled at all by design, so its meshlets are in `emitted` whatever the frustum says.
 
 The same counter answers the question the culling pass was about: a rejected meshlet still costs a WORKGROUP LAUNCH today, so
 `culled` is exactly how many dispatches a compute pass that culled before the dispatch would not have recorded -
-42,800 over 40 frames on Sponza, i.e. about 1070 a frame. Whether that is worth a pass of its own is a decision the
+42,800 over 40 frames on Sponza, i.e. about 1070 a frame. Whether that is worth A separate pass is a decision the
 counts inform and the timings (which do not exist yet) would settle.
 
 **THE CULLING NOW HAPPENS BEFORE THE DISPATCH, AND IT CLOSED ON THE HOST RATHER THAN IN THE COMPUTE PASS THIS
@@ -647,7 +646,7 @@ launches never made.
 
 HOW IT IS WIRED, and the four things it deliberately does not do:
 
-- the host culls in `primitive::push_meshlet_lanes` with **copies of the shader's own two helpers**
+- the host culls in `primitive::push_meshlet_lanes` with **copies of the shader's two helpers**
   (`matrix_max_axis_scale`, `clip_sphere_visible` in `source/shaders/geometry/mesh_geometry.slang`). The duplication is the safety
   argument, not laziness: a meshlet the stage would have kept must never be rejected, and the only way to be sure is
   to run the same conservative test - the radius bound is a row-sum bound on both matrices, and the clip test uses
@@ -656,7 +655,7 @@ HOW IT IS WIRED, and the four things it deliberately does not do:
   layout as the table itself), so a workgroup id selects the i-th survivor and the entry point needs no second
   lookup - it reads a different TABLE, not a different index.
 - the flag that says which table travels in the lanes' `base_vertex`, a field a meshlet session never uses for
-  anything else (a record carries its own base vertex). Zero keeps the table-driven path, which is what the shadow
+  anything else (a record carries its base vertex). Zero keeps the table-driven path, which is what the shadow
   pass and every non-meshlet session still do.
 - the command table gained a **second class** (`runtime::mesh_command_capacity` = THREE runs of
   `meshlet_capacity` per frame, one per command class): the shadow pass and the camera dispatch the SAME
@@ -667,7 +666,7 @@ HOW IT IS WIRED, and the four things it deliberately does not do:
 world matrix comes from the instance table per workgroup, so one run's survivors differ per instance and a single
 compacted run cannot describe them), a DEFORMING draw (the sphere bounds the bind pose, not what the draw emits), a
 run that does not fit the culled table, and any session without the camera endpoint. All four fall back to dispatching
-the whole run, where the entry point's own test still applies.
+the whole run, where the entry point's test still applies.
 
 Acceptance, both ways: `-Full` 10/10 passed, 0 changed, 0 flaky with references captured before host culling existed,
 plus a forced probe - `host_clip_sphere_visible` answering false - which turned `deferred` into `8687703DA3BCA7EF`,
@@ -684,7 +683,7 @@ reading, and the retry settled both:
   purpose, so rejecting a meshlet for facing away removes geometry the pass meant to draw. The lanes now carry that
   fact per draw (bit1 of the same flag field host culling uses: `!env.two_sided && !material_two_sided`, the predicate
   `set_cull_mode` already computes), which is what any future attempt has to respect.
-- **the helper's own note about `cone_cos` was backwards.** It claimed `1` means "no statement, never cull"; the
+- **the helper's note about `cone_cos` was backwards.** It claimed `1` means "no statement, never cull"; the
   cone's half-angle is `acos(cone_cos)`, so `1` is an EXACT cone and the value that never culls is `0`, where the
   threshold `-sqrt(1 - cone_cos^2)` is `-1`. Fixed in `source/shaders/geometry/mesh_geometry.slang`.
 
@@ -707,7 +706,7 @@ So per-meshlet back-face culling is NOT shipped, and the honest summary is the o
 is worth a third of Sponza's meshlet workgroups and facing is worth nothing until one of those three is settled.
 
 **WHAT REMAINS IN THIS STEP** is the shadow pass's half of that saving (8934 workgroups over 40 frames of `sponza`):
-its frustum is the cascade's, one per cascade, so host-culling it needs a per-cascade run - four tables or four
+Its frustum is the cascade's, one per cascade, so host-culling it needs a per-cascade run - four tables or four
 command classes - and it is the pass whose casters are recorded in parallel secondaries. One other known defect has
 to be settled with it: **a static draw in a meshlet session dispatches its whole run once per CHUNK**
 (`static_draw_primitive::draw` loops chunks, and the lanes carry the primitive's run rather than the chunk's), which
@@ -763,7 +762,7 @@ WHAT WAS REMOVED, in the order it went:
 ONE MEASURED MISTAKE IS WORTH THE PARAGRAPH, because the gate is what caught it and the fix is not obvious from the
 diff: the guard was first written BEFORE `env.bind_default()`, and the BIND is what sets `mesh_stage` (the session's
 bind callback picks the form). A scene session starts with it true, so nine scenarios passed - but the transparent
-pass's session starts FALSE, so every one of its leaves skipped itself and `transparent_blend` changed
+pass's session starts FALSE, so every a separate one leaves skipped itself and `transparent_blend` changed
 (`01A07360E2E60810` against the reference `698869C771C25AA`). Binding first fixed it: `-Full` 10/10, 0 changed,
 0 flaky.
 
@@ -799,7 +798,7 @@ form it replaced.
   none, so the derived list is empty and the pipeline would silently read no geometry. Its `first_stage`
   parameter is what turns that branch off, and the shader must be passed as the first stage either way.
 - **A VERTEX-ERA TRAP, retired by step 4, kept because the reasoning is what would bite again.** `shadow.vert`'s
-  vertex input layout was derived from its own declarations, so a normal that Slang could prove unused disappeared
+  vertex input layout was derived from its declarations, so a normal that Slang could prove unused disappeared
   from the module and the stride shrank from 64 to 52 with no error anywhere. The never-taken `isnan && isinf` branch
   that kept it alive lives in the SHARED body, so it is still there and still harmless - and a vertex entry that came
   back would need it back.
@@ -826,7 +825,7 @@ form it replaced.
 
 ## 7. Open questions (what measurement already closed, and what is genuinely left)
 
-- **The shadow pass's share of the host-side culling.** Its frustum is the cascade's, one per cascade, and its casters
+- **The shadow pass's share of the host-side culling.** its frustum is the cascade's, one per cascade, and its casters
   are recorded in parallel secondaries - so host-culling it needs a per-cascade run (four tables or four command
   classes). Measured size: 8934 workgroups over 40 frames of `sponza`, the difference between the entry point's 42800
   rejections and the camera's 33866 that the host now removes before the dispatch.

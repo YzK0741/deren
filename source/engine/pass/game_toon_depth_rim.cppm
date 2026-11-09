@@ -6,31 +6,31 @@
  * @defgroup engine_pass_game_toon_depth_rim Game Toon Depth-Rim Pass
  *
  * WHY IT EXISTS, SEPARATELY FROM `toon_screen_rim`: the article's contour is silenced whenever a REWRITTEN chain
- * is drawing (see `toon_screen_rim_pass::feature`), and the Goo chain has its own `goo_rim` stage. The third
- * chain - the game-shader model ported from the pinned MyZmdShaders sources - has no such stage: its own rim is
+ * is drawing (see `toon_screen_rim_pass::feature`), and the Goo chain has its `goo_rim` stage. The third
+ * chain - the game-shader model ported from the pinned MyZmdShaders sources - has no such stage: its rim is
  * computed INLINE in the character fragment while the captured viewer's hair/face contour is a DEPTH-CONTOUR
- * term, which a fragment stage cannot sample (the depth is its own attachment). The renderer already owns the
+ * term, which a fragment stage cannot sample (the depth is its attachment). The renderer already holds the
  * only legal way to read that depth: a fullscreen additive pass after the character stage and before the resolve,
  * with the depth SAMPLED and no depth attachment. This is that pass for the game chain, added as a SEPARATE
  * declaration rather than a mode of `toon_screen_rim`, because `feature_active` is asked once per NAME: "the
  * article's contour is off under the game chain" and "the game chain's contour is on" have to be two answers that
- * cannot drift apart, exactly the argument that made `goo_rim` a name of its own.
+ * cannot drift apart, exactly the argument that made `goo_rim` A separate name.
  *
  * WHY IT IS NOT `goo_rim` EITHER: the Goo chain's rim is a PRODUCT of three attenuations and a screen-space depth
  * factor recomposed from the G-buffer, with the Goo material table's colours. The game chain's contour is the
  * captured viewer's simple depth-contour term, and it takes its colour and shape from THIS pass's parameters.
  * Sharing the stage would make the two chains' rim constants one lane.
  *
- * WHAT IT OWNS: its pipeline (ONE target, the scene colour, ADDITIVE blending, so the pass adds to the frame
+ * WHAT IT HOLDS: its pipeline (ONE target, the scene colour, ADDITIVE blending, so the pass adds to the frame
  * instead of reading and rewriting it), the 48-byte push block, and the draw.
  *
- * WHAT IT DOES NOT OWN: the geometry (a synthetic fullscreen triangle), the G-buffer and the depth (per-image
+ * WHAT IT DOES NOT hold: the geometry (a synthetic fullscreen triangle), the G-buffer and the depth (per-image
  * heap slots), and their transition to a sampled layout, which is the graph's/rendering bookkeeping.
  *
  * IT IS GATED BY `runtime::game_toon_active()` AND THE CHARACTER STAGE'S EXISTENCE at the post-graph lane (see
  * runtime.post_graph.cpp): the silhouette belongs to the game-shaded character and means nothing without it.
- * Its `feature()` still names its own feature - `"game_toon_depth_rim"` - so the declaration carries the question
- * it answers even though the owner's table does not need a second branch to ask the composed predicate directly.
+ * its `feature()` still names its feature - `"game_toon_depth_rim"` - so the declaration carries the question
+ * it answers even though the holder's table does not need a second branch to ask the composed predicate directly.
  */
 
 module;
@@ -51,8 +51,8 @@ export namespace deren::engine::pass {
     /**
      * @brief the game chain's depth rim: a fullscreen additive contour over the game-shaded frame
      *
-     * It has no frame of its own - every value it needs is either the frame's (the two projection terms) or its
-     * own parameters (the rim's width, gain, strength and colour) - so it follows `deferred`, `gbuffer-debug` and
+     * It has no separate frame - every value it needs is either the frame's (the two projection terms) or its
+     * dedicated parameters (the rim's width, gain, strength and colour) - so it follows `deferred`, `gbuffer-debug` and
      * `toon_screen_rim` in taking its parameters from the pass and nothing from the renderer.
      */
     class game_toon_depth_rim_pass final : public frame_pass {
@@ -73,7 +73,7 @@ export namespace deren::engine::pass {
         };
 
         /**
-         * @brief this pass's own declaration, kept beside the pass (the pipeline it builds is its own)
+         * @brief this pass's declaration, kept beside the pass (the pipeline it builds is its)
          *
          * THE DECLARATION IS THE PASS'S, NOT A SHARED SCHEMA ENTRY, and that is deliberate rather than a shortcut:
          * the framework resolves a pass through `io()` and nothing enumerates a global table of declarations, so a
@@ -102,10 +102,10 @@ export namespace deren::engine::pass {
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const& host) override;
 
-        /// \brief the record body alone - none of this pass's own ordering
+        /// \brief the record body alone - none of this pass's ordering
         ///
         /// The graph recorder calls THIS entry and the graph emits the input transitions and the target write;
-        /// the pass owns no barriers (its sampled inputs are heap slots the graph declares on its behalf).
+        /// the pass holds no barriers (its sampled inputs are heap slots the graph declares on its behalf).
         void record_impl(resolved_io const& io);
         deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
 
@@ -119,7 +119,7 @@ export namespace deren::engine::pass {
 
         /**
          * @brief the rim's shape, which is THIS pass's parameter
-         * @param width the screen-offset scale (the reference's `rimWidth`, in its own units)
+         * @param width the screen-offset scale (the reference's `rimWidth`, in its units)
          * @param scale the gain on the depth difference (the reference's `* 4`)
          * @param strength 0 draws nothing, which is how the feature's off state costs nothing
          */
@@ -152,7 +152,7 @@ export namespace deren::engine::pass {
         float rim_colour[3] = {1.0f, 0.94f, 0.90f};
     }; // namespace deren::engine::pass
 
-    /// the pass's own block: the eight composed values plus the colour, and the framework appends the two heap
+    /// the pass's block: the eight composed values plus the colour, and the framework appends the two heap
     /// lanes on top (see the shader).
     static_assert(sizeof(game_toon_depth_rim_pass::push_constants) == game_toon_depth_rim_pass::pass_declaration.push->size,
                   "the game chain rim's declared push block must be the size of the struct the pass composes");

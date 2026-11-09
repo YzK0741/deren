@@ -3,7 +3,7 @@
 The renderer went through three migrations that are usually discussed separately and are in fact ONE
 architecture:
 
-| migration | what it provides | its own record |
+| migration | what it provides | its record |
 | --- | --- | --- |
 | the descriptor heap | the binding model: no descriptor sets, no layouts, every resource a slot in one flat grid | docs/descriptor_heap_migration.md, docs/descriptor_heap_handover.md |
 | Slang | the compiler: one .slang file per family with an entry per stage, and the heap as a first-class capability | docs/slang_migration.md |
@@ -31,8 +31,8 @@ NOT been measured**.
   range, so a mesh stage can fetch the vertices the input assembler used to bind - that is the whole
   mechanism behind `mesh_geometry_lanes`, and it is why the geometry window travels in the push block
   instead of in a binding.
-- **Resource lifetime became an explicit rule**: what is written ONCE owns one slot (the meshlet
-  table), what is rebuilt per frame owns one per frame in flight (the TLAS). "Is there a frame whose
+- **Resource lifetime became an explicit rule**: what is written ONCE holds one slot (the meshlet
+  table), what is rebuilt per frame holds one per frame in flight (the TLAS). "Is there a frame whose
   contents could disagree with this?" is now a question with a written answer.
 - **One structure, two consumers**: the TLAS and the meshlets read the SAME vertex and index buffers
   by device address, so ray-traced shadows and the meshlet path cannot drift apart.
@@ -113,7 +113,7 @@ NOT been measured**.
   every scenario byte-identical. A shadow-off run measures the same 33866 independently.
 - **The counts are data, not arguments.** Every meshlet dispatch goes through
   `vkCmdDrawMeshTasksIndirectEXT`, reading its three counts out of a command table at a slot the
-  primitive owns, so a GPU-side culling pass can rewrite them with no host change - and the route is
+  primitive holds, so a GPU-side culling pass can rewrite them with no host change - and the route is
   logged, because the first version of that seam silently fell back to the direct call and looked
   perfect.
 - **The draw path got smaller.** No input assembler, no vertex/index binding: `bind_geometry_and_push`
@@ -182,6 +182,6 @@ them than they say:
   produce the same pixels by construction, which is exactly why the acceptance for each stage was a
   byte-identical frame PLUS a forced probe (emit nothing, or cull everything, and watch the frame
   change) PLUS a log line saying which route was taken.
-- **Two migrations' own records are history, not current state.** `pbr.vert` and `shadow.vert` are
+- **Two migrations' records are history, not current state.** `pbr.vert` and `shadow.vert` are
   named throughout docs/slang_migration.md because that document records the Slang port; those
   entries were removed later, and each mention says so where a reader meets it.

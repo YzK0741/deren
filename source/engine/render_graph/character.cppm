@@ -3,7 +3,7 @@ export module deren.engine.render_graph.character;
 export import deren.vstd;
 export import deren.engine.render_graph;
 export namespace deren::engine::render_graph {
-    /// The character-forward pass: the character's own leaves, its outline group and its overlay masks, drawn
+    /// The character-forward pass: the character's leaves, its outline group and its overlay masks, drawn
     /// INTO the shaded frame with LOAD on the scene target and the depth - the same shape the transparent pass
     /// has, so the target is a PRESERVE write and the depth is read through the depth test.
     namespace character_forward {

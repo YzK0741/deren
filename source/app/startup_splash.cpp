@@ -91,7 +91,7 @@ namespace deren::app {
             ShowWindow(window, SW_SHOWNOACTIVATE);
             UpdateWindow(window);
         }
-        // CreateWindow created the message queue before the caller may post an owner.
+        // CreateWindow created the message queue before the caller may post a holder.
         SetEvent(self.ready_);
         if (window) {
             HANDLE const stop = self.stop_;

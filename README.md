@@ -28,8 +28,8 @@
 
 ## Features
 
-- **Engine runtime and modular boundaries**: `deren.engine.runtime` owns the scene-wide GPU resources and drives a frame through explicit phases (`poll_events`, `pace_and_acquire`, `begin_recording`, `record_main_drawcalls`, `end_recording`, `submit_and_present`). CPU-only modules such as `deren.gltf_loader`, `deren.application_configuration` and `deren.utility` do not depend on Vulkan; the backend is loaded through `deren.engine.backend_loader`.
-- **Scene and draw model**: a caller-owned scene tree is walked once per frame into world matrices; GPU drawables live in `deren.engine.primitive`. Leaves either use default pipeline semantics or request a named pipeline, so several pipelines and material strategies coexist in one scene. Parallel recording workers each build their own `render_environment`. A BVH over leaf bounds culls the scene against the camera and is reused while the scene and camera are static; `static_draw_primitive` merges static sub-meshes into one vertex/index buffer with a per-chunk draw table.
+- **Engine runtime and modular boundaries**: `deren.engine.runtime` holds the scene-wide GPU resources and drives a frame through explicit phases (`poll_events`, `pace_and_acquire`, `begin_recording`, `record_main_drawcalls`, `end_recording`, `submit_and_present`). CPU-only modules such as `deren.gltf_loader`, `deren.application_configuration` and `deren.utility` do not depend on Vulkan; the backend is loaded through `deren.engine.backend_loader`.
+- **Scene and draw model**: a caller-held scene tree is walked once per frame into world matrices; GPU drawables live in `deren.engine.primitive`. Leaves either use default pipeline semantics or request a named pipeline, so several pipelines and material strategies coexist in one scene. Parallel recording workers each build their `render_environment`. A BVH over leaf bounds culls the scene against the camera and is reused while the scene and camera are static; `static_draw_primitive` merges static sub-meshes into one vertex/index buffer with a per-chunk draw table.
 - **Vulkan 1.3 backend**: dynamic rendering (no render passes or framebuffers), a descriptor heap instead of descriptor sets, timeline semaphores, ray queries, mesh/task shaders, host image copies, and buffer device addresses. The RHI/GUI boundary is process-level and backend implementations are loaded by name.
 - **Deferred rendering**: a G-buffer pass writes surface targets; the lighting stage shades them into an HDR target with IBL, punctual lights, cascaded shadows and optional ray-traced sun shadows. Post-processing adds exposure, ACES tone mapping, bloom and FXAA; TAA is available separately. The analytic `furnace` mode is an exactness check for the lighting path.
 - **Lighting and effects**: metallic-roughness PBR with five texture slots and glTF alpha modes; GGX/Smith by default with selectable direct-light BRDFs; prefiltered environment maps and a BRDF LUT; 1-4 cascaded shadow maps with PCF; clustered light culling; hemisphere-sampling SSAO; ray-traced reflections for PBR and toon materials.
@@ -37,7 +37,7 @@
 - **amnis texture residency**: an opt-in texture-residency system independent of the geometry cuts. Visibility and screen-footprint feedback request whole-image, two-tier or progressive mip streaming; bounded async uploads and low-resolution fallbacks keep frames moving. See [`docs/amnis.md`](docs/amnis.md).
 - **Gaussian splatting**: `.ply` files load as Gaussian clouds, are packed onto the GPU once, and are drawn by a dedicated stage between lighting and blended geometry. The GPU path prepares, sorts, finalizes and rasterizes without CPU readback.
 - **glTF, animation and skinning**: `.gltf` / `.glb` loading with hierarchy, skins, morph targets and keyframe animations; a format-neutral animation controller samples into the scene tree and updates skin/morph buffers per frame.
-- **Debug GUI, profiling and capture**: a Dear ImGui overlay (F1) exposes only features that can affect the current frame. `[render] gpu_timings` records pass boundaries with `vkCmdWriteTimestamp` without waiting on the GPU. F12 saves a PNG through the frame's own command buffer; `--capture-frames`, `--capture-camera`, `--capture-sweep` and `--capture-animation-sweep` make headless captures reproducible.
+- **Debug GUI, profiling and capture**: a Dear ImGui overlay (F1) exposes only features that can affect the current frame. `[render] gpu_timings` records pass boundaries with `vkCmdWriteTimestamp` without waiting on the GPU. F12 saves a PNG through the frame's command buffer; `--capture-frames`, `--capture-camera`, `--capture-sweep` and `--capture-animation-sweep` make headless captures reproducible.
 - **Engineering**: C++26 modules, exceptions and RTTI disabled, `-Wall -Wextra -Werror`, automatic `clang-format`, LTO and dead-code elimination in Release, and a per-module CMake target graph.
 
 ## Build helpers
@@ -90,7 +90,7 @@ python scripts/config/make_config.py path/to/dir # write config.toml into a dire
 
 **0.6.0** — the single source of truth is `project(VERSION)` in `CMakeLists.txt`. CMake injects `DEREN_VERSION_{MAJOR,MINOR,PATCH}` and surfaces the version through `--version`, the startup banner and the instance's `app_info`. Version-update rules and the synchronized copies are listed in [`AGENTS.md`](AGENTS.md); do not bump the version as a side effect of another change.
 
-Each independently reusable module set carries its own `module version` annotation at the top of its main interface unit. That annotation is authoritative, so this README does not mirror the full list. Modules evolve independently: MAJOR for breaking interface changes, MINOR for additive features, PATCH for fixes; an appended `a` marks an internal revision that does not consume a semver slot.
+Each independently reusable module set carries its `module version` annotation at the separate top main interface unit. That annotation is authoritative, so this README does not mirror the full list. Modules evolve independently: MAJOR for breaking interface changes, MINOR for additive features, PATCH for fixes; an appended `a` marks an internal revision that does not consume a semver slot.
 
 ## Source layout
 
@@ -280,7 +280,7 @@ sh source/shaders/compile_shaders.sh
 
 The engine source code is [MIT](LICENSE), copyright 2026 YzK0741.
 
-The MIT license does **not** cover the third-party sample assets under `asset/`. Each asset keeps its own terms, listed in [`asset/README.md`](asset/README.md):
+The MIT license does **not** cover the third-party sample assets under `asset/`. Each asset keeps its terms, listed in [`asset/README.md`](asset/README.md):
 
 - `asset/DamagedHelmet/` and `asset/FlightHelmet/`: see each folder's `LICENSE.md`.
 - `asset/flowers/`: NVIDIA's Bouquet of Flowers, CC BY 4.0; see [`asset/flowers/README.md`](asset/flowers/README.md).

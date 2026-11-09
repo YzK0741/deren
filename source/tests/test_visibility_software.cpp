@@ -23,7 +23,7 @@
 //      whole frame). The CSR section below pins the prefix sum, the item->run->tile order, empty tiles and the
 //      budget-1/budget/budget+1 rejection boundary.
 //
-// The camera matrices are constructed in the renderer's own layout: a 16-float COLUMN-MAJOR array (glm::mat4 storage,
+// The camera matrices are constructed in the renderer's layout: a 16-float COLUMN-MAJOR array (glm::mat4 storage,
 // which is what the runtime memcpys into the push block/UBO) applied to a column vector. The view here is the
 // identity (camera at the origin looking down -z), so a record's world z=-10 is 10 metres in front of the eye.
 #include "vk_test.h"
@@ -525,7 +525,7 @@ namespace {
         CHECK(two.items[0].software_count == 2u && two.items[0].hardware_count == 1u);
         CHECK(one.cluster_count == 1u && two.cluster_count == 2u);
         CHECK(two.items[0].software_triangles == 2u); // two software records, one triangle each
-        // the 2.0 split's software ids start at its own hardware count (1), so the tile entries are ids 1 and 2
+        // the 2.0 split's software ids start at its hardware count (1), so the tile entries are ids 1 and 2
         CHECK(two.entry_count == 2u);
         CHECK(entry_at(two, 31u, 31u, 0u).meshlet_id == 1u);
         CHECK(entry_at(two, 31u, 31u, 1u).meshlet_id == 2u);
@@ -736,7 +736,7 @@ namespace {
     }
 
     // ============================================================================================
-    // 9. RESOLVE / MERGE (spec §3.2): the winner rule on the UNMERGED hardware depth, the chosen candidate's own
+    // 9. RESOLVE / MERGE (spec §3.2): the winner rule on the UNMERGED hardware depth, the chosen candidate's
     //    depth, the tie->hardware rule, the background-tie software rule, empty/non-finite software pixels, and the
     //    merge's min() that the depth-only pass leaves behind
     // ============================================================================================
@@ -877,7 +877,7 @@ namespace {
 
     /// a subpixel triangle whose conservative bounding box lands in the CENTRE tile: record centre world (0.25, 0.25)
     /// is pixel (40, 40) under the 64x64 orthographic test camera, and half_extent 0.0625 puts the corners on pixels
-    /// 38..42 - so the centre tile (2,2), the only tile the CSR list files, really owns raster-covered pixels
+    /// 38..42 - so the centre tile (2,2), the only tile the CSR list files, really holds raster-covered pixels
     raster_fixture planar_triangle(float const z, float const half_extent, std::uint32_t const item_index) {
         raster_fixture fixture{};
         fixture.item_index = item_index;

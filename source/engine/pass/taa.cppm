@@ -6,20 +6,20 @@
  * @defgroup engine_pass_taa Temporal Anti-Aliasing Pass
  *
  * WHY THIS PASS IS THE INTERESTING ONE: a compute pass proved the shape first, and this one
- * proves it for the other half of the frame. A fullscreen pass owns a render TARGET (an attachment is not a
+ * proves it for the other half of the frame. A fullscreen pass holds a render TARGET (an attachment is not a
  * descriptor: it is declared as a `render_target` and bound by a rendering instance), it opens that instance
  * itself (the load op is its knowledge, not the record step's), and the two things it must not be able to forget -
  * the pipeline being bound and the viewport being set - are done FOR it by the record step before `record`.
  *
- * WHAT IT OWNS: its pipeline, its push block's SHAPE, and the two pieces of state that say what
+ * WHAT IT HOLDS: its pipeline, its push block's SHAPE, and the two pieces of state that say what
  * its history holds: whether each image has one, and whether the last resolve wrote it.
  *
- * WHAT IT DELIBERATELY DOES NOT OWN, and this is the second discovery this extraction produced: TWO LINES OF
- * ITS OWN SEQUENCE BELONG TO OTHER PASSES. The resolve transitions the G-buffer depth (a transition the
+ * WHAT IT DELIBERATELY DOES NOT hold, and this is the second discovery this extraction produced: TWO LINES OF
+ * its SEQUENCE BELONG TO OTHER PASSES. The resolve transitions the G-buffer depth (a transition the
  * G-buffer pass's per-image flag decides) and clears the flag that says the motion vectors have been handed
  * to a fragment sampler (which stops a later pass from transitioning them again). Both are shared per-image
  * bookkeeping, both are the barrier/order stage's job in the long run, and neither is expressible here while a
- * pass can only declare its OWN bindings - so they stay with the host, which is the one that knows the flags.
+ * pass can only declare its bindings - so they stay with the host, which is the one that knows the flags.
  * The order the host has to preserve is recorded at the call site.
  *
  * THE GENERATION RESET is the one piece of this pass that is not a straight move, and it is small now: the
@@ -57,7 +57,7 @@ export namespace deren::engine::pass {
         /**
          * @brief the pass's push block, which is also the fragment shader's
          *
-         * Eight floats in the order taa.frag declares them. EVERY value in it is now the pass's own: the blend
+         * Eight floats in the order taa.frag declares them. EVERY value in it is now the pass's: the blend
          * weights are its parameters (see set_blend), the texel size comes from the extent it was resolved at,
          * the two depth terms come from the frame's constants, and `history_valid` is the state it maintains per
          * image. It used to be composed by the renderer and handed over as raw bytes; the block's shape is still
@@ -85,22 +85,22 @@ export namespace deren::engine::pass {
         void bind_resources(render_resource::instances::resource_snapshot const&) override;
         void on_swapchain_recreated(pass_host const& host) override;
 
-        /// @brief the resolve alone, with none of this pass's own ordering (see taa.cpp's two entry notes)
+        /// @brief the resolve alone, with none of this pass's ordering (see taa.cpp's two entry notes)
         ///
         /// A graph-recorded frame cannot declare this pass as one graph pass: the resolve WRITES the HDR target
         /// as an attachment and the history copy READS it as a transfer source, and the render graph's model
         /// allows one access per resource per pass. The migration therefore records two graph passes from this
         /// one pass object - the resolve through THIS entry and the history copy through `record_copy` - and the
-        /// graph emits both the attachment transitions and the transfer round trip the removed legacy path owned here.
+        /// graph emits both the attachment transitions and the transfer round trip the removed legacy path held here.
         deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
-        /// @brief the history copy alone, with none of this pass's own ordering
+        /// @brief the history copy alone, with none of this pass's ordering
         void record(resolved_io const& io);
         deren::promise::rhi::error record_copy(resolved_io const& io) noexcept;
 
         /// @brief whether the pass built everything it records with (the renderer gates the feature on this)
         [[nodiscard]] bool pipeline_ready() const noexcept;
-        /// @brief the framework's generic form of the same question, so an owner holding only a chain can ask it
-        ///        (a pass with nothing of its own to build keeps the interface's `true`; see `frame_pass::ready`)
+        /// @brief the framework's generic form of the same question, so a holder holding only a chain can ask it
+        ///        (a pass with nothing separate to build keeps the interface's `true`; see `frame_pass::ready`)
         [[nodiscard]] bool ready() const noexcept override {
             return this->pipeline_ready();
         }
@@ -165,7 +165,7 @@ export namespace deren::engine::pass {
         // that name would duplicate it and hide the override.
         /// whether the last record wrote the history (see wrote_history)
         bool history_written = false;
-        /// the two blend weights: this pass's own parameters (see set_blend), defaulted to the renderer's own
+        /// the two blend weights: this pass's parameters (see set_blend), defaulted to the renderer's
         /// historical defaults so a session that never calls `set_taa` resolves exactly as it did before
         float blend_static = 0.9f;
         float blend_min = 0.5f;

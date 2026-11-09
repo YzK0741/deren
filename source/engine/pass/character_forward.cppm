@@ -6,7 +6,7 @@
  *        written OVER the deferred result.
  * @defgroup engine_pass_character_forward Character Forward Pass
  *
- * WHY IT IS ITS OWN PASS, and the reference this follows. The port's reference implementation
+ * WHY IT IS its PASS, and the reference this follows. The port's reference implementation
  * (DanbaidongRP's PBRToon material family, see _toon_ref/PORT_SPEC.md) draws its character materials in a
  * pass named `CharacterForward` carrying `ZWrite Off` + `ZTest Equal`, invoked after the deferred lighting
  * stage.
@@ -19,7 +19,7 @@
  * lit frame) and before the resolve. A toon character drawn before the lighting stage would be lit by
  * it, which is the single thing this pass exists to prevent.
  *
- * WHAT IT OWNS: the two targets entered with LOAD, the two barriers that hand the depth between
+ * WHAT IT HOLDS: the two targets entered with LOAD, the two barriers that hand the depth between
  * "sampled" and "attachment" layouts (it is what takes it out of SHADER_READ and what puts it back), and
  * the raster state the stage needs - depth compare EQUAL comes from the PIPELINE
  * (`core::make_character_forward_pipeline`); depth WRITE off is a dynamic state this pass records and
@@ -28,11 +28,11 @@
  *
  * IT ALSO DRAWS THE ARTICLE'S TWO OVERLAY MULTIPLIES (the eye shadow and the hair shadow), AFTER the toon
  * leaves and with a SECOND pipeline - see `character_forward_frame::overlay_leaves`. They belong to this
- * stage rather than a pass of their own because they modify exactly what this stage just wrote, in the same
+ * stage rather than A separate pass because they modify exactly what this stage just wrote, in the same
  * instance, on the same depth: the multiply has to see the toon-shaded pixel, and the depth test is what
  * confines the mask to the surface it was authored over.
  *
- * WHAT IT DOES NOT OWN: the geometry. Its leaves are the SCENE's, re-drawn - the renderer hands over the
+ * WHAT IT DOES NOT hold: the geometry. Its leaves are the SCENE's, re-drawn - the renderer hands over the
  * same list the scene pass drew, which is what makes the two agree about which surfaces exist.
  *
  * IT IS BEHIND A FEATURE ("character_forward") THAT DEFAULTS OFF, so a frame from a scene with no toon
@@ -74,7 +74,7 @@ export namespace deren::engine::pass {
          */
         std::span<primitive const* const> overlay_leaves = {};
         /**
-         * THE OUTLINE LEAVES: the article's `MyZmdOutlineShader` - the INVERTED HULL, i.e. the character's own
+         * THE OUTLINE LEAVES: the article's `MyZmdOutlineShader` - the INVERTED HULL, i.e. the character's
          * leaves drawn a SECOND time with their front faces culled and their vertices pushed outward in clip
          * space, so what survives is the ring just outside each silhouette (the article's ① 描边).
          *
@@ -83,14 +83,14 @@ export namespace deren::engine::pass {
          *   * a different pipeline (`outline_pipeline_name`): CULL FRONT, depth compare LESS_OR_EQUAL, no blend;
          *   * a different ORDER: after every toon leaf, because the hull has to be occluded by the surface the
          *     leaves just re-shaded onto the same depth (the depth test is the only thing that confines a hull
-         *     to the outside of its silhouette);
+         *     to the separate outside silhouette);
          *   * a per-MATERIAL gate that is not the mesh: a material whose `_OutlineWidth` is 0 (chen's `cloth_02`
-         *     is 0.0 in the game's own table) is in `leaves` but NOT here, because the article has no outline for
-         *     it - the width rides the material's own colour lane (see `toon_colour_lane::outline_edge`), and the
+         *     is 0.0 in the game's table) is in `leaves` but NOT here, because the article has no outline for
+         *     it - the width rides the material's colour lane (see `toon_colour_lane::outline_edge`), and the
          *     renderer's filter is what keeps the two lists consistent.
          *
          * DRAWN BEFORE THE OVERLAY GROUP: both belong to the article's character stage and the overlays MULTIPLY
-         * what that stage wrote, so the hull is part of what they multiply - which is the order the article's own
+         * what that stage wrote, so the hull is part of what they multiply - which is the order the article's
          * opaque/multiply split implies.
          */
         std::span<primitive const* const> outline_leaves = {};
@@ -101,7 +101,7 @@ export namespace deren::engine::pass {
          * renderer's), and the pass then OVERRIDES two things on what it gets back: `default_name` (so a
          * default-semantics leaf binds the character pipeline rather than `pbr`) and the locked depth-write
          * state. Both are fields of the environment rather than callback arguments, which is what lets this
-         * pass state its own raster rules without the renderer having to know them.
+         * pass state its raster rules without the renderer having to know them.
          */
         render_environment (*make_environment)(void* parent, ::deren::engine::recording_target target, bool gbuffer) = nullptr;
         void* parent = nullptr;
@@ -109,7 +109,7 @@ export namespace deren::engine::pass {
          * The pipeline name every leaf of this session binds.
          *
          * THE RENDERER FILLS IT rather than the pass hardcoding it, because the name is the runtime's key
-         * into its own registry - the pass would be asserting that some other module registered a pipeline
+         * into its registry - the pass would be asserting that some other module registered a pipeline
          * under a string it chose. Empty means the session cannot bind anything and the pass draws nothing.
          */
         std::string_view pipeline_name = {};
@@ -140,14 +140,14 @@ export namespace deren::engine::pass {
          * `character_forward_pass::record_content`), because the lane is a `uint`.
          */
         float rt_reflection_strength = 0.0f;
-        /// the two declared targets' formats and the extent (the pass opens its own instance)
+        /// the two declared targets' formats and the extent (the pass opens its instance)
         ::deren::promise::rhi::image_format color_format = ::deren::promise::rhi::image_format::unknown;
         ::deren::promise::rhi::image_format depth_format = ::deren::promise::rhi::image_format::unknown;
         deren::promise::rhi::image_extent extent = {0, 0};
     };
 
     /**
-     * @brief the toon character stage: the scene's own opaque leaves, re-shaded over the lit frame
+     * @brief the toon character stage: the scene's opaque leaves, re-shaded over the lit frame
      *
      * @note the pass draws nothing when its leaf set is empty or the session has no pipeline name. That is
      *       not an optimisation: a frame with no character has no toon surface, and skipping it keeps such
@@ -164,11 +164,11 @@ export namespace deren::engine::pass {
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const& host) override;
 
-        /// \brief the record body alone - none of this pass's own ordering
+        /// \brief the record body alone - none of this pass's ordering
         ///
         /// The graph recorder calls THIS entry and the graph emits the input transitions and the target write the
-        /// removed legacy path owned; one submission therefore never runs both barrier paths. character_forward's removed legacy
-        /// record keeps its two hand-offs and its depth hand-back; the two rim passes own no barriers at all (their
+        /// removed legacy path held; one submission therefore never runs both barrier paths. character_forward's removed legacy
+        /// record keeps its two hand-offs and its depth hand-back; the two rim passes hold no barriers at all (their
         /// sampled inputs are declared here, because the graph orders and transitions what the record only indexes).
         deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
 
@@ -183,7 +183,7 @@ export namespace deren::engine::pass {
             .extent = extent_rule::full,
             .extent_of = resource_id::none,
             .pipelines = pipeline_names,
-            .resync_viewport = false, // the character pipelines carry their own stored viewport
+            .resync_viewport = false, // the character pipelines carry their stored viewport
         };
 
         // called pass_frame, not frame: set_frame()'s frame parameter in character_forward.cpp would hide a member of that name

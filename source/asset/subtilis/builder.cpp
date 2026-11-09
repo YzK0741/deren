@@ -208,7 +208,7 @@ namespace deren::asset::subtilis {
             vector<uint32_t> next;
             bool progressed = false;
         };
-        // Phase 1 of a reduction round: only immutable inputs and the caller's own slot are touched,
+        // Phase 1 of a reduction round: only immutable inputs and the caller's slot are touched,
         // so this runs concurrently and its completion order cannot matter.
         result<void> prepare_group(round_workspace& workspace, size_t group, source_geometry const& source, payload const& data, bd::topology const& topology, bd::primitive_scale const& scale, build_options const& options) {
             double const started = stage_now();

@@ -34,7 +34,7 @@ namespace deren::vulkan {
                 // VUID-vkFreeCommandBuffers-pCommandBuffers-00048-adjacent territory).
                 vkDestroyCommandPool(this->device, this->command_pool, nullptr);
             } else if (this->command_buffer != VK_NULL_HANDLE) {
-                // the borrowed-pool path: the buffer goes back to a pool somebody else owns
+                // the referenced-pool path: the buffer goes back to a pool somebody else holds
                 vkFreeCommandBuffers(this->device, this->command_pool, 1, &this->command_buffer);
             }
         }
@@ -78,15 +78,15 @@ namespace deren::vulkan {
     }
 
     vk_command_buffer make_command_buffer(VkDevice const device, uint32_t const queue_family, VkCommandBufferLevel const level) noexcept {
-        // THE POOL IS CREATED HERE AND OWNED BY THE RESULT: one pool per command buffer, which is what
-        // makes the wrapper a self-contained device resource - and what lets every recording thread own
+        // THE POOL IS CREATED HERE AND HELD BY THE RESULT: one pool per command buffer, which is what
+        // makes the wrapper a self-contained device resource - and what lets every recording thread hold
         // one without a shared, unsynchronised VkCommandPool (the rule the callers used to spell by
         // hand with a {pool, buffer} pair). The flags are constant_init's make_command_pool_info, i.e.
         // RESET_COMMAND_BUFFER_BIT: the frame loop re-begins its primaries every frame.
         VkCommandPoolCreateInfo const pool_info = make_command_pool_info(queue_family);
         VkCommandPool pool = VK_NULL_HANDLE;
         if (vkCreateCommandPool(device, &pool_info, nullptr, &pool) != VK_SUCCESS) {
-            deren::utility::panic("failed to create the command buffer's own command pool");
+            deren::utility::panic("failed to create the command buffer's command pool");
         }
 
         VkCommandBuffer buffer = VK_NULL_HANDLE;

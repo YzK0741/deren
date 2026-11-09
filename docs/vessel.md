@@ -17,8 +17,8 @@ Available aliases cover array, vector/deque/list, basic_string and five characte
 string types, map/multimap, set/multiset, the four unordered containers, and
 queue/stack/priority_queue. Adapters default to vessel storage; callers
 supplying another underlying container choose its allocation policy.
-Allocator-backed istringstream/ostringstream/stringstream also own vessel strings.
-`to_string` supports integers. Nested owning strings and containers should
+Allocator-backed istringstream/ostringstream/stringstream also hold vessel strings.
+`to_string` supports integers. Nested holding strings and containers should
 also use vessel: an outer allocator cannot replace an element's allocator.
 
 ## Allocation failure
@@ -72,8 +72,8 @@ a PUBLIC shared_utility link dependency and rebuilt consumers. No PMR
 default-resource registration or startup hook is needed. Global operator
 new is unchanged.
 
-Owned containers in engine, utility, application, configuration, loaders,
-backends, RHI/GUI contracts, and tests use vessel. Borrowed APIs retain
+Held containers in engine, utility, application, configuration, loaders,
+backends, RHI/GUI contracts, and tests use vessel. Referenced APIs retain
 span/string_view. Third-party libraries and vstd standard-library exports
 keep their existing types. RHI ABI61 and GUI ABI6 require rebuilt matching
 plugins; factories reject mismatched versions before returning typed objects.

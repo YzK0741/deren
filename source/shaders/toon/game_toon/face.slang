@@ -10,7 +10,7 @@
 // `_DIFF_RAMP_ON _EMOTION_MAP _HIGHLIGHT_MAP _NORMALMAP _SDFLIGHTMAP _SHADOW_LUT_TEX`; TWO render targets:
 // SV_Target0 = colour, SV_Target1 = `_1427`).
 //
-// LINE NUMBERS. The decompiled file's own banner cites "KEY SITES" in BODY-relative lines (444 normal
+// LINE NUMBERS. The decompiled file's banner cites "KEY SITES" in BODY-relative lines (444 normal
 // reconstruction, 712 P/F0, 1255 entry). The checked-in file carries a 17-line provenance banner, so its
 // line numbers are body + 18. EVERY line number below is the CHECKED-IN FILE's, and the header's numbers are
 // +18 (so `:730` here is the header's "712", the P/F0 block).
@@ -37,7 +37,7 @@
 //    == the author's `_SdfRefineTex` (inferred), `_ShadowLutTex` == `_LutColorTex`, `_DiffRampMap` ==
 //    `_RampTex`, `_EmotionMap` == `_TrickTex` + `_TrickType`, and `_FaceCenter` / `_FaceRight` / `_FaceUp` /
 //    `_FaceForward` == deren's `head_frame_at(...).center` / `.right` / `.up` / `.front` (so those four DO
-//    have an equivalent and are not MISSING). What is missing is the 3D volume's own parameterisation
+//    have an equivalent and are not MISSING). What is missing is the 3D volume's parameterisation
 //    (`_FaceCenter` offsets/scales `_19_m105.._19_m107`), see the point below.
 //  * IRRADIANCE CLIPMAPS, NOT A HEAD DISTANCE FIELD. The six Texture3Ds at t30..t35
 //    (:511-601) carry RGB directional irradiance coefficients at three spatial scales.
@@ -50,7 +50,7 @@
 //    at mirrored UV (:1508-1555); it remains a separate material mechanism.
 //  * THE FACE HIGHLIGHT/DECAL BLOCK (:655-720 + :689-729): it needs `_HighlightMap`/`_FaceDecalMap`/`_TrickTex`
 //    rows and the packed per-material bytes (`_601`); deren carries no lane for any of them. Its outputs are
-//    held at the block's OWN "skipped" values (`_629 = 0`, `_1268 = 0`, `_1335 = 0`), i.e. exactly the
+//    held at the block's "skipped" values (`_629 = 0`, `_1268 = 0`, `_1335 = 0`), i.e. exactly the
 //    else-branch the decompiled program takes when the gates are closed - not invented numbers.
 //  * THE FACE DECAL and `_HighlightMapVector` (:655-720) and the second render target `_1427` (the game writes
 //    a screen-space SDF direction; deren's stage has one target).
@@ -67,7 +67,7 @@
 /// `:458` `_516.w = _516.w * _516.x` - the normal map's X is R*A - `:459` `(wy * 2) - 1`, `:462` reconstruct
 /// +Z from the clamped dot, `:463` `_535 = _526.xy * _48_m3` with `_48_m3` = `_BumpScale`. deren's normal
 /// decode (`surface.slang`) reads `rgb * 2 - 1` and TRUSTS blue, which these maps do not store, so the face
-/// arm decodes the game's own way, exactly as the cloth/skin arms do (`game_unpack_normal` in
+/// arm decodes the game's way, exactly as the cloth/skin arms do (`game_unpack_normal` in
 /// `game_toon.slang`). Kept local to this file so the family does not depend on that file's helper order.
 static float3 game_face_unpack_normal(const float2 rg, const float scale) {
     float3 normal;
@@ -117,12 +117,12 @@ float3 game_toon_face_shade(surface_sample s, float3 world_pos, float3 geo_norma
     const toon_params params = toon_params_for(s.toon_family);
     const uint colour_base = push.material_index * character_toon_colour_lanes;
 
-    // `_SDFRimColor` (colour lane 0, the game's own face-rim tint) and `_Specular` (colour lane 4, `.x`; a
+    // `_SDFRimColor` (colour lane 0, the game's face-rim tint) and `_Specular` (colour lane 4, `.x`; a
     // negative `.x` means "the asset states no row" - the contract `deren::vulkan::toon_colour_lane` defines).
     const float3 sdf_rim_colour = toon_colour_at(heap_slots_toon_colours, colour_base + 0u).rgb;
     const float lane_specular = toon_colour_at(heap_slots_toon_colours, colour_base + 4u).x;
 
-    // ---- 1. THE HEAD FRAME: the game derives every face angle in the head's own frame (`_580`, `_1501`,
+    // ---- 1. THE HEAD FRAME: the game derives every face angle in the head's frame (`_580`, `_1501`,
     //         `_592` are all object/head-space transforms in the decompile). deren publishes that frame
     //         per frame for the head bone (`head_frame_at`), which is the same semantic input. The block's
     //         `center` is a head position, while `_19_m105` belongs to world-space irradiance clipmaps.
@@ -139,7 +139,7 @@ float3 game_toon_face_shade(surface_sample s, float3 world_pos, float3 geo_norma
     const float3 view_dir = normalize(camera_pos - world_pos);
     const float3 main_light_colour = float3(1.0, 1.0, 1.0); // deren's sun is white
     const float main_light_intensity = max(0.001, light_at(heap_light_slot).sun_intensity) * params.light_intensity_scale;
-    // `_592` = the camera's forward axis measured along the head's own forward axis. The decompile builds it
+    // `_592` = the camera's forward axis measured along the head's forward axis. The decompile builds it
     // as `normalize(mul(viewForward, objectMatrix)).xz.y`; deren's head axes ARE the world directions of that
     // matrix's rows, so the dot is the same scalar without the matrix.
     const float head_face_dir_z = dot(camera_forward, head_front);
@@ -175,7 +175,7 @@ float3 game_toon_face_shade(surface_sample s, float3 world_pos, float3 geo_norma
         // scalar with no deren lane; the host's equivalent is `[toon] emotion_type` -> `rig.other_colour.w`,
         // which is the same expression's number one step earlier (the article chain reads it the same way).
         // MISSING: the game's `_EmotionBlend` (:442 `_464.w * _48_m33`) has no deren lane either; 1.0 is the
-        // shader property's own default (`skin-variant-map.props.tsv` `_EmotionBlend Range 1,0,1`), i.e. the
+        // shader property's default (`skin-variant-map.props.tsv` `_EmotionBlend Range 1,0,1`), i.e. the
         // full overlay, and it is what the article chain applies as well.
         const float emoji_type = rig.other_colour.w * 0.5;
         const float2 emoji_uv = float2(frac(abs(emoji_type)), floor(emoji_type) * 0.5);
@@ -203,7 +203,7 @@ float3 game_toon_face_shade(surface_sample s, float3 world_pos, float3 geo_norma
     const float2 light_dir_xz = normalize(light_dir.xz + float2(1.0e-6, 0.0));
     const float2 camera_forward_xz = normalize(camera_forward.xz + float2(1.0e-6, 0.0));
     // `_19_m91.x` (the engine's "disable backlight compensation" lane) is MISSING: 0.0 keeps the term on,
-    // which is the decompile's unswitched default. `rig.misc.x` is deren's own weight for the same idea.
+    // which is the decompile's unswitched default. `rig.misc.x` is deren's weight for the same idea.
     const float back_light = saturate(-dot(camera_forward_xz, light_dir_xz)) *
                              smoothstep(0.0, 1.0, saturate(-abs(camera_forward.y) + 0.75)) * rig.misc.x;
     // `_1531`/`_1532`: the light's forward component in the head frame with its up component removed
@@ -222,7 +222,7 @@ float3 game_toon_face_shade(surface_sample s, float3 world_pos, float3 geo_norma
     // min(2*_1549,1)]` + `t*t*(3-2t)`. THE WINDOW CAN DEGENERATE (`_1547` at/above 0.5 collapses or inverts
     // `sdf_lo`/`sdf_hi`), and the decompile leaves `smoothstep` unguarded there, which on this platform would
     // divide by zero. The epsilon below is a NUMERICAL guard, not a formula change - it is far below the
-    // 8-bit SDF's own step - and everything else is the decompile's two edges and Hermite.
+    // 8-bit SDF's step - and everything else is the decompile's two edges and Hermite.
     const float sdf_half = clamp(0.5 - half_face_no_l, 0.001, 0.999);
     const float sdf_lo = max(sdf_half - (1.0 - sdf_half), 0.0);
     const float sdf_hi = min(sdf_half + sdf_half, 1.0);
@@ -241,7 +241,7 @@ float3 game_toon_face_shade(surface_sample s, float3 world_pos, float3 geo_norma
     const float sdf_t = saturate((sdf_average - sdf_lo) / sdf_span);
     const float sdf_smooth = sdf_t * sdf_t * (3.0 - 2.0 * sdf_t);
     // :771's signed tail: `abs(-smoothstep(...) - (_1547 * ceil(_1547))) * 2 - 1`. With no lane the geometric
-    // terminator is the game's own answer (`toon_sdf_mask`'s no-lane contract is the caller's, and the article
+    // terminator is the game's answer (`toon_sdf_mask`'s no-lane contract is the caller's, and the article
     // chain makes the same substitution when a material has no SDF).
     const float sdf_signed = (sdf_lane != 0u)
                                  ? abs(-sdf_smooth - half_face_no_l * ceil(half_face_no_l)) * 2.0 - 1.0
@@ -255,7 +255,7 @@ float3 game_toon_face_shade(surface_sample s, float3 world_pos, float3 geo_norma
     // (`T_actor_common_female_face_01_cm_M`). Lane 5 (`_MetallicGlossMap`) is deliberately NOT read: the game
     // face keyword set has no `_METALLICSPECGLOSSMAP`, so metallic/roughness come from the glTF factors.
     //
-    // The four channels are four different statements in the game's own code: `.x` scales the SSS strength
+    // The four channels are four different statements in the game's code: `.x` scales the SSS strength
     // (:643 `_508.x`), `.y` blends SDF against geometric NoL for the ramp coordinate AND the shading normal
     // (:642/771/762 `_510`), `.z` is the shadow-ring weight (:777 `_511`), `.w` is the rim region
     // (:817 `_512`). The default below is the article chain's "mask absent" value (full SSS region, SDF term,
@@ -347,7 +347,7 @@ float3 game_toon_face_shade(surface_sample s, float3 world_pos, float3 geo_norma
     // arms and avoids an edge-order-dependent `smoothstep`. :778 `_1605 = (1 - _1602) + shadowMask * _1602`:
     // the cast shadow only reaches the ring the mask marks. MISSING: the shadow mask is deren's
     // `calc_shadow` here (`_39`, t22 at :746-748, is a screen texture this stage cannot sample - it holds its
-    // own depth attachment, the same reason the article port documents for its depth rim).
+    // a depth attachment, the same reason the article port documents for its depth rim).
     const float camera_ring = 1.0 - smoothstep(0.25, 0.75, head_face_dir_z);
     const float shadow_ring = max(face_mask.y, face_mask.z * camera_ring);
     const float shadow = saturate(calc_shadow(world_pos, normal));
@@ -397,7 +397,7 @@ float3 game_toon_face_shade(surface_sample s, float3 world_pos, float3 geo_norma
     // MISSING: the game's rim AXIS `_1803` is `cross(cameraForward, lerp(_19_m88.xy, camRight*_19_m88.x +
     // camUp*_19_m88.y, _19_m94.w))` and its two colours/scales are `_19_m87` / `_19_m93` - per-material
     // art-direction vectors with no deren lane. The SHAPE below is deren's view-angle fresnel (the same one
-    // the cloth/skin arms use); the TINT is the game's own `_SDFRimColor`; the MASK is the game's own
+    // the cloth/skin arms use); the TINT is the game's `_SDFRimColor`; the MASK is the game's
     // `_SDFMask.w` region and the same `min(occlusion, shadow)` gate the game applies at :817. The game's
     // second (backlight-facing) rim term is not ported because it reads `_19_m93`/`_19_m88`.
     // Directional fallback, not recovered game art-direction: front lighting must not
@@ -416,9 +416,9 @@ float3 game_toon_face_shade(surface_sample s, float3 world_pos, float3 geo_norma
 
     // ---- 16. ENVIRONMENT (dere's IBL on the approved "keep deren lighting" boundary) ----
     //
-    // MISSING: the game's own environment block (:1203-1268) samples a 3D volume (`t36`) with the
+    // MISSING: the game's environment block (:1203-1268) samples a 3D volume (`t36`) with the
     // `_19_m4*`/`_19_m5*` globals - there is no deren counterpart. deren's env helpers stand in, gated by the
-    // family's own strengths; the FACE family states `ambient_strength = 0.0` and
+    // family's strengths; the FACE family states `ambient_strength = 0.0` and
     // `ibl_specular_strength = 0.0` (`toon_params.slang:338,362`), so on this asset both are inert and the
     // face keeps the author chain's "no ambient" arrangement rather than gaining a second environment.
     const float3 ambient = environment_irradiance(shading_normal) * albedo * s.ao *

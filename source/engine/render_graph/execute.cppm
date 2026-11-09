@@ -59,7 +59,7 @@ export namespace deren::engine::render_graph::execution {
             return value >= 1 && value <= 12 ? 1U << (value - 1) : 0;
         }
     } // namespace detail
-    /// Borrowed only for the callback invocation; copying does not retain resources.
+    /// Referenced only for the callback invocation; copying does not retain resources.
     class record_context {
         detail::state const& state_;
         uint32_t pass_;
@@ -311,7 +311,7 @@ export namespace deren::engine::render_graph::execution {
         }
 
     public:
-        /// Partition one compiled schedule at a named pass, retaining its compiled barriers and owners.
+        /// Partition one compiled schedule at a named pass, retaining its compiled barriers and holders.
         /// Record prefix then suffix in order; intervening submission must preserve resource contents.
         rhi::error partition_before(std::uint32_t pass, prepared_graph& prefix, prepared_graph& suffix) const noexcept {
             if (!state_ || &prefix == &suffix || &prefix == this || &suffix == this) {

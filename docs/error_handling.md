@@ -8,7 +8,7 @@ new code is expected to follow, and the gaps between the two.
 
 | style | where it is used | measured size |
 | --- | --- | --- |
-| `rhi::error` | the RHI contract's own enum; every backend call that can fail answers one. It is the boundary's vocabulary. Most factories still answer nullptr and the command verbs answer `rhi::error`; resource-group creation, submission and image-content retrieval now return `std::expected<..., rhi::error>` | the contract's whole fallible surface |
+| `rhi::error` | the RHI contract's enum; every backend call that can fail answers one. It is the boundary's vocabulary. Most factories still answer nullptr and the command verbs answer `rhi::error`; resource-group creation, submission and image-content retrieval now return `std::expected<..., rhi::error>` | the contract's whole fallible surface |
 | `std::expected<void, deren::utility::vessel::string>` | the engine's internal workhorse: the pipeline builders in `runtime`, the mask-bake and compute-skin jobs, the acceleration-structure build, the resource-schema validation, the glTF sidecars, `utility::write_png` | 26 declarations plus their definitions |
 | `std::expected<T, deren::promise::rhi::error_info>` | the code-bearing answer, written directly - there is no alias or wrapper module for it any more. `error_info` carries the code, the backend's message and its source location | intended for APIs whose callers must classify; adopted by the engine's newer paths, while the RHI's newer paths use `rhi::error` inside the expected |
 | `bool` / `frame_status` | the frame loop's coarse result: `proceed`, `skipped`, `closed`, and one status per failed verb. Used where the caller's action (continue, yield, exit) is all that matters | the frame loop |
@@ -51,7 +51,7 @@ rewrote the error. It was deleted after measurement:
 - its only production consumer was the frame-open path in `runtime.frames.cppm`;
 - `result` was a one-line alias of `std::expected<T, rhi::error_info>`, so it added a module import
   and a link target for no expressiveness;
-- the "lying classifier" guard protects against a classifier contradicting its own outcome, which a
+- the "lying classifier" guard protects against a classifier contradicting its outcome, which a
   total function over the expected cannot do;
 - the `verdict` vocabulary had no second user to share it with.
 
@@ -61,7 +61,7 @@ SECOND classifier with a DIFFERENT policy exists, because then the vocabulary ha
 
 ## Gaps
 
-- **41 reason-tagged panic sites** (34 `panic`, 7 `fast_panic`), each its own policy decision. Every
+- **41 reason-tagged panic sites** (34 `panic`, 7 `fast_panic`), each its policy decision. Every
   message starts with `environment:`, `contract violation:`, or `internal invariant:`, so a crash log
   classifies itself; "which startup failures end the process?" still needs reading them (or grepping
   the tags), because there is no single funnel.

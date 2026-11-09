@@ -12,21 +12,21 @@
 // below follows from the cross-boundary rules in §4.2:
 //
 //   - operations are virtual, the destructor is `virtual ... noexcept`, and the
-//     common object root carries a static concrete implementation name (ABI30). No owning
+//     common object root carries a static concrete implementation name (ABI30). No holding
 //     data or non-inline definition crosses this interface: the vtable is the boundary,
-//     and destruction has to reach the backend's own `operator delete`;
-//   - an OWNED handle carries ONE REFERENCE, released by `release()`, once, inside the
-//     backend; `unique_object<T>` is the owner spelling of that call (RAII, move-only).
+//     and destruction has to reach the backend's `operator delete`;
+//   - an HELD handle carries ONE REFERENCE, released by `release()`, once, inside the
+//     backend; `unique_object<T>` is the holder spelling of that call (RAII, move-only).
 //     RELEASE IS NOT NECESSARILY DESTRUCTION: the backend may serve the same resource to
 //     several callers (a content-keyed registry + a reference count sit behind these
 //     handles), so the object dies with its LAST reference and a caller must not read the
 //     call as "the memory is free now" - nor touch the handle afterwards;
-//   - a BORROWED view (`frame_image()`, `frame_readback_buffer()`, `begin_commands()`)
+//   - a REFERENCED view (`frame_image()`, `frame_readback_buffer()`, `begin_commands()`)
 //     holds no reference at all and must never be managed;
-//   - the backend hands the ROOT out as the contract's own `shared_object<api_core>` (abi 44),
+//   - the backend hands the ROOT out as the contract's `shared_object<api_core>` (abi 44),
 //     whose control block's last copy calls the root's `release()` - the release runs inside the
 //     backend, so no call site and no host ever names a deleter: the entry point returns the handle,
-//     and nothing in the engine's ownership path frees DLL memory with the executable's allocator;
+//     and nothing in the engine's retention path frees DLL memory with the executable's allocator;
 //   - `abilities()` is the tier-2 bit set (source/promise/rhi/rhi.extension.cppm) and
 //     `query_extension()` is the only way to reach an ability, so adding one does
 //     not grow this vtable;
@@ -77,12 +77,12 @@ export namespace deren::promise::rhi {
     // These are normative for every backend and complement the per-method comments. They clarify behavior
     // that was previously only in the reference backend or in docs, without changing the ABI 53 vtable.
     //
-    // OWNERSHIP. Every handle derives from `object`; `release()` releases the caller's ONE reference and the
-    // object dies with the last reference. A borrowed view carries no caller-owned reference: callers MUST
-    // NOT invoke its underlying release(), and the backend MAY terminate on that ownership violation. A
-    // borrow() wrapper's destruction/reset releases no reference. A backend MAY keep the underlying resource
+    // RETENTION. Every handle derives from `object`; `release()` releases the caller's ONE reference and the
+    // object dies with the last reference. A view carries no caller-held reference: callers MUST
+    // NOT invoke its underlying release(), and the backend MAY terminate on that retention violation. A
+    // reference() wrapper's destruction/reset releases no reference. A backend MAY keep the underlying resource
     // alive for shared/content-keyed reuse, but MUST NOT expose a dead handle. Directly bound pipelines and
-    // borrowed buffer/image operands remain caller-owned through pending CPU recording and GPU completion;
+    // referenced buffer/image operands remain caller-held through pending CPU recording and GPU completion;
     // only verbs with explicit retention guarantees transfer that lifetime responsibility to the backend.
     // The backend core MUST outlive every handle, group, command buffer and pending submission.
     //
@@ -96,7 +96,7 @@ export namespace deren::promise::rhi {
     // buffer with `invalid_argument`; a backend MUST NOT pass an overrun to the native API. `bind_vertex_buffer`
     // and `bind_index_buffer` MUST reject an offset >= the buffer size. `clear_color_image`'s four components
     // are RGBA, and an all-zero subresource range means every mip/layer of the image. `mark_gpu_timing`'s
-    // label text is borrowed static text that MUST stay valid for the process lifetime; the backend does not
+    // label text is referenced static text that MUST stay valid for the process lifetime; the backend does not
     // copy it. `begin_rendering`/`end_rendering` MUST be paired and MUST NOT nest; an open scope at
     // `end_recording` fails that recording and nothing is published. `dispatch`/`draw_mesh_tasks` require an
     // open recording with the matching pipeline; a device that cannot run mesh work is reported through
@@ -106,14 +106,14 @@ export namespace deren::promise::rhi {
     // API CORE. `wait_idle()` waits for all submitted work; it has no error channel (device loss surfaces on
     // later calls) and is legal outside a recording (inside one it does not end the recording).
     // `main_context()` is optional: null means the backend exposes no native/plugin interop context; a
-    // non-null pointer is borrowed until api_core::release() and must be validated by tag before casting.
+    // non-null pointer is referenced until api_core::release() and must be validated by tag before casting.
     //
-    // FRAME VIEWS. `begin_commands()` returns the frame's primary (null outside recording) borrowed until the
+    // FRAME VIEWS. `begin_commands()` returns the frame's primary (null outside recording) referenced until the
     // frame is submitted; `frame_image()` is valid from acquire through submit until the next acquire;
-    // `frame_readback_buffer()` is borrowed for the same window. Using any of them outside its window is a
+    // `frame_readback_buffer()` is referenced for the same window. Using any of them outside its window is a
     // contract violation the backend may refuse.
     //
-    // ASSIGN TEXTURE GROUP. On success the returned shared handle owns one reference and `*result` (when
+    // ASSIGN TEXTURE GROUP. On success the returned shared handle holds one reference and `*result` (when
     // non-null) is `ok`; on failure the returned handle is empty and `*result` is the named error. Passing a
     // null `result` is allowed; empty (all-null) slots are legal and preserve group capacity. A backend that
     // does not support groups returns an empty handle with `unsupported`.
@@ -123,12 +123,12 @@ export namespace deren::promise::rhi {
     // operands and returns `invalid_argument` for a null/foreign buffer, an offset/size out of range or a
     // scratch size below the requirement. Internal native bindings may be overwritten, but the recorder's
     // logical pipeline/group/push state is preserved and re-established for later RHI consumers. All operand
-    // buffers are borrowed through GPU completion.
+    // buffers are referenced through GPU completion.
     //
     // ==============================================================================================
 
-    /// Read-only binding to a core-owned interface. Only api_core may bind it during construction.
-    /// No ownership, allocation, release, reset, rebinding, or implicit pointer conversion.
+    /// Read-only binding to a core-held interface. Only api_core may bind it during construction.
+    /// No retention, allocation, release, reset, rebinding, or implicit pointer conversion.
     /// Arrow access requires a fully constructed/bound core. Const freezes binding, not device activity.
     template <class T>
     class context_view final {
@@ -140,8 +140,8 @@ export namespace deren::promise::rhi {
         }
 
     public:
-        context_view(context_view const&) = delete ("context_view is bound once to its owning api_core and cannot be copied");
-        context_view& operator=(context_view const&) = delete ("context_view is bound once to its owning api_core and cannot be reassigned");
+        context_view(context_view const&) = delete ("context_view is bound once to its holding api_core and cannot be copied");
+        context_view& operator=(context_view const&) = delete ("context_view is bound once to its holding api_core and cannot be reassigned");
         [[nodiscard]] T* operator->() const noexcept {
             return target;
         }
@@ -154,7 +154,7 @@ export namespace deren::promise::rhi {
     };
 
     /// One measured CPU/GPU stage: latest sample, window average, and a stable volatility.
-    /// All members are plain values; api_core serializes access to the owning map.
+    /// All members are plain values; api_core serializes access to the holding map.
     struct stage_time_info {
         double last_ms = 0.0;
         double mean_ms = 0.0;
@@ -192,7 +192,7 @@ export namespace deren::promise::rhi {
 
     using stage_time_map = std::map<std::string, stage_time_info, std::less<>>;
 
-    /// Device ownership, capabilities and global control. Public subviews borrow the same core.
+    /// Device retention, capabilities and global control. Public subviews reference the same core.
     /// Derived constructors bind fully constructed interface implementations before publication.
     struct api_core : object {
         context_view<resource_factory> resources;

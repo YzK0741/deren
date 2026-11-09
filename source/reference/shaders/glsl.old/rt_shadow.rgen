@@ -63,7 +63,7 @@ layout(descriptor_heap, descriptor_stride = heap_slot_stride) uniform accelerati
 // set 1 = the G-buffer set: the surface the ray starts from. Read at texel centres, like every other consumer of
 // the stored surface, so the NEAREST sampler; both images are per SWAPCHAIN IMAGE.
 layout(descriptor_heap, descriptor_stride = heap_slot_stride) uniform texture2D gbuffer_normal_texture[]; // RGBA16F: world normal.xyz
-layout(descriptor_heap, descriptor_stride = heap_slot_stride) uniform texture2D gbuffer_depth_texture[];  // the pass's own 1x depth
+layout(descriptor_heap, descriptor_stride = heap_slot_stride) uniform texture2D gbuffer_depth_texture[];  // the pass's 1x depth
 
 // set 0 as well: the visibility image the deferred lighting stage samples. It is written through the scene set
 // because that set is per FRAME SLOT, which is what the image is - see runtime.
@@ -123,7 +123,7 @@ void main() {
 
     // The bias: offset along the normal by an amount that grows with the distance from the camera (a surface 30
     // units away has coarser depth precision than one at 2), with an absolute floor so a pixel right at the near
-    // plane still clears its own triangle. The ray also starts at tmin, which handles the case where the offset
+    // plane still clears its triangle. The ray also starts at tmin, which handles the case where the offset
     // direction itself is grazing.
     const float distance = length(world_pos - camera[heap_camera_slot].camera_pos.xyz);
     const vec3 origin = world_pos + normal * max(pc.params.y, pc.params.z * distance);

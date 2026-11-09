@@ -11,9 +11,9 @@ The tree has 116 modules (136 interface units, counting interface partitions). T
 
 | keeps | why |
 | --- | --- |
-| `deren.vstd` | the project's own STL module name - documented in `source/vstd/README.md`, imported by 38 files |
+| `deren.vstd` | the project's STL module name - documented in `source/vstd/README.md`, imported by 38 files |
 | `deren.gltf_loader`, `deren.vulkan.core.pipeline:spirv_parser` | glTF and SPIR-V are **format** names |
-| `deren.vulkan.core:vma` | VMA is the library's own term (Vulkan Memory Allocator) |
+| `deren.vulkan.core:vma` | VMA is the library's term (Vulkan Memory Allocator) |
 | `deren.vulkan.core:init_utils`, `deren.vulkan.init_utils`, `deren.vulkan.constant_init` | `init` was kept by request |
 | `deren.engine.pass.taa`, `deren.engine.pass.fxaa` | the `-aa` pair was kept by request |
 
@@ -26,7 +26,7 @@ name.
 ### The rule that decides whether a submodule becomes a partition
 
 **A partition cannot be imported from outside its module.** That is a hard constraint, not a preference, so
-a dotted submodule becomes a `:partition` exactly when **nothing outside its own module imports it** -
+a dotted submodule becomes a `:partition` exactly when **nothing outside its module imports it** -
 measured per module rather than judged:
 
 * it moved: `deren.vulkan.core:init_utils`, `:vma`, `:vma_handles`, `:descriptor_heap`,
@@ -57,17 +57,17 @@ They are not interchangeable, and the difference is what makes a call site reada
 `set_shadow_cascades` is a knob, `create_shadow_resources` allocates, `prepare_scene_resources`
 prepares shared resources and bindings for a frame, and `record_shadow_content` draws.
 Prefer these concrete verbs over `ensure_` in new or revised names. Existing `ensure_` helpers
-outside the shared scene-resource initialization path retain their names until their own code is revised.
+outside the shared scene-resource initialization path retain their names until their code is revised.
 
 ## Partitions
 
 **One file per partition.** CMake names a partition's dyndep output after the MODULE, so a named partition
 cannot also have a separate `.cpp` implementation unit: both spellings of that pair were measured to fail
 (ninja reports `multiple rules generate ...<partition>.pcm`, or CMake reports that the file is not in a
-`CXX_MODULES` file set). A module's own unnamed implementation unit (`utility.cpp`) is fine either way.
+`CXX_MODULES` file set). A module's unnamed implementation unit (`utility.cpp`) is fine either way.
 
 A partition **does not see the primary interface**, and imports are **not transitive**: each partition
-imports `:declarations` and whatever else it calls. The primary **may not** import its own implementation
+imports `:declarations` and whatever else it calls. The primary **may not** import its implementation
 partitions either - clang 22 rejects it with `-Wimport-implementation-partition-unit-in-interface-unit` -
 and listing them in the CMake module file set is what compiles them.
 
@@ -75,7 +75,7 @@ and listing them in the CMake module file set is what compiles them.
 
 Beside the thing it is defined in terms of, and published once. Example: `heap_slot_offset` existed as
 three copies because it multiplies `heap_slot_stride`; the helper and the constant now live together in
-`deren.engine.render_layout` (with aliases in `core` for the backend's own call sites), and moving the
+`deren.engine.render_layout` (with aliases in `core` for the backend's call sites), and moving the
 helper into the heap-plumbing partition instead would have closed a cycle
 (`core.declarations.cppm` already re-exports `:descriptor_heap`).
 
@@ -93,7 +93,7 @@ Three exceptions, each because somebody else's interface declares the type:
 
 | keeps | why |
 | --- | --- |
-| `int main(int argc, char** argv)` | the C++ standard requires main's own signature to use the keyword: the one place where the language, not the project, decides |
+| `int main(int argc, char** argv)` | the C++ standard requires main's signature to use the keyword: the one place where the language, not the project, decides |
 | `timespec::tv_nsec` as `long` | it IS `long` in POSIX |
 | `std::strtol`'s answer | `long`, whose width IS the platform's (32 bits on Windows, 64 on Linux), so the conversion is an explicit `static_cast<int32_t>` rather than an implicit one |
 
@@ -105,5 +105,5 @@ which is a CHARACTER type: only `unsigned char` / `signed char` are spelled `uin
 
 The rules above are about NAMES. The rules that follow from the toolchains this is built against are a separate
 page, each with the measurement behind it: what a module interface may not do with an incomplete type, why
-`NOMINMAX` is guarded before `<windows.h>`, and why the project owns `deren::utility::print`/`println` instead of using
+`NOMINMAX` is guarded before `<windows.h>`, and why the project holds `deren::utility::print`/`println` instead of using
 `std::print`. See \ref md_docs_2compiler__tolerance "Compiler tolerance".

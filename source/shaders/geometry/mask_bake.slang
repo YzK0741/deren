@@ -11,8 +11,8 @@
 // (`shaders/rt_shadow.slang`), which is strictly finer; this pass stays because a switch is what makes the
 // two comparable, and it is off by default (`[render] rt_mask_bake`).
 //
-// Hiding a triangle means writing all three of its vertices at the SAME position - a degenerate triangle,
-// which traversal can never report a hit against. That is only safe when the triangle OWNS its vertices, so
+// Hiding A separate triangle means writing all three vertices at the SAME position - a degenerate triangle,
+// which traversal can never report a hit against. That is only safe when the triangle HOLDS its vertices, so
 // the geometry is EXPANDED to three unique vertices per triangle and the instance table points at that
 // buffer; a zero index address marks the geometry as not indexed.
 //
@@ -72,7 +72,7 @@ void comp_main(uint3 invocation : SV_DispatchThreadID)
     }
 
     // The triangle's three source vertices, by the same arithmetic the hit shader uses: an index (or, for a
-    // non-indexed source, the vertex's own position in the list), times the stride, off the base.
+    // non-indexed source, the vertex's position in the list), times the stride, off the base.
     uint* indices = (uint*)mask_bake_address(pc.source_indices);
     float* vertices = (float*)mask_bake_address(pc.source_vertices);
     const uint stride = pc.source_stride / 4u;
@@ -103,7 +103,7 @@ void comp_main(uint3 invocation : SV_DispatchThreadID)
         uvs[k] = float2(vertices[at + 6u], vertices[at + 7u]);
     }
 
-    // The area test: the triangle is collapsed only when EVERY texel of its UV footprint is cut - so it
+    // The area test: the separate triangle is collapsed only when EVERY texel UV footprint is cut - so it
     // survives as soon as ONE texel inside its UV triangle is opaque. The samples walk the footprint AT
     // TEXTURE RESOLUTION (see the file header for what a fixed grid measured), and the cap is spent on the
     // SAFE side: a footprint too large to walk is KEPT.
@@ -139,7 +139,7 @@ void comp_main(uint3 invocation : SV_DispatchThreadID)
             const float w0 = 1.0 - w1 - w2;
             if (min(min(w0, w1), w2) < -0.01)
             {
-                continue; // outside the triangle (the tolerance absorbs the grid's own rounding)
+                continue; // outside the triangle (the tolerance absorbs the grid's rounding)
             }
             // The same coverage the raster path tests: base colour factor alpha times the texture's alpha,
             // kept when it reaches the cutoff (shadow.frag's and surface.slang's `alpha < cutoff -> discard`).
@@ -156,9 +156,9 @@ void comp_main(uint3 invocation : SV_DispatchThreadID)
         }
     }
 
-    // Write the three destination vertices: the source's own when the triangle survives, and three copies of
+    // Write the three destination vertices: the source's when the triangle survives, and three copies of
     // its FIRST vertex when it does not. Position, normal AND UV are copied in both cases - the UVs are what
-    // the hit shading interpolates, and the normal is the third axis of its tangent frame when the material
+    // the hit shading interpolates, and the separate normal is the third axis tangent frame when the material
     // has a normal map, so a zeroed one would be a degenerate frame rather than an unused field. For a hidden
     // triangle none of the three is ever read: no ray can hit it.
     float* out_values = (float*)mask_bake_address(pc.destination);

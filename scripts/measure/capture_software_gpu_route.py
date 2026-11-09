@@ -11,7 +11,7 @@ One invocation renders one fixture with software raster ON and enables exactly o
   fallback         GPU requested but the history HZB gate is CLOSED on the screenshot frame (few frames): the
                    runtime must keep the valid CPU routing, never a half-prepared GPU mode.
 
-The harness owns the config, the environment, the expected log markers and the verifier calls, so an acceptance
+The harness holds the config, the environment, the expected log markers and the verifier calls, so an acceptance
 capture is one command and its evidence is one JSON row. It never touches the production default path: software
 raster stays OFF unless this script asks for it, exactly like every other opt-in experiment here.
 

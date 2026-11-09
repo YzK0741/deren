@@ -1,7 +1,7 @@
 /**
  * @file source/engine/pass/hzb_build.cpp
  * @brief the HZB build pass's pipeline and its per-level dispatches (see the header's WHY THE PASS RECORDS ITS
- *        OWN BARRIERS).
+ *        dedicated BARRIERS).
  */
 module;
 
@@ -64,7 +64,7 @@ namespace deren::engine::pass {
             // ---- THE INTRA-PASS DEPENDENCY (spec §8.1): level L reads what level L-1 wrote ----
             // Exactly one buffer barrier between adjacent dispatches: the same buffer, COMPUTE -> COMPUTE, which is
             // one of the RHI's role pairs (spec C12's gap is only the mesh stage, and nothing here is a mesh read).
-            // The graph cannot see inside this pass, so this is the pass's own business rather than a declared edge.
+            // The graph cannot see inside this pass, so this is the pass's business rather than a declared edge.
             if (level > 0u) {
                 rhi::buffer_barrier const ordering{.resource = this->levels_buffer, .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::shader_read};
                 if (io.list->barrier(rhi::barrier_group{.buffers = std::span<rhi::buffer_barrier const>(&ordering, 1u)}) != rhi::error::ok) {
@@ -83,7 +83,7 @@ namespace deren::engine::pass {
             io.list->dispatch((extent.width + group_size - 1u) / group_size, (extent.height + group_size - 1u) / group_size, 1u);
             ++dispatched;
         }
-        // THE LANE'S OWN WITNESS, once per run (the visibility raster lane has the same shape and the same reason):
+        // THE LANE'S WITNESS, once per run (the visibility raster lane has the same shape and the same reason):
         // the absence of a validation error cannot distinguish "the graph recorded the build" from "the gate is on
         // but no frame ever had a visibility lane", and the probe dump alone cannot say which frame built it.
         static bool recorded_logged = false;

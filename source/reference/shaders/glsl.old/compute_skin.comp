@@ -28,7 +28,7 @@
  * deltas and their active weights, which live at the scene set's binding 10.
  *
  * THE OUTPUT KEEPS THE SOURCE'S VERTEX ORDER, one 32-byte record per VERTEX (position, normal, UV), so the
- * primitive's own index buffer stays valid and the structure keeps its triangle count - which is what
+ * primitive's index buffer stays valid and the structure keeps its triangle count - which is what
  * makes a REFIT (rather than a rebuild) possible: the geometry's addresses and counts never change, only
  * the bytes behind them.
  */
@@ -37,7 +37,7 @@ layout(local_size_x = 64) in;
 
 // The scene set's per-joint matrices (binding 9), HEAP-NATIVE now: the array IS the heap and the slot carries the
 // FRAME (the runtime writes one per frame slot), so a read is `skins[heap_skin_slot].matrices[...]`. Declared here
-// because this pass includes no shared header that owns it; the grid header brings the slots and the extensions.
+// because this pass includes no shared header that holds it; the grid header brings the slots and the extensions.
 #extension GL_EXT_descriptor_heap : require
 #extension GL_EXT_nonuniform_qualifier : enable
 #include "heap_slots.glsl"
@@ -86,7 +86,7 @@ void main() {
     const vec3 normal = vec3(uintBitsToFloat(source.values[at + 3u]), uintBitsToFloat(source.values[at + 4u]), uintBitsToFloat(source.values[at + 5u]));
     const vec2 uv = vec2(uintBitsToFloat(source.values[at + 6u]), uintBitsToFloat(source.values[at + 7u]));
 
-    // The joints are read through their OWN reference at the vertex's byte 32: a word view rather than a
+    // The joints are read through their reference at the vertex's byte 32: a word view rather than a
     // float one, because a joint index is an integer and reinterpreting it as a float and back is the kind
     // of round trip that works until an index lands in a signaling NaN bit pattern.
     SkinSource joint_words = SkinSource(source_base + 32u + uint64_t(at) * 4u);
@@ -114,7 +114,7 @@ void main() {
 
     // OBJECT space, not world: the structures are built from object-space vertices and the instance carries
     // the object-to-world matrix (the same division of labour the unskinned path has, where the build reads
-    // the primitive's own vertex buffer).
+    // the primitive's vertex buffer).
     SkinDest destination = SkinDest(lane_address(pc.destination));
     const uint out_at = vertex * (pc.destination_stride / 4u);
     destination.values[out_at + 0u] = skinned_position.x;

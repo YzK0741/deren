@@ -116,7 +116,7 @@ namespace raster_test {
             return rhi::unique_object<rhi::buffer>{result};
         }
         /// abi 35: this probe records no batches - the two slots exist so the class stays concrete; the
-        /// probe's own batch semantics live in source/tests/probe_backend.cpp.
+        /// probe's batch semantics live in source/tests/probe_backend.cpp.
         [[nodiscard]] rhi::mergeable_command_buffer_ref make_mergeable_command_buffer(rhi::command_buffer_desc const&) override {
             return {};
         }

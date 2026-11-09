@@ -39,7 +39,7 @@ namespace deren::vulkan::gui {
         // fought it - a layout recorded by an older build came back and re-arranged a panel whose structure
         // had changed, which reads as "the UI changed for no reason". Setting IniFilename to nullptr disables
         // BOTH the automatic load at the first NewFrame() and the periodic save, so every run starts from the
-        // code's own defaults.
+        // code's defaults.
         io.IniFilename = nullptr;
 
         // Display scale: on a monitor with Windows display scaling (the machine this was written on
@@ -65,7 +65,7 @@ namespace deren::vulkan::gui {
             deren::utility::log("gui_content: display content scale {:.2f} x {:.2f} - overlay font rasterized at {:.1f} px (logical layout unchanged)", static_cast<double>(scale_x), static_cast<double>(scale_y), 13.0 * static_cast<double>(scale));
         }
 
-        // Platform backend. install_callbacks=true makes imgui chain-call the runtime's own
+        // Platform backend. install_callbacks=true makes imgui chain-call the runtime's
         // GLFW callbacks (mouse/scroll -> orbit camera) which were registered earlier.
         if (!ImGui_ImplGlfw_InitForVulkan(info.window, /*install_callbacks=*/true)) {
             deren::utility::log("gui_content: ImGui_ImplGlfw_InitForVulkan failed");
@@ -80,7 +80,7 @@ namespace deren::vulkan::gui {
         backend_info.Device = info.device;
         backend_info.QueueFamily = info.graphics_queue_family;
         backend_info.Queue = info.graphics_queue;
-        // backend creates its own descriptor pool (we must not share the runtime's scene pool)
+        // backend creates its descriptor pool (we must not share the runtime's scene pool)
         backend_info.DescriptorPoolSize = 8;
         backend_info.MinImageCount = info.frames_in_flight;
         backend_info.ImageCount = info.frames_in_flight;
@@ -94,7 +94,7 @@ namespace deren::vulkan::gui {
         // test/write (the backend's depth stencil state is all-disabled).
         // LIFETIME: pColorAttachmentFormats points at info.color_format (this init() call's
         // argument, alive for the whole call). The struct is only consumed inside
-        // ImGui_ImplVulkan_Init, whose vendored backend DEEP-COPIES the format list into its own
+        // ImGui_ImplVulkan_Init, whose vendored backend DEEP-COPIES the format list into its
         // storage before returning - if that ever stops copying, the pointer must be promoted to
         // a member/static instead of pointing at the transient parameter.
         VkPipelineRenderingCreateInfo const rendering_info = make_rendering_create_info(true, &info.color_format, info.depth_format);
@@ -143,7 +143,7 @@ namespace deren::vulkan::gui {
 
     debug_panel& gui_content::add_panel(deren::utility::vessel::string title) {
         auto panel = std::make_unique<debug_panel>(std::move(title));
-        // The first panel keeps ImGui's own initial placement. Every later panel would otherwise be
+        // The first panel keeps ImGui's initial placement. Every later panel would otherwise be
         // placed on that same corner (no .ini survives a run), hiding the panel below it, so lay
         // them out in a row instead: 400 px covers the default 380 px panel plus a readable gap.
         uint32_t const slot = this->panel_registrations++;

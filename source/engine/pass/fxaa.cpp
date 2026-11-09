@@ -16,7 +16,7 @@ import deren.utility.shared;
 // The record series (abi 20): the two barriers, the rendering scope, the cull mode and the draw now
 // go through the contract, so this file names no `vkCmd*` at all (plan §1 step 4, one pass per commit).
 import deren.promise.rhi;
-import deren.engine.pipelines; // build_fxaa: the pass's own pipeline, built from its two shaders and the surface's format
+import deren.engine.pipelines; // build_fxaa: the pass's pipeline, built from its two shaders and the surface's format
 import deren.utility;
 
 // The contract's spelling, local to this TU (post.cpp carries the same alias): the record series names
@@ -44,7 +44,7 @@ namespace deren::engine::pass {
     std::string_view fxaa_pass::feature() const noexcept {
         // THE NAME THE RENDERER ALREADY ANSWERS: `f.fxaa` = "the knob is on AND the pipeline exists", which is one
         // definition (`runtime::post_fxaa_active`) shared with the composite's target choice and the overlay's
-        // owner - so the record step's gate, the frame's target and the overlay cannot disagree about whether this pass
+        // holder - so the record step's gate, the frame's target and the overlay cannot disagree about whether this pass
         // runs.
         return "fxaa";
     }
@@ -80,7 +80,7 @@ namespace deren::engine::pass {
 
     void fxaa_pass::on_swapchain_recreated(pass_host const&) {
         // Nothing to reset: the pipeline depends on the surface's FORMAT (a session-stable device fact) and not on
-        // its size, and the set this pass binds belongs to the post family, whose owner retires it.
+        // its size, and the set this pass binds belongs to the post family, whose holder retires it.
     }
 
     bool fxaa_pass::pipeline_ready() const noexcept {
@@ -115,15 +115,15 @@ namespace deren::engine::pass {
         // this pass's two thresholds - all of them lanes the composite pushes too, which is why they are frame
         // settings rather than one pass's parameters), the struct's defaults for the lanes this mode does not
         // read, the `encode_gamma` lane (this pass always writes the swapchain, so the answer is the surface's
-        // own format), and the pass's own stage lane - FXAA is mode 3.
+        // the format), and the pass's stage lane - FXAA is mode 3.
         render_settings const& settings = io.constants.settings;
         post_push_constants push = {
             .exposure = settings.exposure,
             .bloom_intensity = settings.bloom_intensity,
             .bloom_threshold = settings.bloom_threshold,
-            .mode = 3.0f, // the pass's own stage lane: FXAA
+            .mode = 3.0f, // the pass's stage lane: FXAA
             // Same meaning as in the composite: 0 = the swapchain attachment encodes to display values in
-            // hardware, so FXAA must hand it LINEAR values; 1 = the target is a UNORM format and FXAA's own
+            // hardware, so FXAA must hand it LINEAR values; 1 = the target is a UNORM format and FXAA's
             // display-encoded result is what should be stored.
             .encode_gamma = is_srgb_swapchain_format(this->swap_chain_format) ? 0.0f : 1.0f,
             .fxaa_subpixel = settings.fxaa_subpixel,
@@ -141,7 +141,7 @@ namespace deren::engine::pass {
             .colors = colors,
             .depth = {},
             .has_depth = false,
-            .secondary_contents = false, // this instance is inline; the overlay segment runs in its own after it ends
+            .secondary_contents = false, // this instance is inline; the overlay segment runs in its after it ends
         };
         auto const begun = io.list->begin_rendering(rendering_info);
         if (begun != rhi::error::ok) {
@@ -155,9 +155,9 @@ namespace deren::engine::pass {
             return rhi::error::operation_failed;
         }
         io.list->draw(3, 1, 0, 0);
-        // THE OVERLAY RECORDS ITS OWN SEGMENT HERE (gui abi 5): the third-party recorder is not a contract
-        // consumer, so the plugin starts one of its mergeable targets under this instance's inheritance and
-        // returns it; the segment is EXECUTED by the host in its own secondary-contents instance after THIS
+        // THE OVERLAY RECORDS its SEGMENT HERE (gui abi 5): the third-party recorder is not a contract
+        // consumer, so the plugin starts a separate one mergeable targets under this instance's inheritance and
+        // returns it; the segment is EXECUTED by the host in its secondary-contents instance after THIS
         // instance ends (see draw_callback::finish - the two cannot share one instance because a
         // CONTENTS_SECONDARY_COMMAND_BUFFERS instance may contain no primary draw).
         if (this->pass_frame.after_draw.valid()) {

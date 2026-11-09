@@ -70,7 +70,7 @@ namespace deren::vulkan {
             other.allocation = VK_NULL_HANDLE;
         }
         buffer_detail(buffer_detail const&) = delete ("buffer_detail carries an atomic use_count; only its custom move constructor transfers it");
-        buffer_detail& operator=(buffer_detail const&) = delete ("assign the owning vma_allocator resource instead");
+        buffer_detail& operator=(buffer_detail const&) = delete ("assign the holding vma_allocator resource instead");
         buffer_detail& operator=(buffer_detail&&) = delete ("move-construct the detail; move-assign would discard its allocation");
     };
 
@@ -103,7 +103,7 @@ namespace deren::vulkan {
                                         // because both need exactly that; they are separate variants
                                         // because the INTENT is what a reader is looking for.
         staging_source,                 // HOST_VISIBLE + HOST_COHERENT with TRANSFER_SRC: the SOURCE of a copy the
-                                        // frame records, which is what puts an upload in the frame's own command
+                                        // frame records, which is what puts an upload in the frame's command
                                         // buffer instead of in the CPU's timing. The twin of readback_coherent,
                                         // which is the same idea in the other direction.
     };
@@ -120,7 +120,7 @@ namespace deren::vulkan {
                             // textures. LINEAR is part of the contract, not an implementation
                             // detail - the type is uploaded by writing pixels through the host
                             // mapping, and an OPTIMAL-tiled image's layout is implementation-defined
-                            // (see direct_image_upload). The caller owns the layout transitions.
+                            // (see direct_image_upload). The caller holds the layout transitions.
         texture_cubemap,    // GPU_ONLY, cubemap
         render_target,      // GPU_ONLY, render target (readable/writable)
     };
@@ -175,7 +175,7 @@ namespace deren::vulkan {
             other.allocation = VK_NULL_HANDLE;
         }
         image_detail(image_detail const&) = delete ("image_detail carries an atomic use_count; only its custom move constructor transfers it");
-        image_detail& operator=(image_detail const&) = delete ("assign the owning vma_allocator resource instead");
+        image_detail& operator=(image_detail const&) = delete ("assign the holding vma_allocator resource instead");
         image_detail& operator=(image_detail&&) = delete ("move-construct the detail; move-assign would discard its allocation");
     };
 
@@ -229,13 +229,13 @@ namespace deren::vulkan {
         /// lives on the allocator's side of the fence and needs this pointer.
         PFN_vkCopyMemoryToImageEXT copy_memory_to_image = nullptr;
 
-        // ---- ownership: release/retain are private - the only public way to release a
-        // buffer/image is to destroy (or reset) the vk_buffer / vk_image RAII owner that
+        // ---- retention: release/retain are private - the only public way to release a
+        // buffer/image is to destroy (or reset) the vk_buffer / vk_image RAII holder that
         // vma_allocator handed out. create_* injects lambdas (created inside this class,
-        // so they may call these) into those owners; raw-handle free calls are impossible
+        // so they may call these) into those holders; raw-handle free calls are impossible
         // from outside, which removes the leak/over-release paths of the old uint64 API.
         // Shared (deduplicated) resources are reference-counted: free decrements and really
-        // destroys only the last reference; retain bumps the count for a shared owner.
+        // destroys only the last reference; retain bumps the count for a shared holder.
         void free_buffer(uint64_t handle);
         void free_image(uint64_t handle);
         void retain_buffer(uint64_t handle);
@@ -325,12 +325,12 @@ namespace deren::vulkan {
          * @param size_byte byte size of the data
          * @param type buffer usage type
          * @param extra_usage additional VkBufferUsageFlags to OR in
-         * @return an owning vk_buffer (copying shares the buffer, destroying releases one
+         * @return a holding vk_buffer (copying shares the buffer, destroying releases one
          *         reference); empty when creation failed
          * @note @p extra_usage exists for the bits that are only legal when an OPTIONAL extension is
          *       enabled - the acceleration-structure build input bit on a vertex/index buffer, which
          *       requires VK_KHR_acceleration_structure - so the caller decides, and a device without
-         *       the extension never sees the bit. It is OR'd into the type's own usage, never a
+         *       the extension never sees the bit. It is OR'd into the type's usage, never a
          *       replacement for it (a usage bit is not a feature; enabling one the device lacks is a
          *       validation error, not a fallback).
          */
@@ -343,7 +343,7 @@ namespace deren::vulkan {
          * @param data source data to upload
          * @param type buffer usage type
          * @param extra_usage additional VkBufferUsageFlags to OR in (see the byte-span overload)
-         * @return an owning vk_buffer (see create_buffer)
+         * @return a holding vk_buffer (see create_buffer)
          */
         template <typename T>
         vk_buffer create_buffer(std::span<T> data, buffer_type const type, VkBufferUsageFlags const extra_usage = 0) {
@@ -358,7 +358,7 @@ namespace deren::vulkan {
          * @param data source data to upload
          * @param type buffer usage type
          * @param extra_usage additional VkBufferUsageFlags to OR in (see the byte-span overload)
-         * @return an owning vk_buffer (see create_buffer)
+         * @return a holding vk_buffer (see create_buffer)
          */
         template <typename T, std::size_t N>
         vk_buffer create_buffer(std::span<T, N> data, buffer_type const type, VkBufferUsageFlags const extra_usage = 0) {
@@ -372,7 +372,7 @@ namespace deren::vulkan {
          * @param size_byte byte size of the data
          * @param create_info image width/height/format/mip levels etc.
          * @param type image usage type
-         * @return an owning vk_image (copying shares the image, destroying releases one
+         * @return a holding vk_image (copying shares the image, destroying releases one
          *         reference); empty when creation failed
          */
         vk_image create_image(uint8_t const* data, uint64_t size_byte, image_create_info const& create_info, image_type type);
@@ -407,7 +407,7 @@ namespace deren::vulkan {
          * @param data source data to upload
          * @param create_info image width/height/format/mip levels etc.
          * @param type image usage type
-         * @return an owning vk_image (see create_image)
+         * @return a holding vk_image (see create_image)
          */
         template <typename T, size_t N>
         vk_image create_image(std::span<T const, N> data, image_create_info create_info, image_type const type) {
@@ -630,7 +630,7 @@ namespace {
             // layout of an OPTIMAL-tiled image is implementation-defined - the write would land in
             // undefined places (vkGetImageSubresourceLayout, the API that would describe it, is only
             // valid for LINEAR). Being host-visible, it is also created so the caller can write it
-            // again at any time; the caller owns the layout transitions around that.
+            // again at any time; the caller holds the layout transitions around that.
             image_info.imageType = VK_IMAGE_TYPE_2D;
             image_info.tiling = VK_IMAGE_TILING_LINEAR;
             image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
@@ -823,7 +823,7 @@ namespace deren::vulkan {
                 this->buffer_size = 0;
             }
 
-            // THE BACKEND'S OWN LIFECYCLE POINT for the statistics log (the engine's destructor used
+            // THE BACKEND'S LIFECYCLE POINT for the statistics log (the engine's destructor used
             // to make this call from across the boundary): the session's allocation accounting is the
             // allocator's business, logged while every number it reports is still alive.
             this->log_statistics();
@@ -1167,7 +1167,7 @@ namespace deren::vulkan {
         return true;
     }
     vk_buffer vma_allocator::create_buffer(uint8_t const* data, uint64_t const size_byte, buffer_type const type, VkBufferUsageFlags const extra_usage) {
-        // the returned owner carries lambdas that call back into this allocator; they are
+        // the returned holder carries lambdas that call back into this allocator; they are
         // created here (a member function), so they may call the private free/retain below
         auto const make_handle = [this](uint64_t const handle) {
             return vk_buffer{handle,
@@ -1187,7 +1187,7 @@ namespace deren::vulkan {
         auto buffer_create_info = get_create_info_from_type(type);
         buffer_create_info.size = size_byte;
         // The caller's optional bits (see the header: they exist for usage that needs an optional
-        // extension, so they are added here rather than baked into the type's own usage).
+        // extension, so they are added here rather than baked into the type's usage).
         buffer_create_info.usage |= extra_usage;
 
         VmaAllocation allocation = VK_NULL_HANDLE;
@@ -1260,7 +1260,7 @@ namespace deren::vulkan {
     }
 
     vk_image vma_allocator::create_image(uint8_t const* data, uint64_t const size_byte, image_create_info const& create_info, image_type const type) {
-        // the returned owner carries lambdas that call back into this allocator; they are
+        // the returned holder carries lambdas that call back into this allocator; they are
         // created here (a member function), so they may call the private free/retain below
         auto const make_handle = [this](uint64_t const handle) {
             return vk_image{handle,

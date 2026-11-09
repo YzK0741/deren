@@ -31,12 +31,12 @@
 // The runtime's item recorder (v0.3b-3a) fills those two lanes with the MESHLET RUN's base and count - the
 // values the per-meshlet dispatch needs - not with the draw's index window, so for every meshlet past the
 // first few the stage indexed the index buffer at the wrong place (and could read beyond it). Nothing caught
-// it because until v0.4 there was no consumer of the ids: the capture lane wrote its own two targets and the
+// it because until v0.4 there was no consumer of the ids: the capture lane wrote its two targets and the
 // frame's picture came from the old geometry path. The emission below is now `pbr.slang`'s MESHLET entry's
-// emission - the record's own `first_index`/`index_count`/`base_vertex` window - so a triangle's id, depth and
+// emission - the record's `first_index`/`index_count`/`base_vertex` window - so a triangle's id, depth and
 // the indices the resolve reads back are three views of ONE record.
 //
-// THE PUSH BLOCK IS THIS STAGE'S OWN SHAPE, not the material block: the visibility raster pass composes it
+// THE PUSH BLOCK IS THIS STAGE'S SHAPE, not the material block: the visibility raster pass composes it
 // from the draw item it is recording (model + item index + frame slot + the geometry lanes), so no field has
 // to be kept in step with the material push constants or the shadow stage's extra lanes. In a meshlet run
 // `geometry.first_index` is the item's MESHLET RUN BASE and `geometry.index_count` its MESHLET COUNT (the
@@ -112,7 +112,7 @@ void mesh_main(out vertices VisibilityVertexOutput verts[mesh_vertices_per_workg
     const MeshletRecord meshlet = hzb_live ? hzb_survivor_at(push.frame_slot, geometry.first_index + survivor_offset + group_id.x)
         : ((hzb_mode || host_culled) ? culled_meshlet_at(push.frame_slot, geometry.first_index + group_id.x)
                                     : meshlet_at(geometry.first_index + group_id.x));
-    // THIS LANE'S OWN COUNTERS (mesh_geometry.slang's ids 8..11): the pbr/shadow meshlet entries count themselves,
+    // THIS LANE'S COUNTERS (mesh_geometry.slang's ids 8..11): the pbr/shadow meshlet entries count themselves,
     // but they are different stages, so without these the cull below had no in-engine evidence - only the offline
     // probe. One atomic per workgroup, the rule the other mesh entries follow.
     mesh_stat_add(push.frame_slot, mesh_stat_visibility_workgroups, 1u);
@@ -135,7 +135,7 @@ void mesh_main(out vertices VisibilityVertexOutput verts[mesh_vertices_per_workg
         return;
     }
 
-    // THE MESHLET'S OWN WINDOW, and no more than one mesh workgroup can emit: `index_count` is the record's
+    // THE MESHLET'S WINDOW, and no more than one mesh workgroup can emit: `index_count` is the record's
     // (a multiple of three), capped at the 85-triangle / 255-vertex workgroup limit - the same `min` the pbr
     // meshlet entry applies, so a meshlet that fits a workgroup emits exactly the triangles the old path
     // rasterized for it.

@@ -3,7 +3,7 @@
 
 Why this asset exists, and why it is generated rather than hand-written. Every other model this
 repository ships is rigid, and a rigid model cannot show the one thing this fixture is for: a vertex
-that moves inside its own object space. `shared_skin_two_nodes.gltf` has a skin but no animation
+that moves inside its object space. `shared_skin_two_nodes.gltf` has a skin but no animation
 channel, so it never deforms either. A hand-written plane grid with per-vertex weights is a base64
 blob nobody can review, so the geometry is emitted from here instead - the same reason
 scripts/bake_toon_ramp.py exists on the NPR branch.

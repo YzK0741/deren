@@ -68,7 +68,7 @@ export namespace deren::engine::subtilis {
         requested = 1,
         resident = 2,
     };
-    /// One page-table row. `page` is the row's own index; the shader locates a section element by
+    /// One page-table row. `page` is the row's index; the shader locates a section element by
     /// binary-searching (section, first). `offset` points into the single page arena.
     struct gpu_page_table_entry {
         std::uint32_t page = 0;
@@ -161,8 +161,8 @@ export namespace deren::engine::subtilis {
 
     public:
         explicit page_streamer(page_manager manager, std::uint32_t capacity = 64);
-        page_streamer(page_streamer const&) = delete ("page_streamer owns one in-flight plan; move it instead");
-        page_streamer& operator=(page_streamer const&) = delete ("page_streamer owns one in-flight plan; move it instead");
+        page_streamer(page_streamer const&) = delete ("page_streamer holds one in-flight plan; move it instead");
+        page_streamer& operator=(page_streamer const&) = delete ("page_streamer holds one in-flight plan; move it instead");
         page_streamer(page_streamer&&) = default;
         page_streamer& operator=(page_streamer&&) = default;
 

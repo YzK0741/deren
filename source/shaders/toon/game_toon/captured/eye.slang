@@ -13,7 +13,7 @@
 //   * materials/M_actor_laevat_iris_01.json - the captured per-material values (extras.floats/colors/textures).
 //   * comparison-summary.json - the captured Laevatain lighting (`laevat_volume`, `shader_constants`).
 //
-// THE TWO PATHS THIS FILE CONTAINS (the captured template's own `#ifdef Q201` split):
+// THE TWO PATHS THIS FILE CONTAINS (the captured template's `#ifdef Q201` split):
 //   PATH A - `Q201` + `HAS_MATCAP` (the captured iris, and the reason this port exists): the albedo lookup is
 //     PARALLAX-WARPED by the view direction in tangent space (readable:600-625 applied at :661), the shading
 //     normal is the manufactured CORNEA HEMISPHERE (readable:736-755), the light is FLATTENED against the
@@ -59,7 +59,7 @@
 // NOT PORTED (deliberate, each a different mechanism rather than an omission):
 //   * tone mapping and the color-space encode (readable:1189-1190 `#include <tonemapping_fragment>` /
 //     `<colorspace_fragment>`): the contract puts tone mapping once in deren's post pass, so this function returns
-//     LINEAR HDR. The captured viewer's own tone map is preserved in deren's `post/game_toon_tonemap.h`.
+//     LINEAR HDR. The captured viewer's tone map is preserved in deren's `post/game_toon_tonemap.h`.
 //   * the depth-cut/`Q164` term (readable:1177): `R200` returns 0 when `Q185 < 0.5` (`viewer-lighting.js`
 //     `e3()` default), so it contributes nothing in the capture.
 //   * depth shadow (`Q132`), shadow LUT (`Q273`), metallic/gloss map (`Q13`), emission (`Q158`/`Q242`): not
@@ -99,7 +99,7 @@ static const float game_toon_eye_ramp_v = 0.5;
 /// The captured `uMainLightColourScaled` is `rig.color * rig.intensity` where `rig.intensity` IS this multiplier
 /// (`viewer-lighting.js`: `Q10.value.copy(this.color).multiplyScalar(this.intensity)`, and `setMenuLight` copies
 /// the menu's `multiplier` into `this.intensity`). The profile lane contract states lane 2.rgb as the light COLOUR,
-/// so the scaling is applied here from lane 0.y - the same product the capture performs, from the lane that owns
+/// so the scaling is applied here from lane 0.y - the same product the capture performs, from the lane that holds
 /// the number.
 /// MISSING PROFILE LANE: fallback is the captured 1.05.
 static const float game_toon_eye_captured_volume_multiplier = 1.05;
@@ -203,7 +203,7 @@ static bool game_toon_eye_lane_stated(float4 value) {
 /// @param uv the material's uv (the eye's zones, warp and cornea hemisphere all key off its `fract`)
 /// @param is_front front-face flag; unused here because deren's `s.normal` already carries the DOUBLE_SIDED flip
 ///        the captured `R180` applies (readable:694-698), and the captured iris material is not double-sided
-/// @return LINEAR HDR radiance - no tone mapping, no sRGB encode (the post pass owns both, per the contract)
+/// @return LINEAR HDR radiance - no tone mapping, no sRGB encode (the post pass holds both, per the contract)
 float3 captured_eye_shade(surface_sample s, float3 world_pos, float3 geo_normal, float2 uv, bool is_front) {
     const Material mat = material_at(heap_slots_materials, push.material_index);
     const uint material_index = push.material_index;
@@ -364,7 +364,7 @@ float3 captured_eye_shade(surface_sample s, float3 world_pos, float3 geo_normal,
     }
     // `R9`/`R46`/`R196` (readable:730-733) are computed by the capture too, but their only consumers in this
     // program are the punctual-light loop and the specular branch (`Q141`, not defined
-    // for this material) - so they are not carried. The eye has NO specular/NoH term of its own: its highlight is
+    // for this material) - so they are not carried. The eye has NO separate specular/NoH term: its highlight is
     // the matcap below.
     const float n_dot_l = dot(normal, light_dir);                                                       // R128
 
@@ -372,7 +372,7 @@ float3 captured_eye_shade(surface_sample s, float3 world_pos, float3 geo_normal,
     //
     // `R21 = mix(Q52, vec3(1), R175) * mix(vec3(1), Q129, base.a)`: the HIGHLIGHT colour multiplies the eye OUTSIDE
     // the inscribed circle (the sclera/corners - inside the circle `mix` returns 1) and the SCATTERING colour
-    // multiplies by the albedo's own alpha. Path B has no `Q201` and the captured template writes `R21 = vec3(1)`.
+    // multiplies by the albedo's alpha. Path B has no `Q201` and the captured template writes `R21 = vec3(1)`.
     const float3 region_tint = path_a
                                    ? lerp(eye_highlight_colour, float3(1.0, 1.0, 1.0), eye_zone) *
                                          lerp(float3(1.0, 1.0, 1.0), eye_scattering_colour, base_alpha)
@@ -393,7 +393,7 @@ float3 captured_eye_shade(surface_sample s, float3 world_pos, float3 geo_normal,
     // the ramp arm (readable:929-965) and the `#else` arm (readable:995-1004). deren is one dynamic program, so the
     // same split is a runtime branch. The captured iris takes the ramp arm: its sidecar stages
     // `slot _DiffRampMap WF_T_actor_common_body_01_RD`, so `toon_indices.x` is non-zero and every neutral fallback
-    // this file used to carry is GONE - what replaces it is the template's own no-ramp arm, not an invented white.
+    // this file used to carry is GONE - what replaces it is the template's no-ramp arm, not an invented white.
     const bool has_diffuse_ramp = s.toon_indices.x != 0u;
     float4 diffuse_ramp = float4(1.0, 1.0, 1.0, 1.0);
     float view_ramp_alpha = 1.0;
@@ -439,7 +439,7 @@ float3 captured_eye_shade(surface_sample s, float3 world_pos, float3 geo_normal,
         const float3 shadow_mixed = shadow_luma + 1.2 * (0.65 * shadow_albedo - shadow_luma);
         float3 albedo = lerp(shadow_mixed, shadow_albedo, clamp(ramp_coverage + camera_coverage, 0.0, 1.0));
         albedo = lerp(albedo, lit_albedo, ramp_coverage);
-        // `R150` is the ramp colour's own chroma and `mix(vec3(1), R32.rgb, R150)` maps the ramp's colour onto the
+        // `R150` is the ramp colour's chroma and `mix(vec3(1), R32.rgb, R150)` maps the ramp's colour onto the
         // albedo only as far as that chroma reaches; then the captured ramp-control ratio (readable:962-964).
         const float ramp_chroma = max(max(diffuse_ramp.r, max(diffuse_ramp.g, diffuse_ramp.b)) -
                                           min(diffuse_ramp.r, min(diffuse_ramp.g, diffuse_ramp.b)),

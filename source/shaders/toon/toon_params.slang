@@ -1,6 +1,6 @@
 // shaders/toon_params.slang - THE TOON FAMILY TABLE, shared by every stage that shades a character.
 //
-// WHY IT IS A FILE OF ITS OWN: two stages need it - the character-forward stage, which shades the surface,
+// WHY IT IS A separate FILE: two stages need it - the character-forward stage, which shades the surface,
 // and the screen-space rim, which adds the contour over it - and they must agree about a family's
 // parameters, or the two would draw one character with two different looks. A second copy of the table
 // inside the rim stage is exactly the kind of duplicate this project refuses elsewhere: the failure is
@@ -34,7 +34,7 @@
  * and `shadow_tint` are read only by the PROCEDURAL branch of character_forward.slang, i.e. by a material whose
  * model ships no `_DiffRampMap` or whose artist switched it off. When the model HAS one the shader samples the
  * texture itself - its RGB as the ramp's colour and its alpha as the step (`rampTex_var.xyz` / `.w`, the article's
- * own two reads) - and these three numbers then do nothing at all. That is the normal case rather than the corner
+ * two reads) - and these three numbers then do nothing at all. That is the normal case rather than the corner
  * one: every one of the 45 materials across the five characters in `chars\` names a `_DiffRampMap`, and chen.glb
  * carries the four images (`T_actor_common_{body,face,cloth_04,hair_01}_RD`, 256x1). AN EARLIER VERSION OF THIS NOTE
  * CLAIMED THE OPPOSITE - that the reference's ramps are "assets this port cannot carry" - which is how a fabricated
@@ -69,7 +69,7 @@ struct toon_params {
     float spec_center;   // the half-vector angle at which the highlight appears
     float spec_softness; // its edge width - small is the drawn highlight blob, large is a sheen
     float spec_strength; // 0 disables it, which is what the eye family needs (its highlight is a matcap);
-                         // THE FAMILY'S FALLBACK for `_Specular`, not its only home - a material whose own asset
+                         // THE FAMILY'S FALLBACK for `_Specular`, not its only home - a material whose asset
                          // states the value overrides this (see the provenance table in `toon_params_for`)
     // ---- the RIM ----
     //
@@ -92,7 +92,7 @@ struct toon_params {
     // `_AlbedoDarkStrength` is declared IDENTICALLY as 0.8 by all five of its shaders - so the family default
     // below is 0.8 and NO FAMILY OVERRIDES IT. THE GAME STATES A DIFFERENT NUMBER AND IT IS DELIBERATELY NOT
     // USED: `_ShadowColorBrightness` is 0.55 on skin/face/eye and 0.5 on cloth/hair (`chen_params_digest.tsv`),
-    // and that property belongs to the GAME's own shader family rather than to the article's. The user's ruling
+    // and that property belongs to the GAME's shader family rather than to the article's. The user's ruling
     // is the article's default, so the per-family overrides are gone and the game's numbers stay recorded in the
     // provenance table above rather than being applied.
     //
@@ -107,7 +107,7 @@ struct toon_params {
     //                                                 edges 14045/11155/7300 -> 14045/11155/7298, 86224 px changed
     // and the visible region in `face_ref_b1_std_full.png`'s difference map is the FACE and the HAIR's shadow
     // side, exactly where the dark layer reaches the picture. No criterion regressed, so it stays; the effect is
-    // small enough that it should be judged together with the skin/eye items rather than on its own.
+    // small enough that it should be judged together with the skin/eye items rather than alone.
     float albedo_dark_strength;   // `_AlbedoDarkStrength`: how much darker the shadow side's albedo is
     float albedo_dark_saturation; // `_AlbedoDarkSaturation`: 1 keeps the dark side's hue, 0 greys it
     float dark_in_dark;           // the article's 0.65: the third layer, inside the dark one
@@ -132,7 +132,7 @@ struct toon_params {
     // returns an olive-green for chen's blue cloth, and the cape goes green over its whole mid-tone range, because
     // the cloth ramp's alpha sends most of that range to the dark layer. That may be the artist's palette and it may
     // be the article's reverse-engineered indexing being approximate off the skin; until that is settled the port
-    // reads the palette where the article documents it and leaves the other families on their own albedo. THE
+    // reads the palette where the article documents it and leaves the other families alone albedo. THE
     // PALETTE ITSELF IS STILL READ AND ITS LANE IS STILL LIVE - flipping a family's number here is the whole switch.
     float lut_strength;
     // `ambient_strength` IS WHETHER THE FAMILY RECEIVES THIS ENGINE'S SKY IRRADIANCE (`irradiance_sample(n) * albedo
@@ -142,7 +142,7 @@ struct toon_params {
     // block, which this port also carries (the rig's `other_colour` / `other_light` lanes). Leaving the engine's
     // irradiance on top of that gave the eye a second environment term the reference does not have. It is a FIELD
     // rather than a hard-coded zero for the eye because the same question applies to any family an article shader
-    // states its own environment for, and 1.0 keeps every other family exactly where it was.
+    // states its environment for, and 1.0 keeps every other family exactly where it was.
     //
     // MEASURED, AND IT IS THE LARGEST OF THE EYE'S RECENT CORRECTIONS: switching it off moves 129 px (max |d| 94) at
     // the standard pose and 27677 px / 2.67% (max |d| 116) on the face close-up, and the affected pixels go
@@ -151,7 +151,7 @@ struct toon_params {
     // than filing as a detail: the "iris reads dark" observation this session chased was, in part, a term the
     // reference's eye does not have being removed.
     float ambient_strength;
-    // ---- `light_intensity_scale`: THE SUN'S OWN FACTOR, PER FAMILY, WHICH ONLY THE SKIN HAS ----
+    // ---- `light_intensity_scale`: THE SUN'S FACTOR, PER FAMILY, WHICH ONLY THE SKIN HAS ----
     //
     // THE ARTICLE'S FIVE MAIN SHADERS ALL CONSTRUCT THE SAME LIGHT and four of them leave its intensity alone:
     //     `ZmdToonMain.hlsl:78` / `ZmdFaceToonMain.hlsl:78` / `ZmdEyeToonMain.hlsl:...` / `ZmdHairToonMain.hlsl:...`
@@ -189,7 +189,7 @@ struct toon_params {
     // is a MECHANISM THE ARTICLE DOES NOT HAVE - a hemisphere fill that brightens every surface facing up. At the
     // defaults it is "on", and the face's DARK SIDE has been living on it. This field is the family's switch back
     // to the article's zero, set for the two families whose article shaders this has been read against line by
-    // line - the EYE and the SKIN - and left at 1.0 everywhere else until that family's own shader is read.
+    // line - the EYE and the SKIN - and left at 1.0 everywhere else until that family's shader is read.
     //
     // MEASURED, AND THE HONEST HEADLINE IS THAT IT IS ALMOST A NO-OP AT THIS PORT'S DEFAULTS - which is a fact
     // about the CONFIG rather than about the article. `deren::vulkan::toon_rig`'s `day.y/z/w` are 0/1/0
@@ -212,7 +212,7 @@ struct toon_params {
     // FLAT QUAD's normal, which on an eye reads a single texel (measured: 0 px at the standard pose, max |d| 2 on the
     // face close-up), so switching it off changed nothing and hid the real fault - that term was never reaching the
     // iris. Sampling it through the CORNEA normal (`shading_normal`) is what makes it the eye's brightness, which is
-    // the reference's own arrangement, and once it does, switching it off is not a saving but a missing light. So the
+    // the reference's arrangement, and once it does, switching it off is not a saving but a missing light. So the
     // switch is gone and the normal is fixed instead; see the matcap block at the end of character_forward.slang.
     // ---- THE TWO EYE REGION COLOURS USED TO BE FIELDS HERE, AND THEY ARE NOW A LANE ----
     //
@@ -220,7 +220,7 @@ struct toon_params {
     // which is the wrong shape for a value the game states PER MATERIAL: the brow material carries the same row
     // (chen's is (2,2,2)) and would have worn the iris' tint. They now arrive through the material colour table
     // (`deren::vulkan::toon_colour_lane::eye_highlight` / `eye_scattering`, read by the stage from
-    // `core::heap_slots::toon_colours`), gated on the material's own `_UseMatcap` - which is the game's own way of
+    // `core::heap_slots::toon_colours`), gated on the material's `_UseMatcap` - which is the game's way of
     // saying "this material is an eye". A field left here would be a second source of truth for a value that has
     // exactly one, so it is deleted rather than defaulted.
 };
@@ -242,19 +242,19 @@ toon_params toon_params_for(uint family) {
     // ---- WHERE THESE NUMBERS COME FROM, AND WHICH OF THEM ARE STILL OURS ----
     //
     // THE TABLE STARTED AS THE REFERENCES' RELATIVE ORDER (see the note above). This pass replaced every number the
-    // GAME ALSO STATES with the game's own, read from the per-material parameter table the export tools produce
+    // GAME ALSO STATES with the game's, read from the per-material parameter table the export tools produce
     // (`_npr_package_20260925/_npr_recon/character/params/material-params.tsv`), restricted to the seven materials
     // of `actor_chen` and kept in `build-release-clang64/deren-ab/chen_params_digest.tsv`:
     //
     //   `spec_strength`          <- `_Specular`                (skin 0.454, cloth/face/hair 1.0, eye 0.0)
     //                               ** NOW A FALLBACK RATHER THAN THE SOURCE **: the value is per MATERIAL in the
-    //                               game's own table, and it arrives in the material's `extras` block
+    //                               game's table, and it arrives in the material's `extras` block
     //                               (`deren::gltf::claimed_extras_floats`) as a `toon_colour_lane::specular_strength`
     //                               lane, which the stage prefers whenever the asset states one. This constant
     //                               answers for a material whose asset states nothing - and it was already
     //                               right for six of chen's seven, the exception being `M_actor_chen_brow_01`
     //                               (0.0 against this family's 1.0). See `character_forward.slang`'s read.
-    //   `albedo_dark_strength`   <- **THE ARTICLE'S OWN DEFAULT 0.8** - see the note below; the game's
+    //   `albedo_dark_strength`   <- **THE ARTICLE'S DEFAULT 0.8** - see the note below; the game's
     //                               `_ShadowColorBrightness` (skin/face/eye 0.55, cloth/hair 0.5) is RECORDED
     //                               and NOT used.
     //   `albedo_dark_saturation` <- `_ShadowColorSaturation`   (eye 1.4, others 1.0; cloth_02 is 1.2)
@@ -269,7 +269,7 @@ toon_params toon_params_for(uint family) {
     //
     // AND WHAT IS PER-MATERIAL BUT UNCLAIMED, recorded here rather than approximated into a family default because
     // this table has no per-material path: `_SkinRimOff` / `_SkinRimOffScale` / `_FaceRimOffScale` (disable scales),
-    // `_SDFRimColor` (the face rim's own colour, 0.761/0.553/0.455 on body and face), `_EyeHighLight` (1.0 on the
+    // `_SDFRimColor` (the face rim's colour, 0.761/0.553/0.455 on body and face), `_EyeHighLight` (1.0 on the
     // iris, 0.0 on the brow), `_MatcapNormalScale` (0.9), and `_EmotionIndex` / `_EmotionBlend` (both 0 on the
     // face - which is where the config key standing in for the expression index gets its confirmation).
     toon_params p = {0.42, 0.035, float3(0.58, 0.60, 0.72), 0.80f, 0.06f, 0.0f, 0.9f, float3(1.0, 1.0, 1.0), 0.5f, 1.0f, 0.65f, 1.0f, 0.0f, 0.5f, 1.0f, 1.0f, 0.0f, 1.0f, 1.0f, 1.0f};
@@ -297,7 +297,7 @@ toon_params toon_params_for(uint family) {
         p.spec_softness = 0.10;
         p.spec_strength = 0.454; // `_Specular` on `M_actor_chen_body_01` - the lowest of chen's seven
         p.rim_strength = 0.8;
-        // NO `albedo_dark_strength` OVERRIDE: the article's own default (0.8) is what every one of its five
+        // NO `albedo_dark_strength` OVERRIDE: the article's default (0.8) is what every a separate one five
         // shaders declares, and the game's `_ShadowColorBrightness` (0.55 here) is a different shader's
         // property. See the field's note at the top of this file.
         // THE ONE FAMILY THE ARTICLE'S `_IsNeedSss` IS ON FOR, and the reason it can be a family default here: the
@@ -305,17 +305,17 @@ toon_params toon_params_for(uint family) {
         // a family saying "skin may scatter" cannot turn it on anywhere the map did not put it.
         p.sss_strength = 0.6;
         p.roughness = 0.55;
-        // THE ARTICLE'S OWN SKIN FACTOR, AND IT IS THE ONLY FAMILY THAT HAS ONE: `ZmdSkinToonMain.hlsl:69`
+        // THE ARTICLE'S SKIN FACTOR, AND IT IS THE ONLY FAMILY THAT HAS ONE: `ZmdSkinToonMain.hlsl:69`
         // `mainLightIntensity *= 1.3/1.6;` = 0.8125, where every other shader writes the no-op `1.6/1.6`. It is
         // the last statement before the intensity enters `mainLightColor_new` (`:174`), so the skin's whole direct
         // sun is 18.75% dimmer. Measured on the user's pose: see `remaining_port_spec.md`'s "其余部位按参考对齐".
         p.light_intensity_scale = 1.3f / 1.6f;
-        // ... AND ITS HEAD LIGHT HAS NO NORMAL TERM, which is the article's own first line of the block
+        // ... AND ITS HEAD LIGHT HAS NO NORMAL TERM, which is the article's first line of the block
         // (`ZmdSkinToonMain.hlsl:160` `float otherLightNoL = 0;` and the two lines after it - all multiplying and
         // offsetting zero at the defaults). The port's normal-driven hemisphere fill is a mechanism the article
         // does not have, and skin is one of the two families this has been read against line by line.
         p.other_light_no_l = 0.0f;
-        // SKIN REFLECTS NO ENVIRONMENT SPECULAR, which is the article's own line for this family: its shine is the
+        // SKIN REFLECTS NO ENVIRONMENT SPECULAR, which is the article's line for this family: its shine is the
         // direct highlight and the subsurface term, and an environment reflection on bare skin reads as plastic.
         p.ibl_specular_strength = 0.0;
         // ... AND ITS DARK SIDE IS THE ARTIST'S PALETTE, which is the one place the article documents the LUT.
@@ -336,8 +336,8 @@ toon_params toon_params_for(uint family) {
         p.sss_strength = 0.6; // the face's subsurface does NOT come from here - see the note on sss_strength
         p.roughness = 0.7;
         p.ibl_specular_strength = 0.0;
-        p.lut_strength = 1.0; // the face shares the skin palette, which is the article's own arrangement
-        // ... AND NO SKY IRRADIANCE, WHICH IS THE ARTICLE'S OWN END OF ITS FACE MAIN: its result is
+        p.lut_strength = 1.0; // the face shares the skin palette, which is the article's arrangement
+        // ... AND NO SKY IRRADIANCE, WHICH IS THE ARTICLE'S END OF ITS FACE MAIN: its result is
         //     `float3 resultColor = rimLightResult + mainLightResult;`   (`ZmdFaceToonMain.hlsl:335`)
         // - TWO TERMS, and neither is an ambient or an IBL read. The file DECLARES the SH/lightmap channel
         // (`:24` `DECLARE_LIGHTMAP_OR_SH`, `:42` `OUTPUT_SH`) and never samples it in the fragment - grepping
@@ -346,7 +346,7 @@ toon_params toon_params_for(uint family) {
         // (`head_day0`/`head_day1` in the rig). Leaving this engine's sky irradiance on top of that gave the face a
         // SECOND environment the article does not have - the same fault, in the same place, that the EYE family
         // above was already corrected for, and the face is the only other family whose article shader states its
-        // own environment. MEASURED (cheek ROI x0=560 y0=130 s=300 at camera
+        // the environment. MEASURED (cheek ROI x0=560 y0=130 s=300 at camera
         // `-30.3668,-14.3239,0.5,0.0,-0.48,0.0`, against the previous arm - full table in
         // `remaining_port_spec.md` "脸部链按参考对齐"):
         //     3x3 mottle        4.78 -> 3.88      (the pre-port baseline was 5.37)
@@ -356,7 +356,7 @@ toon_params toon_params_for(uint family) {
         //     ROI mean lum     75.42 -> 66.58     <- the face goes DARKER, which is what removing a light does
         //     frame            88893 px / mean|d| 0.54 -> 115815 px / mean|d| 2.94, max|d| 48
         // So it passes the artifact criteria (calmer, fewer hard edges) and is honest about its cost: the face is
-        // dimmer against the neck and the hands, which keep this engine's sky. That cost is the article's own
+        // dimmer against the neck and the hands, which keep this engine's sky. That cost is the article's
         // arrangement rather than a tuning choice - its face main has no ambient read to give it. See
         // `deren-ab/face_shader_compare.md` §2.37 for the对照.
         p.ambient_strength = 0.0;
@@ -409,16 +409,16 @@ toon_params toon_params_for(uint family) {
         p.roughness = 0.1; // a cornea is the glossiest surface on the character
         p.ibl_specular_strength = 0.0; // its reflection is the matcap, not the sky (phase 2)
         // ... AND NO SKY IRRADIANCE EITHER, for the same reason the article's eye has none: its environment is the
-        // `_OtherLight*` block, which the rig carries. See the field's own note.
+        // `_OtherLight*` block, which the rig carries. See the field's note.
         p.ambient_strength = 0.0;
         // ... AND NO NORMAL-DRIVEN HEAD LIGHT EITHER, for the same reason and from the same block: the article's
         // eye starts `otherLightNoL` at ZERO (`ZmdEyeToonMain.hlsl:178-180`) and calls that whole term
         // `otherLightResult`, so the eye's fill is a FLAT colour and not a hemisphere. This is the eye's third
-        // "the article states its own environment" correction, after the sky irradiance and the IBL specular.
+        // "the article states its environment" correction, after the sky irradiance and the IBL specular.
         p.other_light_no_l = 0.0f;
-        // ITS MATCAP IS THE ONE THE FINISHED COLOUR MULTIPLIES, through this family's own cornea normal - see the
+        // ITS MATCAP IS THE ONE THE FINISHED COLOUR MULTIPLIES, through this family's cornea normal - see the
         // matcap block at the end of character_forward.slang, and the note where `finish_matcap` used to be.
-        // ITS TWO COLOURS ARE NOT HERE - they are the material's own `color` rows now (see the note at the end of
+        // ITS TWO COLOURS ARE NOT HERE - they are the material's `color` rows now (see the note at the end of
         // the struct): the iris states them, and so does the brow, which is what made a family field wrong.
     }
     return p;

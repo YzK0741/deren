@@ -17,7 +17,7 @@ export import :data_block;
  * @ingroup utility
  * @brief BVH acceleration structure: AABB boxes, morton-code building, ray hit test and frustum culling
  * @note
- *      - leaf nodes live in an internal deque, internal nodes live in a contiguous pool owned by the bvh
+ *      - leaf nodes live in an internal deque, internal nodes live in a contiguous pool held by the bvh
  *      - make() builds the tree, rebuild() rebuilds it after leaves change
  *      - consumed by the renderer: the runtime builds a per-frame bvh over scene leaf world
  *        AABBs and frustum_culls the main pass against the camera frustum
@@ -125,7 +125,7 @@ namespace deren::utility {
 
     /**
      * @ingroup bvh
-     * @brief node of the BVH tree; leaves and internal nodes are owned by the containing bvh
+     * @brief node of the BVH tree; leaves and internal nodes are held by the containing bvh
      * @tparam T type of the attached user data
      */
     export template <typename T>
@@ -145,12 +145,12 @@ namespace deren::utility {
         data_type* extra_data = nullptr;
 
         // A node is a node of a graph whose links are raw pointers into storage the containing
-        // bvh<T> owns: internal nodes live in the contiguous node pool and leaf children point INTO
+        // bvh<T> holds: internal nodes live in the contiguous node pool and leaf children point INTO
         // bvh<T>::leaves. Copying that would alias the same subtree and, for the leaf form, silently
         // outlive nothing at all - so the shallow copy the compiler would generate is never the right
         // operation. Deleted rather than documented: the hazard is a double free, and a compile error
         // is a better teacher than a comment. bvh<T>::add() builds leaves in place so no copy is
-        // needed anywhere. The pool owns destruction, so the node itself has no destructor that
+        // needed anywhere. The pool holds destruction, so the node itself has no destructor that
         // walks its children.
         bvh_node(bvh_node const&) = delete ("bvh_node is non-copyable: pass it by reference or construct a new instance");
         bvh_node& operator=(bvh_node const&) = delete ("bvh_node is non-copyable: modify the existing instance instead");
@@ -216,7 +216,7 @@ namespace deren::utility {
         deren::utility::vessel::deque<bvh_node<T>> leaves;
         // CONTIGUOUS NODE POOL: the build used to call `new` once per internal node and delete the
         // subtree recursively. One reserved vector makes those nodes one allocation and keeps them
-        // cache-local; `root` is a NON-OWNING pointer into this pool (or into `leaves` for the
+        // cache-local; `root` is a NON-HOLDING pointer into this pool (or into `leaves` for the
         // single-leaf tree). The vector must never grow after the build: every internal node points
         // at its children's addresses. `build_from_leaves` reserves exactly `leaves.size() - 1`.
         deren::utility::vessel::vector<bvh_node<T>> nodes;
@@ -273,7 +273,7 @@ namespace deren::utility {
                 return &nodes.back();
             };
             // Same sanitizing guard as bvh<T>::normalize(): glm::clamp propagates NaN, so without it
-            // a NaN component would reach generate_morton_from_midpoint(), whose own finite check
+            // a NaN component would reach generate_morton_from_midpoint(), whose finite check
             // would then turn a degenerate extent into a failed BUILD. Mapping it to the origin
             // instead keeps the build succeeding with a sound order (see that member's note).
             auto const normalize = [&origin, &scale](glm::vec3 const& midpoint) {
@@ -329,9 +329,9 @@ namespace deren::utility {
                 }
             }
 
-            // The root is a non-owning pointer: for a single leaf it points into `leaves`, and for
+            // The root is a non-holding pointer: for a single leaf it points into `leaves`, and for
             // every larger tree it points into `nodes`. Neither container is modified after the
-            // build, so no ownership transfer or extra root copy is needed.
+            // build, so no retention transfer or extra root copy is needed.
             return layers.back()[0];
         }
 

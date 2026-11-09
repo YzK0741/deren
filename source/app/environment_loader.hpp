@@ -1,6 +1,6 @@
 #pragma once
 // Private application helper, included after engine imports and the application's stb_image decoder.
-// Each background task owns its decoded pixels and joins both convolution tasks before returning.
+// Each background task holds its decoded pixels and joins both convolution tasks before returning.
 struct prepared_environment {
     deren::utility::vessel::vector<uint8_t> environment;
     deren::utility::vessel::vector<uint8_t> irradiance;

@@ -34,11 +34,11 @@ namespace deren::engine::pass {
     }
 
     std::string_view game_toon_depth_rim_pass::feature() const noexcept {
-        // ITS OWN NAME, and the post-graph lane is gated on the COMPOSED runtime predicate rather than on this
+        // Its NAME, and the post-graph lane is gated on the COMPOSED runtime predicate rather than on this
         // string (see runtime.post_graph.cpp): `game_toon_active()` is the same answer `make_character_forward_frame`
         // uses to select the pipeline, so the contour and the game-shaded surface cannot disagree about which chain
         // is drawing. The name stays here because a pass is recordable-or-not in the DECLARATION's vocabulary, and
-        // because a future owner that wants a feature-table branch should not have to invent the name.
+        // because a future holder that wants a feature-table branch should not have to invent the name.
         return "game_toon_depth_rim";
     }
 
@@ -147,7 +147,7 @@ namespace deren::engine::pass {
         io.list->set_cull_mode(rhi::cull_mode::none); // the synthetic triangle has no facing to cull
         // NO SET TO BIND: the depth and the albedo are per-swapchain-image heap slots the shader indexes with
         // the image index its push block carries. The two projection terms are the frame's, and the rest is this
-        // pass's own parameter.
+        // pass's parameter.
         push_constants const push = {
             .proj_22 = io.constants.proj[2][2],
             .proj_32 = io.constants.proj[3][2],
@@ -165,7 +165,7 @@ namespace deren::engine::pass {
     }
 
     rhi::error game_toon_depth_rim_pass::record_content(resolved_io const& io) noexcept {
-        // THIS PASS OWNS NO BARRIERS: the graph declares the sampled inputs and the target write on its behalf,
+        // THIS PASS HOLDS NO BARRIERS: the graph declares the sampled inputs and the target write on its behalf,
         // so the graph entry only refuses what the record step would have refused.
         if (!this->pipeline_ready() || io.targets.empty() || io.targets[0].view_handle == nullptr || io.extent.width == 0 ||
             io.extent.height == 0 || io.list == nullptr) {

@@ -8,7 +8,7 @@
  *
  * Extracted from deren.engine.runtime, whose implementation had grown past 4900 lines with the timing, the
  * pass recorders, the pipelines and the resources all in one file. It is a module rather than an
- * implementation partition because the timing state is legitimately useful on its own: an overlay, a
+ * implementation partition because the timing state is legitimately useful alone: an overlay, a
  * test or another layer can read cpu_phases without going through the runtime facade. The GPU half
  * (the per-pass timestamps) follows in a second step.
  */
@@ -182,7 +182,7 @@ namespace deren::engine::profiling {
         }
 
         cpu_phase_timer(cpu_phase_timer const&) = delete ("cpu_phase_timer is non-copyable: construct it in place and keep its identity");
-        cpu_phase_timer& operator=(cpu_phase_timer const&) = delete ("cpu_phase_timer is non-copyable: configure it through its owning API");
+        cpu_phase_timer& operator=(cpu_phase_timer const&) = delete ("cpu_phase_timer is non-copyable: configure it through its holding API");
         cpu_phase_timer(cpu_phase_timer&&) = delete ("cpu_phase_timer is non-movable: its resources are tied to the current address");
         cpu_phase_timer& operator=(cpu_phase_timer&&) = delete ("cpu_phase_timer is non-movable: its resources are tied to the current address");
 

@@ -5,7 +5,7 @@
  *        testing each conservatively against the history pyramid (M3 phase B2).
  *
  * The cull publishes stable survivors, counts and per-item mesh-task commands. Runtime declares compute writes
- * and mesh/resolve/indirect reads in the render graph; its scoped barriers own all cross-pass synchronization.
+ * and mesh/resolve/indirect reads in the render graph; its scoped barriers hold all cross-pass synchronization.
  * Rejected runs publish UINT32_MAX and preserve the host command: raster and resolve both fetch the original
  * host-culled run. Unsupported items stay on their original path. The runtime's byte-exact static gate controls
  * admission (design sections 8/9); no valid history means the original visibility lane.
@@ -34,7 +34,7 @@ export namespace deren::engine::pass {
     inline constexpr std::string_view hzb_cull_shader_name = "hzb_cull.comp.spv";
 
     // ---- THE HISTORY HEADER'S WORD OFFSETS THE CULL READS (spec §4.1) ----
-    // `common/hzb.slang` owns the header's word layout and the probe/verify read the SAME lanes back; the lane's byte
+    // `common/hzb.slang` holds the header's word layout and the probe/verify read the SAME lanes back; the lane's byte
     // capacity and magic already live in pass/hzb_build.cppm (the writer's constants), so only the three offsets the
     // reader names are mirrored here. A drift is not a validation error - it is the cull testing against another
     // lane's matrices - which is why the probe's metadata check pins the two spellings.
@@ -46,7 +46,7 @@ export namespace deren::engine::pass {
     // THE THREE PHASE-B TABLE LAYOUTS (spec §5.1), mirrored by `common/hzb.slang` and pinned here:
     //   heap_slots_hzb_items      - HOST-written per-item candidate descriptions (this file's `hzb_item`)
     //   heap_slots_hzb_results    - GPU-written flags/counts/stats (the word offsets below)
-    //   heap_slots_hzb_survivors  - GPU-written compacted records (the meshlet table's own shape)
+    //   heap_slots_hzb_survivors  - GPU-written compacted records (the meshlet table's shape)
     // The counts are the `test_render_resources`-style contract: the shader spells the same numbers, and a drift is a
     // pass writing a table the probe/verify cannot explain rather than a validation error.
     // ================================================================================================
@@ -67,7 +67,7 @@ export namespace deren::engine::pass {
      * @brief one item's candidate description, written by the host while the frame records (spec §4.3)
      *
      * WHY THE HOST ENUMERATES ITEMS AND NOT CANDIDATES: the item's candidate run is already compacted into the
-     * host-culled table at the primitive's own `meshlet_base` (the cut the visibility lane records through), so the
+     * host-culled table at the primitive's `meshlet_base` (the cut the visibility lane records through), so the
      * GPU only needs where the run starts and how long it is. Writing one 16-byte entry per item replaces a
      * per-candidate upload and keeps the host's per-frame cost at the table write.
      */
@@ -115,7 +115,7 @@ export namespace deren::engine::pass {
 
         [[nodiscard]] render_resource::pass_io const& io() const noexcept override {
             // NO BINDINGS, NO TARGETS, NO DECLARED PUSH BLOCK: every resource travels through the frame's heap and
-            // the graph's declaration owns the ordering (the same empty-declaration shape the build pass records
+            // the graph's declaration holds the ordering (the same empty-declaration shape the build pass records
             // with). The push block is composed per frame from `set_frame`'s values plus the framework's index lanes.
             static constinit render_resource::pass_io const value{.name = "hzb cull"};
             return value;

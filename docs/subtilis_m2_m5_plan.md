@@ -7,7 +7,7 @@ LOD0 fallback) are implemented on this branch; the local Release build, full CTe
 boundary, format, and changed-file tidy checks pass. M5c publishes table state on the frame
 after a request; it does not yet perform a device-to-device page copy or eviction. The
 v1 shader keeps one persistent
-workgroup per item (64 lanes, word-owned coarsen bitset, iterated closure, contiguous
+workgroup per item (64 lanes, word-held coarsen bitset, iterated closure, contiguous
 chunk compaction); a global cross-item node/cluster queue is deliberately deferred
 until the flat group table gains explicit child links. `test_subtilis_cut_gpu` exercises
 the compute shader on a real device and compares its output with the CPU `select_cut`
@@ -116,7 +116,7 @@ separate visibility-buffer path already.
 
 `FPageKey {RuntimeResourceID, PageIndex}` and `FStreamingRequest {Key, Priority}` are at
 `Engine\Source\Runtime\Engine\Public\Rendering\NaniteStreamingManager.h:28-63`. The manager
-owns the cluster page data and hierarchy heaps, the registered/resident page sets, page
+holds the cluster page data and hierarchy heaps, the registered/resident page sets, page
 dependencies, an LRU, and a priority heap. Key APIs are `GetStreamingRequestsBuffer`,
 `GetClusterPageDataSRV`, and `GetHierarchySRV`.
 
@@ -146,7 +146,7 @@ and performance are proven. This keeps the merged path unchanged for users.
 
 ### 3.2 GPU data
 
-Add a GPU cut payload to `uploaded_geometry` (or a sibling object owned by the same geometry
+Add a GPU cut payload to `uploaded_geometry` (or a sibling object held by the same geometry
 lifetime):
 
 - `cut_group`: one record per DAG group: LOD center/radius, error, first child/count, first
@@ -155,7 +155,7 @@ lifetime):
 - `cut_cluster`: one 48-byte meshlet record per DAG cluster, plus producer/consumer ids. The page id
   reuses the record's four-byte padding lane at offset 12, so the 48-byte ABI does not change.
 - `cut_page`: the page table and arena are separate scene descriptors, not a per-cluster parallel
-  array. A record's page id is `page_index + 1`, with 0 meaning the draw's own index buffer.
+  array. A record's page id is `page_index + 1`, with 0 meaning the draw's index buffer.
 - `cut_item`: per-frame item input: model matrix, cut BDA pointers, reservation base/capacity,
   flags, and the page table/arena/request pointers + counts.
 - `cut_scratch`: per-item group coarsen flags and a selected-cluster bitmask/count.
@@ -169,7 +169,7 @@ not rebuilt per frame.
 Use one persistent workgroup per item (items are capped at 4096), with 64 lanes. This follows
 UE's persistent-thread culling shape while keeping the cut in one dispatch:
 
-1. Each lane owns one 32-bit word of the per-item coarsening bitset (64 words cover the
+1. Each lane holds one 32-bit word of the per-item coarsening bitset (64 words cover the
    2048-group host limit). Direct decisions are written as one masked word per lane, so groups
    sharing a word cannot lose each other's updates.
 2. The dependency closure is iterated in group-barrier passes until no decision changes. Each
@@ -368,7 +368,7 @@ set changes only in `apply`. `pack_page_arena` copies encoded section records in
 it does not reinterpret the engine's padded DAG structs.
 
 The device part is implemented in `source/engine/geometry/subtilis_upload.cpp`: an imported
-geometry generation now owns three additional buffers, `scene_page_arena`,
+geometry generation now holds three additional buffers, `scene_page_arena`,
 `scene_page_table`, and `scene_page_requests`. `uploaded_geometry` exposes them with
 `page_arena()`, `page_table()`, `page_requests()`, `page_count()`, and
 `page_request_capacity()`, plus `install_requested_pages(budget, frame)`. Upload leaves only
@@ -384,7 +384,7 @@ whole index window lies in one resident page, otherwise it requests the page(s) 
 `lod0_count` into the item command. The runtime preloads the LOD0 records at `space.base` for every
 GPU-cut item, so that command is a complete coarse fallback rather than a hole. The 48-byte meshlet
 record's former `_pad` is now `page_id`; the raster resolves it through the page table/arena
-descriptor slots and falls back to the draw's own index buffer when it is zero.
+descriptor slots and falls back to the draw's index buffer when it is zero.
 
 The page table and arena are bound once per uploaded generation at
 `render_layout::heap_slots::subtilis_page_table` and `subtilis_page_arena`. This slice is still
@@ -445,7 +445,7 @@ and M5.
 - `source/engine/runtime/runtime.cpp:2183` -- item recording.
 - `source/engine/runtime/runtime.cpp:3143-3164` -- HZB count and indirect command writes.
 - `source/engine/visibility/visibility.cppm:259` -- meshlet run application.
-- `source/engine/geometry/subtilis_upload.cppm:40-78` -- vertex/index ownership.
+- `source/engine/geometry/subtilis_upload.cppm:40-78` -- vertex/index retention.
 - `source/engine/meshlet/meshlet.cppm:64` -- 48-byte meshlet ABI.
 - `source/shaders/scene/visibility.slang:91` -- mesh entry; group count comes from the
   indirect command.

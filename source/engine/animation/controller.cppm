@@ -25,7 +25,7 @@ import deren.utility;
 // `deren::engine::core::MAX_FRAMES_IN_FLIGHT` and got `core` only TRANSITIVELY, through
 // `deren.engine.primitive`'s export import. That import had no other reason to exist and is gone, so the
 // dependency is stated where it belongs - and the two numbers cannot drift: the backend `static_assert`s
-// its own constant against `rhi::max_frames_in_flight`.
+// its constant against `rhi::max_frames_in_flight`.
 import deren.promise.rhi;
 import deren.engine.scene_tree; // scene + node types (pure-CPU scene storage)
 import deren.engine.primitive;  // GPU leaf primitive + scene capacity constants the rigs drive
@@ -39,12 +39,12 @@ import deren.engine.primitive;  // GPU leaf primitive + scene capacity constants
  *        per-slot buffers.
  *
  * The controller never depends on the concrete host class (deren::engine::runtime) NOR on a concrete
- * animation source format: it talks to whatever owns the scene through an injected
+ * animation source format: it talks to whatever holds the scene through an injected
  * backend (callbacks + a scene&), and init() is a TEMPLATE over a source concept - any type
  * exposing the required member shapes (an animations table, a skins table, an asset-node
  * lookup) can drive it. deren::gltf::scenes satisfies the concept and is instantiated at the call
  * site, so this module never imports a loader. Animation data is value-copied into the
- * controller's own format-neutral structures (deren::engine::animation) at init(); playback never
+ * controller's format-neutral structures (deren::engine::animation) at init(); playback never
  * touches the source afterwards.
  *
  * Contract summary (mirrors make_primitive / import_scene / set_ibl):
@@ -92,7 +92,7 @@ namespace deren::engine::animation {
     /** @brief one animation channel: animate one property of a node from a sampler */
     export struct channel {
         channel_path path = channel_path::translation;
-        std::size_t sampler = 0;     // index into the owning clip's samplers
+        std::size_t sampler = 0;     // index into the holding clip's samplers
         std::size_t target_node = 0; // animated node's source index (asset node index)
     };
 
@@ -161,9 +161,9 @@ namespace deren::engine::animation {
     }
 
     // The source concepts are STRUCTURAL over the member shapes below (mirroring how
-    // scene_tree constrains its iterators): a loader satisfies them with its own pure-CPU
+    // scene_tree constrains its iterators): a loader satisfies them with its pure-CPU
     // types, no shared type identity required. The init template converts the read values into
-    // the controller's own structures. Element-level shapes are separate concepts so the
+    // the controller's structures. Element-level shapes are separate concepts so the
     // top-level one stays readable.
 
     /** @brief one sampler of a playable clip: keyframe times + flat values + per-key shape */
@@ -292,7 +292,7 @@ namespace deren::engine::animation {
 
     /**
      * @ingroup engine_animation
-     * @brief plays keyframe animation on a scene tree: owns the playback clock and the
+     * @brief plays keyframe animation on a scene tree: holds the playback clock and the
      *        value-copied clip/skin data, samples the active clip into scene node locals and
      *        rebuilds the per-frame skin matrices + morph weights into the host's per-slot
      *        buffers.
@@ -318,10 +318,10 @@ namespace deren::engine::animation {
          * @param import_instance identity returned by import_scene; when omitted, a scene
          *        with one import identity is inferred (including manually assembled identity zero)
          * @param skin_region_base first skin-matrix block this controller may use (4 for the first
-         *        controller, after the shared identity block; later controllers pass their own
+         *        controller, after the shared identity block; later controllers pass their
          *        disjoint region so several controllers can drive one runtime skin buffer)
          * @param morph_region_base first morph-buffer float this controller may use (0 for the
-         *        first controller; later controllers pass their own disjoint region)
+         *        first controller; later controllers pass their disjoint region)
          * @note call before the first frame, or only while the host is idle (no frame in
          *       flight) - this writes scene buffers/descriptors like make_primitive() does.
          * @note a template: the definition is in this interface so any TU that imports the
@@ -373,7 +373,7 @@ namespace deren::engine::animation {
             // asset-level node table (scenes.node_by_source) instead of iterating per-scene node
             // pools - a node referenced by several scenes has identical copies, and the tree only
             // contains the nodes that were actually imported. The pose is value-copied into the
-            // controller's own node_pose (no source type retained).
+            // controller's node_pose (no source type retained).
             for (auto const& [source, targets] : this->source_nodes) {
                 auto const loader_it = scenes.node_by_source.find(source);
                 if (loader_it == scenes.node_by_source.end()) {
@@ -388,7 +388,7 @@ namespace deren::engine::animation {
             }
 
             // playable table: channel-bearing clips, in source order, VALUE-COPIED into the
-            // controller's own clip structures (samplers/channels converted once, so playback
+            // controller's clip structures (samplers/channels converted once, so playback
             // never touches the source data afterwards); auto-pick the first
             for (auto const& candidate : scenes.animations) {
                 if (candidate.channels.empty()) {
@@ -476,7 +476,7 @@ namespace deren::engine::animation {
                     }
                     std::size_t const first_mesh_rig = this->skin_rigs.size();
                     // The shader multiplies each mesh world by its joint block. Every runtime
-                    // mesh instance therefore needs a block containing its own inverse world.
+                    // mesh instance therefore needs a block containing its inverse world.
                     for (std::size_t const source : mesh_sources) {
                         for (auto const& entry : this->source_nodes.at(source)) {
                             if (loader_skin.joints.size() > deren::engine::scene_skin_capacity - next_block) {
@@ -814,7 +814,7 @@ namespace deren::engine::animation {
         };
         struct skin_rig {
             skin s = {}; // value-copied joints + inverse bind matrices
-            // One runtime mesh instance and its own joint block; readers group these by skin.
+            // One runtime mesh instance and its joint block; readers group these by skin.
             deren::utility::vessel::vector<std::size_t> mesh_sources = {};
             uint32_t block_base = 0; // block start in the skin buffer (after identity)
             deren::engine::scene_tree::scene_node* mesh_node = nullptr;
@@ -824,7 +824,7 @@ namespace deren::engine::animation {
             uint32_t vertex_count = 0;
             uint32_t target_count = 0;
             uint32_t morph_base = 0; // float index into the morph buffer
-            std::size_t source = 0;  // owning loader node (weights channel target)
+            std::size_t source = 0;  // holding loader node (weights channel target)
             // baked rest weights (target_count floats): written when no clip animates this
             // source's weights, so a previous clip's weights cannot linger after a clip switch
             deren::utility::vessel::vector<float> default_weights = {};
@@ -834,9 +834,9 @@ namespace deren::engine::animation {
         backend host; // injected host surface (scene + callbacks); scene == nullptr when unbound
         glm::vec3 import_shift{};
         uint64_t import_id = 0;
-        uint32_t skin_region_base = 4;     // first skin block owned by this controller
+        uint32_t skin_region_base = 4;     // first skin block held by this controller
         uint32_t skin_blocks_used = 0;     // blocks allocated by init() in that region
-        uint32_t morph_region_base = 0;    // first morph float owned by this controller
+        uint32_t morph_region_base = 0;    // first morph float held by this controller
         std::size_t morph_floats_used = 0; // floats allocated by init() in that region
         // whether this scene's animation is heavy enough to fan sampling out over the backend's
         // shared task pool (many channels over many sources): decided in init(), used by update()

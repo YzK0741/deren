@@ -14,13 +14,13 @@
 // `// MISSING:` plus a documented fallback, and every substituted frame/coordinate is called a BRIDGE.
 //
 // LINE NUMBERS: every `HLSL nnn` below is a line of `hair_forward_spirv_decompiled.hlsl` AS CHECKED IN. That
-// file's provenance header adds 21 lines before its `struct _22`, so the provenance header's own KEY SITES are
+// file's provenance header adds 21 lines before its `struct _22`, so the provenance header's KEY SITES are
 // +21 here: its "450 normal reconstruction" is line 471, its "994-996 P/diffuse/F0" is 1015-1017, its
 // "1047-1052 the two lobes and the line/stroke weighting" is 1068-1073, and its "1391 the summed anisotropic
 // highlight" is 1412 - the per-light accumulation of the SAME lobe inside the mesh-light loop (see the notes'
 // uncovered table; the single-sun form ported here is the one at HLSL 1073).
 //
-// THE BINDINGS: the decompiled file names its textures `t1`..`t46`, but its own header says those numbers are
+// THE BINDINGS: the decompiled file names its textures `t1`..`t46`, but its header says those numbers are
 // VULKAN DESCRIPTOR BINDINGS that spirv-cross re-emitted as t-slots, NOT D3D `_BaseMap`-style t registers - and
 // the `t-register-anchors.tsv` artefact records that the numbers are PER-VARIANT. Every texture below is
 // therefore matched by WHAT ITS SAMPLE FEEDS and by the per-material table's BYTE OFFSETS (`hair-reflection.tsv`,
@@ -32,11 +32,11 @@
 //   * `_LineMap` / `_LineMap_ST` / `_LineAmount` / `_LineValue` / `_LineRange` / `_LineIntensity` /
 //     `_LineSaturation` / `_UseLineMap` - the authored strand-line map and its seven scalars. deren's toon lanes
 //     carry the ramp, shadow LUT, spec ramp, matcap, metallic/gloss, the face SDF set and the split normal, and
-//     NOT these (see `deren::engine::toon_slot`). The fallback is the shader's OWN no-map degeneration
+//     NOT these (see `deren::engine::toon_slot`). The fallback is the shader's no-map degeneration
 //     (`_UseLineMap = 0` leaves the UV stripe pattern) with the scalars recorded from the game's material row
 //     for this asset's character (`M_actor_laevat_hair_01`).
 //   * `_StrokeMap` / `_StrokeMap_ST` / `_StrokeScale` - same absence; with no map the offset term collapses to
-//     its own neutral 0, which is the state the reference hair rows are in (`_StrokeOn = 0`).
+//     its neutral 0, which is the state the reference hair rows are in (`_StrokeOn = 0`).
 //   * `_AnisotropyValue` / `_AnisotropyValue2` / `_AnisotropyIntensity` / `_AnisotropyRange2` /
 //     `_AnisotropyEdgeFade` / `_AnisotropyColor2` / `_AnisotropyDirX` - per-material hair scalars with no deren
 //     lane; recorded from the same material row (chen's row is recorded in the notes for comparison).
@@ -49,7 +49,7 @@
 //
 // DELIBERATE BRIDGES (each a difference from the game, not a claim of equality):
 //   * `_ScreenSpaceShadowMask` (HLSL 1031, the t22 `Load`) -> deren `calc_shadow`, sharpened by the hair
-//     family's own `center`/`softness`. This is the approved "keep deren's shadow" boundary: the game's mask is
+//     family's `center`/`softness`. This is the approved "keep deren's shadow" boundary: the game's mask is
 //     the deferred pass's, and this stage has no screen-space shadow resource.
 //   * the game's vertex tangent frame `_6` and its `cross(_5, _6.xyz) * _6.w` bitangent -> `surface_tbn`'s
 //     UV-derivative frame, with the same Unity/glTF tangent-space Y flip `game_toon_cloth_shade` documents (the
@@ -58,7 +58,7 @@
 //     vector and for the edge-fade dot -> WORLD space, because deren's fragment path has no object basis and
 //     every character in this repository is Y-up in world space (replacing the world Y is therefore the same
 //     arithmetic the game performs with the object's up axis).
-//   * `_AnisotropyDirX`'s object-space direction (HLSL 486-489) -> the surface's own derivative tangent,
+//   * `_AnisotropyDirX`'s object-space direction (HLSL 486-489) -> the surface's derivative tangent,
 //     blended toward the derivative bitangent by the P map's R mask - the same tangent-plane direction the
 //     game's two cross products build. The object-space `(dirX, 1, 0)` the game rotates cannot be reproduced.
 //   * `_ShadowColorBrightness` / `_ShadowColorSaturation` (HLSL 464-465) -> the family's
@@ -75,7 +75,7 @@
 // THE NAMED FALLBACKS. Each is a value the game states per material (byte offsets below are the `_51_mN` slots of
 // the decompiled cbuffer, mapped through `hair-reflection.tsv`'s 464-byte UnityPerMaterial layout) and deren does
 // not carry; they are constants rather than literals so a Lead A/B is one edit and the provenance stays next to
-// the number. THE VALUES ARE `M_actor_laevat_hair_01`'s OWN ROW from the game's material table -
+// the number. THE VALUES ARE `M_actor_laevat_hair_01`'s ROW from the game's material table -
 // `_npr_package_20260925/_npr_recon/character/params/material-params.tsv` - i.e. the character this port is
 // compared on, not a generic default. Another character's hair states different values (chen's row is in the
 // notes); a per-material lane is the edit that stops this being one row for every hair material.
@@ -118,11 +118,11 @@ static const float game_hair_line_intensity = 0.22;
 /// MISSING: no deren lane; 1.5 is the laevat hair row.
 static const float game_hair_line_saturation = 1.5;
 /// `_535 = (stroke.x * 2 - 1) * _StrokeScale` (HLSL 474, bytes 256/232): the stroke map's tilt of the lobes'
-/// normals. MISSING: no lane and no stroke map. 0.0 is the term's own neutral (a stroke texel of 0.5, and the
+/// normals. MISSING: no lane and no stroke map. 0.0 is the term's neutral (a stroke texel of 0.5, and the
 /// `_StrokeScale = 0` state chen's hair row is in); the laevat row's 0.2 arrives with `_StrokeOn = 0`.
 static const float game_hair_stroke_offset = 0.0;
 /// `_1975 = _1261 + 2 * _662` (HLSL 953): the strand block's gain on BOTH lobes. MISSING: the block at
-/// HLSL 675-971 that produces it needs the game's extra vertex streams. 1.0 is the neutral of its shape
+/// HLSL 675-971 that produces it needs the game's extra vertex streams. 1.0 is the separate neutral shape
 /// (`_1261 + 0.8 * _662` with the block's mask zero), so the lobes keep the program's form without its gain.
 static const float game_hair_strand_gain = 1.0;
 /// `_20_m92.w` (HLSL 1073): the per-frame specular scale on the summed highlight. MISSING: deren's light model
@@ -130,7 +130,7 @@ static const float game_hair_strand_gain = 1.0;
 static const float game_hair_pass_specular_scale = 1.0;
 
 /// The hair's sky-diffuse bridge is multiplied by this when comparing against the reference/goo_ton emission.
-/// The game's own environment term is the 3D integrated-light-scattering volume (HLSL 1452-1504), which deren
+/// The game's environment term is the 3D integrated-light-scattering volume (HLSL 1452-1504), which deren
 /// does not carry; the spherical-harmonics sky bridge under-reads the reference's hair brightness (measured mean
 /// RGB over the hair crop: v2 [112.6,75.4,94.0] vs goo [121.1,80.9,99.6]). This is a CALIBRATION BRIDGE, not
 /// the game's value: the game's missing volume is the real cause, and this factor is only here so the A/B is
@@ -163,7 +163,7 @@ float3 game_toon_hair_shade(surface_sample s, float3 world_pos, float3 geo_norma
     // (`toon_lanes_at(...).y`, `toon_slot::metallic_gloss`) is the equivalent carrier, uploaded as UNORM so
     // the raw numbers survive - and `character_forward.slang` already records that hair's `.x` is a strand
     // mask and NOT metallic (HLSL 1015 below folds metallic to zero anyway).
-    // THE FALLBACK IS THE CHAIN'S OWN RULE for a material with no P lane: the family's `reflectivity` /
+    // THE FALLBACK IS THE CHAIN'S RULE for a material with no P lane: the family's `reflectivity` /
     // `roughness` and unoccluded/unglossed neutrals, not a baked texel. On `chars\laevatain_goo.glb` the hair
     // material states no `_MetallicGlossMap` sidecar row (its game-sidecar rows are the Goo chain's), so this
     // is the live path on the reference asset.
@@ -207,7 +207,7 @@ float3 game_toon_hair_shade(surface_sample s, float3 world_pos, float3 geo_norma
     }
     // HLSL 484-485: `_576 = gl_FrontFacing ? 1 : (-1 + 2 * _BackFaceNormalFlip)`, applied to both `_577` (the
     // shading normal) and `_578` (the geometric one). deren's version of that statement is the model's
-    // double-sided flag (bit3), which is what a glTF file states; `_BackFaceNormalFlip`'s own 0/1 has no lane.
+    // double-sided flag (bit3), which is what a glTF file states; `_BackFaceNormalFlip`'s 0/1 has no lane.
     if ((mat.flags & 8u) != 0u && !is_front) {
         normal = -normal;
     }
@@ -231,8 +231,8 @@ float3 game_toon_hair_shade(surface_sample s, float3 world_pos, float3 geo_norma
     // ---- THE SHADOW (HLSL 1031-1033) ----
     //
     // The game reads the deferred pass's `_ScreenSpaceShadowMask` (t22) at the fragment's pixel: `_2180` is its
-    // `.y` and `_2183` its `.x` through the light's own shadow strength. deren's equivalent input is
-    // `calc_shadow`, and the hair family's own edge (`center`/`softness`: a strand's terminator is a drawn
+    // `.y` and `_2183` its `.x` through the light's shadow strength. deren's equivalent input is
+    // `calc_shadow`, and the hair family's edge (`center`/`softness`: a strand's terminator is a drawn
     // line, 0.52/0.015) sharpens it into the game's hard hair shadow. This is the approved "keep deren's
     // shadow" boundary rather than a tuned sign.
     const float shadow_scene = saturate(smoothstep(params.center - params.softness,
@@ -267,7 +267,7 @@ float3 game_toon_hair_shade(surface_sample s, float3 world_pos, float3 geo_norma
     const float no_l = dot(normal, light_dir);                                               // `_2184`
     const float2 light_xz = normalize(flat_light.xz + float2(1.0e-6, 0.0));
     const float2 camera_xz = normalize(camera_forward.xz + float2(1.0e-6, 0.0));
-    // `_2209 = clamp(-dot(_2152.xz, normalize(_625.xz)), 0, 1)` and the camera's own
+    // `_2209 = clamp(-dot(_2152.xz, normalize(_625.xz)), 0, 1)` and the camera's
     // `smoothstep(0.25, 0.75, 1 - abs(_625.y))`; `_2213 = 1 - _20_m91.x` is a per-frame weight with no deren
     // lane and is resolved to its neutral 1 here.
     const float back_light = saturate(-dot(light_xz, camera_xz)) *
@@ -280,7 +280,7 @@ float3 game_toon_hair_shade(surface_sample s, float3 world_pos, float3 geo_norma
     float ramp_alpha_nof = 1.0;
     if (s.toon_indices.x != 0u) {
         // `_54` (HLSL 1040/1046) is `_DiffRampMap`; deren's lane 0 is that same map. The game's V is 0.5
-        // (HLSL 1040) - a single-row 256x1 image whose only texel both coordinates reach - and deren's own band
+        // (HLSL 1040) - a single-row 256x1 image whose only texel both coordinates reach - and deren's band
         // constant lands on that texel too (see `character_ramp_band_v`).
         const float4 ramp_nol = heap_texel(heap_at<Texture2D<float4>>(scene_texture_base() + s.toon_indices.x),
                                            heap_sampler_texture, float2(ramp_u, character_ramp_band_v));
@@ -290,8 +290,8 @@ float3 game_toon_hair_shade(surface_sample s, float3 world_pos, float3 geo_norma
                                     heap_sampler_texture, float2(no_f, character_ramp_band_v)).w; // `_2246`
     } else {
         // MISSING: `chars\laevatain_goo.glb`'s hair material states no `_DiffRampMap` sidecar row (the game's
-        // own hair rows always name one), so the lane is empty while the game reads it unconditionally.
-        // FALLBACK: the family's own procedural edge (the same shape the cloth path uses for a no-ramp
+        // the hair rows always name one), so the lane is empty while the game reads it unconditionally.
+        // FALLBACK: the family's procedural edge (the same shape the cloth path uses for a no-ramp
         // material) with a NEUTRAL ramp colour, so the ramp's colour term below is an identity - no invented
         // tint replaces the artist's map.
         const float ramp_edge = smoothstep(params.center - params.softness, params.center + params.softness, ramp_u);
@@ -299,7 +299,7 @@ float3 game_toon_hair_shade(surface_sample s, float3 world_pos, float3 geo_norma
         ramp_alpha_nol = ramp_edge;
         ramp_alpha_nof = smoothstep(params.center - params.softness, params.center + params.softness, no_f);
     }
-    // `_2237`: the ramp's own chroma is how much of its colour reaches the result (HLSL 1045).
+    // `_2237`: the ramp's chroma is how much of its colour reaches the result (HLSL 1045).
     const float ramp_colour_strength = max(max(ramp_colour.x, ramp_colour.y), ramp_colour.z) -
                                        min(min(ramp_colour.x, ramp_colour.y), ramp_colour.z);    // `_2237`
     // The lit/dark layer selector with the ramp's alpha in it: `_2254` (HLSL 1050) AND `_2247`/`_2255`
@@ -344,7 +344,7 @@ float3 game_toon_hair_shade(surface_sample s, float3 world_pos, float3 geo_norma
     // `lerp(1, ramp_colour, chroma)`, the same expression the cloth path writes as `ramp_effect`.
     const float ramp_mix = clamp(ramp_colour_strength * params.ramp_colour_strength, 0.0, 1.0);
     const float3 coloured_mix = albedo_mix * lerp(float3(1.0, 1.0, 1.0), ramp_colour, ramp_mix);   // `_2292`
-    // `_2301`'s ramp control: the albedo's own luminance over the coloured one's, clamped at 1.5.
+    // `_2301`'s ramp control: the albedo's luminance over the coloured one's, clamped at 1.5.
     const float ramp_control = clamp(toon_luminance(albedo_mix) / max(toon_luminance(coloured_mix), 0.001), 0.0, 1.5);
     // `_2301`: the dark layer vs the 1.2x-contrast lit layer by the ramp/AO/shadow weight, then the ramp-
     // coloured albedo by the SHADOW (`_2183`), which is what makes the terminator hard.
@@ -356,7 +356,7 @@ float3 game_toon_hair_shade(surface_sample s, float3 world_pos, float3 geo_norma
     //
     // BRIDGE: HLSL 1053/1057 build `_2285` (the light's colour) from per-frame globals the game's engine writes
     // (`_20_m79`, `_20_m84`..`_20_m92`); deren carries the same split in the toon rig, so this is the
-    // `game_toon_cloth_shade` construction of `main_light_final` with the hair path's own shadow selector.
+    // `game_toon_cloth_shade` construction of `main_light_final` with the hair path's shadow selector.
     const float other_strength = rig.day.z > 0.0 ? rig.day.z : 1.0;
     const float3 main_light_colour_dark = rig.main_dark.rgb;
     const float3 main_light_color_strength = float3(toon_luminance(sun_colour * main_light_colour_dark));
@@ -376,7 +376,7 @@ float3 game_toon_hair_shade(surface_sample s, float3 world_pos, float3 geo_norma
     const float3 v_shift = float3(view_dir.x, lerp(0.5, light_dir.y, shadow_scene), view_dir.z);  // `_2319`
     const float3 half_basis = normalize(light_dir * shadow_scene + 2.0 * v_shift);                // `_2329`
     const float3 half_dir = normalize(half_basis + view_dir);                                     // `_2333`
-    // `_2328` / `_2363` / `_2403`: the strand direction tilted out of the plane by each lobe's own parameter.
+    // `_2328` / `_2363` / `_2403`: the strand direction tilted out of the plane by each lobe's parameter.
     // The stroke map's `_535` offset is added here - it is `game_hair_stroke_offset` with no stroke lane.
     const float3 lobe_normal_1 = normalize(strand + normal * (2.0 * game_hair_anisotropy_value - 1.0 +
                                                               game_hair_stroke_offset));           // `_2328`
@@ -402,7 +402,7 @@ float3 game_toon_hair_shade(surface_sample s, float3 world_pos, float3 geo_norma
     // HLSL 1072's `lerp(ceil(clamp(frac(uv.x * _LineAmount) - 0.5, 0, 1)), 1 - _LineMap.x, _UseLineMap)` is
     // the line pattern, and `_535 = (stroke.x * 2 - 1) * _StrokeScale` (HLSL 474) is the stroke offset already
     // applied to the lobe normals above.
-    // MISSING both maps (see the header): the pattern falls back to the program's OWN no-map statement
+    // MISSING both maps (see the header): the pattern falls back to the program's no-map statement
     // (`_UseLineMap = 0` leaves the UV stripe pattern) and the stroke offset to its neutral.
     const float line_pattern = ceil(clamp(frac(uv.x * game_hair_line_amount) - 0.5, 0.0, 1.0));   // HLSL 1072
     const float line_band = lerp(1.0 - game_hair_line_intensity, 1.0, line_pattern);              // `_51_m47` arm
@@ -439,13 +439,13 @@ float3 game_toon_hair_shade(surface_sample s, float3 world_pos, float3 geo_norma
                                  lerp(game_hair_line_saturation, 1.0, line_weight));              // `_2429`
     // `_2472 = (1 - alpha * _DiffuseBlendEffect) + alpha`, i.e. `1 - effect * (1 - alpha)`, and
     // `_2474 = _2429 * _2472 + _2421 * _1978 + (_2429 + _2421) * _1977`. THE TWO STRAND-BLOCK FACTORS ARE THE
-    // BYPASS ARM'S VALUES: `_1978 = 1.0` and `_1977 = 0.0` (HLSL 963-971), which is the program's own "block
+    // BYPASS ARM'S VALUES: `_1978 = 1.0` and `_1977 = 0.0` (HLSL 963-971), which is the program's "block
     // not taken" state - the block needs the game's extra vertex streams (MISSING, see the header).
     const float diffuse_specular_blend = 1.0 - rig.env.w * (1.0 - albedo_alpha);                 // `_2472`
     float3 result = diffused * diffuse_specular_blend + highlight;                                // `_2474`
 
     // HLSL 1081-1082: `_2475 = luma(_2474)`, `_2478 = clamp(_2475 - 0.5, 0, 0.5)`, and the colour is lerped
-    // from its own luminance by `_2478^2 + 1` - a contrast lift around mid-grey, not a tone map.
+    // from its luminance by `_2478^2 + 1` - a contrast lift around mid-grey, not a tone map.
     const float result_luma = toon_luminance(result);                                             // `_2475`
     const float luma_lift = clamp(result_luma - 0.5, 0.0, 0.5);                                   // `_2478`
     result = lerp(float3(result_luma), result, luma_lift * luma_lift + 1.0);                      // `_2621` first term
@@ -457,7 +457,7 @@ float3 game_toon_hair_shade(surface_sample s, float3 world_pos, float3 geo_norma
     // approximated here. deren's sky DIFFUSE is added on the same terms as every other family - an explicit
     // bridge, not the game's formula. deren's sky SPECULAR is offered through the family's IBL switch
     // (`params.ibl_specular_strength`, 0 for hair), so it is present but off at the shipped numbers; the game's
-    // own environment specular is the volume term that is missing.
+    // the environment specular is the volume term that is missing.
     const float3 ambient_bridge = environment_irradiance(normal) * albedo * ao_mask * params.ambient_strength *
                                   game_hair_ambient_scale;
     const float env_lod = log2(max(0.01, 1.0 - smoothness)) * 1.2 + 5.0;

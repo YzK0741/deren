@@ -29,7 +29,7 @@ find_package(Vulkan REQUIRED)
 # COMPILER DIALECT - the one place a GNU/Clang spelling and an MSVC spelling are told apart.
 #
 # Everything downstream consumes these flag sets by NAME (COMPILE_OPTIONS, VR_*), so no target grows a
-# compiler test of its own: a dialect question is answered here, once. Applied to every first-party C++
+# the compiler test: a dialect question is answered here, once. Applied to every first-party C++
 # target via a single foreach (see "compile options" further down). Per-config additions ride on the
 # DEFAULT per-config flags (Release already adds -O3 -DNDEBUG, Debug -g), so only the extras the
 # defaults do not cover are listed - duplicating them here AND in the defaults would put -O3 / -g on
@@ -62,7 +62,7 @@ find_package(Vulkan REQUIRED)
 #                                       toolchains now ship against a shared C++ runtime.)
 # =============================================================================================
 
-# Tuning target for Release. -march=native is right for a build on your own machine and wrong for an
+# Tuning target for Release. -march=native is right for a build on your machine and wrong for an
 # artifact someone else downloads: a binary tuned for the building CPU can die with SIGILL on an older
 # one, which is the opposite of what the single-file Release build is for. CI publishes the executable
 # (see .github/workflows/ci.yml), so it configures with -DVR_NATIVE_ARCH=OFF to get a baseline.
@@ -113,7 +113,7 @@ else()
             -Wextra
             -Werror
             -Wno-reserved-module-identifier
-            # One spelling per flag: Debug already gets -g from CMake and its own frame pointer above,
+            # One spelling per flag: Debug already gets -g from CMake and its frame pointer above,
             # Release already gets -O3 from CMake. Diagnostics only ADD what those defaults do not cover.
             $<$<AND:$<BOOL:${VR_DIAGNOSTICS}>,$<CONFIG:Release>>:-g>
             $<$<AND:$<BOOL:${VR_DIAGNOSTICS}>,$<NOT:$<CONFIG:Debug>>>:-fno-omit-frame-pointer>
@@ -141,7 +141,7 @@ include(source/configuration/configuration.cmake)
 include(source/asset_library/asset_library.cmake)
 
 
-# The portable engine owns scene storage, animation, render passes and the runtime.
+# The portable engine holds scene storage, animation, render passes and the runtime.
 # Graphics implementations live in source/backends/vulkan and are loaded by the
 # engine through the RHI/GUI contracts, without linking their import libraries.
 # Keep portable layout definitions in a separate shared target used by both halves.
@@ -154,7 +154,7 @@ include(source/backends/vulkan/vulkan.cmake)
 #
 # `source/engine/runtime/` at the repository root IS the renderer runtime. It reaches the backend ONLY through the
 # contract (`deren_make_api_core()` + `rhi::api_core` + the raw-handle escape) and never names `core`.
-# `source/engine/runtime/` - the runtime that DID name it and that lived inside the backend's own directory -
+# `source/engine/runtime/` - the runtime that DID name it and that lived inside the backend's directory -
 # is deleted with this batch. See docs/dynamic_runtime.md for the design.
 #
 # THE `-DVR_RUNTIME=legacy|dynamic` OPTION IS RETIRED WITH THOSE FILES, and that is the honest shape
@@ -182,7 +182,7 @@ set(VR_RUNTIME_MODULES
 set(VR_RUNTIME_PRIVATE_SOURCES
     source/engine/runtime/runtime.cpp
 )
-# The two places the app owns, named once so the target lists below read the same everywhere.
+# The two places the app holds, named once so the target lists below read the same everywhere.
 set(VR_FULL_API_TARGETS deren app_support)
 set(VR_APP_EXE deren)
 
@@ -215,7 +215,7 @@ include(source/app/app.cmake)
 #
 # WHAT THIS COSTS: the shipped exe now needs libc++.dll beside it or on PATH - the single-file
 # Release build is gone. Measured on MSYS2 clang64: libc++.dll 1659392 B, and it is the ONLY
-# added file (libc++.dll's own imports are KERNEL32 plus the UCRT api-ms-win-crt-* set, and
+# added file (libc++.dll's imports are KERNEL32 plus the UCRT api-ms-win-crt-* set, and
 # neither image imports libunwind.dll, so that 63488 B copy in the toolchain is not needed).
 # The exe itself got smaller: 3719168 -> 3139072 B.
 #
@@ -311,7 +311,7 @@ add_dependencies(test_submission_completion deren_vulkan)
 
 # ---- THE ACCELERATION-STRUCTURE DEVICE PROBE (plan S1's P0) ------------------------------------------
 #
-# The default mode runs CPU ownership/allocation checks and belongs to VR_TEST_TARGETS.
+# The default mode runs CPU retention/allocation checks and belongs to VR_TEST_TARGETS.
 # --with-device additionally exercises the three-vertex Vulkan instrument. Keep that executable
 # available when headless tests are disabled, without registering or creating the target twice.
 if(NOT TARGET test_acceleration_structures)
@@ -349,19 +349,19 @@ include(source/backends/vulkan/gui/gui.cmake)
 # MSVC branch's dialect table is written against, so a silent omission would have meant an MSVC-only
 # difference nobody could see.
 #
-# THE RULE IS NOW INVERTED - COVERED UNLESS EXCLUDED. `BUILDSYSTEM_TARGETS` is the directory's own
+# THE RULE IS NOW INVERTED - COVERED UNLESS EXCLUDED. `BUILDSYSTEM_TARGETS` is the directory's
 # list of targets, read here after every target in this file exists, so a new first-party target is
 # covered the moment it is added. The ONLY opt-out is VR_VENDORED_TARGETS, and it is policy rather
 # than oversight: imgui / fastgltf+simdjson / xxhash / mimalloc are upstream code whose warnings this
-# project does not own, which is why they get their own Release-only set below instead of the
-# project's -Werror set (see their targets above). Targets that compile nothing of their own are
+# project does not hold, which is why they get their Release-only set below instead of the
+# project's -Werror set (see their targets above). Targets that compile nothing separate are
 # skipped by TYPE - INTERFACE libraries (the glm/glfw/stb headers) and custom targets (shaders,
 # clang-format, check-backend-boundary).
 #
-# THE PER-TARGET EXCEPTIONS STAY EXPLICIT further down, each with its own measured reason: vstd_lib's
+# THE PER-TARGET EXCEPTIONS STAY EXPLICIT further down, each with its measured reason: vstd_lib's
 # /wd4996 (MSVC re-export of deprecated STL names), deren_assets' -Wno-unused-parameter (vendored
 # fastgltf templates under -fno-exceptions), app_config's -fno-sanitize=float-cast-overflow (toml++'s
-# own UB), and -fno-sanitize=all on the two images that cannot be instrumented (deren_vulkan,
+# intrinsic UB), and -fno-sanitize=all on the two images that cannot be instrumented (deren_vulkan,
 # probe_backend). Every one of them is a flag this project-wide set must NOT carry.
 #
 # VERIFIED FLAG-NEUTRAL: `ninja -t commands` before and after the refactor differs on exactly one
@@ -392,11 +392,11 @@ unset(_deren_type)
 # vstd re-exports the standard library's surface, which necessarily includes the names C++17/20/23
 # deprecated (std::iterator, std::wbuffer_convert/wstring_convert, std::rel_ops, std::is_pod,
 # std::aligned_storage/aligned_union, std::float_denorm_style). MSVC's STL announces each of those
-# through C4996, so with the MSVC branch's /W4 /WX the module cannot compile its own re-exports:
+# through C4996, so with the MSVC branch's /W4 /WX the module cannot compile its re-exports:
 # measured 11 C4996 in source/vstd/std/{iterator(245),limits(12),locale(73,76),type_traits(338,340,342),
 # utility(94-97)}.inc, the first of which becomes `error C2220: warnings treated as errors` and stops
 # the build. Suppressed for vstd_lib ONLY - every other target keeps the full /W4 /WX set, so this
-# costs the project's own code nothing. The alternative MSVC offers (_SILENCE_ALL_CXX2x_*_WARNINGS
+# costs the project's code nothing. The alternative MSVC offers (_SILENCE_ALL_CXX2x_*_WARNINGS
 # defines) is STL-specific and would also stop this layer from noticing a real future deprecation.
 if(MSVC)
     target_compile_options(vstd_lib PRIVATE /wd4996)
@@ -588,14 +588,14 @@ endif()
 # module's global module fragment - including it there made libc++'s operator new ambiguous in every
 # TU that imported `deren.utility`. One file per platform facility; the module side only sees their C
 # entry points (see source/utility/platform_sleep.cpp, platform_path.cpp and platform_dialog.cpp). They are
-# per-half (no state), so they live in static_utility; shared_utility has its own plain TU for the
+# per-half (no state), so they live in static_utility; shared_utility has its plain TU for the
 # process-wide rotation claim (source/utility/shared/log_rotation_claim.cpp), kept there for the same reason.
 target_sources(static_utility PRIVATE
         source/utility/platform_sleep.cpp
         source/utility/platform_path.cpp
         source/utility/platform_dialog.cpp
 )
-# ---- SLANG -> SPIR-V: the build owns the step (docs/slang_migration.md) ----
+# ---- SLANG -> SPIR-V: the build holds the step (docs/slang_migration.md) ----
 # Editing a .glsl without recompiling used to leave you running stale SPIR-V ("my shader change does
 # nothing"), so the compiled binaries are no longer committed and are never hand-synced: every build
 # regenerates them from the sources (and the shared includes they pull in). SLANGC IS REQUIRED rather
@@ -622,7 +622,7 @@ set(VR_SHADER_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
 # The Vulkan SDK ships slangc in Bin/ and sets VULKAN_SDK when its environment script is sourced, but
 # that directory is not necessarily on PATH - notably in an MSVC build, where the developer shell
 # (Enter-VsDevShell) sets up the compiler and knows nothing about Slang. HINTS are searched BEFORE the
-# system PATH, so the SDK's own slangc wins over a stale copy elsewhere, and an already-cached
+# system PATH, so the SDK's slangc wins over a stale copy elsewhere, and an already-cached
 # VR_SLANGC_EXECUTABLE is left alone (which is what keeps the clang64 build's command lines unchanged).
 find_program(VR_SLANGC_EXECUTABLE NAMES slangc slangc.exe
         HINTS "$ENV{VULKAN_SDK}/Bin" "${Vulkan_ROOT}/Bin" "${Vulkan_DIR}/../Bin")
@@ -724,7 +724,7 @@ set(VR_SHADER_INCLUDES
     # `test_shader_sources` requires every `#include` found in source/shaders/ to be listed here, which is what would
     # have caught the omission: an unlisted include leaves STALE SPIR-V that nothing but a byte comparison sees.
     "${VR_SHADER_SRC_DIR}/toon/character_forward.slang"
-    # goo_toon.slang IS INCLUDED BY THE REWRITTEN CHAIN'S OWN STAGE, and it is listed here for the SAME reason
+    # goo_toon.slang IS INCLUDED BY THE REWRITTEN CHAIN'S STAGE, and it is listed here for the SAME reason
     # character_forward.slang is one line above: `source/shaders/toon/goo_toon.slang` includes it for `toon_diffuse` (the old
     # body every non-iris family is still shaded by), so editing it must rebuild `goo_toon.frag.spv` as well -
     # otherwise the old chain's fix lands in one .spv and not the other, which is a difference between two stages
@@ -782,14 +782,14 @@ set(VR_SLANG_SOURCES
     # goo_toon.slang is THE REWRITTEN TOON CHAIN's fragment stage: the same geometry, the same pass and the same
     # frame as the entry above, with the shading model replaced by the one XIYAG's Goo node presets describe
     # (see build-release-clang64/deren-ab/goo_toon_plan.md). ITS ENTRY IS `goo_toon_frag_main`, NOT `main`, for the
-    # reason `outline.slang`'s is: it INCLUDES character_forward.slang, which brings that file's own
+    # reason `outline.slang`'s is: it INCLUDES character_forward.slang, which brings that file's
     # `[shader("fragment")] main` with it, and a plain `-entry main` then names an overload set that Slang refuses
     # to resolve (E38000). It is selected at run time by `[render] goo_toon` - OFF by default, so none of the ten
     # capture scenarios draws it, and its landing is behaviour-neutral until a run asks for it.
     # game_toon.slang is THE GAME-SHADER TOON MODEL's fragment stage. Same pass, same frame and same
     # state as the two entries above; only the fragment module differs, selected by `[render]
     # game_toon` (OFF by default). Its entry is `game_toon_frag_main`, not `main`, for the same reason
-    # goo_toon's is: it includes character_forward.slang, which brings that file's own
+    # goo_toon's is: it includes character_forward.slang, which brings that file's
     # `[shader("fragment")] main` with it, and a plain `-entry main` names an overload set Slang
     # refuses (E38000). PHASE 1 IS THE PLUMBING MILESTONE: the entry still calls the shared body, so
     # selecting it draws the old chain's pixels while config/pipeline/GUI are proven.
@@ -798,15 +798,15 @@ set(VR_SLANG_SOURCES
     # gated by the SAME `character_forward` feature, so no capture scenario records it either.
     toon/toon_screen_rim.slang:main:fragment:toon_screen_rim.frag.spv
     # game_toon_depth_rim.slang is THE GAME CHAIN's rim: the same fullscreen additive depth-contour shape as
-    # toon_screen_rim.slang above, but family-independent and coloured by ITS OWN push block, because the game
+    # toon_screen_rim.slang above, but family-independent and coloured by its push block, because the game
     # chain's profile-on contour is the captured viewer's hair/face rim rather than the article's family term.
     # It is gated at the post-graph lane by `runtime::game_toon_active()`, so no capture scenario records it
     # unless one selects the game-shader model.
     toon/game_toon_depth_rim.slang:main:fragment:game_toon_depth_rim.frag.spv
-    # goo_rim.slang is THE REWRITTEN CHAIN'S rim, and it is a stage of its own for the constraint its header
+    # goo_rim.slang is THE REWRITTEN CHAIN'S rim, and it is A separate stage for the constraint its header
     # records: the reference's rim is a PRODUCT of three attenuations and a screen-space depth factor, and the
-    # depth it samples is the character-forward stage's own ATTACHMENT - so the surface shader cannot compute it.
-    # It is gated by `[render] goo_toon` (through a name the chain owner composes), so, like the two entries above,
+    # depth it samples is the character-forward stage's ATTACHMENT - so the surface shader cannot compute it.
+    # It is gated by `[render] goo_toon` (through a name the chain holder composes), so, like the two entries above,
     # no capture scenario records it until one turns the rewritten chain on.
     # overlay.slang is the article's TWO FRAMEBUFFER MULTIPLIES (an eye shadow and a hair shadow), drawn by the
     # `character_forward` stage's overlay group with the multiply blend and gated by that same feature - so, like
@@ -868,7 +868,7 @@ set(VR_SLANG_SOURCES
     # software_visibility.slang / software_merge.slang are THE SOFTWARE RASTER'S TWO PASSES (M4 Task 2,
     # docs/superpowers/specs/2026-10-22-software-raster-design.md): the tiled compute stage that writes the private
     # R32_UINT depth/id pair (one 8x8 workgroup per 16x16 CSR tile), and the depth-only fullscreen merge that folds it
-    # into the frame's G-buffer depth with LESS_OR_EQUAL + depth write. Both build their own pipelines from these
+    # into the frame's G-buffer depth with LESS_OR_EQUAL + depth write. Both build their pipelines from these
     # modules through pass_context::shader, so they are registered (app_pipelines.cpp) as well as compiled; the merge file has
     # TWO entries. Task 2 lands the entry points; Task 3 fills the tiled walk and the SV_Depth value.
     scene/software_visibility.slang:main:compute:software_visibility.comp.spv
@@ -889,7 +889,7 @@ set(VR_SLANG_SOURCES
     # ... and the outline's FRAGMENT stage, which shades that hull with the G-buffer normal of the surface
     # BEHIND it (the author's `MyZmdOutlineShader.shader:196-198`). ITS ENTRY IS `frag_main`, NOT `main`, and the
     # reason is measured rather than stylistic: it INCLUDES character_forward.slang for `toon_diffuse`, which
-    # brings that file's own `[shader("fragment")] main` with it, and Slang then refuses to resolve a plain
+    # brings that file's `[shader("fragment")] main` with it, and Slang then refuses to resolve a plain
     # `-entry main` at all (E38000, "no function found matching entry point name 'main'") because the name is an
     # overload set. One file with several distinctly-named entries is this repository's existing shape
     # (`post.slang`'s `frag_main`, `heap_probe.slang`'s three), and the .spv name - which is what the host loads
@@ -897,9 +897,9 @@ set(VR_SLANG_SOURCES
     toon/game_toon/captured/outline.slang:game_toon_outline_frag_main:fragment:outline.frag.spv
     # shadow.slang shares no body: the material table and the albedo fetch through the shim's accessors
     # (`material_at`, `heap_sample`), and the entry returns void because a depth-only stage has no output.
-    # Its MESH entry reuses the same matrix-array accessors pbr.slang does, which is the point of the pair:
+    # its MESH entry reuses the same matrix-array accessors pbr.slang does, which is the point of the pair:
     # both stages must place the geometry identically or the shadow silhouette detaches from the surface.
-    # Its vertex entry went the same way as pbr's in step 4.
+    # its vertex entry went the same way as pbr's in step 4.
     lighting/shadow.slang:main:fragment:shadow.frag.spv
     # ... and the SAME file's MESH entry (docs/mesh_shaders.md step 1): the depth pass drawn as dispatches
     # instead of indexed draws. It REPLACES the vertex entry rather than joining it (one pipeline is MESH +
@@ -920,7 +920,7 @@ set(VR_SLANG_SOURCES
     # stage, the same 4x4 readback, emitted by a mesh pipeline instead of a vertex one. A mesh stage is a
     # different stage type, so this .spv name is new - the host learns it explicitly.
     debug/heap_probe.slang:mesh_main:mesh:heap_probe.mesh.spv
-    # The COMPUTE half is its own file because it has its own push layout (one push block per stage).
+    # The COMPUTE half is its file because it has its push layout (one push block per stage).
     debug/heap_probe_comp.slang:comp_main:compute:heap_probe.comp.spv
     debug/resource_group_graphics_probe.slang:vertex_resource_main:vertex:resource_group_depth_probe.vert.spv
     debug/resource_group_graphics_probe.slang:vertex_main:vertex:resource_group_probe.vert.spv
@@ -956,7 +956,7 @@ set(VR_SLANG_SOURCES
     lighting/reflection_copy_history.slang:main:compute:reflection_copy_history.comp.spv
 
     # deferred.slang is the deferred path's lighting stage: the shared shading code again (so the forward and
-    # the deferred image are comparable rather than merely similar), plus the screen-space AO it owns. It is
+    # the deferred image are comparable rather than merely similar), plus the screen-space AO it holds. It is
     # on every scenario's path, and it is the ONE stage whose frames differ from the GLSL build - by ONE pixel
     # of 1036800, a front-end codegen difference rather than a porting mistake (both modules call the same
     # GLSL.std.450 instructions; their SEQUENCES differ, and the driver contracts the multiply-adds
@@ -1032,7 +1032,7 @@ endif()
 if(TARGET deren)
     add_dependencies(deren shaders)
 endif()
-# The dynamic runtime's own scaffold test needs the compiled shaders as soon as the port starts building
+# The dynamic runtime's scaffold test needs the compiled shaders as soon as the port starts building
 # pipelines from them (S2/S3); in S1 it needs none, and asking anyway keeps the dependency from being
 # forgotten when the test grows.
 if(TARGET test_runtime_dyn)

@@ -11,7 +11,7 @@ import deren.vulkan.constant_init;
 
 namespace {
     // Collects the Vulkan objects created during pipeline creation; the destructor frees the
-    // pipeline if any later step fails; on full success, release() surrenders ownership to vk_pipeline.
+    // pipeline if any later step fails; on full success, release() surrenders retention to vk_pipeline.
     struct resource_guard {
         VkDevice device = VK_NULL_HANDLE;
         VkPipeline pipeline = VK_NULL_HANDLE;
@@ -89,7 +89,7 @@ namespace deren::vulkan {
 
         // ---- 1. Parse the first stage's interface, filter builtins, build vertex input ----
         // A MESH FIRST STAGE HAS NO VERTEX INPUT, and this branch is not a shortcut: the mesh stage fetches
-        // its own vertices, the vertex-input state is ignored for such a pipeline, and parsing a mesh module
+        // its vertices, the vertex-input state is ignored for such a pipeline, and parsing a mesh module
         // as a VERTEX interface would derive nothing (it declares no Input variables) - an empty attribute
         // list that silently reads no geometry. See docs/mesh_shaders.md.
         deren::utility::vessel::vector<VkVertexInputAttributeDescription> attribute_descriptions;
@@ -225,7 +225,7 @@ namespace deren::vulkan {
             return fail("failed to create graphics pipeline");
         }
 
-        // ---- 8. Success: transfer ownership to vk_pipeline; guard no longer cleans up ----
+        // ---- 8. Success: transfer retention to vk_pipeline; guard no longer cleans up ----
         vk_pipeline result(guard.pipeline, device);
         guard.release();
         return result;

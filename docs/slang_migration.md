@@ -129,8 +129,8 @@ as a compute stage with **ZERO `DescriptorSet`/`Binding` decorations** and both 
    **CI will need a source for slangc in phase two**: the workflow installs MSYS2's shaderc for glslc because
    its runner has no SDK, and MSYS2 ships no slang package (measured: `pacman -Ss slang` returns nothing).
    So phase two adds either a pinned Slang release binary or a Vulkan SDK install to the workflow.
-4. **Unverified Slang maturity.** Slang's own feature-matureness table lists "Capabilities" as Experimental
-   with "Implementation not done", and the SPIR-V chapter of its manual does not document descriptor heaps at
+4. **Unverified Slang maturity.** Slang's feature-matureness table lists "Capabilities" as Experimental
+   with "Implementation not done", and the separate SPIR-V chapter manual does not document descriptor heaps at
    all. Everything in section 6 was found by experiment, not from documentation - which is why it is written
    down with the exact flags.
 
@@ -198,8 +198,8 @@ WHAT HAS LANDED (each entry: verified by the gate, not by inspection):
 | `shadow.vert` | `source/shaders/lighting/shadow.slang` (entry `vertex_main`) | **REMOVED since the mesh-shader migration, like the row above (docs/mesh_shaders.md step 4).** It WAS the shadow pass's VERTEX stage, on the path of every shadow-casting scenario, reusing the vertex-side accessors `pbr.vert` introduced. 8836 B, 0 descriptor sets, 10 heap accesses, `OpVectorTimesMatrix` 0. It is where TRAP 3 was found (the first attempt failed 8 scenarios with an empty shadow map), and it is also the stage that needed the whole push block: `frame_slot`/`image_index`/`spare_lane` at 96/100/104 and `cascade` at **108** - reading the cascade from 96 is a bug the GLSL file already records, because `frame_slot` overwrites it |
 | `post.frag` | `source/shaders/post/post.slang` (entry `frag_main`) | all THREE post modes (bright pass, 13-tap downsample, composite), so every frame of every scenario records it - the widest verification a single port can get. 24896 B, 0 descriptor sets, 107 heap accesses, 51 `OpSampledImage` (the two filter kernels), 5 image-size queries for the tap spacing, push block at 0..36. It also carries the one place where the Slang side is SIMPLER than the GLSL: the GLSL filters take a heap SLOT and index the array inside, because a `texture2D` parameter does not survive a function boundary in glslang, while Slang passes the texture handle itself into `heap_texel` |
 | `light_cluster.comp` | `source/shaders/lighting/light_cluster.slang` | **the first COMPUTE stage**, dispatched once per frame by default (`clustered_lights = true`), so every scenario records it. 11232 B, 0 descriptor sets, 14 heap accesses, `LocalSize 64 1 1`, `OpAtomicIAdd` for the per-cluster counter from `atomicAdd`, and the two writable buffers are the same heap slots the GLSL declares `writeonly buffer`, read as `RWStructuredBuffer<uint>`. It also settles the builtin that looked riskiest: `inverse()` is NOT expanded inline by either compiler - glslang and slangc both emit `OpExtInst MatrixInverse` from GLSL.std.450 - so the cluster boxes agree bit for bit and the `inverse` needs no workaround |
-| `heap_probe.vert` + `.frag` + `.comp` | `source/shaders/debug/heap_probe.slang` (entries `main`, `frag_main`) and `source/shaders/debug/heap_probe_comp.slang` (entry `comp_main`) | the heap-native probe, BOTH halves, and **both are verified by comparing LOG LINES against the GLSL build's** - the route this document described before either port existed. The graphics half prints two lines (the real material slot reads white, the deliberately WRONG slot does not); the COMPUTE half prints one line that carries its own negative control: `sampled grid slot 16384 through sampler slot 2048 and read back 0xffffffff (texture red 0xffff, alpha 0xffff); the material table's DEFAULT record read 0xffff`, byte-identical after the port. The compute half is a file of its own because it has its own push layout (one push block per stage), and it also settled two things: it exercises the DEVICE-ADDRESS path in a real pipeline (`(uint*)address`, one `OpConvertUToPtr`), not just in a probe compile; and it is where the implicit-LOD corollary in TRAP 4 came from (`E31210`, a 1x1x1 group cannot have a derivative quad, so the one-invocation probe uses the explicit-LOD fetch) |
-| `rt_shadow.rchit` + `.rmiss` + `.rgen` + `.rahit` | `source/shaders/lighting/rt_shadow.slang` (entries `chit_main`, `miss_main`, `rgen_main`, `ahit_main`) | the whole ray-traced shadow path. **The first three are A/B-VERIFIED**: with `rt_shadow = true` and the animation sweep pinning the fixture, the GLSL build's frame and the Slang build's frame are **0/1036800 pixels apart** - and again on Sponza, 0/1036800, which is the MASK-casting scene. The payload contract between them: the raygen writes NOTHING (a raygen storing what the miss shader stores makes that store look redundant and the device's compiler drops it - 61.22 mean over the model against 76.48 for the raster reference, every differing pixel darker), the hit group writes 1.0 and the miss writes 0.0 - confirmed in the modules (no store precedes `OpTraceRayKHR`; `OpStore %12 %float_0` survives in the miss). New mechanisms this port settled: the TLAS arrives through the heap as `OpConvertUToAccelerationStructureKHR`; `gl_RayFlagsTerminateOnFirstHitEXT` is Slang's `RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH`; **device-address pointers work** (`(float*)address` emits `OpConvertUToPtr` into a `PhysicalStorageBuffer` pointer, capability verified in a probe) where GLSL needs GL_EXT_buffer_reference; C-style pointers may NOT be `const`; and `float3x4 * float4` has no overload, so the traversal's transform must go through `mul` - which emits `OpVectorTimesMatrix` here and is nevertheless CORRECT, because Slang's own `WorldToObject3x4()` is oriented for it (the instruction name alone does not tell you the orientation; the builtin's type convention does). **The any-hit is NOT verified, and could not be**: forcing `IgnoreHit()` on every hit changed the Sponza frame by **0 pixels**, i.e. the bake path means this stage is never invoked in that configuration - and `set_rt_mask_bake` has no config key, so no capture can reach it. The GLSL build is equally unexercised there, so nothing the migration had is lost; what is left is shape (`OpIgnoreIntersectionKHR`, two `OpConvertUToPtr`, one explicit-LOD fetch and no implicit one) plus `spirv-val` |
+| `heap_probe.vert` + `.frag` + `.comp` | `source/shaders/debug/heap_probe.slang` (entries `main`, `frag_main`) and `source/shaders/debug/heap_probe_comp.slang` (entry `comp_main`) | the heap-native probe, BOTH halves, and **both are verified by comparing LOG LINES against the GLSL build's** - the route this document described before either port existed. The graphics half prints two lines (the real material slot reads white, the deliberately WRONG slot does not); the COMPUTE half prints one line that carries its negative control: `sampled grid slot 16384 through sampler slot 2048 and read back 0xffffffff (texture red 0xffff, alpha 0xffff); the material table's DEFAULT record read 0xffff`, byte-identical after the port. The separate compute half is a file because it has its push layout (one push block per stage), and it also settled two things: it exercises the DEVICE-ADDRESS path in a real pipeline (`(uint*)address`, one `OpConvertUToPtr`), not just in a probe compile; and it is where the implicit-LOD corollary in TRAP 4 came from (`E31210`, a 1x1x1 group cannot have a derivative quad, so the one-invocation probe uses the explicit-LOD fetch) |
+| `rt_shadow.rchit` + `.rmiss` + `.rgen` + `.rahit` | `source/shaders/lighting/rt_shadow.slang` (entries `chit_main`, `miss_main`, `rgen_main`, `ahit_main`) | the whole ray-traced shadow path. **The first three are A/B-VERIFIED**: with `rt_shadow = true` and the animation sweep pinning the fixture, the GLSL build's frame and the Slang build's frame are **0/1036800 pixels apart** - and again on Sponza, 0/1036800, which is the MASK-casting scene. The payload contract between them: the raygen writes NOTHING (a raygen storing what the miss shader stores makes that store look redundant and the device's compiler drops it - 61.22 mean over the model against 76.48 for the raster reference, every differing pixel darker), the hit group writes 1.0 and the miss writes 0.0 - confirmed in the modules (no store precedes `OpTraceRayKHR`; `OpStore %12 %float_0` survives in the miss). New mechanisms this port settled: the TLAS arrives through the heap as `OpConvertUToAccelerationStructureKHR`; `gl_RayFlagsTerminateOnFirstHitEXT` is Slang's `RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH`; **device-address pointers work** (`(float*)address` emits `OpConvertUToPtr` into a `PhysicalStorageBuffer` pointer, capability verified in a probe) where GLSL needs GL_EXT_buffer_reference; C-style pointers may NOT be `const`; and `float3x4 * float4` has no overload, so the traversal's transform must go through `mul` - which emits `OpVectorTimesMatrix` here and is nevertheless CORRECT, because Slang's `WorldToObject3x4()` is oriented for it (the instruction name alone does not tell you the orientation; the builtin's type convention does). **The any-hit is NOT verified, and could not be**: forcing `IgnoreHit()` on every hit changed the Sponza frame by **0 pixels**, i.e. the bake path means this stage is never invoked in that configuration - and `set_rt_mask_bake` has no config key, so no capture can reach it. The GLSL build is equally unexercised there, so nothing the migration had is lost; what is left is shape (`OpIgnoreIntersectionKHR`, two `OpConvertUToPtr`, one explicit-LOD fetch and no implicit one) plus `spirv-val` |
 
 The five non-`gbuffer` stages above were already byte-identical to their GLSL builds; `gbuffer` is the one that
 needed a fix outside the shader (the camera's descriptor type), so it moved the GLSL side too - see section 9.
@@ -249,7 +249,7 @@ with `static` view objects that carry a `__subscript`:
 `struct CameraView { __subscript(uint slot) -> ConstantBuffer<CameraUBO> { get { return
 heap_at<ConstantBuffer<CameraUBO>>(slot); } } }; static CameraView camera;`. It fails, and the failures
 are Slang language limits rather than mistakes in the idea: a `DescriptorHandle` cannot be a struct field
-the way the view wants it (E30019 type mismatch where the field is declared, and the language's own
+the way the view wants it (E30019 type mismatch where the field is declared, and the language's
 legalization HOISTS opaque members out of structs into globals - so a view struct cannot hold a handle and
 hand it back), and the inline `property ... { get { ... } }` form used to give the material table its
 `.materials` member is rejected (E20001 unexpected token). Four errors, all inside the shim, and the
@@ -425,17 +425,17 @@ and `deferred` and `shadow_single` rendered IDENTICAL frames because both were u
 recognising again. Reproduced twice: the block form failed the same three scenarios with the same hashes on
 both runs, while reading the SAME heap slot as `StructuredBuffer<VR_MAT4>` (element `i` is
 `light_view_proj[i]`, because a heap descriptor IS an address range) is byte-identical to the GLSL build -
-its decorations are `ArrayStride 64` + `ColMajor` + `MatrixStride 16`, verified in the module. The shared
+Its decorations are `ArrayStride 64` + `ColMajor` + `MatrixStride 16`, verified in the module. The shared
 body now calls `light_matrix_at(heap_light_slot, cascade)` on either side of the shim, which ALSO removes a
 LATENT instance of the same defect from `pbr.frag`: its module has carried the undecorated array since the
 day it was ported, and `transparent_blend` simply never executed that read. The lesson is the acceptance
-rule's own limit: "the gate is green" means the paths the gate RECORDS are right - it is not a statement
+rule's limit: "the gate is green" means the paths the gate RECORDS are right - it is not a statement
 that every line was exercised.
 
 ### THE FIRST STAGE THE BYTE-IDENTICAL STANDARD REFUSED: deferred.frag, by ONE PIXEL
 
 `source/shaders/lighting/deferred.slang` is a faithful port of the deferred lighting stage - the shared shading code again
-plus the screen-space AO it owns - and it is **NOT wired**, because the gate reports 8 of 10 scenarios
+plus the screen-space AO it holds - and it is **NOT wired**, because the gate reports 8 of 10 scenarios
 changed. The diff is the whole story:
 
     1 pixel of 1036800 differs, at the SAME coordinate (636,153) in every scenario that shows sky, by ONE
@@ -495,7 +495,7 @@ not the same as being able to write one. A compute stage may use implicit LOD, b
 DERIVATIVE QUAD, so a workgroup that is not a multiple of four in x cannot have one - Slang refuses it at
 compile time (`E31210: derivative group quad thread count error`). The probe dispatches ONE invocation in a
 1x1x1 group on purpose, so it uses `heap_texel_lod0` instead; the value is the same because it samples a
-1-mip placeholder, and the probe's own readback is what says so.
+1-mip placeholder, and the probe's readback is what says so.
 
 ### THE LAST STAGE, AND THE ONE-PIXEL RE-BASELINE
 
@@ -524,7 +524,7 @@ frames too, and the references were captured FROM that build.
 
 SO THE REFERENCES WERE RE-CAPTURED with `-Update`, AND THE PREVIOUS SET WAS ARCHIVED FIRST at
 `%LOCALAPPDATA%\deren\baseline.pre-slang-deferred` - it is the only record of what the GLSL deferred
-stage rendered, and archiving before a re-baseline is what this project's own driver note prescribes. Every
+stage rendered, and archiving before a re-baseline is what this project's driver note prescribes. Every
 other stage kept the byte-identical property it had earned: the re-baseline moved only the nine frames above -
 eight by at most a few pixels and `deformation` by 53 - and `deferred_ssao_off` did not move at all.
 
@@ -545,7 +545,7 @@ with the GLSL definitions in `heap_slots.glsl` expanding to exactly the expressi
 AN ACCESSOR NAME IS A MACRO NAME, AND THE SHARED FILES ALREADY HAVE FUNCTIONS - which cost one failed
 build and is worth knowing before inventing the next one: `cluster_index_at` was the obvious name for the
 cluster-index accessor and `shading.glsl` ALREADY HAS a function called `cluster_index_at(ivec2, vec3)`,
-so the macro rewrote that function's own declaration and glslc reported
+so the macro rewrote that function's declaration and glslc reported
 `shading.glsl:476: syntax error, unexpected IDENTIFIER, expecting LEFT_PAREN`. The accessor is
 `cluster_indices_at` instead. Before adding an accessor, grep the shared files for the name. The last four
 code sites in that file (`sampler2DArrayShadow(shadow_texture[...])`, `samplerCube(irradiance_texture[...])`,
@@ -577,8 +577,7 @@ convenience.
 
 WHAT A READER SHOULD STILL BE SCEPTICAL ABOUT, stated here rather than buried: THREE stages could not be
 shown to run in any automated capture (`rt_shadow.rahit` - forcing `IgnoreHit()` on every hit changed 0
-pixels; `compute_skin` - shifting every skinned vertex by +1.0 changed 0 pixels; `mask_bake` - turning its
-own key on changed 0 pixels). Those three are built, `spirv-val` clean and shape-verified, and the
+pixels; `compute_skin` - shifting every skinned vertex by +1.0 changed 0 pixels; `mask_bake` - turning its key on changed 0 pixels). Those three are built, `spirv-val` clean and shape-verified, and the
 reachability table below says which route each stage was accepted by. The two `megalights` stages, by
 contrast, WERE covered by an A/B that a forced-output probe proved live (forcing the resolve to red moved
 98.945% of the frame) - until the whole chain was removed on 2026-10-17 (the chain and its manual page were removed on 2026-10-17; the historical fix record is not distributed with this repository). A green gate
@@ -595,7 +594,7 @@ applied per stage, easy ones first so that each new hazard is met in isolation. 
 2. **Heap readers that touch no buffer**: `deferred.frag` is the one left that the gate RECORDS, and it is
    the best next port: it is the default path's lighting stage and reads the G-buffer, the light block, the
    shadow map, the cluster lists and the ray-traced visibility image in one shader. Then `heap_probe.vert`,
-   `.frag` and `.comp` - the runtime's own heap probe, which nothing in the gate renders.
+   `.frag` and `.comp` - the runtime's heap probe, which nothing in the gate renders.
    (Both PBR stages and both shadow stages are DONE - see the table in section 6. The vertex leaves share the
    shim's five matrix-array accessors plus `light_matrix_at`, which every remaining stage that samples the
    sun's shadow also needs.)
@@ -615,11 +614,11 @@ not the runtime, before declaring a stage unreachable.
 | `deferred.frag` | the gate (all ten scenarios) | it IS the default path's lighting stage |
 | `rt_shadow.rgen/.rchit/.rmiss` | A/B with `rt_shadow = true` | proven: 0/1036800 on two scenes |
 | `compute_skin.comp` | reachable, but NOT visible in the A/B scene tried | `rt_skin_bake = true` IS honoured (the loaded settings echo it, the pipeline is created), yet the frame does not change and shifting every skinned vertex by +1.0 changes nothing either - the skinned caster's effect is evidently not on screen in the fixture's framing. Needs a scene where that caster's shadow lands in view, or the probe technique applied until one is found |
-| `mask_bake.comp` | built + shape + spirv-val; the key is honoured but INVISIBLE on the scenes tried | 11668 B against glslc's 14640 B, 0 descriptor sets, three `OpConvertUToPtr`, `spirv-val` clean. `rt_mask_bake = true` changes the Sponza RT frame by **0 pixels**, so its effect is not on screen there either. The port also had to change a fetch, and the reason is a LATENT HAZARD IN THE GLSL: its `texture(...)` inside the nested sample loops is an implicit-LOD fetch in NON-UNIFORM CONTROL FLOW, where a derivative has no meaning (the quad's four invocations are four different triangles) - so the mip it selects is not the "texture resolution" the pass's own header describes. Slang refuses to compile it at all (`E31210`, even with a 64-wide group), so the port uses the explicit LOD 0 the walk actually wants, and an A/B on a scene where a wholly-cut MASK caster's shadow is visible is what would settle whether the two agree |
+| `mask_bake.comp` | built + shape + spirv-val; the key is honoured but INVISIBLE on the scenes tried | 11668 B against glslc's 14640 B, 0 descriptor sets, three `OpConvertUToPtr`, `spirv-val` clean. `rt_mask_bake = true` changes the Sponza RT frame by **0 pixels**, so its effect is not on screen there either. The port also had to change a fetch, and the reason is a LATENT HAZARD IN THE GLSL: its `texture(...)` inside the nested sample loops is an implicit-LOD fetch in NON-UNIFORM CONTROL FLOW, where a derivative has no meaning (the quad's four invocations are four different triangles) - so the mip it selects is not the "texture resolution" the pass's header describes. Slang refuses to compile it at all (`E31210`, even with a 64-wide group), so the port uses the explicit LOD 0 the walk actually wants, and an A/B on a scene where a wholly-cut MASK caster's shadow is visible is what would settle whether the two agree |
 | `megalights_temporal.comp` | `source/shaders/lighting/megalights_temporal.slang` - REMOVED 2026-10-17 with the whole chain (the chain and its manual page were removed on 2026-10-17; the historical fix record is not distributed with this repository) | **A/B-VERIFIED AND PROVEN EXERCISED** - the strongest pair of statements in this table. With `megalights = true` and `megalights_samples = 4` on Sponza, the GLSL frame and the Slang frame are **0/1036800 pixels apart**, and forcing the resolve to write red changed **98.945%** of the frame, so the comparison really did run this pass (it feeds the lighting stage's `ml_lighting`). 14052 B against glslc's 14328 B, 0 descriptor sets, LocalSize 8 8 1, three `OpImageWrite`, ten explicit-LOD fetches and no implicit one. The port also documents a process lesson that cost two wasted captures: an A/B that edits a `.slang` file while its entry is UNWIRED, or that edits `CMakeLists.txt` without re-running `cmake` (this build has `CMAKE_SUPPRESS_REGENERATION=ON`), probes a module the build never used - and the size of the built `.spv` is the cheap way to see which compiler produced it |
 | `megalights_trace.comp` | `source/shaders/lighting/megalights_trace.slang` - REMOVED 2026-10-17 with the whole chain (the chain and its manual page were removed on 2026-10-17; the historical fix record is not distributed with this repository) | **A/B-VERIFIED, and its liveness follows from the chain's**: the full-GLSL megalights frame (trace AND temporal built by glslc) and the both-Slang frame are **0/1036800 pixels apart** on Sponza with `megalights = true`. Since the temporal pass was independently proven to be ON the path (forcing its resolve to red moved 98.945% of the frame), an identical frame means the tracer's contribution is identical too - a dead or black tracer would have differed. 41764 B against glslc's 43204 B, 0 descriptor sets, LocalSize 8 8 1, three `OpRayQuery*` ops under `OpCapability RayQueryKHR`, two `OpImageWrite`, three explicit-LOD fetches and no implicit one. Slang's ray-query spelling is `RayQuery<flags>` with `TraceRayInline` / `Proceed` / `CommittedStatus`, and `gl_RayFlagsOpaqueEXT` is `RAY_FLAG_FORCE_OPAQUE` there (there is no plain `RAY_FLAG_OPAQUE`, which cost one build) |
 | `rt_shadow.rahit` | shape + spirv-val, for now | the ANY-HIT is not reached in the Sponza RT configuration - proven by the forced-IgnoreHit probe (0 pixels changed). The mask bake is OFF by default and configurable, so that is NOT the reason; whatever keeps it off the path is still to be found, and the probe is how |
-| `heap_probe.*` | log comparison | the runtime logs the probe's own answer at startup, both halves |
+| `heap_probe.*` | log comparison | the runtime logs the probe's answer at startup, both halves |
 
 THE PATTERN WORTH NAMING: the migration's strongest evidence (byte-identical frames) covers the stages that
 are on a path a capture can reach, and a stage that a forced probe proves is NOT on it is not covered by a
@@ -630,7 +629,7 @@ table now separates the two.
 
 The gate records what the ten scenarios render, and three groups of shaders are NOT on any of their paths:
 `rt_shadow.*` (no scenario enables `rt_shadows`), `megalights_trace/temporal.comp` (no scenario enabled the
-megalights path, and the chain was removed on 2026-10-17) and `heap_probe.*` (the runtime's own PBR/heap probe, which the demo app does not run in
+megalights path, and the chain was removed on 2026-10-17) and `heap_probe.*` (the runtime's PBR/heap probe, which the demo app does not run in
 capture mode). For those, "the gate stays 10/10" only proves nothing regressed; the port has to be verified
 by its SHAPE (descriptor sets, heaps, the instructions the fetches land as) plus the family-by-family proof
 from section 3, and that limit should be stated in the commit rather than implied away. This is the same
@@ -663,7 +662,7 @@ TWO ROUTES EXIST FOR THOSE STAGES, and neither needs the gate's references to be
     changing one config to the singular key moved **21.90% of the pixels**, and the log then names the
     `rt_shadow.*` shaders it loads, which is how to confirm the RT path is what is being compared.
   - THE ANIMATION SWEEP IS REQUIRED for a fixture that animates: two runs of the SAME binary differed in
-    **2077 pixels** without `--capture-animation-sweep`, and in **0** with it. The gate's own scenarios pass
+    **2077 pixels** without `--capture-animation-sweep`, and in **0** with it. The gate's scenarios pass
     the same flag, and this is why.
   - AND THE FRAME IS NOT THE WHOLE ANSWER: the first version of the raygen was byte-identical AND invalid
     (TRAP 4). Both halves of the acceptance rule have to be applied to an A/B, not just the picture.
@@ -701,7 +700,7 @@ TWO ROUTES EXIST FOR THOSE STAGES, and neither needs the gate's references to be
    block; it also declares the TLAS and the visibility storage image, so this is where the acceleration
    structure and the storage-image declarations get their Slang spelling (the shim's `Texture2D`/heap
    handling covers the images already).
-6. **Then the migration's own endgame**, none of it started: move the GLSL sources to `glsl.old/`, make
+6. **Then the migration's endgame**, none of it started: move the GLSL sources to `glsl.old/`, make
    `slangc` a required tool instead of a two-phase fallback, drop the `glslc` rules from `CMakeLists.txt`,
    and sync `Doxyfile` (`EXTENSION_MAPPING` for `.slang`), `docs/shaders.md`, the README's shader section
    and the shader compilation route used by the build and CI (`.github/workflows/ci.yml` installs the

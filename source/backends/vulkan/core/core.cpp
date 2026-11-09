@@ -11,7 +11,7 @@ module;
 // module std's and the textual libc++ copy baked into utility:data_block.pcm - and resolves neither, which is
 // "call to operator new is ambiguous" at allocate.h. This file instantiates plenty of deren::utility::vessel::vector (the device
 // extension-name list, the descriptor pool sizes), and it began seeing both the moment deren.vulkan.core gained an
-// import edge it did not have before: descriptor_heap, whose own module carries a textual Vulkan header in its
+// import edge it did not have before: descriptor_heap, whose hold module carries a textual Vulkan header in its
 // global module fragment. Textually including glm here makes clang MERGE the two copies, exactly as it does for
 // app_pipelines.cpp and source/engine/animation/controller.cpp. Do not remove this include to "clean up".
 #include <glm/glm.hpp>
@@ -48,7 +48,7 @@ namespace deren::vulkan {
         if (!this->frame.gpu_timing_supported || this->frame.gpu_timing_marks[slot] >= gpu_timing_mark_capacity) {
             return;
         }
-        // The name rides the mark: static text the caller owns, stored as a view and reported
+        // The name rides the mark: static text the caller holds, stored as a view and reported
         // verbatim by the profiler's latched snapshot (the `window_title` rule - the characters
         // never move into this class).
         this->frame.gpu_timing_names[slot][this->frame.gpu_timing_marks[slot]] = stage_name;
@@ -97,7 +97,7 @@ namespace deren::vulkan {
     }
 
     VkCommandBuffer core::frame_commands::native() const noexcept {
-        // A LIST KNOWS THE BUFFER IT RECORDS INTO (abi 15): `target` is what an owned command buffer's
+        // A LIST KNOWS THE BUFFER IT RECORDS INTO (abi 15): `target` is what a held command buffer's
         // `recording()` sets, and a null target means the FRAME's slot buffer - the meaning every abi
         // 13/14 call site already has. The frame's answer comes from the same method `submit_frame` and
         // the heap requests use, so there is no second source of truth for it.
@@ -122,7 +122,7 @@ namespace deren::vulkan {
         if (this->target != VK_NULL_HANDLE) {
             // THE TIMING RANGE IS THE FRAME SLOT'S (abi 15): the queries live in that slot's slice of
             // the query pool and the profiler reads that slot, so a list recording into another buffer
-            // has no range to open - the frame-scoped verbs' own `not_ready` window.
+            // has no range to open - the frame-scoped verbs' `not_ready` window.
             return rhi::error::not_ready;
         }
         parent.begin_gpu_timing(this->native(), static_cast<uint32_t>(parent.frame.current_frame));
@@ -154,14 +154,14 @@ namespace deren::vulkan {
         // WHICH PIPELINE STAGE the timestamp resolves at is the backend's measurement policy, not a
         // caller decision: the frame's first mark anchors at the top of the pipe (it measures from
         // "nothing yet recorded"), every pass boundary resolves at the bottom (it measures everything
-        // submitted so far) - the one pattern this renderer's marks ever expressed, now owned here.
+        // submitted so far) - the one pattern this renderer's marks ever expressed, now held here.
         VkPipelineStageFlagBits const stage = mark_index == 0 ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT : VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
         parent.mark_gpu_timing(this->native(), slot, stage, stage_name);
         return rhi::error::ok;
     }
 
     vk_command_buffer core::make_command_buffer() const {
-        // EACH BUFFER OWNS ITS OWN POOL (handles/handles.cppm): the wrapper creates the pool, allocates
+        // EACH BUFFER HOLDS Its POOL (handles/handles.cppm): the wrapper creates the pool, allocates
         // the buffer from it and destroys the pool on release - there is no shared pool member left for
         // a caller to keep alive, and no pool shared between recording threads.
         return ::deren::vulkan::make_command_buffer(this->device.logical_device, this->device.graphics_queue_family_index, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
@@ -355,12 +355,12 @@ namespace deren::vulkan {
     }
 
     void core::swapchain_view::release() noexcept {
-        // A BORROWED VIEW CARRIES NO REFERENCE (the frame_image_slot rule): the presentation surface
-        // is the core's and dies with its teardown, so a release() here is a wrapped-borrow bug and
+        // A REFERENCED VIEW CARRIES NO REFERENCE (the frame_image_slot rule): the presentation surface
+        // is the core's and dies with its teardown, so a release() here is a wrapped-reference bug and
         // the answer is a ONE-TIME NAMED LOG, not a panic and not a silent no-op.
-        if (!this->borrowed_release_logged) {
-            this->borrowed_release_logged = true;
-            deren::utility::log("rhi: release() on the swapchain view - it is BORROWED from the backend and carries no reference, so nothing was released; the unique_object that wrapped it is the bug");
+        if (!this->view_release_logged) {
+            this->view_release_logged = true;
+            deren::utility::log("rhi: release() on the swapchain view - it is REFERENCED from the backend and carries no reference, so nothing was released; the unique_object that wrapped it is the bug");
         }
     }
 
@@ -376,7 +376,7 @@ namespace deren::vulkan {
     }
 
     rhi::image_extent core::swapchain_view::extent() const noexcept {
-        // What presentation SHOWS; the caller's render scale is the caller's own decision and is
+        // What presentation SHOWS; the caller's render scale is the caller's decision and is
         // deliberately not pre-multiplied here (the contract's note).
         return {.width = this->parent->frame.swap_chain_extent.width, .height = this->parent->frame.swap_chain_extent.height};
     }
@@ -437,7 +437,7 @@ namespace deren::vulkan {
         //    of the chain: the HDR/LDR pair (A1.3), the G-buffer cluster (A1.4), the stochastic-chain trio
         //    and the four bloom levels (A1.5) and the furnace environment cube (A1.6) are the engine's, and
         //    `runtime::create_render_chain_targets()` releases the old generation and creates the new one
-        //    right after this rebuild answered `ok` (see on_swapchain_recreated). What remains backend-owned
+        //    right after this rebuild answered `ok` (see on_swapchain_recreated). What remains backend-held
         //    and is rebuilt below is the swapchain itself and the forward path's depth image.
 
         // 3. Destroy depth resources
@@ -468,7 +468,7 @@ namespace deren::vulkan {
             frame.swap_chain = VK_NULL_HANDLE;
         }
 
-        // 6. Recreate all resources THE BACKEND OWNS
+        // 6. Recreate all resources THE BACKEND HOLDS
         this->init_swap_chain();        // rebuild swapchain
         this->init_image_views();       // rebuild image views
         this->create_depth_resources(); // rebuild depth resources
@@ -532,7 +532,7 @@ namespace deren::vulkan {
 
     void core::create_samplers() {
         // THEY ARE TORN DOWN BY A CLEANUP LAMBDA, not by their members' destructors, and the ordering is the whole
-        // reason: cleanup runs LIFO from the destructor BODY, and the device's own cleanup is registered before this
+        // reason: cleanup runs LIFO from the destructor BODY, and the device's cleanup is registered before this
         // one - while a MEMBER's destructor runs after that body, i.e. after vkDestroyDevice. The first version of
         // this move left the samplers to their destructors and validation named exactly seven leaked objects.
         this->register_cleanup([this] {
@@ -724,7 +724,7 @@ namespace deren::vulkan {
             // draws the SAME triangles the G-buffer recorded, so `EQUAL` is what confines its overwrite to that
             // surface. An overlay mask is a DIFFERENT mesh (36 and 246 vertices on `chars\chen_full2.glb`) whose
             // quads sit a little IN FRONT of the surface they darken - an `EQUAL` test would reject almost every
-            // fragment of it and the masks would draw nothing at all. `LESS_OR_EQUAL` is also the article's own
+            // fragment of it and the masks would draw nothing at all. `LESS_OR_EQUAL` is also the article's
             // state (`ZTest` default, `ZWrite Off`), so the port is reproducing it rather than working around it.
             VK_COMPARE_OP_LESS_OR_EQUAL);
         if (result) {
@@ -766,7 +766,7 @@ namespace deren::vulkan {
             0.0f,
             std::span<VkPipelineColorBlendAttachmentState const>(blends),
             first_stage,
-            // LESS_OR_EQUAL, AND THE ARTICLE'S OWN `ZTest` DEFAULT rather than the toon stage's `EQUAL`. The
+            // LESS_OR_EQUAL, AND THE ARTICLE'S `ZTest` DEFAULT rather than the toon stage's `EQUAL`. The
             // difference is the geometry: a hull is the same mesh pushed OUTWARD, so the fragments that survive
             // front-face culling are the ring just OUTSIDE the silhouette - where the depth buffer holds whatever
             // is behind the character (nothing, or a farther surface). `EQUAL` would reject exactly those
@@ -786,7 +786,7 @@ namespace deren::vulkan {
             result->scissor = {{0, 0}, this->render_extent_2d()};
         }
         // CULL FRONT IS NOT HERE, AND THAT IS THE POINT RATHER THAN AN OMISSION: the rasterization state is
-        // DYNAMIC in this renderer (every leaf's draw() calls `set_cull_mode` with its own `doubleSided` flag), so
+        // DYNAMIC in this renderer (every leaf's draw() calls `set_cull_mode` with its `doubleSided` flag), so
         // a Cull Front stated in the pipeline would be overwritten by the first hull drawn with it. The front-face
         // culling that makes an inverted hull an outline is `render_environment::forced_cull_front`, which the
         // character-forward pass sets around this group alone (see character_forward.cpp).

@@ -37,7 +37,7 @@ export namespace deren::engine::subtilis {
         std::uint32_t worst_cut = 0;
     };
 
-    /// Owns validated CPU data. This layout is neither a disk format nor a shader ABI.
+    /// Holds validated CPU data. This layout is neither a disk format nor a shader ABI.
     class asset {
     public:
         asset(asset&& other) noexcept

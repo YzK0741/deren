@@ -57,7 +57,7 @@ namespace deren::vulkan {
         // stage rather than sitting beside it (see docs/mesh_shaders.md): the mesh module is passed in
         // `vertex_shader_code` (it is the pipeline's first stage either way), its module is created as
         // VK_SHADER_STAGE_MESH_BIT_EXT, and the VERTEX INPUT STATE is not derived from it - a mesh stage
-        // fetches its own vertices, so there is no input interface to parse and no binding to describe.
+        // fetches its vertices, so there is no input interface to parse and no binding to describe.
         VkShaderStageFlagBits first_stage = VK_SHADER_STAGE_VERTEX_BIT);
 
     /**

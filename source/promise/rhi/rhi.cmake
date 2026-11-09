@@ -53,10 +53,10 @@ target_sources(promise
 #     ld.lld: error: undefined symbol: __asan_init / __ubsan_handle_type_mismatch_v1 / ...
 # The DLL is compiled with -fno-sanitize=all on purpose (an instrumented DLL cannot be hosted by an
 # instrumented process - the rule deren_vulkan and probe_backend follow), but the OBJECTS it links out
-# of this archive were instrumented, and the DLL's own link line carries no sanitizer runtime. So the
+# of this archive were instrumented, and the DLL's link line carries no sanitizer runtime. So the
 # two rules meet here: a DLL that must be clean cannot be built out of instrumented objects.
 #
-# The cost is this archive's own coverage in that job - virtual declarations, PODs and the
+# The cost is this archive's coverage in that job - virtual declarations, PODs and the
 # validate_structure helpers - and it is the cheaper half of the trade: the alternative is an
 # instrumented DLL, which is the shape that aborts when the instrumented test loads it.
 if(NOT MSVC)

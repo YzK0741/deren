@@ -116,7 +116,7 @@ namespace {
         return entries;
     }
 
-    /// The entries of CMakeLists.txt's `set(VR_SLANG_SOURCES ...)` block: the block's own lines, from the
+    /// The entries of CMakeLists.txt's `set(VR_SLANG_SOURCES ...)` block: the block's lines, from the
     /// `set(` to the closing `)`.
     deren::utility::vessel::set<deren::utility::vessel::string> cmake_entries(std::filesystem::path const& path) {
         deren::utility::vessel::set<deren::utility::vessel::string> entries;
@@ -240,13 +240,13 @@ int32_t main() {
     // by every geometry leaf and absent from CMakeLists' VR_SHADER_INCLUDES, so editing it left STALE SPIR-V in
     // the build tree - the two halves of one pipeline declared different push blocks, and nothing but a byte
     // comparison against the escape-hatch scripts' output showed it. The list is the transitive closure by hand,
-    // so the set of includes found in source/shaders/ must be a SUBSET of it (a leaf's own include graph is what the
+    // so the set of includes found in source/shaders/ must be a SUBSET of it (a leaf's include graph is what the
     // build cannot see).
     {
         deren::utility::vessel::set<deren::utility::vessel::string> listed;
         // The CMake variable's spelling, as a named marker rather than a hand-counted offset: the first version of
         // this skipped 18 characters of a 19-character marker, so every name in the set carried a leading '/' and
-        // the check reported all eight includes as missing. A test whose own parser is off by one is a test that
+        // the check reported all eight includes as missing. A test whose parser is off by one is a test that
         // says "the build is wrong" about the build being right.
         constexpr std::string_view include_marker = "VR_SHADER_SRC_DIR}/";
         for (deren::utility::vessel::string const& line : read_lines(root + "/CMakeLists.txt")) {
@@ -285,7 +285,7 @@ int32_t main() {
         CHECK_MSG(!found.empty(), "source/shaders/ declares #includes to check");
         for (deren::utility::vessel::string const& include : found) {
             // ... and the include exists, which a rename would otherwise leave as a compile error in the build
-            // and (worse) as a silently skipped file in this test's own scan
+            // and (worse) as a silently skipped file in this test's scan
             CHECK_MSG(std::filesystem::exists(root + "/source/shaders/" + include), include.c_str());
             CHECK_MSG(listed.contains(include), ("an included shader is not in CMakeLists' VR_SHADER_INCLUDES, so editing it leaves stale SPIR-V: " + include).c_str());
         }
@@ -293,11 +293,11 @@ int32_t main() {
 
     // ---- 6. THE HEAP PUSH LANE CONTRACT: a pass that pushes a block loads only stages that declare the lanes ----
     // runtime.cpp's push_with_lanes() appends index lanes AFTER the block a pass hands over (two for
-    // push_index_block, three for push_stage_block, whose third is the post chain's own source slot), and the heap
+    // push_index_block, three for push_stage_block, whose third is the post chain's source slot), and the heap
     // accessors reach the per-frame slot arrays only through them. A stage that pushes a block and declares no lanes
     // still compiles and still renders - until it reads one, and then the read is past the block it declared, so the
     // producer and the consumer disagree by 8 or 12 bytes with nothing to catch it. That is a live finding, not a
-    // hypothetical: gaussian/gaussian_raster.slang was the single converted stage without them (the raster batch's own
+    // hypothetical: gaussian/gaussian_raster.slang was the single converted stage without them (the raster batch's
     // independent review found it), while declared-versus-transmitted size is exactly what nothing in the build
     // compares. The rule is derived rather than tabulated - a pass source names the .spv it loads, the canonical list
     // names the .slang that produces it, and that source is the one that must declare the lanes.

@@ -19,7 +19,7 @@ import deren.utility.shared;
 
 import deren.promise.rhi;
 import deren.engine.render_resource;
-// (③-D/E A1.0: the `import deren.vulkan.core;` that used to sit here was VESTIGIAL - its own comment
+// (③-D/E A1.0: the `import deren.vulkan.core;` that used to sit here was VESTIGIAL - its comment
 //  named `deren::engine::hdr_format` as the reason, and this file never spells it. The formats themselves
 //  live in the shared `deren.engine.render_layout` now, which is where a pass that DOES name one reaches
 //  for it - without importing the backend.)
@@ -39,22 +39,22 @@ namespace deren::engine::pass {
     }
 
     std::string_view toon_screen_rim_pass::feature() const noexcept {
-        // THE CHARACTER-FORWARD FEATURE, not one of its own: the contour belongs to the toon character stage
+        // THE CHARACTER-FORWARD FEATURE, not a separate one: the contour belongs to the toon character stage
         // and means nothing without it, so one switch turns both on. Gating it here is also what keeps every
         // capture scenario byte-identical while that feature is off - the record step asks this before it resolves
         // the declaration, so a frame with no character never even transitions an image for this pass.
         //
-        // ... AND IT IS ITS OWN NAME RATHER THAN `character_forward`, WHICH IT USED TO SHARE, because the
+        // ... AND IT IS its NAME RATHER THAN `character_forward`, WHICH IT USED TO SHARE, because the
         // REWRITTEN toon chain must not wear TWO rims either: this pass draws the ARTICLE's screen-space contour
         // (`toon_screen_rim.slang`), and the Goo reference the rewrite follows has no such contour - its
         // screen-space piece is `DepthRim`, which the rewrite's second step defers (see
-        // `deren-ab/goo_step2_rim_spec.md` §9-U1/U2/U4/U5). Sharing the name made the two impossible to separate:
+        // `deren-ab/goo_step2_rim_spec.md` §9-U1/U2/U4/U5). Sharing the name made the two impossible to hold:
         // `feature_active` is asked once per NAME, so "the rim stage is off" and "the character stage is off"
         // were one answer and the switch could only turn off both.
         //
         // THE NAME IS NOT A NEW CONFIG KEY and does not become one: `[render]` keys are the runtime's registry
-        // (see `runtime::feature_active`), and this is a name that table composes - the owner's decision is in
-        // `render_start_demo::feature_active`, where the rewritten chain's own answer (`goo_toon` AND its
+        // (see `runtime::feature_active`), and this is a name that table composes - the holder's decision is in
+        // `render_start_demo::feature_active`, where the rewritten chain's answer (`goo_toon` AND its
         // pipeline) is what turns THIS stage off. The article's rim would otherwise be drawn on top of the
         // reference's.
         return "toon_screen_rim";
@@ -169,7 +169,7 @@ namespace deren::engine::pass {
         io.list->set_cull_mode(rhi::cull_mode::none); // the synthetic triangle has no facing to cull
         // NO SET TO BIND: the depth and the albedo are per-swapchain-image heap slots the shader indexes with
         // the image index its push block carries. The two projection terms are the frame's (they are the same
-        // pair the debug view's depth channel linearizes with), and the rest is this pass's own parameter.
+        // pair the debug view's depth channel linearizes with), and the rest is this pass's parameter.
         push_constants const push = {
             .proj_22 = io.constants.proj[2][2],
             .proj_32 = io.constants.proj[3][2],
@@ -187,7 +187,7 @@ namespace deren::engine::pass {
     }
 
     rhi::error toon_screen_rim_pass::record_content(resolved_io const& io) noexcept {
-        // THIS PASS OWNS NO BARRIERS: the removed legacy record body WAS the content (its sampled inputs are heap slots the
+        // THIS PASS HOLDS NO BARRIERS: the removed legacy record body WAS the content (its sampled inputs are heap slots the
         // graph declares on its behalf), so the graph entry only refuses what the record step would have refused.
         if (!this->pipeline_ready() || io.targets.empty() || io.targets[0].view_handle == nullptr || io.extent.width == 0 ||
             io.extent.height == 0 || io.list == nullptr) {

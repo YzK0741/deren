@@ -50,15 +50,15 @@
 
 //
 
-// IT SUBMITS THE WORK ITSELF, and that is deliberate: the engine's frame owns the frame's command buffer,
+// IT SUBMITS THE WORK ITSELF, and that is deliberate: the engine's frame holds the frame's command buffer,
 
 // so an instrument that went through the frame loop would be measuring the frame loop too. The probe creates
 
-// a CALLER-OWNED contract command buffer, records the structures into it, and submits it with a fence through
+// a CALLER-HELD contract command buffer, records the structures into it, and submits it with a fence through
 
 // the escape - which also makes this file the measured evidence for plan X4's second item (the contract has
 
-// no submit verb for a buffer the CALLER owns; the probes in runtime.probes.cppm do the same raw submit).
+// no submit verb for a buffer the CALLER holds; the probes in runtime.probes.cppm do the same raw submit).
 
 //
 
@@ -96,7 +96,7 @@ import deren.engine.pass.mask_bake;
 
 import deren.engine.render_environment;
 
-// After the imports it needs: the header names deren::promise::rhi types (see its own note).
+// After the imports it needs: the header names deren::promise::rhi types (see its note).
 
 #include "../promise/rhi/backend_entry.hpp"
 #include "raster_probe.hpp"
@@ -175,7 +175,7 @@ namespace {
 
         } else {
 
-            CHECK_MSG(false, "Micromaps must be owned by a managed resource subchain");
+            CHECK_MSG(false, "Micromaps must be held by a managed resource subchain");
         }
     }
 
@@ -328,7 +328,7 @@ namespace {
 
         } else {
 
-            CHECK_MSG(false, "Imported geometry must expose a retained ownership lease");
+            CHECK_MSG(false, "Imported geometry must expose a retained retention lease");
         }
     }
 
@@ -366,7 +366,7 @@ namespace {
 
         } else {
 
-            CHECK_MSG(false, "BLAS creation must be described and owned by a passchain");
+            CHECK_MSG(false, "BLAS creation must be described and held by a passchain");
         }
     }
 
@@ -725,7 +725,7 @@ namespace {
 
         CHECK(!recording_failure.build(refused, inputs) && !recording_failure.ready());
 
-        CHECK(device.structure_releases == released); // The first recorded build still borrows its AS.
+        CHECK(device.structure_releases == released); // The first recorded build still references its AS.
 
         inputs.mask_bake = false;
 
@@ -761,7 +761,7 @@ namespace {
 
         CHECK(!failed_skin && failed_skin.error().disable_skin_bake && !skin_failure.ready());
 
-        CHECK(skin_failure.bake_resources(true, 0).size() == 1); // A partial skin dispatch may still borrow it.
+        CHECK(skin_failure.bake_resources(true, 0).size() == 1); // A partial skin dispatch may still reference it.
     }
 
     void test_micromap_upload_lifetime() {
@@ -1008,7 +1008,7 @@ namespace {
 
     namespace rhi = deren::promise::rhi;
 
-    /// the migrated module's own namespace (geometry_source, ottom_level_structures, ...)
+    /// the migrated module's namespace (geometry_source, ottom_level_structures, ...)
 
     namespace as = deren::engine::acceleration_structure;
 
@@ -1156,7 +1156,7 @@ int main(int const argc, char** const argv) {
 
     // ---- 2. THE GEOMETRY: three vertices and three indices, in buffers the build can READ - which is the
 
-    //         `device_address` + `acceleration_structure_input` pair the renderer's own build inputs carry.
+    //         `device_address` + `acceleration_structure_input` pair the renderer's build inputs carry.
 
     constexpr rhi::buffer_flags build_input_flags =
 
@@ -1230,7 +1230,7 @@ int main(int const argc, char** const argv) {
 
     CHECK(source.index_address != 0u);
 
-    // ---- 3. THE COMMAND BUFFER THE PROBE OWNS (see the header): the contract made it, the escape turns it
+    // ---- 3. THE COMMAND BUFFER THE PROBE HOLDS (see the header): the contract made it, the escape turns it
 
     //         into the native handle the module's recording takes, and the probe submits it itself.
 
@@ -1247,15 +1247,15 @@ int main(int const argc, char** const argv) {
 
     // ---- 4. THE STRUCTURES, THROUGH THE TIER-1 INTERFACE (abi 26): the two levels, the refit the flag
 
-    //         declares, and the refusals the interface promises - each as its own check.
+    //         declares, and the refusals the interface promises - each as its check.
 
     //
 
-    //         THE BACKEND OWNS EVERYTHING THE CALLER DOES NOT SEE (the storage, the scratch, the alignment,
+    //         THE BACKEND HOLDS EVERYTHING THE CALLER DOES NOT SEE (the storage, the scratch, the alignment,
 
     //         the sizes), which is why this section has no size query, no buffer and no offset in it: that is
 
-    //         the whole difference from the engine module's own path, which the probe drove before this batch.
+    //         the whole difference from the engine module's path, which the probe drove before this batch.
 
     rhi::acceleration_structure_geometry const geometry{
 
@@ -1347,7 +1347,7 @@ int main(int const argc, char** const argv) {
 
     CHECK(tlas->device_address() != 0u);
 
-    // THE INSTANCE the traversal reads: an identity 3x4 transform, the BLAS's own address as its reference.
+    // THE INSTANCE the traversal reads: an identity 3x4 transform, the BLAS's address as its reference.
 
     rhi::acceleration_structure_instance instance{};
 
@@ -1451,7 +1451,7 @@ int main(int const argc, char** const argv) {
 
     //          geometry, records its build and a refit, and hands back the object the runtime binds.
 
-    // Recorded commands borrow their structures and inputs until submission has completed.
+    // Recorded commands reference their structures and inputs until submission has completed.
 
     as::bottom_level_structures levels{*core, core};
 
@@ -1623,7 +1623,7 @@ int main(int const argc, char** const argv) {
 
     CHECK(commands->end_recording() == rhi::error::ok);
 
-    // ---- 6. THE SUBMISSION, THROUGH THE CONTRACT (abi 42): the owned primary's submit verb, then a wait.
+    // ---- 6. THE SUBMISSION, THROUGH THE CONTRACT (abi 42): the held primary's submit verb, then a wait.
 
     {
 

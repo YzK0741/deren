@@ -34,7 +34,7 @@ module;
 // module std's and the textual libc++ copy baked into utility:data_block.pcm - and resolves neither, which is
 // "call to operator new is ambiguous" at allocate.h. This file instantiates plenty of deren::utility::vessel::vector (the device
 // extension-name list, the descriptor pool sizes), and it began seeing both the moment deren.vulkan.core gained an
-// import edge it did not have before: descriptor_heap, whose own module carries a textual Vulkan header in its
+// import edge it did not have before: descriptor_heap, whose module carries a textual Vulkan header in its
 // global module fragment. Textually including glm here makes clang MERGE the two copies, exactly as it does for
 // app_pipelines.cpp and source/engine/animation/controller.cpp. Do not remove this include to "clean up".
 #include <glm/glm.hpp>
@@ -58,7 +58,7 @@ import deren.vulkan.constant_init;
 // `deren::promise::rhi::create_info` is the contract's ONE creation structure and the backend's
 // constructor takes it directly (the renderer's creation parameters
 // cross as a POD structure). It used to be two structures plus a `to_backend_create_info()` mapping
-// between them - the portable shape and this backend's own `core_create_info` - and that pair is
+// between them - the portable shape and this backend's `core_create_info` - and that pair is
 // gone: one structure means one place to add the next field, and the initialisation run below reads
 // the boundary's fields directly.
 //
@@ -77,7 +77,7 @@ namespace {
     // descriptor is read through the same rule in core.api_core.cpp: one implementation of the
     // arithmetic, two callers.
 
-    /// the ABI guard applied to the contract's own structure: a default-initialised copy that takes a
+    /// the ABI guard applied to the contract's structure: a default-initialised copy that takes a
     /// field only when the caller's declared size covers it
     deren::promise::rhi::create_info sanitize_create_info(deren::promise::rhi::create_info const& desc) {
         using rhi_create_info = deren::promise::rhi::create_info;
@@ -94,7 +94,7 @@ namespace {
         if (deren::vulkan::covered_by(declared, offsetof(rhi_create_info, window_title), sizeof(rhi_create_info::window_title)) && desc.window_title != nullptr) {
             // A NULL POINTER KEEPS THE DEFAULT rather than being stored: the title is `char const*`
             // (a deren::utility::vessel::string cannot cross the boundary) and a null one is not an empty title but the
-            // absence of an answer. The pointer itself is BORROWED until the constructor returns -
+            // absence of an answer. The pointer itself is REFERENCED until the constructor returns -
             // `init_window` hands it to GLFW, which copies it into the window - so nothing here keeps
             // it: `create_options` holds the pointer and the note on that member says why it is never
             // read again.
@@ -122,10 +122,10 @@ namespace {
             // A CALLER-PROVIDED WINDOW IS BOUND, NEVER CREATED AND NEVER DESTROYED. `void*` is the
             // contract's spelling because the contract does not know what a window system is; for THIS
             // backend it is a GLFWwindow* the caller has already made Vulkan-capable. It is copied
-            // through as the contract's own `void*` - the constructor below reinterprets it - and the
+            // through as the contract's `void*` - the constructor below reinterprets it - and the
             // size, title and window_visible fields are IGNORED in that mode, as the field documents.
             //
-            // THE CALLER ALSO OWNS GLFW'S LIFETIME IN THAT MODE: it initialised GLFW before this core was
+            // THE CALLER ALSO HOLDS GLFW'S LIFETIME IN THAT MODE: it initialised GLFW before this core was
             // constructed (the window could not exist otherwise) and it is the caller that terminates it -
             // after this core and its surface are destroyed. This backend therefore does not initialise
             // GLFW on this path and never terminates it on any path.
@@ -144,7 +144,7 @@ namespace deren::vulkan {
     }
 
     // THE ONE CONSTRUCTION. The contract's structure goes through the ABI guard ONCE, in the member
-    // initialiser, and what the run below reads is this core's own copy of it: there is no second
+    // initialiser, and what the run below reads is this core's copy of it: there is no second
     // spelling to translate into, and the initialisation run exists exactly once. The guard is a
     // member initialiser rather than a delegating constructor because the two spellings collapsed
     // into one signature - `core(create_info const&)` is the only constructor left to delegate to.
@@ -159,7 +159,7 @@ namespace deren::vulkan {
         // than are presented (a supersample this renderer's resolve does not implement), and a zero or
         // negative scale is an invalid extent rather than a small frame.
         // THE CLAMP IS NOT SPELLED HERE (③-D/E step 2's merged slice): `render_layout::clamp_render_scale`
-        // is the ONE owner of the rule, because the ENGINE clamps the same value for its own render-chain
+        // is the ONE holder of the rule, because the ENGINE clamps the same value for its render-chain
         // targets and two spellings of "clamped" would size two halves of one frame differently. The log
         // line below stays here: reporting the clamp is the backend's, and the engine has nothing to say
         // at the same point.
@@ -167,7 +167,7 @@ namespace deren::vulkan {
         if (this->render_scale != this->create_options.render_scale) {
             deren::utility::log("core: render_scale {} clamped to {} (the supported range is 0.1 .. 1.0)", this->create_options.render_scale, this->render_scale);
         }
-        // Windows are caller-owned. A null handle selects ordinary offscreen images.
+        // Windows are caller-held. A null handle selects ordinary offscreen images.
         this->device.window = nullptr;
         init_instance();
         if (this->create_options.native_window != nullptr) {
@@ -180,8 +180,8 @@ namespace deren::vulkan {
         frame.color_format = frame.swap_chain_image_format;
         // (NO create_render_targets() HERE ANY MORE - ③-D/E A1.7: the render chain's targets are created by
         // the engine through the contract, in runtime::create_render_chain_targets() right after this core
-        // exists. The backend is left with the swapchain and the forward path's depth, which is what it owns.)
-        // (no create_command_pool() here: every command buffer owns its own pool now - see
+        // exists. The backend is left with the swapchain and the forward path's depth, which is what it holds.)
+        // (no create_command_pool() here: every command buffer holds its pool now - see
         // core::make_command_buffer / deren::vulkan::vk_command_buffer)
         create_samplers(); // the shared samplers a declaration picks by hint
         create_sync_objects();
@@ -209,9 +209,9 @@ namespace deren::vulkan {
                 //      write needs.
                 VkDeviceSize const grid_base_bytes = static_cast<VkDeviceSize>(heap_slot_base) * heap_slot_stride;
                 VkDeviceSize const grid_bytes = static_cast<VkDeviceSize>(heap_slot_count) * heap_slot_stride;
-                // The RESOURCE grid needs the 64 B stride; the SAMPLER grid is a separate heap with its own fixed
+                // The RESOURCE grid needs the 64 B stride; the SAMPLER grid is a separate heap with its fixed
                 // base (64 KiB - the API caps that heap at 128 KiB, so it cannot use the resource grid's 1 MiB)
-                // and the device's own sampler stride. Both are CHECKED rather than assumed, because a device
+                // and the device's sampler stride. Both are CHECKED rather than assumed, because a device
                 // that missed either would make the shaders' baked base indices address the wrong descriptors -
                 // and that is silent in validation, which is why the heap path is refused instead.
                 bool const descriptors_fit = this->resource.descriptor_heaps.limits().buffer_descriptor_size <= heap_slot_stride &&
@@ -254,7 +254,7 @@ namespace deren::vulkan {
                 }
                 // THE LAYOUT, reserved once and published (see core.cppm): the runtime WRITES the contents, the
                 // pipeline builders build the mappings, and both read these two numbers rather than computing their
-                // own - the one way this design has of being wrong without anything saying so.
+                // The one way this design has of being wrong without anything saying so.
                 // Reserve the private texture-group range before any dynamic descriptors.
                 if (resource.heap_grid_offset != VK_WHOLE_SIZE) {
                     VkDeviceSize const base = VkDeviceSize(texture_group_state::table_slot) * 64u;
@@ -271,7 +271,7 @@ namespace deren::vulkan {
                 // ran earlier in this constructor and kept the create infos (core.cppm's resource.shared_sampler_infos),
                 // and a heap sampler descriptor IS such a create info - the driver creates the sampler inside the
                 // heap, exactly as it creates a view inside a heap image descriptor. Six of them, on the SAMPLER
-                // heap's own grid, in the order source/shaders/heap_slots.glsl names them.
+                // heap's grid, in the order source/shaders/heap_slots.glsl names them.
                 if (descriptors_fit) {
                     VkDeviceSize const sampler_grid = static_cast<VkDeviceSize>(heap_sampler_base) * heap_sampler_stride;
                     uint32_t written = 0;
@@ -296,15 +296,15 @@ namespace deren::vulkan {
         // THE FRAME'S PRIMARY COMMAND BUFFERS ARE ALLOCATED HERE NOW (they moved out of the runtime:
         // see core.declarations.cppm). The SHAPE is unchanged - one primary per frame slot, allocated
         // once and reused every frame - and the runtime still begins, ends and submits them; what
-        // changed is who owns the RAII objects, which is what lets `begin_commands()` hand out the
+        // changed is who holds the RAII objects, which is what lets `begin_commands()` hand out the
         // frame's list.
         this->frame.commands_view.parent = this;
         this->command.scoped_sync.parent = this;
         this->frame.frame_resources.parent = this;
         this->frame.frame_image_view.parent = this;
         this->frame.readback_slot_view.parent = this;
-        // THE FRAME FACE'S VIEWS (abi 13) - `owner` SET HERE, in the constructor, on purpose: a view
-        // handed out with a null owner dereferences null on its first call (the `resource.address_view`
+        // THE FRAME FACE'S VIEWS (abi 13) - `holder` SET HERE, in the constructor, on purpose: a view
+        // handed out with a null holder dereferences null on its first call (the `resource.address_view`
         // lesson, measured by the spike as 2 FAILs before anything else could look at it).
         this->frame.frames_view.parent = this;
         this->frame.profiler_view.parent = this;
@@ -317,21 +317,21 @@ namespace deren::vulkan {
         this->command.checkpoint_view.parent = this;
         this->frame.async_presentation_view.parent = this;
         this->resource.host_copy_view.parent = this;
-        // THE DEVICE-CAPABILITY VIEW READS THIS CORE'S CACHED FACTS, so it needs the owner exactly as the views
-        // above do - and the omission is not silent: with no owner every method answers its zero/false default,
+        // THE DEVICE-CAPABILITY VIEW READS THIS CORE'S CACHED FACTS, so it needs the holder exactly as the views
+        // above do - and the omission is not silent: with no holder every method answers its zero/false default,
         // which gated the MESH path off (measured: 'pipeline pbr has no mesh stage to build from' - the vertex
         // form is gone, so the app cannot start at all).
         this->device.capabilities_view.parent = this;
         this->resource.shader_groups_view.parent = this;
         this->frame.frame_command_buffers.reserve(static_cast<std::size_t>(frame.frames_in_flight));
         for (int32_t slot = 0; slot < frame.frames_in_flight; ++slot) {
-            // EACH ONE BRINGS ITS OWN POOL: make_command_buffer() creates a pool per buffer (see
+            // EACH ONE BRINGS its POOL: make_command_buffer() creates a pool per buffer (see
             // deren::vulkan::vk_command_buffer), so the per-slot primaries share no command pool - and
             // the cleanup below, which empties this vector while the device is idle, destroys those
             // pools too.
             this->frame.frame_command_buffers.push_back(this->make_command_buffer());
         }
-        // THE VIEWS THAT OWN DEVICE MEMORY HAVE TO BE EMPTIED BEFORE THE DEVICE GOES AWAY, and that is
+        // THE VIEWS THAT hold DEVICE MEMORY HAVE TO BE EMPTIED BEFORE THE DEVICE GOES AWAY, and that is
         // what this cleanup is for: `vk_command_buffer` frees itself through the device and its pool,
         // and `vk_buffer` through VMA's allocator - do_cleanup() destroys both from the destructor
         // BODY, i.e. before any member destructor runs. do_cleanup() is LIFO and this is the LAST
@@ -521,7 +521,7 @@ namespace deren::vulkan {
 
     void core::init_surface() noexcept {
         if (this->create_options.native_window == nullptr) {
-            deren::utility::panic("surface creation requires a caller-owned window");
+            deren::utility::panic("surface creation requires a caller-held window");
         }
         VkWin32SurfaceCreateInfoKHR const info{
             .sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
@@ -588,7 +588,7 @@ namespace deren::vulkan {
 
         // VK_EXT_present_mode_fifo_latest_ready is asked for only when the device has it, so the
         // extension is never enabled blindly and the present mode that needs it is only ever chosen
-        // from the surface's own list (see choose_swap_present_mode).
+        // from the surface's list (see choose_swap_present_mode).
         if (this->create_options.native_window != nullptr && check_device_extension_support(this->device.physical_device, deren::utility::vessel::vector<char const*>{fifo_latest_ready_extension})) {
             creation_info.extensions.push_back(fifo_latest_ready_extension);
         }
@@ -633,7 +633,7 @@ namespace deren::vulkan {
             // this device has and made the heap unavailable when it has neither, so this cannot push a name the
             // device does not support.
             creation_info.extensions.push_back(capabilities.descriptor_heap_extension_name);
-            // ... and the heap's shaders' own dependency, without which no `descriptor_heap` declaration can be
+            // ... and the heap's shaders' dependency, without which no `descriptor_heap` declaration can be
             // turned into a shader module at all (see the capability layer): the extension whose SPIR-V declares
             // untyped pointers.
             creation_info.extensions.push_back(capabilities.untyped_pointers_dependency);
@@ -645,7 +645,7 @@ namespace deren::vulkan {
         // rule - pushed only when the query proved both the extension and the meshShader feature, so an
         // enabled extension and an available feature cannot disagree. No dependency name is pushed with it:
         // VK_EXT_mesh_shader's dependencies (VK_KHR_spirv_1_4, VK_VERSION_1_2) are both satisfied by the 1.3
-        // device this renderer creates, unlike the heap's own pair.
+        // device this renderer creates, unlike the heap's pair.
         if (capabilities.mesh_shader_available) {
             creation_info.extensions.push_back(VK_EXT_MESH_SHADER_EXTENSION_NAME);
         }
@@ -686,7 +686,7 @@ namespace deren::vulkan {
         // ---- THE RAY-TRACING LAUNCH: the same rule and the same shape as the mesh commands above. It is the
         //      extension entry point the recording face's `command_buffer::trace_rays` records through (abi 24),
         //      and it is resolved ONCE here rather than per launch - so a device without the ray-tracing pipeline
-        //      extension answers null and the verb records nothing (see the member's own note).
+        //      extension answers null and the verb records nothing (see the member's note).
         this->device.ray_trace_launch = reinterpret_cast<PFN_vkCmdTraceRaysKHR>(vkGetDeviceProcAddr(device, "vkCmdTraceRaysKHR"));
 
         // ---- THE ACCELERATION-STRUCTURE ENTRY POINTS (tier-1 since abi 26): the same rule and the same shape
@@ -707,7 +707,7 @@ namespace deren::vulkan {
             if (this->device.acceleration_structure_create == nullptr || this->device.acceleration_structure_destroy == nullptr ||
                 this->device.acceleration_structure_build_sizes == nullptr || this->device.acceleration_structure_address == nullptr ||
                 this->device.acceleration_structure_build == nullptr) {
-                deren::utility::panic("VK_KHR_acceleration_structure is enabled but one of its five entry points did not resolve through vkGetDeviceProcAddr");
+                deren::utility::panic("VK_KHR_acceleration_structure is enabled but a separate one five entry points did not resolve through vkGetDeviceProcAddr");
             }
         }
 
@@ -721,7 +721,7 @@ namespace deren::vulkan {
             this->device.micromap_build = reinterpret_cast<PFN_vkCmdBuildMicromapsEXT>(vkGetDeviceProcAddr(device, "vkCmdBuildMicromapsEXT"));
             if (this->device.micromap_create == nullptr || this->device.micromap_destroy == nullptr ||
                 this->device.micromap_build_sizes == nullptr || this->device.micromap_build == nullptr) {
-                deren::utility::panic("VK_EXT_opacity_micromap is enabled but one of its four entry points did not resolve through vkGetDeviceProcAddr");
+                deren::utility::panic("VK_EXT_opacity_micromap is enabled but a separate one four entry points did not resolve through vkGetDeviceProcAddr");
             }
         }
 
@@ -831,7 +831,7 @@ namespace deren::vulkan {
                     vkFreeMemory(this->device.logical_device, memory, nullptr);
                 }
             });
-            deren::utility::log("offscreen: {} owned images, no window, surface or swapchain", frame.swap_chain_images.size());
+            deren::utility::log("offscreen: {} held images, no window, surface or swapchain", frame.swap_chain_images.size());
             return;
         }
         auto const [capabilities, formats, present_modes] = query_swap_chain_support(this->device.physical_device, this->device.surface);
@@ -859,7 +859,7 @@ namespace deren::vulkan {
             deren::utility::log("swapchain: present mode {} (vsync {}, {} modes offered)", name, this->create_options.vsync, present_modes.size());
         }
 
-        // `create_options`' own window size is passed as the fallback extent: this is the size init_window
+        // `create_options`' dedicated window size is passed as the fallback extent: this is the size init_window
         // asked glfwCreateWindow for two calls up, and it is what choose_swap_extent uses when the surface
         // leaves the extent to the application AND the window reports no framebuffer (a hidden or not yet
         // mapped window can). See that function: the value is the caller's, not one invented there.
@@ -1045,7 +1045,7 @@ namespace deren::vulkan {
             deren::utility::panic("can't find supported depth format");
         }
 
-        // Single-sampled, always: the scene renders into a 1x G-buffer whose depth is its own, and
+        // Single-sampled, always: the scene renders into a 1x G-buffer whose depth is its, and
         // this main depth image is what the no-G-buffer fallback instance (and nothing else) uses.
         // There is no sample count to resolve here - the [render] msaa setting went with the forward
         // path, which was its only consumer.
@@ -1082,8 +1082,8 @@ namespace deren::vulkan {
     // a size derived from it (`runtime::create_render_chain_targets`, released and rebuilt per generation).
     // They went with the LAST caller - the furnace environment cube in A1.6 - and no caller was left for any
     // of them, which is the same 'dead code is deleted, not left' rule the earlier boundary batches followed.
-    // The backend's own depth path (`create_depth_image` / `create_depth_resources`) is NOT one of them: the
-    // forward path's depth image is the backend's own and still created here.
+    // The backend's depth path (`create_depth_image` / `create_depth_resources`) is NOT one of them: the
+    // forward path's depth image is the backend's and still created here.
 
     void core::create_sync_objects() {
         // Per frame slot: one BINARY image-available semaphore (vkAcquireNextImageKHR requires

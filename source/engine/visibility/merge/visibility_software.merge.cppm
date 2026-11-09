@@ -22,8 +22,8 @@ export namespace deren::engine::visibility::software {
     // THE ORDER IS THE CORRECTNESS ARGUMENT. The resolve runs on the UNMERGED hardware depth. Its winner rule is
     //   software wins iff sw_depth < hw_depth                       (strictly nearer)
     //                  or sw_depth == hw_depth and !hw_id.valid()   (the hardware pixel is background/clear)
-    // and it uses the WINNING candidate's own depth for the reconstruction/tolerance check, so a software pixel's
-    // z-check compares the software id's reconstructed z against the software raster's own depth. If the merge ran
+    // and it uses the WINNING candidate's depth for the reconstruction/tolerance check, so a software pixel's
+    // z-check compares the software id's reconstructed z against the software raster's depth. If the merge ran
     // FIRST, software-won pixels would have their depth overwritten by sw_depth and the strict `<` could no longer
     // see the old hardware depth (the design review's blocking defect, spec §3.2/§5.1). The merge is a depth-only
     // pass with LESS_OR_EQUAL + depth write whose final value is therefore min(hw_depth, sw_depth).
@@ -61,7 +61,7 @@ export namespace deren::engine::visibility::software {
     struct resolved_candidate {
         candidate_source source = candidate_source::hardware;
         std::uint32_t id = 0u; ///< the packed id to decode (hardware's or software's)
-        float depth = 0.0f;    ///< the depth the reconstruction/tolerance check must use (the WINNER's own depth)
+        float depth = 0.0f;    ///< the depth the reconstruction/tolerance check must use (the WINNER's depth)
     };
 
     /**
@@ -71,7 +71,7 @@ export namespace deren::engine::visibility::software {
      * @param software the software producer's pixel (id + depth bits)
      * @note software wins on a STRICTLY smaller depth, or on an exact tie when the hardware pixel is background
      *       (invalid id). Every other case - including a software pixel that is empty, non-finite or out of [0,1] -
-     *       keeps hardware. The returned depth is the chosen candidate's own depth (spec §5.3).
+     *       keeps hardware. The returned depth is the chosen candidate's depth (spec §5.3).
      */
     [[nodiscard]] inline resolved_candidate resolve_candidate(visibility::id const hardware_id, float const hardware_depth,
                                                               software_pixel const software) noexcept {

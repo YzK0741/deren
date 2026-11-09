@@ -10,7 +10,7 @@
  * only sees the C entry point below.
  *
  * ONE ENTRY POINT, THREE BACKENDS, and a NULL ANSWER THAT IS NOT AN ERROR. The caller (chores' model
- * resolution) asks for a file before the window exists, which is why this is the platform's own dialog
+ * resolution) asks for a file before the window exists, which is why this is the platform's dialog
  * and not an in-app browser: an overlay-based picker would need the window and a frame loop, and the
  * model is loaded before either. The return value keeps "the user said no" apart from "nobody could
  * ask": 1 = picked (out holds the path), 0 = cancelled, -1 = no backend answered (headless session, no
@@ -93,7 +93,7 @@ namespace {
 } // namespace
 
 /**
- * @brief ask the user for an existing file with the platform's own open dialog
+ * @brief ask the user for an existing file with the platform's open dialog
  * @param title window/prompt title (UTF-8; the backend trims or refuses a shell-hostile one)
  * @param filter_patterns `;`-separated glob patterns, e.g. "*.glb;*.gltf"; empty or hostile = all files
  * @param out caller buffer that receives the chosen path as UTF-8
@@ -144,7 +144,7 @@ extern "C" int32_t utility_platform_ask_open_file(char const* title, char const*
         *p++ = *s;
     }
     *p++ = L'\0';
-    *p = L'\0'; // the list's own double NUL
+    *p = L'\0'; // the list's double NUL
 
     wchar_t file[32768] = {}; // long enough for a \\?\ path; the API reports truncation itself
     OPENFILENAMEW ofn = {};
@@ -169,7 +169,7 @@ extern "C" int32_t utility_platform_ask_open_file(char const* title, char const*
     out[capacity - 1] = '\0';
     return 1;
 #elif defined(__APPLE__) || defined(__linux__)
-    // The posix backends run the desktop's own picker through the shell: zenity (GNOME and most other
+    // The posix backends run the desktop's picker through the shell: zenity (GNOME and most other
     // desktops), then kdialog (KDE), and osascript on macOS. Their exit status is what says whether the
     // command was missing (127) or the user cancelled (1), which is why the loop stops on a cancel
     // instead of falling through to the next backend.

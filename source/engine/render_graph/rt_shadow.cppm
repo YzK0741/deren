@@ -9,7 +9,7 @@ export namespace deren::engine::render_graph::rt_shadow {
     /// THE GRAPH'S MODEL OF IT: the visibility image is a STORAGE write from the RAY-TRACING stage (a traceRays
     /// launch), and the G-buffer surfaces + depth are declared sampled reads because the tracer reconstructs each
     /// ray's origin from them - they reach the shader through per-image heap slots, so declaring the ACCESS is what
-    /// makes the graph order geometry -> trace and transition the images (the read itself is the pass's own).
+    /// makes the graph order geometry -> trace and transition the images (the read itself is the pass's).
     /// The lighting stage declares the matching visibility read; that pairing is the write -> hand-off edge.
     ///
     /// THE TLAS ITSELF IS OUT OF MODEL, and stays so until the acceleration-structure resource kind lands: its build

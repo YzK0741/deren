@@ -1,6 +1,6 @@
 # `VK_KHR_unified_image_layouts`: what this renderer requires of it, and what it deleted
 
-Every image this renderer owns lives in `VK_IMAGE_LAYOUT_GENERAL`, and the device is now REQUIRED to
+Every image this renderer holds lives in `VK_IMAGE_LAYOUT_GENERAL`, and the device is now REQUIRED to
 support `VK_KHR_unified_image_layouts` - the extension whose promise is that GENERAL is as efficient as
 the purpose-built layouts. This document records the contract that made that safe, the two layouts that
 survive it, the mechanical change it caused across the tree, and the measurements the change was gated
@@ -64,12 +64,11 @@ unchanged (section 4).
   really in GENERAL is a lie validation rejects.
 * The DECLARATION LAYER lost its layout: `render_resource::image_layout`, `pass_binding::layout`,
   `bindings::image_layout_of` and the validator rule "a storage image must declare GENERAL" are gone.
-  They existed because "the layout is NOT derivable from the kind" (the probe cache kept all nine of its
-  own bindings in GENERAL); with one layout there is nothing to state. `docs/pass_io_design.md` keeps the
+  They existed because "the layout is NOT derivable from the kind" (the separate probe cache kept all nine bindings in GENERAL); with one layout there is nothing to state. `docs/pass_io_design.md` keeps the
   history and says why step 4 no longer takes a layout as input.
 
 `source/third_party/imgui` still names `VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL`; it is third-party code and
-out of scope, and the engine never lets imgui own an image that this renderer transitions.
+out of scope, and the engine never lets imgui hold an image that this renderer transitions.
 
 ## 3. The retired layouts, counted
 

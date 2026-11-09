@@ -4,7 +4,7 @@
 #   * release channel: every commit goes through scripts/commit.ps1, which runs the
 #     three-question checklist and then the local gate AGAINST the new commit, rolling the
 #     commit back if the gate fails. The hook refuses a bare `git commit` because
-#     DEREN_CHECKLIST_OK is not set; the script sets it around its own commit.
+#     DEREN_CHECKLIST_OK is not set; the script sets it around its commit.
 #
 #   * WIP channel (wip/*): deliberately looser. Unfinished work is committed freely here - no
 #     checklist, no local gate marker, no CI (ci.yml and subtilis-converter.yml skip wip/* refs)

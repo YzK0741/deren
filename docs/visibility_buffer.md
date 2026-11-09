@@ -39,7 +39,7 @@ The deferred scene path has two interchangeable opaque producers:
 2. the **visibility buffer lane**: a mesh-shader raster writes only a packed 32-bit surface id plus the shared
    G-buffer depth, and a compute **resolve** rebuilds the five G-buffer targets from that id.
 
-Everything after the opaque handoff is identical: the depth is the frame's own G-buffer depth, the lighting
+Everything after the opaque handoff is identical: the depth is the frame's G-buffer depth, the lighting
 stage samples the same targets, and the toon re-shading stage tests the same depth. The switch is
 `[render] visibility_buffer` (`false` by default, `source/configuration/configuration.cppm`).
 
@@ -132,7 +132,7 @@ Feedback is512 words plus status (2052 bytes); the coherent mapped buffer is pub
 and read only after a graphics frame checkpoint completes.
 
 The graph's compiled schedule is partitioned before resolve, preserving compiled resource barriers
-and ownership. After the prefix completes, required textures load synchronously, unneeded descriptor
+and retention. After the prefix completes, required textures load synchronously, unneeded descriptor
 slots return to placeholders and unload is attempted; a remaining command/group lease defers physical
 reclamation. The suffix shades the same frame with the same camera/items. Newly visible required
 textures must load before shading; upload refusal fails the frame explicitly.

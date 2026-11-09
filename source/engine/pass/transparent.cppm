@@ -5,14 +5,14 @@
  * @brief The FOURTH real pass: the alpha-blended geometry, composited over the shaded frame.
  * @defgroup engine_pass_transparent Transparent Pass
  *
- * WHY IT IS ITS OWN PASS AND NOT PART OF THE SCENE PASS, even though both draw leaves: they are two different
+ * WHY IT IS Its PASS AND NOT PART OF THE SCENE PASS, even though both draw leaves: they are two different
  * INSTANCES with incompatible attachments. The scene pass writes the surface (its depth is an attachment it
  * CLEARs); this one LOADs the shaded colour and the surface depth and blends over them, so it cannot run inside
  * that instance - an image cannot be a sampled texture and a depth attachment at the same time, which is
  * exactly why the lighting stage (which samples the depth) and this pass (which depth-tests against it) are
  * separate instances too.
  *
- * WHAT IT OWNS: its two declared targets entered with LOAD, the per-slot secondary its leaves are recorded
+ * WHAT IT HOLDS: its two declared targets entered with LOAD, the per-slot secondary its leaves are recorded
  * into, the four barriers that hand the depth between "sampled" and "attachment" layouts (this pass is what
  * takes it out of SHADER_READ and what puts it back), and the draw order - the leaves arrive already sorted far
  * to near, which is the order alpha blending needs.
@@ -45,14 +45,14 @@ export namespace deren::engine::pass {
         /// the blended leaves, sorted FAR to NEAR by the frame loop's culling (the blend order)
         std::span<primitive const* const> leaves = {};
         /// the per-slot secondary command buffer this pass records into (one segment: the leaves are few).
-        /// THE CONTRACT HANDLE (abi 20), SHARED: the frame loop owns the buffer and hands this one reference on,
+        /// THE CONTRACT HANDLE (abi 20), SHARED: the frame loop holds the buffer and hands this one reference on,
         /// so the pass begins, records and ends it and never releases it.
         deren::promise::rhi::mergeable_command_buffer_ref secondary = {};
         /// the draw state builder (see scene_frame::make_environment: the registry is the renderer's)
         render_environment (*make_environment)(void* parent, ::deren::engine::recording_target target, bool gbuffer) = nullptr;
         void* parent = nullptr;
         // (THE HEAP-BIND FIELD IS GONE - plan X5 B3.5: the secondary's descriptor-heap inheritance is derived by
-        //  the BACKEND from the heaps it owns, which is why the pass stopped calling the hook at abi 20 - see
+        //  the BACKEND from the heaps it holds, which is why the pass stopped calling the hook at abi 20 - see
         //  scene_frame's note for the whole reason.)
         /// the ONE colour attachment the secondary inherits, plus the depth format
         ::deren::promise::rhi::image_format color_format = ::deren::promise::rhi::image_format::unknown;
@@ -78,9 +78,9 @@ export namespace deren::engine::pass {
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const& host) override;
 
-        /// @brief the secondary, the LOAD instance and the execute alone - none of this pass's own ordering
+        /// @brief the secondary, the LOAD instance and the execute alone - none of this pass's ordering
         ///
-        /// The removed legacy path's `record()` owned the two hand-off barriers at the entry (depth back to an attachment,
+        /// The removed legacy path's `record()` held the two hand-off barriers at the entry (depth back to an attachment,
         /// the scene target's dependency) and the depth hand-back at the exit (two later stages sample the depth).
         /// A graph-recorded frame declares those reads/writes instead and the graph emits all of them - so its
         /// recorder calls THIS entry and one submission never runs both barrier paths.
@@ -97,7 +97,7 @@ export namespace deren::engine::pass {
             .extent = extent_rule::full,
             .extent_of = resource_id::none,
             .pipelines = pipeline_names,
-            .resync_viewport = false, // the scene pipelines carry their own stored viewport
+            .resync_viewport = false, // the scene pipelines carry their stored viewport
         };
 
         // called pass_frame, not frame: set_frame()'s frame parameter in transparent.cpp would hide a member of that name

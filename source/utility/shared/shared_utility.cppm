@@ -4,13 +4,13 @@
 //
 // THE PROCESS-WIDE HALF OF utility (batch ④, the dynamic-backend flip's prerequisite).
 //
-// WHY A MODULE OF ITS OWN: this toolkit is STATIC and BOTH halves of the RHI boundary link it, so
+// WHY A separate MODULE: this toolkit is STATIC and BOTH halves of the RHI boundary link it, so
 // today one process holds one copy of everything - the log sink included. TURNING `deren_vulkan`
-// INTO A SHARED LIBRARY BREAKS THAT: a DLL carries its own copy of whatever it links, so the
+// INTO A SHARED LIBRARY BREAKS THAT: a DLL carries its copy of whatever it links, so the
 // process would hold TWO sinks - two `ofstream`s on the same deren-debug.log and two startup rotations,
 // and `rotate_previous_log()` TRUNCATES the file the other copy is still writing. The boundary gate
 // cannot see it either: that gate measures deren_vulkan ∩ deren_engine, and this is a third
-// library defining no backend symbol. Hence a target of its own, which the flip makes SHARED.
+// library defining no backend symbol. Hence A separate target, which the flip makes SHARED.
 //
 // WHAT BELONGS HERE is exactly the state that must exist once per PROCESS:
 //   - the log sink: the queue, its worker thread, and the file handle;
@@ -36,7 +36,7 @@
 // libc++ linked anywhere).
 //
 // WHERE THIS BATCH STILL HANDS OVER A VIEW, it is a design choice rather than a rule: the sink's door is
-// `log_text(std::string_view)` because the COPY the queue owns is made on the sink's side, and because
+// `log_text(std::string_view)` because the COPY the queue holds is made on the sink's side, and because
 // the formatting stays in the caller's template instantiation (`deren.utility`'s `log`), so no template
 // needs to be an exported symbol. Nothing above forbids the alternatives.
 //
@@ -98,7 +98,7 @@ namespace deren::utility {
      * @brief queue an `[ERROR]` body to deren-debug.log in every build
      * @param text the pre-formatted error text
      * @param location the caller's source location; the default captures the CALLER
-     * @note one asynchronous writer owns the ordinary log; failure falls back to deren-crash.log,
+     * @note one asynchronous writer holds the ordinary log; failure falls back to deren-crash.log,
      *       never to stdout/stderr. Fatal reports use the independent emergency writer.
      */
     export void error_text(std::string_view text,
@@ -118,7 +118,7 @@ namespace deren::utility {
      * @ingroup utility
      * @brief wait until the prefix queued at entry has been processed and write/flush attempted
      * @note newer submissions do not extend the wait. This normal-context operation can block;
-     *       panic writes its own report directly and uses only a bounded existing-sink wait.
+     *       panic writes its report directly and uses only a bounded existing-sink wait.
      */
     export void wait_log_all() noexcept;
 
@@ -148,7 +148,7 @@ namespace deren::utility {
 // signal` in a mere CONSUMER's translation unit - utility.cpp, while instantiating std::format in
 // write_png, with `-fsyntax-only` (so it is Sema, not codegen). Replacing the partition re-export
 // with a plain `import` makes it compile; the same file compiled against master's BMI compiles.
-// One DLL owns mimalloc. Templates never link their own allocator instance, and
+// One DLL holds mimalloc. Templates never link their allocator instance, and
 // no default-resource registration or application startup hook is required.
 export namespace deren::utility::memory {
     struct allocation_statistics {
@@ -307,7 +307,7 @@ export namespace deren::utility::diagnostics {
         vessel::string text;
         symbolizer_status status = symbolizer_status::ok;
     };
-    // Healthy-context API: owns vessel storage and can start a bounded child process.
+    // Healthy-context API: holds vessel storage and can start a bounded child process.
     // The first `exact_address_count` frames are symbolized at the recorded PC; the rest are
     // return addresses and are decoded at pc - 1. Raw records are written either way.
     [[nodiscard]] symbolized_trace symbolize(stack_trace const& trace, symbolizer_options const& options = {});

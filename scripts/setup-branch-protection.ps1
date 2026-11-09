@@ -1,6 +1,6 @@
 param(
     [string]$Branch = "master",
-    # GitHub does not let a PR author approve their own PR. On a single-maintainer
+    # GitHub does not let a PR author approve their PR. On a single-maintainer
     # repository a required approval therefore makes every PR unmergeable, so the
     # default is 0: this is the documented SOLO-MAINTAINER EXCEPTION (CONTRIBUTING.md
     # "GitHub-side protection"). Pass -Approvals 1 as soon as a second maintainer can

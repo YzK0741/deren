@@ -96,7 +96,7 @@ namespace deren::engine::pass {
             return record_error;
         }
         // THE GPU COMPUTE CHAIN STAYS INSIDE THIS RECORDER, and that is the model's boundary rather than a gap: its
-        // three dispatches (prepare/sort/finalize) write and read the frame snapshot's OWN buffers (no other pass
+        // three dispatches (prepare/sort/finalize) write and read the frame snapshot's buffers (no other pass
         // touches them) and the snapshot emits their barriers itself, so the pass-level boundary the graph needs is
         // just the raster's target write and depth read.
         if (gpu_snapshot) {
@@ -114,7 +114,7 @@ namespace deren::engine::pass {
             record_error = rhi::error::unsupported;
             return record_error;
         }
-        // THE IMAGE HAND-OFFS THE REMOVED LEGACY FRAME OWNED: the depth comes back from a sampler for the raster's depth
+        // THE IMAGE HAND-OFFS THE REMOVED LEGACY FRAME HELD: the depth comes back from a sampler for the raster's depth
         // test, the target's last store is published for the LOAD, and the depth is handed back for the next
         // sampler. A graph-recorded frame declares the two accesses instead and the graph emits all three - so its
         // recorder calls record_content() and the two paths never run together.

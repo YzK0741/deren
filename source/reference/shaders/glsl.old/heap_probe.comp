@@ -5,11 +5,11 @@
 // declarations, a pipeline created with VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT and a NULL layout, its
 // parameters delivered by vkCmdPushDataEXT, and the two heaps bound in the command buffer that records it?
 //
-// WHY IT IS ITS OWN COMMAND BUFFER, and why the mask bake could not do this job: the bake is recorded into the
+// WHY IT IS its COMMAND BUFFER, and why the mask bake could not do this job: the bake is recorded into the
 // FRAME's command buffer (ray_tracing::structure_set builds the structures there), and binding the heaps is
-// exactly the measured poison that makes every set-based stage in that frame read the heap instead of its set.
+// exactly the measured poison that makes every set-based stage in that frame read the separate heap instead set.
 // So the bake is only safe to convert with the whole frame, while this probe runs once, at scene setup, in a
-// command buffer of its own - which is what makes it isolated rather than merely off the gate's path.
+// command buffer - which is what makes it isolated rather than merely off the gate's path.
 //
 // WHAT IT READS: one texture from the bindless array (sampled through a sampler taken from the SAMPLER heap and
 // constructed at the use site, because a combined image sampler cannot be declared heap-native at all) and

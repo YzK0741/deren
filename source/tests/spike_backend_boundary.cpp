@@ -4,7 +4,7 @@
 //
 // THE BOUNDARY SPIKE.
 //
-// WHY THIS EXISTS AND WHY IT IS NOT IN `VR_TEST_TARGETS`: the plan's own review found that
+// WHY THIS EXISTS AND WHY IT IS NOT IN `VR_TEST_TARGETS`: the plan's review found that
 // the four known-unknowns of the DLL flip were all sitting at the END of the critical path -
 // sanitizers + an instrumented DLL, the real DLL's `shared_ptr` deleter, two static
 // mimalloc instances, and a module BMI crossing a target boundary. Measuring them after the
@@ -31,11 +31,11 @@
 //                          question; a configure/build failure is the answer.
 //   Q4 BMI across target   the version handshake is read across the image boundary WITHOUT a version
 //                          symbol (abi 18 deleted the query): the caller passes the number THIS TEST
-//                          compiled from its own copy of the contract module, and the DLL's own number
+//                          compiled from its copy of the contract module, and the DLL's number
 //                          comes back in the refusal's `native_code` - the "both sides compile the
 //                          contract" rule, checked across a real image boundary. With
 //                          `--with-device`, virtual calls on an object CONSTRUCTED INSIDE the DLL
-//                          dispatch through the exe's own vtable copy, the stronger form of the same
+//                          dispatch through the exe's vtable copy, the stronger form of the same
 //                          question.
 //   Q2 the deleter         with `--with-device`: the `shared_ptr` the DLL RETURNS carries the control
 //                          block built inside that library (abi 18), so the `delete` runs in the image
@@ -46,15 +46,15 @@
 //                          time (an instrumented DLL cannot put a second ASan runtime into the
 //                          instrumented process - CMakeLists' probe_backend comment). The
 //                          spike tree is configured twice, with and without the sanitizer
-//                          flags, and the result is recorded in the spike's own report.
+//                          flags, and the result is recorded in the spike's report.
 //   Q3 two mimalloc        likewise a property of the LINK, not of a call: measured with
 //                          `llvm-nm` over both images (both must contain `mi_malloc`/`mi_free`)
-//                          plus the owning-STL audit in scripts/checks/check_backend_boundary.py.
+//                          plus the holding-STL audit in scripts/checks/check_backend_boundary.py.
 //
 // THE SAFE DEFAULT: without `--with-device` this test never creates a window or a device, so
 // it runs anywhere and still answers Q4 (weak form), Q5, Q6 and the ABI handshake. With
 // `--with-device` it constructs the real context - which creates a real window through the
-// backend's own default path - and that is the one part that needs a machine with a display
+// backend's default path - and that is the one part that needs a machine with a display
 // and a Vulkan device.
 // ============================================================================
 #include "vk_test.h"
@@ -75,7 +75,7 @@ import deren.utility.dynamic_link;
 import deren.vulkan.main_context;
 import deren.vulkan.command_buffer;
 
-// After the imports it needs: the header names deren::promise::rhi types (see its own note).
+// After the imports it needs: the header names deren::promise::rhi types (see its note).
 #include "../promise/rhi/backend_entry.hpp"
 
 namespace {
@@ -96,7 +96,7 @@ namespace {
     /// This exists because the first version of this spike had none: its stdout went to a redirected
     /// file, `fwrite` to a redirected stream is BLOCK-buffered, and the process was terminated before
     /// any of it was flushed - so a run that had got all the way to a live device left an EMPTY file and
-    /// no evidence at all (the backend's own `deren-debug.log` is what eventually showed how far it got).
+    /// no evidence at all (the backend's `deren-debug.log` is what eventually showed how far it got).
     /// stderr is unbuffered by default and the `fflush` makes that explicit, so every mark that printed
     /// is a mark that happened.
     void mark(char const* what) {
@@ -109,8 +109,8 @@ namespace {
     // which does search %PATH% - a different question).
     constexpr std::string_view spike_dll_path = VR_SPIKE_BACKEND_DLL;
 
-    // abi 18: the entry returns the owning handle, so the resolved symbol IS the whole surface - the
-    // contract's own typedef keeps this file from spelling a signature that could drift from the header.
+    // abi 18: the entry returns the holding handle, so the resolved symbol IS the whole surface - the
+    // contract's typedef keeps this file from spelling a signature that could drift from the header.
     using make_core_fn = deren_make_api_core_fn;
 
     /** @brief a resolved C symbol: `void const*` to function pointer, constness dropped on purpose */
@@ -139,7 +139,7 @@ namespace {
         [[nodiscard]] std::string_view get_tag() const noexcept override {
             return identity_marker;
         }
-        // the owner-side lifecycle, in the same everything-refused shape: this stand-in is "not
+        // the holder-side lifecycle, in the same everything-refused shape: this stand-in is "not
         // handed out by the backend" for BOTH questions the contract asks (submit's list and
         // execute's buffer), so one class answers both.
         void release() noexcept override {
@@ -254,7 +254,7 @@ namespace {
         // diagnostic, so the assertions below read the fields a bare `error` could not carry. (abi 14
         // did not change this structure, and neither did abi 15: the frame verbs - `api_core::submit()` /
         // `frame_swapchain()`, `swapchain::recreate()` / `extent()`, the two timing verbs on
-        // `command_buffer` is the ONE recording face now (abi 21), and abi 15 appended the owned
+        // `command_buffer` is the ONE recording face now (abi 21), and abi 15 appended the held
         // `api_core::create_command_buffer()`, with `present()`'s return changing from void to error in
         // 14 - exactly the vtable case the number exists for; the number itself is compared symbolically
         // below, never spelled here, so a renumbering cannot silently pass this file.)
@@ -263,7 +263,7 @@ namespace {
         rhi::shared_object<rhi::api_core> const refused = make_core(rhi::abi_version + 1u, &creation, &status);
         CHECK(!refused); // an EMPTY shared_ptr is the refusal (abi 18), exactly as a null raw pointer was
         CHECK(status.code == rhi::error::abi_mismatch);
-        // THE BACKEND'S OWN NUMBER IS THE DIAGNOSTIC'S `native_code` (abi 18): `deren_abi_version()` is
+        // THE BACKEND'S NUMBER IS THE DIAGNOSTIC'S `native_code` (abi 18): `deren_abi_version()` is
         // gone, so this field is where a host reads the number it disagreed with.
         CHECK(status.native_code == static_cast<std::int32_t>(rhi::abi_version));
         CHECK_MSG(!status.message.empty(), "the refusal carries static text naming what disagreed");
@@ -286,7 +286,7 @@ namespace {
         // `window_visible = false` IS A MEASURED REQUIREMENT, NOT A PREFERENCE: a VISIBLE window does not
         // come up in this session at all (this spike's first version hung with 0.5 s of CPU and no window
         // ever appeared), while the HIDDEN path runs to completion - which is exactly what the
-        // application's own scripted capture does (`main.cpp` sets
+        // application's scripted capture does (`main.cpp` sets
         // `core_options.window_visible = capture.frames == 0`, so a capture gets no visible window). The
         // pixels, the handles and the lifetime ordering are identical either way, so hiding it costs this
         // measurement nothing; it only stops the spike depending on a window station that can map a
@@ -303,14 +303,14 @@ namespace {
         CHECK(status.code == rhi::error::ok);
         CHECK(core != nullptr);
         if (core == nullptr) {
-            return; // the backend refuses with an empty handle; the startup diagnosis is its own
+            return; // the backend refuses with an empty handle; the startup diagnosis is its
         }
 
         // THE DELETER CAME WITH THE ANSWER (abi 18): the control block was built INSIDE the DLL, so the
         // destruction runs in the image that allocated the object without this test naming a deleter
         // symbol at all. The scope below is kept ON PURPOSE: it is where the last reference drops, and
         // the library is still loaded (detached) when it does - the ordering the engine reproduces with
-        // its own member order.
+        // its member order.
         {
 
             // A virtual call on an object CONSTRUCTED INSIDE THE DLL, dispatching through the
@@ -337,10 +337,10 @@ namespace {
             }
 
             // The resource factories are the S3 design surface and answer nullptr today; what this
-            // ---- THE FIRST OWNED RESOURCE ACROSS THE CONTRACT -------------------------------------
+            // ---- THE FIRST HELD RESOURCE ACROSS THE CONTRACT -------------------------------------
             // `create_buffer` was the S3 gate ("it must answer null, not crash") until step 2a gave the
             // descriptor a shape and the backend a real implementation. What is checked now is the
-            // whole owned-handle path on a REAL allocation: the factory builds the buffer inside the
+            // whole held-handle path on a REAL allocation: the factory builds the buffer inside the
             // DLL, the descriptor's size and its HOST-VISIBILITY decide what `mapped()` answers, and the
             // caller's single `release()` gives the reference back to the allocator (which is the
             // decrement `free_buffer` performs - release, not necessarily destruction).
@@ -411,7 +411,7 @@ namespace {
             }
 
             // ---- abi 16: THE SAMPLER DESCRIPTOR'S APPENDED FIELDS, ON THE REAL DEVICE ----------------
-            // The engine creates the renderer's own sampler set now, so these five fields cross for real:
+            // The engine creates the renderer's sampler set now, so these five fields cross for real:
             // NEAREST minification, NEAREST mipmapping and a `less_or_equal` comparison have to survive the
             // trip, or the samplers behind the captures are not the samplers the renderer asked for. A
             // descriptor passed by `const&` that is laid out differently on the two sides fails SILENTLY,
@@ -441,7 +441,7 @@ namespace {
 
             // ---- THE IMAGE FACE (abi 7, §17's design), ON THE REAL DEVICE --------------------------
             // create_image with CONTENT (the contract's dedup-visible path), a view of the whole image,
-            // a view of ONE mip/layer range, the refusals, and the escape's borrowed handles. This is
+            // a view of ONE mip/layer range, the refusals, and the escape's referenced handles. This is
             // the section §17's landing order asks for before any engine call site moves: real image,
             // real views, release, on hardware.
             mark("create_image: 4x4 rgba8 with initial content, sampled + transfer destination");
@@ -503,19 +503,19 @@ namespace {
             bad_pipeline.debug_name = "spike unknown-format pipeline";
             CHECK(!core->resources->create_pipeline(bad_pipeline));
 
-            // ---- THE FRAME FACE (abi 13): the two borrowed views, on the real device --------------
+            // ---- THE FRAME FACE (abi 13): the two views, on the real device --------------
             // STRUCTURE ONLY, ON PURPOSE: the contract has no submit verb yet, so a frame this test
             // opened could never be handed back - presenting it would wait on a present-ready
             // semaphore nothing signals, and tearing the context down while an image is acquired is
             // invalid. The full wait -> latch -> acquire -> present -> walk loop is witnessed by the
-            // engine's own frame path and the render gate (14 scenes, hashes frozen). Two profiler
+            // engine's frame path and the render gate (14 scenes, hashes frozen). Two profiler
             // lines the handoff names are machine- or stage-dependent and recorded here as such: the
             // "no-timing device" refusal (this machine times) and the named-stage report after real
             // marks (the engine's frame loop, once it walks the face) are witnessed where they run.
-            mark("walk_frames/profiler: the frame face's two borrowed views");
+            mark("walk_frames/profiler: the frame face's two views");
             rhi::frame_walker* const walker = core->frames->walk_frames();
             CHECK(walker != nullptr);
-            CHECK(core->frames->walk_frames() == walker); // the same borrowed view every call, never a new object
+            CHECK(core->frames->walk_frames() == walker); // the same view every call, never a new object
             CHECK(walker->slot_count() > 0u);
             CHECK(walker->position() < walker->slot_count()); // the cursor, read before any frame
             rhi::gpu_profiler* const profiler = core->frames->profiler();
@@ -539,10 +539,10 @@ namespace {
             // loop is witnessed by the engine's frame path and the 14 frozen render hashes, and
             // abi 14's positional mark rule is witnessed on the probe's device-less list by
             // source/tests/test_dynamic_link.cpp.)
-            mark("frame_swapchain: the presentation surface's borrowed view");
+            mark("frame_swapchain: the presentation surface's view");
             rhi::swapchain* const surface = core->frames->frame_swapchain();
             CHECK(surface != nullptr);
-            CHECK(core->frames->frame_swapchain() == surface); // the same borrowed view every call, never a new object
+            CHECK(core->frames->frame_swapchain() == surface); // the same view every call, never a new object
             rhi::image_extent const output = surface->extent();
             // A real swapchain exists in this context, and a zero-sized one is the deferred state
             // (the constructor's build path never created targets from it), so the extent is real.
@@ -599,9 +599,9 @@ namespace {
             CHECK_MSG(core->frames->present() == rhi::error::not_ready,
                       "present with no acquired frame is refused by name, not run");
 
-            // ---- THE OWNED COMMAND BUFFER (abi 15), ON THE REAL DEVICE ---------------------------
+            // ---- THE HELD COMMAND BUFFER (abi 15), ON THE REAL DEVICE ---------------------------
             // This is the one part of abi 15 that CAN be driven without a frame, and it is driven end
-            // to end: two buffers are created (each with its own command pool), both are recorded, the
+            // to end: two buffers are created (each with its command pool), both are recorded, the
             // primary executes the secondary and submits without a frame. Presentation is covered
             // by the engine's frame path and the render gate.
             mark("create_command_buffer: an buffer primary, recorded and merged with a mergeable batch");
@@ -615,13 +615,13 @@ namespace {
             CHECK(!core->commands->create_command_buffer(rhi::command_buffer_desc{.kind = static_cast<rhi::command_buffer_kind>(99u)}));
             if (primary && secondary != nullptr) {
                 CHECK(primary->get_tag() == "deren_command_buffer_vulkan");
-                // THE BORROWED RECORDING VIEW IS GONE WITH `command_list` (its `recording()` and the
-                // view it returned): the owned buffer IS the recording face now, so the distinction
+                // THE REFERENCED RECORDING VIEW IS GONE WITH `command_list` (its `recording()` and the
+                // view it returned): the held buffer IS the recording face now, so the distinction
                 // this line used to draw - the view is NOT the frame's list - is drawn against the
-                // frame's own buffer instead: `begin_commands()` answers nothing outside a frame
-                // (checked above), and the owned buffer is a different object from it.
+                // frame's buffer instead: `begin_commands()` answers nothing outside a frame
+                // (checked above), and the held buffer is a different object from it.
                 CHECK(core->frames->begin_commands() != static_cast<rhi::command_buffer*>(&*primary));
-                // X4 accepts recorded caller-owned primaries; submit is tested after end_recording
+                // X4 accepts recorded caller-held primaries; submit is tested after end_recording
                 // below. An allocated but unrecorded native buffer is not valid submission input.
                 rhi::error const timing_open = primary->begin_gpu_timing();
                 CHECK_MSG(timing_open == rhi::error::not_ready,
@@ -629,7 +629,7 @@ namespace {
                 rhi::error const timing_mark = primary->mark_gpu_timing(0, "not the frame's");
                 CHECK_MSG(timing_mark == rhi::error::not_ready,
                           "the frame-scoped mark verb refuses the same way");
-                // THE NATIVE HANDLE: the backend main context resolves a buffer the CALLER owns, outside
+                // THE NATIVE HANDLE: the backend main context resolves a buffer the CALLER holds, outside
                 // any frame - which is the read-back's case (its read runs after the frame has landed).
                 CHECK_MSG(deren::vulkan::is_command_buffer(*primary), "an buffer command buffer's concrete tag is shared");
                 if (deren::vulkan::is_command_buffer(*primary)) {
@@ -737,7 +737,7 @@ int main(int argc, char** argv) {
     mark(with_device ? "start (--with-device)" : "start (safe mode)");
 
     // Q5 + Q6: an ABSOLUTE path through the platform's restricted search flags, on a library that
-    // has to satisfy its own dependency closure (vulkan-1.dll, libc++.dll, USER32/GDI32, glfw's
+    // has to satisfy its dependency closure (vulkan-1.dll, libc++.dll, USER32/GDI32, glfw's
     // system libraries) - the probe DLL had none of those.
     auto loaded_result = deren::utility::dynamic_link::load(deren::utility::vessel::string{spike_dll_path});
     CHECK(loaded_result.has_value());
@@ -749,14 +749,14 @@ int main(int argc, char** argv) {
     // ---- THE LIBRARY IS DETACHED, NEVER UNLOADED, AND THAT IS A MEASUREMENT ---------------------
     // `FreeLibrary` on this backend NEVER RETURNS once it has been initialised. MEASURED, with the
     // stderr marks above: every step of this test completed (a real context built inside the DLL, the
-    // contract's virtuals called across the image boundary, the DLL's own deleter run and returned) and
+    // contract's virtuals called across the image boundary, the DLL's deleter run and returned) and
     // then the process sat at 0.45 s of CPU for 80+ s with 10 threads and 76 MB that never moved - the
     // only step left was the loader's destructor calling `FreeLibrary`. So the unload is what hangs,
     // not the test, and it is the DLL's process-detach path that blocks (GLFW is initialised inside it
     // and this backend never calls `glfwTerminate` - `core.constructor.cppm` says so in as many words -
     // so a detach that waits on that state is a deadlock, not a slow teardown).
     //
-    // `detach()` IS THE DESIGNED EXIT FOR THIS (`dynamic_link::library`, with its own test in
+    // `detach()` IS THE DESIGNED EXIT FOR THIS (`dynamic_link::library`, with its test in
     // source/tests/test_dynamic_link.cpp), and the plan's invariant 4 already says the DLL lives to the end of
     // the process - so the product does not unload either. The engine's loader object must detach
     // rather than let its destructor unload,
@@ -767,7 +767,7 @@ int main(int argc, char** argv) {
     // Q4 (weak form) + THE ONE-EXPORT SHAPE (abi 18): the DLL exports exactly one symbol, and the two
     // that shaped abi 17 are ABSENT - their absence is checked rather than assumed, because "the host
     // resolves the version from the DLL" is no longer a step (the version is the call's argument, and
-    // the DLL answers a mismatch with its own number inside the diagnostic).
+    // the DLL answers a mismatch with its number inside the diagnostic).
     CHECK(!loaded.symbol("deren_abi_version").has_value());
     CHECK(!loaded.symbol("deren_destroy_api_core").has_value());
     auto const make_symbol = loaded.symbol("deren_make_api_core");

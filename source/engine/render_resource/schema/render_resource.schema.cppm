@@ -21,7 +21,7 @@ import deren.engine.visibility.software;
 export namespace deren::engine::render_resource {
     enum class resource_id : uint32_t {
         none = 0,
-        // ---- the swapchain image itself, owned outside ----
+        // ---- the swapchain image itself, held outside ----
         swapchain_image,
         // ---- the HDR chain and the G-buffer (one per swapchain image) ----
         hdr,
@@ -35,7 +35,7 @@ export namespace deren::engine::render_resource {
         // the visibility buffer: one R32_UINT packed id per pixel of the main view's opaque geometry,
         // written by the visibility raster pass and read by the resolve pass (one per swapchain image)
         visibility_buffer,
-        // the capture-only step's own depth image: the raster lane must not share the G-buffer's depth writer
+        // the capture-only step's depth image: the raster lane must not share the G-buffer's depth writer
         visibility_depth,
         // ---- one per frame slot ----
         shadow_map,
@@ -109,7 +109,7 @@ export namespace deren::engine::render_resource {
         // ---- THE SOFTWARE RASTER'S SURFACE (M4 Task 2, docs/superpowers/specs/2026-10-22-software-raster-
         //      design.md §3.2/§4.2): two per-swapchain-image R32_UINT results and the host-written CSR tile-list
         //      buffer per frame lane. APPENDED after pass_upload_buffer so no existing identity moves. The output
-        //      family publishes them through its separate `software_*` surface; Task 4 promotes that surface into
+        //      family publishes them through its `software_*` surface; Task 4 promotes that surface into
         //      the pass's selected `ids` list, which is also when these entries start being CREATED. ----
         /// the software raster's depth image: the nearest software candidate's float depth bit pattern
         software_depth,
@@ -149,13 +149,13 @@ export namespace deren::engine::render_resource {
         /// the number of enumerators, so the schema's completeness can be checked by ITERATING rather than
         /// against a hand-kept list: `validate_schema()` requires exactly one entry per id in [1, count)
         local_probe,
-        /// the immutable GPU cut payload owned by one subtilis geometry generation
+        /// the immutable GPU cut payload held by one subtilis geometry generation
         scene_cut_groups,
         scene_cut_clusters,
         scene_cut_references,
         /// the per-frame GPU cut item table (frame header + one record per planned item)
         subtilis_cut_items,
-        /// the immutable streaming page image owned by one subtilis geometry generation
+        /// the immutable streaming page image held by one subtilis geometry generation
         scene_page_arena,
         scene_page_table,
         scene_page_requests,
@@ -192,7 +192,7 @@ export namespace deren::engine::render_resource {
     enum class resource_lifetime : uint8_t {
         per_frame,  // rewritten every frame by its parent
         persistent, // holds state ACROSS frames (histories, the accumulated grid) - see the reset sites
-        imported,   // owned outside this renderer (the swapchain image)
+        imported,   // held outside this renderer (the swapchain image)
     };
 
     /** @brief one family of resources: what it is, how it is indexed, and how many images it holds
@@ -230,7 +230,7 @@ export namespace deren::engine::render_resource {
         {.id = resource_id::swapchain_image, .name = "swapchain_image", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::imported},
         {.id = resource_id::hdr, .name = "hdr", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::per_frame},
         // FOUR LEVELS, not one: `core::bloom_images` is `deren::utility::vessel::array<deren::utility::vessel::vector<VkImage>, bloom_level_count>`
-        // with `bloom_level_count == 4`, and the post chain's passes each own ONE of them. The count was 1 (the
+        // with `bloom_level_count == 4`, and the post chain's passes each hold ONE of them. The count was 1 (the
         // default) until the bloom chain was extracted, which made `element = level` illegal for every pass but
         // the first - and the validator's `element >= info->count` check is what says so, so this field IS the
         // contract a declaration is written against.
@@ -409,12 +409,12 @@ export namespace deren::engine::render_resource {
     // VK_KHR_unified_image_layouts (see docs/unified_image_layouts.md): this renderer keeps every image in
     // VK_IMAGE_LAYOUT_GENERAL, so a declaration has no layout left to state. They had been added after the
     // first conversion because the layout was NOT derivable from the kind - the probe cache kept all nine of
-    // its own bindings in GENERAL while a sampled image elsewhere was in SHADER_READ_ONLY_OPTIMAL, so
+    // its bindings in GENERAL while a sampled image elsewhere was in SHADER_READ_ONLY_OPTIMAL, so
     // "storage means GENERAL, sampled means SHADER_READ" was wrong for a real pass. One layout makes the
     // question disappear, and with it the validator rule that used to enforce the answer.
 
     /**
-     * @brief where a binding's resource comes from: the pass's own per-image binding, or the frame's heap
+     * @brief where a binding's resource comes from: the pass's per-image binding, or the frame's heap
      *
      * `local` marks one of the pass's private per-image bindings: the resolver indexes those by `binding`, and
      * the validator requires them to be numbered contiguously from zero. `shared` marks a binding the pass
@@ -549,14 +549,14 @@ export namespace deren::engine::render_resource {
          *
          * WHY IT IS NOT "several attachments of one instance", which is the obvious reading: a rendering instance
          * has exactly ONE depth attachment, so the N layers of one depth array cannot be one instance's targets.
-         * The shadow pass renders its cascades layer by layer, each with its own transition, instance and
+         * The shadow pass renders its cascades layer by layer, each with its transition, instance and
          * secondary - and what its declaration could not say before was that all N of those layers are elements
          * of ONE family, so the host had to hand them over itself (`runtime::resolve_shadow_pass`, now gone).
          *
          * A CEILING RATHER THAN A PROMISE: how many elements a family HAS this frame is the FRAME's fact (the
          * shadow map allocates the layers the cascade knob asks for - one to four - and `create_shadow_resources`
          * may keep spare layers a shrank count left behind), so resolution hands over the first @c count elements
-         * that EXIST and the pass renders what it is given. `element + count` past the family's own count is a
+         * that EXIST and the pass renders what it is given. `element + count` past the family's count is a
          * declaration error the validator refuses, so this field is a claim about the SCHEMA, and the frame's
          * answer is only ever a shorter run.
          */
@@ -570,7 +570,7 @@ export namespace deren::engine::render_resource {
      * `render_target` a separate list from `bindings`.
      *
      * The LAYOUTS are deliberately not declared: which pair of layouts a transition uses is the pass's
-     * knowledge (its own barriers, its own order), and a declaration that named them would have to be a
+     * knowledge (its barriers, its order), and a declaration that named them would have to be a
      * barrier generator rather than a description of what the pass touches. What is declared is only what the
      * layer must know to hand the pass a handle: which resource, and which image of its family.
      */
@@ -585,7 +585,7 @@ export namespace deren::engine::render_resource {
     /**
      * @brief a BUFFER a pass orders around but never binds itself - the buffer twin of `barrier_image`
      *
-     * WHY THIS EXISTS, and it is a measured need rather than symmetry for its own sake: the clustered-light
+     * WHY THIS EXISTS, and it is a measured need rather than symmetry for its sake: the clustered-light
      * sort (`deren.engine.pass.cluster`) writes two buffers that are part of the frame's shared scene resources
      * (bindings 11 and 12). The pass reaches them through the heap, so its declaration names no binding for
      * either buffer - and yet
@@ -595,7 +595,7 @@ export namespace deren::engine::render_resource {
      * it moves. The pair of channel fields is now the same shape as `barrier_images`, one per resource class.
      *
      * The ACCESS masks are deliberately not declared, for the reason `barrier_image` gives about layouts: which
-     * stages and accesses a barrier names is the pass's knowledge of its own ordering, and a declaration that
+     * stages and accesses a barrier names is the pass's knowledge of its ordering, and a declaration that
      * named them would be a barrier generator rather than a description of what the pass touches.
      */
     struct barrier_buffer {
@@ -619,13 +619,13 @@ export namespace deren::engine::render_resource {
         /// the images this pass renders into, in the order it uses them (a fullscreen pass has one)
         std::span<render_target const> targets = {};
         /**
-         * The images this pass TRANSITIONS but never binds (see `barrier_image`), in the order the pass's own
-         * record() indexes them. Empty for every pass whose resources are all its own or all descriptors.
+         * The images this pass TRANSITIONS but never binds (see `barrier_image`), in the order the pass's
+         * record() indexes them. Empty for every pass whose resources are all its or all descriptors.
          */
         std::span<barrier_image const> barrier_images = {};
         /**
          * The BUFFERS this pass orders around but never binds (see `barrier_buffer`), in the order the pass's
-         * own record() indexes them. Empty for every pass but the clustered-light sort today.
+         * its record() indexes them. Empty for every pass but the clustered-light sort today.
          */
         std::span<barrier_buffer const> barrier_buffers = {};
         std::optional<push_block> push = std::nullopt;
@@ -643,7 +643,7 @@ export namespace deren::engine::render_resource {
         case binding_kind::input_attachment:
             return resource == resource_kind::image2d || resource == resource_kind::image3d || resource == resource_kind::image_cube;
         case binding_kind::sampler:
-            return true; // a standalone sampler names no resource of its own
+            return true; // A separate standalone sampler names no resource
         case binding_kind::uniform_buffer:
         case binding_kind::storage_buffer:
             return resource == resource_kind::buffer;
@@ -669,7 +669,7 @@ export namespace deren::engine::render_resource {
         return false;
     }
 
-    /** @brief the schema's own invariants: no empty name, no empty family, and ONE entry per declared id */
+    /** @brief the schema's invariants: no empty name, no empty family, and ONE entry per declared id */
     [[nodiscard]] inline std::expected<void, deren::utility::vessel::string> validate_schema() {
         for (resource_info const& info : resource_schema) {
             if (info.id == resource_id::none) {
@@ -712,7 +712,7 @@ export namespace deren::engine::render_resource {
      * binding kind fits the resource kind (a `sampler3D` cannot be declared as a 2D image; an acceleration
      * structure is not a buffer); the access fits the kind (a sampled image cannot be written); `element` is
      * inside the family; `descriptor_count` is at least one; a sampled image names a sampler and nothing else
-     * does; no two bindings share a binding number, which would silently lose one of them; and the pass's OWN
+     * does; no two bindings share a binding number, which would silently lose one of them; and the pass's
      * bindings are numbered contiguously from zero, because those are the ones the resolver indexes by binding
      * number. A render TARGET gets the same two checks a binding gets - the schema declares the resource, and
      * the element is inside its family - plus uniqueness, because two targets naming one image would be a pass
@@ -752,7 +752,7 @@ export namespace deren::engine::render_resource {
             }
             if (t.kind == target_kind::depth && ++depth_targets > 1u) {
                 // a rendering instance has exactly one depth attachment, so a second one cannot be recorded - and a
-                // RUN of depth elements is still ONE entry here, because each element gets its own instance
+                // RUN of depth elements is still ONE entry here, because each element gets its instance
                 return std::unexpected(who + ": more than one DEPTH target is declared, and an instance has one");
             }
             for (render_target const& other : io.targets) {

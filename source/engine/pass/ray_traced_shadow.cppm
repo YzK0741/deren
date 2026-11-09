@@ -5,14 +5,14 @@
  * @brief The ninth real pass, and the only one that traces outside the chain: the ray-traced sun shadow.
  * @defgroup engine_pass_rt_shadow Ray-Traced Shadow Pass
  *
- * WHAT IT OWNS: its RAY TRACING pipeline (three stages - raygen, closest hit and miss -
+ * WHAT IT HOLDS: its RAY TRACING pipeline (three stages - raygen, closest hit and miss -
  * with the three shader groups and the shader binding table regions that go with them, built at create time from
- * its own declaration's push-block size); the frame's
+ * its declaration's push-block size); the frame's
  * recording - the two barriers around the visibility image it rewrites, the push
  * block's values (composed by the renderer) and the full-resolution `traceRays` launch; and the one-shot log that
  * says what was built, which used to live in the runtime as a bool next to the pipeline.
  *
- * WHAT IT DOES NOT OWN, in the same shape as the tracer and the spatial filter: no descriptor set of its own.
+ * WHAT IT DOES NOT hold, in the same shape as the tracer and the spatial filter: no separate descriptor set.
  * The camera, the light UBO, the top level structure, the surface each ray starts
  * from and the visibility image it writes are all heap slots the shaders name themselves - so the
  * only handle it needs beyond the pipeline is the IMAGE it transitions, and that arrives through
@@ -40,7 +40,7 @@
  * Arm C is the interesting one: writing the SAME value the raygen already stored is not enough, because the
  * store is then redundant and the compiler drops it. `spirv-dis` shows the two miss modules differ only in that
  * constant (`OpStore %payload_occluded %float_0` against `%float_0_25`), so the elimination happens after SPIR-V,
- * in the driver's own compiler - and what it eliminates is the store a traversal needs in order to preserve the
+ * in the driver's compiler - and what it eliminates is the store a traversal needs in order to preserve the
  * payload at all. Arms B and D are byte-identical to each other (mean|d| = 0.0000) and both match the raster
  * reference at the shadow edge only: 157 of 255 at the penumbra, which is the hard-versus-PCF difference this
  * pass documents rather than a disagreement. The rule the pass follows from here on is therefore "exactly one
@@ -68,7 +68,7 @@
  * evidence that this was never an ordering problem.
  *
  * THE ALPHAMODE MASK CUT IS WHAT THE PIPELINE WAS FOR, and it is measured rather than asserted. `rt_shadow.rahit`
- * refuses an intersection whose material alpha is below the material's cutoff, fetching the hit's own UV from the
+ * refuses an intersection whose material alpha is below the material's cutoff, fetching the hit's UV from the
  * geometry's vertex and index buffers through binding 17's instance record (that shader records why an attribute
  * cannot carry it: `hitAttributeEXT` is written by an intersection shader and triangle geometry has none). Two
  * arms on the AlphaBlendModeTest asset - 3 MASK materials, cutoffs 0.25 and 0.75, `rt_mask_bake = false`, the
@@ -95,7 +95,7 @@
  * by its result), and running it earlier would mean starting rays from the PREVIOUS frame's surface. That
  * position is now the stage's, and the frame loop's off path (the transition the lighting stage's descriptor
  * needs on a frame where this pass does not run) is what the renderer keeps - it is about the STAGE, not the
- * pass's own work.
+ * pass's work.
  */
 
 module;
@@ -120,7 +120,7 @@ export namespace deren::engine::pass {
      *
      * Optional: without it (or without a device that has ray queries) the cascaded shadow maps keep running, which
      * is why the renderer's `light_state.rt_shadows` lane - the flag the lighting stage reads - is composed from
-     * this pass's own `pipeline_ready()`.
+     * this pass's `pipeline_ready()`.
      */
     class rt_shadow_pass final : public frame_pass {
     public:
@@ -143,9 +143,9 @@ export namespace deren::engine::pass {
         void bind_resources(render_resource::instances::resource_snapshot const&) override;
         void on_swapchain_recreated(pass_host const& host) override;
 
-        /// \brief the push and the traceRays launch alone - none of this pass's own ordering
+        /// \brief the push and the traceRays launch alone - none of this pass's ordering
         ///
-        /// The removed legacy record owned the visibility image's two transitions (undefined -> shader_write around the
+        /// The removed legacy record held the visibility image's two transitions (undefined -> shader_write around the
         /// launch, shader_write -> shader_read as the hand-off to the lighting stage), both with the RAY-TRACING
         /// stage hint because the writer is a traceRays LAUNCH rather than a dispatch. A graph-recorded frame
         /// declares those accesses (the pass writes the image as storage at pipeline_stage::ray_tracing, the
@@ -154,8 +154,8 @@ export namespace deren::engine::pass {
 
         /// @brief whether the pass built what it records with (the renderer gates the ray-traced path on this)
         [[nodiscard]] bool pipeline_ready() const noexcept;
-        /// @brief the framework's generic form of the same question, so an owner holding only a chain can ask it
-        ///        (a pass with nothing of its own to build keeps the interface's `true`; see `frame_pass::ready`)
+        /// @brief the framework's generic form of the same question, so a holder holding only a chain can ask it
+        ///        (a pass with nothing separate to build keeps the interface's `true`; see `frame_pass::ready`)
         [[nodiscard]] bool ready() const noexcept override {
             return this->pipeline_ready();
         }
@@ -166,7 +166,7 @@ export namespace deren::engine::pass {
         [[nodiscard]] bool record_ready(resolved_io const& io) const noexcept;
         render_resource::instances::resource_snapshot resource_view;
         // THREE GROUPS but FOUR stages: the shader binding table's order is raygen, miss, hit - the any-hit
-        // shader is a SECOND STAGE of the hit group rather than a group of its own, so the regions below and the
+        // shader is a SECOND STAGE of the separate hit group rather than a group, so the regions below and the
         // stride they are addressed by are unchanged by it.
         static constexpr std::string_view raygen_name = "rt_shadow.rgen.spv";
         static constexpr std::string_view closest_hit_name = "rt_shadow.rchit.spv";
@@ -197,21 +197,21 @@ export namespace deren::engine::pass {
         // would duplicate it and hide the override.
         std::optional<pipelines::pipeline_handle> pass_pipeline = std::nullopt;
         // The shader binding table's regions, filled at create time from the pipeline's group handles. The BUFFER
-        // is the owner's (see pass_context::create_upload_buffer); what the pass keeps is where each region starts,
+        // is the holder's (see pass_context::create_upload_buffer); what the pass keeps is where each region starts,
         // which is the per-pipeline part.
         //
         // THEY ARE THE CONTRACT'S TYPE NOW (`rhi::shader_binding_table_region`): the three numbers are a DEVICE
-        // RANGE, not a driver structure, so a pass's own state has no business naming a Vulkan type for them - and
+        // RANGE, not a driver structure, so a pass's state has no business naming a Vulkan type for them - and
         // the type is general enough for any backend's launch.
         //
         // NO ENTRY POINT IS KEPT HERE ANY MORE (abi 24): `record` calls `command_buffer::trace_rays`, and the
-        // backend owns the `vkCmdTraceRaysKHR` pointer it resolved once at startup. The pass therefore names no
+        // backend holds the `vkCmdTraceRaysKHR` pointer it resolved once at startup. The pass therefore names no
         // native handle for the launch at all.
         deren::promise::rhi::shader_binding_table_region raygen_region = {};
         deren::promise::rhi::shader_binding_table_region miss_region = {};
         deren::promise::rhi::shader_binding_table_region hit_region = {};
         /// The callable region, which this pipeline has no shaders for: AN ALL-ZERO REGION, which is the
-        /// contract's own "no records" spelling - and it must be a VALID pointer at the launch, because
+        /// contract's "no records" spelling - and it must be a VALID pointer at the launch, because
         /// `vkCmdTraceRaysKHR` dereferences it (passing nullptr is a validation error and, measured, a driver
         /// access violation rather than "no callables").
         deren::promise::rhi::shader_binding_table_region callable_region = {};

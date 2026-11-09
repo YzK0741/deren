@@ -5,9 +5,9 @@ independent graphics submission path. It adds no RHI virtuals, queues or ABI cha
 It requires both `command_submission` and `scoped_synchronization`; an unavailable mechanism returns
 `unsupported`. Acquired-frame submission and screenshot readback are outside this service.
 
-## API and ownership
+## API and retention
 
-- `buffer_transfer_service(core)` holds an owning core. `make_batch()` returns a move-only batch.
+- `buffer_transfer_service(core)` holds a holding core. `make_batch()` returns a move-only batch.
 - `batch.upload(lease, offset, bytes, before, after)` copies accepted input bytes into coherent staging
   before returning. The caller may then change/free that input span. Empty uploads are invalid.
 - `batch.readback(lease, offset, size, before, after)` returns a batch-local output index. Size must be nonzero.
@@ -16,17 +16,17 @@ It requires both `command_submission` and `scoped_synchronization`; an unavailab
 - `ticket.poll()` never waits for GPU completion. `ticket.wait(timeout_ns)` uses the receipt's existing
   timeout rules. `ticket.readback(index)` polls and returns a read-only span only after completion.
 
-A lease must own a resource on the service's core; `resource_lease::from_shared` rejects a non-owning
+A lease must hold a resource on the service's core; `resource_lease::from_shared` rejects a non-holding
 or empty handle.
 Backend `describe()` additionally verifies actual provenance, byte size and declared transfer capability;
 a lease's caller-supplied core is not trusted as evidence of provenance. Offset/size validation avoids
 addition overflow and happens before appending. Invalid input leaves previously accepted operations intact.
 The source must support transfer-source for readback and the destination transfer-destination for upload.
 
-The service retains pending command owners, all input leases, staging and readback allocations. Dropping
+The service retains pending command holders, all input leases, staging and readback allocations. Dropping
 caller leases or the receipt does not cancel work or release those dependencies early. Successful completion
 is cached; completed tickets retain their readback output but release other transfer operands/staging.
-Returned spans borrow the ticket's storage and must not be used after its last owning ticket is destroyed.
+Returned spans reference the ticket's storage and must not be used after its last holding ticket is destroyed.
 
 ## Explicit state and submission boundaries
 
@@ -53,7 +53,7 @@ thread or concurrent poll/read/destruction guarantee.
   `ok`. `pending_count()` counts records not yet observed complete, not an instantaneous GPU queue metric.
 - `drain(timeout_ns)` waits for each tracked receipt. The timeout applies to EACH token, not one shared
   deadline. A timeout/error retains every still-uncompleted record for retry; no uncertain work is freed.
-- Service destruction performs an indefinite drain of its own submissions only. This may block. If final
+- Service destruction performs A separate indefinite drain submissions only. This may block. If final
   completion cannot be established, the existing fatal-error policy terminates rather than freeing resources
   that the GPU might still access. Explicit drain allows errors to be handled before destruction.
 - Completed tickets may outlive the service and keep their output/core alive. Unsubmitted batches have no
@@ -61,7 +61,7 @@ thread or concurrent poll/read/destruction guarantee.
 
 ## Example
 
-The caller already owns `core` and a destination `resource_lease<rhi::buffer>` created with transfer-source
+The caller already holds `core` and a destination `resource_lease<rhi::buffer>` created with transfer-source
 and transfer-destination flags. Error handling is abbreviated here; check each returned result in real code.
 
 ```cpp
@@ -91,15 +91,15 @@ ring, copy-queue scheduler or frame-capture replacement. Pooling can follow afte
 ## subtilis geometry consumer
 
 `subtilis::upload_geometry` now uses this service for its immutable vertex/index pair. The default
-`geometry_upload_mode::automatic` selects one batch when the core owns its lifetime and exposes both
+`geometry_upload_mode::automatic` selects one batch when the core holds its lifetime and exposes both
 required extensions; otherwise it retains synchronous creation with initial data. Explicit `synchronous`
 and `batched` modes support comparisons. Forced batching without capabilities returns `unsupported`;
 an attempted batch failure propagates rather than silently retrying another path.
 
 The batch creates allocation-only buffers, leases their resource generations, submits both copies once,
-and waits for its token before returning the uploaded owner. Callers therefore retain the ready-on-return
+and waits for its token before returning the uploaded holder. Callers therefore retain the ready-on-return
 contract. Available vertex-input/shader readers receive explicit visibility; the acceleration-structure
-build entry retains its own transfer-write-to-build-read barrier. No RHI ABI change is needed.
+build entry retains its transfer-write-to-build-read barrier. No RHI ABI change is needed.
 
 Separate batched uploads bypass the backend's initial-content cache: retain/share the returned
 `uploaded_geometry` to share an asset. Existing resource-chain destruction can still wait for device idle;
@@ -108,10 +108,10 @@ not distributed with the repository, and they are not frame-rate improvements.
 
 ## Verification
 
-Headless `test_resource_cluster` checks that borrowed handles cannot become owning leases and that a core
+Headless `test_resource_cluster` checks that referenced handles cannot become holding leases and that a core
 without the required extension refuses transfers without pending work. `test_buffer_transfer --with-device`
 checks a batch roundtrip and copied upload input, invalid ranges/flags/core, queue-gated not-ready/timeout,
-pending ownership after receipt/lease drop, service drain and output surviving service destruction.
+pending retention after receipt/lease drop, service drain and output surviving service destruction.
 The optional Windows device-probe lane includes this executable. These tests do not inject device loss,
 allocator exhaustion or arbitrary concurrent access.
 `test_subtilis_transfer --with-device` additionally compares all three consumer modes, reads back both

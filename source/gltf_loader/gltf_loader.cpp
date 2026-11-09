@@ -121,7 +121,7 @@ namespace {
         std::size_t const element_size = fastgltf::getElementByteSize(accessor.type, accessor.componentType);
         if (element_size == 0) {
             // An unknown type/component pair is an invalid accessor, not an oversized one: fastgltf::validate()
-            // reports it with its own error code, so this ceiling stays out of that verdict.
+            // reports it with its error code, so this ceiling stays out of that verdict.
             return true;
         }
         return accessor.count <= max_accessor_bytes / element_size;
@@ -418,7 +418,7 @@ namespace {
     }
 
     // SPARSE ACCESSOR RANGES. fastgltf::validate() DEREFERENCES asset.bufferViews[sparse->indicesBufferView] and
-    // [valuesBufferView] without any bounds check of its own, and it never checks that sparse.count <=
+    // [valuesBufferView] without any separate bounds check, and it never checks that sparse.count <=
     // accessor.count, so both file-supplied numbers have to be held here. This function must therefore run
     // before fastgltf::validate() in load_model(): validate() would read out of bounds on the very index it is
     // being asked to judge. The spec constrains the sparse count to the accessor count (the substitution table
@@ -751,7 +751,7 @@ namespace {
                 current_node.rotation = rotation;
                 current_node.scale = glm::vec3(trs->scale[0], trs->scale[1], trs->scale[2]);
             }
-            current_node.local_transform = to_glm_mat4(fastgltf::getTransformMatrix(fnode)); // base = identity -> own transform
+            current_node.local_transform = to_glm_mat4(fastgltf::getTransformMatrix(fnode)); // base = identity -> its transform
             current_node.transform_matrix = to_glm_mat4(world);
             if (fnode.meshIndex) {
                 deren::gltf::mesh current_mesh = {};
@@ -785,7 +785,7 @@ namespace {
         };
 
         // one DFS frame: the asset node being expanded + how many of its children are done.
-        // Its pool index is implicit: parent frames record the pool index each child will start
+        // its pool index is implicit: parent frames record the pool index each child will start
         // at BEFORE the child subtree is appended (pre-order), so when a frame pops, the parent
         // appends that recorded index to its children list.
         struct frame {
@@ -814,7 +814,7 @@ namespace {
             std::size_t const pool_index = enter_node(node_index, parent_world);
             it->second = pool_index;
             if (parent_pool_index != std::numeric_limits<std::size_t>::max()) {
-                // pre-order: this node's pool index is the child slot of its parent
+                // pre-order: this node's pool index is the separate child slot parent
                 result.nodes[parent_pool_index].children.push_back(pool_index);
             }
             fastgltf::Node const& fnode = asset.nodes[node_index];
@@ -1260,8 +1260,8 @@ namespace {
         uvs.reserve(vertex_count);
         for (size_t i = 0; i < vertex_count; ++i) {
             // component-type aware: POSITION may be quantized (KHR_mesh_quantization), and TEXCOORD_0
-            // may be normalized u8/u16 in the CORE spec - see read_attribute. N is the accessor's own
-            // component count, so each call strides by exactly its own element size (asking for 3
+            // may be normalized u8/u16 in the CORE spec - see read_attribute. N is the accessor's
+            // component count, so each call strides by exactly its element size (asking for 3
             // components of a vec2 UV walks into the next vertex).
             deren::utility::vessel::array<float, 3> const p = read_attribute.operator()<3>(*position_portion, i, true);
             positions.emplace_back(p[0], p[1], p[2]);
@@ -1430,7 +1430,7 @@ namespace {
         if (prim.index.empty()) {
             result.index_data = std::move(synthesized_indices); // non-indexed -> synthesized
         } else {
-            // The WIDENED bytes, not the accessor's own ones. index_width and index_count above were
+            // The WIDENED bytes, not the accessor's ones. index_width and index_count above were
             // both derived from index_bytes, so uploading prim.index instead binds a buffer that
             // disagrees with the width the draw declares: for a u8 accessor (componentType 5121,
             // legal glTF, used by every small test asset with <= 256 vertices) the buffer is half the
@@ -1575,7 +1575,7 @@ namespace {
         uint32_t h = height;
         for (uint32_t mip = 0; mip < mip_count; ++mip) {
             std::span<uint8_t const> const cur(result.data.data() + offset, static_cast<std::size_t>(w) * h * 4);
-            // mip0 is already owned; append only levels declared by mip_count. Rectangular
+            // mip0 is already held; append only levels declared by mip_count. Rectangular
             // chains can end before 1x1, and must not append an extra unadvertised level.
             if (mip + 1 == mip_count || (w == 1 && h == 1)) {
                 break;
@@ -1615,7 +1615,7 @@ namespace {
 
 namespace deren::gltf {
     head_basis head_basis_fallback() noexcept {
-        // THE REFERENCE'S OWN CONSTANTS, verbatim from `EfFaceGetHeadBasis`'s `valid < 0.5` branch: it
+        // THE REFERENCE'S CONSTANTS, verbatim from `EfFaceGetHeadBasis`'s `valid < 0.5` branch: it
         // substitutes exactly these three vectors when the head bone is missing or degenerate. Reproduced
         // rather than invented, because a model with NO SKELETON is the case this repository actually has.
         return head_basis{};
@@ -1969,7 +1969,7 @@ namespace deren::gltf {
             return toon_family::none;
         }
         // LOWERCASED because a glTF material name is authored text: the character models this was written
-        // against use `M_actor_zhuangfy_body_01` (mixed case), and the references' own classifiers lowercase
+        // against use `M_actor_zhuangfy_body_01` (mixed case), and the references' classifiers lowercase
         // before matching. ASCII only, deliberately - the CJK patterns below are matched byte-wise, and a
         // Unicode case fold would need a table for no gain.
         deren::utility::vessel::string lowered;
@@ -1981,12 +1981,12 @@ namespace deren::gltf {
         // ---- THE TWO OVERLAY MATERIALS ARE NOT TOON MATERIALS, AND THAT COMES BEFORE EVERY GROUP BELOW ----
         //
         // `M_eyeshadow_common_01` and `M_hairshadow_common_01` are the masks the game multiplies over an already
-        // shaded character, and the ARTICLE DRAWS THEM IN THEIR OWN PASS rather than as a family: its
+        // shaded character, and the ARTICLE DRAWS THEM IN Their PASS rather than as a family: its
         // `MyZmdEyeDarkShader` and `MyZmdHairShadowShader` are framebuffer multiplies (`BlendOp` / `Blend` /
         // `ZWrite 0`, plus `Stencil { Ref 1 Comp Equal }` on the hair shadow) carrying only `_Color`, `_Alpha`,
         // `_DayStrength` and a mask texture - there is no ramp, no layer and no specular in either of them.
         //
-        // WHY THIS IS HERE AND NOT LEFT TO THE HAIR GROUP, which used to claim the hair shadow: the reference's own
+        // WHY THIS IS HERE AND NOT LEFT TO THE HAIR GROUP, which used to claim the hair shadow: the reference's
         // classifier calls a `hairshadow` material HAIR, and that is where this table's hair entry came from - but a
         // family is "how this port SHADES the material", and shading an overlay quad with the strand model of the
         // hair it exists to darken is a stand-in from before the overlay pass existed here.
@@ -2028,8 +2028,8 @@ namespace deren::gltf {
         // matched too. Each bare character below is one a model in this repository actually uses as a
         // WHOLE material name, and the order absorbs the collisions that creates: `手套` (glove) contains
         // `手` and `袖口` (cuff) and `领口` (collar) contain `口`, so cloth is tested BEFORE skin and face
-        // and carries `手套`/`袖`/`领` of its own; `发饰` (hair ornament) contains `发` and is claimed by
-        // hair, which is the reference's own call - it classifies its `hairshadow` material as hair.
+        // and carries `手套`/`袖`/`领` itself; `发饰` (hair ornament) contains `发` and is claimed by
+        // hair, which is the reference's call - it classifies its `hairshadow` material as hair.
         //
         // eye BEFORE face: `眼白`/`目白`/`sclera` and `高光`/`highlight` are eye layers.
         if (has("虹膜") || has("瞳") || has("眼白") || has("目白") || has("高光") || has("iris") || has("sclera") ||
@@ -2051,7 +2051,7 @@ namespace deren::gltf {
             return toon_family::cloth;
         }
         // skin: `body` is here because the character models name the skin material `..._body_01`, which is
-        // the reference's own mapping (its `MaterialRole.Skin` classifier matches `body` too).
+        // the reference's mapping (its `MaterialRole.Skin` classifier matches `body` too).
         if (has("皮肤") || has("皮膚") || has("肌") || has("手") || has("脚") || has("腳") || has("足") ||
             has("腿") || has("臂") || has("耳") || has("指") || has("skin") || has("body")) {
             return toon_family::skin;
@@ -2163,11 +2163,11 @@ namespace deren::gltf {
         // carries, an accessor's extent inside its bufferView, the sparse index/value ranges, and the decoded size
         // against the loader's allocation ceiling (see buffer_ranges_valid above). Same cost class as the pass below
         // - one O(n) scan - and it runs BEFORE fastgltf::validate(), because validate() dereferences a sparse
-        // accessor's bufferView indices without bounds checks of its own: a file pointing them past the table must
+        // accessor's bufferView indices without bounds separate checks: a file pointing them past the table must
         // be rejected here rather than read by the validator. This pass only reads asset.buffers/bufferViews and
         // guards every index it takes from the file.
         if (!buffer_ranges_valid(asset)) {
-            deren::utility::error("gltf validate err [buffer ranges]: bufferView or accessor range past the end of its buffer");
+            deren::utility::error("gltf validate err [buffer ranges]: bufferView or accessor range past the separate end buffer");
             return std::unexpected(error_code::file_type_error);
         }
 
@@ -2464,7 +2464,7 @@ namespace deren::gltf {
             }
 
             // decoded texture cache: one entry per glTF texture index; shared textures decode once,
-            // and the shared_ptr owners keep every image_view's span alive for the caller
+            // and the shared_ptr holders keep every image_view's span alive for the caller
             struct decoded_texture {
                 std::shared_ptr<deren::utility::vessel::vector<uint8_t> const> data = {};
                 uint32_t width = 0;
@@ -2833,7 +2833,7 @@ namespace deren::gltf {
         glm::vec3 scene_min(std::numeric_limits<float>::infinity());
         glm::vec3 scene_max(-std::numeric_limits<float>::infinity());
         // scenes is iterable: begin()/end() flatten scene -> node -> mesh -> primitive with the
-        // owning node's world transform (drawable_ref::transform_matrix)
+        // holding node's world transform (drawable_ref::transform_matrix)
         for (drawable_ref const& drawable : scenes) {
             auto const it = drawable.primitive->vertex.find("POSITION");
             if (it == drawable.primitive->vertex.end()) {

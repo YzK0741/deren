@@ -41,11 +41,11 @@ window restoration. See [the dynamic API](dynamic_runtime.md) for the null-windo
 
 `auto` uses GPU preparation when its requirements are met and falls back to CPU on initialization failure. Forced `gpu` reports failure without silently using the CPU path. Startup logs identify the actual path and candidate count. Recording refusals are consumed through the stage collection seam and logged; failed frames do not reuse an old Gaussian snapshot.
 
-The normal path does not wait for readback. Probes and screenshots explicitly wait for their own submissions and should be disabled during performance measurements.
+The normal path does not wait for readback. Probes and screenshots explicitly wait for their submissions and should be disabled during performance measurements.
 
-## Frame pipeline and ownership
+## Frame pipeline and retention
 
-Static geometry and SH tables are validated and uploaded once. The CPU updates only camera and instance metadata on the GPU path. Each completed frame-ring slot owns its dynamic buffers and retains every asset used by that submission; a swapchain image index is not a completion slot.
+Static geometry and SH tables are validated and uploaded once. The CPU updates only camera and instance metadata on the GPU path. Each completed frame-ring slot holds its dynamic buffers and retains every asset used by that submission; a swapchain image index is not a completion slot.
 
 The GPU frame records these operations before raster rendering:
 
@@ -57,7 +57,7 @@ The GPU frame records these operations before raster rendering:
 
 The pass runs after lighting and before transparent meshes. It LOADs lit HDR color and opaque depth, tests center depth, disables depth writes and culling, then draws six vertices per visible reference. The host `visible_count` is a candidate bound on the GPU path; the indirect command supplies the actual visible draw count. Completed statistics are read only after the slot's completion point.
 
-The engine/device/backend root must outlive its resource owners. Slot growth allocates replacements before publishing them, includes retained capacity and queried sorting scratch in its byte budget, and releases partial allocations on failure. No pending slot may be reused before completion.
+The engine/device/backend root must outlive its resource holders. Slot growth allocates replacements before publishing them, includes retained capacity and queried sorting scratch in its byte budget, and releases partial allocations on failure. No pending slot may be reused before completion.
 
 ## Modules and entry points
 
@@ -67,7 +67,7 @@ The engine/device/backend root must outlive its resource owners. Slot growth all
 - `deren.engine.gaussian_splatting.gpu_frame`: `prepare_gpu_frame`, preparation command recording and completed-slot statistics.
 - `deren.engine.pass.gaussian_splatting`: mutually exclusive CPU/GPU snapshot setters and `last_error`.
 
-The asset factory retains both validated CPU data and immutable GPU tables. The CPU frame factory globally sorts in double precision, evaluates conservative visibility and uploads references. The GPU factory validates camera/instance metadata, prepares reusable slot resources and records the compute/sort/finalize sequence. It returns an owning shared frame; pipeline pointers used during recording are borrowed from the pass.
+The asset factory retains both validated CPU data and immutable GPU tables. The CPU frame factory globally sorts in double precision, evaluates conservative visibility and uploads references. The GPU factory validates camera/instance metadata, prepares reusable slot resources and records the compute/sort/finalize sequence. It returns a holding shared frame; pipeline pointers used during recording are referenced from the pass.
 
 ## Data layout and rendering rules
 
@@ -82,7 +82,7 @@ The asset factory retains both validated CPU data and immutable GPU tables. The 
 | GPU preparation parameters | 176 | Raster parameters, forward, ranges and buffer addresses |
 | indirect draw command | 16 | Vertex count, instance count and first indices |
 
-Geometry/instance/cache records use 16-byte alignment and column-major GLM transforms. Raster push data is followed by three heap lanes at byte offsets 112, 116 and 120, making the transmitted block 124 bytes. Preparation pushes only the address of its 176-byte parameter buffer plus the heap lanes.
+Geometry/instance/cache records use 16-byte alignment and column-major GLM transforms. Raster push data is followed by three heap lanes at byte offsets 112, 116 and 120, making the transmitted block 124 bytes. Preparation pushes only the separate address 176-byte parameter buffer plus the heap lanes.
 
 Raster flag bit 0 enables the GPU projection cache. Reserved instance words 37/38 (byte offsets 148/152) carry that instance's cache base address; the CPU instance path leaves padding zero. References and their original instance/local index semantics stay unchanged. Preparation parameters use uncached projection, then the six raster vertices read its float32 results. Unwritten invisible cache entries are never referenced.
 

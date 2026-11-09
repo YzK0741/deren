@@ -4,7 +4,7 @@
  * @brief the CPU REFERENCE for the HZB (hierarchical Z-buffer) occlusion-culling design:
  *        docs/superpowers/specs/2026-10-20-hzb-occlusion-design.md §4.1, §5, §6, §9.2 and §10.1.
  *
- * WHY A MODULE OF ITS OWN, AND A PURE ONE. The HZB pipeline is built and consumed entirely ON THE GPU (a build
+ * WHY A separate MODULE, AND A PURE ONE. The HZB pipeline is built and consumed entirely ON THE GPU (a build
  * compute pass writes the max pyramid, a cull compute pass tests candidates against it and writes the compacted
  * survivor list and the indirect command words), which is the design's whole point: the host prototype paid
  * +11.2 ms of CPU per frame and was still not conservative (§0.1). Nothing here is on a frame's critical path.
@@ -15,7 +15,7 @@
  *   - the pyramid layout this module sizes the HOST buffer with is the SAME formula the two shaders inline
  *     (§4.1: one expression, `pyramid_words` / `level_offset`, mirrored by hand on the shader side);
  *   - every "occluded" answer is CONSERVATIVE: all prev-depth the ball's footprint covers is strictly nearer than
- *     the ball's own nearest point (§6.7 property 1), and every uncertain case FAILS OPEN to "visible" (§6.6);
+ *     the ball's nearest point (§6.7 property 1), and every uncertain case FAILS OPEN to "visible" (§6.6);
  *   - the phase-B scene gate's byte-exact comparison (§9.2) and the cull pass's deterministic ascending
  *     compaction (§4.3, §10.1 item 3) are pure functions pinned case by case.
  *
@@ -352,7 +352,7 @@ export namespace deren::engine::visibility::hzb {
 
     /**
      * @brief the word offset of level @p level inside one frame's lane
-     * @param level clamped to the pyramid's own level count: `pyramid_words` returns the total word count, which is
+     * @param level clamped to the pyramid's level count: `pyramid_words` returns the total word count, which is
      *        the only value a caller can sensibly ask for past the last 1x1 level
      * @note THE SINGLE FORMULA §4.1 ASKS FOR: the host sizes the buffer with `pyramid_words`, the build pass writes
      *       level L at this offset and the cull pass reads tile (tx, ty) of level L at this offset + ty * w_L + tx.
@@ -382,7 +382,7 @@ export namespace deren::engine::visibility::hzb {
     // ================================================================================================
     // 2. THE MAX PYRAMID (spec §4.1/§4.2)
     //
-    //    A VIEW over the words, not an owner: the GPU's buffer and this reference's storage have the same layout,
+    //    A VIEW over the words, not a holder: the GPU's buffer and this reference's storage have the same layout,
     //    so the test can build one from synthetic depth and hand it to the occlusion test exactly as the cull pass
     //    would hand it the built buffer. The accessor is deliberately unchecked - it is the hot loop's inner read
     //    on the GPU side too - and `valid()` is the one gate a caller must pass first.
@@ -511,7 +511,7 @@ export namespace deren::engine::visibility::hzb {
         if (!(sphere.radius >= 0.0) || !std::isfinite(sphere.radius) || !detail::all_finite3(sphere.center) || !detail::all_finite3(camera.position) || !detail::all_finite(camera.view) ||
             !detail::all_finite(camera.proj) || !detail::all_finite(model)) {
             // a bound that is not a number is not a bound: the same rule subtilis::sphere_visible documents for its
-            // own frustum test ("draw it rather than reject it")
+            // its frustum test ("draw it rather than reject it")
             return hzb_decision::visible;
         }
         std::optional<detail::projection_range> const projection = detail::projection_of(camera.proj);
