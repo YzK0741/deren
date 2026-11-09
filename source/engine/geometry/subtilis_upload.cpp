@@ -1,16 +1,117 @@
 module;
+#include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 module deren.engine.subtilis.upload;
 import deren.vstd;
 import deren.engine.pass.chain;
 import deren.engine.pass.buffer_storage;
 import deren.engine.render_resource;
 import deren.engine.buffer_transfer;
+import deren.engine.subtilis.page_streaming;
+import deren.asset.subtilis.types;
 
 namespace deren::engine::subtilis {
+    namespace {
+        // The page arena is an image of the wire payload, not of the engine DAG. A cluster is 32
+        // encoded bytes and a group is 48 (36 used, 12 required zero padding); the engine structs are
+        // 56 and 36 bytes respectively, so copying them would shift every page boundary.
+        struct wire_page_cluster {
+            std::uint32_t first_index = 0, index_count = 0, producer = 0, consumer = 0;
+            float center_x = 0, center_y = 0, center_z = 0, radius = 0;
+        };
+        static_assert(sizeof(wire_page_cluster) == 32u);
+        struct wire_page_group {
+            std::uint32_t fine_first = 0, fine_count = 0, coarse_first = 0, coarse_count = 0;
+            float lod_x = 0, lod_y = 0, lod_z = 0, lod_radius = 0;
+            float error = 0;
+            std::array<std::byte, 12> padding{};
+        };
+        static_assert(sizeof(wire_page_group) == 48u);
+        static_assert(offsetof(wire_page_group, error) == 32u);
+
+        struct page_payload_holder {
+            page_arena_payload arena;
+            deren::utility::vessel::vector<gpu_page_table_entry> table;
+            page_request_buffer requests;
+            page_payload_holder(page_arena_payload&& arena_bytes, deren::utility::vessel::vector<gpu_page_table_entry>&& table_entries,
+                                std::uint32_t request_capacity)
+                : arena(std::move(arena_bytes))
+                , table(std::move(table_entries))
+                , requests(request_capacity) {
+            }
+        };
+
+        std::expected<std::shared_ptr<page_payload_holder const>, residency_error>
+        make_page_payload(built_geometry const& source) {
+            auto const pages = source.pages();
+            auto const* dag = source.hierarchy_dag();
+            if (pages.empty() || !dag) {
+                return std::unexpected(residency_error::invalid_page_table);
+            }
+            deren::utility::vessel::vector<wire_page_cluster> clusters;
+            clusters.reserve(dag->clusters().size());
+            for (auto const& cluster : dag->clusters()) {
+                auto const& record = cluster.record;
+                clusters.push_back({
+                    record.first_index,
+                    record.index_count,
+                    cluster.producer,
+                    cluster.consumer,
+                    record.center_x,
+                    record.center_y,
+                    record.center_z,
+                    record.radius,
+                });
+            }
+            deren::utility::vessel::vector<wire_page_group> groups;
+            groups.reserve(dag->groups().size());
+            for (auto const& group : dag->groups()) {
+                groups.push_back({
+                    group.fine.first,
+                    group.fine.count,
+                    group.coarse.first,
+                    group.coarse.count,
+                    group.lod.x,
+                    group.lod.y,
+                    group.lod.z,
+                    group.lod.radius,
+                    group.error,
+                });
+            }
+            std::array<page_section_view, 6> sections{};
+            sections[0] = {std::as_bytes(source.indices()), 4};
+            sections[1] = {std::as_bytes(std::span(clusters)), 32};
+            sections[2] = {std::as_bytes(std::span(groups)), 48};
+            sections[3] = {std::as_bytes(dag->references()), 4};
+            sections[4] = {std::as_bytes(dag->leaves()), 4};
+            sections[5] = {std::as_bytes(dag->roots()), 4};
+            auto packed = pack_page_arena(pages, sections);
+            if (!packed) {
+                return std::unexpected(packed.error());
+            }
+            auto const arena_bytes = packed->layout.bytes();
+            residency_limits limits{.max_resident_bytes = arena_bytes};
+            auto manager = make_page_manager(pages, source.page_dependencies(), limits);
+            if (!manager) {
+                return std::unexpected(manager.error());
+            }
+            if (auto all = manager->request_all(); !all) {
+                return std::unexpected(all.error());
+            }
+            auto table = make_gpu_page_table(pages, packed->layout, *manager);
+            if (!table) {
+                return std::unexpected(table.error());
+            }
+            auto const capacity = std::min<std::uint32_t>(std::max<std::uint32_t>(static_cast<std::uint32_t>(pages.size()), 1u), 256u);
+            return std::make_shared<page_payload_holder const>(std::move(*packed), std::move(*table), capacity);
+        }
+    } // namespace
+
     double maximum_triangle_edge(meshlet const& record, std::span<std::uint8_t const> vertices,
                                  std::span<std::uint32_t const> indices, std::uint32_t stride) noexcept {
         double const invalid = std::numeric_limits<double>::infinity();
@@ -101,53 +202,55 @@ namespace deren::engine::subtilis {
         }
         auto resources = std::allocate_shared<pass::pass_chain>(deren::utility::memory::allocator<pass::pass_chain>{});
         auto& provider = resources->emplace<pass::resource_storage_pass>();
-        auto const request_count = cut_payload ? std::size_t{5} : std::size_t{2};
-        deren::utility::vessel::vector<managed::request> requests(request_count);
-        deren::utility::vessel::vector<std::span<std::byte const>> bytes(request_count);
-        bytes[0] = std::as_bytes(source->vertices());
-        bytes[1] = std::as_bytes(source->indices());
-        if (cut_payload) {
-            bytes[2] = std::as_bytes(std::span(cut_payload->groups));
-            bytes[3] = std::as_bytes(std::span(cut_payload->references));
-            bytes[4] = std::as_bytes(std::span(cut_payload->clusters));
+        std::shared_ptr<page_payload_holder const> page_payload;
+        if (!source->pages().empty()) {
+            auto made = make_page_payload(*source);
+            if (!made) {
+                return std::unexpected(upload_rhi::error::invalid_argument);
+            }
+            page_payload = std::move(*made);
         }
-        render_resource::resource_id const request_ids[5] = {
-            render_resource::resource_id::scene_geometry_vertices,
-            render_resource::resource_id::scene_geometry_indices,
-            render_resource::resource_id::scene_cut_groups,
-            render_resource::resource_id::scene_cut_references,
-            render_resource::resource_id::scene_cut_clusters,
-        };
-        for (std::size_t i = 0; i < requests.size(); ++i) {
-            auto& request = requests[i];
-            request.id = request_ids[i];
+        auto const request_count = std::size_t{2} + (cut_payload ? 3u : 0u) + (page_payload ? 3u : 0u);
+        deren::utility::vessel::vector<managed::request> requests;
+        requests.reserve(request_count);
+        deren::utility::vessel::vector<std::span<std::byte const>> bytes;
+        bytes.reserve(request_count);
+        auto append = [&](render_resource::resource_id id, std::span<std::byte const> data, upload_rhi::buffer_usage usage,
+                          upload_rhi::buffer_flags buffer_flags, std::shared_ptr<void const> const& owner) {
+            requests.emplace_back();
+            auto& request = requests.back();
+            request.id = id;
             request.type = managed::kind::buffer;
             request.life = managed::lifetime::scene;
-            if (i < 2) {
-                request.buffer = {.size = bytes[i].size(), .usage = i == 0 ? upload_rhi::buffer_usage::vertex : upload_rhi::buffer_usage::index, .flags = flags};
-                request.dependencies.push_back(source);
-                if (!batch_upload) {
-                    request.initial_data = std::shared_ptr<std::byte const>{source, bytes[i].data()};
-                    request.initial_data_size = bytes[i].size();
-                    request.initialization_key = source;
-                }
-            } else {
-                // Small immutable payload read only by the future cut compute stage. storage_coherent
-                // (rather than storage_gpu_only) is required by the one-shot initial-data path.
-                request.buffer = {
-                    .size = bytes[i].size(),
-                    .usage = upload_rhi::buffer_usage::storage_coherent,
-                    .flags = upload_rhi::to_bits(upload_rhi::buffer_flag::device_address) |
-                             upload_rhi::to_bits(upload_rhi::buffer_flag::storage) |
-                             upload_rhi::to_bits(upload_rhi::buffer_flag::transfer_destination),
-                };
-                request.dependencies.push_back(cut_payload);
-                if (!batch_upload) {
-                    request.initial_data = std::shared_ptr<std::byte const>{cut_payload, bytes[i].data()};
-                    request.initial_data_size = bytes[i].size();
-                    request.initialization_key = cut_payload;
-                }
+            request.buffer = {.size = data.size(), .usage = usage, .flags = buffer_flags};
+            auto alias = std::shared_ptr<std::byte const>{owner, data.data()};
+            request.dependencies.push_back(owner);
+            if (!batch_upload) {
+                request.initial_data = std::move(alias);
+                request.initial_data_size = data.size();
+                request.initialization_key = owner;
             }
+            bytes.push_back(data);
+        };
+        append(render_resource::resource_id::scene_geometry_vertices, std::as_bytes(source->vertices()), upload_rhi::buffer_usage::vertex, flags, source);
+        append(render_resource::resource_id::scene_geometry_indices, std::as_bytes(source->indices()), upload_rhi::buffer_usage::index, flags, source);
+        if (cut_payload) {
+            // Small immutable payload read only by the future cut compute stage. storage_coherent
+            // (rather than storage_gpu_only) is required by the one-shot initial-data path.
+            auto const storage_flags = upload_rhi::to_bits(upload_rhi::buffer_flag::device_address) |
+                                       upload_rhi::to_bits(upload_rhi::buffer_flag::storage) |
+                                       upload_rhi::to_bits(upload_rhi::buffer_flag::transfer_destination);
+            append(render_resource::resource_id::scene_cut_groups, std::as_bytes(std::span(cut_payload->groups)), upload_rhi::buffer_usage::storage_coherent, storage_flags, cut_payload);
+            append(render_resource::resource_id::scene_cut_references, std::as_bytes(std::span(cut_payload->references)), upload_rhi::buffer_usage::storage_coherent, storage_flags, cut_payload);
+            append(render_resource::resource_id::scene_cut_clusters, std::as_bytes(std::span(cut_payload->clusters)), upload_rhi::buffer_usage::storage_coherent, storage_flags, cut_payload);
+        }
+        if (page_payload) {
+            auto const storage_flags = upload_rhi::to_bits(upload_rhi::buffer_flag::device_address) |
+                                       upload_rhi::to_bits(upload_rhi::buffer_flag::storage) |
+                                       upload_rhi::to_bits(upload_rhi::buffer_flag::transfer_destination);
+            append(render_resource::resource_id::scene_page_arena, std::as_bytes(std::span(page_payload->arena.bytes)), upload_rhi::buffer_usage::storage_coherent, storage_flags, page_payload);
+            append(render_resource::resource_id::scene_page_table, std::as_bytes(std::span(page_payload->table)), upload_rhi::buffer_usage::storage_coherent, storage_flags, page_payload);
+            append(render_resource::resource_id::scene_page_requests, page_payload->requests.bytes(), upload_rhi::buffer_usage::storage_coherent, storage_flags, page_payload);
         }
         provider.configure(requests);
         auto admit = [&](managed::resource_snapshot const& snapshot) {
@@ -175,6 +278,14 @@ namespace deren::engine::subtilis {
             cut_references = snapshot.find(render_resource::resource_id::scene_cut_references);
             cut_clusters = snapshot.find(render_resource::resource_id::scene_cut_clusters);
         }
+        std::shared_ptr<managed::generation const> page_arena;
+        std::shared_ptr<managed::generation const> page_table;
+        std::shared_ptr<managed::generation const> page_requests;
+        if (page_payload) {
+            page_arena = snapshot.find(render_resource::resource_id::scene_page_arena);
+            page_table = snapshot.find(render_resource::resource_id::scene_page_table);
+            page_requests = snapshot.find(render_resource::resource_id::scene_page_requests);
+        }
         if (batch_upload) {
             namespace sync = upload_rhi::synchronization;
             // Immutable geometry is read by vertex input and the available shader stages.
@@ -185,15 +296,16 @@ namespace deren::engine::subtilis {
             sync::scope const published{static_cast<sync::stage>(supported & static_cast<std::uint32_t>(readers)), sync::access::read};
             buffer_transfer_service transfers(device);
             auto batch = transfers.make_batch();
-            std::shared_ptr<managed::generation const> const generations[5] = {
-                vertices,
-                indices,
-                cut_groups,
-                cut_references,
-                cut_clusters,
-            };
+            deren::utility::vessel::vector<std::shared_ptr<managed::generation const>> generations;
+            generations.reserve(requests.size());
+            for (auto const& request : requests) {
+                generations.push_back(snapshot.find(request.id));
+            }
             for (std::size_t i = 0; i < bytes.size(); ++i) {
-                auto generation = generations[i];
+                auto const& generation = generations[i];
+                if (!generation) {
+                    return std::unexpected(upload_rhi::error::unsupported);
+                }
                 auto* buffer = generation->objects[0].buffer.get();
                 auto lease = resource_lease<upload_rhi::buffer>::from_shared(device, upload_rhi::shared_object<upload_rhi::buffer>{generation, buffer});
                 // clang-tidy 23 mistakes the required separator after {} for an initializer trailing comma.
@@ -245,6 +357,9 @@ namespace deren::engine::subtilis {
                                                        std::move(cut_references), std::move(cut_clusters),
                                                        cut_payload ? static_cast<std::uint32_t>(cut_payload->groups.size()) : 0u,
                                                        cut_payload ? static_cast<std::uint32_t>(cut_payload->references.size()) : 0u,
-                                                       cut_payload ? static_cast<std::uint32_t>(cut_payload->clusters.size()) : 0u, std::move(edges));
+                                                       cut_payload ? static_cast<std::uint32_t>(cut_payload->clusters.size()) : 0u,
+                                                       std::move(page_arena), std::move(page_table), std::move(page_requests),
+                                                       page_payload ? static_cast<std::uint32_t>(page_payload->table.size()) : 0u,
+                                                       page_payload ? page_payload->requests.capacity() : 0u, std::move(edges));
     }
 } // namespace deren::engine::subtilis

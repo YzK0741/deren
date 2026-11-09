@@ -38,6 +38,40 @@ namespace deren::engine::subtilis {
         return layout;
     }
 
+    std::expected<page_arena_payload, residency_error>
+    pack_page_arena(std::span<page_entry const> pages, std::span<page_section_view const> sections,
+                    std::uint32_t alignment) {
+        if (sections.size() != 6u) {
+            return std::unexpected(residency_error::invalid_page_table);
+        }
+        auto layout = page_arena_layout::create(pages, alignment);
+        if (!layout) {
+            return std::unexpected(layout.error());
+        }
+        auto const arena_bytes = layout->bytes();
+        page_arena_payload payload{std::move(*layout), utility::vessel::vector<std::byte>(arena_bytes, std::byte{0})};
+        for (std::size_t i = 0; i < pages.size(); ++i) {
+            auto const& page = pages[i];
+            if (page.section == 0u || page.section > 6u) {
+                return std::unexpected(residency_error::invalid_page_table);
+            }
+            auto const& section = sections[page.section - 1u];
+            auto const stride = section.stride;
+            auto const elements = stride == 0u ? 0u : section.bytes.size() / stride;
+            if (stride == 0u || static_cast<std::uint64_t>(page.count) * stride != page.bytes ||
+                page.bytes > deren::asset::subtilis::page_bytes ||
+                page.first > elements || page.count > elements - page.first) {
+                return std::unexpected(residency_error::invalid_page_table);
+            }
+            auto const offset = payload.layout.page_offset(static_cast<std::uint32_t>(i));
+            if (!offset) {
+                return std::unexpected(residency_error::invalid_page_table);
+            }
+            std::memcpy(payload.bytes.data() + *offset, section.bytes.data() + static_cast<std::size_t>(page.first) * stride, page.bytes);
+        }
+        return payload;
+    }
+
     std::expected<utility::vessel::vector<gpu_page_table_entry>, residency_error>
     make_gpu_page_table(std::span<page_entry const> pages, page_arena_layout const& layout, page_manager const& manager) {
         if (layout.page_count() != pages.size() || manager.pages().size() != pages.size()) {

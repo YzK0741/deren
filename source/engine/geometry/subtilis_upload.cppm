@@ -5,6 +5,7 @@ export module deren.engine.subtilis.upload;
 export import deren.vstd;
 import deren.engine.subtilis.builder;
 import deren.engine.meshlet;
+import deren.engine.subtilis.page_streaming;
 import deren.utility.shared;
 import deren.promise.rhi;
 import deren.engine.render_resource.instances;
@@ -66,7 +67,9 @@ export namespace deren::engine::subtilis {
         deren::utility::vessel::vector<triangle_edge_record> triangle_edges_;
         std::shared_ptr<render_resource::instances::generation const> vertices_, indices_;
         std::shared_ptr<render_resource::instances::generation const> cut_groups_, cut_references_, cut_clusters_;
+        std::shared_ptr<render_resource::instances::generation const> page_arena_, page_table_, page_requests_;
         std::uint32_t cut_group_count_ = 0, cut_reference_count_ = 0, cut_cluster_count_ = 0;
+        std::uint32_t page_count_ = 0, page_request_capacity_ = 0;
         friend std::expected<std::shared_ptr<uploaded_geometry const>, upload_rhi::error>
         upload_geometry(upload_rhi::shared_object<upload_rhi::api_core> const&, std::shared_ptr<built_geometry const>, upload_rhi::buffer_flags, geometry_upload_mode);
 
@@ -78,6 +81,10 @@ export namespace deren::engine::subtilis {
                           std::shared_ptr<render_resource::instances::generation const> cut_references,
                           std::shared_ptr<render_resource::instances::generation const> cut_clusters, std::uint32_t cut_group_count,
                           std::uint32_t cut_reference_count, std::uint32_t cut_cluster_count,
+                          std::shared_ptr<render_resource::instances::generation const> page_arena,
+                          std::shared_ptr<render_resource::instances::generation const> page_table,
+                          std::shared_ptr<render_resource::instances::generation const> page_requests,
+                          std::uint32_t page_count, std::uint32_t page_request_capacity,
                           deren::utility::vessel::vector<triangle_edge_record> edges)
             : resources_(std::move(resources))
             , source_(std::move(source))
@@ -87,9 +94,14 @@ export namespace deren::engine::subtilis {
             , cut_groups_(std::move(cut_groups))
             , cut_references_(std::move(cut_references))
             , cut_clusters_(std::move(cut_clusters))
+            , page_arena_(std::move(page_arena))
+            , page_table_(std::move(page_table))
+            , page_requests_(std::move(page_requests))
             , cut_group_count_(cut_group_count)
             , cut_reference_count_(cut_reference_count)
-            , cut_cluster_count_(cut_cluster_count) {
+            , cut_cluster_count_(cut_cluster_count)
+            , page_count_(page_count)
+            , page_request_capacity_(page_request_capacity) {
         }
 
         uploaded_geometry(uploaded_geometry const&) = delete ("uploaded_geometry is non-copyable: pass it by reference or construct a new instance");
@@ -125,6 +137,23 @@ export namespace deren::engine::subtilis {
         }
         [[nodiscard]] std::uint32_t cut_cluster_count() const noexcept {
             return cut_cluster_count_;
+        }
+        /// Null when the source has no streaming pages (a locally built LOD0 mesh or an imported
+        /// version-1.0 payload). The arena bytes use the encoded page-record layout, not engine structs.
+        [[nodiscard]] upload_rhi::buffer* page_arena() const noexcept {
+            return page_arena_ ? page_arena_->objects[0].buffer.get() : nullptr;
+        }
+        [[nodiscard]] upload_rhi::buffer* page_table() const noexcept {
+            return page_table_ ? page_table_->objects[0].buffer.get() : nullptr;
+        }
+        [[nodiscard]] upload_rhi::buffer* page_requests() const noexcept {
+            return page_requests_ ? page_requests_->objects[0].buffer.get() : nullptr;
+        }
+        [[nodiscard]] std::uint32_t page_count() const noexcept {
+            return page_count_;
+        }
+        [[nodiscard]] std::uint32_t page_request_capacity() const noexcept {
+            return page_request_capacity_;
         }
     };
 } // namespace deren::engine::subtilis

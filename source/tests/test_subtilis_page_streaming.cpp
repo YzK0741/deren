@@ -1,6 +1,9 @@
 #include "vk_test.h"
 
 #include <array>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
 #include <span>
 #include <utility>
 
@@ -118,6 +121,40 @@ int main() {
             auto resident_table = sub::make_gpu_page_table(t.pages, *layout, *manager);
             CHECK(resident_table && (*resident_table)[1].state == static_cast<std::uint32_t>(sub::gpu_page_state::resident));
         }
+    }
+    {
+        std::array<sub::page_entry, 2> pages{};
+        pages[0] = {4, 0, 2, 8};
+        pages[1] = {4, 2, 1, 4};
+        std::array<std::uint32_t, 3> references{11, 22, 33};
+        std::array<sub::page_section_view, 6> sections{};
+        sections[3] = {std::as_bytes(std::span(references)), 4};
+        auto packed = sub::pack_page_arena(pages, sections, 64);
+        CHECK(packed);
+        if (packed) {
+            CHECK(packed->layout.bytes() == 68);
+            CHECK(packed->layout.page_offset(0) == 0 && packed->layout.page_offset(1) == 64);
+            CHECK(packed->bytes.size() == 68);
+            std::uint32_t first = 0, second = 0, third = 0;
+            std::memcpy(&first, packed->bytes.data(), 4);
+            std::memcpy(&second, packed->bytes.data() + 4, 4);
+            std::memcpy(&third, packed->bytes.data() + 64, 4);
+            CHECK(first == 11 && second == 22 && third == 33);
+            CHECK(packed->bytes[8] == std::byte{0} && packed->bytes[63] == std::byte{0});
+        }
+        auto truncated = pages;
+        truncated[0].bytes = 12;
+        CHECK(!sub::pack_page_arena(truncated, sections, 64));
+        auto outside = pages;
+        outside[1].count = 2;
+        outside[1].bytes = 8;
+        CHECK(!sub::pack_page_arena(outside, sections, 64));
+        CHECK(!sub::pack_page_arena(pages, std::span(sections).first(5), 64));
+        auto bad_section = pages;
+        bad_section[0].section = 7;
+        CHECK(!sub::pack_page_arena(bad_section, sections, 64));
+        auto empty = sub::pack_page_arena({}, sections, 64);
+        CHECK(empty && empty->layout.bytes() == 0 && empty->bytes.empty());
     }
     {
         sub::page_request_buffer requests(2);

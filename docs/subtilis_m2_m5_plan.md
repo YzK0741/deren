@@ -353,14 +353,22 @@ M5c: asynchronous transfer, request buffer from the cut pass, budgeted installs,
 LOD0, and a page-miss metric. This is the first milestone that can actually miss a page during
 rendering.
 
-M5c-1 (the device-free first slice) is implemented in
+M5c-1 (the first slice) is implemented in
 `source/engine/geometry/subtilis_page_streaming.cppm`: `page_arena_layout` assigns one 64-byte
 aligned address range per page, `gpu_page_table_entry`/`gpu_page_request` are the byte-stable
 shader ABI, `page_request_buffer` images the cut's bounded request append, and `page_streamer`
 turns a queued request into a non-mutating `page_manager::plan_request` followed by an `apply`
 on completion. The plan/apply split keeps a page invisible until its transfer fence: the resident
-set changes only in `apply`. This slice does not allocate a GPU buffer or bind the table yet, and
-all pages remain resident, so rendering is unchanged.
+set changes only in `apply`. `pack_page_arena` copies encoded section records into that layout;
+it does not reinterpret the engine's padded DAG structs.
+
+The device part is implemented in `source/engine/geometry/subtilis_upload.cpp`: an imported
+geometry generation now owns three additional buffers, `scene_page_arena`,
+`scene_page_table`, and `scene_page_requests`. `uploaded_geometry` exposes them with
+`page_arena()`, `page_table()`, `page_requests()`, `page_count()`, and
+`page_request_capacity()`. Every page is installed through `request_all` before publication, so
+the table is fully resident and the request buffer starts empty. The cut does not read or write
+these buffers yet, so rendering is unchanged.
 
 M5d: prefetch and priority tuning. Do not start this before M5c is stable.
 
