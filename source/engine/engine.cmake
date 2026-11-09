@@ -67,6 +67,7 @@ target_sources(deren_engine
         source/engine/geometry/subtilis_dag_asset.cppm
         source/engine/geometry/subtilis_dag_lod.cppm
         source/engine/geometry/subtilis_dag_import.cppm
+        source/engine/geometry/subtilis_residency.cppm
         source/engine/geometry/subtilis_builder.cppm
         source/engine/geometry/subtilis_upload.cppm
         source/engine/geometry/subtilis_cut.cppm
@@ -144,6 +145,7 @@ target_include_directories(deren_engine SYSTEM PRIVATE source/third_party/meshop
 target_link_libraries(deren_engine PRIVATE meshoptimizer_vendored)
 target_sources(deren_engine PRIVATE
     source/engine/geometry/subtilis_upload.cpp
+    source/engine/geometry/subtilis_residency.cpp
     source/engine/geometry/subtilis_builder.cpp
     source/engine/geometry/subtilis_builder_simplify.cpp
     source/engine/geometry/subtilis_builder_topology.cpp
