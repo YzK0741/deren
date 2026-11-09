@@ -11,7 +11,7 @@ module;
 // module std's and the textual libc++ copy baked into utility:data_block.pcm - and resolves neither, which is
 // "call to operator new is ambiguous" at allocate.h. This file instantiates plenty of deren::utility::vessel::vector (the device
 // extension-name list, the descriptor pool sizes), and it began seeing both the moment deren.vulkan.core gained an
-// import edge it did not have before: descriptor_heap, whose hold module carries a textual Vulkan header in its
+// import edge it did not have before: descriptor_heap, whose module carries a textual Vulkan header in its
 // global module fragment. Textually including glm here makes clang MERGE the two copies, exactly as it does for
 // app_pipelines.cpp and source/engine/animation/controller.cpp. Do not remove this include to "clean up".
 #include <glm/glm.hpp>
@@ -48,7 +48,7 @@ namespace deren::vulkan {
         if (!this->frame.gpu_timing_supported || this->frame.gpu_timing_marks[slot] >= gpu_timing_mark_capacity) {
             return;
         }
-        // The name rides the mark: static text the caller holds, stored as a view and reported
+        // The name rides the mark: static text the caller provides, stored as a view and reported
         // verbatim by the profiler's latched snapshot (the `window_title` rule - the characters
         // never move into this class).
         this->frame.gpu_timing_names[slot][this->frame.gpu_timing_marks[slot]] = stage_name;
@@ -97,8 +97,8 @@ namespace deren::vulkan {
     }
 
     VkCommandBuffer core::frame_commands::native() const noexcept {
-        // A LIST KNOWS THE BUFFER IT RECORDS INTO (abi 15): `target` is what a held command buffer's
-        // `recording()` sets, and a null target means the FRAME's slot buffer - the meaning every abi
+        // A LIST KNOWS THE BUFFER IT RECORDS INTO (abi 15): `target` is what `recording()` sets on a live
+        // command buffer's wrapper, and a null target means the FRAME's slot buffer - the meaning every abi
         // 13/14 call site already has. The frame's answer comes from the same method `submit_frame` and
         // the heap requests use, so there is no second source of truth for it.
         if (this->target != VK_NULL_HANDLE) {
@@ -154,16 +154,16 @@ namespace deren::vulkan {
         // WHICH PIPELINE STAGE the timestamp resolves at is the backend's measurement policy, not a
         // caller decision: the frame's first mark anchors at the top of the pipe (it measures from
         // "nothing yet recorded"), every pass boundary resolves at the bottom (it measures everything
-        // submitted so far) - the one pattern this renderer's marks ever expressed, now held here.
+        // submitted so far) - the one pattern this renderer's marks ever expressed, now applied here.
         VkPipelineStageFlagBits const stage = mark_index == 0 ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT : VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
         parent.mark_gpu_timing(this->native(), slot, stage, stage_name);
         return rhi::error::ok;
     }
 
     vk_command_buffer core::make_command_buffer() const {
-        // EACH BUFFER HOLDS Its POOL (handles/handles.cppm): the wrapper creates the pool, allocates
-        // the buffer from it and destroys the pool on release - there is no shared pool member left for
-        // a caller to keep alive, and no pool shared between recording threads.
+        // EACH BUFFER CREATES ITS POOL (handles/handles.cppm): the wrapper creates the pool, allocates
+        // the buffer from it and destroys the pool on release - there is no shared pool member left that
+        // has to outlive the call, and no pool shared between recording threads.
         return ::deren::vulkan::make_command_buffer(this->device.logical_device, this->device.graphics_queue_family_index, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
     }
 
@@ -325,12 +325,12 @@ namespace deren::vulkan {
                 parent->frame.prefetched_image = next_image;
             }
         }
-        core* const retained = parent;
+        core* const parent_copy = parent;
         parent->frame.async_present_queued = true;
         parent->frame.present_pending = result;
-        bool const posted = parent->frame.present_worker->post([retained, completion, queue, swapchain, image, ready] {
+        bool const posted = parent->frame.present_worker->post([parent_copy, completion, queue, swapchain, image, ready] {
             VkPresentInfoKHR const info = make_present_info(1, &ready, 1, &swapchain, &image);
-            std::lock_guard queue_lock(retained->device.vma.queue_access());
+            std::lock_guard queue_lock(parent_copy->device.vma.queue_access());
             completion->set_value(present_error(vkQueuePresentKHR(queue, &info)));
         });
         if (!posted) {
@@ -355,12 +355,12 @@ namespace deren::vulkan {
     }
 
     void core::swapchain_view::release() noexcept {
-        // A REFERENCED VIEW CARRIES NO REFERENCE (the frame_image_slot rule): the presentation surface
-        // is the core's and dies with its teardown, so a release() here is a wrapped-reference bug and
+        // A VIEW, NOT A HANDLE (the frame_image_slot rule): the presentation surface is the core's and
+        // dies with its teardown, so a release() here is a view-of-a-live-object bug and
         // the answer is a ONE-TIME NAMED LOG, not a panic and not a silent no-op.
         if (!this->view_release_logged) {
             this->view_release_logged = true;
-            deren::utility::log("rhi: release() on the swapchain view - it is REFERENCED from the backend and carries no reference, so nothing was released; the unique_object that wrapped it is the bug");
+            deren::utility::log("rhi: release() on the swapchain view - it is a view of a surface the backend created and names no resource itself, so nothing was released; the unique_object that wrapped it is the bug");
         }
     }
 
@@ -437,8 +437,8 @@ namespace deren::vulkan {
         //    of the chain: the HDR/LDR pair (A1.3), the G-buffer cluster (A1.4), the stochastic-chain trio
         //    and the four bloom levels (A1.5) and the furnace environment cube (A1.6) are the engine's, and
         //    `runtime::create_render_chain_targets()` releases the old generation and creates the new one
-        //    right after this rebuild answered `ok` (see on_swapchain_recreated). What remains backend-held
-        //    and is rebuilt below is the swapchain itself and the forward path's depth image.
+        //    right after this rebuild answered `ok` (see on_swapchain_recreated). What the backend still
+        //    creates and rebuilds below is the swapchain itself and the forward path's depth image.
 
         // 3. Destroy depth resources
         for (auto const& view : frame.depth_image_views) {
@@ -468,7 +468,7 @@ namespace deren::vulkan {
             frame.swap_chain = VK_NULL_HANDLE;
         }
 
-        // 6. Recreate all resources THE BACKEND HOLDS
+        // 6. Recreate all resources THE BACKEND CREATES
         this->init_swap_chain();        // rebuild swapchain
         this->init_image_views();       // rebuild image views
         this->create_depth_resources(); // rebuild depth resources
@@ -768,7 +768,7 @@ namespace deren::vulkan {
             first_stage,
             // LESS_OR_EQUAL, AND THE ARTICLE'S `ZTest` DEFAULT rather than the toon stage's `EQUAL`. The
             // difference is the geometry: a hull is the same mesh pushed OUTWARD, so the fragments that survive
-            // front-face culling are the ring just OUTSIDE the silhouette - where the depth buffer holds whatever
+            // front-face culling are the ring just OUTSIDE the silhouette - where the depth buffer contains whatever
             // is behind the character (nothing, or a farther surface). `EQUAL` would reject exactly those
             // fragments (they are not the surface the G-buffer recorded) and the outline would draw nothing at
             // all; `LESS_OR_EQUAL` keeps the ring and is what confines the hull's interior to the surface that

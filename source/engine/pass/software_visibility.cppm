@@ -6,7 +6,7 @@
  *        R32_UINT images, tile by tile, one workgroup per 16x16 tile.
  *
  * WHY THIS PASS EXISTS AS A PASS. The hybrid frame splits its opaque visibility into two producers: the hardware
- * raster (`visibility::append`, which holds the frame's real G-buffer depth and id) and this pass, which re-rasterizes
+ * raster (`visibility::append`, which creates the frame's real G-buffer depth and id) and this pass, which re-rasterizes
  * ONLY the items the CPU classified as subpixel (spec §3.1) into its depth/id pair. The resolve then picks between
  * the two candidates per pixel, and the merge writes min(hardware, software) back into the frame's depth. Keeping the
  * software result in PRIVATE images is what makes the lane additive: nothing consumes it until the resolve's optional
@@ -15,7 +15,7 @@
  * WHY ITS DECLARATION IS EMPTY. Every input and output travels through the FRAME'S HEAP (the two software storage
  * images, the camera block, the item/meshlet/tile/statistics tables), so the pass binds no descriptor set and renders
  * no attachment - the same shape as the visibility resolve and the cluster sort. The graph lane
- * (`render_graph/visibility.cppm`'s `append_software_raster`) holds what it reads and writes and the order it sits in.
+ * (`render_graph/visibility.cppm`'s `append_software_raster`) declares what it reads and writes and the order it sits in.
  *
  * The pass first clears both storage images with a simple full-grid compute dispatch, then uses a write-after-write
  * image barrier and dispatches raster work only for non-empty CSR tiles. This avoids stale pixels without transfer
@@ -60,7 +60,7 @@ export namespace deren::engine::pass {
 
         [[nodiscard]] render_resource::pass_io const& io() const noexcept override {
             // NO BINDINGS, NO TARGETS, NO PUSH BLOCK DECLARED: the resources arrive through the frame's heap and the
-            // graph's software lane holds the ordering. An empty declaration is the accurate one for a heap-native
+            // graph's software lane records the ordering. An empty declaration is the accurate one for a heap-native
             // compute pass - the clustered-light sort and the visibility resolve are the precedents.
             static constinit render_resource::pass_io const value{.name = "software visibility"};
             return value;
@@ -82,7 +82,7 @@ export namespace deren::engine::pass {
             return {}; // no feature knob: whether the lane exists is the graph's decision (Task 4 wires the selection)
         }
 
-        /// @brief whether the pass has the pipeline it needs (not `ready()`: the framework holds that name)
+        /// @brief whether the pass has the pipeline it needs (not `ready()`: the framework uses that name)
         [[nodiscard]] bool has_pipeline() const noexcept {
             return this->visibility_pipeline.has_value();
         }

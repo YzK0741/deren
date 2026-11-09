@@ -272,7 +272,7 @@ def main() -> int:
             "asset": str(asset), "asset_sha256": sha256(asset), "executable": str(exe),
             "executable_sha256": sha256(exe), "shader_bundle_sha256": shader_bundle_sha256(exe.parent / "shaders"), "runs": []}
     output = work / "measurements.json"
-    # Rotate case order by round and camera to reduce thermal/order bias; every cell is still retained.
+    # Rotate case order by round and camera to reduce thermal/order bias; every cell is still measured.
     names = list(CASES)
     for camera_index, camera in enumerate(sorted(CAMERAS)):
         for round_id in range(1, args.rounds + 1):

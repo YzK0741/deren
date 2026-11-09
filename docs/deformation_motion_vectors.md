@@ -50,7 +50,7 @@ Its reprojection assumption at every frame. TAA's neighbourhood clamp (`source/s
 absorbs part of the residual; what is left is the ghost.
 
 Nothing stores the missing half today. `motion_previous` (`source/engine/runtime/runtime.declarations.cppm:243`)
-holds world matrices only, and the only deformation state that exists is the **current** frame's, one
+carries world matrices only, and the only deformation state that exists is the **current** frame's, one
 buffer per frame slot (`skin_buffers` / `morph_buffers`, `MAX_FRAMES_IN_FLIGHT = 2`,
 `source/backends/vulkan/core/declarations/core.declarations.cppm:607`). A grep for previous-frame state across `source/engine/runtime/`
 returns `prev_view_proj` and nothing else.
@@ -64,11 +64,11 @@ frame slot as the current one.** The shader reads the same `push.skin_base` from
 no addressing change, no per-draw bookkeeping and no new push lane is needed for the skin half. The
 addressing is worth stating plainly, because it is the first thing a reviewer will challenge:
 `heap_frame_slot` is the **current** frame slot (aliased per stage at `source/shaders/pbr.vert:87-88`), so a
-buffer holding the block that was current one frame ago is reachable as
+buffer that stores the block that was current one frame ago is reachable as
 `heap_slots_skin_matrices_previous + heap_frame_slot` - and that is exactly how the rigid half already
 reaches its past. `advance_motion_transforms()` publishes the one-frame-ago state **into the current
 frame slot's** buffer (`source/engine/runtime/runtime.frames.cppm:224,240`) rather than leaving it in the other
-slot, which is why `heap_previous_slot` needs no lane (`heap_slot_constants.slang` holds the heap slot
+slot, which is why `heap_previous_slot` needs no lane (`heap_slot_constants.slang` defines the heap slot
 policy), and
 `advance_motion_deformations()` does the same by construction (decision 2). The alternative - leave the
 previous data sitting in the other frame slot and address it with a host-resolved `1 - frame_slot` through
@@ -77,7 +77,7 @@ deformation half address its past differently from the rigid half, for no gain.
 
 The push budget is why this matters, and it was measured rather than assumed: the scene / G-buffer leaf
 push occupies **108 of `pass::max_push_bytes = 128`** - the 96-byte `material_push_constants`
-(`scene_push_constant_size` in `source/backends/vulkan/core/declarations/core.declarations.cppm`, held to it by the `static_assert` in
+(`scene_push_constant_size` in `source/backends/vulkan/core/declarations/core.declarations.cppm`, pinned to it by the `static_assert` in
 `source/engine/primitive/primitives/primitive.primitives.cppm`) plus three 4-byte lanes `{frame_slot, image_index, extra_lane}`
 (`source/engine/runtime/runtime.cpp`, in `make_outline_pipeline`); the limit is at `source/engine/pass/pass.cppm:184`. **20 bytes stay free**, and only the morph half
 needs one of them. (THAT COUNT IS PRE-MESH-SHADER ARITHMETIC: since docs/mesh_shaders.md step 1 the same
@@ -106,7 +106,7 @@ available. `material_push_constants` is 96 bytes with **all eight of its uints u
 `alignas(16) glm::mat4 model` cannot move - a ninth field pushes the matrix from offset 32 to 48 and the
 block to 112 bytes, which drags every GLSL block's field offsets, the scene pipeline's push range, the
 shadow stage's cascade lane (108 -> 124) and the test that asserts that offset. Measured against the
-alternative: the in-scratch region touches nothing shared, and the only thing it costs is that A separate per-frame weight writer holds one invariant block.
+alternative: the in-scratch region touches nothing shared, and the only thing it costs is that a separate per-frame weight writer carries one invariant block.
 
 That contract is stated where a writer reads it (`runtime::morph_scratch()`'s note): the vertex stage
 reads the FIRST weight region as this frame's weights and the SECOND as the weights one frame ago, so a
@@ -204,7 +204,7 @@ The half that needs no push-block change, and it covers the assets that skin rat
   ignores `tlas` (703,704), `rt_visibility_storage` (711..718) and the visibility buffer (719..726, which replaced the removed MegaLights
 * **the buffers**: `skin_buffers_previous` + its mapped pointer, created beside
   `runtime.constructor.cppm:340-351` and published through `write_heap_scene_buffer` beside `:622`; plus a
-  host `std::vector<glm::mat4> skin_previous` holding one frame of history, exactly as `motion_previous`
+  host `std::vector<glm::mat4> skin_previous` storing one frame of history, exactly as `motion_previous`
   does (`runtime.declarations.cppm:243`).
 * **the publication**: `advance_motion_deformations()` next to `runtime.frames.cppm:335` - inside
   `begin_recording()`, which is after the controller's documented write window (`controller.cppm:640-650`:
@@ -268,7 +268,7 @@ deformation changed while its swapchain image was recreated.
 
 Every step: Release gate 14 scenarios x 2 with 0 changed and 0 flaky, Release/Debug build clean, ctest 13/13,
 doxygen exit 0 with an empty warning stream, every run validation clean. The boundary is the project's and is recorded in `docs/pass_io_design.md:351-357`: **the capture gate is a RELEASE instrument** -
-Debug and ASan+UBSan builds are measured non-deterministic here, so they are held to "clean build, ctest,
+Debug and ASan+UBSan builds are measured non-deterministic here, so they must only meet "clean build, ctest,
 and a run that reports no finding" instead.
 
 Two ctest checks carry steps 1 and 2 specifically, and neither can be satisfied by review:

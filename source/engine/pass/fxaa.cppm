@@ -9,12 +9,12 @@
  * the image the composite produced, so the composite cannot write the swapchain when FXAA is on (a pass may not
  * read the image it renders into) - it writes the R16F LDR image instead, gamma-encoded, because FXAA's luma
  * thresholds are defined on display-referred data. This pass then turns that image into the presented one, which
- * makes it the frame's last writer, which in turn makes it the holder of the debug overlay: the overlay composites
+ * makes it the frame's last writer, which in turn makes it the pass that draws the debug overlay: the overlay composites
  * A separate UI with no load op, so it has to be drawn INSIDE whichever instance writes the final image - and
  * that is this one whenever it runs (the composite carries it otherwise; see its frame's `after_draw`).
  *
- * WHAT IT HOLDS: its pipeline - the frame's LDR image transition, the clear instance over the swapchain, the push
- * block's mode lane and the draw are its recording. WHAT IT DOES NOT hold: the push block's SHAPE (deren.engine.pass.post's
+ * WHAT IT BUILDS: its pipeline - the frame's LDR image transition, the clear instance over the swapchain, the push
+ * block's mode lane and the draw are its recording. WHAT IT DOES NOT DEFINE: the push block's SHAPE (deren.engine.pass.post's
  * `post_push_constants` - FXAA is mode 3 of the same shader's block, so the struct is imported rather than copied: a
  * second copy of those thirteen lanes is a second thing that can drift) and the LDR image it reads, which is a heap
  * slot the shader names itself.
@@ -60,7 +60,7 @@ export namespace deren::engine::pass {
     /**
      * @brief the FXAA resolve: the gamma-encoded LDR image -> the anti-aliased swapchain image
      *
-     * The frame's last writer, its overlay's holder, and the reason the composite has two pipeline variants.
+     * The frame's last writer, the pass that draws its overlay, and the reason the composite has two pipeline variants.
      */
     class fxaa_pass final : public frame_pass {
     public:
@@ -76,7 +76,7 @@ export namespace deren::engine::pass {
 
         /// @brief whether the pass built everything it records with (the renderer gates the feature on this)
         [[nodiscard]] bool pipeline_ready() const noexcept;
-        /// @brief the framework's generic form of the same question, so a holder holding only a chain can ask it
+        /// @brief the framework's generic form of the same question, so a caller that has only a chain can ask it
         ///        (a pass with nothing separate to build keeps the interface's `true`; see `frame_pass::ready`)
         [[nodiscard]] bool ready() const noexcept override {
             return this->pipeline_ready();

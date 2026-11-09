@@ -57,9 +57,9 @@ namespace deren::engine::gaussian_splatting {
             }
         }
     } // namespace
-    std::expected<std::shared_ptr<raster_asset const>, foundation_error> make_raster_asset(rhi::api_core& core, deren::gaussian::asset input, foundation_limits const& limits, rhi::shared_object<rhi::api_core> device_lease) {
-        if (device_lease && device_lease.get() != &core) {
-            return failure(error_code::invalid_argument, "Gaussian asset device lease belongs to another core");
+    std::expected<std::shared_ptr<raster_asset const>, foundation_error> make_raster_asset(rhi::api_core& core, deren::gaussian::asset input, foundation_limits const& limits, rhi::shared_object<rhi::api_core> device_root) {
+        if (device_root && device_root.get() != &core) {
+            return failure(error_code::invalid_argument, "Gaussian asset device handle was created for another core");
         }
         // THE VIEWER'S PROGRESS, at the two stages that can be slow or refuse: a 562,974-splat cloud is
         // packed and uploaded once, and "which half" is the first question when it does not arrive.
@@ -70,7 +70,7 @@ namespace deren::engine::gaussian_splatting {
         }
         deren::utility::log("gaussian asset: packed {} geometry record(s); uploading to the device", packed->geometry.size());
         auto packed_handle = std::make_shared<packed_asset>(std::move(*packed));
-        auto uploaded = upload_asset(core, std::shared_ptr<packed_asset const>{packed_handle}, limits, std::move(device_lease));
+        auto uploaded = upload_asset(core, std::shared_ptr<packed_asset const>{packed_handle}, limits, std::move(device_root));
         if (!uploaded) {
             return std::unexpected(uploaded.error());
         }
@@ -81,15 +81,15 @@ namespace deren::engine::gaussian_splatting {
         result->geometry = std::move(packed_handle->geometry);
         return std::shared_ptr<raster_asset const>{std::move(result)};
     }
-    std::expected<std::shared_ptr<raster_frame const>, foundation_error> prepare_raster_frame(rhi::api_core& core, std::span<raster_instance const> inputs, raster_camera const& camera, foundation_limits const& limits, raster_frame* const reuse, rhi::shared_object<rhi::api_core> device_lease) {
-        if (device_lease && device_lease.get() != &core) {
-            return failure(error_code::invalid_argument, "Raster device lease belongs to another core");
+    std::expected<std::shared_ptr<raster_frame const>, foundation_error> prepare_raster_frame(rhi::api_core& core, std::span<raster_instance const> inputs, raster_camera const& camera, foundation_limits const& limits, raster_frame* const reuse, rhi::shared_object<rhi::api_core> device_root) {
+        if (device_root && device_root.get() != &core) {
+            return failure(error_code::invalid_argument, "Raster device handle was created for another core");
         }
         if (reuse && reuse->parent != &core) {
             return failure(error_code::invalid_argument, "Raster frame belongs to another core");
         }
-        if (reuse && device_lease && !reuse->device_lease && reuse->storage_view.size()) {
-            return failure(error_code::invalid_argument, "Legacy raster storage cannot gain a holding device lease; prepare a new frame");
+        if (reuse && device_root && !reuse->device_root && reuse->storage_view.size()) {
+            return failure(error_code::invalid_argument, "Legacy raster storage cannot gain a shared device handle; prepare a new frame");
         }
         auto const frame_started = std::chrono::steady_clock::now();
         auto sort_view = validate_raster_camera(camera);
@@ -147,7 +147,7 @@ namespace deren::engine::gaussian_splatting {
         auto* const target = reuse ? reuse : result;
         if (reuse) {
             result->reference_data.swap(reuse->staging_reference_data);
-            result->retained_assets.swap(reuse->staging_handles);
+            result->cached_assets.swap(reuse->staging_handles);
         }
         struct recycle_workspace {
             bool enabled;
@@ -163,9 +163,9 @@ namespace deren::engine::gaussian_splatting {
                     saved_assets.swap(working_assets);
                 }
             }
-        } workspace{reuse != nullptr, target->staging_reference_data, result->reference_data, target->staging_handles, result->retained_assets};
-        if (device_lease) {
-            target->device_lease = std::move(device_lease);
+        } workspace{reuse != nullptr, target->staging_reference_data, result->reference_data, target->staging_handles, result->cached_assets};
+        if (device_root) {
+            target->device_root = std::move(device_root);
         }
         auto const publish = [&] -> std::shared_ptr<raster_frame const> {
             target->parent = &core;
@@ -175,13 +175,13 @@ namespace deren::engine::gaussian_splatting {
             reuse->push = result->push;
             reuse->reference_data.swap(result->reference_data);
             reuse->instance_data = std::move(result->instance_data);
-            reuse->retained_assets.swap(result->retained_assets);
+            reuse->cached_assets.swap(result->cached_assets);
             reuse->bytes = result->bytes;
             reuse->total = result->total;
             reuse->near_omitted = result->near_omitted;
             reuse->outside = result->outside;
-            // The reuse result is the SAME frame, so hand out the one holder that already exists: a fresh shared_ptr
-            // with its control block would look holding while keeping nothing alive.
+            // The reuse result is the SAME frame, so hand out the one shared_ptr that already exists: a fresh shared_ptr
+            // with its own control block would suggest a second share while controlling nothing.
             return reuse->shared_from_this();
         };
         result->total = static_cast<std::uint32_t>(sorted->size());
@@ -268,9 +268,9 @@ namespace deren::engine::gaussian_splatting {
             return failure(error_code::unsupported, "raster frame requires device addresses");
         }
         result->instance_data = std::move(records);
-        result->retained_assets.reserve(inputs.size());
+        result->cached_assets.reserve(inputs.size());
         for (auto const& input : inputs) {
-            result->retained_assets.push_back(input.asset);
+            result->cached_assets.push_back(input.asset);
         }
         namespace managed = render_resource::instances;
         deren::utility::vessel::array<managed::request, 2> requests;
@@ -316,10 +316,10 @@ namespace deren::engine::gaussian_splatting {
                 target->storage_provider = &target->storage_chain.emplace<deren::engine::pass::buffer_storage_pass>();
             }
             target->storage_provider->configure(requests);
-            if (!target->device_lease) {
-                return failure(error_code::invalid_argument, "Raster frame storage requires a holding device lease");
+            if (!target->device_root) {
+                return failure(error_code::invalid_argument, "Raster frame storage requires a shared device handle");
             }
-            auto root = target->device_lease;
+            auto root = target->device_root;
             if (target->storage_chain.prepare_resources(root, managed::resource_context{.frame_slots = 1, .output_images = 1}, admit) != rhi::error::ok) {
                 return failure(admission_code, admission_message);
             }

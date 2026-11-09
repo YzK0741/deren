@@ -56,7 +56,7 @@ def prepare(source, output, size):
     (output / 'bistro-specgloss.gltf').write_text(json.dumps(scene))
     (output / 'preparation.json').write_text(json.dumps({'textures': len(images), 'max_size': size,
         'nodes_preserved': len(scene['nodes']), 'materials_preserved': len(scene['materials']),
-        'notes': 'DDS decoded to RGBA PNG, alpha retained, no mesh or node merging; material conversion pending.'}, indent=2))
+        'notes': 'DDS decoded to RGBA PNG, alpha preserved, no mesh or node merging; material conversion pending.'}, indent=2))
     print('Prepared', len(images), 'textures; node hierarchy preserved', flush=True)
 
 

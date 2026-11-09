@@ -630,7 +630,7 @@ namespace {
     void test_mmd_motion_real_file_when_available() {
 #if defined(_MSC_VER)
         // MSVC's <cstdlib> marks std::getenv deprecated (C4996, an error under /WX), so the MSVC build asks the
-        // same question with its secure twin and holds the copy the CRT hands back; clang keeps std::getenv below.
+        // same question with its secure twin and receives the copy the CRT hands back; clang keeps std::getenv below.
         char* value = nullptr;
         std::size_t value_size = 0;
         if (_dupenv_s(&value, &value_size, "VR_MMD_MOTION") != 0) {

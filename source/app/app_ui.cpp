@@ -29,7 +29,7 @@ namespace deren::app {
         if (!use_gui) {
             return;
         }
-        // GUI ABI3 holds vessel strings and containers, matching the application.
+        // GUI ABI3 takes vessel strings and containers, matching the application.
         runtime.enable_debug_gui();
         deren::gui::panel& panel = runtime.debug_gui().add_panel("deren debug");
         panel.set_default_size(settings.gui.panel_width, settings.gui.panel_height);
@@ -239,7 +239,7 @@ namespace deren::app {
         // ---- LIVE SCENE-OBJECT EDITING ------------------------------------------------
         // A SECOND PANEL, not more rows in the main one: an object has its transform
         // vocabulary, and the main panel already carries every render/light knob. Only the
-        // selected object's three rows draw; selection is held by main because it is also what
+        // selected object's three rows draw; selection lives in main because it is also what
         // the viewport click pick writes. The widgets edit app_settings.scene.objects in place
         // and raise the dirty flag main consumes - edits are runtime-only, never written back.
         if (bindings.scene_objects != nullptr && !bindings.scene_objects->empty()) {
@@ -273,7 +273,7 @@ namespace deren::app {
             for (std::size_t i = 0; i < bindings.scene_objects->size(); ++i) {
                 deren::app_config::scene_object_settings& object = (*bindings.scene_objects)[i];
                 auto const selected = [&bindings, i] { return bindings.selected_object == static_cast<std::int32_t>(i); };
-                // The splat stage holds a cloud's look; environment/material and skeletal-animation
+                // The splat stage carries a cloud's look; environment/material and skeletal-animation
                 // widgets would edit state that path never reads. Treat an unpopulated flag as mesh
                 // so the historic single-object panel keeps its old layout.
                 auto const is_gaussian = [&bindings, i] {

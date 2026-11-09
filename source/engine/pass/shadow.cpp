@@ -2,7 +2,7 @@
 // context's depth format) and the per-cascade recording - the layer's transition to a depth attachment, the
 // depth-only instance at the map's edge, the pre-recorded secondary's execution and the instance's end. Moved out of
 // `runtime::make_shadow_pipeline` + the shadow block of `begin_recording` UNCHANGED in behaviour, except for the
-// things the pass does not hold (the hand-back barrier over every allocated layer, and the per-cascade content, which
+// things the pass does not record (the hand-back barrier over every allocated layer, and the per-cascade content, which
 // the renderer records through the frame's callback) - so the capture gate, which runs with shadows on in all twelve
 // scenarios, decides the move.
 
@@ -15,7 +15,7 @@ import deren.vstd;
 import deren.utility.shared;
 
 import deren.promise.rhi;
-import deren.engine.pipelines; // build_shadow: the depth-only pipeline this pass holds
+import deren.engine.pipelines; // build_shadow: the depth-only pipeline this pass creates
 import deren.utility;
 
 namespace rhi = deren::promise::rhi;

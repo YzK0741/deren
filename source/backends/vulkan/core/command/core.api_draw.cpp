@@ -83,7 +83,7 @@ namespace deren::vulkan {
         if (concrete->parent != parent || offset >= concrete->size_bytes) {
             return rhi::error::invalid_argument;
         }
-        retain_lazy(*concrete);
+        reference_lazy(*concrete);
         operations.append<rec::operation_kind::vertex>({reinterpret_cast<std::uintptr_t>(concrete), concrete->identity, offset});
         ++parent->deferred_requested;
         return rhi::error::ok;
@@ -120,7 +120,7 @@ namespace deren::vulkan {
             offset % (type == rhi::index_type::uint32 ? 4 : 2)) {
             return rhi::error::invalid_argument;
         }
-        retain_lazy(*concrete);
+        reference_lazy(*concrete);
         operations.append<rec::operation_kind::index>({reinterpret_cast<std::uintptr_t>(concrete), concrete->identity, offset, static_cast<std::uint64_t>(type)});
         ++parent->deferred_requested;
         return rhi::error::ok;

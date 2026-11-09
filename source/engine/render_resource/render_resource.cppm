@@ -22,7 +22,7 @@
  *    that must BIND things, which is the kind of object that grows as needs appear. A declaration cannot
  *    grow a capability.
  *  * NOT an allocator. Every image, buffer, view and sampler stays where it is: `deren.vulkan.core` creates them,
- *    `deren.engine.runtime` holds the pipelines. The schema says a resource EXISTS and what its scope and lifetime
+ *    `deren.engine.runtime` creates and destroys the pipelines. The schema says a resource EXISTS and what its scope and lifetime
  *    are; it does not say who makes it or how.
  *  * NOT Vulkan. The vocabulary is this module's enums, so the description layer is pure CPU like
  *    `deren.engine.math` and `gltf_loader` - which is what lets its invariants be tested in `ctest`, on a machine
@@ -30,8 +30,8 @@
  *    driver.) Mapping these enums onto `VkDescriptorType`/`VkShaderStageFlags` belongs to the generator,
  *    which imports Vulkan the way the pipeline builders already do.
  *
- * THE RULE THAT KEEPS THE TWO HALVES FROM DRIFTING: the SCHEMA holds what a resource IS (kind, scope,
- * lifetime, how many images the family holds); a PASS holds what it DOES with one (which binding,
+ * THE RULE THAT KEEPS THE TWO HALVES FROM DRIFTING: the SCHEMA says what a resource IS (kind, scope,
+ * lifetime, how many images the family covers); a PASS says what it DOES with one (which binding,
  * read or write, which sampler, which stage). The only token they share is `resource_id`. A pass that
  * restates a resource's kind or scope would be a second copy of a fact - exactly the drift this module
  * exists to remove.

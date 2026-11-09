@@ -53,7 +53,7 @@ namespace deren::engine::pass {
     }
 
     void character_forward_pass::on_swapchain_recreated(pass_host const&) {
-        // Nothing is per-image here: the targets belong to the frame loop and the leaves hold their buffers.
+        // Nothing is per-image here: the targets belong to the frame loop and the leaves are handed their buffers.
     }
 
     void character_forward_pass::set_frame(character_forward_frame const& frame) noexcept {

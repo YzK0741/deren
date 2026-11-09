@@ -62,15 +62,15 @@ namespace deren::engine::animation {
             ++key;
         }
         // STEP interpolation and the range end hold the left key's value (its middle triplet)
-        auto const hold = [&] { set_value(key, cubic ? comps : 0); };
+        auto const write_key = [&] { set_value(key, cubic ? comps : 0); };
         if (sampler.interp == interpolation::step || key + 1 >= keys) {
-            hold();
+            write_key();
             return out;
         }
 
         float const dt = sampler.times[key + 1] - sampler.times[key];
-        if (dt <= 0.0f) { // duplicate timestamps (invalid per the spec): hold the key's value
-            hold();
+        if (dt <= 0.0f) { // duplicate timestamps (invalid per the spec): write the key's value
+            write_key();
             return out;
         }
         float const u = (time - sampler.times[key]) / dt;

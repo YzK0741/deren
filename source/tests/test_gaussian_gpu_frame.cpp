@@ -129,7 +129,7 @@ namespace {
         return true;
     }
     template <typename core_type>
-    rhi::shared_object<rhi::api_core> test_lease(core_type& core) {
+    rhi::shared_object<rhi::api_core> test_device_root(core_type& core) {
         return rhi::shared_object<rhi::api_core>{std::shared_ptr<core_type>(&core, [](core_type*) {})};
     }
 } // namespace
@@ -170,7 +170,7 @@ void check_initial_upload() {
         request.initial_data.reset();
         payload.reset();
         provider.configure(std::span{&request, 1});
-        CHECK(weak.expired()); // Neither generation metadata nor the producer retains upload bytes.
+        CHECK(weak.expired()); // Neither generation metadata nor the producer keeps the upload bytes valid.
         auto calls = device->calls;
         CHECK(chain.prepare_resources(rhi::shared_object<rhi::api_core>{device}, {}) == rhi::error::ok);
         CHECK(chain.resources().snapshot().same(old) && device->calls == calls);
@@ -204,18 +204,18 @@ void check_initial_upload() {
         CHECK(chain.prepare_resources(rhi::shared_object<rhi::api_core>{device}, {}) == rhi::error::invalid_argument);
         CHECK(device->calls == calls && chain.resources().snapshot().same(merged));
     } else {
-        CHECK_MSG(false, "Managed uploads need retained initial data and a stable content identity");
+        CHECK_MSG(false, "Managed uploads need a copy of the initial data and a stable content identity");
     }
 }
 int main() {
     check_initial_upload<deren::engine::render_resource::instances::request>();
     core device;
-    auto lease = test_lease(device);
-    auto asset = gs::make_raster_asset(device, source(), {}, lease);
+    auto access = test_device_root(device);
+    auto asset = gs::make_raster_asset(device, source(), {}, access);
     CHECK(asset);
     deren::utility::vessel::array<gs::raster_instance, 2> inputs = {gs::raster_instance{*asset, glm::mat4{1}, 20}, gs::raster_instance{*asset, glm::mat4{1}, 10}};
     auto prepare = [&](auto const& items, auto const& camera_value, gs::foundation_limits limits = {}, gs::gpu_frame* reuse = nullptr) {
-        return gs::prepare_gpu_frame(device, items, camera_value, limits, reuse, lease);
+        return gs::prepare_gpu_frame(device, items, camera_value, limits, reuse, access);
     };
     auto frame = prepare(inputs, camera());
     if (frame) {
@@ -298,85 +298,85 @@ int main() {
     CHECK(weak.expired() && device.sorter_releases == 1);
     {
         core failed;
-        auto lease = test_lease(failed);
-        auto a = gs::make_raster_asset(failed, source(), {}, lease);
+        auto access = test_device_root(failed);
+        auto a = gs::make_raster_asset(failed, source(), {}, access);
         deren::utility::vessel::array<gs::raster_instance, 1> one = {gs::raster_instance{*a, glm::mat4{1}, 1}};
         failed.fail_at = failed.calls + 3u;
-        auto partial = gs::prepare_gpu_frame(failed, one, camera(), {}, nullptr, lease);
+        auto partial = gs::prepare_gpu_frame(failed, one, camera(), {}, nullptr, access);
         CHECK(!partial && partial.error().code == gs::error_code::allocation_failure);
         CHECK(failed.releases == 2 && failed.sorter_releases == 1);
         failed.fail_at = 0u;
-        auto slot0 = gs::prepare_gpu_frame(failed, one, camera(), {}, nullptr, lease);
-        auto slot1 = gs::prepare_gpu_frame(failed, one, camera(), {}, nullptr, lease);
+        auto slot0 = gs::prepare_gpu_frame(failed, one, camera(), {}, nullptr, access);
+        auto slot1 = gs::prepare_gpu_frame(failed, one, camera(), {}, nullptr, access);
         CHECK(slot0 && slot1 && slot0->get() != slot1->get());
-        std::weak_ptr<gs::raster_asset const> retained = *a;
+        std::weak_ptr<gs::raster_asset const> tracked = *a;
         auto cloud = source();
         cloud.particles.resize(4u, cloud.particles.front());
-        auto grown = gs::make_raster_asset(failed, std::move(cloud), {}, lease);
+        auto grown = gs::make_raster_asset(failed, std::move(cloud), {}, access);
         deren::utility::vessel::array<gs::raster_instance, 1> const growth = {gs::raster_instance{*grown, glm::mat4{1}, 1}};
         auto const address = (*slot0)->params().references_address;
         failed.fail_at = failed.calls + 2u;
-        auto refused = gs::prepare_gpu_frame(failed, growth, camera(), {}, slot0->get(), lease);
+        auto refused = gs::prepare_gpu_frame(failed, growth, camera(), {}, slot0->get(), access);
         CHECK(!refused && (*slot0)->candidate_count() == 1u && (*slot0)->params().references_address == address);
         failed.fail_at = 0u;
-        auto updated = gs::prepare_gpu_frame(failed, growth, camera(), {}, slot0->get(), lease);
+        auto updated = gs::prepare_gpu_frame(failed, growth, camera(), {}, slot0->get(), access);
         CHECK(updated && (*slot1)->candidate_count() == 1u && (*slot1)->params().references_address != (*updated)->params().references_address);
         a->reset();
         one = {};
-        CHECK(!retained.expired()); // the other pending slot still holds the original cloud
+        CHECK(!tracked.expired()); // the other pending slot still points at the original cloud
         slot1->reset();
-        CHECK(retained.expired());
+        CHECK(tracked.expired());
     }
     {
-        auto leased = std::make_shared<core>();
-        std::weak_ptr<core> root = leased;
-        auto asset = gs::make_raster_asset(*leased, source(), {}, leased);
+        auto accessed = std::make_shared<core>();
+        std::weak_ptr<core> root = accessed;
+        auto asset = gs::make_raster_asset(*accessed, source(), {}, accessed);
         deren::utility::vessel::array<gs::raster_instance, 1> input{gs::raster_instance{*asset, glm::mat4{1}, 1}};
-        auto frame = gs::prepare_gpu_frame(*leased, input, camera(), {}, nullptr, leased);
+        auto frame = gs::prepare_gpu_frame(*accessed, input, camera(), {}, nullptr, accessed);
         CHECK(frame.has_value());
         if (frame) {
             auto storage = (*frame)->resources();
             asset->reset();
             input = {};
-            leased.reset();
+            accessed.reset();
             CHECK(!root.expired());
             frame->reset();
-            CHECK(!root.expired()); // a retained buffer generation also retains the device
+            CHECK(!root.expired()); // a buffer generation that is still valid also keeps the device valid
             storage = {};
             CHECK(root.expired());
         }
     }
     {
         core failed;
-        auto lease = test_lease(failed);
-        auto a = gs::make_raster_asset(failed, source(), {}, lease);
+        auto access = test_device_root(failed);
+        auto a = gs::make_raster_asset(failed, source(), {}, access);
         deren::utility::vessel::array<gs::raster_instance, 1> one{gs::raster_instance{*a, glm::mat4{1}, 1}};
-        auto original = gs::prepare_gpu_frame(failed, one, camera(), {}, nullptr, lease);
+        auto original = gs::prepare_gpu_frame(failed, one, camera(), {}, nullptr, access);
         auto old_storage = (*original)->resources();
         auto cloud = source();
         cloud.particles.resize(4u, cloud.particles.front());
-        auto big = gs::make_raster_asset(failed, std::move(cloud), {}, lease);
+        auto big = gs::make_raster_asset(failed, std::move(cloud), {}, access);
         one[0].asset = *big;
         failed.address.zero_at = failed.calls + 1u;
-        auto refused = gs::prepare_gpu_frame(failed, one, camera(), {}, original->get(), lease);
+        auto refused = gs::prepare_gpu_frame(failed, one, camera(), {}, original->get(), access);
         CHECK(!refused && refused.error().code == gs::error_code::invalid_address);
         CHECK((*original)->resources().same(old_storage));
         failed.address.zero_at = 0;
         auto medium_source = source();
         medium_source.particles.resize(2u, medium_source.particles.front());
-        auto medium = gs::make_raster_asset(failed, std::move(medium_source), {}, lease);
+        auto medium = gs::make_raster_asset(failed, std::move(medium_source), {}, access);
         one[0].asset = *medium;
-        auto expected = gs::prepare_gpu_frame(failed, one, camera(), {}, nullptr, lease);
+        auto expected = gs::prepare_gpu_frame(failed, one, camera(), {}, nullptr, access);
         auto budget = (*expected)->byte_size();
-        auto retry = gs::prepare_gpu_frame(failed, one, camera(), {100u, budget}, original->get(), lease);
+        auto retry = gs::prepare_gpu_frame(failed, one, camera(), {100u, budget}, original->get(), access);
         CHECK(retry && (*retry)->byte_size() == budget);
         CHECK(retry && (*retry)->keys_buffer()->size() == (*expected)->keys_buffer()->size());
     }
     {
-        auto leased = std::make_shared<core>();
-        auto asset = gs::make_raster_asset(*leased, source(), {}, leased);
+        auto accessed = std::make_shared<core>();
+        auto asset = gs::make_raster_asset(*accessed, source(), {}, accessed);
         deren::utility::vessel::array<gs::raster_instance, 1> input{gs::raster_instance{*asset, glm::mat4{1}, 1}};
-        auto legacy = gs::prepare_gpu_frame(*leased, input, camera());
+        auto legacy = gs::prepare_gpu_frame(*accessed, input, camera());
         CHECK(!legacy && legacy.error().code == gs::error_code::invalid_argument);
     }
     return deren::vk_test::finish("gaussian_gpu_frame");

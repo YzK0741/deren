@@ -189,7 +189,7 @@ namespace deren::engine {
             this->rhi_face().wait_idle();
         }
         // `unique_object`'s assignment drops the reference, which for an `core::image_view` is
-        // `vkDestroyImageView` - the destruction the contract's retention note promises.
+        // `vkDestroyImageView` - the destruction the contract's release rules promise.
         this->frame_swapchain_views = {};
     }
 
@@ -199,7 +199,7 @@ namespace deren::engine {
             deren::utility::log("window restored, recreating swapchain");
             // Only a generation that was ACTUALLY rebuilt invalidates the per-image state. A deferred
             // recreate (the window came back with a 0x0 drawable size) keeps every image the frame loop
-            // is holding, so resetting here would throw the temporal histories away for nothing - and a
+            // is still using, so resetting here would throw the temporal histories away for nothing - and a
             // minimize/restore would then pay for two re-convergences instead of one.
             // THE REBUILD GOES THROUGH THE CONTRACT (abi 14): the swapchain is the presentation
             // surface's behaviour, and `not_ready` is the deferred state above - not a failure.
@@ -269,7 +269,7 @@ namespace deren::engine {
         }
         // Every swapchain image's history died with the old generation (and its size may have
         // changed): forget the matrices, so the next frame for each image starts a new accumulation
-        // instead of blending in a misaligned one. (WHETHER a history holds anything is the TAA pass's
+        // instead of blending in a misaligned one. (WHETHER a history has anything in it is the TAA pass's
         // state, and the call above is what cleared it.)
         std::size_t const image_count = static_cast<std::size_t>(rhi::max_swapchain_images);
         this->image_view_proj.assign(image_count, this->current_ubo.view_proj_unjittered);
@@ -326,10 +326,10 @@ namespace deren::engine {
             return;
         }
         // THE MARK GOES THROUGH THE FRAME'S RECORDING VIEW (abi 14): `command_buffer` is where the
-        // timing range and its marks live now, and the backend holds both the POSITIONAL check (an
+        // timing range and its marks live now, and the backend performs both the POSITIONAL check (an
         // out-of-order index is refused by name - the read of `gpu_timing_marks` this function used
-        // to make is gone with it) and WHICH PIPELINE STAGE the timestamp resolves at (a measurement
-        // detail of the query pool's holder, so the engine no longer names a VkPipelineStageFlagBits
+        // to make is gone with it) and the choice of WHICH PIPELINE STAGE the timestamp resolves at (a
+        // measurement detail of the query pool, so the engine no longer names a VkPipelineStageFlagBits
         // here at all). No list means no frame in flight: nothing to record into, and the frame's
         // marks are written only inside a recording window anyway.
         rhi::command_buffer* const commands = this->rhi_face().frames->begin_commands();
@@ -442,7 +442,7 @@ namespace deren::engine {
             "gpu pass timings (avg of {} frames over {:.2f} s):", window_frames, window_seconds);
         // Name the measured stages: positional numbers made a toon interval
         // look like TAA time. Keep the once-per-window update and fixed-width
-        // values, with two named stages per line. The log retains every stage.
+        // values, with two named stages per line. The log lists every stage.
         deren::utility::vessel::string label = "gpu (1s, ms):";
         uint32_t visible_intervals = 0;
         for (uint32_t interval = 0; interval < intervals; ++interval) {
@@ -505,7 +505,7 @@ namespace deren::engine {
         if (this->debug_overlay != nullptr && this->debug_overlay->is_active()) {
             return true;
         }
-        // THE OVERLAY HOLDS ITS RECORDING (gui abi 5): the runtime creates its two mergeable targets and the
+        // THE OVERLAY RECORDS ITS OWN SEGMENTS (gui abi 5): the runtime creates its two mergeable targets and the
         // plugin records ImGui into one per frame; the recorded segment is executed by the frame right after the
         // final-writer pass's instance ends (dynamic rendering; the backend is initialized with it).
         rhi::api_core& vk = this->core_face;
@@ -941,7 +941,7 @@ namespace deren::engine {
     runtime::feature_facts runtime::make_feature_facts() const noexcept {
         // EVERY FIELD IS THE RENDERER'S (see the struct's docs): its pipelines, its frame's content, the device,
         // the knobs that its policy also reads. What a PASS answers about itself is deliberately absent - the
-        // holder of the passes asks them.
+        // pass chain asks them.
         return feature_facts{
             .gbuffer_pass = this->gbuffer_pass_active(),
             .deferred_lit = this->deferred_lit_active(),
@@ -964,7 +964,7 @@ namespace deren::engine {
             // is false the pass's `feature()` answers inactive and the record step never resolves its declaration -
             // which is exactly what keeps the fourteen capture-gate scenarios byte-identical while it is off.
             //
-            // EITHER LEAF LIST KEEPS IT ALIVE, and the overlay half is not a formality: a character whose only
+            // EITHER LEAF LIST ACTIVATES IT, and the overlay half is not a formality: a character whose only
             // remaining geometry this frame is the article's two masks (an extreme close-up can cull everything
             // else) still has something for the pass to multiply, and a gate that only looked at the character
             // leaves would drop it. `frame_character` rather than `frame_visible`, because only leaves routed to
@@ -978,8 +978,8 @@ namespace deren::engine {
     }
 
     runtime::render_features runtime::active_features() const noexcept {
-        // THE TABLE IS THE CHAIN HOLDER'S NOW (see chain_wiring::feature_active): this renderer reports the facts and
-        // asks. With no holder wired every feature is off, which is the same "no holder, no frames" answer the stage
+        // THE TABLE IS THE CHAIN WIRING'S NOW (see chain_wiring::feature_active): this renderer reports the facts and
+        // asks. With no wiring set every feature is off, which is the same "no wiring, no frames" answer the stage
         // hooks give - a frame that records nothing.
         render_features f;
         if (this->frame_wiring.feature_active == nullptr) {
@@ -998,7 +998,7 @@ namespace deren::engine {
         f.bloom = ask("bloom");
         f.fxaa = ask("fxaa");
         // ... and the resolve, asked the same way: `post_upscale_active` is an ATOM of the facts above and the
-        // holder's table relays it (see render_start_demo::feature_active), so the composed answer and the one the
+        // wiring's table relays it (see render_start_demo::feature_active), so the composed answer and the one the
         // frame's target choice reads are the same composition rather than two.
         f.upscale = ask("upscale");
         f.transparent = ask("transparent");
@@ -1041,9 +1041,9 @@ namespace deren::engine {
     }
 
     bool runtime::feature_available(std::string_view const name) const noexcept {
-        // THE CHAIN HOLDER'S ANSWER, for the same reason the table above is: "can this feature run at all this
-        // session" is composed from the passes that exist and the renderer's facts, and the holder of the passes is
-        // the one that knows both. The overlay asks it to decide what to offer and `log_feature_status()` prints it.
+        // THE CHAIN WIRING'S ANSWER, for the same reason the table above is: "can this feature run at all this
+        // session" is composed from the passes that exist and the renderer's facts, and the wiring that receives the
+        // passes is the one that knows both. The overlay asks it to decide what to offer and `log_feature_status()` prints it.
         if (this->frame_wiring.feature_available == nullptr) {
             return false;
         }
@@ -1169,9 +1169,9 @@ namespace deren::engine {
     }
 
     // THE CLUSTERED-LIGHT SORT'S RESOLVER IS GONE (S3), and it needed nothing but the mechanism: its two barrier
-    // BUFFERS come from the frame's resource table (per-frame-slot instance), its shared scene block from the holder,
-    // its pipeline from the PASS (which holds it), its extent from the declaration's `none` rule and its push block
-    // from nowhere - it has none. Its old gates are answered by the two mechanisms that hold those questions: "the
+    // BUFFERS come from the frame's resource table (per-frame-slot instance), its shared scene block from the frame services,
+    // its pipeline from the PASS (its pipeline handle), its extent from the declaration's `none` rule and its push block
+    // from nowhere - it has none. Its old gates are answered by the two mechanisms that answer those questions: "the
     // pipeline exists" is `pass.pipeline_handle()` (a null handle is what the generic resolution fails on), "the
     // buffers are there" is the resource table, "the scene block is there" is the shared-set rule, and "the grid was
     // computed this frame" is the pass's `frame_.cluster_count == 0` guard, which its `record` already had.
@@ -1332,8 +1332,8 @@ namespace deren::engine {
         }
         this->shadow_cascades = clamped;
         ++this->shadow_content_version; // a different cascade count refits the splits
-        // Growing past the layers we hold has to rebuild the images; the heap slot is rewritten
-        // afterwards because it holds their array view. Shrinking keeps the layers (no second
+        // Growing past the allocated layers has to rebuild the images; the heap slot is rewritten
+        // afterwards because it stores their array view. Shrinking keeps the layers (no second
         // rebuild when the user cycles the combo, and the spare ones simply go unused).
         if (!this->shadow_images.empty() && clamped > this->shadow_allocated_layers) {
             // prepare_managed_resources drains before switching the views and heap descriptors.
@@ -1481,7 +1481,7 @@ namespace deren::engine {
 
     void runtime::set_rt_skin_bake(bool const enabled) noexcept {
         // Unlike the mask bake this is read EVERY frame (the pass runs per frame), so it can be toggled at
-        // any time: turning it off leaves the structures holding the last pose the pass wrote, which is the
+        // any time: turning it off leaves the structures with the last pose the pass wrote, which is the
         // A/B's whole point - the traced shadow either follows the animation or it does not.
         this->rt_skin_bake = enabled;
     }
@@ -1544,7 +1544,7 @@ namespace deren::engine {
 
     // =============================================================================================
     // THE STRUCTURE PHASE'S SEAM (see deren.engine.ray_tracing): what this renderer hands the phase, and the four
-    // hooks that let the phase drive the two jobs this class still holds.
+    // hooks that let the phase drive the two jobs this class still runs.
     // =============================================================================================
 
     ray_tracing::build_inputs runtime::make_structure_inputs() const noexcept {
@@ -1594,7 +1594,7 @@ namespace deren::engine {
     } // namespace
 
     // THE PASS LAYER still records into the frame's command buffer (its publishers speak resolved_io), so this
-    // thin spelling adapts a non-holding contract buffer to the environment target the shared implementation takes.
+    // thin spelling adapts a contract buffer the caller created to the environment target the shared implementation takes.
     bool runtime::push_pass_stage_block(void* const parent, rhi::command_buffer& commands, std::span<std::byte const> const bytes, uint32_t const extra_lane) {
         return runtime::push_stage_block(parent, recording_target(commands), bytes, extra_lane);
     }
@@ -1639,8 +1639,8 @@ namespace deren::engine {
     }
 
     bool runtime::push_raw_block(void* const /*parent*/, rhi::command_buffer& command_buffer, std::span<std::byte const> const bytes) {
-        // This synchronous push retains neither the bytes nor the command buffer. A referenced
-        // shared_object would allocate a control block for every item in both raster passes.
+        // This synchronous push copies neither the bytes nor the command buffer. Passing a shared_object
+        // would allocate a control block for every item in both raster passes.
         return command_buffer.push_constants(0u, bytes) == rhi::error::ok;
     }
 
@@ -1649,7 +1649,7 @@ namespace deren::engine {
     }
 
     // ---- the MESH session's endpoints (docs/mesh_shaders.md step 1): what a draw without an input assembler
-    //      needs and only the device's holder can answer. ----
+    //      needs and only the device can answer. ----
 
     std::uintptr_t runtime::mesh_buffer_address(void* const parent, rhi::buffer const& buffer) {
         runtime* const self = static_cast<runtime*>(parent);
@@ -1676,11 +1676,11 @@ namespace deren::engine {
         // THE CONTRACT VERB RECORDS IT (abi 26's sibling - the verb has existed since abi 15): the two
         // `vkCmdDrawMeshTasks*` entry points are the BACKEND's, resolved at ITS startup and reached through
         // `draw_mesh_tasks()` / `draw_mesh_tasks_indirect()`. The engine used to resolve the same two pointers
-        // again, call them with a native handle referenced back out of `command_buffer` (`native_handle()`), and
-        // keep two `PFN_` members alive to do it - a second resolution of one entry point, and the raw-handle
-        // reference that this whole effort removes.
+        // again, call them with a native handle read back out of `command_buffer` (`native_handle()`), and
+        // keep two `PFN_` members valid to do it - a second resolution of one entry point, and the raw-handle
+        // escape that this whole effort removes.
         //
-        // THE GATE IS THE CAPABILITY, ASKED THROUGH THE ABILITY THAT HOLDS IT (it used to be "is my PFN null",
+        // THE GATE IS THE CAPABILITY, ASKED THROUGH THE ABILITY THAT PROVIDES IT (it used to be "is my PFN null",
         // which is the same question asked of a copy): a dispatch that cannot be recorded draws NOTHING, which
         // is the picture a caster with no geometry produces - and it is logged, so it cannot pass unnoticed.
         if (!runtime_detail::mesh_shader_available_of(self->rhi_face())) {
@@ -1733,7 +1733,7 @@ namespace deren::engine {
         // frame-slot wait is what says the previous frame's read is over), so a torn read is not a case that exists.
         //
         // A COMPARE-AND-FALL-BACK GUARD WAS TRIED AND REMOVED: it read the slot first, and with the shadow pass's
-        // cascades recording in parallel it saw another thread's half-finished store, reported "slot 0 already holds
+        // cascades recording in parallel it saw another thread's half-finished store, reported "slot 0 already has
         // 4x1x1 and this dispatch wants 4x1x1" (the two counts are re-read for the log, which is why they printed
         // equal) and sent one dispatch per frame down the DIRECT call. The invariant above makes the check
         // impossible to write without that race, and it would hide the seam rather than protect it.
@@ -1746,7 +1746,7 @@ namespace deren::engine {
         uint64_t const offset = static_cast<uint64_t>(self->frame_ring().position() * runtime::mesh_command_capacity + command_slot) * rhi::mesh_task_command_size;
         // THE RECORD'S LAYOUT AND SIZE ARE THE CONTRACT'S, and the call is the contract's verb: `mesh_task_command`
         // is what was written above, `mesh_task_command_size` is the stride, and the buffer is the handle this
-        // class already holds. The native triple this used to pass (`native_handle(command_buffer)`, the derived
+        // class already created. The native triple this used to pass (`native_handle(command_buffer)`, the derived
         // `VkBuffer`, `sizeof(VkDrawMeshTasksIndirectCommandEXT)`) is gone.
         if (rhi::error const recorded = target.draw_mesh_tasks_indirect(*self->mesh_indirect_buffer, offset, 1u, rhi::mesh_task_command_size); recorded != rhi::error::ok) {
             // THE VERB ANSWERS RATHER THAN ASSERTS, and the answer is honoured: the capability check above says
@@ -2024,7 +2024,7 @@ namespace deren::engine {
         }
         // THE STATS ARE PER-FRAME-A-LANE ACCUMULATORS (§4.3, §10.3): the cull stage atomically adds into them and
         // nothing on the GPU can clear them between dispatches (there is no cross-workgroup barrier inside one
-        // dispatch), so the host zeroes the lane it is about to use - it holds the memory before submission.
+        // dispatch), so the host zeroes the lane it is about to use - it writes the memory before submission.
         for (std::uint32_t row = 0u; row < pass::hzb_results_stats_capacity; ++row) {
             stats[row] = 0u;
         }
@@ -2194,7 +2194,7 @@ namespace deren::engine {
         }
         static bool const visibility_trace = std::getenv("DEREN_RECORD_TRACE") != nullptr;
         auto const visibility_phase1_started = std::chrono::steady_clock::now();
-        // ONE FRAME'S PER-ITEM PLAN. Everything a plan holds is either pure CPU or a write into the item's
+        // ONE FRAME'S PER-ITEM PLAN. Everything a plan contains is either pure CPU or a write into the item's
         // slice of the host-culled meshlet lane - there is no cross-item order in it. That is what lets the
         // planning phase below run in parallel; the command buffer and the shared push-data window stay the
         // recording thread's (phase 4).
@@ -2293,7 +2293,7 @@ namespace deren::engine {
             this->software_raster_active_frame = false;
             static bool logged = false;
             if (!logged) {
-                deren::utility::log("software triangle prototype: preparation refused; full hardware runs retained");
+                deren::utility::log("software triangle prototype: preparation refused; full hardware runs still available");
                 logged = true;
             }
         }
@@ -2360,7 +2360,7 @@ namespace deren::engine {
         auto const visibility_phase2_started = std::chrono::steady_clock::now();
         // ---- PHASE 2: PER-ITEM PLANNING, IN PARALLEL. The subtilis cut is the per-item CPU cost this phase
         // exists for (measured: ~3 us per item on the 2909-item Bistro scene, ~8.6 ms/frame serially). Each
-        // worker holds its scratch vectors, and the only shared write is the host-culled lane at the item's
+        // worker uses its own scratch vectors, and the only shared write is the host-culled lane at the item's
         // `meshlet_base` run, so two workers never touch the same byte. The old serial loop carried `published`
         // so an item whose run overlapped an ALREADY PUBLISHED one would fall back rather than overwrite it;
         // that rule is item-order dependent, so it is resolved in phase 3 and only the few items that share a
@@ -2546,7 +2546,7 @@ namespace deren::engine {
                 if (split.software_count != 0u && this->meshlet_culled_mapped != nullptr) {
                     // THE SPLIT IS PUBLISHED, NOT JUST MEASURED: the run lane is rewritten in the stable [hardware
                     // prefix | software suffix] order so the hardware ids 0..hardware_count-1 still name THEIR records
-                    // (spec §3.3's unchanged id decode), and the dispatch is reduced to the prefix. The worker holds
+                    // (spec §3.3's unchanged id decode), and the dispatch is reduced to the prefix. The worker uses
                     // its item's lane slice, the records came from its `selected` copy, and the write is before
                     // submission - the same publish-the-whole-run rule the M1c lane already follows.
                     auto* const lane = static_cast<std::byte*>(this->meshlet_culled_mapped);
@@ -2600,7 +2600,7 @@ namespace deren::engine {
         // A small frame is not worth a pool round trip; the 2909-item Bistro frame is.
         constexpr std::uint32_t parallel_threshold = 64u;
         if (count >= parallel_threshold) {
-            // ONE PROCESS-WIDE POOL, created on first use and left alive: creating threads per frame is the
+            // ONE PROCESS-WIDE POOL, created on first use and left valid: creating threads per frame is the
             // very cost this phase is meant to remove. The cap is deliberate (the pool leaves the recording
             // thread and the GPU-submit path their cores; >8 workers does not pay for the atomics here).
             static deren::utility::thread_pool planning_workers(std::clamp(static_cast<int32_t>(std::thread::hardware_concurrency()) - 1, 2, 8));
@@ -2777,7 +2777,7 @@ namespace deren::engine {
                 auto oracle_lists = triangles ? software::build_tile_lists(items, parameters, this->software_raster_threshold_px, software::software_entry_budget, software_metric)
                                               : lists;
                 // DIAGNOSTIC NEGATIVE CONTROL (M4 Task 3 closeout): `DEREN_SOFTWARE_ORACLE_FAIL=1` forces the
-                // same outcome as a scene whose retained geometry cannot be rasterized, so the readback's
+                // same outcome as a scene whose stored geometry cannot be rasterized, so the readback's
                 // oracle gate can be exercised on a scene that would otherwise pass.
                 bool const forced_oracle_failure = std::getenv("DEREN_SOFTWARE_ORACLE_FAIL") != nullptr;
                 auto reference = oracle_lists && !forced_oracle_failure
@@ -3153,7 +3153,7 @@ namespace deren::engine {
         // ---- PHASE 4: RECORD. The planner above is per item and order-free; the RHI commands are not.
         // With mergeable segments the item ranges record concurrently into separate recorders and the pass
         // executes the segments in item order inside its rendering instance. Without them this is the
-        // original serial path. Command-buffer state, the heap push window and the item table retain the
+        // original serial path. Command-buffer state, the heap push window and the item table preserve the
         // same final ordering in both paths. ----
         this->visibility_recovery_draws.clear();
         if (this->hzb_recovery_active_frame) {
@@ -3906,7 +3906,7 @@ namespace deren::engine {
             }
             // A prefix is not a drawable substitute for the complete object.
             // Zero records makes visibility reject the frame and ordinary draws
-            // retain the complete index buffer, including the overflow geometry.
+            // preserve the complete index buffer, including the overflow geometry.
             result->meshlets.clear();
         }
         std::memcpy(static_cast<uint8_t*>(this->meshlet_mapped) + this->meshlet_total * sizeof(deren::engine::meshlet), result->meshlets.data(), result->meshlets.size() * sizeof(deren::engine::meshlet));

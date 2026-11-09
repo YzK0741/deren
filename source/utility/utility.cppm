@@ -168,7 +168,7 @@ namespace deren::utility {
      *       "expensive checks": an assert that vanishes in release turns the bug it names into
      *       silent corruption
      *     - this is the engine-side sibling of the backend's named-panic startup rule: a violated
-     *       invariant is a BUG in the code holding it, and terminating with the location is the
+     *       invariant is a BUG in the code that maintains it, and terminating with the location is the
      *       honest report; a failure the code EXPECTS travels as a value instead
      *     - thread safe (panic is)
      */
@@ -211,7 +211,7 @@ namespace deren::utility {
      *
      * (`nm --defined-only libstdc++.a` finds no definition of either, and both are referenced from
      * `bits/print.h`'s `vprint_unicode`.) `deren::utility::log` is the only thing in the engine that prints and the
-     * tests are the only thing that prints besides it, so holding these functions here removed the tree's last
+     * tests are the only thing that prints besides it, so keeping these functions here removed the tree's last
      * use of `<print>` - which, together with one `std::unique_ptr` held over an incomplete type, was the whole
      * of what stopped the project linking with libstdc++ (see the compiler-tolerance audit).
      *
@@ -562,7 +562,7 @@ namespace deren::utility {
     };
     export struct file_error {
         file_error_code code;
-        // Metadata errors retain their system cause. Stream errors may expose only io_errc::stream.
+        // Metadata errors preserve their system cause. Stream errors may expose only io_errc::stream.
         // Logical rejections (type, capacity or observed length change) leave cause empty.
         std::error_code cause{};
     };

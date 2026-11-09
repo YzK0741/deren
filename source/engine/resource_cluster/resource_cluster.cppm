@@ -12,7 +12,7 @@ export namespace deren::engine {
             deren::promise::rhi::shared_object<deren::promise::rhi::api_core> device;
             std::shared_ptr<void const> dependency;
             deren::promise::rhi::unique_object<T> object; // Release before dependency and device.
-            deren::promise::rhi::shared_object<T> shared; // The shared handle this lease aliases.
+            deren::promise::rhi::shared_object<T> shared; // The shared handle this access exposes.
             parent(deren::promise::rhi::shared_object<deren::promise::rhi::api_core> core, T* resource, std::shared_ptr<void const> parent)
                 : device(std::move(core))
                 , dependency(std::move(parent))
@@ -26,31 +26,31 @@ export namespace deren::engine {
     } // namespace resource_cluster_detail
     class resource_cluster;
 
-    /// A holding engine lease. get/operator-> reference the underlying RHI object.
-    /// Copies share one factory reference; its release() is called exactly once.
+    /// An engine handle over an RHI object: get/operator-> return the underlying object.
+    /// Every copy shares the same release(), which runs exactly once, after the last copy is gone.
     template <typename T>
-    class resource_lease {
+    class resource_handle {
         friend class resource_cluster;
         std::shared_ptr<resource_cluster_detail::parent<T>> value;
         T* resource = nullptr;
-        explicit resource_lease(std::shared_ptr<resource_cluster_detail::parent<T>> parent) noexcept
+        explicit resource_handle(std::shared_ptr<resource_cluster_detail::parent<T>> parent) noexcept
             : value(std::move(parent)) {
             resource = value ? value->object.get() : nullptr;
         }
 
     public:
-        resource_lease() noexcept = default;
+        resource_handle() noexcept = default;
         [[nodiscard]] T* get() const noexcept {
             return value ? resource : nullptr;
         }
-        /// Retain an existing shared holder (including an aliasing generation holder).
-        /// The caller supplies the holding core; consumers still validate resource provenance.
-        [[nodiscard]] static resource_lease from_shared(
+        /// Take an existing shared RHI object (including an aliasing generation handle).
+        /// The caller supplies the core; consumers still validate resource provenance.
+        [[nodiscard]] static resource_handle from_shared(
             deren::promise::rhi::shared_object<deren::promise::rhi::api_core> core, deren::promise::rhi::shared_object<T> resource) {
-            if (!core || !resource || !resource.retains_lifetime()) {
+            if (!core || !resource || !resource.is_live()) {
                 return {};
             }
-            resource_lease result;
+            resource_handle result;
             result.resource = resource.get();
             result.value = std::allocate_shared<resource_cluster_detail::parent<T>>(
                 deren::utility::memory::allocator<resource_cluster_detail::parent<T>>{}, std::move(core), std::move(resource));
@@ -67,8 +67,8 @@ export namespace deren::engine {
         }
     };
 
-    /// Append-only, single-writer resource retention. No frame waits or backend API additions.
-    /// Escaped leases can outlive the cluster. GPU users must retain a lease/cluster until completion.
+    /// Append-only, single-writer registry of resources the cluster keeps usable. No frame waits or backend API additions.
+    /// Escaped accesses can outlive the cluster; every GPU user must keep its access, or the cluster, in scope until its work completes.
     class resource_cluster final {
         struct construction_key {
             explicit construction_key() = default;
@@ -78,14 +78,14 @@ export namespace deren::engine {
         deren::utility::vessel::vector<std::shared_ptr<void const>> members;
 
         template <typename T>
-        std::expected<resource_lease<T>, deren::promise::rhi::error> keep(T* raw, std::shared_ptr<void const> parent = {}) {
+        std::expected<resource_handle<T>, deren::promise::rhi::error> keep(T* raw, std::shared_ptr<void const> parent = {}) {
             if (!raw) {
                 return std::unexpected(deren::promise::rhi::error::operation_failed);
             }
             auto resource = std::allocate_shared<resource_cluster_detail::parent<T>>(
                 deren::utility::memory::allocator<resource_cluster_detail::parent<T>>{}, core, raw, std::move(parent));
             members.push_back(resource);
-            return resource_lease<T>{std::move(resource)};
+            return resource_handle<T>{std::move(resource)};
         }
 
     public:
@@ -95,7 +95,7 @@ export namespace deren::engine {
             , label(name) {
         }
         resource_cluster(resource_cluster const&) = delete ("resource_cluster is non-copyable: construct it in place and keep its identity");
-        resource_cluster& operator=(resource_cluster const&) = delete ("resource_cluster is non-copyable: configure it through its holding API");
+        resource_cluster& operator=(resource_cluster const&) = delete ("resource_cluster is non-copyable: configure it in place");
         resource_cluster(resource_cluster&&) = delete ("resource_cluster is non-movable: its resources are tied to the current address");
         resource_cluster& operator=(resource_cluster&&) = delete ("resource_cluster is non-movable: its resources are tied to the current address");
         ~resource_cluster() {
@@ -133,15 +133,15 @@ export namespace deren::engine {
         [[nodiscard]] auto create_sampler(deren::promise::rhi::sampler_desc const& desc) {
             return keep(core->resources->create_sampler(desc).release());
         }
-        [[nodiscard]] std::expected<resource_lease<deren::promise::rhi::image_view>, deren::promise::rhi::error>
-        create_image_view(resource_lease<deren::promise::rhi::image> const& image, deren::promise::rhi::image_view_desc const& desc) {
+        [[nodiscard]] std::expected<resource_handle<deren::promise::rhi::image_view>, deren::promise::rhi::error>
+        create_image_view(resource_handle<deren::promise::rhi::image> const& image, deren::promise::rhi::image_view_desc const& desc) {
             if (!image || image.value->device.get() != core.get()) {
                 return std::unexpected(deren::promise::rhi::error::invalid_argument);
             }
             return keep(image->make_view(desc).release(), image.value);
         }
         template <typename T>
-        [[nodiscard]] deren::promise::rhi::error share(resource_lease<T> const& resource) {
+        [[nodiscard]] deren::promise::rhi::error share(resource_handle<T> const& resource) {
             if (!resource || resource.value->device.get() != core.get()) {
                 return deren::promise::rhi::error::invalid_argument;
             }

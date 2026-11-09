@@ -10,7 +10,7 @@
  * difference, so a scaled frame rendered into the TOP-LEFT QUADRANT of the presented image - the scene was
  * fully shaded, at a lower resolution, and the other three quarters held whatever the allocation had. This
  * pass is that resolve: it reads the LDR image the composite wrote and writes the swapchain, which makes it
- * the frame's LAST writer whenever it runs - and therefore the holder of the debug overlay, exactly as the
+ * the frame's LAST writer whenever it runs - and therefore the pass that draws the debug overlay, exactly as the
  * FXAA pass is when IT is the last writer (the separate overlay composites a UI with no load op, so it has
  * to be drawn INSIDE whichever instance writes the final image).
  *
@@ -26,11 +26,11 @@
  * pass reads - but it writes the swapchain directly, at the render extent, so on a scaled frame its output
  * would be resolved away by this pass (or, if it ran first, this pass would resample an already-filtered
  * image at the wrong size). Both want the same two things, so `runtime::post_fxaa_active` excludes the frames
- * this pass runs on, and the feature registry, the composite's target choice and the overlay's holder all read
+ * this pass runs on, and the feature registry, the composite's target choice and the choice of which pass draws the overlay all read
  * that one answer (see `render_features::upscale`).
  *
- * WHAT IT HOLDS: its pipeline, the LDR image's transition to a sampled layout, the clear instance over the
- * swapchain, the push block's `encode_gamma` lane and the draw. WHAT IT DOES NOT hold: the LDR image it reads
+ * WHAT IT BUILDS: its pipeline, the LDR image's transition to a sampled layout, the clear instance over the
+ * swapchain, the push block's `encode_gamma` lane and the draw. WHAT IT DOES NOT BUILD: the LDR image it reads
  * (a per-swapchain-image heap slot the shader names itself, from the lane the framework appends) and the
  * composite that wrote it - the composite decides to write the LDR image instead of the swapchain from the
  * same `frame_facts` predicate that gates this pass (see post_composite_pass::prepare_frame).
@@ -109,7 +109,7 @@ export namespace deren::engine::pass {
     /**
      * @brief the resolve: the display-referred LDR image -> the swapchain, by the configured filter
      *
-     * The frame's last writer and its overlay's holder whenever the render chain runs below the output size.
+     * The frame's last writer and the pass that draws its overlay whenever the render chain runs below the output size.
      */
     class upscale_pass final : public frame_pass {
     public:
@@ -143,7 +143,7 @@ export namespace deren::engine::pass {
 
         /// @brief whether the pass built the pipeline it records with (the renderer gates the feature on this)
         [[nodiscard]] bool pipeline_ready() const noexcept;
-        /// @brief the framework's generic form of the same question, so a holder holding only a chain can ask it
+        /// @brief the framework's generic form of the same question, so a caller that has only a chain can ask it
         [[nodiscard]] bool ready() const noexcept override {
             return this->pipeline_ready();
         }
@@ -151,7 +151,7 @@ export namespace deren::engine::pass {
 
         /// @brief install the host's overlay hook (this pass is the frame's last writer whenever it runs)
         void set_overlay(draw_callback overlay) noexcept;
-        /// @brief which filter to resolve with; a STARTUP value the holder sets from the config, because it
+        /// @brief which filter to resolve with; a STARTUP value the runtime sets from the config, because it
         ///        selects a shader path rather than a per-frame quantity
         void set_filter(upscale_filter filter) noexcept;
         /// @brief the filter in force (a test asks; the shader is told through the push block)

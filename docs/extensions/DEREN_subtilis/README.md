@@ -102,7 +102,7 @@ The app's single `[render] subtilis=true` switch requests loader extraction and
 engine adoption; default OFF loads leave payload bytes unparsed. Enabling only
 the runtime switch after an OFF startup cannot import an absent hierarchy.
 
-The loader holds raw bytes/metadata; the engine checks profile/material eligibility,
+The loader receives raw bytes/metadata; the engine checks profile/material eligibility,
 source fingerprints, finite data, index windows and DAG structure. Full geometric
 validation stays in the trusted offline pipeline (`validate --full`), rather than
 being repeated at load time. Static OPAQUE POSITION/NORMAL/optional TEXCOORD_0
@@ -110,9 +110,9 @@ profiles are supported; extra attributes such as TANGENT are not adopted.
 
 Source/payload identities share immutable CPU data and GPU generations across
 instances. Payload leaves form the complete LOD0 item run; only the main-view cut
-uses appended coarse indices. Shadow/BLAS and unsupported strategies retain LOD0.
+uses appended coarse indices. Shadow/BLAS and unsupported strategies stay on LOD0.
 
-Malformed, unsupported, source-mismatched or LOD0-only payloads retain ordinary
+Malformed, unsupported, source-mismatched or LOD0-only payloads fall back to ordinary
 glTF geometry with typed fallback counts. Admission preserves 4096 visible items,
 4096 selected records per item and the 65536-record shared table. A legal cut may
 need more records than its leaf reservation; it falls back as a whole, never a

@@ -226,7 +226,7 @@ These required checks belong to the release path only: a `wip/` branch never
 produces them, so once this protection is applied a wip PR cannot merge. That
 protection is repository configuration, not code - it is only in force after the
 helper has been run with `-Apply`, and `gh api
-repos/<holder>/<repo>/branches/master/protection` answers 404 while it is not.
+repos/<account>/<repo>/branches/master/protection` answers 404 while it is not.
 
 **Required approvals:** the helper script's default is `-Approvals 0`, which is the
 explicit solo-maintainer exception. GitHub does not let a PR author approve their PR, so a required approval would make every PR unmergeable while there is one

@@ -1,7 +1,7 @@
 # Environment lighting
 
 The environment supplies diffuse and specular IBL independently of the displayed background.
-The renderer retains the existing HDR-to-cube, irradiance, GGX prefilter and BRDF LUT pipeline.
+The renderer keeps the existing HDR-to-cube, irradiance, GGX prefilter and BRDF LUT pipeline.
 The new controls operate on that pipeline; they do not add atmospheric fog. Scene reflections are a
 separate opt-in pass: see [ray-traced reflections](rt_reflections.md).
 
@@ -38,7 +38,7 @@ environment_color = [0.18, 0.18, 0.18] # linear RGB, before exposure/tone mappin
 environment_blur = 0.5 # mip-range fraction used by background mode 3
 ```
 
-All background modes retain the same material lighting. A solid grey background therefore still
+All background modes keep the same material lighting. A solid grey background therefore still
 allows detailed environment reflections. Rotation changes the directions sampled by diffuse IBL,
 specular IBL and environment backgrounds together: positive 90 degrees makes world +X sample the
 environment's +Z. The manually authored sun and punctual lights keep their directions.
@@ -65,7 +65,7 @@ Decoded and prepared radiance must be finite, nonnegative and representable in h
 baked input multiplier to load it. Live strength does not change this input validation.
 
 The existing ACES/Narkowicz fit stays the default. PBR Neutral is adapted from KhronosGroup's
-Apache-2.0 implementation; original source, revision, hashes and license are retained under
+Apache-2.0 implementation; original source, revision, hashes and license are kept under
 `source/third_party/khronos_tonemapping`. Neither choice includes automatic exposure. LUT grading
 is still the existing optional post step, so disable it for material-reference comparisons.
 

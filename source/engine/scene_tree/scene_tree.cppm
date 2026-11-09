@@ -47,7 +47,7 @@ export import deren.vstd;
  * @note the GPU drawables (deren::engine::primitive + normal/instanced/static draw
  *       strategies) and the material / camera / light UBO records live in the
  *       peer module deren.engine.primitive; this module is pure CPU and does not
- *       import it (leaves are held through the abstract interface).
+ *       import it (leaves are reached through the abstract interface).
  */
 namespace deren::engine::scene_tree {
     /**
@@ -62,7 +62,7 @@ namespace deren::engine::scene_tree {
      * @ingroup engine_scene_tree
      * @brief abstract primitive leaf of a scene node (the interface the GPU primitives
      *        below implement: normal_draw_primitive / instanced_draw_primitive)
-     * @note pure interface: implementations hold their GPU geometry and record
+     * @note pure interface: implementations carry their GPU geometry and record
      *       their draw commands; scene_tree only feeds them their accumulated
      *       world transform every frame
      */
@@ -71,14 +71,14 @@ namespace deren::engine::scene_tree {
         virtual ~primitive() = default;
 
         /**
-         * @brief store the accumulated world transform of the holding node
+         * @brief store the accumulated world transform of the node that contains the leaf
          * @param world parent_world * node.local (computed by update_world)
          */
         virtual void set_world(glm::mat4 const& world) = 0;
 
         /**
-         * @brief first slot this leaf holds in the runtime's previous-transform buffer (scene set
-         *        binding 13), i.e. where its world matrix from one frame ago is kept
+         * @brief first slot this leaf uses in the runtime's previous-transform buffer (scene set
+         *        binding 13), i.e. where its world matrix from one frame ago is stored
          * @return the slot, or @c no_motion_slot for a leaf whose object motion is not tracked
          *         frame to frame (an instanced draw fills its slots at setup instead, because its
          *         per-instance transforms change far less often than the frame rate)
@@ -94,7 +94,7 @@ namespace deren::engine::scene_tree {
     /**
      * @ingroup engine_scene_tree
      * @brief one node of the scene tree: a local transform, child nodes and an
-     *        optional primitive leaf. Value semantics: children are held inline
+     *        optional primitive leaf. Value semantics: children are stored inline
      *        (copying a node copies its subtree).
      */
     export struct scene_node {
@@ -147,7 +147,7 @@ namespace deren::engine::scene_tree {
          *        returns the primitive WITHOUT attaching it; this call places it under this
          *        node, so programmatic scenes can group primitives under transform nodes
          *        instead of only appending root leaves.
-         * @param leaf the primitive to attach (retention moves into this node)
+         * @param leaf the primitive to attach (this node now references it)
          * @return the attached primitive (stable: it lives on the heap, unlike this node)
          * @note the node becomes a leaf node; any children it already had stay siblings below it
          * @note structural change: call runtime::scene_changed() afterwards so the culling BVH
@@ -244,9 +244,9 @@ namespace deren::engine::scene_tree {
      * }
      * @endcode
      *
-     * @note structural-frozen tree only: the iterator holds a stack of node addresses, so the
+     * @note structural-frozen tree only: the iterator keeps a stack of node addresses, so the
      *       tree must not be restructured (no make/import/clear, no push_back into a
-     *       node's children) while an iterator is alive. Editing node.local or the leaf
+     *       node's children) while an iterator is valid. Editing node.local or the leaf
      *       contents in place is fine - that is what the demo's per-frame animation writes do.
      * @note not a std iterator category (no reference typedefs): deliberately minimal - only
      *       ++ / != / * / -> , enough for range-for and manual loops

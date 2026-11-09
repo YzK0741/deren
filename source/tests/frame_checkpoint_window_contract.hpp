@@ -32,7 +32,7 @@ inline void check_window_checkpoints() {
                     break;
                 }
                 auto* commands = core->frames->begin_commands();
-                auto image = rhi::query_extension<rhi::frame_resources>(*core)->retain_image();
+                auto image = rhi::query_extension<rhi::frame_resources>(*core)->snapshot_image();
                 auto view = image->make_view({.role = rhi::view_role::color_attachment});
                 CHECK(view);
                 CHECK(commands->begin_recording({}) == rhi::error::ok);

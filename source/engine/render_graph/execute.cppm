@@ -10,10 +10,10 @@ export import deren.promise.rhi;
 export namespace deren::engine::render_graph::execution {
     namespace rhi = deren::promise::rhi;
     namespace sync = rhi::synchronization;
-    using resource_binding = std::variant<resource_lease<rhi::image>, resource_lease<rhi::buffer>>;
+    using resource_binding = std::variant<resource_handle<rhi::image>, resource_handle<rhi::buffer>>;
     class record_context;
     template <typename T>
-    resource_identity identify(resource_lease<T> const& value) noexcept {
+    resource_identity identify(resource_handle<T> const& value) noexcept {
         static_assert(std::is_same_v<T, rhi::image> || std::is_same_v<T, rhi::buffer>);
         if (!value || !value.device() || value.device()->api_version() != rhi::abi_version ||
             !rhi::has_ability(value.device()->abilities(), rhi::extension_kind::scoped_synchronization)) {
@@ -52,14 +52,14 @@ export namespace deren::engine::render_graph::execution {
             rhi::scoped_synchronization* extension = nullptr;
             bool bound_actions = false;
             deren::utility::vessel::vector<std::shared_ptr<recorder const>> recorders;
-            deren::utility::vessel::vector<std::shared_ptr<void const>> retained;
+            deren::utility::vessel::vector<std::shared_ptr<void const>> attached;
         };
         constexpr uint32_t usage_bit(resource_usage usage) noexcept {
             auto value = static_cast<uint32_t>(usage);
             return value >= 1 && value <= 12 ? 1U << (value - 1) : 0;
         }
     } // namespace detail
-    /// Referenced only for the callback invocation; copying does not retain resources.
+    /// Referenced only for the callback invocation; copying does not keep the resources valid.
     class record_context {
         detail::state const& state_;
         uint32_t pass_;
@@ -88,15 +88,15 @@ export namespace deren::engine::render_graph::execution {
             if (index >= state_.bindings.size() || !declared(index)) {
                 return nullptr;
             }
-            auto lease = std::get_if<resource_lease<rhi::image>>(&state_.bindings[index]);
-            return lease ? lease->get() : nullptr;
+            auto access = std::get_if<resource_handle<rhi::image>>(&state_.bindings[index]);
+            return access ? access->get() : nullptr;
         }
         rhi::buffer* buffer(uint32_t index) const noexcept {
             if (index >= state_.bindings.size() || !declared(index)) {
                 return nullptr;
             }
-            auto lease = std::get_if<resource_lease<rhi::buffer>>(&state_.bindings[index]);
-            return lease ? lease->get() : nullptr;
+            auto access = std::get_if<resource_handle<rhi::buffer>>(&state_.bindings[index]);
+            return access ? access->get() : nullptr;
         }
     };
     class prepared_graph {
@@ -152,7 +152,7 @@ export namespace deren::engine::render_graph::execution {
                 needed[packet.resource] = true;
             }
             for (auto const& binding : bindings) {
-                auto identity = std::visit([](auto const& lease) { return identify(lease); }, binding);
+                auto identity = std::visit([](auto const& access) { return identify(access); }, binding);
                 if (!identity.object || identity.device != reinterpret_cast<uintptr_t>(state->core.get())) {
                     return fail(rhi::error::invalid_argument);
                 }
@@ -240,7 +240,7 @@ export namespace deren::engine::render_graph::execution {
         static std::expected<prepared_graph, execution_error> prepare_bound(
             rhi::shared_object<rhi::api_core> core, compiled_graph graph, std::span<resource_binding const> bindings,
             deren::utility::vessel::vector<std::shared_ptr<detail::recorder const>> recorders,
-            deren::utility::vessel::vector<std::shared_ptr<void const>> retained) {
+            deren::utility::vessel::vector<std::shared_ptr<void const>> attached) {
             for (auto pass : graph.execution_order) {
                 if (pass >= graph.passes.size() || pass >= recorders.size() || !recorders[pass] || !recorders[pass]->matches(graph.passes[pass].parameters)) {
                     return std::unexpected(execution_error{rhi::error::invalid_argument, pass});
@@ -252,7 +252,7 @@ export namespace deren::engine::render_graph::execution {
             }
             result->state_->bound_actions = true;
             result->state_->recorders = std::move(recorders);
-            result->state_->retained = std::move(retained);
+            result->state_->attached = std::move(attached);
             return result;
         }
 
@@ -267,11 +267,11 @@ export namespace deren::engine::render_graph::execution {
             // Frame snapshots may outlive their acquire but must never record against a later one.
             // Check even resources with no barrier, before emitting any command from this plan.
             for (std::size_t i = 0; i < state->bindings.size(); ++i) {
-                auto identity = std::visit([](auto const& lease) { return identify(lease); }, state->bindings[i]);
+                auto identity = std::visit([](auto const& access) { return identify(access); }, state->bindings[i]);
                 if (identity.object && identity != state->graph.resources[i].identity) {
                     return rhi::error::invalid_argument;
                 }
-                bool bound = std::visit([](auto const& lease) { return static_cast<bool>(lease); }, state->bindings[i]);
+                bool bound = std::visit([](auto const& access) { return static_cast<bool>(access); }, state->bindings[i]);
                 if (bound && !identity.object) {
                     return rhi::error::not_ready;
                 }
@@ -282,7 +282,7 @@ export namespace deren::engine::render_graph::execution {
             for (std::size_t position = first_; position < state->graph.execution_order.size() && position < last_; ++position) {
                 auto pass = state->graph.execution_order[position];
                 for (auto const& access : state->graph.passes[pass].accesses) {
-                    auto identity = std::visit([](auto const& lease) { return identify(lease); }, state->bindings[access.resource]);
+                    auto identity = std::visit([](auto const& access) { return identify(access); }, state->bindings[access.resource]);
                     if (identity != state->graph.resources[access.resource].identity) {
                         return rhi::error::not_ready;
                     }
@@ -311,7 +311,7 @@ export namespace deren::engine::render_graph::execution {
         }
 
     public:
-        /// Partition one compiled schedule at a named pass, retaining its compiled barriers and holders.
+        /// Partition one compiled schedule at a named pass, keeping its compiled barriers and the objects they refer to.
         /// Record prefix then suffix in order; intervening submission must preserve resource contents.
         rhi::error partition_before(std::uint32_t pass, prepared_graph& prefix, prepared_graph& suffix) const noexcept {
             if (!state_ || &prefix == &suffix || &prefix == this || &suffix == this) {
@@ -346,7 +346,7 @@ export namespace deren::engine::render_graph::execution {
                 return state->recorders[context.pass_index()]->record(commands, context);
             });
         }
-        std::shared_ptr<void const> retention() const noexcept {
+        std::shared_ptr<void const> shared_state() const noexcept {
             return state_;
         }
     };
@@ -356,8 +356,8 @@ export namespace deren::engine::render_graph::execution {
             static std::expected<prepared_graph, execution_error> prepare(
                 rhi::shared_object<rhi::api_core> core, compiled_graph graph, std::span<resource_binding const> bindings,
                 deren::utility::vessel::vector<std::shared_ptr<recorder const>> recorders,
-                deren::utility::vessel::vector<std::shared_ptr<void const>> retained) {
-                return prepared_graph::prepare_bound(std::move(core), std::move(graph), bindings, std::move(recorders), std::move(retained));
+                deren::utility::vessel::vector<std::shared_ptr<void const>> attached) {
+                return prepared_graph::prepare_bound(std::move(core), std::move(graph), bindings, std::move(recorders), std::move(attached));
             }
         };
     } // namespace detail

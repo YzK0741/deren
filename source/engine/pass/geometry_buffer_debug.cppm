@@ -5,13 +5,13 @@
  * @brief The fifteenth real pass: the G-buffer debug view, which shows the stored surface one channel at a time.
  * @defgroup engine_pass_gbuffer_debug G-buffer Debug View Pass
  *
- * WHY IT IS A PASS AND WHAT IT HOLDS: the view is a fullscreen triangle over the HDR target, so it holds its
- * pipeline and its recording - the four images it moves to a sampled layout, the CLEAR instance, the 16-byte push
+ * WHY IT IS A PASS AND WHAT IT BUILDS: the view is a fullscreen triangle over the HDR target, so it builds its
+ * pipeline and records the steps that follow - the four images it moves to a sampled layout, the CLEAR instance, the 16-byte push
  * and the draw. IT IS ALSO THE PASS THAT WRITES THE HEAP SLOTS the view reads, and the deferred lighting stage
  * reads its through the same heap: a shader names the slot and the frame binds the heap once (see
- * source/shaders/heap_slots.glsl), so there is no set layout to hold and no family to write.
+ * source/shaders/heap_slots.glsl), so there is no set layout to build and no family to write.
  *
- * WHAT IT DOES NOT hold, and each is a shared thing rather than an omission: the stored surface itself, which is a
+ * WHAT IT DOES NOT CREATE, and each is a shared thing rather than an omission: the stored surface itself, which is a
  * per-image heap slot `publish_frame_resources` writes every frame; the two samplers, which a declaration picks by
  * hint and the heap carries; and two pieces of per-image bookkeeping the frame carries as a callback - the
  * G-buffer depth's transition (its old layout depends on whether the G-buffer instance rendered this frame) and
@@ -20,7 +20,7 @@
  *
  * THE HDR TARGET'S TRANSITION IS THE FRAME LOOP'S, for the same reason the post chain's is: it has to happen even
  * on a frame where nothing could run, because the post chain samples that image - and it is the frame loop
- * that holds the fallback (a cleared instance, which is what makes such a frame black rather than undefined).
+ * that records the fallback (a cleared instance, which is what makes such a frame black rather than undefined).
  */
 
 module;
@@ -39,7 +39,7 @@ import deren.engine.pipelines; // vk_pipeline: the RAII parent of the pipeline t
 
 export namespace deren::engine::pass {
 
-    /// @brief what the renderer hands the view: the two per-image pieces of bookkeeping it cannot hold
+    /// @brief what the renderer hands the view: the two per-image pieces of bookkeeping it cannot carry
     /**
      * @brief what the renderer hands the G-buffer debug view: NOTHING, and that is the endpoint
      *
@@ -91,7 +91,7 @@ export namespace deren::engine::pass {
 
         /// @brief whether the pass built everything it records with (the renderer gates the feature on this)
         [[nodiscard]] bool pipeline_ready() const noexcept;
-        /// @brief the framework's generic form of the same question, so a holder holding only a chain can ask it
+        /// @brief the framework's generic form of the same question, so a caller that has only a chain can ask it
         ///        (a pass with nothing separate to build keeps the interface's `true`; see `frame_pass::ready`)
         [[nodiscard]] bool ready() const noexcept override {
             return this->pipeline_ready();
@@ -101,7 +101,7 @@ export namespace deren::engine::pass {
         /**
          * @brief which stored channel the view shows, which is THIS pass's parameter
          *
-         * The knob used to live in the renderer, which clamped it and copied it into the push block; the pass holds
+         * The knob used to live in the renderer, which clamped it and copied it into the push block; the pass keeps
          * it now (with the clamp) and `runtime::set_gbuffer_channel` forwards. There is no frame any more: after the
          * push block moved here the pass needs nothing per-frame except the frame's facts.
          * @param channel 0 albedo, 1 normal, 2 roughness, 3 metallic, 4 ao, 5 id, 6 depth, 7 flags, 8 motion

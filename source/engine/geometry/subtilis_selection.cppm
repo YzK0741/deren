@@ -50,18 +50,18 @@ export namespace deren::engine::subtilis {
         }
         return result;
     }
-    /// Check both allocation identity and its retaining control block: raw pointer
-    /// equality alone would accept a non-holding alias with an unrelated lifetime.
+    /// Check both allocation identity and its control block: raw pointer
+    /// equality alone would accept an alias from an unrelated allocation.
     [[nodiscard]] inline bool matches_generation(primitive const& leaf) noexcept {
         auto const& generation = leaf.subtilis_geometry;
         if (!generation || leaf.vertex_buffer.get() != generation->vertices() || leaf.index_buffer.get() != generation->indices()) {
             return false;
         }
-        auto same_lease = [&](std::shared_ptr<void const> const& lease) {
-            return lease.get() == generation.get() && !lease.owner_before(generation) && !generation.owner_before(lease);
+        auto same_access = [&](std::shared_ptr<void const> const& access) {
+            return access.get() == generation.get() && !access.owner_before(generation) && !generation.owner_before(access);
         };
         auto const& source = generation->source();
-        if (!same_lease(leaf.vertex_buffer.lease()) || !same_lease(leaf.index_buffer.lease()) ||
+        if (!same_access(leaf.vertex_buffer.access()) || !same_access(leaf.index_buffer.access()) ||
             leaf.index_type != deren::promise::rhi::index_type::uint32 || leaf.draw_index_count != source.lod0_index_count() ||
             leaf.vertex_count != source.vertex_count() || leaf.vertex_stride != source.vertex_stride() ||
             leaf.vertex_buffer->size() < source.vertices().size() || leaf.index_buffer->size() < source.indices().size_bytes() ||

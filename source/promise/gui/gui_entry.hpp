@@ -18,8 +18,8 @@ extern "C" {
 /// the plugin's number in its log line. A null `info` is a caller bug, refused for the same reason the
 /// backend refuses a null descriptor.
 ///
-/// RETENTION: the returned `std::shared_ptr<overlay>` is the GUI boundary's container - `overlay` is not an
-/// RHI handle, so the RHI contract's `shared_object` does not apply. The cross-image control block is safe for
+/// LIFETIME: the returned `std::shared_ptr<overlay>` controls `overlay`'s destruction: the object is destroyed
+/// after its last copy - `overlay` is not an RHI handle, so the RHI contract's `shared_object` does not apply. The cross-image control block is safe for
 /// the same measured reason the RHI entry states: one C++ runtime and one heap (libc++.dll + UCRT) shared by
 /// every image, checked by the boundary gate.
 DEREN_API_EXPORT std::shared_ptr<deren::gui::overlay> deren_make_gui(std::uint32_t abi_version, deren::gui::create_info const* info);

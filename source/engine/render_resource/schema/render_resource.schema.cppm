@@ -21,7 +21,7 @@ import deren.engine.visibility.software;
 export namespace deren::engine::render_resource {
     enum class resource_id : uint32_t {
         none = 0,
-        // ---- the swapchain image itself, held outside ----
+        // ---- the swapchain image itself, created outside this renderer ----
         swapchain_image,
         // ---- the HDR chain and the G-buffer (one per swapchain image) ----
         hdr,
@@ -149,13 +149,13 @@ export namespace deren::engine::render_resource {
         /// the number of enumerators, so the schema's completeness can be checked by ITERATING rather than
         /// against a hand-kept list: `validate_schema()` requires exactly one entry per id in [1, count)
         local_probe,
-        /// the immutable GPU cut payload held by one subtilis geometry generation
+        /// the immutable GPU cut payload created by one subtilis geometry generation
         scene_cut_groups,
         scene_cut_clusters,
         scene_cut_references,
         /// the per-frame GPU cut item table (frame header + one record per planned item)
         subtilis_cut_items,
-        /// the immutable streaming page image held by one subtilis geometry generation
+        /// the immutable streaming page image created by one subtilis geometry generation
         scene_page_arena,
         scene_page_table,
         scene_page_requests,
@@ -191,11 +191,11 @@ export namespace deren::engine::render_resource {
     /** @brief how long a resource lives: what decides whether a first-use transition or a clear exists */
     enum class resource_lifetime : uint8_t {
         per_frame,  // rewritten every frame by its parent
-        persistent, // holds state ACROSS frames (histories, the accumulated grid) - see the reset sites
-        imported,   // held outside this renderer (the swapchain image)
+        persistent, // carries state ACROSS frames (histories, the accumulated grid) - see the reset sites
+        imported,   // created outside this renderer (the swapchain image)
     };
 
-    /** @brief one family of resources: what it is, how it is indexed, and how many images it holds
+    /** @brief one family of resources: what it is, how it is indexed, and how many images it covers
      *  @ingroup engine_render_resource */
     struct resource_info {
         resource_id id = resource_id::none;
@@ -203,7 +203,7 @@ export namespace deren::engine::render_resource {
         resource_kind kind = resource_kind::image2d;
         resource_scope scope = resource_scope::per_swapchain_image;
         resource_lifetime lifetime = resource_lifetime::per_frame;
-        /// how many images the family holds: 3 G-buffer targets, 8 probe coefficients (side*4+coefficient,
+        /// how many images the family covers: 3 G-buffer targets, 8 probe coefficients (side*4+coefficient,
         /// exactly how `core` indexes them), 1 for an ordinary image. A binding names one ELEMENT of this.
         uint16_t count = 1;
     };
@@ -230,7 +230,7 @@ export namespace deren::engine::render_resource {
         {.id = resource_id::swapchain_image, .name = "swapchain_image", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::imported},
         {.id = resource_id::hdr, .name = "hdr", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::per_frame},
         // FOUR LEVELS, not one: `core::bloom_images` is `deren::utility::vessel::array<deren::utility::vessel::vector<VkImage>, bloom_level_count>`
-        // with `bloom_level_count == 4`, and the post chain's passes each hold ONE of them. The count was 1 (the
+        // with `bloom_level_count == 4`, and the post chain's passes each use ONE of them. The count was 1 (the
         // default) until the bloom chain was extracted, which made `element = level` illegal for every pass but
         // the first - and the validator's `element >= info->count` check is what says so, so this field IS the
         // contract a declaration is written against.
@@ -249,8 +249,8 @@ export namespace deren::engine::render_resource {
         {.id = resource_id::rt_shadow_visibility, .name = "rt_shadow_visibility", .kind = resource_kind::image2d, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
         {.id = resource_id::rt_reflection, .name = "rt_reflection", .kind = resource_kind::image2d, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
         // The reflection denoiser's working set (AMD Reproject -> Prefilter -> ResolveTemporal + the history copy).
-        // Every one is per-frame-slot and per-frame: the history images hold the previous recorded frame's
-        // resolved radiance/surface, and the current images hold this frame's before the copy overwrites history.
+        // Every one is per-frame-slot and per-frame: the history images carry the previous recorded frame's
+        // resolved radiance/surface, and the current images carry this frame's before the copy overwrites history.
         {.id = resource_id::rt_reflection_denoised, .name = "rt_reflection_denoised", .kind = resource_kind::image2d, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
         {.id = resource_id::rt_reflection_denoised_history, .name = "rt_reflection_denoised_history", .kind = resource_kind::image2d, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
         {.id = resource_id::rt_reflection_reprojected, .name = "rt_reflection_reprojected", .kind = resource_kind::image2d, .scope = resource_scope::per_frame_slot, .lifetime = resource_lifetime::per_frame},
@@ -738,7 +738,7 @@ export namespace deren::engine::render_resource {
                 return std::unexpected(where + " names " + deren::utility::vessel::string(info->name) + ", which is not an image a pass can render into");
             }
             if (t.element >= info->count) {
-                return std::unexpected(where + " names element " + deren::utility::vessel::to_string(t.element) + " of " + deren::utility::vessel::string(info->name) + ", which holds " +
+                return std::unexpected(where + " names element " + deren::utility::vessel::to_string(t.element) + " of " + deren::utility::vessel::string(info->name) + ", which has " +
                                        deren::utility::vessel::to_string(info->count));
             }
             if (t.count == 0u) {
@@ -748,7 +748,7 @@ export namespace deren::engine::render_resource {
                 // A RUN that reaches past the family: `count` is a claim about the SCHEMA, and the frame can only
                 // ever answer with a SHORTER run (see render_target::count).
                 return std::unexpected(where + " claims elements " + deren::utility::vessel::to_string(t.element) + ".." + deren::utility::vessel::to_string(static_cast<uint32_t>(t.element) + t.count - 1u) + " of " +
-                                       deren::utility::vessel::string(info->name) + ", which holds " + deren::utility::vessel::to_string(info->count));
+                                       deren::utility::vessel::string(info->name) + ", which has " + deren::utility::vessel::to_string(info->count));
             }
             if (t.kind == target_kind::depth && ++depth_targets > 1u) {
                 // a rendering instance has exactly one depth attachment, so a second one cannot be recorded - and a
@@ -775,7 +775,7 @@ export namespace deren::engine::render_resource {
                 return std::unexpected(where + " names " + deren::utility::vessel::string(info->name) + ", which is not an image");
             }
             if (t.element >= info->count) {
-                return std::unexpected(where + " names element " + deren::utility::vessel::to_string(t.element) + " of " + deren::utility::vessel::string(info->name) + ", which holds " +
+                return std::unexpected(where + " names element " + deren::utility::vessel::to_string(t.element) + " of " + deren::utility::vessel::string(info->name) + ", which has " +
                                        deren::utility::vessel::to_string(info->count));
             }
             for (barrier_image const& other : io.barrier_images) {
@@ -796,7 +796,7 @@ export namespace deren::engine::render_resource {
                 return std::unexpected(where + " names " + deren::utility::vessel::string(info->name) + ", which is not a buffer");
             }
             if (t.element >= info->count) {
-                return std::unexpected(where + " names element " + deren::utility::vessel::to_string(t.element) + " of " + deren::utility::vessel::string(info->name) + ", which holds " +
+                return std::unexpected(where + " names element " + deren::utility::vessel::to_string(t.element) + " of " + deren::utility::vessel::string(info->name) + ", which has " +
                                        deren::utility::vessel::to_string(info->count));
             }
             for (barrier_buffer const& other : io.barrier_buffers) {
@@ -820,7 +820,7 @@ export namespace deren::engine::render_resource {
             }
             if (b.element >= info->count) {
                 return std::unexpected(where + " names element " + deren::utility::vessel::to_string(b.element) + " of " + deren::utility::vessel::string(info->name) +
-                                       ", which holds " + deren::utility::vessel::to_string(info->count));
+                                       ", which has " + deren::utility::vessel::to_string(info->count));
             }
             if (b.descriptor_count == 0) {
                 return std::unexpected(where + " declares no descriptors");

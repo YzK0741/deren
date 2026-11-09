@@ -768,7 +768,7 @@ namespace deren::app_config {
      * a path this build cannot read is one answer with one message rather than whatever a loader said first.
      */
     export enum class model_format {
-        gltf,         // .gltf / .glb: the retained scene importer (deren.gltf_loader)
+        gltf,         // .gltf / .glb: the stored scene importer (deren.gltf_loader)
         gaussian_ply, // .ply: a Gaussian splat cloud (deren.gaussian_loader)
         unsupported,  // anything else: the caller reports the two formats above
     };

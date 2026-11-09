@@ -226,7 +226,7 @@ namespace deren::engine::pass {
         }
 
         // The record step has bound the pipeline and set the viewport and scissor from io.extent (this pass
-        // declared resync_viewport); what a fullscreen pass still holds is its instance - the load op is its
+        // declared resync_viewport); what a fullscreen pass still records is its instance - the load op is its
         // knowledge - and the state the viewport fields do not cover.
         // THE RENDERING SCOPE RIDES THE CONTRACT NOW (abi 20): one colour attachment, CLEAR + STORE (what
         // `make_color_attachment_info` spelled), zero clear colour, no depth and no secondary contents.

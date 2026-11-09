@@ -99,7 +99,7 @@ namespace deren::vulkan {
             native_state_mask = 0;
             selected = restored_selection;
         }
-        parent->deferred_retained += batch.size();
+        parent->deferred_referenced += batch.size();
         profile.mark(1);
         auto fail = [&](rhi::error error) noexcept { recording_error = error; executable = false; return error; };
 
@@ -129,7 +129,7 @@ namespace deren::vulkan {
             return true;
         };
 
-        // Validate the whole retained batch before any native command from this batch.
+        // Validate the whole saved batch before any native command from this batch.
         auto* pipeline = emitted_pipeline;
         std::uint64_t pipeline_identity = native_state[static_cast<unsigned>(kind::pipeline)][1];
         auto resources = current_resources;
@@ -426,7 +426,7 @@ namespace deren::vulkan {
             }
         }
         profile.mark(4);
-        // Compact the canonical logical state; keep copied payloads and group holders for interop restore.
+        // Compact the canonical logical state; keep copied payloads and the recorded group handles for interop restore.
         for (auto* op : batch) {
             if (!op->is_unique()) {
                 saved_selection.push_back(op);

@@ -105,7 +105,7 @@ namespace deren::utility {
                           static_cast<unsigned long long>(entry.thread));
         }
 
-        // Some call sites wrote their level into the message before the sink held one. Absorb those
+        // Some call sites wrote their level into the message before the sink had one. Absorb those
         // markers so the line carries one level, not two; the payload after the marker is unchanged.
         void apply_manual_level(std::string_view& text, log_level& level) noexcept {
             struct marker {
@@ -246,7 +246,7 @@ namespace deren::utility {
         log_sink& operator=(log_sink const&) = delete ("log_sink is non-copyable: modify the existing instance instead");
 
         /// Queue one entry. TAKES A VIEW, and the copy the queue stores is made on THIS side - which
-        /// is what lets a caller hand over its temporary string without either side holding the
+        /// is what lets a caller hand over its temporary string without either side depending on the
         /// other's allocation. That is a design choice rather than a rule (this module's interface
         /// may carry STL: see shared_utility.cppm), and it is the shape the three doors settled on.
         /// `timestamp`, the caller's thread and the caller's function name are captured before the
@@ -387,7 +387,7 @@ namespace deren::utility {
             apply_manual_level(text, level);
         }
         log_entry message{timestamp, current_thread_token(), level, function,
-                          deren::utility::vessel::string(text)}; // the copy the queue holds is made on THIS side
+                          deren::utility::vessel::string(text)}; // the copy the queue keeps is made on THIS side
         {
             std::lock_guard lock(this->queue_mutex);
             if (!this->accepting) {

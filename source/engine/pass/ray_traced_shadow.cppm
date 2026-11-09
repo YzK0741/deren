@@ -5,14 +5,14 @@
  * @brief The ninth real pass, and the only one that traces outside the chain: the ray-traced sun shadow.
  * @defgroup engine_pass_rt_shadow Ray-Traced Shadow Pass
  *
- * WHAT IT HOLDS: its RAY TRACING pipeline (three stages - raygen, closest hit and miss -
+ * WHAT IT BUILDS: its RAY TRACING pipeline (three stages - raygen, closest hit and miss -
  * with the three shader groups and the shader binding table regions that go with them, built at create time from
  * its declaration's push-block size); the frame's
  * recording - the two barriers around the visibility image it rewrites, the push
  * block's values (composed by the renderer) and the full-resolution `traceRays` launch; and the one-shot log that
  * says what was built, which used to live in the runtime as a bool next to the pipeline.
  *
- * WHAT IT DOES NOT hold, in the same shape as the tracer and the spatial filter: no separate descriptor set.
+ * WHAT IT DOES NOT BUILD, in the same shape as the tracer and the spatial filter: no separate descriptor set.
  * The camera, the light UBO, the top level structure, the surface each ray starts
  * from and the visibility image it writes are all heap slots the shaders name themselves - so the
  * only handle it needs beyond the pipeline is the IMAGE it transitions, and that arrives through
@@ -145,7 +145,7 @@ export namespace deren::engine::pass {
 
         /// \brief the push and the traceRays launch alone - none of this pass's ordering
         ///
-        /// The removed legacy record held the visibility image's two transitions (undefined -> shader_write around the
+        /// The removed legacy record recorded the visibility image's two transitions (undefined -> shader_write around the
         /// launch, shader_write -> shader_read as the hand-off to the lighting stage), both with the RAY-TRACING
         /// stage hint because the writer is a traceRays LAUNCH rather than a dispatch. A graph-recorded frame
         /// declares those accesses (the pass writes the image as storage at pipeline_stage::ray_tracing, the
@@ -154,7 +154,7 @@ export namespace deren::engine::pass {
 
         /// @brief whether the pass built what it records with (the renderer gates the ray-traced path on this)
         [[nodiscard]] bool pipeline_ready() const noexcept;
-        /// @brief the framework's generic form of the same question, so a holder holding only a chain can ask it
+        /// @brief the framework's generic form of the same question, so a caller that has only a chain can ask it
         ///        (a pass with nothing separate to build keeps the interface's `true`; see `frame_pass::ready`)
         [[nodiscard]] bool ready() const noexcept override {
             return this->pipeline_ready();
@@ -197,7 +197,7 @@ export namespace deren::engine::pass {
         // would duplicate it and hide the override.
         std::optional<pipelines::pipeline_handle> pass_pipeline = std::nullopt;
         // The shader binding table's regions, filled at create time from the pipeline's group handles. The BUFFER
-        // is the holder's (see pass_context::create_upload_buffer); what the pass keeps is where each region starts,
+        // is the renderer's (see pass_context::create_upload_buffer); what the pass keeps is where each region starts,
         // which is the per-pipeline part.
         //
         // THEY ARE THE CONTRACT'S TYPE NOW (`rhi::shader_binding_table_region`): the three numbers are a DEVICE
@@ -205,7 +205,7 @@ export namespace deren::engine::pass {
         // the type is general enough for any backend's launch.
         //
         // NO ENTRY POINT IS KEPT HERE ANY MORE (abi 24): `record` calls `command_buffer::trace_rays`, and the
-        // backend holds the `vkCmdTraceRaysKHR` pointer it resolved once at startup. The pass therefore names no
+        // backend keeps the `vkCmdTraceRaysKHR` pointer it resolved once at startup. The pass therefore names no
         // native handle for the launch at all.
         deren::promise::rhi::shader_binding_table_region raygen_region = {};
         deren::promise::rhi::shader_binding_table_region miss_region = {};

@@ -34,19 +34,19 @@ namespace deren::engine::subtilis {
         static_assert(sizeof(wire_page_group) == 48u);
         static_assert(offsetof(wire_page_group, error) == 32u);
 
-        struct page_payload_holder {
+        struct page_payload_block {
             page_arena_payload arena;
             deren::utility::vessel::vector<gpu_page_table_entry> table;
             page_request_buffer requests;
-            page_payload_holder(page_arena_payload&& arena_bytes, deren::utility::vessel::vector<gpu_page_table_entry>&& table_entries,
-                                std::uint32_t request_capacity)
+            page_payload_block(page_arena_payload&& arena_bytes, deren::utility::vessel::vector<gpu_page_table_entry>&& table_entries,
+                               std::uint32_t request_capacity)
                 : arena(std::move(arena_bytes))
                 , table(std::move(table_entries))
                 , requests(request_capacity) {
             }
         };
 
-        std::expected<std::shared_ptr<page_payload_holder const>, residency_error>
+        std::expected<std::shared_ptr<page_payload_block const>, residency_error>
         make_page_payload(built_geometry const& source) {
             auto const pages = source.pages();
             auto const* dag = source.hierarchy_dag();
@@ -107,7 +107,7 @@ namespace deren::engine::subtilis {
                 return std::unexpected(table.error());
             }
             auto const capacity = std::min<std::uint32_t>(std::max<std::uint32_t>(static_cast<std::uint32_t>(pages.size()), 1u), 256u);
-            return std::make_shared<page_payload_holder const>(std::move(*packed), std::move(*table), capacity);
+            return std::make_shared<page_payload_block const>(std::move(*packed), std::move(*table), capacity);
         }
     } // namespace
 
@@ -164,20 +164,20 @@ namespace deren::engine::subtilis {
             return std::unexpected(upload_rhi::error::invalid_argument);
         }
         auto* scopes = upload_rhi::query_extension<upload_rhi::scoped_synchronization>(*device);
-        bool const available = device.retains_lifetime() && scopes && upload_rhi::query_extension<upload_rhi::command_submission>(*device);
+        bool const available = device.is_live() && scopes && upload_rhi::query_extension<upload_rhi::command_submission>(*device);
         if (mode == geometry_upload_mode::batched && !available) {
             return std::unexpected(upload_rhi::error::unsupported);
         }
         bool const batch_upload = mode != geometry_upload_mode::synchronous && available;
         namespace managed = render_resource::instances;
-        struct cut_payload_holder {
+        struct cut_payload_block {
             deren::utility::vessel::vector<cut_group_record> groups;
             deren::utility::vessel::vector<std::uint32_t> references;
             deren::utility::vessel::vector<cut_cluster_record> clusters;
         };
-        std::shared_ptr<cut_payload_holder const> cut_payload;
+        std::shared_ptr<cut_payload_block const> cut_payload;
         if (auto const* dag = source->hierarchy_dag(); dag && !dag->groups().empty()) {
-            auto payload = std::make_shared<cut_payload_holder>();
+            auto payload = std::make_shared<cut_payload_block>();
             payload->groups.reserve(dag->groups().size());
             for (auto const& group : dag->groups()) {
                 payload->groups.push_back({
@@ -201,7 +201,7 @@ namespace deren::engine::subtilis {
         }
         auto resources = std::allocate_shared<pass::pass_chain>(deren::utility::memory::allocator<pass::pass_chain>{});
         auto& provider = resources->emplace<pass::resource_storage_pass>();
-        std::shared_ptr<page_payload_holder const> page_payload;
+        std::shared_ptr<page_payload_block const> page_payload;
         if (!source->pages().empty()) {
             auto made = make_page_payload(*source);
             if (!made) {
@@ -215,19 +215,19 @@ namespace deren::engine::subtilis {
         deren::utility::vessel::vector<std::span<std::byte const>> bytes;
         bytes.reserve(request_count);
         auto append = [&](render_resource::resource_id id, std::span<std::byte const> data, upload_rhi::buffer_usage usage,
-                          upload_rhi::buffer_flags buffer_flags, std::shared_ptr<void const> const& holder) {
+                          upload_rhi::buffer_flags buffer_flags, std::shared_ptr<void const> const& storage_key) {
             requests.emplace_back();
             auto& request = requests.back();
             request.id = id;
             request.type = managed::kind::buffer;
             request.life = managed::lifetime::scene;
             request.buffer = {.size = data.size(), .usage = usage, .flags = buffer_flags};
-            auto alias = std::shared_ptr<std::byte const>{holder, data.data()};
-            request.dependencies.push_back(holder);
+            auto alias = std::shared_ptr<std::byte const>{storage_key, data.data()};
+            request.dependencies.push_back(storage_key);
             if (!batch_upload) {
                 request.initial_data = std::move(alias);
                 request.initial_data_size = data.size();
-                request.initialization_key = holder;
+                request.initialization_key = storage_key;
             }
             bytes.push_back(data);
         };
@@ -288,7 +288,7 @@ namespace deren::engine::subtilis {
         if (batch_upload) {
             namespace sync = upload_rhi::synchronization;
             // Immutable geometry is read by vertex input and the available shader stages.
-            // The AS build verb separately holds its transfer-write -> build-read pre-barrier.
+            // The AS build verb records its own transfer-write -> build-read pre-barrier.
             auto const readers = sync::stage::vertex_input | sync::stage::vertex_shader | sync::stage::fragment_shader |
                                  sync::stage::compute_shader | sync::stage::task_shader | sync::stage::mesh_shader | sync::stage::ray_tracing;
             auto const supported = static_cast<std::uint32_t>(scopes->supported_stages());
@@ -306,9 +306,9 @@ namespace deren::engine::subtilis {
                     return std::unexpected(upload_rhi::error::unsupported);
                 }
                 auto* buffer = generation->objects[0].buffer.get();
-                auto lease = resource_lease<upload_rhi::buffer>::from_shared(device, upload_rhi::shared_object<upload_rhi::buffer>{generation, buffer});
+                auto access = resource_handle<upload_rhi::buffer>::from_shared(device, upload_rhi::shared_object<upload_rhi::buffer>{generation, buffer});
                 // clang-tidy 23 mistakes the required separator after {} for an initializer trailing comma.
-                if (auto result = batch.upload(std::move(lease), 0, bytes[i], {}, published); result != upload_rhi::error::ok) { // NOLINT(readability-trailing-comma)
+                if (auto result = batch.upload(std::move(access), 0, bytes[i], {}, published); result != upload_rhi::error::ok) { // NOLINT(readability-trailing-comma)
                     return std::unexpected(result);
                 }
             }

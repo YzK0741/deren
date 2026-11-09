@@ -11,7 +11,7 @@ numbers that the OFF/ON evidence in this page predates.
 This lane is shared renderer infrastructure. subtilis supplies geometry selections; the resolve can emit
 visible-material and screen-footprint demand for [amnis](amnis.md) texture streaming. amnis can consume
 that feedback without subtilis DAG LOD, and subtilis can use fully resident textures without amnis streaming.
-Geometry selection and texture residency retain separate policies and configuration gates.
+Geometry selection and texture residency keep separate policies and configuration gates.
 
 An additional experimental mode, `[render] software_raster=true`, moves conservatively classified sub-pixel
 clusters from the hardware mesh-task prefix into a tiled CSR software raster. It requires both the visibility lane
@@ -132,8 +132,8 @@ Feedback is512 words plus status (2052 bytes); the coherent mapped buffer is pub
 and read only after a graphics frame checkpoint completes.
 
 The graph's compiled schedule is partitioned before resolve, preserving compiled resource barriers
-and retention. After the prefix completes, required textures load synchronously, unneeded descriptor
-slots return to placeholders and unload is attempted; a remaining command/group lease defers physical
+and lifetimes. After the prefix completes, required textures load synchronously, unneeded descriptor
+slots return to placeholders and unload is attempted; a command/group still in use defers physical
 reclamation. The suffix shades the same frame with the same camera/items. Newly visible required
 textures must load before shading; upload refusal fails the frame explicitly.
 

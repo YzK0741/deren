@@ -18,7 +18,7 @@ into a wish list.
 
 | Feature | First use | Notes |
 |---------|-----------|-------|
-| `= delete("reason")` | `source/promise/rhi/contract/rhi.object.cppm:72` | `rhi::unique_object` explains its move-only retention rule in the compiler diagnostic. All first-party deleted special members now carry a reason; vendored `source/third_party` is untouched. |
+| `= delete("reason")` | `source/promise/rhi/contract/rhi.object.cppm:72` | `rhi::unique_object` explains its move-only lifetime rule in the compiler diagnostic. All first-party deleted special members now carry a reason; vendored `source/third_party` is untouched. |
 | Placeholder variable `_` | `source/utility/shared/shared_utility.cppm:168` | `allocator::deallocate` marks its unused size argument `_` instead of naming it `count`; a placeholder variable is intentionally discarded and exempt from unused-parameter warnings. |
 | Structured binding declaration as a condition | `source/tests/test_utility.cpp:49` | Compile-time probe decomposes a bool-convertible result directly in the `if` condition. This validates the language path; production adoption still needs a suitable result type. |
 

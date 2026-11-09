@@ -287,7 +287,7 @@ namespace deren::engine {
     runtime::runtime(rhi::shared_object<rhi::api_core> core, deren::promise::rhi::create_info const& options)
         : runtime(options,
                   std::move(core),
-                  // THE CLAMP IS APPLIED HERE, BY THE ONE HOLDER OF THE RULE: the backend clamps the same
+                  // THE CLAMP IS APPLIED HERE, BY THE ONE PLACE THAT DEFINES THE RULE: the backend clamps the same
                   // value for the swapchain it sizes, and the engine must size the targets IT creates by
                   // the same number - `render_layout::clamp_render_scale` is that one spelling (see its
                   // note), and this is the engine's call to it.
@@ -306,7 +306,7 @@ namespace deren::engine {
 
         this->cpu_timings.set_stage_callback(&runtime::cpu_stage_timing, this);
 
-        // Two-tier texture streaming is opt-in; retain the synchronous GPU path as the default.
+        // Two-tier texture streaming is opt-in; preserve the synchronous GPU path as the default.
         this->progressive_textures = std::getenv("DEREN_PROGRESSIVE_TEXTURES") && std::string_view(std::getenv("DEREN_PROGRESSIVE_TEXTURES")) == "1";
         this->progressive_mips = progressive_textures && std::getenv("DEREN_PROGRESSIVE_MIPS") && std::string_view(std::getenv("DEREN_PROGRESSIVE_MIPS")) == "1";
         auto residency_limit = [](char const* name, std::uint64_t initial) {
@@ -443,7 +443,7 @@ namespace deren::engine {
         // The six samplers the declaration layer hands out by hint (③-D/E item C): created here, before any
         // pass resolves a binding, because `shared_samplers()` is what a declaration asks for a sampler with.
         this->init_shared_samplers();
-        // THE RENDER CHAIN'S PER-IMAGE TARGETS THE ENGINE HOLDS (③-D/E A1): generation 0, created through
+        // THE RENDER CHAIN'S PER-IMAGE TARGETS THE ENGINE CREATES (③-D/E A1): generation 0, created through
         // the contract right here - the backend no longer creates the TAA history pair, and this is where
         // the engine takes it over. Every later generation arrives through the same function from
         // `on_swapchain_recreated`. It runs BEFORE anything publishes these images (the frame's resource
@@ -467,11 +467,11 @@ namespace deren::engine {
     }
 
     // The destructor body runs before member destruction, so core_face (and the VkDevice it
-    // holds) is still alive here: destroying cached pipelines in this order is guaranteed safe,
+    // refers to) is still valid here: destroying cached pipelines in this order is guaranteed safe,
     // independent of future member reordering. Members then destruct in reverse declaration
-    // order with pipelines already empty. The SCENE TREE is caller-held (set_scene): the caller
+    // order with pipelines already empty. The caller sets the SCENE TREE (set_scene) and
     // destroys it before this runtime goes away (its leaves release GPU buffers through the vma
-    // allocator while it is still alive), so no tree teardown happens here.
+    // allocator while it is still valid), so no tree teardown happens here.
     runtime::~runtime() {
         // Workers may submit upload barriers; finish them before the final GPU idle wait.
         for (auto& entry : streamed_textures) {
@@ -480,7 +480,7 @@ namespace deren::engine {
             }
         }
         // (no vma statistics log here: the accounting moved to the backend's lifecycle point -
-        // the allocator's teardown logs what the session held, which is where that decision belongs)
+        // the allocator's teardown logs what the session created, which is where that decision belongs)
         // Wait for the GPU to finish BEFORE releasing anything below: the last submitted frame
         // may still be executing and destroying in-use resources would violate VUIDs (~core()
         // also waits, but that runs after this body — too late for the VMA frees here).
@@ -521,15 +521,15 @@ namespace deren::engine {
 
         // Shared scene resources: views/samplers/buffers/images are RAII and free
         // themselves as this runtime's members destruct (after this body; core_face, which
-        // holds the vma allocator, is declared first and destructs last, so every vk_buffer /
+        // contains the vma allocator, is declared first and destructs last, so every vk_buffer /
         // vk_image still has a live allocator when it releases).
 
-        // Shut the debug overlay down explicitly while the VkDevice is still alive (its ImGui
-        // Vulkan backend holds device resources); member destruction would also run it before
+        // Shut the debug overlay down explicitly while the VkDevice is still valid (its ImGui
+        // Vulkan backend creates device resources); member destruction would also run it before
         // core_face, but doing it here keeps the order obvious.
-        // THE PLUGIN IS RELEASED HERE TOO (plan X2): dropping the last reference destroys the overlay inside
+        // THE PLUGIN IS RELEASED HERE TOO (plan X2): releasing the last shared_ptr destroys the overlay inside
         // `deren_gui_vulkan.dll`, the image that allocated it - and it has to happen while the device is
-        // alive, which is why this is explicit rather than left to member order.
+        // valid, which is why this is explicit rather than left to member order.
         if (this->debug_overlay != nullptr) {
             this->debug_overlay->shutdown();
             this->debug_overlay.reset();
@@ -694,7 +694,7 @@ namespace deren::engine {
 
     void runtime::init_scene_resources() {
         // Camera constants are prepared by the passchain alongside constructor output targets.
-        // Their buffers retain uniform-coherent allocation and storage/device-address usage for the heap.
+        // Their buffers preserve uniform-coherent allocation and storage/device-address usage for the heap.
 
         // 1x1 white fallback texture, always the first entry of the scene texture array; missing
         // material textures point at it
@@ -1051,7 +1051,7 @@ namespace deren::engine {
         {
 
             // Allocation and zero initialization are provided by scene_tables_pass.
-            // THE NATIVE TABLE IS GONE: the dispatch takes the CONTRACT handle this class already holds
+            // THE NATIVE TABLE IS GONE: the dispatch takes the CONTRACT handle this class already has
             // (`mesh_indirect_buffer`), so nothing here derives a `VkBuffer` for it any more - the derivation
             // was the reason a null handle could silently send every dispatch down the DIRECT path.
         }
@@ -1151,7 +1151,7 @@ namespace deren::engine {
     void runtime::init_shared_samplers() {
         // ---- THE SIX SAMPLERS THE RENDERER DECLARES BY HINT (③-D/E item C, abi 16) --------------------
         // Each description below is the VALUE-FOR-VALUE equivalent of the sampler `core::create_samplers()`
-        // used to build and lend out (its comments are quoted where the choice needs a reason), and that
+        // used to build and hand out (its comments are quoted where the choice needs a reason), and that
         // equality is what keeps the captures byte-identical: `create_sampler()` rides the same
         // `make_texture_sampler_info()` the backend's six rode, and overrides exactly these fields.
         //
@@ -1205,16 +1205,16 @@ namespace deren::engine {
         // THE FRAME'S PRIMARY COMMAND BUFFERS STAY THE BACKEND'S (abi 15): core allocates one per frame
         // slot in its constructor, `begin_commands()` hands out that slot's referenced recording view,
         // and this runtime takes the raw handle it begins, ends and submits from the contract handle
-        // `frame_command_buffer()` answers (see `native_frame_commands()`). Nothing of that is held here any
+        // `frame_command_buffer()` answers (see `native_frame_commands()`). None of that lives here any
         // more - the span that used to alias the core's container is gone with the type it named.
         //
         // One secondary command buffer per frame slot (stage 2/3 of parallel recording),
         // pre-allocated with the primaries so the GPU can read them while this slot's primary
         // executes. Stage 3 additionally gives the main pass one parallel segment per task-pool worker.
-        // EVERY ONE OF THEM IS A CALLER-HELD `rhi::shared_object<rhi::command_buffer>` (abi 21), MADE BY
-        // `api_core::make_command_buffer`: the control block's deleter IS the contract's one drop
-        // (`release()`), so no call site here spells it and no second lifetime rule exists. Each buffer
-        // also holds its command pool (handles/handles.cppm): a VkCommandPool is not thread safe, so the
+        // EVERY ONE OF THEM IS CREATED BY
+        // `api_core::make_command_buffer` (abi 21): the control block's deleter calls the contract's `release()`
+        // so no call site here spells it and there is no second lifetime rule. Each buffer
+        // also creates and destroys its command pool (handles/handles.cppm): a VkCommandPool is not thread safe, so the
         // workers must never begin buffers of a shared pool concurrently - which is exactly why this
         // factory (one pool per buffer) is the safe spelling rather than a cost.
         //
@@ -1266,7 +1266,7 @@ namespace deren::engine {
         this->bloom_graph_pending = false;
         // The G-buffer depth layout flags are one per swapchain image, and a freshly created depth image
         // is in UNDEFINED (which is what a clear flag says); the graph declares the transitions that used to be tracked.
-        // THE GENERATION'S COUNT COMES FROM THE SWAPCHAIN (③-D/E A1.4): the per-image groups are engine-held
+        // THE GENERATION'S COUNT COMES FROM THE SWAPCHAIN (③-D/E A1.4): the per-image groups are engine-created
         // fixed-size arrays now, so their `size()` is the contract's bound rather than the number of images
         // this generation actually has - `swap_chain_images` is the one that still answers that.
         std::size_t const image_count = static_cast<std::size_t>(rhi::max_swapchain_images);
@@ -1307,7 +1307,7 @@ namespace deren::engine {
             deren::utility::panic("environment: failed to prepare output targets");
         }
 
-        // All scene/post/ray targets are now passchain-held. Only the furnace environment
+        // All scene/post/ray targets are now created by the pass chain. Only the furnace environment
         // remains in the legacy creation path; its contents are reset with the generation.
         this->furnace_cube_view = {};
         this->furnace_cube_image = {};
@@ -1599,7 +1599,7 @@ namespace deren::engine {
                 return;
             }
             auto const& generation = deformations[family];
-            // Preserve setup deltas, partial uploads and history. Old snapshots stay alive through this copy.
+            // Preserve setup deltas, partial uploads and history. Old snapshots stay valid through this copy.
             for (size_t slot = 0; slot < std::min(buffers.size(), generation->objects.size()); ++slot) {
                 auto const source = buffers[slot].get()->mapped();
                 auto const target = generation->objects[slot].buffer->mapped();
@@ -1803,7 +1803,7 @@ namespace deren::engine {
         return parent->write_frame_buffer(completed_slot, id, bytes);
     }
 
-    // Explicit cascade growth retains the setter's existing fatal-error policy.
+    // Explicit cascade growth preserves the setter's existing fatal-error policy.
     // Frame preparation calls prepare_managed_resources directly so it can report acquire_failed.
     void runtime::log_hzb_cull_stats() {
         // THE PHASE-B EVIDENCE LINES (spec §10.3): the ONLY GPU->CPU read of the cull stats block in a phase-B run,
@@ -2065,7 +2065,7 @@ namespace deren::engine {
         // budgets: at most ONE device idle per extent change (frames in flight may still read/write the previous
         // generation's buffers, and two frames in flight is the ring's rule). There is no per-frame stall.
         // The phase-B tables do not depend on the extent, but they are recreated with the same generation so one
-        // retention path (and one invalidation path) covers every HZB table.
+        // reuse path (and one invalidation path) covers every HZB table.
         if (this->hzb_levels_buffer || this->hzb_header_buffer || this->hzb_items_buffer || this->hzb_results_buffer || this->hzb_survivors_buffer ||
             this->hzb_resources_ready) {
             this->rhi_face().wait_idle();
@@ -2203,7 +2203,7 @@ namespace deren::engine {
         // THE HOST-SIDE ZEROING IS PART OF THE CREATION because the two mapped tables are read before they are
         // first written: the item recorder writes only the entries of THIS frame's items, and the probe/shutdown
         // read every lane. A zeroed table means "no item, no candidates, every counter zero" rather than whatever
-        // the allocator held.
+        // the allocator stored.
         auto const items_bytes_mapped = this->hzb_items_buffer->mapped();
         auto const results_bytes_mapped = this->hzb_results_buffer->mapped();
         if (items_bytes_mapped.size() < items_bytes || results_bytes_mapped.size() < results_bytes) {
@@ -2494,7 +2494,7 @@ namespace deren::engine {
             deren::utility::log("IBL descriptor publication failed; previous bindings restored: {}", restored);
             return false;
         }
-        // Commit only after all heap writes succeed; old holders remain alive during rollback.
+        // Commit only after all heap writes succeed; the previous tables stay valid during rollback.
         this->ibl_views = std::move(views);
         this->ibl_images = std::move(images);
         this->env_sampler = std::move(sampler);
@@ -2838,7 +2838,7 @@ namespace deren::engine {
                 deren::utility::panic("environment: failed to create material texture");
             }
             // THE INDEX IS THE VIEW JUST APPENDED (see where the white element sets `white_texture_index` the
-            // same way): the native cache that used to be counted here held the same views in the same order, so
+            // same way): the native cache that used to be counted here stored the same views in the same order, so
             // its `size()` - taken before its push - was this index.
             uint32_t const index = static_cast<uint32_t>(this->scene_texture_views.size() - 1);
             this->texture_slot_cache.emplace(key, index);

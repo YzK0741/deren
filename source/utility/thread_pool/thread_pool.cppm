@@ -117,7 +117,7 @@ namespace deren::utility {
          *         An empty batch is always a successful no-op.
          * @note pair with wait_until_priority_done(@p priority) to run a group synchronously:
          *       this drains the priority, including work from other callers at the same priority.
-         *       The caller retains its copies of batch callables and their captures.
+         *       The caller keeps its copies of batch callables and their captures.
          */
         bool post_batch(std::span<std::function<void()>> tasks, int32_t priority = 0);
         /**
@@ -143,7 +143,7 @@ namespace deren::utility {
          * @note live-drain semantics: later submissions at this priority can extend the wait.
          *       Work at other priorities does not block this wait. The result is an observation
          *       under the pool lock; another caller may submit new work immediately afterward.
-         *       Worker-held captures are released before completion is published; caller-held
+         *       Captures stored by workers are released before completion is published; caller-supplied
          *       copies are unaffected. Discarded tasks count as complete without being executed.
          * @note returns immediately when no task at @p priority is pending.
          */

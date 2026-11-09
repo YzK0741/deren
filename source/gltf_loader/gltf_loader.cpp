@@ -419,7 +419,7 @@ namespace {
 
     // SPARSE ACCESSOR RANGES. fastgltf::validate() DEREFERENCES asset.bufferViews[sparse->indicesBufferView] and
     // [valuesBufferView] without any separate bounds check, and it never checks that sparse.count <=
-    // accessor.count, so both file-supplied numbers have to be held here. This function must therefore run
+    // accessor.count, so both file-supplied numbers have to be checked here. This function must therefore run
     // before fastgltf::validate() in load_model(): validate() would read out of bounds on the very index it is
     // being asked to judge. The spec constrains the sparse count to the accessor count (the substitution table
     // replaces at most that many elements), and the index component type to an unsigned one.
@@ -559,7 +559,7 @@ namespace {
     //
     // WHY A CALLBACK RATHER THAN A FIELD: this fastgltf version parses each material's `extras` object and,
     // unless a callback is installed, DROPS it - `fastgltf::Material` has no member for it and the JSON is not
-    // retained (see `ExtrasParseCallback` in fastgltf/core.hpp and its call site in fastgltf.cpp's
+    // kept (see `ExtrasParseCallback` in fastgltf/core.hpp and its call site in fastgltf.cpp's
     // `parseMaterials`). The callback fires once per material while the array is walked and passes
     // `asset.materials.size()` as the object index; the material is appended to that vector AFTER the callback
     // runs, so the index IS the material's final index and this vector is addressed exactly like
@@ -1501,7 +1501,7 @@ namespace {
 
     /// Consume the decoded pixels when the caller promises they are no longer needed. RGBA8 can move the
     /// source buffer directly; 3/1-channel inputs must convert first, then release the source. This is what
-    /// keeps the loader from retaining a second full copy of every texture through mip generation.
+    /// stops the loader from making a second full copy of every texture through mip generation.
     deren::utility::vessel::vector<uint8_t> to_rgba(deren::gltf::texture_data& texture, bool const consume) {
         if (!consume) {
             return to_rgba(static_cast<deren::gltf::texture_data const&>(texture));
@@ -1575,7 +1575,7 @@ namespace {
         uint32_t h = height;
         for (uint32_t mip = 0; mip < mip_count; ++mip) {
             std::span<uint8_t const> const cur(result.data.data() + offset, static_cast<std::size_t>(w) * h * 4);
-            // mip0 is already held; append only levels declared by mip_count. Rectangular
+            // mip0 is already in place; append only levels declared by mip_count. Rectangular
             // chains can end before 1x1, and must not append an extra unadvertised level.
             if (mip + 1 == mip_count || (w == 1 && h == 1)) {
                 break;
@@ -2464,7 +2464,7 @@ namespace deren::gltf {
             }
 
             // decoded texture cache: one entry per glTF texture index; shared textures decode once,
-            // and the shared_ptr holders keep every image_view's span alive for the caller
+            // and the shared pointers keep every image_view's span valid for the caller
             struct decoded_texture {
                 std::shared_ptr<deren::utility::vessel::vector<uint8_t> const> data = {};
                 uint32_t width = 0;
@@ -2479,7 +2479,7 @@ namespace deren::gltf {
                 if (!entry) {
                     entry = decoded_texture{};
                     deren::gltf::texture_data const& tex = scenes.textures[texture_index];
-                    // Consuming mode moves the decoded RGBA bytes into mip0. The source is only retained when
+                    // Consuming mode moves the decoded RGBA bytes into mip0. The source is only left untouched when
                     // the caller keeps the ordinary read-only contract (toon sidecars, tests, repeat resolves).
                     auto rgba = consume_scene != nullptr ? to_rgba(consume_scene->textures[texture_index], true) : to_rgba(tex);
                     if (!rgba.empty() && tex.width > 0 && tex.height > 0) {
@@ -2826,7 +2826,7 @@ namespace deren::gltf {
         return pose;
     }
 
-    // ---- whole-model world AABB (pure CPU, over the retained scene data) ----
+    // ---- whole-model world AABB (pure CPU, over the scene data the loader keeps) ----
 
     scene_bounds compute_scene_bounds(deren::gltf::scenes const& scenes) {
         scene_bounds result;
@@ -2910,8 +2910,8 @@ namespace deren::gltf {
                             bounds.min.x, bounds.min.y, bounds.min.z, bounds.max.x, bounds.max.y, bounds.max.z,
                             scene_center.x, scene_center.y, scene_center.z, scene_radius);
 
-        // Scene hierarchy summary: report the retained tree shape (roots / total nodes / max
-        // depth / mesh-bearing nodes) for diagnostics. Walks the retained tree through
+        // Scene hierarchy summary: report the shape of the scene tree kept in memory (roots / total
+        // nodes / max depth / mesh-bearing nodes) for diagnostics. Walks that tree through
         // scene_node_iterator (DFS pre-order, transform-only nodes included).
         {
             size_t total_nodes = 0;

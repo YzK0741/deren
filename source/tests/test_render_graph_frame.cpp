@@ -44,7 +44,7 @@ int main(int argc, char** argv) {
         check_texture_feedback(*core);
         (void)core->frames->frame_begin();
         auto frames = rhi::query_extension<rhi::frame_resources>(*core);
-        auto snapshot = frames ? frames->retain_image() : rhi::shared_object<rhi::image>{};
+        auto snapshot = frames ? frames->snapshot_image() : rhi::shared_object<rhi::image>{};
         auto* commands = core->frames->begin_commands();
         CHECK(snapshot && commands);
         if (snapshot && commands) {
@@ -60,7 +60,7 @@ int main(int argc, char** argv) {
                 CHECK(checkpoint->checkpoint_and_wait() == rhi::error::ok);
                 CHECK(readback->mapped()[0] == std::byte{37});
                 CHECK(core->frames->begin_commands() == commands);
-                CHECK(frames->retain_image().get() == snapshot.get());
+                CHECK(frames->snapshot_image().get() == snapshot.get());
                 CHECK(checkpoint->checkpoint_and_wait() == rhi::error::ok);
             }
             CHECK(commands->barrier(rhi::image_barrier{.resource = snapshot.get(), .from = rhi::image_use::undefined, .to = rhi::image_use::color_attachment}) == rhi::error::ok);
@@ -97,12 +97,12 @@ int main(int argc, char** argv) {
     if (!frames) {
         return deren::vk_test::finish("test_render_graph_frame");
     }
-    CHECK(!frames->retain_image());
+    CHECK(!frames->snapshot_image());
     (void)core->frames->frame_begin();
-    auto shared = frames->retain_image();
+    auto shared = frames->snapshot_image();
     CHECK(shared && shared.get() != core->frames->frame_image());
-    CHECK(frames->retain_image().get() == shared.get());
-    auto image = deren::engine::resource_lease<rhi::image>::from_shared(core, shared);
+    CHECK(frames->snapshot_image().get() == shared.get());
+    auto image = deren::engine::resource_handle<rhi::image>::from_shared(core, shared);
     auto identity = rg::execution::identify(image);
     CHECK(identity.object != 0);
     rg::builder graph;
@@ -140,7 +140,7 @@ int main(int argc, char** argv) {
     CHECK(core->commands->submit(*core->frames->begin_commands()) == rhi::error::invalid_argument);
     CHECK(core->frames->submit() == rhi::error::ok);
     (void)core->frames->frame_begin();
-    auto next = frames->retain_image();
+    auto next = frames->snapshot_image();
     CHECK(next && next != shared);
     calls = 0;
     if (ready) {
@@ -150,9 +150,9 @@ int main(int argc, char** argv) {
     CHECK(!rg::execution::prepared_graph::prepare(core, *plan, bindings));
     // A read-only pass can require no barriers. Identity checks must still reject
     // a snapshot invalidated by an earlier callback in the same recording.
-    auto next_lease = deren::engine::resource_lease<rhi::image>::from_shared(core, next);
+    auto next_handle = deren::engine::resource_handle<rhi::image>::from_shared(core, next);
     rg::builder reads;
-    auto current = *reads.import_texture(rg::execution::identify(next_lease), rg::initial_contents::defined, "current", {},
+    auto current = *reads.import_texture(rg::execution::identify(next_handle), rg::initial_contents::defined, "current", {},
                                          rg::resource_state{rg::resource_layout::present, rg::pipeline_stage::none, rg::memory_access::none});
     present[0] = {current, rg::content_access::read, {}, {rg::resource_usage::present, rg::pipeline_stage::none}};
     CHECK(reads.add_pass("first", present, {true}));
@@ -160,7 +160,7 @@ int main(int argc, char** argv) {
     auto read_plan = reads.compile({true});
     CHECK(read_plan && read_plan->barriers.empty());
     if (read_plan) {
-        bindings[0] = next_lease;
+        bindings[0] = next_handle;
         auto read_ready = rg::execution::prepared_graph::prepare(core, *read_plan, bindings);
         CHECK(read_ready);
         calls = 0;

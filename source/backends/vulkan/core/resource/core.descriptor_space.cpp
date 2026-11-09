@@ -255,7 +255,7 @@ namespace deren::vulkan {
         }
         if (info.view != nullptr) {
             // THE GROUP PROFILE'S VIEW IS FIXED (all mips, one array layer, sampled role), so an explicit
-            // view that asks for anything else is refused BY NAME: accepting it would alias a single lease
+            // view that asks for anything else is refused BY NAME: accepting it would alias one cache
             // slot with a different descriptor shape (the cache is keyed by image, not by view).
             auto const& view = *info.view;
             if (view.struct_size < sizeof(rhi::image_view_desc) || view.role != rhi::view_role::sampled ||

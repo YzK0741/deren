@@ -6,7 +6,7 @@
  *        slice grid the shading stages then read.
  * @defgroup engine_pass_cluster Clustered-Light Sort Pass
  *
- * WHAT IT HOLDS: its pipeline layout and its compute pipeline (built at create time from the shared scene block
+ * WHAT IT BUILDS: its pipeline layout and its compute pipeline (built at create time from the shared scene block
  * layout and its shader - the first compute pipeline in this tree that came out of `deren.vulkan.core`, where
  * `core::make_cluster_pipeline` built it against the core's scene pipeline layout); the bind of the shared
  * scene set; the one-dimensional dispatch over the cluster grid; and the TWO BUFFER BARRIERS that make its
@@ -19,7 +19,7 @@
  * cannot honour (and one the pass would have to ignore), so the pass declares that it sizes its work and
  * reads the count from its frame - the same split as the scene pass's leaves.
  *
- * WHAT IT DOES NOT hold: the two cluster buffers themselves (the passchain allocates them per frame slot, and
+ * WHAT IT DOES NOT CREATE: the two cluster buffers themselves (the passchain allocates them per frame slot, and
  * they live in the shared scene block as bindings 11 and 12) and the grid's dimensions, which the renderer derives
  * from the swapchain extent once per frame.
  */
@@ -76,7 +76,7 @@ export namespace deren::engine::pass {
 
         /// @brief the dispatch alone, with none of this pass's ordering
         ///
-        /// The removed legacy path's `record()` held the two buffer barriers that publish the sort's writes to the
+        /// The removed legacy path's `record()` recorded the two buffer barriers that publish the sort's writes to the
         /// fragment stages (see its comment). A graph-recorded frame declares those same buffers instead and
         /// the graph emits the ordering, so its recorder calls THIS entry: the two barrier paths must never
         /// both run for one submission (the migration rule the post chain's passes already follow).
@@ -84,7 +84,7 @@ export namespace deren::engine::pass {
 
         /// @brief whether the pass built what it records with (the renderer gates its feature on this)
         [[nodiscard]] bool pipeline_ready() const noexcept;
-        /// @brief the framework's generic form of the same question, so a holder holding only a chain can ask it
+        /// @brief the framework's generic form of the same question, so a caller that has only a chain can ask it
         ///        (a pass with nothing separate to build keeps the interface's `true`; see `frame_pass::ready`)
         [[nodiscard]] bool ready() const noexcept override {
             return this->pipeline_ready();

@@ -269,5 +269,5 @@ int main() {
     strong_thread.join();
     weak_thread.join();
     CHECK(destroyed == iterations + 1);
-    return deren::vk_test::finish("test_rhi_retention");
+    return deren::vk_test::finish("test_rhi_resource_lifetime");
 }

@@ -327,7 +327,7 @@ int exercise(bool adopted) {
         auto* storage = static_cast<deren::engine::normal_draw_primitive*>(leaf);
         std::destroy_at(storage);
         std::construct_at(storage);
-        CHECK(storage->bind_subtilis_geometry(generation)); // generation remains alive elsewhere
+        CHECK(storage->bind_subtilis_geometry(generation)); // generation remains valid elsewhere
         storage->meshlets.assign(cpu->lod0_clusters().begin(), cpu->lod0_clusters().end());
         storage->meshlet_base = base;
         storage->meshlet_count = static_cast<uint32_t>(storage->meshlets.size());

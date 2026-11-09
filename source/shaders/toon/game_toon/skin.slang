@@ -83,14 +83,14 @@ float3 game_toon_skin_shade(surface_sample s, float3 world_pos, float3 geo_norma
     const float3 specular = skin.f0 * clamp(d * v - 6.10351562e-05, 0.0, 20.0) * direct_light.specular;
     // MISSING wet/snow globals (_592/_595/_605), procedural layers (:650-965),
     // SSR and punctual-light inputs: dry else branches; existing deren pipeline
-    // retains retention of scene lighting. No guessed rain textures are sampled.
+    // preserves scene lighting. No guessed rain textures are sampled.
     const float3 direct = main_diffuse_result + specular;
     // Original :1018-1025 applies this mild bright-region saturation expansion.
     const float luma = face_diffuse_luma(direct);
     const float contrast = clamp(luma - 0.5, 0.0, 0.5);
     const float3 main_light_result = lerp(float3(luma), direct, 1.0 + contrast * contrast);
 
-    // MISSING artistic rim axis/colours _20_m87/_20_m88/_20_m93: retain the
+    // MISSING artistic rim axis/colours _20_m87/_20_m88/_20_m93: preserve the
     // conservative geometric/directional fallback accepted for face and skin.
     float3 rim_normal = normalize(geo_normal);
     if ((mat.flags & 8u) != 0u && !is_front) rim_normal = -rim_normal;
@@ -102,7 +102,7 @@ float3 game_toon_skin_shade(surface_sample s, float3 world_pos, float3 geo_norma
     const float3 rim_brdf = lerp(float3(0.25), skin.diffuse, 0.1);
     const float3 rim_result = rim_brdf * (rim_area * rig.rim.y * min(s.alpha, shadow_scene) * rim_weight);
 
-    // Explicit deren sky bridge retained at the existing skin-family strength.
+    // Explicit deren sky bridge preserved at the existing skin-family strength.
     // Neither this nor the face's minimum ambient term is a recovered game value.
     const float3 ambient_bridge = environment_irradiance(normal) * s.albedo * s.alpha * params.ambient_strength;
     return main_light_result + max(rim_result, 0.0) + ambient_bridge + s.emissive;

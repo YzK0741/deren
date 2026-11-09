@@ -30,7 +30,7 @@ int main() {
     CHECK(behaviour.extent == pass::extent_rule::full);
     CHECK(behaviour.resync_viewport);
     CHECK(behaviour.pipelines.empty());
-    // ---- the pipeline the pass holds is the DEPTH-ONLY one built at create time (LESS_OR_EQUAL + depth write), which
+    // ---- the pipeline the pass records with is the DEPTH-ONLY one built at create time (LESS_OR_EQUAL + depth write), which
     //      a device-free test can only assert through the gating: no pipeline -> not ready, refuse the frame ----
     CHECK(!merge.has_pipeline());
     CHECK(!merge.ready());

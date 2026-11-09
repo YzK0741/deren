@@ -28,8 +28,8 @@ set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE ON)
 #
 # WHY A separate TARGET: the runtime used to do this (it loaded deren_vulkan.dll, resolved the one
 # export and called it before its construction), so the APPLICATION could not answer which
-# backend, from where, with which search rules, or what a failure means - and the renderer held a
-# policy that is not its job. The module now sits between them:
+# backend, from where, with which search rules, or what a failure means - and the renderer had to make a
+# policy decision that is not its job. The module now sits between them:
 #
 #     auto core = deren::vulkan::load_api_core(core_options);   // deren.app.application (the app decides)
 #     deren::vulkan::runtime runtime{core, core_options};       // the renderer (given a root)

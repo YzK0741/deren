@@ -157,7 +157,7 @@ int main() {
             CHECK(bd::boundary_of(seamed, r->coarse.indices) == bd::boundary_of(seamed, seamed.indices));
         }
     }
-    // Two independent surfaces: a candidate must retain both components.
+    // Two independent surfaces: a candidate must keep both components.
     auto disconnected = source;
     for (auto p : source.positions) {
         p[0] += 2;

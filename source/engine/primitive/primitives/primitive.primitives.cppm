@@ -186,7 +186,7 @@ namespace deren::engine {
          *   z = specular ramp (`_SpecRampMap`), w = matcap (`_MatcapTex`)
          *
          * THE WHITE FALLBACK (element 0) IS THE "DO NOT READ" VALUE, and that is the whole contract rather than a
-         * convention: a lane holds a real index when the material has that map AND the artist's `_Use` flag is
+         * convention: a lane carries a real index when the material has that map AND the artist's `_Use` flag is
          * on, and element 0 otherwise. So the shader needs no separate enable word - `toon_indices.x != 0u` IS
          * "read the ramp" - and a ramp lookup against white (which would be a CONSTANT, not a no-op) cannot
          * happen by accident. THE SIDECAR KEEPS THE TWO REASONS APART for diagnosis; here they collapse because
@@ -220,7 +220,7 @@ namespace deren::engine {
     /**
      * @ingroup engine_primitive
      * @brief max motion slots of the scene's previous-transform buffer (set 0 binding 13), in mat4s
-     * @note Every draw holds at least one slot - an instanced draw holds one per instance - and the
+     * @note Every draw uses at least one slot - an instanced draw uses one per instance - and the
      *       slots are why the same capacity as the instance buffer is plenty: a scene of N leaves
      *       uses N, and only an instanced stress draw uses thousands.
      */
@@ -291,7 +291,7 @@ namespace deren::engine {
         uint32_t instance_base = 0;
         // Start of THIS draw's previous-frame world matrices in the scene block's motion buffer
         // (binding 13), where the vertex shader reads the matrix that turns into TAA's motion
-        // vector. Every draw holds at least one slot (an instanced draw holds one per instance), and
+        // vector. Every draw uses at least one slot (an instanced draw uses one per instance), and
         // the runtime advances them once per frame from the scene tree's world matrices - see
         // runtime::advance_motion_transforms(). The field sits in the 4 bytes std430 leaves between
         // instance_base and model, so the block stays 96 bytes and the pipeline layout is unchanged.
@@ -362,18 +362,18 @@ namespace deren::engine {
 
     /**
      * @ingroup engine_primitive
-     * @brief base class of every GPU primitive: holds geometry buffers + material push constants
+     * @brief base class of every GPU primitive: carries geometry buffers + material push constants
      *        and declares the draw strategy interface. Derived classes implement how the
      *        geometry is drawn (single draw, instanced grid, ...), so the runtime's frame loop
      *        stays a generic "for each primitive: primitive->draw()" — new strategies only add
      *        a subclass. Implements the scene tree's leaf concept (scene_tree::primitive).
      * @note
-     *      - holds only its geometry (contract buffers); textures live in the runtime's shared texture
+     *      - carries only its geometry (contract buffers); textures live in the runtime's shared texture
      *        array, and the descriptors that reach them are the runtime's (the frame's one heap,
-     *        bound once, holding this frame slot's scene block)
+     *        bound once, carrying this frame slot's scene block)
      *      - the runtime binds the pipeline and the scene block before calling draw()
-     *      - destroy() frees whatever the instance holds (contract buffers); call it before teardown
-     *      - a scene tree node holds one of these as its primitive_leaf and update_world() feeds
+     *      - destroy() frees the instance's contract buffers; call it before teardown
+     *      - a scene tree node names one of these as its primitive_leaf and update_world() feeds
      *        the accumulated world matrix straight into push.model (the push block layout is
      *        shared, so draw() keeps working unchanged)
      */
@@ -385,8 +385,8 @@ namespace deren::engine {
         uint64_t const lifetime_id = next_lifetime.fetch_add(1, std::memory_order_relaxed);
         ~primitive() override = default;
 
-        // Geometry views carry allocation leases. Production generations hold buffers and device;
-        // legacy assignments hold their transferred RHI reference. BLAS retains leases separately.
+        // Geometry views carry allocation handles. Production generations carry a device handle alongside
+        // their buffers; legacy assignments carry their transferred RHI handle. BLAS tracks its dependency handles separately.
         std::shared_ptr<void const> geometry_resources; // subchain drains after the views below release
         std::shared_ptr<subtilis::uploaded_geometry const> subtilis_geometry;
         std::shared_ptr<subtilis::imported_asset const> subtilis_import;
@@ -417,7 +417,7 @@ namespace deren::engine {
         /// where this primitive's run of meshlets starts in the GPU TABLE (docs/mesh_shaders.md step 3): the value
         /// the geometry lanes carry, so a task stage can turn "my meshlet workgroup" into a record index
         uint32_t meshlet_base = 0;
-        /// how many records the complete run holds; zero when the table cannot hold the entire run
+        /// how many records the complete run covers; zero when the table cannot fit the entire run
         uint32_t meshlet_count = 0;
         // Pipeline the primitive draws with. Empty = DEFAULT semantics: the primitive does not
         // care which pipeline records it, it asks the draw-time render_environment to bind that
@@ -495,7 +495,7 @@ namespace deren::engine {
         bool environment = false;
 
         /**
-         * WHICH SHADING STAGE HOLDS THIS LEAF (see `deren::engine::shading_path`).
+         * WHICH SHADING STAGE RENDERS THIS LEAF (see `deren::engine::shading_path`).
          *
          * Default `deferred`, i.e. the ordinary G-buffer + deferred-lighting path. The host sets `character` on the
          * leaves of a GameToon object and on the historic single-character path; the character-forward stage then
@@ -525,7 +525,7 @@ namespace deren::engine {
         bool ray_tracing_shadow = true;
         bool ray_tracing_reflection = true;
 
-        /// which GameToon character holds this leaf; copied into the high bits of `push.flags` at creation. See
+        /// which GameToon character this leaf is part of; copied into the high bits of `push.flags` at creation. See
         /// `primitive_create_info::character_index`.
         uint32_t character_index = 0u;
 
@@ -609,7 +609,7 @@ namespace deren::engine {
         }
 
         /**
-         * @brief store the world transform accumulated by the holding scene tree node
+         * @brief store the world transform accumulated by the scene tree node that contains the primitive
          * @param world the node's world matrix (parent_world * local)
          * @note the primitive's world transform lives in push.model, which draw() pushes as-is
          */
@@ -626,7 +626,7 @@ namespace deren::engine {
         virtual void draw(render_environment& env) const = 0;
         /// THE ALLOCATOR IS GONE FROM THIS HOOK (the boundary batch's import cleanup): it took a
         /// `vma_allocator&`, which was the ONLY reason this module imported `deren.vulkan.core` - and every
-        /// implementation already ignored it, because the geometry is held by CONTRACT handles
+        /// implementation already ignored it, because the geometry comes from CONTRACT handles
         /// (`rhi::unique_object<rhi::buffer>`) whose `reset()` is the whole of what this does. No caller
         /// anywhere passed one either. The hook itself now depends on no backend type.
         virtual void destroy() noexcept = 0;
@@ -679,7 +679,7 @@ namespace deren::engine {
     export class normal_draw_primitive final : public primitive {
     public:
         /// Creation-time binding only: caller must obey the existing idle-runtime
-        /// rule. Both buffer views lease the entire immutable CPU/GPU generation.
+        /// rule. Both buffer views point into the entire immutable CPU/GPU generation.
         bool bind_subtilis_geometry(std::shared_ptr<subtilis::uploaded_geometry const> generation) noexcept {
             if (!generation || this->vertex_buffer || this->index_buffer || this->geometry_resources || this->subtilis_geometry || this->draw_index_count || this->meshlet_count || !this->meshlets.empty()) {
                 return false;
@@ -705,8 +705,8 @@ namespace deren::engine {
      * @ingroup engine_primitive
      * @brief instanced primitive: draws the geometry of another primitive (source)
      *        instance_count times in ONE draw call; per-instance world transforms come from the
-     *        runtime's instance transform buffer (scene block slot 6, push flag bit0). Holds
-     *        nothing: geometry belongs to source, destroy() is a no-op, source must outlive it.
+     *        runtime's instance transform buffer (scene block slot 6, push flag bit0). Creates
+     *        nothing: the geometry comes from source, destroy() is a no-op, source must outlive it.
      */
     export class instanced_draw_primitive final : public primitive {
     public:
@@ -722,7 +722,7 @@ namespace deren::engine {
      * @ingroup engine_primitive
      * @brief one chunk of a static_draw: an index sub-range of the merged buffer plus the
      *        material this chunk draws with (each chunk may bind a different material, so one
-     *        merged buffer can hold many sub-meshes with distinct materials)
+     *        merged buffer can cover many sub-meshes with distinct materials)
      */
     export struct static_draw_chunk {
         uint32_t first_index = 0;   // first index of this chunk in the merged index buffer
@@ -762,10 +762,10 @@ namespace deren::engine {
 
     /**
      * @ingroup engine_primitive
-     * @brief static batch primitive: HOLDS one merged vertex/index buffer and draws a chunk
+     * @brief static batch primitive: CARRIES one merged vertex/index buffer and draws a chunk
      *        table over it — every chunk shares the single buffer bind, each chunk is one
      *        offset draw with its material (push.material_index). Self-contained: no
-     *        source primitive to outlive, destroy() releases the held buffers like a normal
+     *        source primitive to outlive, destroy() releases the merged buffers like a normal
      *        draw. This is the primitive-level form of a static scene: one buffer, one bind,
      *        N offset draws. Placement works like every other leaf: the node's local
      *        transform (set from static_draw_create_info::model_matrix by the static-draw builder)
@@ -777,7 +777,7 @@ namespace deren::engine {
      */
     export class static_draw_primitive final : public primitive {
     public:
-        // merged geometry: held the same way normal_draw holds its two buffers (see the note there)
+        // merged geometry: carried the same way normal_draw carries its two buffers (see the note there)
         deren::promise::rhi::unique_object<deren::promise::rhi::buffer> vertex_buffer = {};
         deren::promise::rhi::unique_object<deren::promise::rhi::buffer> index_buffer = {};
         deren::promise::rhi::index_type index_type = deren::promise::rhi::index_type::uint32;
@@ -823,7 +823,7 @@ namespace deren::engine {
         float scene_radius,
         float aspect);
 
-    /// Six RH 90-degree views (+X,-X,+Y,-Y,+Z,-Z), retaining Vulkan Y flip and normal winding.
+    /// Six RH 90-degree views (+X,-X,+Y,-Y,+Z,-Z), keeping the Vulkan Y flip and normal winding.
     /// Readback X must be mirrored for canonical cubemap pixels. Requires face<6, 0<near<far.
     export camera_ubo make_cube_capture_camera(glm::vec3 const& position, uint32_t face,
                                                float near_plane, float far_plane);
@@ -849,7 +849,7 @@ namespace deren::engine {
      * @param fast true for the SHIFT speed multiplier (4x)
      * @return the target's translation for this frame (world units; y is non-zero only while UP/DOWN
      *         is held)
-     * @note pure function: the runtime holds the time base (glfwGetTime) and the key state, so the
+     * @note pure function: the runtime supplies the time base (glfwGetTime) and the key state, so the
      *       arithmetic is unit-testable headlessly. Both axes are normalized together, so a diagonal
      *       press is not faster than a straight one, and no key held returns exactly zero (an idle
      *       frame never touches the camera).

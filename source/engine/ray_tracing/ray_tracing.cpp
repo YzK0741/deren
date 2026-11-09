@@ -1,4 +1,4 @@
-// THE STRUCTURE PHASE'S IMPLEMENTATION: see the header for why this is a value the renderer holds rather than a
+// THE STRUCTURE PHASE'S IMPLEMENTATION: see the header for why this is a value the renderer drives rather than a
 // pass. The two functions below are the ones that used to be `runtime::record_acceleration_structures` and
 // `runtime::record_top_level_structure`, moved with their reasoning; the only changes are that the knobs and the
 // two jobs arrive as `build_inputs` and that the failures are RETURNED rather than logged and swallowed, because
@@ -37,7 +37,7 @@ namespace deren::engine::ray_tracing {
         /// The pair every buffer this module builds a structure FROM carries: an address, and the
         /// acceleration-structure build-input capability (the renderer's `build_input_usage`).
         constexpr rhi::buffer_flags build_input_flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::acceleration_structure_input);
-        std::shared_ptr<pass::pass_chain> make_bake_storage(rhi::api_core& core, rhi::shared_object<rhi::api_core> const& lease, render_resource::resource_id id, uint64_t bytes) {
+        std::shared_ptr<pass::pass_chain> make_bake_storage(rhi::api_core& core, rhi::shared_object<rhi::api_core> const& access, render_resource::resource_id id, uint64_t bytes) {
             namespace managed = render_resource::instances;
             auto chain = std::make_shared<pass::pass_chain>();
             auto& provider = chain->emplace<pass::resource_storage_pass>();
@@ -47,10 +47,10 @@ namespace deren::engine::ray_tracing {
             request.life = managed::lifetime::scene;
             request.buffer = {.size = bytes, .usage = rhi::buffer_usage::storage_gpu_only, .flags = build_input_flags};
             provider.configure(std::span{&request, 1});
-            if (!lease) {
+            if (!access) {
                 return nullptr;
             }
-            auto root = lease;
+            auto root = access;
             auto const admit = [&](managed::resource_snapshot const& snapshot) {
                 auto generation = snapshot.find(id);
                 auto* buffer = generation && generation->objects.size() == 1 ? generation->objects[0].buffer.get() : nullptr;
@@ -64,9 +64,9 @@ namespace deren::engine::ray_tracing {
         // CALLER's geometry buffer must carry.
     } // namespace
 
-    structure_set::structure_set(rhi::api_core& face, rhi::shared_object<rhi::api_core> lease) noexcept
-        : contract(lease && lease.get() != &face ? nullptr : &face)
-        , device_lease(std::move(lease)) {
+    structure_set::structure_set(rhi::api_core& face, rhi::shared_object<rhi::api_core> access) noexcept
+        : contract(access && access.get() != &face ? nullptr : &face)
+        , device_root(std::move(access)) {
     }
 
     bool structure_set::attempted() const noexcept {
@@ -109,7 +109,7 @@ namespace deren::engine::ray_tracing {
     }
 
     void structure_set::release_micromaps() noexcept {
-        // THE OBJECTS RELEASE THEMSELVES NOW (plan S1's P4): each `micromap_resource` holds a contract holder, so
+        // THE OBJECTS RELEASE THEMSELVES NOW (plan S1's P4): each `micromap_resource` carries a contract handle, so
         // its destruction is the backend's `release()` - the structure, its storage, its scratch and the setup
         // buffers all go with it. What stood here was a `vkDestroyMicromapEXT` loop over an entry point this
         // module resolved itself.
@@ -153,7 +153,7 @@ namespace deren::engine::ray_tracing {
      * the packing) and the one the spec documents byte for byte: 4-byte offset, then 2-byte level, then 2-byte
      * format.
      *
-     * @param lease the holding device lease; null refuses the storage
+     * @param access the shared device handle; null refuses the storage
      * @param triangle_count the caster's triangles; 0 makes this a no-op that returns nothing
      * @return the resource, or nullopt when the device does not publish the entry points or an allocation fails
      */
@@ -163,9 +163,9 @@ namespace deren::engine::ray_tracing {
     // what makes the any-hit shader decide (see the note above) - and hands the contract's description to the
     // backend. The parts that used to be here and are NOT any more: the entry points, the 256-byte address
     // alignment, the three setup buffers and their mappings, the size queries, the storage and the scratch.
-    // The backend holds all of it, so a caller cannot get the alignment wrong and a second backend can lay the
+    // The backend creates and destroys all of it, so a caller cannot get the alignment wrong and a second backend can lay the
     // whole thing out differently.
-    std::optional<structure_set::micromap_resource> make_micromap(rhi::shared_object<rhi::api_core> const& lease, uint32_t const triangle_count) {
+    std::optional<structure_set::micromap_resource> make_micromap(rhi::shared_object<rhi::api_core> const& access, uint32_t const triangle_count) {
         if (triangle_count == 0 || triangle_count > UINT32_MAX / 4u) {
             return std::nullopt;
         }
@@ -203,10 +203,10 @@ namespace deren::engine::ray_tracing {
         out.resources = std::make_shared<pass::pass_chain>();
         auto& provider = out.resources->emplace<pass::resource_storage_pass>();
         provider.configure(std::span{&request, 1});
-        if (!lease) {
+        if (!access) {
             return std::nullopt;
         }
-        auto root = lease;
+        auto root = access;
         if (out.resources->prepare_resources(root, {}) != rhi::error::ok) {
             return std::nullopt;
         }
@@ -256,7 +256,7 @@ namespace deren::engine::ray_tracing {
         // it applies to the baked, the skinned and the plain case alike. That is also why the micromap is built
         // from the CASTER's triangle count rather than from either of those buffers' vertex count.
         if (micromap != nullptr) {
-            // ONE HANDLE (plan S1's P4): the micromap holds its usage record and the index array the traversal
+            // ONE HANDLE (plan S1's P4): the micromap carries its usage record and the index array the traversal
             // reads, so the four fields this used to copy across - an address, a stride, an index type and a
             // usage record - are gone from the contract and from this line.
             source.opacity_micromap = micromap->handle.get();
@@ -266,10 +266,10 @@ namespace deren::engine::ray_tracing {
 
     std::expected<void, failure> structure_set::build(rhi::command_buffer& commands, build_inputs const& inputs) {
         if (!this->contract) {
-            return std::unexpected(failure{.message = "Ray tracing device lease belongs to another core"});
+            return std::unexpected(failure{.message = "Ray tracing device handle was created for another core"});
         }
-        if (!this->device_lease) {
-            return std::unexpected(failure{.message = "Ray tracing requires a holding device lease"});
+        if (!this->device_root) {
+            return std::unexpected(failure{.message = "Ray tracing requires a shared device handle"});
         }
         // BUILT ONCE, SUCCESS OR FAILURE: a device that refused the build is not asked again, and no log repeats.
         if (this->build_attempted) {
@@ -278,12 +278,12 @@ namespace deren::engine::ray_tracing {
         this->build_attempted = true;
 
         rhi::api_core& vk = *this->contract;
-        // Builds, barriers and bake callbacks share the caller-held contract buffer.
+        // Builds, barriers and bake callbacks share the contract buffer supplied by the caller.
         auto const start = std::chrono::steady_clock::now();
-        this->bottom.emplace(vk, this->device_lease);
+        this->bottom.emplace(vk, this->device_root);
         // The top level structure is per FRAME SLOT (see its class docs): with frames in flight one buffer would
         // be rewritten by the frame being recorded while the previous one still reads it.
-        this->top_level.emplace(vk, deren::promise::rhi::max_frames_in_flight, this->device_lease);
+        this->top_level.emplace(vk, deren::promise::rhi::max_frames_in_flight, this->device_root);
         auto& structures = *this->bottom;
 
         uint32_t skipped_no_address = 0;
@@ -307,11 +307,11 @@ namespace deren::engine::ray_tracing {
             if (caster == nullptr) {
                 continue;
             }
-            if (auto lease = caster->vertex_buffer.lease()) {
-                dependencies.push_back(std::move(lease));
+            if (auto access = caster->vertex_buffer.access()) {
+                dependencies.push_back(std::move(access));
             }
-            if (auto lease = caster->index_buffer.lease()) {
-                dependencies.push_back(std::move(lease));
+            if (auto access = caster->index_buffer.access()) {
+                dependencies.push_back(std::move(access));
             }
             if (!caster->vertex_buffer || !caster->index_buffer) {
                 ++skipped_no_address;
@@ -372,7 +372,7 @@ namespace deren::engine::ray_tracing {
                 uint32_t const material_index = caster->push.material_index.value;
                 material_record const* const material = material_index < inputs.materials.size() ? &inputs.materials[material_index] : nullptr;
                 if (material != nullptr && (material->flags & 16u) != 0u) {
-                    if (auto resource = make_micromap(this->device_lease, caster->draw_index_count / 3u); resource.has_value()) {
+                    if (auto resource = make_micromap(this->device_root, caster->draw_index_count / 3u); resource.has_value()) {
                         dependencies.push_back(resource->resources->resources().snapshot().find(render_resource::resource_id::rt_opacity_micromap));
                         micromap_triangles += resource->triangle_count;
                         micromap_index = static_cast<uint32_t>(this->micromap_resources.size());
@@ -396,7 +396,7 @@ namespace deren::engine::ray_tracing {
                     // the build reads it.
                     constexpr uint32_t mask_vertex_stride = 32u;
                     uint64_t const expanded_bytes = static_cast<uint64_t>(caster->draw_index_count) * mask_vertex_stride;
-                    auto expanded = make_bake_storage(vk, this->device_lease, render_resource::resource_id::rt_mask_vertices, expanded_bytes);
+                    auto expanded = make_bake_storage(vk, this->device_root, render_resource::resource_id::rt_mask_vertices, expanded_bytes);
                     // The factory answering non-null IS the old "the allocator has a detail record" test:
                     // `create_buffer()` only returns an object after the allocation succeeded, and it is the
                     // contract's way of saying the descriptor was honoured.
@@ -444,7 +444,7 @@ namespace deren::engine::ray_tracing {
                 caster->push.skin_base != 0 && caster->vertex_count != 0 && caster->vertex_stride == skin_source_stride_expected) {
                 constexpr uint32_t skin_vertex_stride = 32u; // position, normal, uv - what hit shading reads
                 uint64_t const skinned_bytes = static_cast<uint64_t>(caster->vertex_count) * skin_vertex_stride;
-                auto skinned_vertices = make_bake_storage(vk, this->device_lease, render_resource::resource_id::rt_skin_vertices, skinned_bytes);
+                auto skinned_vertices = make_bake_storage(vk, this->device_root, render_resource::resource_id::rt_skin_vertices, skinned_bytes);
                 if (skinned_vertices) {
                     auto generation = skinned_vertices->resources().snapshot().find(render_resource::resource_id::rt_skin_vertices);
                     skin_address = buffer_address_of(vk, *generation->objects[0].buffer);
@@ -622,7 +622,7 @@ namespace deren::engine::ray_tracing {
             return {}; // nothing was built (or the build failed): there is nothing to refit or to instance
         }
         rhi::api_core& vk = *this->contract;
-        // Builds, barriers and bake callbacks share the caller-held contract buffer.
+        // Builds, barriers and bake callbacks share the contract buffer supplied by the caller.
         auto& levels = *this->bottom;
         auto& top = *this->top_level;
 

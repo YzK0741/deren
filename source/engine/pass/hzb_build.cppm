@@ -50,7 +50,7 @@ export namespace deren::engine::pass {
      * there as `hzb_magic`.
      *
      * @note THIS PAIR BELONGS IN `deren.engine.visibility.hzb` ONCE PHASE B GIVES THE HEADER A READER: the cull
-     *       pass will need the same constants, and `hzb.cppm` is the module that holds "the layout the host and
+     *       pass will need the same constants, and `hzb.cppm` is the module that defines "the layout the host and
      *       the shaders share". It is here for phase A because that module is the CPU test's reference and this
      *       slice must not edit it (task-4 scope); the readback probe's metadata check is what pins the two
      *       spellings until then (scripts/measure/hzb_verify.py refuses a header whose magic/extent disagree).
@@ -69,7 +69,7 @@ export namespace deren::engine::pass {
 
         [[nodiscard]] render_resource::pass_io const& io() const noexcept override {
             // NO BINDINGS, NO TARGETS, NO DECLARED PUSH BLOCK: every resource travels through the frame's heap (the
-            // per-image depth, the two HZB tables, the camera) and the graph's declaration holds the ordering. The
+            // per-image depth, the two HZB tables, the camera) and the graph's declaration carries the ordering. The
             // push block is composed per dispatch at record time (one `level` lane plus the framework's two heap
             // index lanes) - the same empty-declaration shape the visibility resolve records with.
             static constinit render_resource::pass_io const value{.name = "hzb build"};
@@ -113,9 +113,9 @@ export namespace deren::engine::pass {
 
         /**
          * @brief hand the pass the LEVELS buffer the inter-level barriers are recorded on
-         * @param levels the runtime-held HZB pyramid buffer, or null when this frame has none (the pass then
+         * @param levels the HZB pyramid buffer the runtime creates and destroys, or null when this frame has none (the pass then
          *        refuses to record rather than recording an unordered sequence of dispatches)
-         * @note the buffer itself lives in the RUNTIME (spec §5.2's runtime-held fallback), because its lane
+         * @note the buffer itself lives in the RUNTIME (spec §5.2's fallback that lives there), because its lane
          *       stride depends on the render extent and the resource manager's scene tables do not fit a
          *       GPU-only, extent-dependent table (see runtime::ensure_hzb_resources's note). The pass references the
          *       handle for exactly one pass's recording.

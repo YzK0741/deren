@@ -50,15 +50,15 @@
 
 //
 
-// IT SUBMITS THE WORK ITSELF, and that is deliberate: the engine's frame holds the frame's command buffer,
+// IT SUBMITS THE WORK ITSELF, and that is deliberate: the engine's frame creates and submits the frame's command buffer,
 
 // so an instrument that went through the frame loop would be measuring the frame loop too. The probe creates
 
-// a CALLER-HELD contract command buffer, records the structures into it, and submits it with a fence through
+// a contract command buffer the CALLER creates, records the structures into it, and submits it with a fence through
 
 // the escape - which also makes this file the measured evidence for plan X4's second item (the contract has
 
-// no submit verb for a buffer the CALLER holds; the probes in runtime.probes.cppm do the same raw submit).
+// no submit verb for a buffer the CALLER creates; the probes in runtime.probes.cppm do the same raw submit).
 
 //
 
@@ -175,7 +175,7 @@ namespace {
 
         } else {
 
-            CHECK_MSG(false, "Micromaps must be held by a managed resource subchain");
+            CHECK_MSG(false, "Micromaps must be registered in a managed resource subchain");
         }
     }
 
@@ -306,13 +306,13 @@ namespace {
 
     template <typename Buffer>
 
-    void check_geometry_lease(Buffer& buffer) {
+    void check_geometry_access(Buffer& buffer) {
 
-        if constexpr (requires { buffer.lease(); }) {
+        if constexpr (requires { buffer.access(); }) {
 
-            auto parent = buffer.lease();
+            auto parent = buffer.access();
 
-            std::weak_ptr<void const> retained = parent;
+            std::weak_ptr<void const> tracked = parent;
 
             auto* raw = buffer.get();
 
@@ -320,15 +320,15 @@ namespace {
 
             buffer.reset();
 
-            CHECK(!buffer && !retained.expired());
+            CHECK(!buffer && !tracked.expired());
 
             parent.reset();
 
-            CHECK(retained.expired());
+            CHECK(tracked.expired());
 
         } else {
 
-            CHECK_MSG(false, "Imported geometry must expose a retained retention lease");
+            CHECK_MSG(false, "Imported geometry must expose a `access()` so the device outlives the geometry");
         }
     }
 
@@ -366,7 +366,7 @@ namespace {
 
         } else {
 
-            CHECK_MSG(false, "BLAS creation must be described and held by a passchain");
+            CHECK_MSG(false, "BLAS creation must be described to and registered with a passchain");
         }
     }
 
@@ -451,13 +451,13 @@ namespace {
 
         CHECK(top.record_build(commands) && top.structure(0));
 
-        auto retained = top.resources(0);
+        auto tracked = top.resources(0);
 
         CHECK(top.begin(0));
 
         CHECK(top.record_build(commands) && top.structure(0) == nullptr);
 
-        CHECK(top.resources(0).same(retained)); // Empty traversal must not free the reusable allocation.
+        CHECK(top.resources(0).same(tracked)); // Empty traversal must not free the reusable allocation.
 
         CHECK(top.add(levels, instance));
 
@@ -479,7 +479,7 @@ namespace {
         CHECK(top.record_build(commands) && top.structure(0));
     }
 
-    void test_top_lease() {
+    void test_top_root() {
 
         namespace as = deren::engine::acceleration_structure;
 
@@ -501,7 +501,7 @@ namespace {
 
         CHECK(storage.size() == 2 && top->resources(0).size() == 0);
 
-        levels.reset(); // The legacy BLAS parent releases while its external core is still alive.
+        levels.reset(); // The legacy BLAS parent releases while its external core is still valid.
 
         top.reset();
 
@@ -514,7 +514,7 @@ namespace {
         CHECK(root.expired());
     }
 
-    void test_bottom_lease() {
+    void test_bottom_root() {
 
         namespace as = deren::engine::acceleration_structure;
 
@@ -528,7 +528,7 @@ namespace {
 
         std::weak_ptr<int const> dependent = dependency;
 
-        deren::utility::vessel::array<std::shared_ptr<void const>, 1> leases{dependency};
+        deren::utility::vessel::array<std::shared_ptr<void const>, 1> accesses{dependency};
 
         auto levels = std::make_unique<as::bottom_level_structures>(*device, device);
 
@@ -538,7 +538,7 @@ namespace {
 
         as::geometry_source source{.vertex_address = 4096, .vertex_stride = 12, .vertex_count = 3};
 
-        CHECK(levels->add(source, true, leases) == 1);
+        CHECK(levels->add(source, true, accesses) == 1);
 
         auto storage = levels->resources(1);
 
@@ -567,7 +567,7 @@ namespace {
 
         entry.reset();
 
-        leases = {};
+        accesses = {};
 
         dependency.reset();
 
@@ -586,7 +586,7 @@ namespace {
 
         managed_core device;
 
-        auto lease = rhi::shared_object<rhi::api_core>{std::shared_ptr<managed_core>(&device, [](managed_core*) {})};
+        auto access = rhi::shared_object<rhi::api_core>{std::shared_ptr<managed_core>(&device, [](managed_core*) {})};
 
         struct probe_caster : deren::engine::primitive {
 
@@ -637,7 +637,7 @@ namespace {
 
         device.fail_structure_at = 1;
 
-        deren::engine::ray_tracing::structure_set phase{device, lease};
+        deren::engine::ray_tracing::structure_set phase{device, access};
 
         CHECK(!phase.build(commands, inputs));
 
@@ -649,13 +649,13 @@ namespace {
 
         inputs.casters = two;
 
-        deren::engine::ray_tracing::structure_set later{device, lease};
+        deren::engine::ray_tracing::structure_set later{device, access};
 
         CHECK(!later.build(commands, inputs) && recorded == 0);
 
         device.fail_structure_at = 0;
 
-        deren::engine::ray_tracing::structure_set success{device, lease};
+        deren::engine::ray_tracing::structure_set success{device, access};
 
         CHECK(success.build(commands, inputs) && success.ready() && recorded == 2);
 
@@ -694,7 +694,7 @@ namespace {
 
         } refused_mm;
 
-        deren::engine::ray_tracing::structure_set failed_mm{device, lease};
+        deren::engine::ray_tracing::structure_set failed_mm{device, access};
 
         CHECK(!failed_mm.build(refused_mm, inputs) && !failed_mm.ready() && refused_mm.builds == 0);
 
@@ -704,7 +704,7 @@ namespace {
 
         refused_mm.builds = 0;
 
-        deren::engine::ray_tracing::structure_set failed_barrier{device, lease};
+        deren::engine::ray_tracing::structure_set failed_barrier{device, access};
 
         CHECK(!failed_barrier.build(refused_mm, inputs) && !failed_barrier.ready() && refused_mm.builds == 0);
 
@@ -721,7 +721,7 @@ namespace {
 
         auto released = device.structure_releases;
 
-        deren::engine::ray_tracing::structure_set recording_failure{device, lease};
+        deren::engine::ray_tracing::structure_set recording_failure{device, access};
 
         CHECK(!recording_failure.build(refused, inputs) && !recording_failure.ready());
 
@@ -739,7 +739,7 @@ namespace {
 
         inputs.hooks.record_skin = [](void*, rhi::command_buffer&, std::span<deren::engine::ray_tracing::caster_level const>) { return true; };
 
-        deren::engine::ray_tracing::structure_set skinned{device, lease};
+        deren::engine::ray_tracing::structure_set skinned{device, access};
 
         CHECK(skinned.build(commands, inputs) && skinned.ready());
 
@@ -755,7 +755,7 @@ namespace {
 
         CHECK(!failed_update && failed_update.error().disable_skin_bake && skinned.handle(0) == nullptr);
 
-        deren::engine::ray_tracing::structure_set skin_failure{device, lease};
+        deren::engine::ray_tracing::structure_set skin_failure{device, access};
 
         auto failed_skin = skin_failure.build(commands, inputs);
 
@@ -881,15 +881,15 @@ namespace {
 
         auto levels = std::make_unique<as::bottom_level_structures>(*device, device);
 
-        deren::utility::vessel::array<std::shared_ptr<void const>, 1> leases{leaf.vertex_buffer.lease()};
+        deren::utility::vessel::array<std::shared_ptr<void const>, 1> accesses{leaf.vertex_buffer.access()};
 
-        CHECK(levels->add({.vertex_address = 4096, .vertex_stride = 32, .vertex_count = 3}, false, leases));
+        CHECK(levels->add({.vertex_address = 4096, .vertex_stride = 32, .vertex_count = 3}, false, accesses));
 
-        auto retained = levels->resources(0);
+        auto tracked = levels->resources(0);
 
         leaf.destroy();
 
-        leases = {};
+        accesses = {};
 
         generation.reset();
 
@@ -901,7 +901,7 @@ namespace {
 
         CHECK(!geometry.expired() && !root.expired());
 
-        retained = {};
+        tracked = {};
 
         CHECK(geometry.expired() && root.expired());
     }
@@ -1069,9 +1069,9 @@ int main(int const argc, char** const argv) {
 
     test_top_growth();
 
-    test_top_lease();
+    test_top_root();
 
-    test_bottom_lease();
+    test_bottom_root();
 
     test_mask_allocation_failure();
 
@@ -1091,7 +1091,7 @@ int main(int const argc, char** const argv) {
 
         leaf.vertex_buffer = rhi::unique_object<rhi::buffer>{device.resources->create_buffer({.size = 96})};
 
-        check_geometry_lease(leaf.vertex_buffer);
+        check_geometry_access(leaf.vertex_buffer);
     }
 
     deren::vk_test::write_line("as_probe: this executable compiled abi {}", rhi::abi_version);
@@ -1230,7 +1230,7 @@ int main(int const argc, char** const argv) {
 
     CHECK(source.index_address != 0u);
 
-    // ---- 3. THE COMMAND BUFFER THE PROBE HOLDS (see the header): the contract made it, the escape turns it
+    // ---- 3. THE COMMAND BUFFER THE PROBE CREATES (see the header): the contract made it, the escape turns it
 
     //         into the native handle the module's recording takes, and the probe submits it itself.
 
@@ -1251,7 +1251,7 @@ int main(int const argc, char** const argv) {
 
     //
 
-    //         THE BACKEND HOLDS EVERYTHING THE CALLER DOES NOT SEE (the storage, the scratch, the alignment,
+    //         THE BACKEND PROVIDES EVERYTHING THE CALLER DOES NOT SEE (the storage, the scratch, the alignment,
 
     //         the sizes), which is why this section has no size query, no buffer and no offset in it: that is
 
@@ -1623,7 +1623,7 @@ int main(int const argc, char** const argv) {
 
     CHECK(commands->end_recording() == rhi::error::ok);
 
-    // ---- 6. THE SUBMISSION, THROUGH THE CONTRACT (abi 42): the held primary's submit verb, then a wait.
+    // ---- 6. THE SUBMISSION, THROUGH THE CONTRACT (abi 42): the primary command buffer's submit verb, then a wait.
 
     {
 

@@ -29,7 +29,7 @@ namespace deren::vulkan::pipeline {
      */
     export uint32_t format_size(VkFormat format);
 
-    // Holds the complete info for a single descriptor set layout
+    // Concrete data for a single descriptor set layout
     /**
      * @ingroup vulkan_spirv_parser
      * @brief full information of a single descriptor set layout

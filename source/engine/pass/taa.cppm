@@ -6,15 +6,15 @@
  * @defgroup engine_pass_taa Temporal Anti-Aliasing Pass
  *
  * WHY THIS PASS IS THE INTERESTING ONE: a compute pass proved the shape first, and this one
- * proves it for the other half of the frame. A fullscreen pass holds a render TARGET (an attachment is not a
+ * proves it for the other half of the frame. A fullscreen pass declares a render TARGET (an attachment is not a
  * descriptor: it is declared as a `render_target` and bound by a rendering instance), it opens that instance
  * itself (the load op is its knowledge, not the record step's), and the two things it must not be able to forget -
  * the pipeline being bound and the viewport being set - are done FOR it by the record step before `record`.
  *
- * WHAT IT HOLDS: its pipeline, its push block's SHAPE, and the two pieces of state that say what
- * its history holds: whether each image has one, and whether the last resolve wrote it.
+ * WHAT IT BUILDS: its pipeline, its push block's SHAPE, and the two pieces of state that say which
+ * image has a history: whether each image has one, and whether the last resolve wrote it.
  *
- * WHAT IT DELIBERATELY DOES NOT hold, and this is the second discovery this extraction produced: TWO LINES OF
+ * WHAT IT DELIBERATELY DOES NOT record, and this is the second discovery this extraction produced: TWO LINES OF
  * its SEQUENCE BELONG TO OTHER PASSES. The resolve transitions the G-buffer depth (a transition the
  * G-buffer pass's per-image flag decides) and clears the flag that says the motion vectors have been handed
  * to a fragment sampler (which stops a later pass from transitioning them again). Both are shared per-image
@@ -24,7 +24,7 @@
  *
  * THE GENERATION RESET is the one piece of this pass that is not a straight move, and it is small now: the
  * record step calls `on_swapchain_recreated` for every pass in a stage, and what this pass has to forget is which
- * images hold a history - the images of the old generation are gone.
+ * images have a history - the images of the old generation are gone.
  */
 
 module;
@@ -91,7 +91,7 @@ export namespace deren::engine::pass {
         /// as an attachment and the history copy READS it as a transfer source, and the render graph's model
         /// allows one access per resource per pass. The migration therefore records two graph passes from this
         /// one pass object - the resolve through THIS entry and the history copy through `record_copy` - and the
-        /// graph emits both the attachment transitions and the transfer round trip the removed legacy path held here.
+        /// graph emits both the attachment transitions and the transfer round trip the removed legacy path recorded here.
         deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
         /// @brief the history copy alone, with none of this pass's ordering
         void record(resolved_io const& io);
@@ -99,7 +99,7 @@ export namespace deren::engine::pass {
 
         /// @brief whether the pass built everything it records with (the renderer gates the feature on this)
         [[nodiscard]] bool pipeline_ready() const noexcept;
-        /// @brief the framework's generic form of the same question, so a holder holding only a chain can ask it
+        /// @brief the framework's generic form of the same question, so a caller that has only a chain can ask it
         ///        (a pass with nothing separate to build keeps the interface's `true`; see `frame_pass::ready`)
         [[nodiscard]] bool ready() const noexcept override {
             return this->pipeline_ready();
@@ -159,7 +159,7 @@ export namespace deren::engine::pass {
         std::optional<pipelines::pipeline_handle> pass_pipeline = std::nullopt;
         // called valid_history, not history_valid: the local named history_valid in taa.cpp would hide a member of that name
         // and MSVC /W4 reports C4458 (an error under /WX).
-        /// one flag per swapchain image: whether that image's history holds a resolved frame
+        /// one flag per swapchain image: whether that image's history has a resolved frame
         deren::utility::vessel::vector<bool> valid_history = {};
         // called history_written, not wrote_history: the class declares wrote_history() and a member of
         // that name would duplicate it and hide the override.

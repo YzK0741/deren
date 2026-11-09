@@ -22,17 +22,17 @@ implementation details, measured results and the limits of each feature.
   graphics backend today. See \ref md_docs_2dynamic__runtime "The dynamic API", and the normative
   [RHI API standard](rhi_api_standard.md) for every interface/virtual clause.
 - **Core facets.** The Vulkan backend's `core` is split into frame, command, resource and device
-  facets; each facet holds its state and implementation unit, while `core` forwards the public RHI
-  entry points. See \ref md_docs_2core__facets "Core facets" for the retention map and the folder
+  facets; each facet keeps its state and implementation unit, while `core` forwards the public RHI
+  entry points. See \ref md_docs_2core__facets "Core facets" for the state map and the folder
   layout.
-- **Gaussian splatting.** Trained PLY clouds retain their anisotropic shape, opacity and
+- **Gaussian splatting.** Trained PLY clouds preserve their anisotropic shape, opacity and
   view-dependent spherical-harmonic color. GPU preparation, VRDX stable sorting, cached
   projection/color and indirect draws accelerate the frame; a CPU reference path supports
   comparison and fallback. See \ref md_docs_2gaussian__splatting "Gaussian splatting" for
   setup, validation and measured costs. These trained colors are separate from mesh PBR lighting.
 - **Per-object rendering paths.** A `[[scene.objects]]` entry selects `default`, `pbr`, `unlit`,
   `game_toon` or `gaussian`; one frame can mix deferred meshes, GameToon characters and multiple
-  Gaussian clouds within sixteen entries (and at most sixteen GameToon characters). The holding stage
+  Gaussian clouds within sixteen entries (and at most sixteen GameToon characters). The hosting stage
   still chooses the pipeline, so the frame keeps one G-buffer, one character stage and one splat
   stage. See \ref md_docs_2multi__pipeline__objects "Multi-pipeline objects" for a complete
   mixed-scene TOML example and the v1 boundaries.
@@ -120,7 +120,7 @@ implementation details, measured results and the limits of each feature.
 - **Reproducible image and performance checks.** Frozen poses and reference captures,
   CPU/GPU Gaussian comparisons, synchronization validation, resize stress runs and per-pass
   GPU timings make visual changes and costs reviewable. Boundary checks also verify the
-  separation between engine and backend. Measurements in this manual retain their device,
+  separation between engine and backend. Measurements in this manual keep their device,
   workload and limitations; see \ref md_docs_2gaussian__splatting "Gaussian splatting"
   for a worked acceptance example.
 
@@ -130,7 +130,7 @@ reference half of this PDF (module / topic / class / file documentation) is mech
 API surface, not the reasoning. The reasoning is in the pages below.
 
 The project was named `vulkan_render` until 2026-10-02. Portable modules and namespaces
-now use `deren.engine.*` and `deren::engine`; native Vulkan implementations retain
+now use `deren.engine.*` and `deren::engine`; native Vulkan implementations keep
 `deren.vulkan.*` and `deren::vulkan`. Project code is under `source/`, with the engine
 in `source/engine/`, backend implementation in `source/backends/vulkan/`, and contracts
 in `source/promise/`. `ENABLE_VULKAN_RENDERDOC_CAPTURE` is RenderDoc's variable.
@@ -151,11 +151,11 @@ finally the migration history.
 | 6 | \subpage md_docs_2multi__pipeline__objects "Multi-pipeline objects" | Per-object `pipeline` selection, a complete mixed-scene TOML example, validation rules and the v1 boundaries. |
 | 7 | \subpage md_docs_2environment__lighting "Environment lighting" | HDR presets, live rotation/strength, backgrounds and tone-mapping comparisons. |
 | 8 | \subpage md_docs_2rt__reflections "Ray-traced reflections" | The opt-in reflection pass: keys, traced rays, denoiser, limitations and validation. |
-| 9 | \subpage md_docs_2core__facets "Core facets" | The frame/command/resource/device split behind the Vulkan core, its state retention and folder layout. |
+| 9 | \subpage md_docs_2core__facets "Core facets" | The frame/command/resource/device split behind the Vulkan core, its state layout and folder layout. |
 | 10 | \subpage md_docs_2mesh__shaders "Mesh shaders" | The mesh-shader geometry path: what it replaced, what it measured. |
 | 11 | \subpage md_docs_2visibility__buffer "The visibility buffer lane" | An experimental opaque producer: packed id raster plus a compute resolve, its gate and its measured limits. |
 | 12 | \subpage md_docs_2subtilis "subtilis (hierarchical cluster LOD)" | The static opaque cluster-LOD lane: asset builder, explicit upload, CPU screen-error cut, measured gains, fallbacks and open milestones. |
-| 13 | \subpage md_docs_2amnis "amnis texture residency" | The opt-in texture-residency feature: visibility and screen-footprint demand, whole-image/two-tier/progressive streaming, immutable source retention, and measured CPU/memory limits. |
+| 13 | \subpage md_docs_2amnis "amnis texture residency" | The opt-in texture-residency feature: visibility and screen-footprint demand, whole-image/two-tier/progressive streaming, immutable source sharing, and measured CPU/memory limits. |
 | 14 | \subpage md_docs_2deformation__motion__vectors "Deformation motion vectors" | Why a deforming mesh needs more than a camera motion vector, and what was stored. |
 | 15 | \subpage md_docs_2gltf__loader__usage "glTF loader usage" | Loading models, animations, skins, morph targets and punctual lights. |
 | 16 | \subpage md_docs_2gaussian__loader "Gaussian PLY loader" | Trained PLY conventions, validation, limits and loading diagnostics. |
@@ -198,17 +198,17 @@ One contract, and every graphics backend is an implementation of it.
 
 - **The contract** is the module `deren.promise.rhi` (`source/promise/rhi/`): the `api_core` virtual
   surface - create and release objects, record commands, walk frames, report abilities - plus the
-  creation parameters (`create_info`). RETENTION IS THE CONTRACT'S: the `create_*` factories and
-  `image::make_view()` return `rhi::unique_object<T>` (one reference, move-only RAII whose destructor
-  calls `release()`), while a handle more than one holder may hold is `rhi::shared_object<T>` (one
-  control block whose last copy releases the one factory reference, a top-level `weak_object<T>`
-  observer, and an aliasing constructor for an engine holder keeping a non-holding RHI pointer alive) -
+  creation parameters (`create_info`). LIFETIME IS THE CONTRACT'S: the `create_*` factories and
+  `image::make_view()` return `rhi::unique_object<T>` (move-only RAII whose destructor
+  calls `release()`), while a handle more than one party may copy is `rhi::shared_object<T>` (one
+  control block whose last copy ends the factory's lifetime, a top-level `weak_object<T>`
+  observer, and an aliasing constructor for an engine wrapper that keeps a plain RHI pointer valid) -
   `std::shared_ptr` no longer manages an RHI handle. Both sides of the boundary compile the SAME
   interface unit, so the two compilations cannot drift.
 - **The C ABI is one symbol.** `source/promise/rhi/backend_entry.hpp` declares the single `extern "C"` entry
   the host resolves, `deren_make_api_core`. Its first argument is `rhi::abi_version` (61 today), so a
   mismatched backend is refused BEFORE an object exists, with the backend's number in the returned
-  error; it returns a holding `rhi::shared_object<api_core>` (the contract's shared container), so there
+  error; it returns a shared `rhi::shared_object<api_core>` (the contract's shared container), so there
   is no second destroy entry.
 - **Capabilities are queried, not assumed.** `abilities()` says what the device can do and
   `query_extension<T>()` hands out the optional interfaces - the descriptor heap, host
@@ -264,7 +264,7 @@ you are free to recombine or rewire them.
 - `deren.engine.render_environment` - per-recording-session render state: the session's command
   buffer, the available named pipelines (pointer to the runtime's stable name table), the
   session's default pipeline and a deduplicated binder (std::function, injected by the
-  runtime) that primitives call through draw(render_environment&). Holds no Vulkan module
+  runtime) that primitives call through draw(render_environment&). Has no Vulkan module
   dependency.
 - `deren.engine.animation` - animation::controller: glTF keyframe playback / skinning / morphs on
   the runtime scene tree (heavy animations fan per-source sampling over a small
@@ -370,5 +370,5 @@ both stored, so a skinned or morphed vertex reprojects where it actually was - s
 \ref md_docs_2deformation__motion__vectors "Deformation motion vectors" for the design,
 the measurements and the two half-steps it was built in.
 
-Resource retention and dynamic pass requirements are described in \ref managed_resources; the
+Resource lifetime and dynamic pass requirements are described in \ref managed_resources; the
 [pass inventory](render_resource_inventory.md) lists the current GPU access methods.

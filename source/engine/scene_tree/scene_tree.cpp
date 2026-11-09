@@ -20,7 +20,7 @@ namespace deren::engine::scene_tree {
         }
     }
 
-    // DFS pre-order over every root of the scene: the iterator holds an explicit stack of
+    // DFS pre-order over every root of the scene: the iterator keeps an explicit stack of
     // {node, depth} frames; ++ pops the visited node and pushes its children (reversed so the
     // first child is visited next). Only valid while the tree structure is frozen (see
     // scene_iterator in scene_tree.cppm): no make/import/clear / child-vector pushes while
@@ -64,8 +64,8 @@ namespace deren::engine::scene_tree {
         for (scene_node const& child : this->children) {
             copy.children.push_back(child.clone());
         }
-        // primitive leaves are intentionally NOT cloned: their retention is
-        // external (the runtime registers them once); copy preserves null
+        // primitive leaves are intentionally NOT cloned: the runtime creates and registers them
+        // once; a copy keeps the null leaf
         return copy;
     }
 

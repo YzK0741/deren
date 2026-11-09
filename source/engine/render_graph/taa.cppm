@@ -6,7 +6,7 @@ export import deren.engine.render_graph;
 export namespace deren::engine::render_graph::taa {
     /// The temporal resolve's declarations, split into the TWO graph passes the model forces.
     ///
-    /// One pass cannot hold both halves: the resolve writes the HDR target as a colour attachment and the
+    /// One pass cannot cover both halves: the resolve writes the HDR target as a colour attachment and the
     /// history copy then reads that same image as a transfer source, which is two accesses to one resource
     /// with different scopes - the graph refuses that as `conflicting_access`. The pass object still records
     /// both halves (`taa_pass::record_content` and `taa_pass::record_copy`); the graph just sees two passes.
@@ -47,7 +47,7 @@ export namespace deren::engine::render_graph::taa {
         return resolve_outputs{in.target, *added};
     }
     /// The history copy: the HDR target out through a transfer read, the history image written through a
-    /// transfer write. Its pass because the resolve already holds another access to the target.
+    /// transfer write. Its pass because the resolve already declares another access to the target.
     struct copy_inputs {
         texture_ref source;  // the HDR target the resolve wrote
         texture_ref history; // the history image; written wholesale by the copy

@@ -133,7 +133,7 @@ int main(int argc, char** argv) {
             allocation = std::unexpected(rhi::error::not_ready);
             target = {};
             no_flags = std::unexpected(rhi::error::not_ready);
-            cluster.reset(); // submitted work is now retained by the service/ticket.
+            cluster.reset(); // the ticket releases the submitted work when it completes.
             gate.release();
             CHECK(submitted->wait(2000000000) == rhi::error::ok);
             auto result = submitted->readback(0);
@@ -148,16 +148,16 @@ int main(int argc, char** argv) {
         gate.release();
     }
     CHECK(!service.submit(service.make_batch()));
-    // A forged lease core does not replace the backend's actual provenance check.
+    // A fabricated backend handle does not replace the actual provenance check.
     auto other = engine::load_api_core(desc);
     CHECK(other);
     if (other) {
         auto buffer = other->resources->create_buffer({.size = 16, .flags = rhi::to_bits(rhi::buffer_flag::transfer_destination)});
-        auto forged = engine::resource_lease<rhi::buffer>::from_shared(core, rhi::shared_object<rhi::buffer>(std::move(buffer)));
+        auto forged = engine::resource_handle<rhi::buffer>::from_shared(core, rhi::shared_object<rhi::buffer>(std::move(buffer)));
         auto rejected = service.make_batch();
         CHECK(rejected.upload(forged, 0, bytes, {}, transfer_read) == rhi::error::invalid_argument);
     }
-    // Drop a receipt while pending: the service must still hold its input and staging.
+    // Drop a receipt while pending: the service must keep its input and staging until then.
     {
         auto resources = engine::resource_cluster::create(core);
         auto buffer = resources->create_buffer({.size = 16, .flags = rhi::to_bits(rhi::buffer_flag::transfer_destination)});

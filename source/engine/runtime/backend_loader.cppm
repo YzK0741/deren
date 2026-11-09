@@ -8,7 +8,7 @@
 // device root are APPLICATION decisions - which backend, from where, with which search rules, and what
 // to do when it is not there - while `deren.engine.runtime` is the RENDERER. The runtime used to carry
 // both (it loaded `deren_vulkan.dll`, resolved the entry and called it before its construction), so
-// the app could not answer any of those questions and the renderer held a policy that is not its job.
+// the app could not answer any of those questions and the renderer carried a policy that is not its job.
 // They are now apart, and the seam is one function:
 //
 //     auto core = deren::engine::load_api_core(core_options);   // the app (main.cpp, the scaffold)
@@ -139,8 +139,8 @@ namespace deren::engine {
     /**
      * @brief load the backend (once per process) and acquire a device root from it
      * @param desc the contract's ONE creation structure, passed to the backend unchanged
-     * @return the holding handle, or an EMPTY `shared_ptr` when the backend could not be loaded, does not
-     *         export its entry point, or REFUSED the creation (the diagnosis is reported before the
+     * @return the handle of the acquired device root, or an EMPTY `shared_ptr` when the backend could not
+     *         be loaded, does not export its entry point, or REFUSED the creation (the diagnosis is reported before the
      *         return; `abi_mismatch` means the caller's `rhi::abi_version` is not the backend's)
      * @ingroup runtime
      *

@@ -11,11 +11,11 @@
  * both of which the GLSL side will mirror by hand (the shader cannot include a C++ enum, exactly as the heap
  * slot grid and the material lanes are mirrored).
  *
- * IT DOES NOT hold THE BUFFER, AND IT DOES NOT SEE A DEVICE. What it states is the FORMAT (the id a geometry
+ * IT DOES NOT CREATE THE BUFFER, AND IT DOES NOT SEE A DEVICE. What it states is the FORMAT (the id a geometry
  * raster writes, the record the host fills while it culls and builds the draws, the bounds each of them has) and,
  * from v0.5, THE FRAME'S ADMISSION RULE AND WHICH OPAQUE LANE A FRAME RECORDS THROUGH (section 5) - pure data and
  * pure functions, so the rule that must never produce a partly-captured frame is testable without a GPU. The render
- * graph holds the image, the runtime holds the per-frame item table and the facts the rule reads.
+ * graph creates the image, the runtime creates the per-frame item table and the facts the rule reads.
  *
  * THE PACKING IS v0's, NOT THE FINAL ONE. The subtilis (hierarchical geometry) roadmap replaces the item/meshlet
  * half with cluster groups and a hierarchy (design: docs/superpowers/specs/2026-10-18-subtilis-design.md); that
@@ -46,7 +46,7 @@ export namespace deren::engine::visibility {
     //
     // The layout is spelled as shifts and masks rather than as a struct with bitfields: the shader side
     // mirrors the same arithmetic, and a bitfield's layout would be the compiler's decision, not the
-    // renderer's. The 85-triangle mesh-workgroup limit is well inside the 128 a triangle field holds.
+    // renderer's. The 85-triangle mesh-workgroup limit is well inside the 128 values a triangle field can represent.
     // =============================================================================================
     inline constexpr std::uint32_t id_valid_bits = 1u;
     inline constexpr std::uint32_t id_item_bits = 12u;
@@ -60,7 +60,7 @@ export namespace deren::engine::visibility {
 
     static_assert(id_valid_shift + id_valid_bits == 32u, "the packed id must fill exactly one 32-bit word, no spare bits and no overflow");
 
-    /// how many values each field can hold (the LAST value is capacity - 1)
+    /// how many values each field can store (the LAST value is capacity - 1)
     inline constexpr std::uint32_t id_item_capacity = 1u << id_item_bits;
     inline constexpr std::uint32_t id_meshlet_capacity = 1u << id_meshlet_bits;
     inline constexpr std::uint32_t id_triangle_capacity = 1u << id_triangle_bits;
@@ -188,7 +188,7 @@ export namespace deren::engine::visibility {
     static_assert(push_block_geometry_offset + 8u * sizeof(std::uint32_t) == push_block_bytes);
 
     /// the eight vertex/index lanes the mesh stage fetches through (the shape primitive's `mesh_geometry_lanes`
-    /// holds; spelled again here because a push block is this stage's contract, not the scene session's)
+    /// carries; spelled again here because a push block is this stage's contract, not the scene session's)
     struct geometry_lanes {
         std::uint32_t vertex_address_low = 0;
         std::uint32_t vertex_address_high = 0;
@@ -426,7 +426,7 @@ export namespace deren::engine::visibility {
     //    rule is written here, as pure data and two functions, because getting it wrong is not a compile error
     //    or a crash - it is a G-buffer with TWO authors (the visibility ids for the admitted leaves, the fragment
     //    pass for the rest), which is a picture that is wrong in a way no single pass can explain. The runtime's
-    //    frame loop holds the FACTS (it is the one holding the primitives); this module holds the DECISION, and the
+    //    frame loop supplies the FACTS (it is the one that keeps the primitives); this module states the DECISION, and the
     //    headless tests pin every clause of it.
     //
     //    THE REASON IS PART OF THE CONTRACT, not a debugging nicety: the fallback log line names it ONCE, and
@@ -448,7 +448,7 @@ export namespace deren::engine::visibility {
         masked_material,     ///< an alphaMode MASK material: a resolve cannot cut a pixel whose depth is already written
         missing_material,    ///< a leaf whose material index is outside the host table (a registration failure)
         meshlet_overflow,    ///< one item's meshlet count past the packed id's 12-bit field
-        item_overflow,       ///< more visible items than the packed id's 12-bit field (or the pass's table) can hold
+        item_overflow,       ///< more visible items than the packed id's 12-bit field (or the pass's table) can address
         incompatible_layout, ///< shader fetches the fixed 80-byte interleaved vertex
     };
 
@@ -489,9 +489,9 @@ export namespace deren::engine::visibility {
         case admission::missing_material:
             return "a leaf's material index is outside the host material table";
         case admission::meshlet_overflow:
-            return "an item has more meshlets than the packed id holds";
+            return "an item has more meshlets than the packed id can encode";
         case admission::item_overflow:
-            return "more visible items than the id and the item table hold";
+            return "more visible items than the id and the item table can address";
         }
         return "unrecognised admission verdict";
     }

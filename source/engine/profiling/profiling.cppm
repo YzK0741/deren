@@ -55,7 +55,7 @@ namespace deren::engine::profiling {
      * add()/end() accumulate the frame being measured; fold() closes the window every @c window_length
      * frames and publishes it as a label, because a per-frame running mean makes an overlay re-wrap its
      * text every frame (the label is only as wide as its widest value). The label is what both the log
-     * and the overlay read, so it holds the last COMPLETED window rather than a partially filled one.
+     * and the overlay read, so it reports the last COMPLETED window rather than a partially filled one.
      */
     export class cpu_phases {
     public:
@@ -182,7 +182,7 @@ namespace deren::engine::profiling {
         }
 
         cpu_phase_timer(cpu_phase_timer const&) = delete ("cpu_phase_timer is non-copyable: construct it in place and keep its identity");
-        cpu_phase_timer& operator=(cpu_phase_timer const&) = delete ("cpu_phase_timer is non-copyable: configure it through its holding API");
+        cpu_phase_timer& operator=(cpu_phase_timer const&) = delete ("cpu_phase_timer is non-copyable: configure it in place");
         cpu_phase_timer(cpu_phase_timer&&) = delete ("cpu_phase_timer is non-movable: its resources are tied to the current address");
         cpu_phase_timer& operator=(cpu_phase_timer&&) = delete ("cpu_phase_timer is non-movable: its resources are tied to the current address");
 

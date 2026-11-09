@@ -132,15 +132,15 @@ is unchanged.
 ## Source layout
 
 - `source/engine/pass/ray_traced_reflection.cppm`
-  holds the ray-trace pass.
+  contains the ray-trace pass.
 - `source/engine/pass/reflection_denoise.cppm`
-  holds the denoiser passes.
+  contains the denoiser passes.
 - `source/engine/render_graph/rt_reflection.cppm`
-  holds the reflection graph.
+  contains the reflection graph.
 - `source/engine/render_graph/reflection_denoise.cppm`
-  holds the denoiser graph.
-- `source/shaders/lighting/rt_reflection.slang` holds the ray-generation, closest-hit, miss
-  and alpha-mask any-hit stages; `source/shaders/common/rt_alpha_mask.slang` holds the predicate
+  contains the denoiser graph.
+- `source/shaders/lighting/rt_reflection.slang` defines the ray-generation, closest-hit, miss
+  and alpha-mask any-hit stages; `source/shaders/common/rt_alpha_mask.slang` defines the predicate
   shared with ray-traced shadows. The denoiser stages are `reflection_reproject.slang`,
   `reflection_prefilter.slang`, `reflection_resolve.slang` and
   `reflection_copy_history.slang` under the same directory.

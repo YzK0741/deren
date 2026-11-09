@@ -27,7 +27,7 @@ namespace deren::utility {
         constexpr data_block() noexcept = default;
 
         /**
-         * @brief copy a caller-held C array of exactly S bytes
+         * @brief copy a caller-supplied C array of exactly S bytes
          * @param bytes byte array to copy from (compile-time usable, e.g. for static_assert)
          */
         constexpr explicit data_block(uint8_t const (&bytes)[S]) noexcept {

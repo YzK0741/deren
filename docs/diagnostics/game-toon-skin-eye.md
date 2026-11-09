@@ -28,7 +28,7 @@ pre-light composition. Eyes have no generic GGX specular term. In both game
 eye variants, the mode-3 rim branch computes a candidate but then clears its
 attenuation (`movc r8.x, r15.x, 0, r8.x` in PS 37822); it must not illuminate
 the iris. The shared loop's eye adapter suppresses specular and rim modes.
-Other families retain their existing lighting policy.
+Other families preserve their existing lighting policy.
 
 ## Verification
 

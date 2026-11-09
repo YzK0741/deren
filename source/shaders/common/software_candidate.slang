@@ -4,7 +4,7 @@ bool software_candidate_usable(uint id, uint bits) {
     float depth = asfloat(bits);
     return id != 0u && isfinite(depth) && depth >= 0.0 && depth <= 1.0;
 }
-// Called before depth merge; retain the winning candidate's reconstruction depth.
+// Called before depth merge; preserve the winning candidate's reconstruction depth.
 bool choose_visibility_candidate(inout uint hardware_id, inout float hardware_depth, uint id, uint bits) {
     if (!software_candidate_usable(id, bits)) return false;
     const float depth = asfloat(bits);

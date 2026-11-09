@@ -12,7 +12,7 @@
 // while `deren_vulkan.dll` exports EXACTLY ONE name by design (source/promise/rhi/backend_entry.hpp). The
 // tables' unit test (source/tests/test_error_mapping.cpp) legitimately wants the REAL translators, and the
 // backend itself calls them (core.api_core.cpp, core.cpp), so the shape that serves both is the one
-// this repository already uses for `vulkan_constant_init`: a NEUTRAL MODULE HELD BY A TARGET BOTH
+// this repository already uses for `vulkan_constant_init`: a NEUTRAL MODULE INSIDE A TARGET BOTH
 // SIDES LINK. Neither side has to be a DLL consumer of the other.
 //
 // WHY A MODULE AND NOT A HEADER WITH THE SAME DECLARATIONS: the translators take `VkResult`, and

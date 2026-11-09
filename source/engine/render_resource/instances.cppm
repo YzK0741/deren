@@ -48,7 +48,7 @@ export namespace deren::engine::render_resource::instances {
         std::shared_ptr<micromap_upload const> micromap_data;
         deren::utility::vessel::vector<rhi::acceleration_structure_geometry> geometries;
         deren::utility::vessel::vector<std::shared_ptr<void const>> dependencies;
-        // Held immutable bytes are referenced only during synchronous creation. A small, unique
+        // The immutable bytes are used only during synchronous creation. A small, unique
         // content key stays in generations after the upload bytes have been released by the producer.
         std::shared_ptr<std::byte const> initial_data;
         size_t initial_data_size = 0;
@@ -82,7 +82,7 @@ export namespace deren::engine::render_resource::instances {
         deren::utility::vessel::vector<rhi::unique_object<rhi::image_view>> layers;
     };
     struct generation {
-        rhi::shared_object<rhi::api_core> device; // destroyed after all held objects
+        rhi::shared_object<rhi::api_core> device; // destroyed last, after the objects created through it
         uint64_t version = 0;
         request description{};
         deren::utility::vessel::vector<resource_instance> objects;

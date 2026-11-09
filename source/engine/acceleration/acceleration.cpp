@@ -19,7 +19,7 @@ import deren.utility;
 // is what makes the interface portable: a backend with no explicit acceleration structures at all can answer
 // the same four verbs however it must.
 //
-// WHAT IT STILL HOLDS, and this is the honest list: the SCENE-SHAPED knowledge - which geometries and instances
+// WHAT IT STILL CARRIES, and this is the honest list: the SCENE-SHAPED knowledge - which geometries and instances
 // exist, the per-geometry refit flag, the growth of a top level's capacity, and the instance table the SHADER
 // reads (through `instanceCustomIndex`), which is the engine's data and not a driver structure. It also
 // still measures what a build cost, because the runtime reports that.
@@ -61,13 +61,13 @@ namespace deren::engine::acceleration_structure {
 
     // ---- bottom level structure ---------------------------------------------------------------------------
 
-    bottom_level_structures::bottom_level_structures(rhi::api_core& face, rhi::shared_object<rhi::api_core> lease)
-        : contract(lease && lease.get() != &face ? nullptr : &face)
-        , device_lease(std::move(lease)) {
+    bottom_level_structures::bottom_level_structures(rhi::api_core& face, rhi::shared_object<rhi::api_core> access)
+        : contract(access && access.get() != &face ? nullptr : &face)
+        , device_root(std::move(access)) {
     }
 
-    // The entries hold `unique_object<rhi::acceleration_structure>`, so the reference each structure carries is
-    // given back here - and the BACKEND's `release()` is what destroys the driver's object, in the order its
+    // The entries' `unique_object<rhi::acceleration_structure>` members destroy their structure when the vector
+    // goes away - and the BACKEND's `release()` is what destroys the driver's object, in the order its
     // destructor documents.
     bottom_level_structures::~bottom_level_structures() = default;
 
@@ -76,7 +76,7 @@ namespace deren::engine::acceleration_structure {
             return std::unexpected(deren::utility::vessel::string("acceleration structure: this structure set has no contract face"));
         }
         // THE MICROMAP RIDES THE DESCRIPTION NOW (plan S1's P4): the contract's geometry carries the object, and
-        // nothing here refuses it any more - the BACKEND holds the 256-byte address alignment, the setup buffers
+        // nothing here refuses it any more - the BACKEND creates and destroys the 256-byte address alignment, the setup buffers
         // and the index array the traversal reads, which is exactly what made this inexpressible before.
         entry item{};
         item.refittable = refittable;
@@ -118,10 +118,10 @@ namespace deren::engine::acceleration_structure {
             structure = generation && generation->objects.size() == 1 ? generation->objects[0].structure.get() : nullptr;
             return structure && structure->device_address() && structure->size_bytes() ? rhi::error::ok : rhi::error::unsupported;
         };
-        if (!device_lease) {
-            return std::unexpected(deren::utility::vessel::string("acceleration structure: a holding device lease is required to prepare storage"));
+        if (!device_root) {
+            return std::unexpected(deren::utility::vessel::string("acceleration structure: a shared device handle is required to prepare storage"));
         }
-        auto root = device_lease;
+        auto root = device_root;
         if (item.storage_chain.prepare_resources(root, {}, admit) != rhi::error::ok) {
             return std::unexpected(deren::utility::vessel::string("acceleration structure: the backend could not create the bottom level structure "
                                                                   "(see its log line for why)"));
@@ -144,7 +144,7 @@ namespace deren::engine::acceleration_structure {
             }
             // ONE CALL PER STRUCTURE, where this module used to batch every build into one
             // `vkCmdBuildAccelerationStructuresKHR`. That batching was a CPU-side win and its note says so;
-            // what it cost was the BACKEND holding the scratch, which is exactly the trade this interface makes.
+            // what it cost was the BACKEND creating and destroying the scratch, which is exactly the trade this interface makes.
             if (rhi::error const recorded = commands.build_acceleration_structure(*item.structure); recorded != rhi::error::ok) {
                 return std::unexpected(deren::utility::vessel::string("acceleration structure: recording a bottom level build failed with error ") + deren::utility::vessel::to_string(static_cast<std::uint32_t>(recorded)));
             }
@@ -175,9 +175,9 @@ namespace deren::engine::acceleration_structure {
     // Spelled exactly as the declaration in the module interface is: doxygen matches a definition against
     // its declaration by the written signature, and `std::uint32_t` here against `uint32_t` there made it
     // report "no matching class member found" for this one constructor (the only warning in the doc build).
-    top_level_structure::top_level_structure(rhi::api_core& face, uint32_t const frame_slot_count, rhi::shared_object<rhi::api_core> lease)
-        : contract(lease && lease.get() != &face ? nullptr : &face)
-        , device_lease(std::move(lease))
+    top_level_structure::top_level_structure(rhi::api_core& face, uint32_t const frame_slot_count, rhi::shared_object<rhi::api_core> access)
+        : contract(access && access.get() != &face ? nullptr : &face)
+        , device_root(std::move(access))
         , max_instances(max_instances_of(face))
         , slots(frame_slot_count) {
     }
@@ -250,10 +250,10 @@ namespace deren::engine::acceleration_structure {
                 }
                 return rhi::error::ok;
             };
-            if (!device_lease) {
-                return std::unexpected(deren::utility::vessel::string("acceleration structures: a holding device lease is required to prepare top-level storage"));
+            if (!device_root) {
+                return std::unexpected(deren::utility::vessel::string("acceleration structures: a shared device handle is required to prepare top-level storage"));
             }
-            auto root = device_lease;
+            auto root = device_root;
             if (target.storage_chain.prepare_resources(root, managed::resource_context{.frame_slots = 1, .output_images = 1}, admit) != rhi::error::ok) {
                 return std::unexpected(deren::utility::vessel::string("acceleration structures: top level storage could not be prepared"));
             }

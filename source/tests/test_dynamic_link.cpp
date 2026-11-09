@@ -229,7 +229,7 @@ namespace {
 
     constexpr std::string_view detach_probe_file_name = "deren_probe_backend_detach_probe.dll";
 
-    // abi 18: the entry RETURNS the holding handle, so there is no second function to resolve and no
+    // abi 18: the entry RETURNS the `shared_ptr`, so there is no second function to resolve and no
 
     // deleter name to look up - the contract's typedef is used so this test cannot drift from the
 
@@ -266,7 +266,7 @@ namespace {
 
         foreign_command_buffer() noexcept = default;
 
-        // the holder-side lifecycle, in the same everything-refused shape: this stand-in answers BOTH
+        // the release-side lifecycle, in the same everything-refused shape: this stand-in answers BOTH
 
         // questions the contract asks (submit's list and execute's buffer), so one class serves both.
 
@@ -440,7 +440,7 @@ namespace {
      *
      * Called once with the symbol resolved from the loaded DLL and once with the one the linker
      * found in the static half. `make_core` is the only thing that differs; every expectation below
-     * has to hold for both - and since abi 18 the retention it hands over needs no deleter argument.
+     * has to hold for both - and since abi 18 the `shared_ptr` it hands over needs no deleter argument.
      */
 
     void check_core_contract(make_core_fn make_core, char const* which_half) {
@@ -457,7 +457,7 @@ namespace {
 
         // structure is gone - no vtable moved, but the C entry's signature did.
 
-        // 3 -> 4 in the held-handle batch: `release()` landed as a pure virtual on seven EXISTING
+        // 3 -> 4 in the handle-release batch: `release()` landed as a pure virtual on seven EXISTING
 
         // tier-1 types, which is the vtable-shifting case the rule above names.
 
@@ -471,9 +471,9 @@ namespace {
 
         // 6 -> 7 in the image face (landed): `image` gained `make_view()`,
 
-        // the held `image_view` interface and the image/sampler descriptors became defined types,
+        // the releasable `image_view` interface and the image/sampler descriptors became defined types,
 
-        // and `vulkan_escape` grew the image/sampler native-handle references.
+        // and `vulkan_escape` grew the image/sampler native-handle accessors.
 
         // plan §10.3 measured the mechanism; this line is the number itself.
 
@@ -499,7 +499,7 @@ namespace {
 
         // number exists for.
 
-        // ABI15 is the recording surface's retention: `api_core` appended
+        // ABI15 is the recording surface's `release()`: `api_core` appended
 
         // `create_command_buffer(command_buffer_desc const&)` - a virtual on an existing tier-1 type -
 
@@ -543,7 +543,7 @@ namespace {
 
         // ABI18 is the SHARED flip: the C entry goes from THREE symbols to ONE - `deren_make_api_core`
 
-        // RETURNS a `std::shared_ptr<api_core>` (retention in the control block, so
+        // RETURNS a `std::shared_ptr<api_core>` (the control block destroys the core, so
 
         // `deren_destroy_api_core` has nothing left to do), and the version is the call's FIRST
 
@@ -577,7 +577,7 @@ namespace {
 
         // declared once on `command_buffer` itself, so the recording vtables moved without a new
 
-        // tier-1 type. ABI21 IS THAT plus the HOLDING factory (`api_core::make_command_buffer`, the virtual
+        // tier-1 type. ABI21 IS THAT plus the SHARED `command_buffer` factory (`api_core::make_command_buffer`, the virtual
 
         // whose deleter is the contract's `release()`): the slot is appended to an existing tier-1
 
@@ -601,7 +601,7 @@ namespace {
 
         // ABI38 removes THREE ZERO-CALL ESCAPE slots: `vulkan_escape::enabled_instance_extensions()` and the
 
-        // two resource-handle references `native_pipeline()` / `native_shader_module()` are DELETED. Nothing in
+        // two resource-handle accessors `native_pipeline()` / `native_shader_module()` are DELETED. Nothing in
 
         // this repository called them (the portable factories/abilities replaced the last potential callers),
 
@@ -740,7 +740,7 @@ namespace {
 
         CHECK_MSG(core->get_tag() == "deren_api_core_probe", "object.get_tag() must identify the concrete implementation across static and DLL boundaries");
 
-        // Retention is real and it came WITH the answer: the control block holds the backend's
+        // Destruction is real and it came WITH the answer: the control block carries the backend's
 
         // deleter (for the DLL half, one built inside that DLL), the count is observable, and copying
 
@@ -763,7 +763,7 @@ namespace {
 
         // a bit set (not an ordered enum), no bit outside the known set, and every announced
 
-        // ability reachable through `query_extension()` with the kind it claims.
+        // ability reachable through `query_extension()` with the kind it reports.
 
         rhi::ability_bits const abilities = core->abilities();
         CHECK(!rhi::has_ability(abilities, rhi::extension_kind::mesh_shader));
@@ -884,7 +884,7 @@ namespace {
 
         // Two ended segments go to the queue as ONE batch; the duplicate/empty refusals are the contract's
 
-        // atomic-validation rules, and a segment is still usable after the batch returns (it retains the
+        // atomic-validation rules, and a segment is still usable after the batch returns (it keeps the
 
         // backend's inner object, not the caller's wrapper).
 
@@ -989,7 +989,7 @@ namespace {
 
                 // trip: the descriptor went in, the virtual call came back out, and the arithmetic
 
-                // the probe documents (0x1000 + size + offset) held on the way.
+                // the probe documents (0x1000 + size + offset) still adds up.
 
                 CHECK(address->buffer_address(*buffer, 0u) == 0x1000ull + 64ull);
 
@@ -997,13 +997,13 @@ namespace {
             }
         }
 
-        // ---- tier-1: THE HELD REFERENCE IS RELEASED THROUGH THE CONTRACT ---------------------
+        // ---- tier-1: THE HANDLE IS RELEASED THROUGH THE CONTRACT ---------------------
 
-        // `rhi::unique_object<T>` is the holder spelling added with `release()` (abi 3 -> 4): the
+        // `rhi::unique_object<T>` is the handle spelling added with `release()` (abi 3 -> 4): the
 
         // destructor (or `reset()`) calls the handle's `release()`, which runs INSIDE the backend and
 
-        // drops ONE reference - it is deliberately not called `destroy()`, because a backend may serve
+        // releases ONE caller's use - it is deliberately not called `destroy()`, because a backend may serve
 
         // the same resource to several callers and then the object outlives the call. The proof here is
 
@@ -1019,7 +1019,7 @@ namespace {
 
             CHECK(buffer->size() == 128u);
 
-            // move-only: the reference is transferred, and the source is left empty rather than
+            // move-only: the handle is transferred, and the source is left empty rather than
 
             // aliasing the same object (which would release it twice)
 
@@ -1188,7 +1188,7 @@ namespace {
 
         CHECK(core->frames->submit() == rhi::error::not_ready);
 
-        // ---- the abi 15 surface: the HELD command buffer ---------------------------------------
+        // ---- the abi 15 surface: the `create_command_buffer()` handle ---------------------------------------
 
         // `create_command_buffer()` hands out ONE reference; the probe answers with its static
 
@@ -1208,7 +1208,7 @@ namespace {
 
             // for `use` and the timing pair): `recording()` and its view are GONE with
 
-            // `command_list` - the held buffer IS the recording face now - so what used to be asserted
+            // `command_list` - the created buffer IS the recording face now - so what used to be asserted
 
             // through the view is asserted on the buffer itself.
 
@@ -1347,11 +1347,11 @@ namespace {
 
         core->wait_idle();
 
-        // ---- abi 16: THE REFERENCED FRAME IMAGE HANDS OUT HELD VIEWS (③-D/E item B) -------------------
+        // ---- abi 16: THE REFERENCED FRAME IMAGE HANDS OUT VIEWS THE CALLER RELEASES (③-D/E item B) -------------------
 
         // The asymmetry is the whole point, and it is what a caller can get wrong: the IMAGE is referenced
 
-        // (its `release()` is a no-op that the probe counts), while a VIEW made from it is a new held
+        // (its `release()` is a no-op that the probe counts), while a VIEW made from it is a new
 
         // object whose `release()` is real. A range outside the swapchain image's one-layer/one-mip shape
 
@@ -1388,13 +1388,13 @@ namespace {
             }
         }
 
-        // DESTRUCTION IS THE CONTROL BLOCK'S JOB NOW (abi 18), and that is observable as RETENTION
+        // DESTRUCTION IS THE CONTROL BLOCK'S JOB NOW (abi 18), and that is observable as `use_count()`
 
         // ARITHMETIC rather than as a wrapped deleter: the test can no longer name the function that
 
         // destroys the object (there is no second entry point to resolve), but it can pin that a second
 
-        // reference keeps the SAME object alive and that the last one releases it. The descriptor is
+        // copy keeps the SAME object valid and that the last one releases it.
 
         // passed again here and the out parameter is deliberately null: a backend has to tolerate both.
 
@@ -1408,14 +1408,14 @@ namespace {
 
                 CHECK(scoped.use_count() == 1);
 
-                rhi::shared_object<rhi::api_core> const second = scoped; // a second HOLDER, not a second object
+                rhi::shared_object<rhi::api_core> const second = scoped; // a second `shared_ptr`, not a second object
 
                 CHECK(second.get() == scoped.get());
 
                 CHECK_MSG(scoped.use_count() == 2, which_half);
             }
 
-            // ... the last reference goes here, and the control block's deleter - built inside the
+            // ... the last copy goes here, and the control block's deleter - built inside the
 
             // backend - is what runs. A double delete or a leak on that path is what the sanitizer job
 
@@ -1524,7 +1524,7 @@ namespace {
 
         // The function driven here is the one RESOLVED FROM THE DLL, not the one the linker would give
 
-        // this test: that is the plan's rule (§4.1) - an object made inside the library is held and
+        // this test: that is the plan's rule (§4.1) - an object made inside the library is
 
         // destroyed inside the library - and with abi 18 that rule travels in the control block the
 
@@ -1532,7 +1532,7 @@ namespace {
 
         check_core_contract(as_function<make_core_fn>(make.value()), "dll");
 
-        // A moved-from library is empty (not a second holder of the same handle), and the symbols
+        // A moved-from library is empty (not a second `shared_ptr` for the same handle), and the symbols
 
         // taken from the destination keep working.
 
@@ -1551,7 +1551,7 @@ namespace {
 
         // (classic search order) and it doubles as the unload proof - on Windows a loaded image
 
-        // holds its file, so the file only becomes deletable after the destructor called
+        // keeps its file open, so the file only becomes deletable after the destructor called
 
         // FreeLibrary.
 
@@ -1627,7 +1627,7 @@ namespace {
 
             // THE OBJECT IS EMPTY AFTERWARDS: the handle left with the caller, and every remaining
 
-            // operation says so instead of using a handle it no longer holds.
+            // operation says so instead of using a handle that was already released.
 
             CHECK(loaded->native_handle() == nullptr);
 
@@ -1642,7 +1642,7 @@ namespace {
 
         CHECK(!fs::remove(copy, still_mapped)); // sharing violation: detach did NOT unload it
 
-        // The file stays: it is still mapped by THIS test process, which is exactly the claim. The
+        // The file stays: it is still mapped by THIS test process, which is exactly the point. The
 
         // next run starts by overwriting it, and the mapping dies with the process.
 

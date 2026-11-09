@@ -55,7 +55,7 @@ namespace deren::engine {
             return env;
         }
 
-        // Cubemap face mapping: direction -> (face, u, v) with u/v in [-1, 1]. This is the one holder of
+        // Cubemap face mapping: direction -> (face, u, v) with u/v in [-1, 1]. This is the one place that defines
         // the convention (cube_face_direction() above is its inverse) and every sampler here goes
         // through it, so the bakes cannot drift apart from each other or from the GPU's lookup.
         //

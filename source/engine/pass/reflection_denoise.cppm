@@ -4,7 +4,7 @@
  * @brief the AMD FidelityFX reflection denoiser's three stages as heap-native compute passes.
  *
  * The denoiser is a three-stage temporal chain (Reproject -> Prefilter -> ResolveTemporal). Each stage is its
- * a pass node in the render graph so the graph holds the transitions between them; the shaders reach every
+ * a pass node in the render graph so the graph records the transitions between them; the shaders reach every
  * image through the frame's heap, so a pass declares no bindings and no targets. The only host-side constants
  * are the push block below, and the framework appends the two heap index lanes after them.
  */

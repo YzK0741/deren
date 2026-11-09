@@ -229,7 +229,7 @@ namespace deren::vulkan {
             }
         }
         auto& value = const_cast<core::buffer&>(static_cast<core::buffer const&>(resource));
-        retain_lazy(value);
+        reference_lazy(value);
         auto result = parent->materialize(value);
         if (result != rhi::error::ok) {
             recording_error = result;
@@ -245,7 +245,7 @@ namespace deren::vulkan {
             }
         }
         auto& value = const_cast<core::image&>(static_cast<core::image const&>(resource));
-        retain_lazy(value);
+        reference_lazy(value);
         auto result = parent->materialize(value);
         if (result != rhi::error::ok) {
             recording_error = result;
@@ -254,13 +254,13 @@ namespace deren::vulkan {
         return result;
     }
 
-    void core::frame_commands::retain_lazy(core::buffer const& resource) {
+    void core::frame_commands::reference_lazy(core::buffer const& resource) {
         if (!resource.source || std::any_of(lazy_refs.begin(), lazy_refs.end(), [&resource](auto const& ref) { return ref.get() == &resource; })) {
             return;
         }
         lazy_refs.push_back(parent->depend_on(resource));
     }
-    void core::frame_commands::retain_lazy(core::image const& resource) {
+    void core::frame_commands::reference_lazy(core::image const& resource) {
         if (!resource.source || std::any_of(lazy_refs.begin(), lazy_refs.end(), [&resource](auto const& ref) { return ref.get() == &resource; })) {
             return;
         }

@@ -1,5 +1,5 @@
 // The ray-traced shadow pass's implementation: the two barriers around the visibility image, the two shared blocks
-// and the full-resolution dispatch, plus the pipeline it holds. The recording was moved out of
+// and the full-resolution dispatch, plus the pipeline it creates. The recording was moved out of
 // `runtime::record_rt_shadow_pass` UNCHANGED in behaviour - the same UNDEFINED -> GENERAL transition before the
 // dispatch, the same bind order (the scene block, then the G-buffer images), the same 80-byte push, the same workgroup size
 // and the same GENERAL -> SHADER_READ hand-back.
@@ -23,7 +23,7 @@ import deren.utility.shared;
 import deren.promise.rhi; // the record series (abi 20): the two barriers, the push block's endpoint and the traceRays escape
 import deren.engine.render_resource;
 import deren.engine.pass.output_targets;
-import deren.engine.pipelines; // build_rt_shadow: the compute pipeline this pass holds
+import deren.engine.pipelines; // build_rt_shadow: the compute pipeline this pass creates
 import deren.utility;
 
 // The contract's spelling, local to this TU (post.cpp, upscale.cpp, taa.cpp carry the same alias).
@@ -131,7 +131,7 @@ namespace deren::engine::pass {
         }
         // THE REGIONS ARE THE CONTRACT'S TYPE (`rhi::shader_binding_table_region`): three numbers per table - the
         // separate address first record, the bytes it spans, and the stride between records. One region per group,
-        // each starting on a base-aligned offset and holding exactly one record: the order is the builder's
+        // each starting on a base-aligned offset and carrying exactly one record: the order is the builder's
         // (raygen, miss, hit), so `handles[group]` lands in region `group`.
         deren::utility::vessel::vector<uint8_t> table(static_cast<size_t>(group_count) * region_size, 0);
         for (uint32_t group = 0; group < group_count; ++group) {
@@ -139,8 +139,8 @@ namespace deren::engine::pass {
         }
         uint64_t address = 0;
         // THE TABLE IS BUILT THROUGH THE CONTRACT NOW (abi 24): the hook takes the contract's `buffer_flags`
-        // (a shader binding table asks for `shader_binding_table`), answers the contract handle the HOLDER keeps
-        // alive, and writes the device address through the out-parameter - so this file names no Vulkan type for
+        // (a shader binding table asks for `shader_binding_table`), answers the contract handle the RENDERER keeps
+        // valid, and writes the device address through the out-parameter - so this file names no Vulkan type for
         // any of it, which is why it no longer includes a Vulkan header at all.
         deren::promise::rhi::buffer* const table_buffer = context.create_upload_buffer(context.parent, table.data(), static_cast<uint64_t>(table.size()),
                                                                                        deren::promise::rhi::buffer_flags{deren::promise::rhi::to_bits(
@@ -161,7 +161,7 @@ namespace deren::engine::pass {
     }
 
     void rt_shadow_pass::on_swapchain_recreated(pass_host const&) {
-        // Nothing to reset: this pass holds no per-generation state. Its visibility image is per FRAME SLOT and
+        // Nothing to reset: this pass creates no per-generation state. Its visibility image is per FRAME SLOT and
         // belongs to the acceleration structures' lifetime (the renderer rebuilds both together), and its
         // pipeline does not depend on the surface's format or size - so the generation change is not its event.
         // The one-shot log line stays set, because "this pass traces rays" does not become untrue on a resize.

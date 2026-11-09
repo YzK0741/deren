@@ -4,7 +4,7 @@
 //
 // Dear ImGui debug overlay: widget / panel layer driven from the runtime's frame
 // steps through the GUI plugin boundary (deren.promise.gui; the plugin's overlay_adapter
-// holds a gui_content). Kept as its unit so the overlay can be swapped
+// has a gui_content member). Kept as its unit so the overlay can be swapped
 // or embedded elsewhere; depends on the GUI contract, ImGui + Vulkan.
 //
 // evolve: bump MAJOR on breaking interface changes, MINOR on additive features,
@@ -30,7 +30,7 @@ export import deren.vstd;
 /**
  * @file gui.cppm
  * @defgroup vulkan_gui Vulkan Debug GUI
- * @brief Dear ImGui integration for the vulkan runtime: holds the ImGui context, the GLFW +
+ * @brief Dear ImGui integration for the vulkan runtime: creates and shuts down the ImGui context, the GLFW +
  *        Vulkan backends and the backend's per-frame render-buffer ring, and exposes a small
  *        widget/panel API so the application builds its debug UI without touching Vulkan or
  *        GLFW directly.
@@ -40,9 +40,9 @@ export import deren.vstd;
  *        only tracks whether the overlay is initialized, the registered panels and their widgets
  *      - widgets follow the scene_tree::primitive inheritance pattern: a widget base class with
  *        a virtual draw() and one subclass per control (label / checkbox / slider ...), so a new
- *        control is just a new subclass; debug_panel holds its widgets in a stack-style vector
+ *        control is just a new subclass; debug_panel stores its widgets in a stack-style vector
  *        (push_back appends = more space, pop_back removes the top) and draws them in order
- *      - the GUI plugin's overlay_adapter holds a gui_content member (gui abi 5): the host calls
+ *      - the GUI plugin's overlay_adapter has a gui_content member (gui abi 5): the host calls
  *        new_frame() before the frame's content, and record() while the overlay host pass's
  *        rendering instance is open - the ImGui draw data goes into the overlay's mergeable
  *        segment under that instance's inheritance, and the host executes the segment after the
@@ -254,12 +254,12 @@ namespace deren::vulkan::gui {
 
     /**
      * @ingroup vulkan_gui
-     * @brief held Dear ImGui overlay for one window. Holds the registered debug panels and
-     *        draws them every frame; the plugin's overlay_adapter holds exactly one, and external
+     * @brief the Dear ImGui overlay for one window. Registers the debug panels and
+     *        draws them every frame; the plugin's overlay_adapter creates exactly one, and external
      *        code reaches the boundary overlay through the runtime (runtime::debug_gui()) to
      *        add/remove its panels.
      * @note non-copyable (a second copy would fight over the single global ImGui context);
-     *       the overlay_adapter holds exactly one as a direct member
+     *       the overlay_adapter declares exactly one as a direct member
      */
     export class gui_content {
     public:
@@ -287,7 +287,7 @@ namespace deren::vulkan::gui {
         /** @brief true after a successful init() and before shutdown() */
         [[nodiscard]] bool is_active() const noexcept;
         /**
-         * @brief true while Dear ImGui holds the mouse (cursor over a panel or dragging a widget)
+         * @brief true while Dear ImGui captures the mouse (cursor over a panel or dragging a widget)
          * @note the runtime uses this to suppress the camera orbit/zoom callbacks, so dragging a
          *       slider never moves the view; it reflects the last ImGui frame (NewFrame order)
          */
@@ -298,7 +298,7 @@ namespace deren::vulkan::gui {
          * @ingroup vulkan_gui
          * @brief create a debug panel with the given title and register it (drawn every frame
          *        in registration order)
-         * @return reference to the new panel (stable: panels are heap-held); caller pushes
+         * @return reference to the new panel (stable: panels are heap-allocated); caller pushes
          *         widgets onto it and may remove it later via remove_panel()
          */
         debug_panel& add_panel(deren::utility::vessel::string title);

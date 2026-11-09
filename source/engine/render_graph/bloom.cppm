@@ -66,10 +66,10 @@ export namespace deren::engine::render_graph::bloom {
         execution::prepared_graph graph_;
 
     public:
-        using image_lease = resource_lease<execution::rhi::image>;
+        using image_handle = resource_handle<execution::rhi::image>;
         [[nodiscard]] static std::expected<prepared_chain, execution::execution_error> prepare(
-            execution::rhi::shared_object<execution::rhi::api_core> core, image_lease const& input,
-            std::array<image_lease, level_count> const& levels, resource_state input_state,
+            execution::rhi::shared_object<execution::rhi::api_core> core, image_handle const& input,
+            std::array<image_handle, level_count> const& levels, resource_state input_state,
             std::array<resource_state, level_count> const& level_states) {
             description desc{execution::identify(input), {}, input_state, level_states};
             std::array<execution::resource_binding, level_count + 1> bindings;
@@ -98,8 +98,8 @@ export namespace deren::engine::render_graph::bloom {
                 return context.pass_index() < level_count ? content(context.pass_index(), context) : execution::rhi::error::ok;
             });
         }
-        [[nodiscard]] std::shared_ptr<void const> retention() const noexcept {
-            return graph_.retention();
+        [[nodiscard]] std::shared_ptr<void const> shared_state() const noexcept {
+            return graph_.shared_state();
         }
     };
 } // namespace deren::engine::render_graph::bloom

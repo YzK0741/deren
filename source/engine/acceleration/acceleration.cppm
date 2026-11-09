@@ -4,7 +4,7 @@
 //
 // Ray-tracing acceleration structures: the bottom level structures of the
 // scene's shadow casters, built from the geometry buffers the raster passes
-// already hold (no copy, no re-upload), and the host-side bookkeeping a later
+// already draw from (no copy, no re-upload), and the host-side bookkeeping a later
 // top level structure and its instance table are built on.
 //
 // Depends on deren.vulkan.core (device, queue, VMA).
@@ -20,14 +20,14 @@ module;
 export module deren.engine.acceleration_structure;
 export import deren.utility.shared;
 
-import deren.promise.rhi; // the contract's buffer handle + unique_object: the storage/scratch holders
+import deren.promise.rhi; // the contract's buffer handle + unique_object: the storage and scratch objects it creates
 import deren.engine.pass.chain;
 import deren.engine.pass.buffer_storage;
 import deren.engine.render_resource;
 import deren.engine.render_resource.instances;
 export import deren.vstd;
 // (③-D/E step 1b: the `export import deren.vulkan.core;` that used to sit here is GONE - these
-//  classes hold `rhi::api_core&` plus a device resolved through the escape, so this module no longer
+//  classes take `rhi::api_core&` plus a device resolved through the escape, so this module no longer
 //  imports the backend at all.)
 
 /**
@@ -101,7 +101,7 @@ namespace deren::engine::acceleration_structure {
          * @note a null handle means no micromap, which is also the state of every geometry on a device without
          *       VK_EXT_opacity_micromap: nothing changes for it.
          */
-        /// TIER-1 SINCE PLAN S1's P4: the micromap is an OBJECT (`rhi::micromap`), and it holds its usage record
+        /// TIER-1 SINCE PLAN S1's P4: the micromap is an OBJECT (`rhi::micromap`), and it carries its usage record
         /// and the index array the traversal reads - so this field is ONE handle where it used to be a driver
         /// handle plus an index buffer address, a stride and a usage record. A null handle means no micromap,
         /// which is also the state of every geometry on a device without VK_EXT_opacity_micromap.
@@ -181,8 +181,8 @@ namespace deren::engine::acceleration_structure {
      *       ordering is needed, and the batching is purely a CPU-side win.
      */
     export class bottom_level_structures {
-        /// ONE GEOMETRY'S STRUCTURE, AND NOTHING ELSE (P1b-2): the tier-1 object holds the storage, the
-        /// scratch, the size query and the alignment, so what stays here is the HANDLE plus the one bit the
+        /// ONE GEOMETRY'S STRUCTURE, AND NOTHING ELSE (P1b-2): the tier-1 object creates and destroys the
+        /// storage, the scratch, the size query and the alignment, so what stays here is the HANDLE plus the one bit the
         /// caller declared (whether it may be refitted). The geometry the build reads lives in the backend's
         /// a copy of the description, which is why a resize of `entries` cannot dangle a pointer any more -
         /// the container this class used to be careful about (`micromap_geometries`, a deque for exactly that
@@ -200,14 +200,14 @@ namespace deren::engine::acceleration_structure {
         /// THE CONTRACT FACE, NOT THE BACKEND CLASS (③-D/E step 1b): non-const, because creating and
         /// releasing the structures goes through the contract's factories.
         rhi::api_core* contract = nullptr;
-        rhi::shared_object<rhi::api_core> device_lease;
+        rhi::shared_object<rhi::api_core> device_root;
         deren::utility::vessel::vector<entry> entries = {};
         build_stats stats = {};
 
     public:
-        explicit bottom_level_structures(rhi::api_core& face, rhi::shared_object<rhi::api_core> lease = {});
+        explicit bottom_level_structures(rhi::api_core& face, rhi::shared_object<rhi::api_core> access = {});
         bottom_level_structures(bottom_level_structures const&) = delete ("bottom_level_structures is non-copyable: construct it in place and keep its identity");
-        bottom_level_structures& operator=(bottom_level_structures const&) = delete ("bottom_level_structures is non-copyable: configure it through its holding API");
+        bottom_level_structures& operator=(bottom_level_structures const&) = delete ("bottom_level_structures is non-copyable: configure the object in place");
         bottom_level_structures(bottom_level_structures&&) = delete ("bottom_level_structures is non-movable: its resources are tied to the current address");
         bottom_level_structures& operator=(bottom_level_structures&&) = delete ("bottom_level_structures is non-movable: its resources are tied to the current address");
         ~bottom_level_structures();
@@ -293,7 +293,7 @@ namespace deren::engine::acceleration_structure {
             deren::engine::pass::pass_chain storage_chain;
             deren::engine::pass::resource_storage_pass* storage_provider = nullptr;
             render_resource::instances::resource_snapshot storage_view;
-            /// THE STRUCTURE ITSELF: the tier-1 object holds the instance records it reads (the caller writes
+            /// THE STRUCTURE ITSELF: the tier-1 object creates and destroys the instance records it reads (the caller writes
             /// them through `write_instances`), the storage, the scratch and the instance capacity - so this
             /// slot keeps ONE handle where it used to keep five objects and a size.
             render_resource::instances::view<deren::promise::rhi::acceleration_structure> structure = {};
@@ -318,7 +318,7 @@ namespace deren::engine::acceleration_structure {
         rhi::api_core* contract = nullptr;
         /// the device's instance limit, from `device_capabilities` (the check that used to need a properties
         /// query of this module's)
-        rhi::shared_object<rhi::api_core> device_lease;
+        rhi::shared_object<rhi::api_core> device_root;
         std::uint64_t max_instances = 0;
         deren::utility::vessel::vector<slot> slots = {};
         uint32_t current_slot = 0;
@@ -330,9 +330,9 @@ namespace deren::engine::acceleration_structure {
          * @param face the contract face the structures are created and released through
          * @param frame_slot_count how many per-frame slots to allocate (the runtime's frame count)
          */
-        explicit top_level_structure(rhi::api_core& face, uint32_t frame_slot_count, rhi::shared_object<rhi::api_core> lease = {});
+        explicit top_level_structure(rhi::api_core& face, uint32_t frame_slot_count, rhi::shared_object<rhi::api_core> access = {});
         top_level_structure(top_level_structure const&) = delete ("top_level_structure is non-copyable: construct it in place and keep its identity");
-        top_level_structure& operator=(top_level_structure const&) = delete ("top_level_structure is non-copyable: configure it through its holding API");
+        top_level_structure& operator=(top_level_structure const&) = delete ("top_level_structure is non-copyable: configure the object in place");
         top_level_structure(top_level_structure&&) = delete ("top_level_structure is non-movable: its resources are tied to the current address");
         top_level_structure& operator=(top_level_structure&&) = delete ("top_level_structure is non-movable: its resources are tied to the current address");
         ~top_level_structure();
@@ -342,7 +342,7 @@ namespace deren::engine::acceleration_structure {
 
         /**
          * @ingroup engine_acceleration_structure
-         * @brief start a frame's instance list in @p frame_slot (dropping whatever it held)
+         * @brief start a frame's instance list in @p frame_slot (discarding whatever the previous frame left in it)
          * @param frame_slot the slot the frame being recorded belongs to
          * @return success, or an error message when the slot's buffers cannot be sized
          * @note the slot is free to write because the runtime waits for it before recording (see
@@ -404,7 +404,7 @@ namespace deren::engine::acceleration_structure {
          *  @note Its device address is queried through the device_address ability. */
         [[nodiscard]] deren::promise::rhi::buffer const* instance_table_buffer(uint32_t frame_slot) const noexcept;
 
-        /** @brief how many instances the slot's last build held */
+        /** @brief how many instances the slot's last build recorded */
         [[nodiscard]] uint32_t instance_count(uint32_t frame_slot) const noexcept {
             return frame_slot < this->slots.size() ? this->slots[frame_slot].count : 0;
         }

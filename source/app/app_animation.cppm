@@ -3,7 +3,7 @@
  * @defgroup app_animation Application Animation Wiring
  * @brief the host surface an animation::controller drives: it is assembled from the runtime's
  *        scene tree, per-frame-slot morph/skin buffers and shared task pool, so the controller
- *        itself never depends on deren.engine.runtime. The application layer holds the glue.
+ *        itself never depends on deren.engine.runtime. The application layer provides the glue.
  * @note interface only - the implementations live in app_animation.cpp (the module follows the
  *       split interface/implementation pattern of the other app modules)
  */

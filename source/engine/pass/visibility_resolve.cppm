@@ -9,7 +9,7 @@
  * G-buffer fragment stage used to write - albedo/metallic, world normal/roughness, material id/AO/flags, velocity and
  * the emissive term - by reading the id back, fetching the triangle it names out of the per-frame draw-item and
  * meshlet tables, and running the SAME material decode and five-target composition the fragment stage runs
- * (`scene/gbuffer_body.slang`). It holds the pipeline, the dispatch and the two heap indices its push block carries;
+ * (`scene/gbuffer_body.slang`). It builds the pipeline, records the dispatch and pushes the two heap indices its push block carries;
  * the per-pixel arithmetic is the shader's.
  *
  * WHY ITS DECLARATION IS EMPTY. Every input and output travels through the FRAME'S HEAP (the id/depth sampled
@@ -51,7 +51,7 @@ export namespace deren::engine::pass {
 
         [[nodiscard]] render_resource::pass_io const& io() const noexcept override {
             // NO BINDINGS, NO TARGETS, NO PUSH BLOCK DECLARED: the resources arrive through the frame's heap and the
-            // graph's resolve lane holds the ordering; the push block is composed at record time (see
+            // graph's resolve lane records the ordering; the push block is composed at record time (see
             // record_content). An empty declaration is the accurate one for a heap-native compute pass - the
             // clustered-light sort is the precedent.
             static constinit render_resource::pass_io const value{.name = "visibility resolve"};
@@ -74,7 +74,7 @@ export namespace deren::engine::pass {
             return {}; // no feature knob: whether the lane exists is the graph's decision (and the frame's fallback)
         }
 
-        /// @brief whether the pass has the pipeline it needs (not `ready()`: the framework holds that name)
+        /// @brief whether the pass has the pipeline it needs (not `ready()`: the framework uses that name)
         [[nodiscard]] bool has_pipeline() const noexcept {
             return this->resolve_pipeline.has_value();
         }

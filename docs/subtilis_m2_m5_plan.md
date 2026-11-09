@@ -7,7 +7,7 @@ LOD0 fallback) are implemented on this branch; the local Release build, full CTe
 boundary, format, and changed-file tidy checks pass. M5c publishes table state on the frame
 after a request; it does not yet perform a device-to-device page copy or eviction. The
 v1 shader keeps one persistent
-workgroup per item (64 lanes, word-held coarsen bitset, iterated closure, contiguous
+workgroup per item (64 lanes, word-packed coarsen bitset, iterated closure, contiguous
 chunk compaction); a global cross-item node/cluster queue is deliberately deferred
 until the flat group table gains explicit child links. `test_subtilis_cut_gpu` exercises
 the compute shader on a real device and compares its output with the CPU `select_cut`
@@ -116,7 +116,7 @@ separate visibility-buffer path already.
 
 `FPageKey {RuntimeResourceID, PageIndex}` and `FStreamingRequest {Key, Priority}` are at
 `Engine\Source\Runtime\Engine\Public\Rendering\NaniteStreamingManager.h:28-63`. The manager
-holds the cluster page data and hierarchy heaps, the registered/resident page sets, page
+contains the cluster page data and hierarchy heaps, the registered/resident page sets, page
 dependencies, an LRU, and a priority heap. Key APIs are `GetStreamingRequestsBuffer`,
 `GetClusterPageDataSRV`, and `GetHierarchySRV`.
 
@@ -146,7 +146,7 @@ and performance are proven. This keeps the merged path unchanged for users.
 
 ### 3.2 GPU data
 
-Add a GPU cut payload to `uploaded_geometry` (or a sibling object held by the same geometry
+Add a GPU cut payload to `uploaded_geometry` (or a sibling object that shares the same geometry
 lifetime):
 
 - `cut_group`: one record per DAG group: LOD center/radius, error, first child/count, first
@@ -169,7 +169,7 @@ not rebuilt per frame.
 Use one persistent workgroup per item (items are capped at 4096), with 64 lanes. This follows
 UE's persistent-thread culling shape while keeping the cut in one dispatch:
 
-1. Each lane holds one 32-bit word of the per-item coarsening bitset (64 words cover the
+1. Each lane carries one 32-bit word of the per-item coarsening bitset (64 words cover the
    2048-group host limit). Direct decisions are written as one masked word per lane, so groups
    sharing a word cannot lose each other's updates.
 2. The dependency closure is iterated in group-barrier passes until no decision changes. Each
@@ -348,14 +348,14 @@ the render matches the pre-M5 path exactly.
 M5b: synchronous residency manager, one asset, small budget, LRU, dependency requests. All
 pages still loaded before first use to prove the page table. This is implemented as
 `page_manager` in `source/engine/geometry/subtilis_residency.cppm`: the version-1.1 page
-table is retained by `imported_asset`, `request_all` installs the whole table in dependency
+table is kept by `imported_asset`, `request_all` installs the whole table in dependency
 order, requests install a complete dependency closure, and eviction only removes unpinned
 pages that no remaining resident page depends on. The render path still uploads every page;
 it does not consult eviction yet.
 
 M5c: request-driven page install, budgeted installs, fallback to LOD0, and a page-miss metric.
 This is the first milestone that can actually miss a page during rendering. The install is
-`request -> next-frame table publish`; the arena already holds every page's bytes, so this slice
+`request -> next-frame table publish`; the arena already contains every page's bytes, so this slice
 does not yet perform a device-to-device copy or wait on a transfer fence.
 
 M5c-1 (the first slice) is implemented in
@@ -368,7 +368,7 @@ set changes only in `apply`. `pack_page_arena` copies encoded section records in
 it does not reinterpret the engine's padded DAG structs.
 
 The device part is implemented in `source/engine/geometry/subtilis_upload.cpp`: an imported
-geometry generation now holds three additional buffers, `scene_page_arena`,
+geometry generation now carries three additional buffers, `scene_page_arena`,
 `scene_page_table`, and `scene_page_requests`. `uploaded_geometry` exposes them with
 `page_arena()`, `page_table()`, `page_requests()`, `page_count()`, and
 `page_request_capacity()`, plus `install_requested_pages(budget, frame)`. Upload leaves only
@@ -445,7 +445,7 @@ and M5.
 - `source/engine/runtime/runtime.cpp:2183` -- item recording.
 - `source/engine/runtime/runtime.cpp:3143-3164` -- HZB count and indirect command writes.
 - `source/engine/visibility/visibility.cppm:259` -- meshlet run application.
-- `source/engine/geometry/subtilis_upload.cppm:40-78` -- vertex/index retention.
+- `source/engine/geometry/subtilis_upload.cppm:40-78` -- vertex/index lifetime.
 - `source/engine/meshlet/meshlet.cppm:64` -- 48-byte meshlet ABI.
 - `source/shaders/scene/visibility.slang:91` -- mesh entry; group count comes from the
   indirect command.

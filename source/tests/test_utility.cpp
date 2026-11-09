@@ -547,7 +547,7 @@ namespace {
         CHECK(pool.post([&] { later_started.release(); later_finish.acquire(); }, 5));
         later_started.acquire();
         first_finish.release();
-        // This wait only checks non-completion while later same-priority work is held by a gate.
+        // This wait only checks non-completion while a gate blocks later same-priority work.
         CHECK(waiter.wait_for(std::chrono::milliseconds(20)) == std::future_status::timeout);
         std::binary_semaphore unrelated_started(0), unrelated_finish(0);
         CHECK(pool.post([&] { unrelated_started.release(); unrelated_finish.acquire(); }, 9));
@@ -634,7 +634,7 @@ namespace {
         auto waiter = std::async(std::launch::async, [] { deren::utility::wait_log_all(); });
         CHECK(await_log_counter(utility_log_test_snapshot_count, snapshot + 1));
         deren::utility::log_text("prefix after wait");
-        utility_log_test_pause_after(1); // permit first write/flush, hold the later message
+        utility_log_test_pause_after(1); // permit first write/flush, defer the later message
         CHECK(await_log_counter(utility_log_test_pause_count, pause + 2));
         CHECK(waiter.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
         std::ifstream log("deren-debug.log");

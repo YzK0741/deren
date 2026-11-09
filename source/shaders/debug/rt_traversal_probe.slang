@@ -34,7 +34,7 @@ void native_main()
     };
     probe_trace(structure);
 }
-// Retain the original built-in variant for driver/compiler diagnosis. It can be
+// Preserve the original built-in variant for driver/compiler diagnosis. It can be
 // compiled independently with -entry builtin_main, using the same probe push block.
 [shader("raygeneration")]
 void builtin_main() { probe_trace(heap_at<RaytracingAccelerationStructure>(16384u + 1000u + pc.frame_slot)); }

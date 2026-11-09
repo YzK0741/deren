@@ -238,7 +238,7 @@ class BoundaryTests(unittest.TestCase):
         self.assertIn("imports  engine/application: 1 site(s) in 1 file(s)", result.stdout)
 
     def test_an_engine_file_that_is_not_a_backend_module_is_not_flagged(self):
-        # `deren.engine.filters` is declared by ENGINE code (deren_engine holds filters.cppm), so a
+        # `deren.engine.filters` is declared by ENGINE code (deren_engine compiles filters.cppm), so a
         # name prefix must not put it in the backend's set: only CMake's target list may.
         core = self.root / "source" / "engine" / "filters"
         core.mkdir(parents=True, exist_ok=True)

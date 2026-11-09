@@ -65,7 +65,7 @@
  * @brief the three `extern "C"` symbols a backend exports and a host resolves, and the keyword that
  *        makes them visible across a DLL boundary.
  *
- * The C ABI is deliberately tiny: a version number, a factory whose retention transfer is spelled
+ * The C ABI is deliberately tiny: a version number, a factory whose destruction rule is spelled
  * out by the deleter it returns, and that deleter (see `source/promise/rhi/backend_entry.hpp`). Everything
  * else the engine and the backend share is a virtual base class in `deren.promise.rhi`, compiled by
  * both sides independently, so no C++ type is passed by value and no symbol other than these three

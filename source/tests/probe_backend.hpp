@@ -34,7 +34,7 @@ namespace deren::vk_test {
     [[nodiscard]] deren::promise::rhi::shared_object<deren::promise::rhi::api_core>
     probe_make_core(deren::promise::rhi::create_info const& desc, std::uint32_t reported_api_version, bool portable_mode = false);
 
-    /// Reference a portable probe's heap buffer while the runtime holding it is alive.
+    /// Return a view of a portable probe's heap buffer; it stays valid while the runtime is valid.
     [[nodiscard]] std::span<std::byte> probe_heap_buffer(deren::promise::rhi::api_core& core, std::uint64_t offset);
     // Fail one image/buffer creation after N successful creations (portable probe only).
     [[nodiscard]] deren::promise::rhi::image const* probe_heap_image(deren::promise::rhi::api_core& core, std::uint64_t offset);

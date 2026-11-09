@@ -12,7 +12,7 @@ namespace deren::engine::transfer_detail {
     namespace rhi = deren::promise::rhi;
     namespace sync = rhi::synchronization;
     struct operation {
-        resource_lease<rhi::buffer> resource, staging;
+        resource_handle<rhi::buffer> resource, staging;
         std::uint64_t offset, size;
         sync::scope before, after;
         bool download;
@@ -21,7 +21,7 @@ namespace deren::engine::transfer_detail {
         rhi::shared_object<rhi::api_core> core;
         std::shared_ptr<resource_cluster> allocations;
         deren::utility::vessel::vector<operation> operations;
-        deren::utility::vessel::vector<resource_lease<rhi::buffer>> outputs;
+        deren::utility::vessel::vector<resource_handle<rhi::buffer>> outputs;
         rhi::shared_object<rhi::command_buffer> commands;
         rhi::submission_token token{};
         bool completed = false;
@@ -54,7 +54,7 @@ namespace deren::engine::transfer_detail {
 export namespace deren::engine {
     namespace transfer_rhi = deren::promise::rhi;
     class buffer_transfer_service;
-    /// Copyable completed-data holder. Poll/read never block; returned spans reference this ticket.
+    /// Copyable completed-data record. Poll/read never block; returned spans point into this ticket.
     class buffer_transfer_ticket {
         friend class buffer_transfer_service;
         std::shared_ptr<transfer_detail::submission> value;
@@ -95,7 +95,7 @@ export namespace deren::engine {
         explicit buffer_transfer_batch(transfer_rhi::shared_object<transfer_rhi::api_core> core)
             : value(std::allocate_shared<transfer_detail::submission>(deren::utility::memory::allocator<transfer_detail::submission>{}, std::move(core))) {
         }
-        std::expected<std::size_t, transfer_rhi::error> append(resource_lease<transfer_rhi::buffer> resource,
+        std::expected<std::size_t, transfer_rhi::error> append(resource_handle<transfer_rhi::buffer> resource,
                                                                std::uint64_t offset, std::uint64_t size, std::span<std::byte const> bytes,
                                                                transfer_rhi::synchronization::scope before, transfer_rhi::synchronization::scope after, bool download) {
             namespace rhi = transfer_rhi;
@@ -153,17 +153,17 @@ export namespace deren::engine {
         buffer_transfer_batch& operator=(buffer_transfer_batch const&) = delete ("buffer_transfer_batch is non-copyable: modify the existing instance instead");
         buffer_transfer_batch(buffer_transfer_batch&&) noexcept = default;
         buffer_transfer_batch& operator=(buffer_transfer_batch&&) noexcept = default;
-        [[nodiscard]] transfer_rhi::error upload(resource_lease<transfer_rhi::buffer> destination, std::uint64_t offset,
+        [[nodiscard]] transfer_rhi::error upload(resource_handle<transfer_rhi::buffer> destination, std::uint64_t offset,
                                                  std::span<std::byte const> bytes, transfer_rhi::synchronization::scope before, transfer_rhi::synchronization::scope after) {
             auto result = append(std::move(destination), offset, bytes.size(), bytes, before, after, false);
             return result ? transfer_rhi::error::ok : result.error();
         }
-        [[nodiscard]] std::expected<std::size_t, transfer_rhi::error> readback(resource_lease<transfer_rhi::buffer> source,
+        [[nodiscard]] std::expected<std::size_t, transfer_rhi::error> readback(resource_handle<transfer_rhi::buffer> source,
                                                                                std::uint64_t offset, std::uint64_t size, transfer_rhi::synchronization::scope before, transfer_rhi::synchronization::scope after) {
             return append(std::move(source), offset, size, {}, before, after, true);
         }
     };
-    /// Caller-serialized service. Holds pending dependencies even after ticket destruction.
+    /// Caller-serialized service. Keeps pending dependencies valid even after the ticket is destroyed.
     /// Destruction waits for this service's tokens only; a failed final drain is fatal.
     class buffer_transfer_service {
         transfer_rhi::shared_object<transfer_rhi::api_core> core;
@@ -232,7 +232,7 @@ export namespace deren::engine {
             if (result != rhi::error::ok) {
                 return std::unexpected(result);
             }
-            // All service retention is registered before native submit can succeed.
+            // The service records the pending submission before native submit can succeed.
             pending.push_back(state);
             auto submitted = completion->submit(commands);
             if (!submitted) {
@@ -255,7 +255,7 @@ export namespace deren::engine {
             }
             return transfer_rhi::error::ok;
         }
-        /// timeout_ns applies to each pending token; errors/timeouts retain uncompleted records.
+        /// timeout_ns applies to each pending token; an error or timeout leaves uncompleted records pending.
         [[nodiscard]] transfer_rhi::error drain(std::uint64_t timeout_ns = UINT64_MAX) {
             for (auto const& state : pending) {
                 auto result = state->observe(true, timeout_ns);

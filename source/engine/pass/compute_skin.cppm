@@ -11,9 +11,9 @@
  * dispatches the renderer derives from the caster set it is walking (`rt_caster_levels`), and the SAME list is
  * recorded twice with different meanings - once on the frame the structures are created (the build below reads
  * those vertices) and once per frame after (the structure is REFITTED, because only the bytes change). A frame
- * pass would have to pretend the first of those is a frame. What it shares with a pass is the retention rule and
- * the construction path: `create` is handed the same `pass_context` a pass gets, and the job holds its pipeline
- * and the ordering barrier its write demands.
+ * pass would have to pretend the first of those is a frame. What it shares with a pass is the lifetime rule and
+ * the construction path: `create` is handed the same `pass_context` a pass gets, and the job builds and destroys
+ * its pipeline and records the ordering barrier its write demands.
  *
  * THE PER-JOINT MATRICES IT READS ARE A HEAP SLOT, not a descriptor set: the shader names the slot the frame's
  * push block carries, so the job keeps no per-slot set and no pool.
@@ -63,7 +63,7 @@ export namespace deren::engine::pass {
     };
 
     /**
-     * @brief the compute-skinning job: it holds its pipeline layout, its pipeline, its per-slot sets
+     * @brief the compute-skinning job: it builds its pipeline layout, its pipeline, its per-slot sets
      *
      * `record` records ONE dispatch per request and then the memory barrier the acceleration structure build or
      * refit needs before it reads what those dispatches wrote (a compute SHADER_WRITE is not visible to a build

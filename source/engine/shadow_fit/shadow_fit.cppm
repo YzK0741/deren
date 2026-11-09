@@ -85,7 +85,7 @@ namespace deren::engine::shadow_fit {
         /// whether an unbounded caster was found (see fit_casters): its shadow can land anywhere, so
         /// the whole scene sphere's DEPTH range enters every cascade's fit
         bool unbounded_caster = false;
-        /// emit the one-time "shadow cascades: N over the view range ..." log. The caller holds the
+        /// emit the one-time "shadow cascades: N over the view range ..." log. The caller keeps the
         /// once-only flag, because whether this is the first fit is its state, not the fit's.
         bool log_summary = false;
         /// every caster's light-space AABB (min, max), as produced by fit_casters()

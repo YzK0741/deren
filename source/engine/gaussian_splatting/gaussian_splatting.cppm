@@ -94,7 +94,7 @@ export namespace deren::engine::gaussian_splatting {
     private:
         gpu_asset() = default;
         friend std::expected<std::shared_ptr<gpu_asset const>, foundation_error> upload_asset(deren::promise::rhi::api_core&, std::shared_ptr<packed_asset const>, foundation_limits const&, deren::promise::rhi::shared_object<deren::promise::rhi::api_core>);
-        deren::promise::rhi::shared_object<deren::promise::rhi::api_core> device_lease;
+        deren::promise::rhi::shared_object<deren::promise::rhi::api_core> device_root;
         deren::engine::pass::pass_chain storage_chain;
         render_resource::instances::resource_snapshot storage_view;
         render_resource::instances::view<deren::promise::rhi::buffer> geometry_buffer, sh_buffer;
@@ -102,11 +102,11 @@ export namespace deren::engine::gaussian_splatting {
         std::uint64_t bytes = 0, geometry_gpu_address = 0, sh_gpu_address = 0;
         deren::utility::vessel::array<float, 3> minimum{}, maximum{};
     };
-    /// Holds packed contents through synchronous upload, then releases its upload aliases.
-    /// The device lease is required: the storage chain keeps it alive while the asset exists.
+    /// Stores packed contents through synchronous upload, then releases its upload aliases.
+    /// A shared device handle is required: the storage chain ensures the core outlives the asset.
     // NOLINTNEXTLINE(readability-trailing-comma): Clang mislocates commas around empty module default arguments.
-    [[nodiscard]] std::expected<std::shared_ptr<gpu_asset const>, foundation_error> upload_asset(deren::promise::rhi::api_core& core, packed_asset const& asset, foundation_limits const& limits = {}, deren::promise::rhi::shared_object<deren::promise::rhi::api_core> device_lease = {});
-    /// Holds packed contents through synchronous upload, then releases its upload aliases.
+    [[nodiscard]] std::expected<std::shared_ptr<gpu_asset const>, foundation_error> upload_asset(deren::promise::rhi::api_core& core, packed_asset const& asset, foundation_limits const& limits = {}, deren::promise::rhi::shared_object<deren::promise::rhi::api_core> device_root = {});
+    /// Stores packed contents through synchronous upload, then releases its upload aliases.
     // NOLINTNEXTLINE(readability-trailing-comma): Clang 23 mislocates commas around empty module default arguments.
     [[nodiscard]] std::expected<std::shared_ptr<gpu_asset const>, foundation_error> upload_asset(deren::promise::rhi::api_core&, std::shared_ptr<packed_asset const>, foundation_limits const& = {}, deren::promise::rhi::shared_object<deren::promise::rhi::api_core> = {});
 

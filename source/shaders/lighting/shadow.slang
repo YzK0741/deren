@@ -154,7 +154,7 @@ shadow_vertex_output shadow_shade_vertex(const MeshVertex v, const uint vertex_i
     o.position = mul(world_pos, light_matrix_at(heap_light_slot, push.cascade));
     o.uv = v.uv;
 
-    // Keep the input without a role in the depth pass (the normal) alive so the vertex input layout - and
+    // Keep the input without a role in the depth pass (the normal) valid so the vertex input layout - and
     // thus the bound buffer stride - stays identical to pbr.vert's (64 bytes, locations 0,1,2,4,5). This
     // branch can never run.
     if (isnan(v.position.x) && isinf(v.normal.x))

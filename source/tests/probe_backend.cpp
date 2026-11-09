@@ -32,12 +32,12 @@
 //     so it has nothing to hand out for the rest.
 //   - `create_buffer()` hands out a STATICALLY allocated probe buffer and stores the
 //     descriptor's size in it. That is what makes the tier-2 path testable without
-//     answering the retention question: `device_address::buffer_address()` is asked
+//     settling who releases the buffer: `device_address::buffer_address()` is asked
 //     about that very object, so the test sees a POD descriptor cross into the DLL,
 //     a virtual call come back out, and both halves agree. Static storage also means
 //     the engine has nothing to free - releasing a resource through the backend
 //     (plan §4.2) is S1's, and this round does not pretend to answer it.
-//   - `probe_buffer::release()` completes the held-handle path the contract now spells
+//   - `probe_buffer::release()` completes the handle-release path the contract now spells
 //     (`rhi::buffer::release()` + `rhi::unique_object<T>`): there is no reference count to drop
 //     on a static buffer, but the CALL has to arrive, so `release()` zeroes the size the
 //     descriptor wrote. The test drives it through `unique_object` and reads `size()`
@@ -61,9 +61,9 @@
 //     instead of nothing. Every one of them refuses by NAME where it cannot serve - nothing here
 //     silently downgrades, which is what makes the double (DLL + static) build a contract check.
 //   - THE abi 15 SURFACE is one more pure virtual on `api_core`: `create_command_buffer()`, answered
-//     with a STATIC held stand-in whose echo is the contract's whole lifecycle - the descriptor's
+//     with a STATIC preallocated stand-in whose echo is the contract's whole lifecycle - the descriptor's
 //     kind goes in, `begin_recording()`'s usage flags are remembered, `execute()` tells its buffer
-//     from a foreign one, and `release()` drops the one reference so every later verb answers
+//     from a foreign one, and `release()` destroys the handle so every later verb answers
 //     `not_ready`. abi 21 appended `make_command_buffer()`, answered with the SAME stand-in behind a
 //     NO-OP deleter: the object is a static member, so the control block must not delete it (the
 //     contract's `release()` is what a caller observes instead).
@@ -102,7 +102,7 @@ namespace {
             return tag;
         }
         probe_buffer() noexcept = default;
-        /// THE PROBE'S `release()` IS OBSERVABLE ON PURPOSE, which is what makes the held-handle path
+        /// THE PROBE'S `release()` IS OBSERVABLE ON PURPOSE, which is what makes the handle-release path
         /// testable at all: the buffer is statically allocated, so there is no reference count to drop,
         /// but the call still has to ARRIVE (the test releases through `unique_object`, then reads
         /// `size()` - a released probe buffer answers 0, so a `release()` that never crossed cannot pass
@@ -127,8 +127,8 @@ namespace {
         bool released = false; ///< set by release(); the test reads it through size() == 0
     };
 
-    /// THE REFERENCED FRAME IMAGE AND THE HELD VIEW IT HANDS OUT (③-D/E item B, abi 16). `frame_image()`
-    /// answers a REFERENCED view in the real backend, but a view MADE FROM one is a new held object whose
+    /// THE REFERENCED FRAME IMAGE AND THE VIEW IT HANDS OUT (③-D/E item B, abi 16). `frame_image()`
+    /// answers a REFERENCED view in the real backend, but a view MADE FROM one is a new object created by `make_view()` whose
     /// `release()` is real - and that asymmetry is exactly what a caller can get wrong, so the probe mirrors
     /// it: the image's `release()` is the referenced no-op, the view's is observable, and a range outside
     /// the single-layer/single-mip shape is refused by name (nullptr), never clamped.
@@ -152,7 +152,7 @@ namespace {
         }
         probe_frame_image() noexcept = default;
         void release() noexcept override {
-            // REFERENCED: the real backend logs once and releases nothing (the engine holds no reference to the
+            // REFERENCED: the real backend logs once and releases nothing (the engine keeps no handle to the
             // swapchain image). The probe's observable channel is an echo instead of a log, so a test can tell
             // "the referenced release was called" from "someone released the image itself".
             ++this->view_releases;
@@ -261,7 +261,7 @@ namespace {
 
     /// THE PROBE'S ONE RECORDING FACE (abi 14/15/20): `command_list` is DELETED, so this single
     /// statically allocated object is BOTH the frame's referenced command buffer that `begin_commands()`
-    /// hands out for as long as the probe's frame fiction is open, AND the held buffer
+    /// hands out for as long as the probe's frame fiction is open, AND the separate one that
     /// `create_command_buffer()` hands out. It is the object the two TIMING verbs live on, and the
     /// probe's device cannot timestamp - which is why their honest answer is `unsupported` (the
     /// profiler face's story) - while the ORDER rule stays observable: `mark_gpu_timing()` checks the
@@ -272,7 +272,7 @@ namespace {
     /// that makes the positional rule testable without a GPU.)
     ///
     /// THE TWO OBJECTS ARE THE SAME TYPE AND DIFFERENT INSTANCES: `commands` is the frame's
-    /// (`frame_scoped == true`), `command_buffer` is the held one (`frame_scoped == false`), which is
+    /// (`frame_scoped == true`), `command_buffer` is the one `create_command_buffer()` created (`frame_scoped == false`), which is
     /// how the frame-scoped verbs tell "the frame's" from "the caller's" exactly as the real backend's
     /// `target != VK_NULL_HANDLE` test does.
     struct push_capture {
@@ -312,13 +312,13 @@ namespace {
         /// recording), so `test_dynamic_link` can drive the real refusal paths without a device.
         [[nodiscard]] rhi::error execute(std::span<rhi::mergeable_command_buffer_ref const> batch) override;
         /// WHOSE LIST THIS IS (abi 15): the probe has exactly two kinds of list - the FRAME's
-        /// (`begin_commands()`, the abi-13/14 object) and one per held command buffer - and the
+        /// (`begin_commands()`, the abi-13/14 object) and one per buffer `create_command_buffer()` creates - and the
         /// frame-scoped verbs below must tell them apart the way the real backend does.
         bool frame_scoped = true;
 
         /// The probe records no barrier (it has no device) but the call has to ARRIVE, so the pair it
         /// was handed is echoed into this object - the same "make the crossing visible" shape
-        /// `probe_buffer::release()` uses for the held-handle path.
+        /// `probe_buffer::release()` uses for the handle-release path.
         [[nodiscard]] rhi::error use(rhi::image const&, rhi::image_use const from, rhi::image_use const to) noexcept override {
             if (recording && !replaying) {
                 auto result = apply_operations();
@@ -692,15 +692,15 @@ namespace {
         rhi::subresource_range last_clear_range = {};
     };
 
-    /// THE PROBE'S HELD COMMAND BUFFER (abi 15): the handle `create_command_buffer()` hands out,
+    /// THE PROBE'S COMMAND BUFFER (abi 15): the handle `create_command_buffer()` hands out,
     /// statically allocated like `probe_buffer` (a probe has no device to allocate from, and the point
-    /// here is the CONTRACT's shape: one reference, a begin/end lifecycle, a referenced recording view,
+    /// here is the CONTRACT's shape: one handle, a begin/end lifecycle, a referenced recording view,
     /// and execution of a secondary). Its answers are the echo the test reads:
     ///   - `begin_recording()` records the usage it was handed (the flags cross the boundary),
-    ///   - `release()` drops the one reference, and every later verb answers `not_ready` (the same
+    ///   - `release()` destroys the handle, and every later verb answers `not_ready` (the same
     ///     "a released handle is dead" shape `probe_buffer::release()` gives through size() == 0),
     ///   - `execute()` accepts only THIS probe's buffer and refuses anything else by name.
-    /// The bodies live below `impl` (the execute check reaches back through the holder).
+    /// The bodies live below `impl` (the execute check reaches back through the parent pointer).
 
     /// THE PROBE'S MERGEABLE COMMAND BUFFER (abi 35): a batch-only recording handle. It reuses the probe's
     /// existing recording stand-in by composition and adds the one batch-relevant state (`submitted`), so the
@@ -826,11 +826,11 @@ namespace {
 
     /// THE PROBE'S PRESENTATION SURFACE (abi 14): a REFERENCED view like the walker and the profiler, and
     /// the DESCRIPTOR ECHO reaches through it - the "current size" a rebuild re-derives from the window
-    /// it holds is, for a probe with no window, the creation descriptor it was handed
+    /// it was created for is, for a probe with no window, the creation descriptor it was handed
     /// (`window_width` x `window_height`), so a view that never crossed the boundary cannot answer
     /// with those numbers. A zero-sized descriptor is the DEFERRED recreate state (`not_ready`), which
     /// is the contract's rule for a not-yet-sized window. The bodies live below `impl` (they reach its
-    /// echo through the holder pointer, which the constructor sets).
+    /// echo through the parent pointer, which the constructor sets).
     struct probe_swapchain final : rhi::swapchain {
         static constexpr std::string_view tag = "deren_swapchain_probe";
         [[nodiscard]] std::string_view get_tag() const noexcept override {
@@ -839,7 +839,7 @@ namespace {
         probe_swapchain() noexcept = default;
         impl* parent = nullptr;
 
-        /// A REFERENCED view: this surface is a static member of the probe, so there is no reference to
+        /// A REFERENCED view: this surface is a static member of the probe, so there is nothing to
         /// drop - the call is counted, and the count is what makes "the call arrived" observable.
         void release() noexcept override;
         [[nodiscard]] rhi::error recreate() override;
@@ -955,15 +955,16 @@ namespace {
             delete this;
         }
     };
-    // A snapshot is a different object from the mutable referenced frame view. The core keeps only
-    // a weak cache, while every retained snapshot (and its views) keeps the core alive.
+    // A snapshot is a different object from the mutable referenced frame view. The core caches only
+    // a weak handle, while every snapshot the caller references (and its views) carries a shared
+    // reference to the core.
     struct cpu_frame_snapshot final : rhi::image {
         static constexpr std::string_view tag = "deren_frame_snapshot_cpu_probe";
         [[nodiscard]] std::string_view get_tag() const noexcept override {
             return tag;
         }
         impl* parent = nullptr;
-        rhi::shared_object<rhi::api_core> keep_alive;
+        rhi::shared_object<rhi::api_core> root_reference;
         rhi::shared_object<cpu_frame_snapshot>::weak self;
         std::shared_ptr<cpu_resource_registry> registry;
         std::uint64_t serial;
@@ -1012,7 +1013,7 @@ namespace {
         impl* parent = nullptr;
         rhi::shared_object<cpu_frame_snapshot>::weak cached;
         cpu_frame_resources() noexcept = default;
-        rhi::shared_object<rhi::image> retain_image() noexcept override;
+        rhi::shared_object<rhi::image> snapshot_image() noexcept override;
     };
     std::atomic<std::uint64_t> live_cpu_images{0};
     struct cpu_image final : rhi::image {
@@ -1142,7 +1143,7 @@ namespace {
         std::int32_t image_writes_until_failure = -1;
         bool persistent_image_failure = false;
         deren::utility::vessel::vector<rhi::heap_buffer_write_info> written_buffers;
-        // Retain only image identity and offset; view pointers in the write descriptor are transient.
+        // Record only image identity and offset; view pointers in the write descriptor are transient.
         deren::utility::vessel::vector<std::pair<std::uint64_t, rhi::image const*>> written_images;
         bool ready() const noexcept override {
             return true;
@@ -1492,7 +1493,7 @@ namespace {
         void reset_time_profiling_window() override {
         }
         /// THE CONTRACT'S THIRD HANDSHAKE (abi 19), with a knob: the engine checks this against its
-        /// hold `rhi::abi_version`, and the injection test needs BOTH answers - the agreeing one and
+        /// `rhi::abi_version`, and the injection test needs BOTH answers - the agreeing one and
         /// a deliberately stale one - to prove the check is the thing that fires. `make_core` below
         /// (the test-only factory) is what sets it; the C entry always leaves the default.
         [[nodiscard]] std::uint32_t api_version() const noexcept override {
@@ -1722,8 +1723,8 @@ namespace {
         }
 
         /// THE FRAME IMAGE ANSWERS NOW (③-D/E item B): the probe has no device and no swapchain, so the
-        /// stand-in is a 4x4 fiction - but its SHAPE is the contract's: referenced from the probe, alive only
-        /// while a frame is open (`frame_acquired`), and handing out a held view from `make_view()`.
+        /// stand-in is a 4x4 fiction - but its SHAPE is the contract's: referenced from the probe, valid only
+        /// while a frame is open (`frame_acquired`), and handing out a new view from `make_view()`.
         [[nodiscard]] rhi::image* frame_image() noexcept override {
             return this->frame_acquired ? &this->frame_image_view : nullptr;
         }
@@ -1763,7 +1764,7 @@ namespace {
             return rhi::error::ok;
         }
 
-        /// abi 15: the held recording handle. The probe has no device, so it answers with its static
+        /// abi 15: the recording handle `create_command_buffer()` creates. The probe has no device, so it answers with its static
         /// stand-in and ECHOES the descriptor into it; a kind outside the two roles the contract names
         /// is the factory's one refusal (`nullptr`, the contract's named-refusal rule).
         /// abi 21: the SAME stand-in, handed over as a shared_ptr. The probe buffer is a STATIC
@@ -1848,13 +1849,13 @@ namespace {
         probe_frame_walker walker{};
         probe_command_buffer frame_commands{};
         probe_swapchain swapchain_view{};   // not `swapchain`: a type name, not a member name
-        probe_gpu_profiler profiler_view{}; // not `profiler`: the accessor above holds that name
+        probe_gpu_profiler profiler_view{}; // not `profiler`: the accessor above uses that name
 
         impl() noexcept {
             descriptor_space.fixed_heap = &heap;
             bind_views(*this, *this, *this);
-            // THE HOLDER IS SET IN THE CONSTRUCTOR - the same lesson the real backend's constructor
-            // states: a view handed out with a null holder dereferences null on its first call.
+            // THE PARENT POINTER IS SET IN THE CONSTRUCTOR - the same lesson the real backend's constructor
+            // states: a view handed out with a null parent pointer dereferences null on its first call.
             this->frame_commands.parent = this;
             this->scoped_sync.parent = this;
             this->frame_resources.parent = this;
@@ -1871,21 +1872,21 @@ namespace {
     bool cpu_frame_snapshot::current() const noexcept {
         return parent->frame_open && parent->frame_serial == serial;
     }
-    rhi::shared_object<rhi::image> cpu_frame_resources::retain_image() noexcept {
+    rhi::shared_object<rhi::image> cpu_frame_resources::snapshot_image() noexcept {
         if (!parent->frame_open) {
             return {};
         }
         if (auto image = cached.lock(); image && image->current()) {
             return image;
         }
-        auto keep = parent->self.lock();
-        if (!keep) {
+        auto core_reference = parent->self.lock();
+        if (!core_reference) {
             return {};
         }
         rhi::shared_object<cpu_frame_snapshot> image{new cpu_frame_snapshot(
             parent->resource_registry, parent->frame_serial, parent->frame_image_view.extent(), parent->frame_image_view.format())};
         image->parent = parent;
-        image->keep_alive = keep;
+        image->root_reference = core_reference;
         image->self = image;
         cached = image;
         return image;
@@ -2161,7 +2162,7 @@ deren_make_api_core(std::uint32_t abi_version, deren::promise::rhi::create_info 
         return {};
     }
     // "no creation parameters" is a caller bug, not a request for the standard context: the contract's
-    // hold `create_info{}` is how that is spelled (see backend_entry.hpp).
+    // `create_info{}` is how that is spelled (see backend_entry.hpp).
     if (desc == nullptr) {
         if (out_error_info != nullptr) {
             *out_error_info = rhi::error_info{.code = rhi::error::invalid_argument,
@@ -2180,8 +2181,8 @@ deren_make_api_core(std::uint32_t abi_version, deren::promise::rhi::create_info 
     // descriptor and reads the number back, so a request that never reached the library cannot pass
     // for one that did.
     //
-    // RETENTION: `make_shared` puts the deleter in the control block (abi 18), so the probe object is
-    // destroyed by whoever drops the last reference - no deleter entry point exists to resolve.
+    // DESTRUCTION: `make_shared` puts the deleter in the control block (abi 18), so the probe object is
+    // destroyed when the last `shared_ptr` copy goes away - no deleter entry point exists to resolve.
     auto* const created = new impl();
     rhi::shared_object<rhi::api_core> root{created};
     created->attach_self(root);

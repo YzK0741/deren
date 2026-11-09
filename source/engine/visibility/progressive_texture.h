@@ -125,14 +125,14 @@ namespace deren::engine::progressive_texture {
         bool wanted = false;
     };
     inline std::vector<std::uint32_t> select_mips(std::span<mip_candidate const> entries, std::uint64_t now,
-                                                  std::uint64_t budget, std::uint64_t retention) {
+                                                  std::uint64_t budget, std::uint64_t resident_window) {
         std::vector<std::uint32_t> result, targets;
         std::vector<std::size_t> order;
         for (std::size_t i = 0; i < entries.size(); ++i) {
             auto const& e = entries[i];
             result.push_back(e.floor);
             targets.push_back(e.wanted ? std::min(e.target, e.resident) : e.resident);
-            if (e.width && e.height && e.floor <= 31 && (e.wanted || (e.resident < e.floor && now >= e.last_used && now - e.last_used <= retention))) {
+            if (e.width && e.height && e.floor <= 31 && (e.wanted || (e.resident < e.floor && now >= e.last_used && now - e.last_used <= resident_window))) {
                 order.push_back(i);
             }
         }
@@ -197,11 +197,11 @@ namespace deren::engine::progressive_texture {
         bool resident = false, wanted = false;
     };
     inline std::vector<std::uint8_t> select(std::span<candidate const> entries, std::uint64_t now,
-                                            std::uint64_t budget, std::uint64_t retention) {
+                                            std::uint64_t budget, std::uint64_t resident_window) {
         std::vector<std::size_t> order;
         std::vector<std::uint8_t> result(entries.size());
         for (std::size_t i = 0; i < entries.size(); ++i) {
-            if (entries[i].wanted || (entries[i].resident && now >= entries[i].last_used && now - entries[i].last_used <= retention)) {
+            if (entries[i].wanted || (entries[i].resident && now >= entries[i].last_used && now - entries[i].last_used <= resident_window)) {
                 order.push_back(i);
             }
         }

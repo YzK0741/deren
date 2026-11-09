@@ -38,8 +38,8 @@ export namespace deren::gui {
     /// The DLL a host looks for, without the extension or the directory.
     inline constexpr char const* gui_dll_prefix = "deren_gui_";
 
-    /// The device root is handed over as the RHI's OPAQUE MAIN-THREAD CONTEXT (abi 39), referenced for the
-    /// overlay's lifetime; the runtime holds it. The GUI contract names no native vocabulary: the
+    /// The device root is handed over as the RHI's OPAQUE MAIN-THREAD CONTEXT (abi 39), valid for the
+    /// overlay's lifetime; the overlay reads it but never destroys it. The GUI contract names no native vocabulary: the
     /// API-specific plugin checks the context's concrete tag and casts it to the layout its API's backend
     /// and plugin share (`denen.vulkan.main_context` for the Vulkan plugin), which is where the native
     /// handles and format numbers live. The overlay's RECORDING TARGETS are contract handles, not native
@@ -50,9 +50,9 @@ export namespace deren::gui {
         deren::promise::rhi::main_context_view* main_context = nullptr;
         GLFWwindow* window = nullptr;
         /// THE OVERLAY'S RECORDING TARGETS (abi 5): two mergeable command buffers the HOST creates through
-        /// the contract and hands over - the overlay holds them, records ImGui into one per frame (the frame
-        /// slot ring makes alternating reuse safe), and returns the recorded segment to the host, which
-        /// executes it in A separate secondary-contents rendering instance after the pass instance ends.
+        /// the contract and hands over - the overlay records ImGui into one per frame (the frame slot ring
+        /// makes alternating reuse safe) and returns the recorded segment to the host, which executes it in
+        /// A separate secondary-contents rendering instance after the pass instance ends.
         /// The handles are the contract's; no native vocabulary crosses this boundary.
         deren::promise::rhi::mergeable_command_buffer_ref recording_targets[2] = {};
     };
@@ -93,7 +93,7 @@ export namespace deren::gui {
         virtual void set_default_size(float width, float height) noexcept = 0;
     };
 
-    /// THE OVERLAY ITSELF: what the host holds for the life of the session.
+    /// THE OVERLAY ITSELF: created once per session by `make_gui_fn` below, shut down with `shutdown()`.
     ///
     /// The verbs mirror the ones the in-engine overlay has (and had before it moved here), so the runtime's
     /// call sites and the app's panel building keep their shape: `enable_debug_gui()` calls `init()`, the
@@ -106,7 +106,7 @@ export namespace deren::gui {
         [[nodiscard]] virtual bool init(create_info const& info) = 0;
         virtual void shutdown() = 0;
         [[nodiscard]] virtual bool is_active() const noexcept = 0;
-        /// true while the overlay holds the mouse (the runtime suppresses camera orbit/zoom with it)
+        /// true while the overlay captures the mouse (the runtime suppresses camera orbit/zoom with it)
         [[nodiscard]] virtual bool wants_mouse() const noexcept = 0;
 
         virtual panel& add_panel(deren::utility::vessel::string title) = 0;
@@ -116,7 +116,7 @@ export namespace deren::gui {
 
         /// begin a frame's UI (once per frame, after the acquire and before any content)
         virtual void new_frame() const = 0;
-        /// Record this frame's ImGui draw data into the CURRENT held recording target and hand it back.
+        /// Record this frame's ImGui draw data into the CURRENT recording target and hand it back.
         ///
         /// @p begin is the rendering-instance inheritance the HOST's currently open instance declares (the
         /// overlay's segment records as a continuation of it and cannot begin A separate instance): the
@@ -134,7 +134,7 @@ export namespace deren::gui {
     };
 
     /// The one symbol a GUI plugin exports. An EMPTY pointer is "refused" (with the plugin's log line as
-    /// the diagnosis); `info` is referenced only until the call returns.
+    /// the diagnosis); `info` is read only until the call returns.
     ///
     /// THE HOST'S VIEW OF IT, as a type: what `deren::utility::dynamic_link`'s resolved address is cast to.
     using make_gui_fn = std::shared_ptr<overlay> (*)(std::uint32_t abi_version, create_info const* info);

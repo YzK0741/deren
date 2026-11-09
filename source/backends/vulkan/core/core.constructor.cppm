@@ -94,9 +94,9 @@ namespace {
         if (deren::vulkan::covered_by(declared, offsetof(rhi_create_info, window_title), sizeof(rhi_create_info::window_title)) && desc.window_title != nullptr) {
             // A NULL POINTER KEEPS THE DEFAULT rather than being stored: the title is `char const*`
             // (a deren::utility::vessel::string cannot cross the boundary) and a null one is not an empty title but the
-            // absence of an answer. The pointer itself is REFERENCED until the constructor returns -
+            // absence of an answer. The pointer itself is read only until the constructor returns -
             // `init_window` hands it to GLFW, which copies it into the window - so nothing here keeps
-            // it: `create_options` holds the pointer and the note on that member says why it is never
+            // it: `create_options` stores the pointer and the note on that member says why it is never
             // read again.
             options.window_title = desc.window_title;
         }
@@ -125,7 +125,7 @@ namespace {
             // through as the contract's `void*` - the constructor below reinterprets it - and the
             // size, title and window_visible fields are IGNORED in that mode, as the field documents.
             //
-            // THE CALLER ALSO HOLDS GLFW'S LIFETIME IN THAT MODE: it initialised GLFW before this core was
+            // THE CALLER ALSO CONTROLS GLFW'S LIFETIME IN THAT MODE: it initialised GLFW before this core was
             // constructed (the window could not exist otherwise) and it is the caller that terminates it -
             // after this core and its surface are destroyed. This backend therefore does not initialise
             // GLFW on this path and never terminates it on any path.
@@ -159,7 +159,7 @@ namespace deren::vulkan {
         // than are presented (a supersample this renderer's resolve does not implement), and a zero or
         // negative scale is an invalid extent rather than a small frame.
         // THE CLAMP IS NOT SPELLED HERE (③-D/E step 2's merged slice): `render_layout::clamp_render_scale`
-        // is the ONE holder of the rule, because the ENGINE clamps the same value for its render-chain
+        // is the ONE place the rule is spelled, because the ENGINE clamps the same value for its render-chain
         // targets and two spellings of "clamped" would size two halves of one frame differently. The log
         // line below stays here: reporting the clamp is the backend's, and the engine has nothing to say
         // at the same point.
@@ -167,7 +167,7 @@ namespace deren::vulkan {
         if (this->render_scale != this->create_options.render_scale) {
             deren::utility::log("core: render_scale {} clamped to {} (the supported range is 0.1 .. 1.0)", this->create_options.render_scale, this->render_scale);
         }
-        // Windows are caller-held. A null handle selects ordinary offscreen images.
+        // Windows are created by the caller. A null handle selects ordinary offscreen images.
         this->device.window = nullptr;
         init_instance();
         if (this->create_options.native_window != nullptr) {
@@ -180,8 +180,8 @@ namespace deren::vulkan {
         frame.color_format = frame.swap_chain_image_format;
         // (NO create_render_targets() HERE ANY MORE - ③-D/E A1.7: the render chain's targets are created by
         // the engine through the contract, in runtime::create_render_chain_targets() right after this core
-        // exists. The backend is left with the swapchain and the forward path's depth, which is what it holds.)
-        // (no create_command_pool() here: every command buffer holds its pool now - see
+        // exists. The backend is left with the swapchain and the forward path's depth, which is what it creates.)
+        // (no create_command_pool() here: every command buffer creates its pool now - see
         // core::make_command_buffer / deren::vulkan::vk_command_buffer)
         create_samplers(); // the shared samplers a declaration picks by hint
         create_sync_objects();
@@ -296,15 +296,15 @@ namespace deren::vulkan {
         // THE FRAME'S PRIMARY COMMAND BUFFERS ARE ALLOCATED HERE NOW (they moved out of the runtime:
         // see core.declarations.cppm). The SHAPE is unchanged - one primary per frame slot, allocated
         // once and reused every frame - and the runtime still begins, ends and submits them; what
-        // changed is who holds the RAII objects, which is what lets `begin_commands()` hand out the
+        // changed is who creates the RAII objects, which is what lets `begin_commands()` hand out the
         // frame's list.
         this->frame.commands_view.parent = this;
         this->command.scoped_sync.parent = this;
         this->frame.frame_resources.parent = this;
         this->frame.frame_image_view.parent = this;
         this->frame.readback_slot_view.parent = this;
-        // THE FRAME FACE'S VIEWS (abi 13) - `holder` SET HERE, in the constructor, on purpose: a view
-        // handed out with a null holder dereferences null on its first call (the `resource.address_view`
+        // THE FRAME FACE'S VIEWS (abi 13) - the `parent` field is SET HERE, in the constructor, on purpose: a view
+        // handed out with a null `parent` dereferences null on its first call (the `resource.address_view`
         // lesson, measured by the spike as 2 FAILs before anything else could look at it).
         this->frame.frames_view.parent = this;
         this->frame.profiler_view.parent = this;
@@ -317,8 +317,8 @@ namespace deren::vulkan {
         this->command.checkpoint_view.parent = this;
         this->frame.async_presentation_view.parent = this;
         this->resource.host_copy_view.parent = this;
-        // THE DEVICE-CAPABILITY VIEW READS THIS CORE'S CACHED FACTS, so it needs the holder exactly as the views
-        // above do - and the omission is not silent: with no holder every method answers its zero/false default,
+        // THE DEVICE-CAPABILITY VIEW READS THIS CORE'S CACHED FACTS, so it needs its `parent` set exactly as the views
+        // above do - and the omission is not silent: with a null `parent` every method answers its zero/false default,
         // which gated the MESH path off (measured: 'pipeline pbr has no mesh stage to build from' - the vertex
         // form is gone, so the app cannot start at all).
         this->device.capabilities_view.parent = this;
@@ -331,7 +331,7 @@ namespace deren::vulkan {
             // pools too.
             this->frame.frame_command_buffers.push_back(this->make_command_buffer());
         }
-        // THE VIEWS THAT hold DEVICE MEMORY HAVE TO BE EMPTIED BEFORE THE DEVICE GOES AWAY, and that is
+        // THE VIEWS THAT NAME DEVICE MEMORY HAVE TO BE EMPTIED BEFORE THE DEVICE GOES AWAY, and that is
         // what this cleanup is for: `vk_command_buffer` frees itself through the device and its pool,
         // and `vk_buffer` through VMA's allocator - do_cleanup() destroys both from the destructor
         // BODY, i.e. before any member destructor runs. do_cleanup() is LIFO and this is the LAST
@@ -521,7 +521,7 @@ namespace deren::vulkan {
 
     void core::init_surface() noexcept {
         if (this->create_options.native_window == nullptr) {
-            deren::utility::panic("surface creation requires a caller-held window");
+            deren::utility::panic("surface creation requires a window created by the caller");
         }
         VkWin32SurfaceCreateInfoKHR const info{
             .sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
@@ -831,7 +831,7 @@ namespace deren::vulkan {
                     vkFreeMemory(this->device.logical_device, memory, nullptr);
                 }
             });
-            deren::utility::log("offscreen: {} held images, no window, surface or swapchain", frame.swap_chain_images.size());
+            deren::utility::log("offscreen: {} created images, no window, surface or swapchain", frame.swap_chain_images.size());
             return;
         }
         auto const [capabilities, formats, present_modes] = query_swap_chain_support(this->device.physical_device, this->device.surface);

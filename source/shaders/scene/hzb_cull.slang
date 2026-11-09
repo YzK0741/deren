@@ -1,6 +1,6 @@
 // THE HZB CULL STAGE (M3 B2): tests history HZB, compacts survivors in candidate order and writes all three
 // indirect command words. Raster and resolve share the result source. A rejected run publishes the fallback
-// sentinel and retains the host command, so both consumers use the original host-culled records.
+// sentinel and preserves the host command, so both consumers use the original host-culled records.
 //
 // WHY ONE WORKGROUP PER ITEM. The item is the unit whose candidates the host already compacted into ONE run of the
 // host-culled meshlet table (runtime.cpp's record_visibility_items publishes `visible_run`s at the primitive's
@@ -82,7 +82,7 @@ HzbMatrix hzb_draw_item_model(StructuredBuffer<uint> items, uint item_row)
     return model;
 }
 
-// All three words belong to this item. Unsupported/rejected items retain the host command.
+// All three words belong to this item. Unsupported/rejected items preserve the host command.
 void hzb_write_command(uint slot, uint item, uint count)
 {
     RWStructuredBuffer<uint> commands = heap_at<RWStructuredBuffer<uint>>(heap_slots_hzb_commands);

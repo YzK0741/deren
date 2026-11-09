@@ -39,7 +39,7 @@ struct heap_probe_vertex_output
     [[vk::location(0)]] float2 uv : UV_OUT;
     float4 position : SV_Position;
     // A LANE NO FRAGMENT STAGE READS, and it is here because a MESH stage cannot read its outputs
-    // (`E54005: cannot read values from mesh shader outputs`, measured), so the usual "keep the read alive
+    // (`E54005: cannot read values from mesh shader outputs`, measured), so the usual "keep the read valid
     // with a never-taken branch" idiom does not work: the value has to be WRITTEN somewhere. A multiply by
     // zero would be folded away with the fetch, so it is written to a location nothing consumes instead -
     // the drawn triangle is unaffected, and the fetch is real.

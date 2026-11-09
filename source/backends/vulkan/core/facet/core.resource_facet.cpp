@@ -2,7 +2,7 @@
 // ============================================================================
 // file: source/backends/vulkan/core/facet/core.resource_facet.cpp
 //
-// The resource face holds the descriptor heaps, samplers, texture groups,
+// The resource face creates the descriptor heaps, samplers, texture groups,
 // provenance sets and tier-2 resource views. Its virtual entry points implement
 // the creation logic here; the root keeps thin forwarders for its callers.
 // ============================================================================
@@ -89,7 +89,7 @@ namespace deren::vulkan {
             // new contract value must not silently become whatever the integer happens to mean.
             case rhi_image_format::r16_sfloat:
                 return VK_FORMAT_R16_SFLOAT;
-            // APPENDED for the visibility buffer (2026-10-17): one 32-bit unsigned channel holding the
+            // APPENDED for the visibility buffer (2026-10-17): one 32-bit unsigned channel for the
             // packed visibility id. Spelled out like every other mapping for the reason above.
             case rhi_image_format::r32_uint:
                 return VK_FORMAT_R32_UINT;
@@ -429,7 +429,7 @@ namespace deren::vulkan {
             extra_usage |= VK_BUFFER_USAGE_MICROMAP_BUILD_INPUT_READ_ONLY_BIT_EXT;
         }
 
-        // ---- THE ALLOCATION, AND THE ONE REFERENCE IT HANDS OVER --------------------------------
+        // ---- THE ALLOCATION, AND THE SINGLE SHARE THE RETURNED BUFFER CARRIES -------------------
         // `initial_bytes` empty means ALLOCATE ONLY - which is what the GPU-only targets, the read-back
         // slot and an acceleration structure's storage ask for, and what a content-keyed allocator must
         // never match against anything.
@@ -526,8 +526,8 @@ namespace deren::vulkan {
         };
 
         // ---- THE ALLOCATION (the allocator's dedup sees the content at creation) --------------
-        // create_image uploads the staging copy itself for data-carrying types and answers a holding
-        // RAII handle (vma.cppm's type table); empty bytes mean allocate-only.
+        // create_image uploads the staging copy itself for data-carrying types and answers an RAII
+        // wrapper (vma.cppm's type table); empty bytes mean allocate-only.
         vk_image const allocation = this->full_core.device.vma.create_image(
             reinterpret_cast<uint8_t const*>(desc.initial_bytes.data()), desc.initial_bytes.size(), create_info, type);
         if (allocation.handle() == 0) {
@@ -536,11 +536,11 @@ namespace deren::vulkan {
             return nullptr;
         }
 
-        // The detail lookup is an UNLOCKED REFERENCE: the VkImage is copied out NOW (the same rule
+        // The detail lookup happens UNLOCKED: the VkImage is copied out NOW (the same rule
         // core::buffer's comment states), never the pointer into the allocator's map.
         image_detail const* const detail = this->full_core.device.vma.get_image_detail(allocation.handle());
         if (detail == nullptr) {
-            deren::utility::log("rhi: create_image {} refused: the allocator holds no detail for the allocation", what);
+            deren::utility::log("rhi: create_image {} refused: the allocator has no detail for the allocation", what);
             return nullptr;
         }
         auto* const answer = new core::image();
@@ -957,7 +957,7 @@ namespace deren::vulkan {
         // ---- THE ABI GUARD, THEN WHAT A CREATE ACTUALLY IS (tier-1 since abi 26) ------------------------
         //
         //   1. THE GEOMETRY, in the driver's words, built ONCE: the caller's records are PODs of the CONTRACT's
-        //      layout, and this is the ONE place the two spellings meet - the backend holds the conversion, the
+        //      layout, and this is the ONE place the two spellings meet - the backend performs the conversion, the
         //      same rule `mesh_task_command` follows.
         //   2. THE SIZES (`vkGetAccelerationStructureBuildSizesKHR`) and the memory: the storage the structure
         //      lives in, allocated through this backend's factory. The caller never sees the number.
@@ -1068,7 +1068,7 @@ namespace deren::vulkan {
                 // THE OPACITY MICROMAP, CHAINED INTO THE TRIANGLES DATA (not into the geometry: the geometry's
                 // pNext accepts only the micromap-DATA struct, and validation named exactly that when the engine
                 // first attached it in the wrong place). THE INDEX ARRAY IS THIS BACKEND'S - it built the micromap
-                // and holds the buffer - which is what makes the contract's attachment one handle and a usage record.
+                // and creates the buffer - which is what makes the contract's attachment one handle and a usage record.
                 if (source.opacity_micromap != nullptr) {
                     if (!rhi::is_concrete(*source.opacity_micromap, concrete::micromap)) {
                         deren::utility::log("rhi: create_acceleration_structure refused: a geometry's opacity micromap is not a handle this backend handed out");
@@ -1093,8 +1093,8 @@ namespace deren::vulkan {
                         .ppUsageCounts = nullptr, // ... and this backend uses the single-record form
                         .micromap = micromap.native,
                     });
-                    // `pUsageCounts` points at the MICROMAP's usage record, which lives as long as the caller
-                    // holds the micromap (the engine's structure set keeps every micromap it built alive for the
+                    // `pUsageCounts` points at the MICROMAP's usage record, which stays valid as long as the caller's
+                    // micromap exists (the engine's structure set leaves every micromap it built valid for the
                     // whole session, which is why that is a safe anchor rather than a local).
                     structure->micromap_attachments.back().pUsageCounts = &micromap.usage;
                     triangles.pNext = &structure->micromap_attachments.back();
@@ -1323,7 +1323,7 @@ namespace deren::vulkan {
         VkPhysicalDeviceProperties properties{};
         vkGetPhysicalDeviceProperties(this->full_core.device.physical_device, &properties);
         for (auto const& entry : group->entries) {
-            if (!entry.resource.retains_lifetime()) {
+            if (!entry.resource.is_live()) {
                 return fail(rhi::error::invalid_argument);
             }
             if (entry.kind == rhi::resource_kind::uniform_buffer || entry.kind == rhi::resource_kind::storage_buffer) {
@@ -1361,7 +1361,7 @@ namespace deren::vulkan {
         }
         for (std::size_t index = 0; index < group->entries.size(); ++index) {
             auto const& entry = group->entries[index];
-            if (!entry.resource.retains_lifetime() || entry.kind > rhi::resource_kind::acceleration_structure ||
+            if (!entry.resource.is_live() || entry.kind > rhi::resource_kind::acceleration_structure ||
                 (index && entry.binding == group->entries[index - 1].binding)) {
                 return fail(rhi::error::invalid_argument);
             }

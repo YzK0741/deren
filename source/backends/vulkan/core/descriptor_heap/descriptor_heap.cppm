@@ -18,11 +18,11 @@ module; // the macro-using Vulkan header must not be imported into a module purv
  * WHY IT IS A SUBMODULE OF core AND NOT A PASS OR A TOP-LEVEL MODULE: a heap is DEVICE-WIDE state. The
  * extension's guidance is to bind one heap for the application's lifetime, because binding a new one costs
  * a pipeline flush; the descriptors in it are the same contract the shared scene block already describes; and
- * every pass reads them. So it lives beside the vma allocator as something `core` holds and hands down, and it
+ * every pass reads them. So it lives beside the vma allocator as something `core` creates and hands down, and it
  * deliberately knows NOTHING about what a binding means - set 0 binding 7 being the light UBO is core's
  * business, not this file's.
  *
- * WHAT IT HOLDS: the two heap buffers (resources and samplers, which are SEPARATE heaps in this API), the
+ * WHAT IT CONTAINS: the two heap buffers (resources and samplers, which are SEPARATE heaps in this API), the
  * layout arithmetic that the device's properties dictate, and the three calls that make the model work -
  * vkWriteResourceDescriptorsEXT to write a descriptor, vkCmdBindResourceHeapEXT/vkCmdBindSamplerHeapEXT to
  * bind the heaps, and VkDescriptorSetAndBindingMappingInfoEXT to let a shader keep naming `set N, binding M`.
@@ -36,7 +36,7 @@ module; // the macro-using Vulkan header must not be imported into a module purv
  *
  * AND THE UNIT OF THAT MIGRATION IS THE FRAME, NOT THE PASS - measured, not assumed. Binding the heap is
  * command-buffer state that takes over EVERY stage recorded after it: with the bind recorded at the start of the
- * frame and every mapping switched off (so the heap held nothing any shader had asked for), all nine reference
+ * frame and every mapping switched off (so the heap carried no descriptor any shader had asked for), all nine reference
  * scenarios came back as the SAME frame - hash DC5F6D66428C26D8, mean 0.00 against the unlit reference's 88.1 -
  * with validation SILENT, because a stage whose descriptors came from a set reads the heap instead once one is
  * bound. Two further rules cost one gate run each and are not optional: a mapping is silently IGNORED unless the
@@ -60,7 +60,7 @@ namespace deren::vulkan {
      * @brief the device's heap numbers, copied out of VkPhysicalDeviceDescriptorHeapPropertiesEXT at init
      * @note it is A separate struct rather than a reference to the queried properties so that this module does
      *       not depend on the capability layer's header: the caller copies what a layout needs, and the heap
-     *       never reaches back into device state it does not hold.
+     *       never reaches back into device state it does not store.
      */
     export struct heap_limits {
         VkDeviceSize max_resource_size = 0;
@@ -88,7 +88,7 @@ namespace deren::vulkan {
     public:
         descriptor_heap() = default;
         descriptor_heap(descriptor_heap const&) = delete ("descriptor_heap is non-copyable: construct it in place and keep its identity");
-        descriptor_heap& operator=(descriptor_heap const&) = delete ("descriptor_heap is non-copyable: configure it through its holding API");
+        descriptor_heap& operator=(descriptor_heap const&) = delete ("descriptor_heap is non-copyable: construct it in place and configure it there");
         descriptor_heap(descriptor_heap&&) = delete ("descriptor_heap is non-movable: its resources are tied to the current address");
         descriptor_heap& operator=(descriptor_heap&&) = delete ("descriptor_heap is non-movable: its resources are tied to the current address");
         ~descriptor_heap();
@@ -105,7 +105,7 @@ namespace deren::vulkan {
          *       size is the reserved range the embedded-sampler path requires.
          */
         [[nodiscard]] bool init(vma_allocator& allocator, VkDevice device, heap_limits const& limits) noexcept;
-        /// @brief release both heaps (the buffers free themselves; this drops the references)
+        /// @brief release both heaps (the buffers free themselves; this clears the stored state)
         void destroy() noexcept;
 
         [[nodiscard]] bool ready() const noexcept {
@@ -166,7 +166,7 @@ namespace deren::vulkan {
         void record_bind(VkCommandBuffer command_buffer) const noexcept;
 
         /**
-         * @brief write THIS heap's two bind infos into storage the caller holds
+         * @brief write THIS heap's two bind infos into storage the caller provides
          * @param resource filled with the resource heap's bind info (the same one record_bind binds)
          * @param sampler filled with the sampler heap's bind info
          *
@@ -175,7 +175,7 @@ namespace deren::vulkan {
          * descriptors, but VkCommandBufferInheritanceDescriptorHeapInfoEXT::pResourceHeapBindInfo is NULL"
          * (VUID-vkCmdDrawIndexed-None-11308), and a migrated frame whose leaves draw in secondaries therefore
          * comes out black. `VkCommandBufferInheritanceDescriptorHeapInfoEXT` POINTS at the bind infos rather than
-         * copying them, which is why this fills caller-held storage: it has to outlive vkBeginCommandBuffer, and
+         * copying them, which is why this fills caller-provided storage: it has to outlive vkBeginCommandBuffer, and
          * a stack local in the recording function does that.
          */
         void bind_infos(VkBindHeapInfoEXT& resource, VkBindHeapInfoEXT& sampler) const noexcept;
@@ -194,7 +194,7 @@ namespace deren::vulkan {
          */
         [[nodiscard]] bool push_data(VkCommandBuffer command_buffer, uint32_t offset, std::span<std::byte const> data) const noexcept;
 
-        /// @brief the heap offset of the descriptor KIND @p type occupies, or 0 when the heap cannot hold it
+        /// @brief the heap offset of the descriptor KIND @p type occupies, or 0 when the heap does not accept it
         [[nodiscard]] uint32_t descriptor_stride(VkDescriptorType type) const noexcept;
 
         /**
@@ -202,13 +202,13 @@ namespace deren::vulkan {
          * @param offset_bytes the byte offset in the heap, e.g. `descriptor_offset(block, index, type)`
          * @param view the VIEW TO CREATE - and this is the model difference worth knowing: a heap image
          *        descriptor carries a VkImageViewCreateInfo, not an existing VkImageView, because the driver
-         *        creates the view inside the descriptor. A descriptor-set path that already holds a view has to
+         *        creates the view inside the descriptor. A descriptor-set path that already has a view has to
          *        keep the create info it made that view from in order to write the same binding here.
          * @param layout the layout the image will be in when sampled
          * @param type VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE or VK_DESCRIPTOR_TYPE_STORAGE_IMAGE - and NOT
          *        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, which the resource heap does not accept at all
          *        (VUID-VkResourceDescriptorInfoEXT-type-11210 lists the kinds a heap descriptor may be, and a
-         *        combined image sampler is not among them): the heap holds the IMAGE, and the sampler comes from
+         *        combined image sampler is not among them): the heap stores the IMAGE, and the sampler comes from
          *        the SAMPLER HEAP - the shaders combine the two at the point of use (`sampler2D(tex, samp)` in
          *        source/shaders/heap_slots.glsl), which is what removed the mapping step this comment used to describe.
          */
@@ -230,7 +230,7 @@ namespace deren::vulkan {
         /**
          * @brief reserve @p bytes of the resource heap and return the offset, aligned to @p alignment
          * @return the offset, or VK_WHOLE_SIZE when the heap is not ready or the reservation does not fit
-         * @note this is the form a MIXED block needs: a scene set holds descriptors of several kinds - buffers at
+         * @note this is the form a MIXED block needs: a scene set needs descriptors of several kinds - buffers at
          *       one stride, images at another - so a block is laid out by hand and reserved as bytes, while the
          *       single-kind case above stays the convenient one.
          */
@@ -296,7 +296,7 @@ namespace deren::vulkan {
     namespace {
         /// The working sizes. THIS RENDERER'S LAYOUT DECIDES THEM, not the device: the slot grid every
         /// heap-native shader addresses (see docs/descriptor_heap_migration.md) starts at a FIXED 1 MiB, so the
-        /// resource heap has to be able to hold that base plus its slots - the first version asked for 256 KiB,
+        /// resource heap has to be able to fit that base plus its slots - the first version asked for 256 KiB,
         /// which could not even fit the base, and the grid was refused with the heap left unused (measured). The
         /// sampler heap is capped at 128 KiB by the API, so its grid base is 64 KiB instead, which has to leave
         /// room for the samplers themselves - 64 KiB was entirely the reserved window the embedded-sampler path
@@ -304,7 +304,7 @@ namespace deren::vulkan {
         constexpr VkDeviceSize resource_working_size = static_cast<VkDeviceSize>(4096u) * 1024u; // scene grid, disjoint texture-group block, and reusable dynamic resource-group descriptors
         constexpr VkDeviceSize sampler_working_size = static_cast<VkDeviceSize>(128u) * 1024u;   // the API's maximum (64 reserved + 64 usable)
 
-        /// the VkBuffer behind a vk_buffer (the wrapper holds a VMA handle, not the Vulkan one)
+        /// the VkBuffer behind a vk_buffer (the wrapper stores a VMA handle, not the Vulkan one)
         VkBuffer buffer_of(vma_allocator& allocator, vk_buffer const& buffer) noexcept {
             auto const* const detail = buffer.valid() ? allocator.get_buffer_detail(buffer.handle()) : nullptr;
             return detail != nullptr ? detail->buffer : VK_NULL_HANDLE;
@@ -353,7 +353,7 @@ namespace deren::vulkan {
         VkBufferUsageFlags const heap_usage = VK_BUFFER_USAGE_DESCRIPTOR_HEAP_BIT_EXT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
         this->resource_heap_size = limits.max_resource_size < resource_working_size ? limits.max_resource_size : resource_working_size;
         this->sampler_heap_size = limits.max_sampler_size < sampler_working_size ? limits.max_sampler_size : sampler_working_size;
-        // ZERO-FILLED CONTENTS, for the ordinary reason that a heap holds no descriptors until one is written.
+        // ZERO-FILLED CONTENTS, for the ordinary reason that a heap has no descriptors until one is written.
         // (The crash that led to this line was NOT the data pointer: it was ORDERING. A heap is two buffers from
         // the allocator, and core creates it after vma.init() for that reason - create_buffer before the
         // allocator exists is an access violation with no log line, no validation message and no allocation

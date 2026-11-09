@@ -53,7 +53,7 @@ namespace deren::engine::pass {
         // were one answer and the switch could only turn off both.
         //
         // THE NAME IS NOT A NEW CONFIG KEY and does not become one: `[render]` keys are the runtime's registry
-        // (see `runtime::feature_active`), and this is a name that table composes - the holder's decision is in
+        // (see `runtime::feature_active`), and this is a name that table composes - the runtime's decision is in
         // `render_start_demo::feature_active`, where the rewritten chain's answer (`goo_toon` AND its
         // pipeline) is what turns THIS stage off. The article's rim would otherwise be drawn on top of the
         // reference's.
@@ -187,7 +187,7 @@ namespace deren::engine::pass {
     }
 
     rhi::error toon_screen_rim_pass::record_content(resolved_io const& io) noexcept {
-        // THIS PASS HOLDS NO BARRIERS: the removed legacy record body WAS the content (its sampled inputs are heap slots the
+        // THIS PASS RECORDS NO BARRIERS: the removed legacy record body WAS the content (its sampled inputs are heap slots the
         // graph declares on its behalf), so the graph entry only refuses what the record step would have refused.
         if (!this->pipeline_ready() || io.targets.empty() || io.targets[0].view_handle == nullptr || io.extent.width == 0 ||
             io.extent.height == 0 || io.list == nullptr) {

@@ -188,7 +188,7 @@ namespace {
             CreateProcessW(nullptr, const_cast<wchar_t*>(wide.c_str()), nullptr, nullptr,
                            capture != INVALID_HANDLE_VALUE ? TRUE : FALSE, 0, nullptr, nullptr, &startup, &child);
         if (capture != INVALID_HANDLE_VALUE) {
-            CloseHandle(capture); // the child holds its reference now
+            CloseHandle(capture); // the child has its own copy now
         }
         if (spawned == FALSE) {
             deren::vk_test::write_line("injection: could not spawn the child for {} (error {})", flag, GetLastError());
@@ -301,8 +301,8 @@ namespace {
         mock_image image{.data = std::span(*pixels), .parent = pixels};
         auto input = deren::engine::texture_input_from(image, rhi::image_format::rgba8_srgb);
         CHECK(input.parent == pixels && input.data.data() == pixels->data());
-        auto retained = deren::engine::share_texture_source(input);
-        CHECK(retained == pixels);
+        auto observed = deren::engine::share_texture_source(input);
+        CHECK(observed == pixels);
         input.data = input.data.subspan(4, 8);
         auto subset = deren::engine::share_texture_source(input);
         CHECK(subset->size() == 8 && subset != pixels && subset->front() == 37);
@@ -339,8 +339,8 @@ namespace {
         image = {};
         input = {};
         pixels.reset();
-        CHECK(!lifetime.expired() && retained->front() == 37);
-        retained.reset();
+        CHECK(!lifetime.expired() && observed->front() == 37);
+        observed.reset();
         CHECK(lifetime.expired());
         auto fixture = deren::vk_test::probe_make_core(creation, rhi::abi_version, true);
         CHECK(fixture);
@@ -422,7 +422,7 @@ int main(int const argc, char** const argv) {
         if (fixture_pipeline) {
             CHECK(io.list->bind_pipeline(*fixture_pipeline) == rhi::error::ok);
         }
-        // Mirror the host's two views of the same frame-held recording object.
+        // Mirror the host's two views of the same frame-scoped recording object.
         io.cmd = io.list;
         io.frame.image_count = rhi::max_swapchain_images;
         io.frame.image_index = 0;
@@ -564,7 +564,7 @@ int main(int const argc, char** const argv) {
         auto& producer = replacement->emplace<pass::output_targets_pass>();
         engine.set_pass_chain(*replacement, {});
         hdr.reset();
-        application.reset(); // release the producer snapshot too; submitted slots retain the generation
+        application.reset(); // release the producer snapshot too; submitted slots keep the generation valid
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
         auto selected = producer.resources();
         // The software depth/id families are optional and remain absent on this OFF frame.
@@ -580,7 +580,7 @@ int main(int const argc, char** const argv) {
         }
         CHECK(selected.find(rr::resource_id::software_depth) == nullptr);
         CHECK(selected.find(rr::resource_id::software_id) == nullptr);
-        CHECK(!prior.expired()); // other submitted slot still holds the former generation
+        CHECK(!prior.expired()); // other submitted slot still keeps the former generation valid
         finish_frame();
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
         CHECK(prior.expired());
@@ -638,7 +638,7 @@ int main(int const argc, char** const argv) {
     // promise - what this probe (a device with no mesh/compute pipelines and no chain) must prove is that asking
     // for the path is SAFE: availability answers false, the request does not panic, and the frames keep recording
     // (through whatever the old path does on this device: no scene, the cleared background). The admitted path's
-    // hold picture is the capture gate's A/B, which needs the real device.
+    // whole picture is the capture gate's A/B, which needs the real device.
     if (has_flag(argc, argv, "--child-visibility-fallback")) {
         rhi::create_info options{};
         options.window_width = options.window_height = 4;
@@ -755,7 +755,7 @@ int main(int const argc, char** const argv) {
         if (refused != deren::engine::frame_status::acquire_failed) {
             return deren::vk_test::finish("shared_assets");
         }
-        CHECK(heap(layout::heap_slots::env_cube)->extent().width == 1); // Partial publication stays held while rendering is refused.
+        CHECK(heap(layout::heap_slots::env_cube)->extent().width == 1); // Partial publication stays in place while rendering is refused.
         deren::vk_test::probe_heap_image_failure(*device, -1);
         engine.set_ibl(input);
         check_publication();
@@ -1080,7 +1080,7 @@ int main(int const argc, char** const argv) {
         application.reset();
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
         CHECK(!fallback_only.resources().snapshot().find(rr::resource_id::camera_ubo));
-        CHECK(!retired.expired()); // another submitted slot retains the application resource set
+        CHECK(!retired.expired()); // another submitted slot keeps the application resource set valid
         auto fallback_bytes = deren::vk_test::probe_heap_buffer(*device, layout::heap_slot_offset(layout::heap_slots::scene_camera + first));
         CHECK(fallback_bytes.size() >= sizeof(deren::engine::camera_ubo));
         CHECK(fallback_bytes.data() != nullptr);
@@ -1252,7 +1252,7 @@ int main(int const argc, char** const argv) {
         CHECK(read_light(first).light_count.y == 0.5f && read_head(first).center == head.center);
         auto replacement_head = partial.resources().find(rr::resource_id::head_ubo);
         CHECK(deren::vk_test::probe_heap_buffer(*device, layout::heap_slot_offset(layout::heap_slots::scene_head + first)).data() == replacement_head->objects[first].buffer->mapped().data());
-        CHECK(!prior_light.expired()); // another submitted slot still retains the former resource set
+        CHECK(!prior_light.expired()); // another submitted slot still keeps the former resource set valid
         finish_frame();
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
         CHECK(prior_light.expired());
@@ -1431,11 +1431,11 @@ int main(int const argc, char** const argv) {
         CHECK(chain.prepare_resources(root, context) == rhi::error::invalid_argument);
         CHECK(chain.resources().snapshot().same(before));
         consumer.need.create = false;
-        std::weak_ptr<managed::generation const> retained = old;
+        std::weak_ptr<managed::generation const> observed = old;
         old.reset();
-        CHECK(!retained.expired());
+        CHECK(!observed.expired());
         first = {};
-        CHECK(retained.expired());
+        CHECK(observed.expired());
         managed::request buffer{};
         buffer.id = rr::resource_id::cluster_counts;
         buffer.life = managed::lifetime::frame_scratch;
@@ -1493,7 +1493,7 @@ int main(int const argc, char** const argv) {
         CHECK(chain.prepare_resources(root, context) == rhi::error::ok);
         CHECK(chain.resources().snapshot().size() == 0);
         CHECK(chain.begin_frame(0) == rhi::error::ok);
-        // Outstanding views keep both their generation and the device alive after callers drop the root.
+        // Outstanding views keep both their generation and the device valid after callers drop the root.
         rhi::shared_object<rhi::api_core>::weak device_weak = root;
         root.reset();
         CHECK(!device_weak.expired());
@@ -1556,7 +1556,7 @@ int main(int const argc, char** const argv) {
         provider.need.buffer.size = request.buffer.size + 16;
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
         CHECK(provider.bound.find(request.id)->description.buffer.size == request.buffer.size + 16);
-        CHECK(!submitted.expired()); // prior slot is still retained while the next slot records
+        CHECK(!submitted.expired()); // prior slot is still valid while the next slot records
         finish_frame();
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
         CHECK(submitted.expired());
@@ -1708,7 +1708,7 @@ int main(int const argc, char** const argv) {
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
         deren::utility::vessel::array<glm::mat4, 3> const prefix = {glm::mat4(22), glm::mat4(23), glm::mat4(24)};
         engine.set_skin_matrices(prefix); // active-slot upload preserves the earlier upload's tail
-        engine.set_skin_matrices({});     // empty uploads retain the existing block
+        engine.set_skin_matrices({});     // empty uploads keep the existing block
         engine.set_skin_matrices(b, 99);  // invalid slots must not affect any history
         CHECK(engine.begin_recording() == deren::engine::frame_status::proceed);
         previous = buffer(layout::heap_slots::skin_matrices_previous, second);

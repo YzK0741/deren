@@ -38,7 +38,7 @@ namespace deren::engine::pass {
         // string (see runtime.post_graph.cpp): `game_toon_active()` is the same answer `make_character_forward_frame`
         // uses to select the pipeline, so the contour and the game-shaded surface cannot disagree about which chain
         // is drawing. The name stays here because a pass is recordable-or-not in the DECLARATION's vocabulary, and
-        // because a future holder that wants a feature-table branch should not have to invent the name.
+        // because a future caller that wants a feature-table branch should not have to invent the name.
         return "game_toon_depth_rim";
     }
 
@@ -165,7 +165,7 @@ namespace deren::engine::pass {
     }
 
     rhi::error game_toon_depth_rim_pass::record_content(resolved_io const& io) noexcept {
-        // THIS PASS HOLDS NO BARRIERS: the graph declares the sampled inputs and the target write on its behalf,
+        // THIS PASS RECORDS NO BARRIERS: the graph declares the sampled inputs and the target write on its behalf,
         // so the graph entry only refuses what the record step would have refused.
         if (!this->pipeline_ready() || io.targets.empty() || io.targets[0].view_handle == nullptr || io.extent.width == 0 ||
             io.extent.height == 0 || io.list == nullptr) {

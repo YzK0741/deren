@@ -38,15 +38,15 @@ namespace deren::engine::pass {
     }
 
     void scene_pass::create(pass_context const&) {
-        // NOTHING TO BUILD, and that is the pass: it holds no set layout (its bindings all live in the shared
-        // scene set) and no pipeline (a leaf names the pipeline it wants, and the renderer's registry holds it).
+        // NOTHING TO BUILD, and that is the pass: it builds no set layout (its bindings all live in the shared
+        // scene set) and no pipeline (a leaf names the pipeline it wants, and the renderer's registry provides it).
         // A pass whose create is empty is not a pass that is missing something - it is a pass that draws other
         // people's content, which is exactly what a scene pass is.
     }
 
     void scene_pass::on_swapchain_recreated(pass_host const&) {
         // Nothing of this pass is per-image: the targets are the frame's, the secondaries are the frame loop's,
-        // and the leaves hold their buffers.
+        // and the leaves carry their buffers.
     }
 
     void scene_pass::set_frame(scene_frame const& frame) noexcept {
@@ -86,9 +86,9 @@ namespace deren::engine::pass {
     }
 
     void scene_pass::record_segment(rhi::mergeable_command_buffer_ref const& segment, std::span<primitive const* const> const leaves) const {
-        // THE SESSION'S TARGET: the frame hands a REFERENCED contract buffer (the runtime holds this segment's
-        // buffer for the whole slot), and the session builder takes the holding handle, so the reference is spelled
-        // with a NON-HOLDING shared_ptr - the control block drops nothing (the shape the probe backend's static
+        // THE SESSION'S TARGET: the frame hands a REFERENCED contract buffer (the runtime keeps this segment's
+        // buffer for the whole slot), and the session builder takes the handle that references it, so the reference is
+        // spelled with a shared_ptr that controls nothing itself - the control block drops nothing (the shape the probe backend's static
         // buffer uses for the same reason).
         render_environment env = this->pass_frame.make_environment(this->pass_frame.parent, recording_target(segment), this->pass_frame.gbuffer);
         // NO DESCRIPTOR SET IS BOUND, and there is nothing left to bind: the frame bound the resource and sampler
@@ -158,7 +158,7 @@ namespace deren::engine::pass {
         }
         if (!has_draws) {
             // The clear is frame initialization, even when culling removed every mesh. Lighting and splats
-            // still consume these targets; retaining their previous contents accumulates ghosts on camera motion.
+            // still consume these targets; keeping their previous contents accumulates ghosts on camera motion.
             io.list->end_rendering();
             return rhi::error::ok;
         }
@@ -232,7 +232,7 @@ namespace deren::engine::pass {
             }
         }
 
-        // THE INSTANCE ENDS HERE, which is the whole point of the pass holding it: the lighting stage, the
+        // THE INSTANCE ENDS HERE, which is the whole point of the pass opening it: the lighting stage, the
         // transparent pass, the resolve and the lighting stage all run after this, each opening its.
         io.list->end_rendering();
         return result;

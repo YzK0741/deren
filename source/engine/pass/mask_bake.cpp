@@ -1,4 +1,4 @@
-// The alphaMode MASK bake's implementation: the pipeline it holds and the dispatch per caster. Moved out of
+// The alphaMode MASK bake's implementation: the pipeline it builds and the dispatch per caster. Moved out of
 // `runtime::make_mask_bake_pipeline` and the mask branch of
 // `runtime::record_acceleration_structures` UNCHANGED in behaviour - the same heap slots (the bindless texture
 // array and the material table), the same 44-byte push block, the same
@@ -12,7 +12,7 @@ module deren.engine.pass.mask_bake;
 import deren.vstd;
 import deren.utility.shared;
 
-import deren.engine.pipelines; // build_mask_bake: the compute pipeline this job holds
+import deren.engine.pipelines; // build_mask_bake: the compute pipeline this job builds
 import deren.utility;
 
 namespace deren::engine::pass {
@@ -69,7 +69,7 @@ namespace deren::engine::pass {
         bake.index_type = request.index_type;
         bake.triangle_count = request.triangle_count;
         bake.material_index = request.material_index;
-        // THE BIND RIDES THE CONTRACT (abi 21): the pipeline this JOB holds IS a contract pipeline (the builders
+        // THE BIND RIDES THE CONTRACT (abi 21): the pipeline this JOB builds IS a contract pipeline (the builders
         // create through `api_core::create_pipeline`), so `bind_pipeline` carries the compute bind point the
         // backend decided. NO RECORD STEP BINDS FOR THIS JOB - it is not a frame pass, the acceleration-structure set
         // drives it - so this is the one place its pipeline is bound, and a job whose pipeline has no contract

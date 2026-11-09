@@ -1,5 +1,5 @@
 /** @file
- * @brief Shared frame-slot deformation storage, held and retained by the passchain.
+ * @brief Shared frame-slot deformation storage, created by the passchain and reused across frames.
  * Setup data and partial updates survive reuse; runtime preserves contents on provider handover.
  */
 module;

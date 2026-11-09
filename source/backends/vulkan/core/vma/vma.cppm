@@ -70,7 +70,7 @@ namespace deren::vulkan {
             other.allocation = VK_NULL_HANDLE;
         }
         buffer_detail(buffer_detail const&) = delete ("buffer_detail carries an atomic use_count; only its custom move constructor transfers it");
-        buffer_detail& operator=(buffer_detail const&) = delete ("assign the holding vma_allocator resource instead");
+        buffer_detail& operator=(buffer_detail const&) = delete ("assign the vma_allocator resource instead");
         buffer_detail& operator=(buffer_detail&&) = delete ("move-construct the detail; move-assign would discard its allocation");
     };
 
@@ -120,7 +120,7 @@ namespace deren::vulkan {
                             // textures. LINEAR is part of the contract, not an implementation
                             // detail - the type is uploaded by writing pixels through the host
                             // mapping, and an OPTIMAL-tiled image's layout is implementation-defined
-                            // (see direct_image_upload). The caller holds the layout transitions.
+                            // (see direct_image_upload). The caller is responsible for the layout transitions.
         texture_cubemap,    // GPU_ONLY, cubemap
         render_target,      // GPU_ONLY, render target (readable/writable)
     };
@@ -175,7 +175,7 @@ namespace deren::vulkan {
             other.allocation = VK_NULL_HANDLE;
         }
         image_detail(image_detail const&) = delete ("image_detail carries an atomic use_count; only its custom move constructor transfers it");
-        image_detail& operator=(image_detail const&) = delete ("assign the holding vma_allocator resource instead");
+        image_detail& operator=(image_detail const&) = delete ("assign the vma_allocator resource instead");
         image_detail& operator=(image_detail&&) = delete ("move-construct the detail; move-assign would discard its allocation");
     };
 
@@ -196,7 +196,7 @@ namespace deren::vulkan {
         void destroy_buffer(VkBuffer buffer, VmaAllocation allocation);
         void destroy_image(VkImage image, VmaAllocation allocation);
 
-        // These two are named after the parameter that carries them, not after what they hold: init()`s device
+        // These two are named after the parameter that carries them, not after the resource they describe: init()`s device
         // and queue parameters would hide members of those names and MSVC /W4 reports C4458, an error under
         // /WX (clang does not warn: -Wshadow is not in the project flags).
         VkDevice logical_device = VK_NULL_HANDLE;
@@ -219,7 +219,7 @@ namespace deren::vulkan {
         staging_buffer_cache staging_cache = {};
         // Capacity (bytes) of the currently cached staging buffer
         VkDeviceSize buffer_size = 0;
-        // The staging buffer is shared; writes and GPU copies must hold it exclusively
+        // The staging buffer is shared; writes and GPU copies must be serialized
         std::mutex staging_mutex = {};
         // see the note on logical_device above: the same C4458 rule for init()`s queue_family_index parameter
         uint32_t upload_queue_family_index = 0;
@@ -229,17 +229,18 @@ namespace deren::vulkan {
         /// lives on the allocator's side of the fence and needs this pointer.
         PFN_vkCopyMemoryToImageEXT copy_memory_to_image = nullptr;
 
-        // ---- retention: release/retain are private - the only public way to release a
-        // buffer/image is to destroy (or reset) the vk_buffer / vk_image RAII holder that
+        // ---- sharing: release/add_use are private - the only public way to release a
+        // buffer/image is to destroy (or reset) the vk_buffer / vk_image RAII wrapper that
         // vma_allocator handed out. create_* injects lambdas (created inside this class,
-        // so they may call these) into those holders; raw-handle free calls are impossible
+        // so they may call these) into those wrappers; raw-handle free calls are impossible
         // from outside, which removes the leak/over-release paths of the old uint64 API.
         // Shared (deduplicated) resources are reference-counted: free decrements and really
-        // destroys only the last reference; retain bumps the count for a shared holder.
+        // destroys only the last reference; add_use adds one count so a second wrapper can
+        // name the same resource.
         void free_buffer(uint64_t handle);
         void free_image(uint64_t handle);
-        void retain_buffer(uint64_t handle);
-        void retain_image(uint64_t handle);
+        void add_use_buffer(uint64_t handle);
+        void add_use_image(uint64_t handle);
 
         [[nodiscard]] VkFence create_fence() const;
         // true when the memory type @p memory_type_index (a memory TYPE INDEX, resolved through
@@ -247,7 +248,7 @@ namespace deren::vulkan {
         // NOTE: VmaAllocationInfo::memoryType is an index, never a property bit mask - comparing
         // it against VK_MEMORY_PROPERTY_* bits directly is a bug.
         [[nodiscard]] bool is_host_coherent(uint32_t memory_type_index) const noexcept;
-        // Called while holding staging_mutex: reuse the cached buffer if large enough, else destroy and rebuild
+        // Called with staging_mutex locked: reuse the cached buffer if large enough, else destroy and rebuild
         bool ensure_staging_buffer(VkDeviceSize size, VkBuffer& buffer, VmaAllocation& allocation, VmaAllocationInfo& info);
         bool direct_upload(VmaAllocation const& allocation, VmaAllocationInfo& allocation_info, void const* data, uint64_t size) const;
         bool staging_upload(VkBuffer dst_buffer, void const* data, VkDeviceSize size);
@@ -325,7 +326,7 @@ namespace deren::vulkan {
          * @param size_byte byte size of the data
          * @param type buffer usage type
          * @param extra_usage additional VkBufferUsageFlags to OR in
-         * @return a holding vk_buffer (copying shares the buffer, destroying releases one
+         * @return a vk_buffer (copying shares the buffer, destroying releases one
          *         reference); empty when creation failed
          * @note @p extra_usage exists for the bits that are only legal when an OPTIONAL extension is
          *       enabled - the acceleration-structure build input bit on a vertex/index buffer, which
@@ -343,7 +344,7 @@ namespace deren::vulkan {
          * @param data source data to upload
          * @param type buffer usage type
          * @param extra_usage additional VkBufferUsageFlags to OR in (see the byte-span overload)
-         * @return a holding vk_buffer (see create_buffer)
+         * @return a vk_buffer (see create_buffer)
          */
         template <typename T>
         vk_buffer create_buffer(std::span<T> data, buffer_type const type, VkBufferUsageFlags const extra_usage = 0) {
@@ -358,7 +359,7 @@ namespace deren::vulkan {
          * @param data source data to upload
          * @param type buffer usage type
          * @param extra_usage additional VkBufferUsageFlags to OR in (see the byte-span overload)
-         * @return a holding vk_buffer (see create_buffer)
+         * @return a vk_buffer (see create_buffer)
          */
         template <typename T, std::size_t N>
         vk_buffer create_buffer(std::span<T, N> data, buffer_type const type, VkBufferUsageFlags const extra_usage = 0) {
@@ -372,7 +373,7 @@ namespace deren::vulkan {
          * @param size_byte byte size of the data
          * @param create_info image width/height/format/mip levels etc.
          * @param type image usage type
-         * @return a holding vk_image (copying shares the image, destroying releases one
+         * @return a vk_image (copying shares the image, destroying releases one
          *         reference); empty when creation failed
          */
         vk_image create_image(uint8_t const* data, uint64_t size_byte, image_create_info const& create_info, image_type type);
@@ -407,7 +408,7 @@ namespace deren::vulkan {
          * @param data source data to upload
          * @param create_info image width/height/format/mip levels etc.
          * @param type image usage type
-         * @return a holding vk_image (see create_image)
+         * @return a vk_image (see create_image)
          */
         template <typename T, size_t N>
         vk_image create_image(std::span<T const, N> data, image_create_info create_info, image_type const type) {
@@ -431,7 +432,7 @@ namespace deren::vulkan {
         [[nodiscard]] image_detail const* get_image_detail(uint64_t handle);
 
         /**
-         * @brief log what this allocator holds: requested allocation bytes against the block bytes VMA
+         * @brief log the memory this allocator has allocated: requested allocation bytes against the block bytes VMA
          *        took from the driver, per memory type, plus the per-heap budgets
          * @ingroup vulkan_vma
          *
@@ -630,7 +631,7 @@ namespace {
             // layout of an OPTIMAL-tiled image is implementation-defined - the write would land in
             // undefined places (vkGetImageSubresourceLayout, the API that would describe it, is only
             // valid for LINEAR). Being host-visible, it is also created so the caller can write it
-            // again at any time; the caller holds the layout transitions around that.
+            // again at any time; the caller is responsible for the layout transitions around that.
             image_info.imageType = VK_IMAGE_TYPE_2D;
             image_info.tiling = VK_IMAGE_TILING_LINEAR;
             image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
@@ -825,7 +826,7 @@ namespace deren::vulkan {
 
             // THE BACKEND'S LIFECYCLE POINT for the statistics log (the engine's destructor used
             // to make this call from across the boundary): the session's allocation accounting is the
-            // allocator's business, logged while every number it reports is still alive.
+            // allocator's business, logged while every number it reports is still valid.
             this->log_statistics();
             vmaDestroyAllocator(this->allocator);
             this->allocator = VK_NULL_HANDLE;
@@ -911,7 +912,7 @@ namespace deren::vulkan {
         VmaAllocation staging_allocation = VK_NULL_HANDLE;
         VmaAllocationInfo staging_info = {};
 
-        // The staging buffer is shared; it must be held exclusively during writes + GPU copies
+        // The staging buffer is shared; access must be serialized during writes + GPU copies
         std::lock_guard staging_guard(this->staging_mutex);
 
         // Reuse the cached staging buffer, rebuilding automatically when too small
@@ -1167,11 +1168,11 @@ namespace deren::vulkan {
         return true;
     }
     vk_buffer vma_allocator::create_buffer(uint8_t const* data, uint64_t const size_byte, buffer_type const type, VkBufferUsageFlags const extra_usage) {
-        // the returned holder carries lambdas that call back into this allocator; they are
-        // created here (a member function), so they may call the private free/retain below
+        // the returned wrapper carries lambdas that call back into this allocator; they are
+        // created here (a member function), so they may call the private free/add_use below
         auto const make_handle = [this](uint64_t const handle) {
             return vk_buffer{handle,
-                             [this](uint64_t const h) { this->retain_buffer(h); },
+                             [this](uint64_t const h) { this->add_use_buffer(h); },
                              [this](uint64_t const h) { this->free_buffer(h); }};
         };
 
@@ -1260,11 +1261,11 @@ namespace deren::vulkan {
     }
 
     vk_image vma_allocator::create_image(uint8_t const* data, uint64_t const size_byte, image_create_info const& create_info, image_type const type) {
-        // the returned holder carries lambdas that call back into this allocator; they are
-        // created here (a member function), so they may call the private free/retain below
+        // the returned wrapper carries lambdas that call back into this allocator; they are
+        // created here (a member function), so they may call the private free/add_use below
         auto const make_handle = [this](uint64_t const handle) {
             return vk_image{handle,
-                            [this](uint64_t const h) { this->retain_image(h); },
+                            [this](uint64_t const h) { this->add_use_image(h); },
                             [this](uint64_t const h) { this->free_image(h); }};
         };
 
@@ -1316,7 +1317,7 @@ namespace deren::vulkan {
             if (expected_size > image_size) {
                 // REFUSE, rather than log and carry on. host_image_upload() below lays the per-mip
                 // regions out from `expected_size` (the pointer-offset accumulation) while the caller's
-                // memory holds `image_size` bytes, so continuing here turns a caller's size mistake into
+                // memory contains `image_size` bytes, so continuing here turns a caller's size mistake into
                 // a vkCopyMemoryToImageEXT that reads past the end of that memory - a host-side
                 // out-of-range access, not a cosmetic log line. The other direction (expected < given)
                 // only leaves part of the payload unread, so it stays a log.
@@ -1479,7 +1480,7 @@ namespace deren::vulkan {
         this->images.erase(it);
     }
 
-    void vma_allocator::retain_buffer(uint64_t const handle) {
+    void vma_allocator::add_use_buffer(uint64_t const handle) {
         std::lock_guard guard(this->access_mutex);
         auto const it = this->buffers.find(handle);
         if (it != this->buffers.end()) {
@@ -1487,7 +1488,7 @@ namespace deren::vulkan {
         }
     }
 
-    void vma_allocator::retain_image(uint64_t const handle) {
+    void vma_allocator::add_use_image(uint64_t const handle) {
         std::lock_guard guard(this->access_mutex);
         auto const it = this->images.find(handle);
         if (it != this->images.end()) {

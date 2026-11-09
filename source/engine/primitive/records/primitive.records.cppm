@@ -1,7 +1,7 @@
 // ============================================================================
 // module: deren.engine.primitive:records  (the GPU scene records of
 //         deren.engine.primitive: camera / light / material inputs and the
-//         geometry lease the drawable primitives separate)
+//         geometry handles the drawable primitives separate)
 //
 // This partition is one of the three domains of deren.engine.primitive; the
 // top-level facade re-exports it, so consumers keep importing
@@ -42,13 +42,13 @@ namespace deren::engine {
             return *this;
         }
         geometry_buffer& operator=(deren::promise::rhi::unique_object<deren::promise::rhi::buffer>&& value) {
-            auto held = std::make_shared<deren::promise::rhi::unique_object<deren::promise::rhi::buffer>>(std::move(value));
-            bind(held->get(), held);
+            auto shared = std::make_shared<deren::promise::rhi::unique_object<deren::promise::rhi::buffer>>(std::move(value));
+            bind(shared->get(), shared);
             return *this;
         }
-        void bind(deren::promise::rhi::buffer* value, std::shared_ptr<void const> lease) {
-            view = lease ? value : nullptr;
-            parent = std::move(lease);
+        void bind(deren::promise::rhi::buffer* value, std::shared_ptr<void const> access) {
+            view = access ? value : nullptr;
+            parent = std::move(access);
         }
         void reset() noexcept {
             view = nullptr;
@@ -66,7 +66,7 @@ namespace deren::engine {
         explicit operator bool() const noexcept {
             return view != nullptr;
         }
-        std::shared_ptr<void const> lease() const noexcept {
+        std::shared_ptr<void const> access() const noexcept {
             return parent;
         }
     };
@@ -141,7 +141,7 @@ namespace deren::engine {
      *         screen clamps its tile count to this capacity (2048x1536 at a 64 px tile) */
     export constexpr uint32_t max_cluster_tiles_x = 32;
     export constexpr uint32_t max_cluster_tiles_y = 24;
-    /** @brief lights one cluster can hold; a cluster that overflows keeps the first
+    /** @brief lights one cluster can contain; a cluster that overflows keeps the first
      *         @ref cluster_light_capacity lights the compute pass found (see its shader) */
     export constexpr uint32_t cluster_light_capacity = 32;
     /** @brief allocated cluster count (the per-slot count/index buffers are sized for this) */
@@ -237,10 +237,10 @@ namespace deren::engine {
 
     /**
      * @ingroup engine_primitive
-     * @brief which shading stage holds this leaf's pixels
+     * @brief which shading stage shades this leaf's pixels
      *
      * `deferred` leaves write the G-buffer and are shaded by the deferred lighting pass. `character` leaves also
-     * write the G-buffer (they hold its depth) but are re-shaded by the character-forward stage, which is where the
+     * write the G-buffer (and its depth) but are re-shaded by the character-forward stage, which is where the
      * GameToon chain lives. `splat` is reserved for Gaussian-splat objects; the stage does not consume it yet.
      *
      * THIS IS A LIST-BUILDING FACT, not a material-record lane: the frame builder decides which leaves each pass
@@ -447,12 +447,12 @@ namespace deren::engine {
         uint32_t mip_levels = 1;
         ::deren::promise::rhi::image_format format = ::deren::promise::rhi::image_format::rgba8_unorm;
         bool valid = false;
-        /// Optional immutable holder. All aliases must remain immutable while retained by the runtime.
+        /// Optional immutable source. All aliases must remain immutable for as long as the runtime uses it.
         std::shared_ptr<deren::utility::vessel::vector<uint8_t> const> parent = {};
         bool override_format = false; // Opt-in explicit colour/data encoding, otherwise lane default.
     };
 
-    /// Reuse only an exact whole-vector holder; referenced or partial spans need their snapshot.
+    /// Reuse only an exact whole-vector source; a partial span needs its own snapshot.
     export [[nodiscard]] inline std::shared_ptr<deren::utility::vessel::vector<uint8_t> const>
     share_texture_source(texture_input const& input) {
         if (input.parent && input.data.data() == input.parent->data() && input.data.size() == input.parent->size()) {
@@ -549,7 +549,7 @@ namespace deren::engine {
         out.format = format;
         out.valid = true;
         // Converting a mutable shared_ptr to const does not prevent writes through other aliases.
-        // Only an explicitly immutable holder opts into sharing; other inputs retain snapshot semantics.
+        // Only an explicitly immutable source opts into sharing; other inputs get their own snapshot.
         if constexpr (requires { { image.parent } -> std::same_as<decltype(out.parent) const&>; }) {
             out.parent = image.parent;
         }
@@ -598,7 +598,7 @@ namespace deren::engine {
 
     /**
      * @ingroup engine_primitive
-     * @brief concept for a scene-tree structural iterator: DFS pre-order over the retained
+     * @brief concept for a scene-tree structural iterator: DFS pre-order over the
      *        node hierarchy (transform-only nodes included), so a consumer can rebuild the
      *        parent/child edges with an explicit stack. ++ moves to the next node, then the
      *        node's identity is read through get_name() / get_local_transform() / get_depth()

@@ -169,7 +169,7 @@ export struct device_capabilities {
      *
      * @note VK_EXT_descriptor_heap REQUIRES one of VK_KHR_extended_flags or VK_KHR_maintenance5 to be enabled
      *       alongside it, which validation states as VUID-vkCreateDevice-ppEnabledExtensionNames-01387 the
-     *       moment the heap is enabled without one. It is held as a NAME rather than as a second bool because
+     *       moment the heap is enabled without one. It is expressed as a NAME rather than as a second bool because
      *       the device-creation list needs the string, and both are static string literals.
      */
     // called descriptor_heap_extension_name, not descriptor_heap_dependency: the local of that name in query()
@@ -347,7 +347,7 @@ export bool check_device_extension_support(
  * @brief create a logical device and fetch its queues
  * @param physical_device the physical device to create from
  * @param create_info device features, extensions and validation layers
- * @return logical_device holding the device and queue handles on success; panics on failure
+ * @return logical_device with the device and queue handles filled in on success; panics on failure
  */
 export logical_device create_logical_device(
     VkPhysicalDevice physical_device,
@@ -584,7 +584,7 @@ void device_capabilities::query(VkPhysicalDevice const physical_device, uint32_t
     // unlike the heap and mesh shaders there is no shader-side consumer to gate - the whole renderer is written
     // against GENERAL, and a device without the feature is rejected at device creation (core.constructor).
     bool const unified_image_layouts_extension = has_extension(VK_KHR_UNIFIED_IMAGE_LAYOUTS_EXTENSION_NAME);
-    // Host image copy is independent of the other extensions and mandatory for renderer-held uploads/read-back.
+    // Host image copy is independent of the other extensions and mandatory for the renderer's uploads/read-back.
     bool const host_image_copy_extension = has_extension(VK_EXT_HOST_IMAGE_COPY_EXTENSION_NAME);
 
     // ---- Feature pNext chain: features_2 -> 1_1 -> 1_2 -> 1_3 -> 1_4 (truncated by api_version),
@@ -681,7 +681,7 @@ void device_capabilities::query(VkPhysicalDevice const physical_device, uint32_t
     // advertised by a device that does not actually support it, and an enabled-but-unsupported struct is a
     // device-creation error. Rebuilding rather than unlinking one link at a time is what makes the result
     // independent of link ORDER: every cut below has to hand the tail to the next link still standing, and
-    // the heap link's cut used to have to know what it was holding - a link inserted or dropped after it
+    // the heap link's cut used to have to know which node it was rewiring - a link inserted or dropped after it
     // would silently take the rest of the chain with it.
     {
         VkBaseOutStructure* tail = static_cast<VkBaseOutStructure*>(feature_tail);

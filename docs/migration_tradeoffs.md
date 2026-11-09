@@ -31,8 +31,8 @@ NOT been measured**.
   range, so a mesh stage can fetch the vertices the input assembler used to bind - that is the whole
   mechanism behind `mesh_geometry_lanes`, and it is why the geometry window travels in the push block
   instead of in a binding.
-- **Resource lifetime became an explicit rule**: what is written ONCE holds one slot (the meshlet
-  table), what is rebuilt per frame holds one per frame in flight (the TLAS). "Is there a frame whose
+- **Resource lifetime became an explicit rule**: what is written ONCE occupies one slot (the meshlet
+  table), what is rebuilt per frame occupies one per frame in flight (the TLAS). "Is there a frame whose
   contents could disagree with this?" is now a question with a written answer.
 - **One structure, two consumers**: the TLAS and the meshlets read the SAME vertex and index buffers
   by device address, so ray-traced shadows and the meshlet path cannot drift apart.
@@ -62,7 +62,7 @@ NOT been measured**.
 
 ### What it bought
 
-- **One file, many entries - and one shared body.** `pbr.slang` holds the fragment entry, the mesh
+- **One file, many entries - and one shared body.** `pbr.slang` defines the fragment entry, the mesh
   entry and the meshlet entry, and all three call the same `pbr_shade_vertex`. That is what makes
   "the mesh path produces the same pixels as the vertex path" a property of the SOURCE rather than a
   hope, and it is why the capture gate could accept each stage byte-for-byte.
@@ -107,13 +107,13 @@ NOT been measured**.
   `sponza` over 40 frames: 118541 meshlet workgroups dispatched, 75741 emitted, **42800 rejected
   (36%)**; on `deferred` (DamagedHelmet) 8554 dispatched and 710 rejected (8%).
 - **The cheapest stage turned out to be the host.** The camera's runs are now culled while they are
-  recorded - the host already holds the primitive's meshlets, the draw's model matrix and the camera -
+  recorded - the host already has the primitive's meshlets, the draw's model matrix and the camera -
   so the dispatch asks for the survivors only: 118541 workgroups became **84675**, i.e. **33866
   launches never happen**, and the triangles emitted are **identical to the digit** (6325695) with
   every scenario byte-identical. A shadow-off run measures the same 33866 independently.
 - **The counts are data, not arguments.** Every meshlet dispatch goes through
-  `vkCmdDrawMeshTasksIndirectEXT`, reading its three counts out of a command table at a slot the
-  primitive holds, so a GPU-side culling pass can rewrite them with no host change - and the route is
+  `vkCmdDrawMeshTasksIndirectEXT`, reading its three counts out of a command table at a slot that belongs to the
+  primitive, so a GPU-side culling pass can rewrite them with no host change - and the route is
   logged, because the first version of that seam silently fell back to the direct call and looked
   perfect.
 - **The draw path got smaller.** No input assembler, no vertex/index binding: `bind_geometry_and_push`
@@ -148,7 +148,7 @@ NOT been measured**.
 
 ## 4. The cost they share: the contracts moved out of the API
 
-Every item above is the same trade seen from a different side. The classic API held the contracts -
+Every item above is the same trade seen from a different side. The classic API carried the contracts -
 a binding told you what a stage could read, a layout told you what a push contained, a vertex input
 state told you the stride - and the three migrations moved all of it into the SOURCE, the DOCUMENTS
 and the TESTS:

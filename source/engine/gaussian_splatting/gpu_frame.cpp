@@ -13,9 +13,9 @@ namespace deren::engine::gaussian_splatting {
             return std::unexpected(foundation_error{code, message});
         }
     } // namespace
-    std::expected<std::shared_ptr<gpu_frame>, foundation_error> prepare_gpu_frame(rhi::api_core& core, std::span<raster_instance const> inputs, raster_camera const& camera, foundation_limits const& limits, gpu_frame* reuse, rhi::shared_object<rhi::api_core> device_lease) {
-        if (device_lease && device_lease.get() != &core) {
-            return failure(error_code::invalid_argument, "GPU device lease belongs to another core");
+    std::expected<std::shared_ptr<gpu_frame>, foundation_error> prepare_gpu_frame(rhi::api_core& core, std::span<raster_instance const> inputs, raster_camera const& camera, foundation_limits const& limits, gpu_frame* reuse, rhi::shared_object<rhi::api_core> device_root) {
+        if (device_root && device_root.get() != &core) {
+            return failure(error_code::invalid_argument, "GPU device handle was created for another core");
         }
         auto view = validate_raster_camera(camera);
         if (!view) {
@@ -24,8 +24,8 @@ namespace deren::engine::gaussian_splatting {
         if (reuse && reuse->parent != &core) {
             return failure(error_code::invalid_argument, "GPU frame belongs to another core");
         }
-        if (reuse && device_lease && !reuse->device_lease && reuse->storage_view.size()) {
-            return failure(error_code::invalid_argument, "Legacy GPU storage cannot gain a holding device lease; prepare a new frame");
+        if (reuse && device_root && !reuse->device_root && reuse->storage_view.size()) {
+            return failure(error_code::invalid_argument, "Legacy GPU storage cannot gain a shared device handle; prepare a new frame");
         }
         if (inputs.size() > UINT32_MAX || inputs.size() > limits.max_packed_bytes / (sizeof(instance_record) + sizeof(gpu_instance_range))) {
             return failure(error_code::limit_exceeded, "GPU instance tables exceed budget");
@@ -35,7 +35,7 @@ namespace deren::engine::gaussian_splatting {
         std::sort(order.begin(), order.end(), [&](auto a, auto b) { return inputs[a].stable_id < inputs[b].stable_id; });
         deren::utility::vessel::vector<instance_record> records(inputs.size());
         deren::utility::vessel::vector<gpu_instance_range> range_data;
-        deren::utility::vessel::vector<std::shared_ptr<raster_asset const>> retained_assets;
+        deren::utility::vessel::vector<std::shared_ptr<raster_asset const>> cached_assets;
         std::uint64_t count = 0;
         for (std::size_t position = 0; position < order.size(); ++position) {
             auto const index = order[position];
@@ -57,16 +57,16 @@ namespace deren::engine::gaussian_splatting {
             }
             count = next;
             records[index] = {asset->geometry_address(), asset->sh_address(), input.model, *inverse, asset->sh_degree(), {}};
-            retained_assets.push_back(input.asset);
+            cached_assets.push_back(input.asset);
         }
         std::shared_ptr<gpu_frame> result = reuse ? reuse->shared_from_this() : std::shared_ptr<gpu_frame>{new gpu_frame{}};
-        if (device_lease) {
-            result->device_lease = std::move(device_lease);
+        if (device_root) {
+            result->device_root = std::move(device_root);
         }
         if (count == 0) {
             result->parent = &core;
             result->push = {};
-            result->retained_assets = std::move(retained_assets);
+            result->cached_assets = std::move(cached_assets);
             return result;
         }
         auto* sorting = rhi::query_extension<rhi::gpu_sorting>(core);
@@ -183,10 +183,10 @@ namespace deren::engine::gaussian_splatting {
                 result->storage_provider = &result->storage_chain.emplace<deren::engine::pass::buffer_storage_pass>();
             }
             result->storage_provider->configure(requests);
-            if (!result->device_lease) {
-                return failure(error_code::invalid_argument, "GPU frame storage requires a holding device lease");
+            if (!result->device_root) {
+                return failure(error_code::invalid_argument, "GPU frame storage requires a shared device handle");
             }
-            auto root = result->device_lease;
+            auto root = result->device_root;
             if (result->storage_chain.prepare_resources(root, managed::resource_context{.frame_slots = 1, .output_images = 1}, admit) != rhi::error::ok) {
                 return failure(admission_code, admission_message);
             }
@@ -219,7 +219,7 @@ namespace deren::engine::gaussian_splatting {
         }
         result->storage_view = std::move(pending);
         result->parent = &core;
-        result->retained_assets = std::move(retained_assets);
+        result->cached_assets = std::move(cached_assets);
         result->push = data.raster;
         result->push.flags = 1u; // Raster reads the completed projection cache; compute still uses flags=0.
         result->parameter_address = addresses[gpu_frame::parameters];

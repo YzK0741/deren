@@ -15,7 +15,7 @@ core.api_core.cpp's barrier_for, begin_rendering and copy functions, as well as 
 constant_init barrier recipes. The role name shader_read does not mean that the
 backend changes the image to SHADER_READ_ONLY_OPTIMAL.
 
-The graph retains distinct abstract resource_layout values for sampled, attachment
+The graph keeps distinct abstract resource_layout values for sampled, attachment
 and transfer semantics. They need not equal the native layouts. The earlier audit
 recommendation to make the frontend adopt GENERAL is withdrawn following the user
 design clarification. No frontend layout policy switch is needed.
@@ -52,15 +52,15 @@ auto scopes = deren::engine::render_graph::rhi_bridge::lower_scopes(plan);
 ```
 
 For example, frontend storage-write -> sampled-read can remain GENERAL ->
-shader_read_only in the graph and GENERAL -> GENERAL in Vulkan, retaining compute
+shader_read_only in the graph and GENERAL -> GENERAL in Vulkan, preserving compute
 source write and fragment destination read masks. Dumps and final graph states
 keep the frontend description; lowering never rewrites the input plan.
 
 The returned native handles are null and must be bound before recording. These
 functions perform no native calls or allocation on the Vulkan conversion side.
 Queue capabilities, image format/usage/features, actual object bounds, native
-state provenance and lease retention still need validation during real binding.
-Depth/stencil subsets are retained, not silently widened; actual device support is
+state provenance and each `resource_handle` still need validation during real binding.
+Depth/stencil subsets are preserved, not silently widened; actual device support is
 not inferred from a successful conversion. Native remaining-size/count sentinels
 are refused as literal normalized counts rather than changing their meaning.
 
@@ -78,7 +78,7 @@ Tests link the independent converters. The backend DLL also implements the new o
 | Same file, buffer_masks_for | Fixed masks per buffer role; hint is not applied to buffers or the global memory barrier |
 | Same file, subresource_of/aspect_for | Counts of zero become remaining mip/layer sentinels; aspect comes from format, with depth-stencil formats selecting depth, not caller-selected stencil |
 | Same file, frame_commands::barrier | Up to eight image and eight buffer barriers per group; validates/builds the group before its pipeline-barrier call |
-| [constant_init.cppm](../source/backends/vulkan/constant_init/constant_init.cppm) | Named role recipes retain stage/access dependencies while ordinary layouts are GENERAL |
+| [constant_init.cppm](../source/backends/vulkan/constant_init/constant_init.cppm) | Named role recipes keep stage/access dependencies while ordinary layouts are GENERAL |
 
 These are properties read from the source. Existing recipe tests establish those
 recipes' behavior; they do not certify coverage of every possible graph frontier.
@@ -86,13 +86,13 @@ recipes' behavior; they do not certify coverage of every possible graph frontier
 ## Usage and range audit
 
 The following table concerns the legacy recording roles. The new scoped converter
-and bound recorder retain this richer metadata. Bloom integration uses that path.
+and bound recorder carry this richer metadata. Bloom integration uses that path.
 
 | Graph declaration | Closest existing RHI role | Remaining condition before graph execution |
 | --- | --- | --- |
 | sampled texture read | image_use::shader_read; depth_read is sampled depth in the old vocabulary | New scoped converter preserves endpoint masks and maps native layout to GENERAL; binding/recording still needed; sampled depth differs from read-only depth attachment |
 | storage texture write/read-write | image_use::shader_write/shader_read_write | Table has selected compute paths, not every GENERAL read/write pair; no dedicated general-layout storage-read role or arbitrary mixed frontier |
-| color attachment write/preserve | image_use::color_attachment | New converter maps native layout to GENERAL while retaining scopes; old recipes alone do not cover every accumulated frontier |
+| color attachment write/preserve | image_use::color_attachment | New converter maps native layout to GENERAL while preserving scopes; old recipes alone do not cover every accumulated frontier |
 | depth/stencil attachment or read-only depth attachment | depth_attachment; depth_read names sampling | Explicit aspect and read-only attachment semantics need coverage; stencil-only requests cannot be translated by the current aspect inference |
 | image transfer source/destination | image_use::transfer_source/transfer_destination | Only listed role pairs exist; preserve actual GENERAL state, ranges and all endpoint masks |
 | shader buffer read/write/read-write | buffer_use::shader_read/shader_write/shader_read_write | Fixed role masks cannot represent arbitrary graph frontier unions; shader writes/read-write currently select compute |
@@ -129,8 +129,8 @@ while pretending the compiler modeled it. Unknown combinations fail preparation.
 
 The bound recording API is a new optional `rhi::scoped_synchronization` capability,
 using explicit image/buffer spans and complete scopes. Existing role-pair PODs and
-virtual interfaces retain their layout. The engine execute module prepares every
-batch before recording and retains resource leases. Production Bloom/post paths
+virtual interfaces keep their layout. The engine execute module prepares every
+batch before recording and keeps every `resource_handle` it involves valid. Production Bloom/post paths
 use this API and publish initialization after submission; the generic recorder
 does not publish outgoing state. See [binding and recording](render_graph.md).
 
@@ -140,26 +140,27 @@ does not publish outgoing state. See [binding and recording](render_graph.md).
 enabled, so read the numbered items as the record of what was checked rather than as pending work.**
 
 The existing [post_bloom_pass::record](../source/engine/pass/post.cpp) is a graphics
-fullscreen draw chain, not a compute dispatch chain. It currently holds its input
-and output role barriers and its begin/end rendering scope. HDR input transition
-and composite consumption have additional holders outside this function.
+fullscreen draw chain, not a compute dispatch chain. It currently issues its input
+and output role barriers and opens/closes its own begin/end rendering scope. The HDR
+input transition and composite consumption are handled by additional code outside this function.
 
 Before enabling a graph execution path:
 
 1. Validate semantic-to-native lowering against actual backend state and the
    attachment/descriptor GENERAL expectations. Preserve the distinct frontend
    initial/final descriptions; do not reinterpret them as native layout values.
-2. Retain canonical parent image/view leases and validate their device, shape,
-   format, usage and range. Collect pipeline/descriptor/upload retention too.
+2. Keep the canonical parent image/view `resource_handle` values valid and validate
+   their device, shape, format, usage and range. Do the same for the resources kept
+   valid for pipelines, descriptors and uploads.
 3. Audit the real Bloom color-output and fragment-read scopes, including initial
    HDR handoff and all four exported levels. A discard/CLEAR content declaration
    must not erase outstanding accesses from an earlier frame using that object.
-4. Specify outgoing sampled-state requirements or retain one explicit manual
-   handoff holder. export_resource currently roots contents; it emits no epilogue
+4. Specify outgoing sampled-state requirements or record one explicit manual
+   handoff step. export_resource currently roots contents; it emits no epilogue
    transition. In particular, the deepest Bloom level still needs its handoff.
 5. Prepare and validate the whole lowered plan before recording. Replace only
-   the barriers held by that migrated boundary; do not execute both barrier paths.
-6. Publish final state after successful submission and retain all objects through
+   the barriers issued by that migrated boundary; do not execute both barrier paths.
+6. Publish final state after successful submission and keep all objects valid through
    completion. Preserve old state on failed prepare/record/submit. Slot readiness,
    uploads, WSI and cross-submission order remain external protocols.
 7. Run image comparisons and synchronization validation for Bloom on/off, resize,

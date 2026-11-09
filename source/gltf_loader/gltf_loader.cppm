@@ -2,7 +2,7 @@
 // module: gltf_loader
 // module version: 2.1.1  (independent of the app version in CMakeLists project(VERSION))
 //
-// Pure-CPU glTF / GLB loader (vendored fastgltf + stb): drawable stream, retained
+// Pure-CPU glTF / GLB loader (vendored fastgltf + stb): drawable stream, stored
 // node tree, animations / skins / morph targets / cameras / punctual lights.
 // No Vulkan dependency.
 //
@@ -610,7 +610,7 @@ namespace deren::gltf {
      *      - local_transform is the node's transform relative to its parent (TRS-composed
      *        matrix, or the node's matrix when the asset stored a raw matrix); transform_matrix
      *        keeps the accumulated world matrix for backward compatibility (same value as the
-     *        loader used to expose before the tree was retained)
+     *        loader used to expose before the tree was stored)
      *      - source_index links the pool entry back to the glTF asset's node table (animation
      *        channels reference nodes by that index). translation / rotation / scale hold the
      *        TRS base pose when the file declared the node as TRS — the only form the glTF
@@ -711,7 +711,7 @@ namespace deren::gltf {
     /**
      * @ingroup gltf_loader
      * @brief single-pass input iterator over the node TREE of every scene: DFS pre-order
-     *        over the retained hierarchy (same document order as the loader stored the pool),
+     *        over the stored hierarchy (same document order as the loader stored the pool),
      *        INCLUDING transform-only (mesh-less) nodes. Structural view for the runtime's
      *        scene_node_iterator concept: name + local transform + depth (for rebuilding
      *        parent/child edges with a stack) + how many drawables hang off this node.
@@ -783,7 +783,7 @@ namespace deren::gltf {
      * @note scenes is a range: begin()/end() yield every drawable primitive with its node's
      *       world transform (see deren::gltf::scene_iterator / deren::gltf::drawable_ref), so callers can
      *       iterate the whole scene without manual scene -> node -> mesh -> primitive loops
-     * @note nodes_begin()/nodes_end() yield the retained node tree (see deren::gltf::scene_node_iterator)
+     * @note nodes_begin()/nodes_end() yield the stored node tree (see deren::gltf::scene_node_iterator)
      */
     export struct scenes {
         deren::utility::vessel::vector<texture_data> textures;
@@ -875,7 +875,7 @@ namespace deren::gltf {
     // the member shapes below, so this module never needs vulkan.model (or any Vulkan header);
     // the runtime template converts these values into its internal types itself.
 
-    /** @brief interleaved vertex bytes of one drawable (spans into loader-held storage) */
+    /** @brief interleaved vertex bytes of one drawable (spans into storage inside the loader) */
     export struct vertex_view {
         std::span<uint8_t const> data = {};
         uint32_t stride = 0;
@@ -892,8 +892,8 @@ namespace deren::gltf {
     /**
      * @ingroup gltf_loader
      * @brief decoded RGBA8 texture bytes (mip-major) of one material slot
-     * @note holder keeps the bytes alive while image_view is copied/moved around; data spans
-     *       into *holder. valid == false means the slot is missing.
+     * @note `parent` keeps the bytes valid while image_view is copied/moved around; data spans
+     *       into *parent. valid == false means the slot is missing.
      */
     export struct image_view {
         std::span<uint8_t const> data = {};
@@ -1198,24 +1198,24 @@ namespace deren::gltf {
     export deren::utility::vessel::vector<resolved_material> resolve_materials(deren::gltf::scenes const& scenes);
 
     /// Consuming twin: when @p consume_texture_pixels is true, decoded texture bytes are moved into the
-    /// generated mip chains as each texture is resolved, instead of being retained alongside them until
+    /// generated mip chains as each texture is resolved, instead of being stored alongside them until
     /// release_texture_pixels(). Metadata stays intact; the caller must not rely on the raw pixel bytes
     /// afterwards. Pass false for the ordinary read-only behavior.
     export deren::utility::vessel::vector<resolved_material> resolve_materials(deren::gltf::scenes& scenes, bool consume_texture_pixels);
 
     /// Explicitly release decoded pixels after all raw-pixel consumers finish. Metadata and resolved
-    /// image holders survive; resolving again requires reloading the source. Returns released payload bytes.
+    /// image entries survive; resolving again requires reloading the source. Returns released payload bytes.
     export std::uint64_t release_texture_pixels(scenes& scene) noexcept;
 
     /**
      * @ingroup gltf_loader
      * @brief async twin of resolve_materials(): runs the texture decode + mip generation on a
-     *        std::async thread; @p scenes must stay alive until the future is consumed
+     *        std::async thread; @p scenes must stay valid until the future is consumed
      */
     export std::future<deren::utility::vessel::vector<resolved_material>> resolve_materials_async(deren::gltf::scenes const& scenes);
 
-    /// Async consuming twin; @p scenes must stay alive until the future is consumed. See the
-    /// consuming resolve_materials overload for the pixel-retention contract.
+    /// Async consuming twin; @p scenes must stay valid until the future is consumed. See the
+    /// consuming resolve_materials overload for the pixel-preservation contract.
     export std::future<deren::utility::vessel::vector<resolved_material>> resolve_materials_async(deren::gltf::scenes& scenes, bool consume_texture_pixels);
 
     /**
@@ -1297,7 +1297,7 @@ namespace deren::gltf {
      * @brief world AABB of every drawable primitive of the model: each primitive's local AABB
      *        (from its raw POSITION attribute) is transformed by its node's world transform
      *        (TRS maps an AABB to an AABB, so transforming the 8 corners is exact) and united.
-     * @note pure CPU over the retained scene data — the renderer uses this to frame the camera
+     * @note pure CPU over the stored scene data — the renderer uses this to frame the camera
      *       and center the scene before building anything (see main.cpp); primitives without
      *       POSITION are skipped
      */
@@ -1307,7 +1307,7 @@ namespace deren::gltf {
      * @ingroup gltf_loader
      * @brief diagnostics: log what the loader exported for @p scenes — the contents summary
      *        (textures/materials/primitives), the world AABB framing numbers (min/max/center/
-     *        radius), the retained hierarchy shape (roots/nodes/max depth, per-node tree lines)
+     *        radius), the stored hierarchy shape (roots/nodes/max depth, per-node tree lines)
      *        and the animations/skins/morph targets/cameras/lights present in the file.
      * @param scenes the loaded model
      * @return the world scene bounds (see compute_scene_bounds); always valid — panics when the

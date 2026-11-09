@@ -157,12 +157,12 @@ namespace {
             after += texture.data.size();
         }
         // Consuming resolve moves each referenced texture's pixels into its mip chain; it must not
-        // retain the complete decoded set next to the full mip set.
+        // keep the complete decoded set next to the full mip set.
         CHECK(after < before);
-        auto const held = materials[0].slots[0];
-        CHECK(held.valid && held.parent && !held.data.empty());
-        if (held.parent) {
-            CHECK(held.data.data() == held.parent->data());
+        auto const slot = materials[0].slots[0];
+        CHECK(slot.valid && slot.parent && !slot.data.empty());
+        if (slot.parent) {
+            CHECK(slot.data.data() == slot.parent->data());
         }
     }
 
@@ -260,13 +260,13 @@ namespace {
         deren::utility::vessel::vector<deren::gltf::resolved_material> const resolved = deren::gltf::resolve_materials(scenes);
         CHECK(resolved.size() == scenes.materials.size());
         if (!resolved.empty()) {
-            auto const held = resolved[0].slots[0];
-            static_assert(std::is_const_v<typename decltype(held.parent)::element_type>);
-            CHECK(held.parent && !held.data.empty());
-            if (!held.parent || held.data.empty()) {
+            auto const slot = resolved[0].slots[0];
+            static_assert(std::is_const_v<typename decltype(slot.parent)::element_type>);
+            CHECK(slot.parent && !slot.data.empty());
+            if (!slot.parent || slot.data.empty()) {
                 return;
             }
-            auto before = held.data[0];
+            auto before = slot.data[0];
             auto count = scenes.textures.size();
             auto node_count = scenes.node_by_source.size();
             CHECK(deren::gltf::release_texture_pixels(*result) > 0);
@@ -274,7 +274,7 @@ namespace {
             for (auto const& texture : scenes.textures) {
                 CHECK(texture.data.empty() && texture.data.capacity() == 0);
             }
-            CHECK(held.parent && held.data[0] == before);
+            CHECK(slot.parent && slot.data[0] == before);
             CHECK(deren::gltf::release_texture_pixels(*result) == 0);
         }
     }
@@ -299,7 +299,7 @@ namespace {
 
 // ONE SKIN, TWO NODES. glTF allows it (two meshes, or one mesh instanced twice) and the runtime's
 // skin binding used to rig only the first node it found. That binding needs a device, so what this
-// test holds still is the DATA it depends on: both nodes reach the scene carrying skin_index 0, and
+// test pins down is the DATA it depends on: both nodes reach the scene carrying skin_index 0, and
 // the skin is not folded away.
 void test_one_skin_used_by_two_nodes() {
     auto const result = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/source/tests/fixtures/shared_skin_two_nodes.gltf");
@@ -428,7 +428,7 @@ void test_the_toon_family_matcher_reads_mmd_material_names() {
     // cannot read a model's script therefore reports nothing at all - it just shades every material of that
     // model without its family, and the frame still looks like a toon character. That is exactly what
     // happened to the MMD character models this branch imports: their materials are named `颜`, `发`, `目`,
-    // `眉`, `睫`, `口`, `齿`, `舌`, `鼻`, `鞋`, `裤`, while the table held the Japanese and two-character
+    // `眉`, `睫`, `口`, `齿`, `舌`, `鼻`, `鞋`, `裤`, while the table listed the Japanese and two-character
     // spellings, so 25 of one model's 35 materials fell through to `none` - every `face` and every `hair`
     // material among them, which is what silently cost the hair its highlight and the eye its soft ramp.
     //
@@ -485,7 +485,7 @@ void test_the_toon_family_matcher_reads_mmd_material_names() {
     // THE REFERENCE'S NAMES ARE UNCHANGED, which is the widest risk in adding patterns: one that steals
     // a material the game data already classified moves a frame that was not supposed to move. These are
     // `actor_zhuangfy.glb`'s names, and `eyeshadow` and `tail` must stay `none` - they are the two names in
-    // that file no family claims, and `eyeshadow` is the near miss that would catch a careless `eye` pattern.
+    // that file no family matches, and `eyeshadow` is the near miss that would catch a careless `eye` pattern.
     CHECK(deren::gltf::toon_family_of("M_actor_zhuangfy_face_01") == deren::gltf::toon_family::face);
     CHECK(deren::gltf::toon_family_of("M_actor_zhuangfy_hair_01") == deren::gltf::toon_family::hair);
     CHECK(deren::gltf::toon_family_of("M_actor_zhuangfy_iris_01") == deren::gltf::toon_family::eye);
@@ -493,7 +493,7 @@ void test_the_toon_family_matcher_reads_mmd_material_names() {
     CHECK(deren::gltf::toon_family_of("M_actor_zhuangfy_cloth_01") == deren::gltf::toon_family::cloth);
     CHECK(deren::gltf::toon_family_of("M_S_actor_zhuangfy_eyebrow_01_lod0") == deren::gltf::toon_family::face);
     // THE TWO OVERLAY MATERIALS ARE `none`, NOT `hair`: the article draws them in their framebuffer-multiply
-    // pass (`MyZmdEyeDarkShader` / `MyZmdHairShadowShader`), so no toon family may claim them - see the note at the
+    // pass (`MyZmdEyeDarkShader` / `MyZmdHairShadowShader`), so no toon family may match them - see the note at the
     // top of `toon_family_of`. The hair-shadow line here asserted `hair` until that pass was being ported, which is
     // the reference's classification of the NAME and not of the SHADING.
     CHECK(deren::gltf::toon_family_of("M_S_actor_zhuangfy_hairshadow_01_lod0") == deren::gltf::toon_family::none);
@@ -512,10 +512,10 @@ void test_the_toon_family_matcher_reads_mmd_material_names() {
 // THE OVERLAY MATCHER, the other half of the same "no family shades them" decision above.
 //
 // WHY IT NEEDS its TEST AND NOT JUST A SECOND `CHECK` LINE: the two functions are ONE decision read from
-// two sides (see the note at the top of `toon_family_of`). A name claimed by neither is a material that is
+// two sides (see the note at the top of `toon_family_of`). A name matched by neither is a material that is
 // never drawn at all - not a wrong picture, a disappearing surface - so the invariant that matters is the PAIR:
-// every name `overlay_kind_of` claims must be `toon_family::none`, and the two overlay assets' names must be
-// claimed by exactly one of the two channels.
+// every name `overlay_kind_of` matches must be `toon_family::none`, and the two overlay assets' names must be
+// matched by exactly one of the two channels.
 //
 // THE NUMBERING IS ASSERTED HERE TOO, because `register_material` compares the value against the literals 1 and
 // 2 to set the material record's flag bits 6 and 7 (deren.engine.runtime does not import the loader's types, so the
@@ -537,7 +537,7 @@ void test_the_overlay_matcher_claims_the_two_masks() {
     // the matcher is case-insensitive ASCII, like `toon_family_of`
     CHECK(deren::gltf::overlay_kind_of("M_Actor_Chen_EyeShadow_01") == deren::gltf::overlay_kind::eye_dark);
 
-    // THE INVARIANT THE PAIR HAS TO KEEP: an overlay is not a family, so every claimed name is `none` there -
+    // THE INVARIANT THE PAIR HAS TO KEEP: an overlay is not a family, so every listed name is `none` there -
     // and `hairshadow` contains `hair`, which is exactly the collision the top of `toon_family_of` exists for.
     CHECK(deren::gltf::toon_family_of("M_eyeshadow_common_01") == deren::gltf::toon_family::none);
     CHECK(deren::gltf::toon_family_of("M_hairshadow_common_01") == deren::gltf::toon_family::none);
@@ -553,13 +553,13 @@ void test_the_overlay_matcher_claims_the_two_masks() {
 }
 
 // ---------------------------------------------------------------------------------------------------
-// THE CLAIMED `extras` ROWS, which are the loader's third data source and the only place an ALLOW-LIST
+// THE LISTED `extras` ROWS, which are the loader's third data source and the only place an ALLOW-LIST
 // decides what enters a model.
 //
 // WHY THIS IS TESTED RATHER THAN TRUSTED: the block it reads (`efFloats`) holds 190 names on chen's cloth
-// material and the port reads two, so "import the block and let consumers pick" and "import the claimed names"
+// material and the port reads two, so "import the block and let consumers pick" and "import the listed names"
 // produce the same picture and differ by 188 unread values that would each be a second source of truth for a
-// property with no reader. The fixture also carries an UNCLAIMED name next to the claimed ones precisely so
+// property with no reader. The fixture also carries an UNLISTED name next to the listed ones precisely so
 // this test can tell the two implementations apart - without it, both pass.
 void test_the_extras_block_is_read_through_the_claimed_table() {
     auto const result = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/source/tests/fixtures/claimed_extras.gltf");
@@ -572,31 +572,31 @@ void test_the_extras_block_is_read_through_the_claimed_table() {
     if (scenes.materials.size() != 3) {
         return;
     }
-    // THE CLAIMED ROWS ARRIVE, as the asset wrote them - and a stated ZERO is a value rather than an absence,
+    // THE LISTED ROWS ARRIVE, as the asset wrote them - and a stated ZERO is a value rather than an absence,
     // which is exactly why these lanes' "nothing stated" had to be A separate sentinel.
     CHECK(scenes.materials[0].extras_floats.count("_Specular") == 1);
     CHECK(scenes.materials[0].extras_floats.at("_Specular") == 0.0f);
-    // ... AND SO DOES THE SECOND CLAIMED ROW, which is the pair the whitelist is now made of: a table that
+    // ... AND SO DOES THE SECOND LISTED ROW, which is the pair the whitelist is now made of: a table that
     // carried one name and a reader that asked for two would silently import nothing for the second property.
     CHECK(scenes.materials[0].extras_floats.count("_ParallaxScale") == 1);
     CHECK(std::abs(scenes.materials[0].extras_floats.at("_ParallaxScale") - 0.5f) < 1e-6f);
     // ... AND THE TWO ROWS ARE INDEPENDENT PER MATERIAL, which is what makes them per-material facts rather
     // than one block's: material 1 states a different value of the same row and no `_OutlineOffsetZ` at all.
     CHECK(std::abs(scenes.materials[1].extras_floats.at("_ParallaxScale") - 0.03f) < 1e-6f);
-    // ... AND A ROW THE PORT HAS NOT CLAIMED DOES NOT, even though it sits in the same block. This is the
+    // ... AND A ROW THE PORT HAS NOT LISTED DOES NOT, even though it sits in the same block. This is the
     // assertion the whole allow-list exists for.
     CHECK(scenes.materials[0].extras_floats.count("_UnclaimedRow") == 0);
     CHECK(scenes.materials[0].extras_floats.count("_OutlineOffsetZ") == 0);
-    // a colour row inside the same `extras` is not a claimed scalar: only `efFloats` is read at all
+    // a colour row inside the same `extras` is not a listed scalar: only `efFloats` is read at all
     CHECK(scenes.materials[0].extras_floats.count("_SdfColor") == 0);
     // a FRACTIONAL value survives the JSON round trip (the callback reads a double and the map holds a float)
     CHECK(scenes.materials[1].extras_floats.count("_Specular") == 1);
     CHECK(std::abs(scenes.materials[1].extras_floats.at("_Specular") - 0.454f) < 1e-6f);
-    // A MATERIAL WITH NO `extras` AT ALL IS THE SAME STATE as one that states none of the claimed rows: empty,
+    // A MATERIAL WITH NO `extras` AT ALL IS THE SAME STATE as one that states none of the listed rows: empty,
     // so every consumer's fallback answers rather than a zero being invented here.
     CHECK(scenes.materials[2].extras_floats.empty());
 
-    // THE NAME JOIN the extras are read through: a consumer holds a material NAME (that is how the toon lookup
+    // THE NAME JOIN the extras are read through: a consumer has a material NAME (that is how the toon lookup
     // is asked) and needs the per-material facts glTF did not carry, so the two lookups have to agree - and an
     // unnamed or unknown name must be a MISS rather than a match on the first material.
     CHECK(scenes.material_by_name("M_fractional_extras") == &scenes.materials[1]);

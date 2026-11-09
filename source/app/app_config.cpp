@@ -244,7 +244,7 @@ namespace deren::app {
             if (config.model_path.empty()) {
                 config.model_path = config.object_model_paths.front();
             }
-            // The pool holds ONE default slot plus every distinct per-object model; an explicit top-level
+            // The pool has ONE default slot plus every distinct per-object model; an explicit top-level
             // model that no placement names is a ninth slot when eight objects already fill the cap. Count
             // it here so the documented `max_scene_assets` is the actual asset-slot budget, not a budget
             // that quietly grows by one.
@@ -253,7 +253,7 @@ namespace deren::app {
             bool const default_is_referenced = std::find(distinct_models.begin(), distinct_models.end(), default_key) != distinct_models.end();
             if (!default_is_referenced && distinct_models.size() >= deren::app_config::max_scene_assets) {
                 deren::utility::panic(std::source_location::current(),
-                                      "[[scene.objects]] needs {} distinct per-object assets plus the separate top-level model; the pool holds {} model files in total. Share an asset or use fewer model files.",
+                                      "[[scene.objects]] needs {} distinct per-object assets plus the separate top-level model; the pool has {} model files in total. Share an asset or use fewer model files.",
                                       distinct_models.size(), deren::app_config::max_scene_assets);
             }
             deren::utility::log("scene: {} object asset reference(s), {} object model file(s){}", config.object_model_paths.size(),

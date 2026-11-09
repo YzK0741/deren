@@ -139,7 +139,7 @@ objects.
 - No per-character shadow map or per-character outline pass. The existing scene
   shadow map and character outline group are reused.
 - No attempt to port Unreal Engine's Substrate or its per-pixel shading-model
-  dispatch. The reference is used for retention and routing, not for copying a
+  dispatch. The reference is used to keep the design and routing, not for copying a
   different renderer.
 - No Gaussian lighting, shadows, or reflections. Splats remain a separate
   compositing stage with the existing limitations.
@@ -157,7 +157,7 @@ Source checkout: `D:\UnrealEngine-5.8.2-release`.
   (`FBasePassMeshProcessor::AddMeshBatch`) and its `TryAddMeshBatch` path use the
   material's shading models to decide which pass the mesh enters.
 - `Engine/Source/Runtime/Renderer/Public/MeshPassProcessor.h` defines the
-  mesh-pass processor abstraction; each pass holds its pipeline state.
+  mesh-pass processor abstraction; each pass keeps its pipeline state.
 - `Engine/Shaders/Private/ShadingModels.ush:1139` (`IntegrateBxDF`) dispatches
   on the G-buffer `ShadingModelID`, including `SHADINGMODELID_DEFAULT_LIT` and
   the Substrate toon model.
@@ -165,7 +165,7 @@ Source checkout: `D:\UnrealEngine-5.8.2-release`.
   selects forward versus deferred globally with `IsForwardShadingEnabled`, not
   per object.
 
-Conclusion: a material declares how it is shaded; a pass holds the pipeline; the
+Conclusion: a material declares how it is shaded; a pass keeps the pipeline; the
 G-buffer carries the per-pixel shading identity. A per-object draw cannot bind
 an arbitrary pipeline inside the G-buffer.
 
@@ -238,7 +238,7 @@ extends that path instead.
 
 ## 5. Architecture
 
-Objects declare a shading class. The holding stage chooses the pipeline.
+Objects declare a shading class. The hosting stage chooses the pipeline.
 
 ```text
 Object pipeline     shading_path     Stage
@@ -345,8 +345,8 @@ rendered character.
 Before Phase A, the app loaded one sidecar for the default model and dropped it
 when multiple assets were present. Phase A implements the per-asset form below:
 
-- each pool entry holds `std::optional<deren::toon::sidecar>`.
-- each pool entry holds its `toon_lookup_state` and is installed as the active
+- each pool entry contains `std::optional<deren::toon::sidecar>`.
+- each pool entry contains its `toon_lookup_state` and is installed as the active
   lookup immediately before that asset is imported.
 
 Per-object toon requires the sidecar to belong to the asset that carries the
@@ -541,7 +541,7 @@ Required automated checks:
   both the cap and the character-index width together.
 - **Double shading cost.** Character pixels are shaded by deferred and then
   overwritten. This is accepted for v1; it is measurable and removable later.
-- **Sidecar retention.** The lookup is now per asset. A `game_toon` object whose
+- **Per-asset sidecars.** The lookup is now per asset. A `game_toon` object whose
   asset has no sidecar is a startup error; there is no fallback to another
   asset's material table.
 - **Gaussian ordering.** The global sort handles multiple clouds, but splats do

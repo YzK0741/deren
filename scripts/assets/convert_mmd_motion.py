@@ -228,7 +228,7 @@ def reference_rest(nodes, rig, source_pose):
 
     A VMD has no reference skeleton. These explicit canonical A/T choices are
     approximations, not inference from a filename or the first motion frame.
-    Feet retain their frame: aiming an ankle at a toe would tilt heeled shoes.
+    Feet preserve their frame: aiming an ankle at a toe would tilt heeled shoes.
     """
     _, rest, _ = rig
     reference = dict(rest)

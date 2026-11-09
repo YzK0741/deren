@@ -281,7 +281,7 @@ int main(int argc, char** argv) {
         }
     }
 #endif
-    // A tool that exits cleanly WITHOUT writing anything decoded nothing: `ok` would claim
+    // A tool that exits cleanly WITHOUT writing anything decoded nothing: `ok` would report
     // symbols that do not exist. The mode is read from the child's environment, so the same
     // check also pins that ordinary variables still reach it (an over-eager filter would leave
     // the fixture sleeping and the status `timeout`, failing the second assertion).
@@ -316,7 +316,7 @@ int main(int argc, char** argv) {
     CHECK(stray_environment.text.find("test_stacktrace.cpp:") != vessel::string::npos);
     _putenv_s("LLVM_SYMBOLIZER_OPTS", "");
 #endif
-    // ASAN holds native fault handling; exercise our OS filter in the Release suite.
+    // ASAN takes over native fault handling; exercise our OS filter in the Release suite.
 #if !TRACE_ASAN
     auto crashed = run_report_child(argv[0], "--crash", "crash.log");
     CHECK(crashed.started && crashed.code == 0xc0000005u);
@@ -330,7 +330,7 @@ int main(int argc, char** argv) {
 #if STACKTRACE_DIAGNOSTICS && STACKTRACE_HAVE_SYMBOLIZER
     // THE FAULT PC IS EXACT, NOT A RETURN ADDRESS. The crash log carries the fault frame's RVA,
     // which does not move with ASLR, so this rebuilds that frame against THIS image and decodes
-    // it twice: as the exact PC a crash record holds, and as a return address. MEASURED: exact
+    // it twice: as the exact PC a crash record carries, and as a return address. MEASURED: exact
     // lands on stacktrace_fault.cpp:19 (`*page = 42;`), one byte lower on :16 - which is why a
     // blanket `pc - 1` misreports the faulting line.
     diag::symbolizer_options raw_only;
@@ -391,7 +391,7 @@ int main(int argc, char** argv) {
     // the filter the filter would run on the thread holding the lock. MEASURED: it never arrives -
     // the loader turns an exception in DllMain into a FAILED LOAD (LoadLibrary returns null), not
     // an unhandled exception - so there is nothing to record. That is why this half cannot hang the
-    // filter: it does not get there. The blocked-holder case above is the one that does, and it
+    // filter: it does not get there. The blocked-thread case above is the one that does, and it
     // completes, so the fatal path's module lookup is empirically NOT hostage to the loader lock.
     auto loader_lock_fault = run_report_child(argv[0], "--loader-lock-fault", "loader-lock-fault.log");
     CHECK(loader_lock_fault.started);

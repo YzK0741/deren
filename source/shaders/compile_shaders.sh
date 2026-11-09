@@ -86,7 +86,7 @@ toon/game_toon/captured/outline.slang:game_toon_outline_mesh_main:mesh:outline.m
 scene/visibility.slang:mesh_main:mesh:visibility.mesh.spv
 scene/visibility.slang:main:fragment:visibility.frag.spv
 # the visibility buffer's RESOLVE (v0.4b): the compute stage that turns the ids back into the five G-buffer
-# targets, and the consumer the capture lane needed before the graph would keep it alive.
+# targets, and the consumer the capture lane needed before the graph would reference it.
 scene/visibility_resolve.slang:main:compute:visibility_resolve.comp.spv
 scene/visibility_feedback.slang:main:compute:visibility_feedback.comp.spv
 # THE SOFTWARE RASTER'S MODULES (M4 Task 2): the tiled compute stage and the depth-only merge's two entries.

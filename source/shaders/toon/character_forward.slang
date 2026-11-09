@@ -1561,7 +1561,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     //
     // WHY IT IS NOT A FAMILY TEST: the article applies it in the HAIR main, and what makes a material a hair for
     // this port is the split-normal lane (`toon_lanes2.x`), which is also what selects the other two reads of
-    // this channel - so `sdf_lane`-style lane retention is what is used here, not the family id.
+    // this channel - so `sdf_lane`-style lane selection is what is used here, not the family id.
     //
     // THE EYE'S FORCED 1.0 STAYS FIRST and is unchanged: the iris is inside the socket, so the engine's shadow
     // map reports it occluded by the face plate in front of it (see the note above), and the article's eye main
@@ -3426,7 +3426,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     // the two gates were suppressing the highlight on the shadowed side and at grazing angles, which is exactly
     // where the article's `selfAoShadowEffect` already decides how much highlight survives.
     // Optional strand-aligned band for hair without the authored split-normal/LUT route.
-    // Derivatives are evaluated uniformly over this material; singular UVs retain the old lobe.
+    // Derivatives are evaluated uniformly over this material; singular UVs keep the old lobe.
     if(family==VR_FAMILY_HAIR && toon_lanes2.x==0u && rig.shadow_softness.z>0.0) {
         float3 tangent,bitangent;
         bool frame_valid=surface_tbn(world_pos,uv,tangent,bitangent);

@@ -5,7 +5,7 @@
  *        testing each conservatively against the history pyramid (M3 phase B2).
  *
  * The cull publishes stable survivors, counts and per-item mesh-task commands. Runtime declares compute writes
- * and mesh/resolve/indirect reads in the render graph; its scoped barriers hold all cross-pass synchronization.
+ * and mesh/resolve/indirect reads in the render graph; its scoped barriers carry all cross-pass synchronization.
  * Rejected runs publish UINT32_MAX and preserve the host command: raster and resolve both fetch the original
  * host-culled run. Unsupported items stay on their original path. The runtime's byte-exact static gate controls
  * admission (design sections 8/9); no valid history means the original visibility lane.
@@ -34,7 +34,7 @@ export namespace deren::engine::pass {
     inline constexpr std::string_view hzb_cull_shader_name = "hzb_cull.comp.spv";
 
     // ---- THE HISTORY HEADER'S WORD OFFSETS THE CULL READS (spec §4.1) ----
-    // `common/hzb.slang` holds the header's word layout and the probe/verify read the SAME lanes back; the lane's byte
+    // `common/hzb.slang` defines the header's word layout and the probe/verify read the SAME lanes back; the lane's byte
     // capacity and magic already live in pass/hzb_build.cppm (the writer's constants), so only the three offsets the
     // reader names are mirrored here. A drift is not a validation error - it is the cull testing against another
     // lane's matrices - which is why the probe's metadata check pins the two spellings.
@@ -115,7 +115,7 @@ export namespace deren::engine::pass {
 
         [[nodiscard]] render_resource::pass_io const& io() const noexcept override {
             // NO BINDINGS, NO TARGETS, NO DECLARED PUSH BLOCK: every resource travels through the frame's heap and
-            // the graph's declaration holds the ordering (the same empty-declaration shape the build pass records
+            // the graph's declaration carries the ordering (the same empty-declaration shape the build pass records
             // with). The push block is composed per frame from `set_frame`'s values plus the framework's index lanes.
             static constinit render_resource::pass_io const value{.name = "hzb cull"};
             return value;

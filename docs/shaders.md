@@ -5,8 +5,8 @@
  *
  * The renderer has no runtime shader compilation: prebuilt `.spv` files live in the build's `shaders/`
  * directory beside the executable, are loaded by `deren::app::setup_pipeline()` and are turned into
- * `vk_pipeline` objects through the `runtime::make_*_pipeline()` calls (which hold the render
- * state: color format, depth, and the bindless heap - a heap pipeline has no pipeline layout to hold).
+ * `vk_pipeline` objects through the `runtime::make_*_pipeline()` calls (which carry the render
+ * state: color format, depth, and the bindless heap - a heap pipeline has no pipeline layout to carry).
  * The tree's ONE reflection is `source/backends/vulkan/core/pipeline/spirv_parser.cppm` (SPIRV-Reflect),
  * which a VERTEX stage's input state is derived from; a mesh stage declares no vertex input, so nothing
  * is derived from it.
@@ -283,7 +283,7 @@
  *
  * @section shader_compile Compiling
  *
- * The build holds this step: `cmake --build` regenerates every `.spv` from its `.slang` source (and from the
+ * The build enforces this step: `cmake --build` regenerates every `.spv` from its `.slang` source (and from the
  * shared includes it lists as dependencies), so editing a shader is just editing a shader. The binaries
  * are **not** tracked in the repository and are not hand-synced - they are a build output, and the
  * directory is mirrored next to the executable, which is the copy the runtime loads
@@ -318,7 +318,7 @@
  * - **`const` goes first.** GLSL wants `const float x`, not `float const x`, and the east-const form is rejected.
  * - **Keep the interface matching.** A VERTEX pipeline derived its input layout from the shader's inputs
  *   (64-byte interleaved stride, locations 0,1,2,4,5), which is why those entries declared the unused inputs and kept
- *   them alive in a never-taken branch; the geometry stages are mesh stages now (docs/mesh_shaders.md step 4), so
+ *   them valid in a never-taken branch; the geometry stages are mesh stages now (docs/mesh_shaders.md step 4), so
  *   nothing derives an input layout from them and the fetch reads the same 64-byte record by device address instead.
  *   The rule that survives is the fragment one: a fragment output must match the pipeline's
  *   color format, which is why the composite and the FXAA pass are separate pipelines.

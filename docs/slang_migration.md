@@ -7,8 +7,8 @@ upstream reference samples are preserved verbatim under `source/reference/shader
 
 The native port uses `static const` globals, explicit `mul(vector, matrix)` for the old GLSL
 matrix/vector products, reversed operands for matrix composition, and explicit `SV_IsFrontFace`
-parameters for shared double-sided normal handling. Matrix members retain their proven `ColMajor`
-SPIR-V layout; descriptor strides remain 64/32 bytes. Cluster projection inversion retains the same
+parameters for shared double-sided normal handling. Matrix members keep their proven `ColMajor`
+SPIR-V layout; descriptor strides remain 64/32 bytes. Cluster projection inversion keeps the same
 `GLSL.std.450 MatrixInverse` instruction through native Slang SPIR-V interop, rather than introducing
 a numerically different inverse implementation. See the [Slang interop documentation](https://docs.shader-slang.org/en/stable/external/slang/docs/user-guide/a1-04-interop.html).
 
@@ -114,7 +114,7 @@ as a compute stage with **ZERO `DescriptorSet`/`Binding` decorations** and both 
    assignment is needed or present. Slang's format-less output therefore needs no host change: the
    set-less model is the tree's behaviour, and that choice is moot. This was verified on the
    device and with the validation layer after the port.
-2. **One source of truth for the slot grid - DONE.** `source/shaders/heap_slot_constants.glsl` now holds the grid's
+2. **One source of truth for the slot grid - DONE.** `source/shaders/heap_slot_constants.glsl` now defines the grid's
    constants and slot macros, `heap_slots.glsl` includes it (the GLSL heap arrays and the `heap_texel` helper
    stay there, being GLSL syntax), and `source/tests/test_render_resources.cpp` parses the NEW file against
    `core::heap_slots`. Verified as a pure refactor: build clean, ctest 8/8 (the grid comparison still passes,
@@ -250,7 +250,7 @@ with `static` view objects that carry a `__subscript`:
 heap_at<ConstantBuffer<CameraUBO>>(slot); } } }; static CameraView camera;`. It fails, and the failures
 are Slang language limits rather than mistakes in the idea: a `DescriptorHandle` cannot be a struct field
 the way the view wants it (E30019 type mismatch where the field is declared, and the language's
-legalization HOISTS opaque members out of structs into globals - so a view struct cannot hold a handle and
+legalization HOISTS opaque members out of structs into globals - so a view struct cannot carry a handle and
 hand it back), and the inline `property ... { get { ... } }` form used to give the material table its
 `.materials` member is rejected (E20001 unexpected token). Four errors, all inside the shim, and the
 workaround would be one bespoke view type per resource family. The named-accessor route is smaller, is
@@ -384,7 +384,7 @@ Verified by capture: the albedo channel comes back to the identical two-value pl
 WHAT THIS MEANS FOR EVERY STAGE STILL TO PORT: every heap buffer a Slang stage reads has to be a storage
 descriptor, and both of the scene's buffers are now converted. The camera first, and then the LIGHT, whose
 offsets were checked member by member BEFORE the change rather than after (that is the habit this section
-exists to teach): every member is a vec4/mat4 or a scalar in a packed run, and its only array holds a
+exists to teach): every member is a vec4/mat4 or a scalar in a packed run, and its only array contains a
 16-aligned 64-byte struct, so std430 lands `punctual_lights` on 352, `cluster_grid` on 8544 and
 `cluster_depth` on 8560 exactly where std140 had them - 8576 bytes either way, confirmed against the
 compiled modules. No scene buffer remains that a Slang stage would have to read through a `Uniform` pointer.
@@ -435,7 +435,7 @@ that every line was exercised.
 ### THE FIRST STAGE THE BYTE-IDENTICAL STANDARD REFUSED: deferred.frag, by ONE PIXEL
 
 `source/shaders/lighting/deferred.slang` is a faithful port of the deferred lighting stage - the shared shading code again
-plus the screen-space AO it holds - and it is **NOT wired**, because the gate reports 8 of 10 scenarios
+plus the screen-space AO it contains - and it is **NOT wired**, because the gate reports 8 of 10 scenarios
 changed. The diff is the whole story:
 
     1 pixel of 1036800 differs, at the SAME coordinate (636,153) in every scenario that shows sky, by ONE

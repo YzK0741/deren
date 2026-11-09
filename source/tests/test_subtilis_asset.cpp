@@ -30,7 +30,7 @@ int main() {
         CHECK(sphere.radius >= .3 && sphere.center[2] == -5);
         CHECK(asset->groups()[2].worst_cut == 2);
         clusters[0].radius = 5;
-        CHECK(asset->clusters()[0].radius == .1f); // holds input, no referenced lifetime
+        CHECK(asset->clusters()[0].radius == .1f); // copied the input, so the caller's clusters are not aliased
         clusters[0].radius = .1f;
     }
     auto rejects = [&](sub::asset_error error) {auto bad=sub::asset::make(description);CHECK(!bad && bad.error()==error); };

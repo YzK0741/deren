@@ -45,7 +45,7 @@ or test dependencies.
 
 Review of Endfield Poser's retargeting stages showed that the initial converter
 was missing source-reference direction alignment. The converter now has explicit
-canonical A/T reference choices, retains the native foot frame, and transports
+canonical A/T reference choices, preserves the native foot frame, and transports
 independent finger keys through the native parent bind axes. No source key is
 filtered, no foot rotation is arbitrarily clamped, and bind nodes remain unchanged.
 See `asset/motion/README.md` for the runtime contract and source-reference limits.
