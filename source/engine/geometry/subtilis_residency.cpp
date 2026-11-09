@@ -123,7 +123,7 @@ namespace deren::engine::subtilis {
         return page < pages_.size() && resident_[page] != 0;
     }
 
-    std::expected<std::uint32_t, residency_error> page_manager::request(std::uint32_t page) {
+    std::expected<residency_plan, residency_error> page_manager::plan_request(std::uint32_t page) const {
         if (page >= pages_.size()) {
             return std::unexpected(residency_error::invalid_page);
         }
@@ -133,15 +133,17 @@ namespace deren::engine::subtilis {
         if (auto collected = collect(page, state, order); !collected) {
             return std::unexpected(collected.error());
         }
+        residency_plan plan;
+        plan.target = page;
         utility::vessel::vector<std::uint8_t> required(pages_.size(), std::uint8_t{0});
-        std::uint64_t needed = 0;
         for (auto id : order) {
             required[id] = 1;
             if (!resident_[id]) {
-                needed += pages_[id].bytes;
+                plan.installs.push_back(id);
+                plan.installed_bytes += pages_[id].bytes;
             }
         }
-        std::uint64_t projected = resident_bytes_ + needed;
+        std::uint64_t projected = resident_bytes_ + plan.installed_bytes;
         utility::vessel::vector<std::uint8_t> evicted(pages_.size(), std::uint8_t{0});
         while (projected > limits_.max_resident_bytes) {
             auto victim = no_page;
@@ -172,30 +174,90 @@ namespace deren::engine::subtilis {
                 return std::unexpected(residency_error::capacity);
             }
             evicted[victim] = 1;
+            plan.evictions.push_back(victim);
+            plan.evicted_bytes += pages_[victim].bytes;
             projected -= pages_[victim].bytes;
         }
-        for (std::uint32_t id = 0; id < pages_.size(); ++id) {
-            if (!evicted[id]) {
-                continue;
+        return plan;
+    }
+
+    std::expected<void, residency_error> page_manager::apply(residency_plan&& plan) {
+        if (plan.target >= pages_.size()) {
+            return std::unexpected(residency_error::invalid_page);
+        }
+        utility::vessel::vector<std::uint8_t> installing(pages_.size(), std::uint8_t{0});
+        utility::vessel::vector<std::uint8_t> evicting(pages_.size(), std::uint8_t{0});
+        for (auto id : plan.installs) {
+            if (id >= pages_.size() || resident_[id] || installing[id] || evicting[id]) {
+                return std::unexpected(residency_error::invalid_page);
             }
+            installing[id] = 1;
+        }
+        for (auto id : plan.evictions) {
+            if (id >= pages_.size() || !resident_[id] || pinned(id) || installing[id] || evicting[id]) {
+                return std::unexpected(id < pages_.size() && pinned(id) ? residency_error::pinned : residency_error::invalid_page);
+            }
+            evicting[id] = 1;
+        }
+        if (evicting[plan.target]) {
+            return std::unexpected(residency_error::invalid_page);
+        }
+        // The installs must be dependency-closed against the resident set that will remain.
+        for (auto id : plan.installs) {
+            auto const& record = pages_[id];
+            for (std::uint32_t d = record.dependency_first; d < record.dependency_first + record.dependency_count; ++d) {
+                auto const dependency = dependencies_[d];
+                if (evicting[dependency] || (!resident_[dependency] && !installing[dependency])) {
+                    return std::unexpected(residency_error::invalid_page);
+                }
+            }
+        }
+        // Every eviction must be safe for all pages that remain resident.
+        for (auto id : plan.evictions) {
+            for (std::uint32_t dependent = 0; dependent < pages_.size(); ++dependent) {
+                if (dependent != id && resident_[dependent] && !evicting[dependent] && depends_on(dependent, id)) {
+                    return std::unexpected(residency_error::dependency);
+                }
+            }
+        }
+        std::uint64_t installed_bytes = 0;
+        std::uint64_t evicted_bytes = 0;
+        for (auto id : plan.installs) {
+            installed_bytes += pages_[id].bytes;
+        }
+        for (auto id : plan.evictions) {
+            evicted_bytes += pages_[id].bytes;
+        }
+        std::uint64_t projected = resident_bytes_ + installed_bytes - evicted_bytes;
+        if (projected > limits_.max_resident_bytes) {
+            return std::unexpected(residency_error::capacity);
+        }
+        for (auto id : plan.evictions) {
             resident_[id] = 0;
             --resident_pages_;
             resident_bytes_ -= pages_[id].bytes;
             ++evictions_;
         }
-        std::uint32_t installed = 0;
-        for (auto id : order) {
-            if (resident_[id]) {
-                continue;
-            }
+        for (auto id : plan.installs) {
             resident_[id] = 1;
             ++resident_pages_;
             resident_bytes_ += pages_[id].bytes;
             ++installs_;
-            ++installed;
             touch(id);
         }
-        touch(page);
+        touch(plan.target);
+        return {};
+    }
+
+    std::expected<std::uint32_t, residency_error> page_manager::request(std::uint32_t page) {
+        auto planned = plan_request(page);
+        if (!planned) {
+            return std::unexpected(planned.error());
+        }
+        auto installed = static_cast<std::uint32_t>(planned->installs.size());
+        if (auto applied = apply(std::move(*planned)); !applied) {
+            return std::unexpected(applied.error());
+        }
         return installed;
     }
 

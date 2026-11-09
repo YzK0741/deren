@@ -27,6 +27,16 @@ export namespace deren::engine::subtilis {
         std::uint64_t installs = 0;
         std::uint64_t evictions = 0;
     };
+    /// A non-mutating residency decision. Installs are in dependency order; evictions are the pages
+    /// whose bytes must be released before the installs fit. Applying a stale plan is rejected
+    /// without changing the resident set.
+    struct residency_plan {
+        std::uint32_t target = 0;
+        utility::vessel::vector<std::uint32_t> installs;
+        utility::vessel::vector<std::uint32_t> evictions;
+        std::uint64_t installed_bytes = 0;
+        std::uint64_t evicted_bytes = 0;
+    };
     class page_manager;
     std::expected<page_manager, residency_error> make_page_manager(std::span<page_entry const> pages, std::span<std::uint32_t const> dependencies, residency_limits limits = {});
     class page_manager {
@@ -62,6 +72,14 @@ export namespace deren::engine::subtilis {
         [[nodiscard]] residency_stats stats() const noexcept;
         [[nodiscard]] bool resident(std::uint32_t page) const noexcept;
 
+        // Computes the dependency closure and LRU victims for `page` without touching the resident
+        // set. The plan can be applied by a later async completion; a plan computed against an older
+        // resident set is rejected by apply().
+        [[nodiscard]] std::expected<residency_plan, residency_error> plan_request(std::uint32_t page) const;
+        // Applies a plan atomically: validates page identities, the dependency closure, eviction
+        // safety and the byte budget before changing resident state. Returns invalid_page on a stale
+        // or malformed plan and capacity when the plan no longer fits.
+        [[nodiscard]] std::expected<void, residency_error> apply(residency_plan&& plan);
         // Installs `page` and every transitive page it needs, evicting least-recently-used pages that
         // no remaining resident page depends on. Returns the number of newly installed pages.
         [[nodiscard]] std::expected<std::uint32_t, residency_error> request(std::uint32_t page);
