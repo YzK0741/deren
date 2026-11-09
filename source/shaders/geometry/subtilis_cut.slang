@@ -3,10 +3,10 @@
 // The immutable DAG groups, hierarchy references and cluster records live in buffers uploaded once per
 // geometry generation. The item record carries their device addresses, the model matrix and where the
 // selected run and its mesh-task command must go, so this pass needs no descriptor set and no heap slot of
-// its own.
+// its.
 //
 // ARCHITECTURE. This follows UE's persistent-thread culling shape rather than a thread-0 serial loop:
-//  - every lane owns one 32-bit word of the group decision bitset (64 lanes cover the host's 2048-group
+//  - every lane holds one 32-bit word of the group decision bitset (64 lanes cover the host's 2048-group
 //    limit), so direct decisions and the dependency closure need no atomics or read-modify-write races;
 //  - the closure runs as monotonically-clearing passes separated by group barriers; a pass may expose
 //    newly-cleared producers, so it repeats until no decision changes (bounded by `group_count`);
@@ -84,7 +84,7 @@ struct CutMeshlet
     uint first_index;
     uint index_count;
     int base_vertex;
-    uint page_id;      // streamed index page + 1; 0 means the draw's own index buffer
+    uint page_id;      // streamed index page + 1; 0 means the draw's index buffer
     float center_x;
     float center_y;
     float center_z;
@@ -293,7 +293,7 @@ void comp_main(uint3 group : SV_GroupID, uint3 lane : SV_GroupThreadID)
     CutCluster* clusters = (CutCluster*)item.clusters;
     uint* references = (uint*)item.references;
 
-    // Each lane owns one bitset word. Direct decisions are written as one masked word, so neighbouring
+    // Each lane holds one bitset word. Direct decisions are written as one masked word, so neighbouring
     // groups in the same word cannot lose each other's updates.
     {
         const uint w = lane.x;
@@ -324,7 +324,7 @@ void comp_main(uint3 group : SV_GroupID, uint3 lane : SV_GroupThreadID)
     }
     GroupMemoryBarrierWithGroupSync();
 
-    // Mirrors `close_coarsening`: a coarse group is demoted only when one of its fine clusters still has an
+    // Mirrors `close_coarsening`: a coarse group is demoted only when a separate one fine clusters still has an
     // uncoarsened producer. Decisions only clear, so repeated passes converge monotonically to the CPU's
     // ascending-id result. Read the whole snapshot before writing, so a lane cannot observe another lane's
     // half-updated word.

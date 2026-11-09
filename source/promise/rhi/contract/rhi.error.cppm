@@ -63,14 +63,14 @@ export namespace deren::promise::rhi {
     /// A zone stored next to the code would be a second source of truth able to contradict it (the
     /// same reason `validate_structure` answers a code rather than filling in a struct): inside the
     /// contract the zone is a pure function of the code, so `zone_of` is the only way it exists.
-    /// Zones that genuinely carry independent information - the application's own graphics / asset /
+    /// Zones that genuinely carry independent information - the application's graphics / asset /
     /// config / platform / internal vocabulary - live at the application layer, where the caller knows
     /// WHICH subystem asked for the work; the contract does not carry that field for them.
     enum class error_zone : std::uint8_t {
         api = 0,      ///< the device / window / frame pipeline refused or deferred the call
         resource = 1, ///< the backend has no mechanism that can serve the request
         argument = 2, ///< the caller passed something that cannot work as given
-        internal = 3, ///< the backend's own machinery refused, mismatched or broke
+        internal = 3, ///< the backend's machinery refused, mismatched or broke
     };
 
     /// The zone of @p code - total over the enum, so a new value forces its way through this switch
@@ -98,7 +98,7 @@ export namespace deren::promise::rhi {
         case error::out_of_host_memory:
             return error_zone::api;
         // internal = the machinery, not the request: `ok` (a successful call's zone when a caller
-        // wants one), the ABI handshake's own refusal, a catch-all failure and a creation that
+        // wants one), the ABI handshake's refusal, a catch-all failure and a creation that
         // failed under no heading above.
         case error::ok:
         case error::abi_mismatch:

@@ -44,7 +44,7 @@ export namespace deren::promise::rhi {
         vulkan_device_basis = 0x10003,
     };
 
-    /// `next` is borrowed only until the synchronous call returns. Since ABI 34 there is no
+    /// `next` is referenced only until the synchronous call returns. Since ABI 34 there is no
     /// "silently drop an uninterpreted chain" request: except for
     /// `vulkan_command_buffer_inheritance` (the secondary recording attachment format, which has no
     /// portable spelling), every request carrying `next` is refused

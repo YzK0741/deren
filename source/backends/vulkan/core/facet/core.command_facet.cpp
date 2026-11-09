@@ -2,9 +2,9 @@
 // ============================================================================
 // file: source/backends/vulkan/core/facet/core.command_facet.cpp
 //
-// The command face owns the submission/completion state and the provenance sets.
+// The command face holds the submission/completion state and the provenance sets.
 // Its virtual entry points implement the command factories and submission here;
-// the root keeps thin forwarders for its own callers.
+// the root keeps thin forwarders for its callers.
 // ============================================================================
 module;
 #include <cstddef>
@@ -43,7 +43,7 @@ namespace deren::vulkan {
         if (answer == nullptr) {
             return nullptr;
         }
-        deren::utility::log("rhi: create_command_buffer primary -> native {:#x} (its own command pool)",
+        deren::utility::log("rhi: create_command_buffer primary -> native {:#x} (its command pool)",
                             reinterpret_cast<std::uintptr_t>(*answer->buffer));
         return rhi::unique_object<rhi::command_buffer>{answer};
     }
@@ -53,14 +53,14 @@ namespace deren::vulkan {
         if (raw == nullptr) {
             return {}; // the refusal was named where it happened; an empty shared_object is the same answer
         }
-        // THE CONTROL BLOCK OWNS THE DROP, and the drop IS `release()`: the one factory reference is
+        // THE CONTROL BLOCK HOLDS THE DROP, and the drop IS `release()`: the one factory reference is
         // the one the last shared copy drops - no second lifetime rule.
         return rhi::shared_object<rhi::command_buffer>(raw);
     }
 
     rhi::mergeable_command_buffer_ref core::command_facet::make_mergeable_command_buffer(rhi::command_buffer_desc const& declared_desc) {
         // THE KIND IS THE FACTORY'S, not the descriptor's: a mergeable is recorded as a SECONDARY in Vulkan
-        // terms (the backend owns the primary that executes the batch), so a caller's `primary` value is
+        // terms (the backend holds the primary that executes the batch), so a caller's `primary` value is
         // replaced rather than refused - the TYPE already says which submission rule applies.
         (void)declared_desc; // a mergeable's descriptor carries nothing the allocation needs today
         rhi::command_buffer* const raw = this->full_core.allocate_command_buffer(VK_COMMAND_BUFFER_LEVEL_SECONDARY);

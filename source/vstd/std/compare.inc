@@ -42,7 +42,7 @@ export namespace std {
   //
   // PORTABILITY LAYER (vstd/vstd_compat.inc): this block used to re-export libc++'s INTERNAL spelling
   // inside `inline namespace __cpo` - six `using std::__cpo::...` lines, the one place in the whole
-  // partition set that named something below the standard's own surface. `__cpo` is an inline
+  // partition set that named something below the standard's surface. `__cpo` is an inline
   // namespace in libc++, so `std::partial_order` and `std::__cpo::partial_order` are the same entity:
   // naming the standard spelling here exports exactly what it exported before on libc++, and it is the
   // spelling every other standard library provides.

@@ -131,7 +131,7 @@ int main() {
         CHECK(reordered->lod0_clusters()[0].first_index == 0);
     }
     // The asset layer does not impose the packed item's 4096-record admission
-    // limit. Runtime import makes that separate fallback decision later.
+    // limit. Runtime import makes that hold fallback decision later.
     deren::utility::vessel::vector<sub::dag_cluster> many(4097);
     deren::utility::vessel::vector<uint32_t> ids;
     for (uint32_t i = 0; i < many.size(); ++i) {

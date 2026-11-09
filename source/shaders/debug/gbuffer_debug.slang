@@ -42,7 +42,7 @@ float3 material_id_color(uint id)
 [shader("fragment")]
 float4 main([[vk::location(0)]] float2 v_uv : TEXCOORD0) : SV_Target
 {
-    // the four stored targets plus the velocity, each reached from its own heap slot: this pass VIEWS the
+    // the four stored targets plus the velocity, each reached from its heap slot: this pass VIEWS the
     // stored surface, so it samples through the G-buffer's NEAREST sampler (filtering it would show a
     // surface that was never stored)
     const float4 albedo_metallic = heap_texel(heap_at<Texture2D<float4>>(heap_slots_gbuffer_albedo + heap_image_index), heap_sampler_gbuffer, v_uv);

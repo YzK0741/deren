@@ -105,7 +105,7 @@ namespace deren::utility {
                           static_cast<unsigned long long>(entry.thread));
         }
 
-        // Some call sites wrote their level into the message before the sink owned one. Absorb those
+        // Some call sites wrote their level into the message before the sink held one. Absorb those
         // markers so the line carries one level, not two; the payload after the marker is unchanged.
         void apply_manual_level(std::string_view& text, log_level& level) noexcept {
             struct marker {
@@ -246,7 +246,7 @@ namespace deren::utility {
         log_sink& operator=(log_sink const&) = delete ("log_sink is non-copyable: modify the existing instance instead");
 
         /// Queue one entry. TAKES A VIEW, and the copy the queue stores is made on THIS side - which
-        /// is what lets a caller hand over its own temporary string without either side owning the
+        /// is what lets a caller hand over its temporary string without either side holding the
         /// other's allocation. That is a design choice rather than a rule (this module's interface
         /// may carry STL: see shared_utility.cppm), and it is the shape the three doors settled on.
         /// `timestamp`, the caller's thread and the caller's function name are captured before the
@@ -261,7 +261,7 @@ namespace deren::utility {
         void shutdown() noexcept;
 
     private:
-        // The worker's own thread id, published when it starts: wait_all() must recognise it (see
+        // The worker's thread id, published when it starts: wait_all() must recognise it (see
         // there). A default-constructed id belongs to no thread, so this reads "not the worker"
         // until the thread is running.
         std::atomic<std::thread::id> worker_id = {};
@@ -286,7 +286,7 @@ namespace deren::utility {
             }();
             // The comma operator registers the drain and keeps the result as a plain bool; the
             // registration is deliberately the LAST thing done, so nothing here can re-enter
-            // instance() while its own guard is still being initialised.
+            // instance() while its guard is still being initialised.
             [[maybe_unused]] static bool const drains_at_exit = (std::atexit(+[] { instance().shutdown(); }), true);
             return *sink;
         }
@@ -387,7 +387,7 @@ namespace deren::utility {
             apply_manual_level(text, level);
         }
         log_entry message{timestamp, current_thread_token(), level, function,
-                          deren::utility::vessel::string(text)}; // the copy the queue owns is made on THIS side
+                          deren::utility::vessel::string(text)}; // the copy the queue holds is made on THIS side
         {
             std::lock_guard lock(this->queue_mutex);
             if (!this->accepting) {
@@ -408,8 +408,8 @@ namespace deren::utility {
     void log_sink::wait_all() {
         // The worker must never wait for the queue to drain: it IS the drain. panic() reaches this
         // from whatever thread hit the fatal condition, and a panic ON the log worker would
-        // otherwise block on its own pending count forever - in the one path that must not hang.
-        // The write it queued is still written: it is this thread's own loop that will write it.
+        // otherwise block alone pending count forever - in the one path that must not hang.
+        // The write it queued is still written: it is this thread's loop that will write it.
         if (this->worker_id.load(std::memory_order_relaxed) == std::this_thread::get_id()) {
             return;
         }

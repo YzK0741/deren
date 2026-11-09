@@ -40,7 +40,7 @@ DescriptorHandle<Sampler2D> combined_at(uint texture_slot, uint sampler_slot)
 // frame - see head_ubo in vulkan/primitive.cppm. The primitive's character index rides in the high bits of the push
 // flags (bit 0 stays the instancing flag), so one character's face never shades against another's head.
 #define head_frame_at(slot) heap_at<StructuredBuffer<HeadUBO>>(slot)[(push.flags >> 8u) & 0xffu]
-/// the TOON LIGHT RIG, one block for the run - see `deren::vulkan::toon_rig` and the stage's own `ToonRigUBO`.
+/// the TOON LIGHT RIG, one block for the run - see `deren::vulkan::toon_rig` and the stage's `ToonRigUBO`.
 #define toon_rig_at(slot) heap_at<ConstantBuffer<ToonRigUBO>>(slot)
 /// THE MATERIAL COLOURS, one flat `float4` array: read as `toon_colour_at(slot, material * kLanes + lane)`, because
 /// the lanes are per material and a flat array keeps the stride question away (see `deren::vulkan::toon_colour_lane`).
@@ -70,7 +70,7 @@ DescriptorHandle<Sampler2D> combined_at(uint texture_slot, uint sampler_slot)
 // is the caller's, so these macros only name the SHAPE.
 //
 // THEY ARE DEFINED HERE RATHER THAN IN A SHARED BODY because the families are read by the vertex LEAVES: a
-// leaf may touch the heap directly, and the GLSL side of these five spells the same reads inline in its own
+// leaf may touch the heap directly, and the GLSL side of these five spells the same reads inline in its
 // file (there is no shared body to keep in step). They exist so that pbr.slang and the shadow.vert port
 // that follows it read the same way in both languages.
 #define instance_transform_at(slot, index) heap_at<StructuredBuffer<VR_MAT4>>(slot)[index]
@@ -150,7 +150,7 @@ float2 heap_size(DescriptorHandle<Texture2D<float4>> texture, uint lod)
 }
 
 /// the bindless-array fetch the shared bodies call by name (the GLSL definition is in surface.slang): the
-/// material's own image through the shared texture sampler. The GLSL side builds `sampler2D(tex, samp)` at
+/// material's image through the shared texture sampler. The GLSL side builds `sampler2D(tex, samp)` at
 /// the point of use; here the two slots travel in ONE combined handle instead.
 float4 heap_sample(uint texture_index, float2 uv)
 {

@@ -1,7 +1,7 @@
 /**
  * @file source/engine/pass/hzb_cull.cpp
  * @brief the HZB cull pass's pipeline and its single dispatch (see the header's WHY THE PASS RECORDS NO BARRIERS
- *        OF ITS OWN).
+ *        OF Its).
  */
 module;
 #include <cstdint>
@@ -43,7 +43,7 @@ namespace deren::engine::pass {
 
     rhi::error hzb_cull_pass::record_content(resolved_io const& io) noexcept {
         // THE SAME GUARD SHAPE THE OTHER COMPUTE PASSES USE. `item_count == 0` is NOT a failure: an empty frame has
-        // no dispatch to record (§8.3), and the lane's own witness line below is skipped for it.
+        // no dispatch to record (§8.3), and the lane's witness line below is skipped for it.
         if (!this->cull_pipeline.has_value() || io.list == nullptr || this->frame_extent.width == 0u || this->frame_extent.height == 0u) {
             return rhi::error::invalid_argument;
         }
@@ -65,7 +65,7 @@ namespace deren::engine::pass {
             deren::utility::log("software GPU routing active: HZB compaction, bounded software list");
             gpu_logged = true;
         }
-        // THE LANE'S OWN WITNESS, once per session (the build lane has the same shape and the same reason: the
+        // THE LANE'S WITNESS, once per session (the build lane has the same shape and the same reason: the
         // absence of a validation error cannot distinguish "the graph recorded the cull" from "the gate was on but no
         // frame had a history HZB"). The GPU-side counts are the stats block's - read at shutdown and by the probe.
         static bool recorded_logged = false;

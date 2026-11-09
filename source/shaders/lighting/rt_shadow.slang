@@ -26,7 +26,7 @@ struct shadow_payload
 };
 
 // The camera and light blocks and the push block the RAYGEN reads. The blocks are declared here rather than
-// taken from shading.slang because this file shares no body (the same reason shadow.slang declares its own
+// taken from shading.slang because this file shares no body (the same reason shadow.slang declares its
 // material record); they are named what the shim's `camera_at` / `light_at` accessors expect, and the member
 // lists are the PREFIXES this stage reads - a stage may declare fewer members than the CPU writes as long as
 // the offsets agree (0/64/128 for the camera; the light's matrices exist to keep light_dir at 256).
@@ -128,7 +128,7 @@ void rgen_main()
 
     // The bias: offset along the normal by an amount that grows with the distance from the camera (a surface 30
     // units away has coarser depth precision than one at 2), with an absolute floor so a pixel right at the near
-    // plane still clears its own triangle. The ray also starts at tmin, which handles the case where the offset
+    // plane still clears its triangle. The ray also starts at tmin, which handles the case where the offset
     // direction itself is grazing.
     const float distance = length(world_pos - camera_at(heap_camera_slot).camera_pos.xyz);
     const float3 origin = world_pos + normal * max(pc.params.y, pc.params.z * distance);
@@ -163,7 +163,7 @@ void rgen_main()
 //
 // THE PREDICATE IS SHARED WITH THE REFLECTION TRACER (common/rt_alpha_mask.slang). A ray query has no any-hit
 // stage, so every triangle it meets is solid: a MASK surface - a leaf card, a chain-link fence, a cut-out sign -
-// would cast the shadow of its BOUNDING TRIANGLES. `IgnoreHit` (GLSL's ignoreIntersectionEXT) cuts the
+// would cast the separate shadow BOUNDING TRIANGLES. `IgnoreHit` (GLSL's ignoreIntersectionEXT) cuts the
 // transparent part instead, and the reflection ray must apply exactly the same rule or a leaf reflects as a
 // solid card.
 // =============================================================================================================

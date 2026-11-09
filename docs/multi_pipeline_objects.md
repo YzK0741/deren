@@ -11,13 +11,13 @@ per-object rendering-path design and the Phase A/B implementation. The three
 pre-Phase-A gates were answered: raise the character cap to 16, land Phase A
 first, and keep the per-object asset work as the base. Phase B (multiple
 Gaussian objects) was approved separately by the user after Phase A. Phase C
-still needs its own design and review.
+still needs its design and review.
 
 ## Quick start
 
 The block below is a complete `mixed.toml` scene: one deferred PBR mesh, one
 unlit mesh, one GameToon character and one Gaussian cloud. It uses the sample
-assets in this repository; replace the paths with your own.
+assets in this repository; replace the paths with your paths.
 
 ```toml
 model = "asset/DamagedHelmet/DamagedHelmet.gltf"
@@ -55,7 +55,7 @@ Run it with:
 ```
 
 The first entry names no `model` or `asset`, so it reuses the top-level
-`model`; every other entry names its own file. Entries that name the same file
+`model`; every other entry names its file. Entries that name the same file
 share one load.
 
 ### What the values mean
@@ -65,7 +65,7 @@ share one load.
 | `default` | glTF/GLB | Deferred G-buffer; the pass default, which is ordinary PBR. |
 | `pbr` | glTF/GLB | Deferred G-buffer; ordinary PBR. |
 | `unlit` | glTF/GLB | Deferred G-buffer; flat base color through the material flag. |
-| `game_toon` | glTF/GLB plus its `.toon.tsv` sidecar | Character stage; the object gets its own head slot. |
+| `game_toon` | glTF/GLB plus its `.toon.tsv` sidecar | Character stage; the object gets its head slot. |
 | `gaussian` | `.ply` | Splat stage; the object has no mesh leaf. |
 
 Rules the importer applies:
@@ -120,7 +120,7 @@ routing on top of it. Phase A and Phase B were reviewed and merged together.
 
 ## 1. Goal
 
-Allow each scene object to select its own rendering path in one frame:
+Allow each scene object to select its rendering path in one frame:
 
 - deferred PBR,
 - deferred unlit,
@@ -139,7 +139,7 @@ objects.
 - No per-character shadow map or per-character outline pass. The existing scene
   shadow map and character outline group are reused.
 - No attempt to port Unreal Engine's Substrate or its per-pixel shading-model
-  dispatch. The reference is used for ownership and routing, not for copying a
+  dispatch. The reference is used for retention and routing, not for copying a
   different renderer.
 - No Gaussian lighting, shadows, or reflections. Splats remain a separate
   compositing stage with the existing limitations.
@@ -157,7 +157,7 @@ Source checkout: `D:\UnrealEngine-5.8.2-release`.
   (`FBasePassMeshProcessor::AddMeshBatch`) and its `TryAddMeshBatch` path use the
   material's shading models to decide which pass the mesh enters.
 - `Engine/Source/Runtime/Renderer/Public/MeshPassProcessor.h` defines the
-  mesh-pass processor abstraction; each pass owns its pipeline state.
+  mesh-pass processor abstraction; each pass holds its pipeline state.
 - `Engine/Shaders/Private/ShadingModels.ush:1139` (`IntegrateBxDF`) dispatches
   on the G-buffer `ShadingModelID`, including `SHADINGMODELID_DEFAULT_LIT` and
   the Substrate toon model.
@@ -165,7 +165,7 @@ Source checkout: `D:\UnrealEngine-5.8.2-release`.
   selects forward versus deferred globally with `IsForwardShadingEnabled`, not
   per object.
 
-Conclusion: a material declares how it is shaded; a pass owns the pipeline; the
+Conclusion: a material declares how it is shaded; a pass holds the pipeline; the
 G-buffer carries the per-pixel shading identity. A per-object draw cannot bind
 an arbitrary pipeline inside the G-buffer.
 
@@ -176,7 +176,7 @@ The miHoYo technical talk on Honkai Impact 3rd describes:
 - multi-channel ramp textures for layered cel shading,
 - a character-specific shadow map with a tight frustum and PCSS filtering,
 - back-face outlines plus geometry-shader edges for hard-surface creases,
-- eye and hair materials with their own shading models,
+- eye and hair materials with their shading models,
 - a shared character stage rather than one full render pass per character.
 
 Reference:
@@ -238,7 +238,7 @@ extends that path instead.
 
 ## 5. Architecture
 
-Objects declare a shading class. The owning stage chooses the pipeline.
+Objects declare a shading class. The holding stage chooses the pipeline.
 
 ```text
 Object pipeline     shading_path     Stage
@@ -323,7 +323,7 @@ export constexpr std::uint32_t max_game_toon_characters = 16;
 ```
 
 v1 supports up to sixteen character objects in one frame, matching
-`max_scene_objects`, each with its own head slot and its own material lanes. The
+`max_scene_objects`, each with its head slot and its material lanes. The
 shader's character index is 8 bits wide, so the only storage that grows is the
 per-frame head array: 16 * 64 = 1024 bytes per frame slot. A scene with more
 GameToon objects than the cap is a startup error with a clear message; it must
@@ -336,7 +336,7 @@ object read another character's head frame.
 A per-object `pipeline = "game_toon"` is itself the opt-in for the character
 stage; the global `[render] character_forward` switch is not a prerequisite. The
 captured tone curve and hair-rim lane follow the effective GameToon selection
-while that stage is active. Each object publishes its head basis from its own
+while that stage is active. Each object publishes its head basis from its
 asset rig and placement, so rotation and scale move the face frame with the
 rendered character.
 
@@ -345,8 +345,8 @@ rendered character.
 Before Phase A, the app loaded one sidecar for the default model and dropped it
 when multiple assets were present. Phase A implements the per-asset form below:
 
-- each pool entry owns `std::optional<deren::toon::sidecar>`.
-- each pool entry owns its `toon_lookup_state` and is installed as the active
+- each pool entry holds `std::optional<deren::toon::sidecar>`.
+- each pool entry holds its `toon_lookup_state` and is installed as the active
   lookup immediately before that asset is imported.
 
 Per-object toon requires the sidecar to belong to the asset that carries the
@@ -395,7 +395,7 @@ App side (implemented in Phase B):
 
 - `scene_asset_entry` has an optional `cloud` plus `cloud_placement`. A `.ply`
   object loads through `deren::gaussian::load_ply`; the cloud is uploaded with
-  `runtime.create_gaussian_asset` and stored in its own asset slot, not in a
+  `runtime.create_gaussian_asset` and stored in its asset slot, not in a
   glTF scene.
 - World bounds come from `raster_asset::source().bounds_min/bounds_max` and the
   object transform; they drive camera fit, shadow exclusion, and AABB picking.
@@ -446,7 +446,7 @@ Validation rules:
   and environment controls.
 
 Animation remains asset-scoped: each object's controller is initialized from
-its own scenes and exposes that asset's clip list.
+its scenes and exposes that asset's clip list.
 
 ## 7. Gesture and picking
 
@@ -516,7 +516,7 @@ Phase B captures already taken:
    together (`tmp/cap-gauss-distinct/screenshot_20261102_220935.png`).
 5. A mesh in front of a cloud confirmed depth ordering
    (`tmp/cap-gauss-occlusion/screenshot_20261102_220908.png`).
-6. A scene with no top-level `model`, where every object names its own cloud,
+6. A scene with no top-level `model`, where every object names its cloud,
    rendered without loading a default model
    (`tmp/cap-gauss-no-top/screenshot_20261102_221137.png`).
 
@@ -541,7 +541,7 @@ Required automated checks:
   both the cap and the character-index width together.
 - **Double shading cost.** Character pixels are shaded by deferred and then
   overwritten. This is accepted for v1; it is measurable and removable later.
-- **Sidecar ownership.** The lookup is now per asset. A `game_toon` object whose
+- **Sidecar retention.** The lookup is now per asset. A `game_toon` object whose
   asset has no sidecar is a startup error; there is no fallback to another
   asset's material table.
 - **Gaussian ordering.** The global sort handles multiple clouds, but splats do

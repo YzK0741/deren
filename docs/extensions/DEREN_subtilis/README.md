@@ -102,7 +102,7 @@ The app's single `[render] subtilis=true` switch requests loader extraction and
 engine adoption; default OFF loads leave payload bytes unparsed. Enabling only
 the runtime switch after an OFF startup cannot import an absent hierarchy.
 
-The loader owns raw bytes/metadata; the engine checks profile/material eligibility,
+The loader holds raw bytes/metadata; the engine checks profile/material eligibility,
 source fingerprints, finite data, index windows and DAG structure. Full geometric
 validation stays in the trusted offline pipeline (`validate --full`), rather than
 being repeated at load time. Static OPAQUE POSITION/NORMAL/optional TEXCOORD_0

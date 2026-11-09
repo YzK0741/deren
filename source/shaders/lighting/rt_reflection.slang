@@ -97,7 +97,7 @@ float reflection_rand(inout uint state)
 /// THE NDF-ONLY FORM IS NOT ENOUGH. Sampling `D(h)` and reflecting unconditionally sends a
 /// visible fraction of the samples below the surface at grazing angles (about a third at
 /// `N·V = 0.25`, roughness 0.55). Those rays start inside the mesh, hit the same object from
-/// behind, and closest-hit shades that backface with its own colour. This is Heitz's
+/// behind, and closest-hit shades that backface with its colour. This is Heitz's
 /// visible-normal distribution (VNDF) form: it stretches the view vector by alpha, samples a
 /// disc around it, and unstretches the result, so the samples are distributed over the half
 /// vectors that are actually visible from `view`.
@@ -203,7 +203,7 @@ void rgen_main()
         else
         {
             // INDEX/FRAME/SAMPLE: a ring slot alone repeats every two frames. `image_index` adds the swapchain
-            // image's own cycle, so the temporal resolve sees a longer sample sequence. The two randoms are
+            // image's cycle, so the temporal resolve sees a longer sample sequence. The two randoms are
             // separate statements because argument evaluation order is unspecified in Slang.
             uint rng = reflection_hash(uint(pixel.x) + uint(pixel.y) * extent_x + pc.frame_slot * 0x9e3779b9u +
                                        pc.image_index * 0x85ebca6bu + sample * 0xc2b2ae35u);

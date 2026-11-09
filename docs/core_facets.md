@@ -1,7 +1,7 @@
 # Core facets: splitting the Vulkan device root by RHI responsibility
 
 Status: implemented and verified on `refactor/core-facets`; published as PR #55
-(https://github.com/YzK0741/deren/pull/55). Phases 1-5 are complete: each facet owns
+(https://github.com/YzK0741/deren/pull/55). Phases 1-5 are complete: each facet holds
 its Vulkan state and implements its RHI entry points; `core` keeps thin delegating entry points for its
 remaining internal callers. The full Release build succeeds, CTest passes 85/85 with the 7 device-labelled tests skipped (CI runs 78),
 and a 60-frame validation-layer sample reported no VUID or ERROR lines.
@@ -26,10 +26,10 @@ export struct core : deren::promise::rhi::api_core,
 The three RHI interfaces are therefore inherited directly by the device root. Their implementations are
 interleaved with instance/device/queue setup, swapchain state, frame state, resource factories, command
 buffer allocation, cleanup code, and the global `api_core` methods. The flat member list is a symptom:
-the class owns every kind of Vulkan object and every fact about every RHI partition at the same level.
+the class holds every kind of Vulkan object and every fact about every RHI partition at the same level.
 
 The RHI already exposes the split the backend needs. `api_core` (`source/promise/rhi/rhi.api_core.cppm:197`)
-holds three borrowed subviews:
+holds three referenced subviews:
 
 ```cpp
 context_view<resource_factory> resources;
@@ -80,11 +80,11 @@ member, so its address is stable for the lifetime of the core.
 
 ### 2.2 Responsibilities
 
-| Facet | RHI interface | Owns after the migration |
+| Facet | RHI interface | Holds after the migration |
 | --- | --- | --- |
 | `device_facet` | none (internal) | instance, physical/logical device, queues, surface, properties, extension entry points, VMA, `main_context_view` |
 | `resource_facet` | `resource_factory` | buffers, images, acceleration structures, micromaps, samplers, shaders, pipelines, resource/texture groups, memory statistics |
-| `command_facet` | `command_context` | owned command buffers, mergeable command buffers, command submission |
+| `command_facet` | `command_context` | held command buffers, mergeable command buffers, command submission |
 | `frame_facet` | `frame_context` | swapchain, frame acquire/present, frame command buffer, frame image/readback, walker, profiler, per-frame synchronization |
 
 `color_format` and `frames_in_flight` are frame facts. `frame_facet` is their authority.
@@ -102,9 +102,9 @@ Every facet holds a non-null `core& full_core`. The constructor injects it:
 explicit resource_facet(core& parent) noexcept : full_core(parent) {}
 ```
 
-`full_core` is the facet's non-null back-reference. It is not an ownership edge: the facets do not own
-the core, and the core does not own them through a pointer. Borrowed RHI views spell their non-owning
-origin `parent`; the facet reference keeps its own name because it cannot be null and no branch may
+`full_core` is the facet's non-null back-reference. It is not a retention edge: the facets do not hold
+the core, and the core does not hold them through a pointer. Referenced RHI views spell their non-holding
+origin `parent`; the facet reference keeps its name because it cannot be null and no branch may
 test it.
 
 ### 2.4 `main_context_view`
@@ -126,13 +126,13 @@ string (`deren_main_context_vulkan`) stay unchanged. The module name
 (`deren.vulkan.main_context`) and file name (`main_context.cppm`) stay
 unchanged too; `main_context()` remains the method name.
 
-`device_facet` owns one `main_context_view view`. `core::main_context()` delegates to the device facet,
-which refreshes the handles and returns `&view`. The GUI plugin and tests continue to receive a borrowed
+`device_facet` holds one `main_context_view view`. `core::main_context()` delegates to the device facet,
+which refreshes the handles and returns `&view`. The GUI plugin and tests continue to receive a referenced
 pointer with the same layout and tag; only the concrete type spelling changes.
 
 ## 3. Migration phases
 
-The phases keep the build green at every step. Phase 1 changes no data ownership and no Vulkan call order.
+The phases keep the build green at every step. Phase 1 changes no data retention and no Vulkan call order.
 
 ### Phase 1: forwarding facets plus `main_context_view`
 
@@ -168,7 +168,7 @@ in `resource_facet`. Pipeline creation is a resource concern; there is no separa
 
 ### Phase 4: command state
 
-Owned command buffer allocation, mergeable command buffers, command submission, the submission registry,
+Held command buffer allocation, mergeable command buffers, command submission, the submission registry,
 completion/timeline state, and command/mergeable-buffer provenance live in `command_facet`.
 
 ### Phase 5: device state
@@ -189,15 +189,15 @@ the device member is declared.
   frame, command, resource, device.
 * Facet destructors contain only assertions, not Vulkan calls.
 * Facets are direct members of `core`, not heap allocations. This keeps the existing pointer stability
-  for borrowed views.
+  for views.
 * `core` is still allocated and released exactly as today; no RHI ABI change is involved.
 
 ## 5. Facet entry points and the implementation boundary
 
 The facets are the stable RHI face a host binds to and they implement the recording/creation logic in
-their own implementation units. `core` retains thin delegating entry points for callers that still reach
+their implementation units. `core` retains thin delegating entry points for callers that still reach
 the root directly, so the RHI contract and those internal call paths are unchanged. The split is
-deliberate: the facets own their data and entry points, while `core` remains the one object that
+deliberate: the facets hold their data and entry points, while `core` remains the one object that
 orchestrates device lifetime and cleanup.
 
 `resource_facet : rhi::resource_factory`
@@ -233,14 +233,14 @@ unless the current `core` already overrides them. `core` keeps its `api_core` ov
 ## 6. Files
 
 * `source/backends/vulkan/core/declarations/core.declarations.cppm` - `core` composition root, the four facet
-  definitions and their owned state, and member order.
+  definitions and their held state, and member order.
 * `source/backends/vulkan/core/facet/core.resource_facet.cpp` - resource `resource_factory` entry points and
   their creation logic.
 * `source/backends/vulkan/core/facet/core.command_facet.cpp` - command `command_context` entry points and
   their submission logic.
 * `source/backends/vulkan/core/facet/core.frame_facet.cpp` - frame `frame_context` entry points and their
   acquire/present/recording logic.
-* `source/backends/vulkan/core/core.constructor.cppm` - facade construction, view bindings, state owners.
+* `source/backends/vulkan/core/core.constructor.cppm` - facade construction, view bindings, state holders.
 * `source/backends/vulkan/core/core.api_core.cpp` - global `api_core` methods and the thin delegating
   entry points for the facets.
 * `source/backends/vulkan/core/core.cpp`, `core.entry.cpp`, `frame/core.frame_resources.cpp`,
@@ -292,7 +292,7 @@ Phases 1-5 are complete when all of the following hold on a full Release build:
 * No new Vulkan calls are added in facet constructors or destructors.
 * No separate pipeline, swapchain, or synchronization facets. Pipeline creation belongs to resources;
   swapchain and frame synchronization belong to frames; device-level synchronization belongs to device.
-* `core` remains the only object that owns the device lifetime and the only cleanup entry point.
+* `core` remains the only object that holds the device lifetime and the only cleanup entry point.
 * Repository files stay English-only.
 
 ## 9. Risks and mitigations
@@ -322,7 +322,7 @@ Phases 1-5 are complete when all of the following hold on a full Release build:
 - [x] Remove the three RHI base classes from `core`.
 - [x] Add the three forwarding implementation units and CMake entries.
 - [x] Bind views to facets in the constructor and route `core::main_context()` through `device_facet`.
-- [x] Phase 2: move the frame state and borrowed frame views into `frame_facet`.
+- [x] Phase 2: move the frame state and referenced frame views into `frame_facet`.
 - [x] Phase 3: move the resource state, descriptor heaps/spaces, samplers, texture groups, provenance
   sets and tier-2 resource views into `resource_facet`.
 - [x] Phase 4: move the submission/completion state and command-buffer provenance into

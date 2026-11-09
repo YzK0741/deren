@@ -3,7 +3,7 @@ name: subtilis-converter
 # Independent CPU-only CI for the standalone subtilis glTF cluster-DAG converter
 # (tools/subtilis). It deliberately does NOT join the engine CI contract: `.github/workflows/ci.yml`
 # and CMakeLists' VR_TEST_TARGETS are untouched, and `test_docs` (which compares those two) keeps
-# its existing expectation. This workflow only touches the tool's own CMake project.
+# its existing expectation. This workflow only touches the tool's CMake project.
 #
 # No Vulkan or CUDA package is installed, and the tool CMake never looks for them; the standalone
 # graph depends only on the CPU asset/utility targets. The small measurement fixtures are generated
@@ -149,7 +149,7 @@ jobs:
       # Deliberately build every target (not a hand-maintained subset): the property under test is
       # "all small fixtures", and a target that stops being built must fail here rather than be
       # silently absent from the ctest run. Bistro and the external Khronos validator are NOT
-      # downloaded by this job: the CI contract is the tool's own fixtures, not real-asset acceptance.
+      # downloaded by this job: the CI contract is the tool's fixtures, not real-asset acceptance.
       - name: Build all standalone targets under the sanitizers
         run: cmake --build build-subtilis-asan -j 4
 

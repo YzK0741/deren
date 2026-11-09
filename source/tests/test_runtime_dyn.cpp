@@ -32,7 +32,7 @@
 
 //      module is the number it PASSES to the entry (abi 18: the version is an argument, and a mismatch
 
-//      is refused by the backend with its own number in the diagnostic) - "both sides compile the
+//      is refused by the backend with its number in the diagnostic) - "both sides compile the
 
 //      contract", the premise the C ABI is built on.
 
@@ -52,7 +52,7 @@
 
 //      `native_device()` is a live handle - the two accessors every later partition is written against.
 
-//   4. TEARDOWN (`--with-device`): the `shared_ptr` the entry returned carries the backend's own
+//   4. TEARDOWN (`--with-device`): the `shared_ptr` the entry returned carries the backend's
 
 //      deleter in its control block, so the destruction runs on the side that allocated the object -
 
@@ -86,7 +86,7 @@ import deren.engine.runtime;
 
 import deren.engine.backend_loader; // load_api_core(): the acquisition lives outside the runtime
 
-// After the imports it needs: the header names deren::promise::rhi types (see its own note).
+// After the imports it needs: the header names deren::promise::rhi types (see its note).
 
 #include "../promise/rhi/backend_entry.hpp"
 
@@ -109,7 +109,7 @@ namespace {
 
                 GetClassNameA(window, name, sizeof(name));
 
-                // The Vulkan driver may create its own temporary D3D HWND.
+                // The Vulkan driver may create its temporary D3D HWND.
 
                 if (std::string_view{name} == "GLFW30") {
 
@@ -166,13 +166,13 @@ int main(int const argc, char** const argv) {
 
     // done inside the runtime), so there is no `deren_abi_version()` to ask any more - the handshake
 
-    // below is that the contract's own constant is what every caller passes, checked where it is
+    // below is that the contract's constant is what every caller passes, checked where it is
 
     // refused (`check_core_contract` in source/tests/test_dynamic_link.cpp drives the mismatch case).
 
-    // abi 21 is the recording face's owner half (`api_core::make_command_buffer`); this pin moves with the
+    // abi 21 is the recording face's holder half (`api_core::make_command_buffer`); this pin moves with the
 
-    // contract's constant, and the two spellings must never drift (see test_dynamic_link.cpp's own note).
+    // contract's constant, and the two spellings must never drift (see test_dynamic_link.cpp's note).
 
     deren::vk_test::write_line("runtime_dyn: this executable compiled abi {} (the entry takes it as its first argument)", rhi::abi_version);
 
@@ -226,11 +226,11 @@ int main(int const argc, char** const argv) {
             return deren::vk_test::finish("test_runtime_dyn");
         }
 
-        // THE ACQUISITION IS THE APP’S, THE OWNERSHIP IS THE RUNTIME’S: take the identity before the
+        // THE ACQUISITION IS THE APP’S, THE RETENTION IS THE RUNTIME’S: take the identity before the
 
         // move and check both afterwards - the renderer holds THAT object (not a wrapper, not a copy of its
 
-        // own), so the layering claim of batch ⑥ is observable on a REAL root rather than only argued.
+        // hold), so the layering claim of batch ⑥ is observable on a REAL root rather than only argued.
 
         rhi::api_core* const acquired = core.get();
 
@@ -248,9 +248,9 @@ int main(int const argc, char** const argv) {
 
         rhi::api_core& face = dynamic.rhi_face();
 
-        // ABI 39: the main-thread context the GUI plugin casts. On a real backend it is the borrowed, backend-owned
+        // ABI 39: the main-thread context the GUI plugin casts. On a real backend it is the referenced, backend-held
 
-        // handle whose concrete tag names the Vulkan layout; the plugin's own test covers the refusal paths.
+        // handle whose concrete tag names the Vulkan layout; the plugin's test covers the refusal paths.
 
         {
 
@@ -262,7 +262,7 @@ int main(int const argc, char** const argv) {
 
                 CHECK(main->get_tag() == "deren_main_context_vulkan");
 
-                CHECK(dynamic.rhi_face().main_context() == main); // one backend-owned object, answered again
+                CHECK(dynamic.rhi_face().main_context() == main); // one backend-held object, answered again
             }
         }
 
@@ -545,7 +545,7 @@ int main(int const argc, char** const argv) {
 
                 auto parent = view->get_image();
 
-                CHECK_MSG(parent != nullptr, "an owned image view must retain its parent");
+                CHECK_MSG(parent != nullptr, "a held image view must retain its parent");
 
                 if (parent) {
 
@@ -641,7 +641,7 @@ int main(int const argc, char** const argv) {
 
         // ABI 43: the escape ability is RETIRED, and the bit never comes back (bits are never reused). The GUI
 
-        // overlay's per-frame recording target is resolved through the backend-owned main context now.
+        // overlay's per-frame recording target is resolved through the backend-held main context now.
 
         CHECK(!rhi::has_ability(abilities, rhi::extension_kind::vulkan_escape));
 
@@ -676,31 +676,31 @@ int main(int const argc, char** const argv) {
 
         (void)acquired_frame;
 
-        auto* const borrowed_image = face.frames->frame_image();
+        auto* const view_image = face.frames->frame_image();
 
-        CHECK(borrowed_image != nullptr);
+        CHECK(view_image != nullptr);
 
-        if (borrowed_image != nullptr) {
+        if (view_image != nullptr) {
 
             rhi::texture_group_info info{};
 
-            info.textures[0] = borrowed_image;
+            info.textures[0] = view_image;
 
             CHECK(!face.resources->assign_texture_group(info, &group_error));
 
             CHECK(group_error == rhi::error::invalid_argument);
 
-            CHECK(borrowed_image->get_tag() == "deren_frame_image_vulkan");
+            CHECK(view_image->get_tag() == "deren_frame_image_vulkan");
 
-            CHECK(!borrowed_image->share());
+            CHECK(!view_image->share());
 
-            rhi::unique_object<rhi::image_view> borrowed_view{borrowed_image->make_view({})};
+            rhi::unique_object<rhi::image_view> view_handle{view_image->make_view({})};
 
-            CHECK(borrowed_view);
+            CHECK(view_handle);
 
-            if (borrowed_view) {
+            if (view_handle) {
 
-                CHECK(!borrowed_view->get_image());
+                CHECK(!view_handle->get_image());
             }
         }
 
@@ -743,7 +743,7 @@ int main(int const argc, char** const argv) {
 
     CHECK(renderer_window_count() == windows_before);
 
-    deren::vk_test::write_line("runtime_dyn: torn down (the backend's own deleter ran)");
+    deren::vk_test::write_line("runtime_dyn: torn down (the backend's deleter ran)");
 
     return deren::vk_test::finish("test_runtime_dyn");
 }

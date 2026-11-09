@@ -89,7 +89,7 @@ namespace deren::engine::gaussian_splatting {
         }
     } // namespace
     std::expected<std::shared_ptr<gpu_asset const>, foundation_error> upload_asset(deren::promise::rhi::api_core& core, packed_asset const& asset, foundation_limits const& limits, deren::promise::rhi::shared_object<deren::promise::rhi::api_core> device_lease) {
-        // Validate before making the legacy interface's owning copy. Production transfers packed storage.
+        // Validate before making the legacy interface's holding copy. Production transfers packed storage.
         auto size = packed_byte_size(asset.geometry.size(), limits);
         if (!size) {
             return std::unexpected(size.error());
@@ -100,7 +100,7 @@ namespace deren::engine::gaussian_splatting {
         }
         return upload_asset(core, std::make_shared<packed_asset const>(asset), limits, std::move(device_lease));
     }
-    // NOLINTNEXTLINE(performance-unnecessary-value-param): Pin source ownership throughout upload and creation of aliasing payload owners.
+    // NOLINTNEXTLINE(performance-unnecessary-value-param): Pin source retention throughout upload and creation of aliasing payload holders.
     std::expected<std::shared_ptr<gpu_asset const>, foundation_error> upload_asset(deren::promise::rhi::api_core& core, std::shared_ptr<packed_asset const> source, foundation_limits const& limits, deren::promise::rhi::shared_object<deren::promise::rhi::api_core> device_lease) {
         if (!source || (device_lease && device_lease.get() != &core)) {
             return failure(error_code::invalid_argument, "Invalid Gaussian source or device lease");
@@ -131,7 +131,7 @@ namespace deren::engine::gaussian_splatting {
             return std::shared_ptr<gpu_asset const>{std::move(result)};
         }
         deren::utility::log("gaussian upload: result fields written; asking whether device_address is announced");
-        // ASK THE BIT BEFORE THE OBJECT, which is what the contract's own words prescribe ("a bit is announced only
+        // ASK THE BIT BEFORE THE OBJECT, which is what the contract's words prescribe ("a bit is announced only
         // if the ability object exists AND can serve the objects this backend produces"; for every set bit
         // query_extension() must answer). The Vulkan backend does announce and serve it today (core.api_core.cpp's
         // abilities() sets the bit and query_extension() answers with the address view), so this guard is the
@@ -194,7 +194,7 @@ namespace deren::engine::gaussian_splatting {
             return rhi::error::ok;
         };
         if (!result->device_lease) {
-            return failure(error_code::invalid_argument, "Gaussian upload requires an owning device lease");
+            return failure(error_code::invalid_argument, "Gaussian upload requires a holding device lease");
         }
         auto root = result->device_lease;
         managed::resource_context const context{};

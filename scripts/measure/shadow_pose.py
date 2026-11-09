@@ -10,7 +10,7 @@ the difference OF the differences. What is left after subtracting
     d_rt     = rt(t0)     - rt(t1)          object motion + whatever the traced shadow does
 
 is d = d_raster - d_rt: the part of the pose's effect that only the RASTER path has, i.e. the
-shadow's own pose dependence. A traced shadow that follows the pose makes d collapse to the usual
+shadow's pose dependence. A traced shadow that follows the pose makes d collapse to the usual
 traced-vs-cascade difference; a traced shadow stuck in the bind pose leaves d as large as the
 shadow's motion, which is the limitation this measures.
 """

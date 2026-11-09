@@ -7,7 +7,7 @@
 // `heap_slots_hzb_levels` and `heap_slots_hzb_header` and nothing else reads them this frame.
 //
 // ONE DISPATCH PER LEVEL, and that is a correctness shape rather than a cost: level L's 2x2 max reads level L-1
-// WHOLE, and a single dispatch would have to guess which of its neighbours another workgroup has already
+// WHOLE, and A separate single dispatch would have to guess which neighbours another workgroup has already
 // written. The host records one dispatch per level and one buffer barrier `{shader_write -> shader_read}`
 // between adjacent dispatches (source/engine/pass/hzb_build.cpp), so each level reads a COMPLETE previous level.
 //
@@ -33,7 +33,7 @@
 struct HzbBuildPush
 {
     uint level; // the pyramid level THIS dispatch writes (the host records one dispatch per level)
-    uint frame_slot; // appended by the pass framework: which lane of the HZB tables this frame owns
+    uint frame_slot; // appended by the pass framework: which lane of the HZB tables this frame holds
     uint image_index; // appended by the pass framework: which per-image depth descriptor to fetch
 };
 [[vk::push_constant]] ConstantBuffer<HzbBuildPush> push;
@@ -45,7 +45,7 @@ static const uint hzb_build_group_size = 8u;
 
 /// @brief snapshot the frame camera into this frame slot's header lane
 /// @param slot the HZB frame lane (the header table is ONE descriptor with an internal per-frame lane)
-/// @note the camera block is read as a `StructuredBuffer<float4>` of its OWN bytes rather than through
+/// @note the camera block is read as a `StructuredBuffer<float4>` of its bytes rather than through
 ///       `camera_at(...)`: a header copy must be BIT-EXACT (the probe compares it byte for byte with the host's
 ///       snapshot), and element-wise float4 copies through the same storage-class descriptor cannot round.
 ///       `camera_ubo`'s layout is view[16], proj[16], camera_pos(3)+pad - exactly nine float4 lanes
@@ -112,7 +112,7 @@ float hzb_reduce_2x2(RWStructuredBuffer<float> pyramid, uint previous_base, uint
 void main(uint3 dispatch_thread_id : SV_DispatchThreadID)
 {
     const uint slot = push.frame_slot;
-    // the depth image's own extent IS this frame's render extent (the G-buffer depth is the frame's), so the
+    // the depth image's extent IS this frame's render extent (the G-buffer depth is the frame's), so the
     // dimensions come from the texture rather than from a push lane that a resize could leave stale (§4.2)
     Texture2D<float> depth = heap_at<Texture2D<float>>(heap_slots_gbuffer_depth + heap_image_index);
     uint width = 0u;

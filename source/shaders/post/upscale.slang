@@ -6,7 +6,7 @@
 // presented image. This pass is that resolve, and it is the frame's LAST writer whenever it runs.
 //
 // IT IS THE LINEAR (BILINEAR) FILTER AND NOTHING ELSE. The FSR `easu`/`easu_rcas` modes are a separate,
-// later step with their own config keys: the whole point of this one is the cheapest correct answer - one
+// later step with their config keys: the whole point of this one is the cheapest correct answer - one
 // tap of the shared linear sampler at each OUTPUT pixel centre, which is a bilinear resample of the whole
 // chain. `heap_sampler_post` is the sampler that makes that true by construction (linear, clamp, one mip).
 //
@@ -20,7 +20,7 @@
 
 #include "common/heap_access.slang"
 
-// THIS PASS'S OWN BLOCK, and it is deliberately NOT the post chain's (post.frag's `PostPush`): the resolve
+// THIS PASS'S BLOCK, and it is deliberately NOT the post chain's (post.frag's `PostPush`): the resolve
 // samples one image and re-encodes nothing else, so the exposure/bloom/edge lanes would all be dead fields.
 // The four `con` vectors are EASU's (`FsrEasuCon`, computed on the C++ side - see upscale_pass::record) and
 // the mode says which filter runs; the two lanes at the end are the ones the FRAMEWORK appends.
@@ -92,7 +92,7 @@ float3 srgb_to_linear(float3 color)
 //
 //   * THE GATHER FORM COSTS A DEVICE FEATURE. Slang lowers `GatherRed/Green/Blue` to `OpImageGather`, which
 //     needs the `ImageGatherExtended` capability: building the gather version of this file with the project's
-//     own slangc reports "entry point 'main' uses additional capabilities that are not part of the specified
+//     slangc reports "entry point 'main' uses additional capabilities that are not part of the specified
 //     profile 'spirv_1_6'" and upgrades the profile to include `spvImageGatherExtended`. In Vulkan that
 //     capability is gated on `VkPhysicalDeviceFeatures::shaderImageGatherExtended`, so the gather form would
 //     make the upscaler unavailable on a device that lacks it - and this renderer QUERIES its optional
@@ -102,10 +102,10 @@ float3 srgb_to_linear(float3 color)
 //     `Texture2D<float4>` return all three channels each - 12 instructions, the same count, and only the
 //     texels that are used (each gather fetches four and the reference discards one per position).
 //   * AND IT IS THE SAME ARITHMETIC. A gather returns its texels UNFILTERED - a point fetch of the 2x2 around
-//     the coordinate, not a bilinear result - so sampling each tap at its own texel centre with a
-//     nearest/clamp sampler is the same value, with the reference's own clamp behaviour at the borders.
+//     the coordinate, not a bilinear result - so sampling each tap at its texel centre with a
+//     nearest/clamp sampler is the same value, with the reference's clamp behaviour at the borders.
 //
-// The offsets are the reference's own tap offsets (the `off` of its twelve `FsrEasuTapF` calls, relative to
+// The offsets are the reference's tap offsets (the `off` of its twelve `FsrEasuTapF` calls, relative to
 // `f` at (0,0)), and its de-ring block confirms the letters: it takes the four nearest taps as f, g, j, k,
 // i.e. the 2x2 at (0,0), (1,0), (0,1), (1,1).
 //
@@ -145,7 +145,7 @@ void easu_tap(inout float3 aC, inout float aW, float2 off, float2 dir, float2 le
 
 // ---- FsrEasuSetF: accumulate the gradient direction and length --------------------------------------
 // The reference's four boolean lanes are compile-time immediates there and an index here; the weight is the
-// tap's own bilinear weight in the 2x2 the fractional position sits in.
+// tap's bilinear weight in the 2x2 the fractional position sits in.
 void easu_set(inout float2 dir, inout float len, float2 pp, int which, float lA, float lB, float lC, float lD, float lE)
 {
     float w = 0.0;

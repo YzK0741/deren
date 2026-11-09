@@ -62,7 +62,7 @@ import deren.utility;
  * shadow = true    # record the directional shadow pass each frame
  * fxaa   = false   # anti-alias the final image (adds one fullscreen pass; needs fxaa.frag.spv)
  * gpu_timings = true  # measure + report per-pass GPU milliseconds (timestamp queries)
- * gbuffer_debug = false  # draw the G-buffer + one of its channels instead of the shaded scene
+ * gbuffer_debug = false  # draw the G-buffer + a separate one channels instead of the shaded scene
  * taa = false            # temporal anti-aliasing (jitter + resolved history)
  * rt_shadows = false    # ray-traced sun shadows (needs a device with ray queries; else ignored)
  * rt_mask_bake = false  # bake alphaMode MASK into the acceleration structures (off: the rule measured worse)
@@ -83,7 +83,7 @@ import deren.utility;
  * irr_size     = 32    # irradiance cubemap size
  * lut_size     = 256   # BRDF LUT size
  * environment_hdr = "" # equirect HDR image used as the IBL instead of the procedural sky ("" = the sky)
- * environment_intensity = 0.35 # linear multiplier on that image (the reference's own world_strength)
+ * environment_intensity = 0.35 # linear multiplier on that image (the reference's world_strength)
  * @endcode
  */
 namespace deren::app_config {
@@ -150,7 +150,7 @@ namespace deren::app_config {
         // hardware PCF it always had. The value rides `deren::vulkan::toon_rig`'s ninth lane and
         // is read by the ONE shadow call site inside `toon_diffuse` in `source/shaders/toon/character_forward.slang` -
         // a body that `source/shaders/toon/goo_toon.slang` and `source/shaders/toon/outline.slang` call as well, so those stages
-        // carry the same code; `goo_toon.slang`'s OWN `calc_shadow` call (its `rs_shadow`) is untouched, and
+        // carry the same code; `goo_toon.slang`'s `calc_shadow` call (its `rs_shadow`) is untouched, and
         // at 0 the call site is the shipped `calc_shadow` itself. Float or integer; a non-integer is rounded,
         // anything outside 0..4 is clamped, a NaN is read as 0, and each case is logged separately (see
         // `analyse_config`). THE PER-LEVEL COST IS NOT REPEATED HERE ON PURPOSE: it has been re-measured twice
@@ -161,7 +161,7 @@ namespace deren::app_config {
         float toon_shadow_softness = 0.0f;
         // Shadow depth bias ([render] shadow_bias_constant / shadow_bias_slope): the rasterization bias the
         // shadow pass pushes a caster's depth by, which is what keeps a lit surface from shadowing itself
-        // (acne). The defaults are the runtime's own (runtime::shadow_depth_bias_constant/_slope), so a config
+        // (acne). The defaults are the runtime's (runtime::shadow_depth_bias_constant/_slope), so a config
         // that omits them behaves exactly as before they existed. `slope` scales with the surface's depth
         // gradient and is the one that usually matters; `constant` is a flat offset. The GUI panel exposes the
         // same two values as sliders.
@@ -169,13 +169,13 @@ namespace deren::app_config {
         float shadow_bias_slope = 1.5f;
         // A SCALE ON THE SUN'S RADIANCE ([render] sun_intensity). The shading already multiplies the sun by
         // this lane; without the key the only value reachable was the furnace mode's 0 or 1. 1.0 is the
-        // shading path's own constant 7.5 unchanged; the gui exposes it as "sun intensity".
+        // shading path's constant 7.5 unchanged; the gui exposes it as "sun intensity".
         float sun_intensity = 1.0f;
         float exposure = 1.0f;
         int32_t tone_mapping = 0;
         // Clustered light culling ([render] clustered_lights, M5): the punctual lights are sorted
         // into a screen-tile x depth-slice grid once per frame and the shading stage loops only its
-        // own cluster's list. false = the brute-force loop over every active light - the reference
+        // the cluster's list. false = the brute-force loop over every active light - the reference
         // path the clustered one is verified against (and what every pre-M5 frame did).
         bool clustered_lights = true;
         // Screen-space ambient occlusion (M6): the lighting stage traces a hemisphere of samples
@@ -214,7 +214,7 @@ namespace deren::app_config {
         // any-hit shader cuts the mask per hit (source/shaders/rt_shadow.rahit). It stays because a knob is the only
         // way to measure the arms against each other. OFF BY DEFAULT, because the measurement says the
         // per-triangle rule is not good enough to be on: on a MASK-heavy sample asset it removes triangles
-        // the raster path's own filtered sampling keeps, and the frame comes out 1.29 of mean brightness
+        // the raster path's filtered sampling keeps, and the frame comes out 1.29 of mean brightness
         // BRIGHTER than the raster shadow it should match.
         bool rt_mask_bake = false;
         // Re-skin animated casters and refit their acceleration structures every frame ([render]
@@ -226,7 +226,7 @@ namespace deren::app_config {
         // The furnace verification mode ([render] furnace): the sun is turned off and the environment becomes
         // a constant level, so the correct frame is computable by hand - a diffuse surface's outgoing
         // radiance is exactly albedo * L, so anything added on top of it is double counting.
-        // It is the one reference in this project that no estimator of its own can flatter, because it is not
+        // It is the one reference in this project that no separate estimator can flatter, because it is not
         // an estimator. Off by default, and off is byte-exact.
         bool furnace = false;
         // Pin the keyframe animation at a time in seconds ([render] animation_time), or -1 to play it: a
@@ -243,7 +243,7 @@ namespace deren::app_config {
         // Render mode ([render] unlit): the "pbr (lit)" / "unlit (flat)" combo of the debug overlay
         // as a startup setting - the flat base-color reference, useful as a shading-free view. It
         // selects the runtime's default pipeline for the transparent pass, and the lighting stage is
-        // told explicitly (set_unlit) because it binds its own pipeline and cannot follow a per-leaf
+        // told explicitly (set_unlit) because it binds its pipeline and cannot follow a per-leaf
         // switch: it then outputs the stored albedo instead of shading it.
         bool unlit = false;
         bool fxaa = false; // FXAA the final image (one extra fullscreen pass)
@@ -256,7 +256,7 @@ namespace deren::app_config {
          * THE RENDER SCALE ([render] render_scale): the fraction of the swapchain's extent the RENDER chain
          * runs at, so the scene is shaded at fewer pixels than are presented.
          *
-         * 1.0 - the default - is the historic frame: every render target is the output's own size. Below
+         * 1.0 - the default - is the historic frame: every render target is the output's size. Below
          * 1.0 the whole render chain shrinks together (`core::render_extent` is the one definition of the
          * frame's resolution, so a `full` pass, a half-size stochastic target and the bloom chain all follow
          * it), and the frame's last pass resolves those pixels back up to the output extent. That resolve is
@@ -275,7 +275,7 @@ namespace deren::app_config {
          * source/shaders/post/upscale.slang, which carries the license), and `linear` is the single bilinear tap that was
          * the resolve's first version. Linear is KEPT rather than replaced because it is the reference the
          * FSR filter is measured against: the claim "EASU is closer to a native-resolution frame" is a number
-         * between these two modes, and a mode deleted after the fact takes its own baseline with it.
+         * between these two modes, and a mode deleted after the fact takes its baseline with it.
          */
         deren::utility::vessel::string upscale = "easu";
         // measure per-pass GPU time with timestamp queries: one vkCmdWriteTimestamp per pass
@@ -321,7 +321,7 @@ namespace deren::app_config {
         bool software_raster = false;  // M4 hybrid raster; requires visibility_buffer + subtilis
         float software_raster_threshold_px = 1.f;
         // The TOON CHARACTER STAGE ([render] character_forward): a pass that re-shades the scene's OPAQUE
-        // leaves OVER the lit frame, at depth-EQUAL, so a character can have its own hand-authored shading
+        // leaves OVER the lit frame, at depth-EQUAL, so a character can have its hand-authored shading
         // instead of the deferred one - and without being lit twice, which is what happens if a finished
         // colour is fed back through the G-buffer. See vulkan.pass.character_forward.
         //
@@ -352,7 +352,7 @@ namespace deren::app_config {
          * HOW MANY COPIES OF THE GAME-TOON CHARACTER TO STAGE ([render] game_toon_copies, 1..16).
          *
          * The character stage already draws a list of leaves; what this exercises is the per-character head
-         * frame, so every copy is the SAME imported model at a different X offset with its own head basis. One
+         * frame, so every copy is the SAME imported model at a different X offset with its head basis. One
          * is the shipping path and must stay byte-identical. Values outside the range are clamped by `main.cpp`,
          * which is where `max_game_toon_characters` lives; the option is ignored unless `game_toon` is on.
          */
@@ -363,7 +363,7 @@ namespace deren::app_config {
          * feature's contract: with no path the frame is exactly the frame this renderer produced before the
          * key existed (one import, one leaf set), which is what the render gate's recorded references are.
          *
-         * THE PATH IS RESOLVED LIKE THE MODEL'S: a relative path is taken relative to the executable's own
+         * THE PATH IS RESOLVED LIKE THE MODEL'S: a relative path is taken relative to the executable's
          * directory (see `deren::utility::executable_directory()`), which is where the assets live, so the shipped
          * config can name `chars/...` or a path under the build directory without being absolute.
          *
@@ -373,10 +373,10 @@ namespace deren::app_config {
          * the scene pass draws it through the ordinary PBR/unlit path, where a matte ground and a glTF
          * emissive backdrop belong. Nothing else about the frame changes.
          *
-         * THE OFFSET IS DERIVED, NOT CONFIGURED: the imported roots are translated so the background's own
-         * y = 0 plane (the author's ground) lands on the SUBJECT's lowest point after the subject's own
+         * THE OFFSET IS DERIVED, NOT CONFIGURED: the imported roots are translated so the background's
+         * y = 0 plane (the author's ground) lands on the SUBJECT's lowest point after the subject's
          * centering shift - see the import in `main.cpp`. A background whose ground is not at y = 0 would need
-         * its own shift, which is why this is stated here rather than hidden in the loader.
+         * its shift, which is why this is stated here rather than hidden in the loader.
          */
         deren::utility::vessel::string background_glb = {};
         bool validation_layers = default_validation_layers; // Vulkan validation layers + debug messenger ([render])
@@ -400,11 +400,11 @@ namespace deren::app_config {
         // elevation is what moves the shadows off a face and onto the ground behind it.
         deren::utility::vessel::array<float, 3> sun_direction = {0.3f, 1.0f, 0.5f};
         /**
-         * THE ENVIRONMENT IMAGE, i.e. the reference package's own way of describing its world.
+         * THE ENVIRONMENT IMAGE, i.e. the reference package's way of describing its world.
          *
          * `environment_hdr`: path to an EQUIRECTANGULAR (lat-long) HDR image - in practice the reference
          * package's `lighting/studio_01_1k.exr`, converted once, offline, into the one float format the
-         * engine's own decoder reads (Radiance `.hdr`, which is what `stb_image` handles; the conversion
+         * engine's decoder reads (Radiance `.hdr`, which is what `stb_image` handles; the conversion
          * and its measurements are in `deren-ab/bg/_hdr_convert.py`). It REPLACES the procedural sky above as
          * the environment cubemap.
          *
@@ -423,7 +423,7 @@ namespace deren::app_config {
          * `environment_intensity`: a linear multiplier applied to every texel of that image - the same
          * degree of freedom the reference package calls its world's `world_strength`.
          *
-         * THE DEFAULT IS THE REFERENCE'S OWN NUMBER (0.35, from that package's manifest.json): pointing
+         * THE DEFAULT IS THE REFERENCE'S NUMBER (0.35, from that package's manifest.json): pointing
          * `environment_hdr` at its image and changing nothing else is meant to reproduce the reference's
          * ambience. 1.0 is the file's raw radiance, which for a studio HDRI is a good deal brighter.
          */
@@ -455,7 +455,7 @@ namespace deren::app_config {
          * term by the emitter's SIZE is DELETED - measured, it drove the frame's main light to zero. What the
          * keys mean now is "the emitter IS the main light": while `area_light_irradiance` is true the host aims
          * `set_sun_direction` at the emitter and multiplies `set_sun_intensity` by its radiance; with it false
-         * the emitter contributes ONLY the penumbra and the sun keeps its own direction and intensity.
+         * the emitter contributes ONLY the penumbra and the sun keeps its direction and intensity.
          * Consequently the `area_light` lane is UNREAD by the v1.1 shaders (only `area_light_axis.w` still is -
          * see `calc_shadow_area`); it is kept because the pinned wire layout must not move and because a v2
          * area integral needs centre/half.
@@ -466,7 +466,7 @@ namespace deren::app_config {
          * `[-3, -4, 15]` means 3 m to one side, 4 m behind and 15 m up. This engine imports the model with
          * `scene_import_shift`, which puts the character's feet at `y = bounds.min.y - scene_center.y -
          * scene_radius` (world XZ = 0) - measured as -2.198 m for this scene, and cross-checked against the
-         * background package's own import offset, whose ground lands on the same number. THAT point is the
+         * background package's import offset, whose ground lands on the same number. THAT point is the
          * `scene_origin` the caller passes in, so `world = scene_origin + position` is what lets the manifest's
          * numbers be copied verbatim.
          *
@@ -487,7 +487,7 @@ namespace deren::app_config {
          * is clipped by that clamp. That is arithmetic in the runtime, not something this module can warn
          * about; it is written down here so the number is never a surprise. As of v1.1 this product reaches the
          * sun only while `area_light_irradiance` is true - with the emitter in penumbra-only mode it is still
-         * derived and logged, but the sun keeps its own intensity.
+         * derived and logged, but the sun keeps its intensity.
          *
          * `derive_area_light` below is the ONE place these keys become the frame's values.
          */
@@ -497,7 +497,7 @@ namespace deren::app_config {
         deren::utility::vessel::array<float, 3> area_light_target = {0.0f, 0.0f, 0.0f};   // aim point, same frame as position
         float area_light_intensity = 1.0f;                                                // multiplier on the emitter's radiance (>= 0)
         bool area_light_irradiance = true;                                                // true = the emitter TAKES OVER the main light (its direction, its radiance)
-        bool area_light_shadow = true;                                                    // the area light's own (soft) visibility
+        bool area_light_shadow = true;                                                    // the area light's (soft) visibility
         float area_light_softness = 0.0f;                                                 // penumbra world radius, metres; 0 = automatic
         // demo_lights ([lighting] demo_lights): spawn this many procedural punctual lights around
         // the scene (a helix at the scene bounds, cycling colors). This is the clustered-light stress
@@ -505,7 +505,7 @@ namespace deren::app_config {
         // visit the same handful of lights, so the win is invisible. 0 (default) = overlay lights
         // only; the generated ones are pushed every frame together with the overlay's slots.
         // Capped at max_demo_lights: the light UBO holds max_punctual_lights lights in total, and the
-        // overlay's own slots share that array.
+        // overlay's slots share that array.
         int32_t demo_lights = 0;
         /**
          * WHERE the generated lights sit and how far they reach, both as FRACTIONS of the scene radius.
@@ -556,7 +556,7 @@ namespace deren::app_config {
      *                      reference package's `manifest.json` measures its light from. `area_light_position` and
      *                      `area_light_target` are relative to it, so the manifest's "character at the origin"
      *                      numbers can be copied into a config verbatim. This is NOT `scene_center`: the
-     *                      bounding-box centre sits half a body above the feet, and this engine's own
+     *                      bounding-box centre sits half a body above the feet, and this engine's
      *                      `scene_import_shift` puts the feet at `bounds.min.y - scene_center.y - scene_radius`
      *                      (see the key documentation above for the measured value and the cross-check)
      *
@@ -594,11 +594,11 @@ namespace deren::app_config {
      * NOT here (they are `source/shaders/toon/toon_params.slang`, because two stages must agree about them) and a MATERIAL's
      * come from the sidecar beside the model.
      *
-     * THE DEFAULTS ARE THE ARTICLE'S OWN VALUES, so a config that says nothing renders what this port was measured
+     * THE DEFAULTS ARE THE ARTICLE'S VALUES, so a config that says nothing renders what this port was measured
      * at - and `day_strength` is the one that moves a frame most: 1 is the sun leading with the head light
      * supplementing it, 0 removes the sun's DIRECT term entirely (no terminator, no light direction) and lets the
      * head light and the environment carry the character. Intermediate values blend two whole shading outcomes
-     * rather than dimming one, because a dimmed sun still draws its own terminator.
+     * rather than dimming one, because a dimmed sun still draws its terminator.
      */
     export struct toon_settings {
         // Optional reference-look shaping; zero preserves the original shader path.
@@ -620,7 +620,7 @@ namespace deren::app_config {
         float rim_strength = 1.0f;                                                         // `_RimLightStrength`
         float rim_nolxz_strength = 1.0f;                                                   // `_RimLightNoLxzStrength`
         float backlight_strength = 1.0f;                                                   // the backlight compensation's weight
-        // WHICH EXPRESSION THE FACE IS WEARING (`_EmotionMap`'s cell): 0 = none, so the face keeps its own albedo,
+        // WHICH EXPRESSION THE FACE IS WEARING (`_EmotionMap`'s cell): 0 = none, so the face keeps its albedo,
         // which is what every capture before this key existed was taken at; 1..3 = the atlas' other three cells.
         // IT IS A CONFIG KEY RATHER THAN A MATERIAL VALUE because the material files have none - the game picks the
         // expression from the character's animation/script system, and nothing in the sidecar describes it.
@@ -647,7 +647,7 @@ namespace deren::app_config {
      * @brief ONE entry of `[[scene.objects]]`: a per-instance placement of an asset.
      *
      * `model`/`asset` name the object's model; entries naming the same file share one decoded scene
-     * (geometry, textures, materials) while each placement still gets its own import and animation
+     * (geometry, textures, materials) while each placement still gets its import and animation
      * controller. `position` is in world metres relative to the object's ground anchor (the point the
      * single-object path already calls the scene origin), `rotation` is Y/X/Z Euler degrees applied in
      * that order, and `scale` is per axis. `visible` and `cast_shadow` are per-object draw filters,
@@ -656,10 +656,10 @@ namespace deren::app_config {
      * composition: a typed object list, not a general node editor.
      *
      * `pbr`, `unlit` and `default` objects stay on the deferred path and never enter the character stage.
-     * `game_toon` objects are routed to the character-forward stage; each such object gets its own
+     * `game_toon` objects are routed to the character-forward stage; each such object gets its
      * character index, up to `max_game_toon_characters`. `gaussian` objects are .ply clouds and are
      * staged together in the shared splat pass. The historic GameToon X staging (`game_toon_copies`)
-     * remains its own path when the object list is empty.
+     * remains its path when the object list is empty.
      */
     export struct scene_object_settings {
         deren::utility::vessel::string name = {};
@@ -699,7 +699,7 @@ namespace deren::app_config {
         deren::utility::vessel::string environment = {};
         int32_t environment_index = 0;
         uint32_t environment_slot = 0;
-        // Phase 2 per-object playback. Each placement owns its own animation controller, so these
+        // Phase 2 per-object playback. Each placement holds its animation controller, so these
         // select that placement's clip/clock independently of every other object.
         int32_t animation = 0;         // playable-clip index (0 = the first channel-bearing clip)
         float animation_speed = 1.0f;  // playback-rate multiplier (1 = real time, 0 = frozen)
@@ -720,7 +720,7 @@ namespace deren::app_config {
     export inline constexpr std::size_t max_scene_assets = 8;
 
     export struct app_settings {
-        // model file (empty = locate default via paths.model_dir; "ask" opens the platform's own file
+        // model file (empty = locate default via paths.model_dir; "ask" opens the platform's file
         // dialog at startup - see wants_model_dialog, which is the only thing that may interpret it).
         // WHICH LOADER READS IT COMES FROM ITS EXTENSION (see model_format_of): .gltf/.glb is the scene
         // importer's, .ply a Gaussian splat cloud, and anything else is reported rather than defaulted.
@@ -762,7 +762,7 @@ namespace deren::app_config {
      * @ingroup app_config
      * @brief WHICH LOADER a model path asks for, decided by the path's extension
      *
-     * `model` (and argv[1]) names a FILE, and the file's own extension is what says how to read it: a `.gltf`
+     * `model` (and argv[1]) names a FILE, and the file's extension is what says how to read it: a `.gltf`
      * or `.glb` belongs to the scene importer, a `.ply` to the Gaussian splat cloud loader. That keeps the
      * path as the ONE place the choice lives - there is no second key that can drift out of sync with it, and
      * a path this build cannot read is one answer with one message rather than whatever a loader said first.

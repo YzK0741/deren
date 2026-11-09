@@ -79,7 +79,7 @@ export namespace deren::engine::visibility::software {
         std::span<reference_item const> items{};
     };
 
-    /// the CPU reference's output: the two software images, in the GPU's own empty-value encoding
+    /// the CPU reference's output: the two software images, in the GPU's empty-value encoding
     struct software_image {
         std::uint32_t width = 0u;
         std::uint32_t height = 0u;

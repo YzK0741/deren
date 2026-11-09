@@ -17,7 +17,7 @@ export import deren.vstd;
 
 export namespace deren::engine::subtilis {
 
-    /// The compute shader's workgroup width. One item is one persistent workgroup; each lane owns one
+    /// The compute shader's workgroup width. One item is one persistent workgroup; each lane holds one
     /// 32-bit word of the coarsening bitset, and cluster emission compacts in 64 contiguous chunks.
     inline constexpr std::uint32_t cut_group_size = 64u;
 

@@ -41,7 +41,7 @@ environment_blur = 0.5 # mip-range fraction used by background mode 3
 All background modes retain the same material lighting. A solid grey background therefore still
 allows detailed environment reflections. Rotation changes the directions sampled by diffuse IBL,
 specular IBL and environment backgrounds together: positive 90 degrees makes world +X sample the
-environment's +Z. The manually authored sun and punctual lights keep their own directions.
+environment's +Z. The manually authored sun and punctual lights keep their directions.
 Strength scales the two IBL lobes and environment background; it does not scale emissive/direct
 lights or the solid/legacy background. Existing `environment_intensity` keeps its startup-bake
 semantics, including the historical 0.35 default; the new relative strength defaults to 1.

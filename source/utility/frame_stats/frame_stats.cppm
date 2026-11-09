@@ -38,7 +38,7 @@ namespace deren::utility {
     /**
      * @ingroup frame_stats
      * @brief rolling FPS statistics over a report window (one second by default)
-     * @note single-threaded by design: tick()/on_skipped() run on the frame owner thread only
+     * @note single-threaded by design: tick()/on_skipped() run on the frame holder thread only
      */
     export class frame_stats {
     public:

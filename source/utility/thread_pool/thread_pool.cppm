@@ -117,7 +117,7 @@ namespace deren::utility {
          *         An empty batch is always a successful no-op.
          * @note pair with wait_until_priority_done(@p priority) to run a group synchronously:
          *       this drains the priority, including work from other callers at the same priority.
-         *       The caller retains its own copies of batch callables and their captures.
+         *       The caller retains its copies of batch callables and their captures.
          */
         bool post_batch(std::span<std::function<void()>> tasks, int32_t priority = 0);
         /**
@@ -125,7 +125,7 @@ namespace deren::utility {
          * @note idempotent. wait policy executes queued tasks; discard skips queued tasks.
          *       Work already claimed by a worker may finish. Destruction joins all workers.
          *       Public calls may race shutdown, but must not race destruction. Never destroy
-         *       the pool or synchronously wait for it from its own task/capture destructor.
+         *       the pool or synchronously wait for it from its task/capture destructor.
          */
         void shutdown();
         /**
@@ -143,7 +143,7 @@ namespace deren::utility {
          * @note live-drain semantics: later submissions at this priority can extend the wait.
          *       Work at other priorities does not block this wait. The result is an observation
          *       under the pool lock; another caller may submit new work immediately afterward.
-         *       Worker-owned captures are released before completion is published; caller-owned
+         *       Worker-held captures are released before completion is published; caller-held
          *       copies are unaffected. Discarded tasks count as complete without being executed.
          * @note returns immediately when no task at @p priority is pending.
          */

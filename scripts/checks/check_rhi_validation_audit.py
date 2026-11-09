@@ -14,7 +14,7 @@ It answers, in order:
   1. the concrete implementation names (the single source the producers and the checks share),
   2. concrete-name string literals that leaked outside that source (should be none in the backend),
   3. `rhi::is_concrete` / `rhi::do_concrete` use: statement lines and call occurrences,
-  4. the remaining `static_cast<owned_*>` sites, split into creation path / guarded (a nearby registry or
+  4. the remaining `static_cast<held_*>` sites, split into creation path / guarded (a nearby registry or
      `is_concrete` check) / documented precondition (`buffer_address_view` and `frame_escape::native_*`).
 """
 
@@ -113,7 +113,7 @@ def main() -> int:
         for number, line in code_lines(path):
             for match in CAST.finditer(line):
                 inner = match.group(1)
-                if "owned_" not in inner:
+                if "held_" not in inner:
                     continue
                 function = enclosing_function(lines, number - 1)
                 window = "\n".join(lines[max(0, number - 16):number + 2])
@@ -126,7 +126,7 @@ def main() -> int:
                 categories[category] += 1
                 details.append((category, str(path.relative_to(ROOT)), number, function, inner.strip()))
     total = sum(categories.values())
-    print(f"\nremaining static_cast<owned_*>: {total}")
+    print(f"\nremaining static_cast<held_*>: {total}")
     for category, count in categories.most_common():
         print(f"  {count:2d}  {category}")
     print("\n  sites:")

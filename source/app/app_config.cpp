@@ -117,7 +117,7 @@ namespace deren::app {
                                   cwd);
         }
 
-        // A scene whose placements all name their own asset does not need a separate default model: the
+        // A scene whose placements all name their asset does not need a separate default model: the
         // first placement becomes the default load below. Keep the historic default lookup only when at
         // least one placement inherits the top-level model (or there is no object list at all).
         bool every_object_has_model = !settings.scene.objects.empty();
@@ -128,10 +128,10 @@ namespace deren::app {
             }
         }
 
-        // 3. Pick the model file: `model = "ask"` opens the platform's own file dialog first (the config's
+        // 3. Pick the model file: `model = "ask"` opens the platform's file dialog first (the config's
         //    way of saying "let me choose at startup"); otherwise settings.model when configured/argv-given;
         //    else the default model under settings.paths.model_dir (or the auto-located asset/).
-        //    WHICH LOADER READS IT IS THE FILE'S OWN EXTENSION (see app_config::model_format_of), so the dialog
+        //    WHICH LOADER READS IT IS THE FILE'S EXTENSION (see app_config::model_format_of), so the dialog
         //    offers both families and neither the title nor the filter promises glTF alone.
         if (deren::app_config::wants_model_dialog(settings)) {
             // A CANCELLED DIALOG IS NOT AN ERROR, and neither is a build with no way to ask: both fall
@@ -185,7 +185,7 @@ namespace deren::app {
         }
 
         // 4. Resolve every per-object asset reference. `model` and `asset` are mutually exclusive;
-        //    an entry with neither reuses the default model above. Paths are kept in the config's own
+        //    an entry with neither reuses the default model above. Paths are kept in the config's
         //    spelling (the loader resolves relative paths from the working directory), while the
         //    DISTINCT cap compares normalized absolute paths so two spellings of one file share a load.
         std::vector<std::string> distinct_models;
@@ -238,7 +238,7 @@ namespace deren::app {
             config.object_model_paths.push_back(std::move(model));
         }
         if (!config.object_model_paths.empty()) {
-            // A scene whose placements all name their own asset needs no separate top-level model:
+            // A scene whose placements all name their asset needs no separate top-level model:
             // the first placement's asset becomes the default load, and slot dedupe points object 0
             // at that same load.
             if (config.model_path.empty()) {
@@ -281,7 +281,7 @@ namespace deren::app {
     // Walk up from the working directory to find the source/shaders/ directory,
     // so it works when run from the project root or a cmake-build-* directory
     std::optional<std::filesystem::path> locate_shaders_dir() {
-        // The build's own output first: a shaders/ directory beside the executable, written by the
+        // The build's output first: a shaders/ directory beside the executable, written by the
         // build's shader step. Checking this before the cwd walk is what makes a build-tree run load
         // the SPIR-V its build just compiled instead of resolving `source/shaders/` upward into the source
         // tree - the stale-binary trap the build no longer commits a fallback for.
@@ -296,7 +296,7 @@ namespace deren::app {
         for (std::int32_t depth = 0; depth < 4; ++depth) {
             std::filesystem::path candidate = current / "shaders";
             // The SAME probe as the executable-relative check above, deliberately: a directory named
-            // `shaders` that holds no compiled SPIR-V (the source tree's own, since the build writes
+            // `shaders` that holds no compiled SPIR-V (the source tree's, since the build writes
             // the .spv into the build tree) is not the answer this function is looking for - returning
             // it only moves the failure into a much less clear "cannot open shader file" panic.
             if (std::filesystem::is_regular_file(candidate / "pbr.mesh.spv")) {

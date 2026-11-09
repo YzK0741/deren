@@ -19,7 +19,7 @@ THE INPUTS (three files, all written on the same screenshot frame by the rendere
                           u32[0] = HZB magic (0x485A4201), u32[1..3] = width, height, level count,
                           u32[4..19] = the camera view matrix's bits, u32[20..35] = proj's,
                           u32[36..38] = camera position, u32[39] = pad, u32[40..63] = reserved zeroes.
-  <prefix>.json         - the probe's metadata: the extent/level count/frame slot, and the HOST's own camera
+  <prefix>.json         - the probe's metadata: the extent/level count/frame slot, and the HOST's camera
                           snapshot for the SAME frame. "header view/proj == that camera" is the C21 invariant
                           (§4.1: the header's matrices are the ones that BUILT the pyramid, and the next
                           frame overwrites the camera UBO lane so they cannot be re-read later).
@@ -45,7 +45,7 @@ import sys
 
 import numpy as np
 
-# THE HEADER'S MIRRORED CONSTANTS (source/shaders/common/hzb.slang's hzb_magic, and the probe's own file magic
+# THE HEADER'S MIRRORED CONSTANTS (source/shaders/common/hzb.slang's hzb_magic, and the probe's file magic
 # from runtime.probes.cppm's hzb_pyramid_file_magic). They are duplicated HERE on purpose: a script that read the
 # magic from the file it is checking would accept a header written by a different build of the shader.
 HZB_HEADER_MAGIC = 0x485A4201

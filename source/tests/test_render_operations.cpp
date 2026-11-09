@@ -97,7 +97,7 @@ int main() {
     CHECK(result[2]->kind() == rec::operation_kind::draw);
     stream.clear();
 
-    // Push bytes are owned; partial overlaps must preserve the earlier non-overwritten bytes.
+    // Push bytes are held; partial overlaps must preserve the earlier non-overwritten bytes.
     std::array bytes{std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4},
                      std::byte{5}, std::byte{6}, std::byte{7}, std::byte{8}};
     stream.append<rec::operation_kind::push>({0}, bytes);
@@ -158,7 +158,7 @@ int main() {
     stream.append<rec::operation_kind::dispatch>({1, 1, 1});
     stream.simplify_into(selection, true);
     CHECK(selection.size() == 3 && selection[0]->bytes.size() == 4);
-    // Canonical state selection may borrow records from separate streams, without copying payloads.
+    // Canonical state selection may reference records from separate streams, without copying payloads.
     rec::operation_stream prior;
     prior.append<rec::operation_kind::push>({0}, bytes);
     prior.simplify_into(selection, false);

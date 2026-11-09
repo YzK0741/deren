@@ -22,7 +22,7 @@
  * - location 2 (RGBA8_UNORM): material_id low byte + high byte + ambient occlusion + material flags.
  *   The id is 16 bits split over two 8-bit channels (each an exact k/255 value, so it round-trips
  *   exactly through the UNORM target and a NEAREST fetch): the lighting stage needs it to look up the
- *   material record (emissive, shading model, flags) without the G-buffer carrying textures of its own;
+ *   material record (emissive, shading model, flags) without the separate G-buffer carrying textures;
  * - location 3 (RG16F): the MOTION VECTOR in UV space (current - previous) that the TAA resolve
  *   reprojects the history with;
  * - location 4 (RGBA16F): the EMISSIVE term, ADDED into the scene color (the attachment blends with
@@ -30,7 +30,7 @@
  *   needs the emissive texture and the UVs, which no G-buffer target stores - see deferred.frag, which
  *   deliberately does not add it a second time.
  *
- * Depth is written by this pass (the pipeline's own single-sampled depth image), so the lighting
+ * Depth is written by this pass (the pipeline's single-sampled depth image), so the lighting
  * stage reconstructs the world position from it instead of storing one.
  *
  * @note the five color targets are exactly core::gbuffer_pass_attachment_count (three surface targets +
@@ -77,13 +77,13 @@ layout(location = 4) out vec4 out_scene_color;      // the EMISSIVE term, ADDED 
  * Both matrices come from the camera UBO and are deliberately the JITTER-FREE pair: `proj` carries
  * the TAA jitter, and a jitter that leaked in here would be read as camera motion - the history
  * would be reprojected by up to a pixel every frame, which is exactly the aliasing TAA removes.
- * The previous position is projected with `prev_view_proj` alone, because the object's own motion
+ * The previous position is projected with `prev_view_proj` alone, because the object's motion
  * is already baked into it; the jitter-free pairing still holds on both sides.
  *
  * @note This covers CAMERA motion, RIGID object motion (a moving/rotating node, an instance) and a
  *       DEFORMING mesh: `pbr.vert` computes the previous local position through the joint matrices as
  *       they were one frame ago AND through the morph weights as they were one frame ago, so a vertex
- *       that moved inside its own object space reports that movement instead of zero.
+ *       that moved inside its object space reports that movement instead of zero.
  *       NOT COVERED: alpha-blended geometry, which is composited outside the G-buffer and writes no
  *       velocity at all (see docs/deformation_motion_vectors.md).
  */
@@ -118,11 +118,11 @@ void main() {
 
     out_velocity = motion_vector(v_world_pos, v_prev_world_pos);
 
-    // The emissive term goes STRAIGHT into the scene color, which is why this pass owns it: emissive
+    // The emissive term goes STRAIGHT into the scene color, which is why this pass holds it: emissive
     // is lighting-independent (no light, shadow or BRDF enters it), and it needs the material's
     // emissive texture and this fragment's UVs - neither of which the G-buffer stores, so the lighting
     // stage could not reconstruct it afterwards. deferred.frag documents the same split from its side
-    // and deliberately sets its own shade_input.emissive to zero rather than adding it twice.
+    // and deliberately sets its shade_input.emissive to zero rather than adding it twice.
     //
     // out_scene_color's attachment blends with ONE/ONE (make_color_blend_attachment_additive), so this
     // is an accumulation on top of the sky the earlier passes left there, not an overwrite. The alpha

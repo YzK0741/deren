@@ -14,7 +14,7 @@
 
 // moved-from library is empty instead of dangling, and each symbol lookup goes through the
 
-// backend's own deleter exactly once.
+// backend's deleter exactly once.
 
 //
 
@@ -47,7 +47,7 @@ import deren.promise.rhi;
 
 import deren.utility.dynamic_link;
 
-// After the imports it needs: the header names deren::promise::rhi types (see its own note).
+// After the imports it needs: the header names deren::promise::rhi types (see its note).
 
 #include "../promise/rhi/backend_entry.hpp"
 
@@ -229,9 +229,9 @@ namespace {
 
     constexpr std::string_view detach_probe_file_name = "deren_probe_backend_detach_probe.dll";
 
-    // abi 18: the entry RETURNS the owning handle, so there is no second function to resolve and no
+    // abi 18: the entry RETURNS the holding handle, so there is no second function to resolve and no
 
-    // deleter name to look up - the contract's own typedef is used so this test cannot drift from the
+    // deleter name to look up - the contract's typedef is used so this test cannot drift from the
 
     // header it is testing (source/promise/rhi/backend_entry.hpp).
 
@@ -266,7 +266,7 @@ namespace {
 
         foreign_command_buffer() noexcept = default;
 
-        // the owner-side lifecycle, in the same everything-refused shape: this stand-in answers BOTH
+        // the holder-side lifecycle, in the same everything-refused shape: this stand-in answers BOTH
 
         // questions the contract asks (submit's list and execute's buffer), so one class serves both.
 
@@ -440,7 +440,7 @@ namespace {
      *
      * Called once with the symbol resolved from the loaded DLL and once with the one the linker
      * found in the static half. `make_core` is the only thing that differs; every expectation below
-     * has to hold for both - and since abi 18 the ownership it hands over needs no deleter argument.
+     * has to hold for both - and since abi 18 the retention it hands over needs no deleter argument.
      */
 
     void check_core_contract(make_core_fn make_core, char const* which_half) {
@@ -453,11 +453,11 @@ namespace {
 
         // 2 -> 3 in the one-creation-structure batch: `deren_make_api_core()` grew the creation
 
-        // descriptor it always described itself as taking, and the backend's own twin of that
+        // descriptor it always described itself as taking, and the backend's twin of that
 
         // structure is gone - no vtable moved, but the C entry's signature did.
 
-        // 3 -> 4 in the owned-handle batch: `release()` landed as a pure virtual on seven EXISTING
+        // 3 -> 4 in the held-handle batch: `release()` landed as a pure virtual on seven EXISTING
 
         // tier-1 types, which is the vtable-shifting case the rule above names.
 
@@ -471,9 +471,9 @@ namespace {
 
         // 6 -> 7 in the image face (landed): `image` gained `make_view()`,
 
-        // the owned `image_view` interface and the image/sampler descriptors became defined types,
+        // the held `image_view` interface and the image/sampler descriptors became defined types,
 
-        // and `vulkan_escape` grew the image/sampler native-handle borrows.
+        // and `vulkan_escape` grew the image/sampler native-handle references.
 
         // plan §10.3 measured the mechanism; this line is the number itself.
 
@@ -499,13 +499,13 @@ namespace {
 
         // number exists for.
 
-        // ABI15 is the recording surface's ownership: `api_core` appended
+        // ABI15 is the recording surface's retention: `api_core` appended
 
         // `create_command_buffer(command_buffer_desc const&)` - a virtual on an existing tier-1 type -
 
         // and `command_buffer` is a NEW tier-1 interface (`release` / `begin_recording` /
 
-        // `end_recording` / `recording` / `execute`) with its own `interface_type` value. The `next`
+        // `end_recording` / `recording` / `execute`) with its `interface_type` value. The `next`
 
         // chain of `command_buffer_begin_info` is data, so the tagged structures that ride it do not
 
@@ -513,7 +513,7 @@ namespace {
 
         // ABI16 is the SAMPLER DESCRIPTION's width: `sampler_desc` gained `mag_filter` / `min_filter` /
 
-        // `mipmap_mode` / `compare_enable` / `compare_op` so the engine can create the renderer's own
+        // `mipmap_mode` / `compare_enable` / `compare_op` so the engine can create the renderer's
 
         // sampler set (NEAREST minification, NEAREST mipmapping, a `less_or_equal` comparison) and stay
 
@@ -543,7 +543,7 @@ namespace {
 
         // ABI18 is the SHARED flip: the C entry goes from THREE symbols to ONE - `deren_make_api_core`
 
-        // RETURNS a `std::shared_ptr<api_core>` (ownership in the control block, so
+        // RETURNS a `std::shared_ptr<api_core>` (retention in the control block, so
 
         // `deren_destroy_api_core` has nothing left to do), and the version is the call's FIRST
 
@@ -557,13 +557,13 @@ namespace {
 
         // ABI19 is the CONSUMER-SIDE HANDSHAKE batch: `api_core` APPENDED `api_version() const noexcept`
 
-        // - the object's own attestation of the number both halves compile - which the engine asks in the
+        // - the object's attestation of the number both halves compile - which the engine asks in the
 
         // runtime's constructor (a mismatch is a panic naming both numbers). An appended virtual on an
 
         // existing tier-1 interface is the vtable case the number exists for, EVEN THOUGH it produces no
 
-        // backend symbol (the engine dispatches it through its own vtable copy: the boundary's measured
+        // backend symbol (the engine dispatches it through its vtable copy: the boundary's measured
 
         // count and the import meter stay at ZERO). The same batch moved the loading and the acquisition
 
@@ -573,13 +573,13 @@ namespace {
 
         // something the runtime hides.
 
-        // ABI20 was the RECORDING FACE's merge: `command_list` was DELETED and every one of its verbs is
+        // ABI20 was the RECORDING FACE's merge: `command_list` was DELETED and every a separate one verbs is
 
         // declared once on `command_buffer` itself, so the recording vtables moved without a new
 
-        // tier-1 type. ABI21 IS THAT plus the OWNING factory (`api_core::make_command_buffer`, the virtual
+        // tier-1 type. ABI21 IS THAT plus the HOLDING factory (`api_core::make_command_buffer`, the virtual
 
-        // whose deleter is the contract's own `release()`): the slot is appended to an existing tier-1
+        // whose deleter is the contract's `release()`): the slot is appended to an existing tier-1
 
         // interface, which is what the number exists for. The PODs of the same batch (the compute pipeline
 
@@ -601,7 +601,7 @@ namespace {
 
         // ABI38 removes THREE ZERO-CALL ESCAPE slots: `vulkan_escape::enabled_instance_extensions()` and the
 
-        // two resource-handle borrows `native_pipeline()` / `native_shader_module()` are DELETED. Nothing in
+        // two resource-handle references `native_pipeline()` / `native_shader_module()` are DELETED. Nothing in
 
         // this repository called them (the portable factories/abilities replaced the last potential callers),
 
@@ -625,7 +625,7 @@ namespace {
 
         // acceleration-structure probe and the boundary spike) cast the same context through the shared Vulkan
 
-        // layout - so the escape keeps only native_command_buffer and the resource-handle borrows.
+        // layout - so the escape keeps only native_command_buffer and the resource-handle references.
 
         // ABI42 finishes the escape: `enabled_device_extensions`, `native_buffer`, `native_image`,
 
@@ -633,7 +633,7 @@ namespace {
 
         // `api_basis` and the native `vulkan_command_buffer_inheritance_info` (their structure tags stay
 
-        // retired). ONE escape slot survives: the GUI overlay's ImGui backend records its own draw data into
+        // retired). ONE escape slot survives: the GUI overlay's ImGui backend records its draw data into
 
         // the frame's command buffer.
 
@@ -649,7 +649,7 @@ namespace {
 
         // echoes `window_width` back through `frame_begin()` (see probe_backend.cpp). `struct_size`
 
-        // stays at the type's own default - it is the ABI guard, not a knob.
+        // stays at the type's default - it is the ABI guard, not a knob.
 
         rhi::create_info creation{};
 
@@ -679,7 +679,7 @@ namespace {
 
         CHECK_MSG(mismatch_error.code == rhi::error::abi_mismatch, which_half);
 
-        // THE BACKEND'S OWN NUMBER COMES BACK IN THE DIAGNOSTIC (abi 18): `deren_abi_version()` is
+        // THE BACKEND'S NUMBER COMES BACK IN THE DIAGNOSTIC (abi 18): `deren_abi_version()` is
 
         // gone, so a host that disagrees learns the number it disagreed WITH from the refusal itself.
 
@@ -740,7 +740,7 @@ namespace {
 
         CHECK_MSG(core->get_tag() == "deren_api_core_probe", "object.get_tag() must identify the concrete implementation across static and DLL boundaries");
 
-        // Ownership is real and it came WITH the answer: the control block holds the backend's own
+        // Retention is real and it came WITH the answer: the control block holds the backend's
 
         // deleter (for the DLL half, one built inside that DLL), the count is observable, and copying
 
@@ -750,7 +750,7 @@ namespace {
 
         {
 
-            rhi::shared_object<rhi::api_core> const borrowed = core;
+            rhi::shared_object<rhi::api_core> const referenced = core;
 
             CHECK(core.use_count() == 2);
         }
@@ -793,7 +793,7 @@ namespace {
 
         // ---- G1: THE SAME INVARIANT WALKED OVER EVERY DEFINED BIT, instead of spelled out per kind -------
 
-        // `all_extension_kinds()` is the CONTRACT's own list, so a sixth ability cannot be forgotten here:
+        // `all_extension_kinds()` is the CONTRACT's list, so a sixth ability cannot be forgotten here:
 
         // for each kind, announced => `query_extension()` answers with an object whose `kind()` matches,
 
@@ -997,9 +997,9 @@ namespace {
             }
         }
 
-        // ---- tier-1: THE OWNED REFERENCE IS RELEASED THROUGH THE CONTRACT ---------------------
+        // ---- tier-1: THE HELD REFERENCE IS RELEASED THROUGH THE CONTRACT ---------------------
 
-        // `rhi::unique_object<T>` is the owner spelling added with `release()` (abi 3 -> 4): the
+        // `rhi::unique_object<T>` is the holder spelling added with `release()` (abi 3 -> 4): the
 
         // destructor (or `reset()`) calls the handle's `release()`, which runs INSIDE the backend and
 
@@ -1086,7 +1086,7 @@ namespace {
 
         CHECK(walker != nullptr);
 
-        CHECK(core->frames->walk_frames() == walker); // the same borrowed view every call, never a new object
+        CHECK(core->frames->walk_frames() == walker); // the same view every call, never a new object
 
         CHECK(walker->slot_count() == 2u); // the probe's ring
 
@@ -1118,7 +1118,7 @@ namespace {
 
         // ---- the abi 14 surface, on the same open frame ---------------------------------------
 
-        // THE PRESENTATION SURFACE IS A BORROWED VIEW like the two above - the same object every
+        // THE PRESENTATION SURFACE IS A VIEW like the two above - the same object every
 
         // call - and its `extent()` is the descriptor echo again (`window_width` x `window_height` =
 
@@ -1132,7 +1132,7 @@ namespace {
 
         CHECK(surface != nullptr);
 
-        CHECK(core->frames->frame_swapchain() == surface); // the same borrowed view every call
+        CHECK(core->frames->frame_swapchain() == surface); // the same view every call
 
         CHECK(surface->extent().width == 3u);
 
@@ -1146,7 +1146,7 @@ namespace {
 
         CHECK_MSG(surface->recreate() == rhi::error::ok, which_half);
 
-        // THE TIMING VERBS ARE ON THE LIST (abi 14), and the list is the borrowed recording view -
+        // THE TIMING VERBS ARE ON THE LIST (abi 14), and the list is the referenced recording view -
 
         // reachable only because the open above opened the frame. The probe's device cannot
 
@@ -1170,7 +1170,7 @@ namespace {
 
         CHECK(commands->mark_gpu_timing(2, "out of order") == rhi::error::invalid_argument);
 
-        // SUBMIT (abi 14): the frame's own list is accepted and hands the frame over; a list the
+        // SUBMIT (abi 14): the frame's list is accepted and hands the frame over; a list the
 
         // backend did not hand out is refused by name; and after the hand-over there is no frame to
 
@@ -1188,7 +1188,7 @@ namespace {
 
         CHECK(core->frames->submit() == rhi::error::not_ready);
 
-        // ---- the abi 15 surface: the OWNED command buffer ---------------------------------------
+        // ---- the abi 15 surface: the HELD command buffer ---------------------------------------
 
         // `create_command_buffer()` hands out ONE reference; the probe answers with its static
 
@@ -1204,11 +1204,11 @@ namespace {
 
             CHECK(recorded->get_tag() == "deren_command_buffer_probe");
 
-            // THE FRAME-SCOPED VERBS REFUSE A BUFFER THAT IS NOT THE FRAME'S (the contract's own window
+            // THE FRAME-SCOPED VERBS REFUSE A BUFFER THAT IS NOT THE FRAME'S (the contract's window
 
-            // for `use` and the timing pair): `recording()` and its borrowed view are GONE with
+            // for `use` and the timing pair): `recording()` and its view are GONE with
 
-            // `command_list` - the owned buffer IS the recording face now - so what used to be asserted
+            // `command_list` - the held buffer IS the recording face now - so what used to be asserted
 
             // through the view is asserted on the buffer itself.
 
@@ -1261,7 +1261,7 @@ namespace {
 
         // ---- the abi 16 surface: THE WIDENED SAMPLER DESCRIPTOR -----------------------------------
 
-        // What the probe CAN witness is the factory's own contract: one reference handed out, the right
+        // What the probe CAN witness is the factory's contract: one reference handed out, the right
 
         // interface id, and a `release()` that arrives. WHAT IT CANNOT WITNESS is the descriptor's new
 
@@ -1347,11 +1347,11 @@ namespace {
 
         core->wait_idle();
 
-        // ---- abi 16: THE BORROWED FRAME IMAGE HANDS OUT OWNED VIEWS (③-D/E item B) -------------------
+        // ---- abi 16: THE REFERENCED FRAME IMAGE HANDS OUT HELD VIEWS (③-D/E item B) -------------------
 
-        // The asymmetry is the whole point, and it is what a caller can get wrong: the IMAGE is borrowed
+        // The asymmetry is the whole point, and it is what a caller can get wrong: the IMAGE is referenced
 
-        // (its `release()` is a no-op that the probe counts), while a VIEW made from it is a new owned
+        // (its `release()` is a no-op that the probe counts), while a VIEW made from it is a new held
 
         // object whose `release()` is real. A range outside the swapchain image's one-layer/one-mip shape
 
@@ -1388,7 +1388,7 @@ namespace {
             }
         }
 
-        // DESTRUCTION IS THE CONTROL BLOCK'S JOB NOW (abi 18), and that is observable as OWNERSHIP
+        // DESTRUCTION IS THE CONTROL BLOCK'S JOB NOW (abi 18), and that is observable as RETENTION
 
         // ARITHMETIC rather than as a wrapped deleter: the test can no longer name the function that
 
@@ -1408,7 +1408,7 @@ namespace {
 
                 CHECK(scoped.use_count() == 1);
 
-                rhi::shared_object<rhi::api_core> const second = scoped; // a second OWNER, not a second object
+                rhi::shared_object<rhi::api_core> const second = scoped; // a second HOLDER, not a second object
 
                 CHECK(second.get() == scoped.get());
 
@@ -1524,7 +1524,7 @@ namespace {
 
         // The function driven here is the one RESOLVED FROM THE DLL, not the one the linker would give
 
-        // this test: that is the plan's rule (§4.1) - an object made inside the library is owned and
+        // this test: that is the plan's rule (§4.1) - an object made inside the library is held and
 
         // destroyed inside the library - and with abi 18 that rule travels in the control block the
 
@@ -1532,7 +1532,7 @@ namespace {
 
         check_core_contract(as_function<make_core_fn>(make.value()), "dll");
 
-        // A moved-from library is empty (not a second owner of the same handle), and the symbols
+        // A moved-from library is empty (not a second holder of the same handle), and the symbols
 
         // taken from the destination keep working.
 
@@ -1627,7 +1627,7 @@ namespace {
 
             // THE OBJECT IS EMPTY AFTERWARDS: the handle left with the caller, and every remaining
 
-            // operation says so instead of using a handle it no longer owns.
+            // operation says so instead of using a handle it no longer holds.
 
             CHECK(loaded->native_handle() == nullptr);
 
@@ -1688,7 +1688,7 @@ int main(int argc, char** argv) {
 
     // THE CONTRACT'S VALIDATE-AND-CAST PAIR, measured on the object above with no file or device
 
-    // involved: a matching concrete name answers the SAME object as its own type. (The MISMATCH branch
+    // involved: a matching concrete name answers the SAME object as its type. (The MISMATCH branch
 
     // of `do_concrete` is a named panic - an internal-invariant guard, never a caller path - so it is
 

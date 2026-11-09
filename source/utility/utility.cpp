@@ -88,7 +88,7 @@ double deren::utility::timestamp_delta_milliseconds(uint64_t const begin_ticks, 
 //
 // The sink, its worker thread, its file handle and the startup rotation are the process-wide state
 // this toolkit keeps, so they live in deren.utility.shared now - one of them per process, which is
-// what makes the later SHARED `deren_vulkan` safe (a DLL carrying its own copy would truncate the
+// what makes the later SHARED `deren_vulkan` safe (a DLL carrying its copy would truncate the
 // file the executable's copy is writing). The templates that FORMAT a line (`log(fmt, args...)`,
 // `error(fmt, args...)`, `panic(location, fmt, args...)`) stay in utility.cppm above, because
 // formatting belongs in the caller's instantiation; they hand their text over as a std::string_view.
@@ -117,7 +117,7 @@ void deren::utility::sleep_for_nanoseconds(int64_t const nanoseconds) {
 std::filesystem::path deren::utility::executable_directory() {
     // The platform half fills a plain buffer (see platform_path.cpp, which keeps <windows.h> out of
     // the module's global module fragment). A path that does not fit, and a platform with no answer,
-    // both come back empty - the caller then falls back to its own lookup rather than failing.
+    // both come back empty - the caller then falls back to its lookup rather than failing.
     deren::utility::vessel::array<char, 32768> buffer = {};
     int32_t const written = utility_platform_executable_directory(buffer.data(), buffer.size());
     if (written <= 0) {
@@ -225,7 +225,7 @@ std::expected<void, deren::utility::vessel::string> deren::utility::write_png(st
 
     // raw scanlines: one filter byte (0 = none) followed by the RGBA row. The adler32 of that stream
     // is accumulated in the same pass (the zlib trailer needs it). This is the only buffer the encoder
-    // keeps: a stored-deflate block carries its own length, so its length must be known up front.
+    // keeps: a stored-deflate block carries its length, so its length must be known up front.
     deren::utility::vessel::vector<uint8_t> raw;
     raw.reserve(expected + height);
     uint32_t adler_a = 1;

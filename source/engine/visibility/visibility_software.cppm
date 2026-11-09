@@ -6,7 +6,7 @@
  * @brief The conservative subpixel-cluster criterion, the stable [hardware prefix | software suffix] split and
  *        the 16x16 tile binning of the M4 hybrid visibility producer (spec §3.1/§3.3/§3.4).
  *
- * WHY THIS IS PURE CPU, AND WHY IT IS A MODULE OF ITS OWN. The M4 hybrid decides ON THE HOST, in the M1c planning
+ * WHY THIS IS PURE CPU, AND WHY IT IS A separate MODULE. The M4 hybrid decides ON THE HOST, in the M1c planning
  * phase, which of a cut item's selected meshlet records the hardware raster will no longer dispatch and which ones a
  * tiled software raster would have to produce instead. That decision is arithmetic over the same view/projection/
  * model matrices the cut already used, and its failure mode is a HOLE: moving a cluster to the software path when
@@ -34,7 +34,7 @@
  *
  * THE SPLIT (spec §3.1/§3.3) is stable: hardware records keep their relative order as the run's PREFIX, software
  * records keep theirs as the SUFFIX. The packed 32-bit visibility id's `meshlet_in_item` field then needs no new
- * decode - the software record at suffix index k is called `hardware_count + k`, i.e. its lane position in the same
+ * decode - the software record at suffix index k is called `hardware_count + k`, i.e. Its lane position in the same
  * run the hardware ids index. The hardware dispatch becomes `hardware_count` groups (the prefix), which is the
  * "holes control" Task 1 measures.
  *

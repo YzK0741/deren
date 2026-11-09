@@ -232,7 +232,7 @@ namespace deren::vulkan {
         if (self == nullptr) {
             return rhi::error::not_ready;
         }
-        // THE TAGGED WRITE STRUCTURE, exactly the rule the heap's own requests follow: the tag and the size
+        // THE TAGGED WRITE STRUCTURE, exactly the rule the heap's requests follow: the tag and the size
         // the caller compiled are checked before any field is read, and a chain is refused rather than
         // silently ignored.
         if (rhi::validate_structure(info.header, rhi::structure_type::descriptor_write, sizeof(info), false) != rhi::error::ok) {

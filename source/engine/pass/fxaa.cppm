@@ -9,12 +9,12 @@
  * the image the composite produced, so the composite cannot write the swapchain when FXAA is on (a pass may not
  * read the image it renders into) - it writes the R16F LDR image instead, gamma-encoded, because FXAA's luma
  * thresholds are defined on display-referred data. This pass then turns that image into the presented one, which
- * makes it the frame's last writer, which in turn makes it the owner of the debug overlay: the overlay composites
- * a UI with no load op of its own, so it has to be drawn INSIDE whichever instance writes the final image - and
+ * makes it the frame's last writer, which in turn makes it the holder of the debug overlay: the overlay composites
+ * A separate UI with no load op, so it has to be drawn INSIDE whichever instance writes the final image - and
  * that is this one whenever it runs (the composite carries it otherwise; see its frame's `after_draw`).
  *
- * WHAT IT OWNS: its pipeline - the frame's LDR image transition, the clear instance over the swapchain, the push
- * block's mode lane and the draw are its recording. WHAT IT DOES NOT OWN: the push block's SHAPE (deren.engine.pass.post's
+ * WHAT IT HOLDS: its pipeline - the frame's LDR image transition, the clear instance over the swapchain, the push
+ * block's mode lane and the draw are its recording. WHAT IT DOES NOT hold: the push block's SHAPE (deren.engine.pass.post's
  * `post_push_constants` - FXAA is mode 3 of the same shader's block, so the struct is imported rather than copied: a
  * second copy of those thirteen lanes is a second thing that can drift) and the LDR image it reads, which is a heap
  * slot the shader names itself.
@@ -49,10 +49,10 @@ export namespace deren::engine::pass {
          * `vkCmdEndRendering`.
          *
          * WHY A CALLBACK AND NOT A PASS (the same decision the composite's frame records, from the other side):
-         * the overlay has no load op, so a pass of its own would CLEAR the image it is supposed to draw over. It
+         * the overlay has no load op, so A separate pass would CLEAR the image it is supposed to draw over. It
          * belongs to whichever instance is the frame's LAST writer, and this pass is that instance whenever it
          * runs - so the pass installs the host's hook (see `set_overlay`) and always draws it, while the
-         * composite's own frame decides per frame that the overlay is THIS pass's.
+         * composite's frame decides per frame that the overlay is THIS pass's.
          */
         draw_callback after_draw = {};
     };
@@ -60,7 +60,7 @@ export namespace deren::engine::pass {
     /**
      * @brief the FXAA resolve: the gamma-encoded LDR image -> the anti-aliased swapchain image
      *
-     * The frame's last writer, its overlay's owner, and the reason the composite has two pipeline variants.
+     * The frame's last writer, its overlay's holder, and the reason the composite has two pipeline variants.
      */
     class fxaa_pass final : public frame_pass {
     public:
@@ -76,8 +76,8 @@ export namespace deren::engine::pass {
 
         /// @brief whether the pass built everything it records with (the renderer gates the feature on this)
         [[nodiscard]] bool pipeline_ready() const noexcept;
-        /// @brief the framework's generic form of the same question, so an owner holding only a chain can ask it
-        ///        (a pass with nothing of its own to build keeps the interface's `true`; see `frame_pass::ready`)
+        /// @brief the framework's generic form of the same question, so a holder holding only a chain can ask it
+        ///        (a pass with nothing separate to build keeps the interface's `true`; see `frame_pass::ready`)
         [[nodiscard]] bool ready() const noexcept override {
             return this->pipeline_ready();
         }
@@ -112,7 +112,7 @@ export namespace deren::engine::pass {
         std::optional<pipelines::pipeline_handle> pass_pipeline = std::nullopt;
         /// the surface's format, cached at create: the push block's `encode_gamma` lane follows from it, and a
         /// session-stable device fact is exactly what a create step may keep (see the composite, which does the
-        /// same for its own frame's target choice). THE CONTRACT'S SPELLING (abi 20): the pass layer names no
+        /// same for its frame's target choice). THE CONTRACT'S SPELLING (abi 20): the pass layer names no
         /// `VkFormat`, and the create step is handed `pass_context::swap_chain_image_format`.
         deren::promise::rhi::image_format swap_chain_format = deren::promise::rhi::image_format::unknown;
         // called overlay_callback, not overlay: set_overlay()'s overlay parameter in fxaa.cpp would hide a member of that name

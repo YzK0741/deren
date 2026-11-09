@@ -54,7 +54,7 @@ namespace deren::engine::transfer_detail {
 export namespace deren::engine {
     namespace transfer_rhi = deren::promise::rhi;
     class buffer_transfer_service;
-    /// Copyable completed-data owner. Poll/read never block; returned spans borrow this ticket.
+    /// Copyable completed-data holder. Poll/read never block; returned spans reference this ticket.
     class buffer_transfer_ticket {
         friend class buffer_transfer_service;
         std::shared_ptr<transfer_detail::submission> value;
@@ -163,7 +163,7 @@ export namespace deren::engine {
             return append(std::move(source), offset, size, {}, before, after, true);
         }
     };
-    /// Caller-serialized service. Owns pending dependencies even after ticket destruction.
+    /// Caller-serialized service. Holds pending dependencies even after ticket destruction.
     /// Destruction waits for this service's tokens only; a failed final drain is fatal.
     class buffer_transfer_service {
         transfer_rhi::shared_object<transfer_rhi::api_core> core;
@@ -232,7 +232,7 @@ export namespace deren::engine {
             if (result != rhi::error::ok) {
                 return std::unexpected(result);
             }
-            // All service ownership is registered before native submit can succeed.
+            // All service retention is registered before native submit can succeed.
             pending.push_back(state);
             auto submitted = completion->submit(commands);
             if (!submitted) {

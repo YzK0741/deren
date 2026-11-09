@@ -6,7 +6,7 @@ export import deren.engine.render_graph;
 export namespace deren::engine::render_graph::shadow {
     /// The cascaded-shadow producer's declaration.
     ///
-    /// The map is a layered depth array owned outside the graph (one image per frame slot, one layer per ACTIVE
+    /// The map is a layered depth array held outside the graph (one image per frame slot, one layer per ACTIVE
     /// cascade). Only the active layers are written - the pass records `min(cascades, targets)` of them - so the
     /// write range is explicit: a wider declaration would promise layers the pass never touches, and a narrower
     /// one would leave the lighting read of the remaining layers unsynchronized. `layers` is the frame's active

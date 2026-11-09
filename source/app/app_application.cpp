@@ -19,7 +19,7 @@ module;
 // SECOND implementation in this file is therefore not a double definition but a LINK CLASH, and the fix is the
 // documented one: `STB_IMAGE_STATIC` makes this file's copy file-local, so the two never meet at link time. It
 // costs a second copy of ~7 KB of decode routines and buys the one thing a global image needs - a decoder at the
-// point of use, without making the engine core depend on `gltf_loader` (see `deren_engine`'s own note on why
+// point of use, without making the engine core depend on `gltf_loader` (see `deren_engine`'s note on why
 // that dependency is deliberately absent).
 //
 // The include path resolves because `deren_engine` exports `source/third_party/` as a PUBLIC include directory, and
@@ -52,7 +52,7 @@ import deren.engine.primitive;  // per-object pipeline / shadow / material-overr
 // the backend-creation contract (create_info): what this app hands the runtime below
 import deren.promise.rhi;
 import deren.engine.runtime;
-import deren.engine.backend_loader; // load_api_core(): the app owns the acquisition (batch ⑥)
+import deren.engine.backend_loader; // load_api_core(): the app holds the acquisition (batch ⑥)
 import deren.app.renderer;          // this application's pass wiring, kept outside the renderer
 import deren.app.toon;              // the toon material lookup callbacks and procedural bakes, moved out of main
 
@@ -84,7 +84,7 @@ namespace {
                 return;
             }
             // THE BACKEND USED TO CALL THIS AND IGNORE THE RESULT (`core::init_window`'s bare `glfwInit()`).
-            // The application owns the initialisation now, so a failure is reported where it happens instead
+            // The application holds the initialisation now, so a failure is reported where it happens instead
             // of surfacing later as a null extension list or a window that never appears.
             if (glfwInit() != GLFW_TRUE) {
                 deren::utility::panic("glfwInit failed");
@@ -104,7 +104,7 @@ namespace {
                 glfwHideWindow(this->window);
             }
         }
-        // one owner: the pointer is handed to the engine as a BORROWED handle, so a second owner of the
+        // one holder: the pointer is handed to the engine as a REFERENCED handle, so a second holder of the
         // same window (a copy) would destroy it twice
         glfw_window_host(glfw_window_host const&) = delete ("glfw_window_host is non-copyable: pass it by reference or construct a new instance");
         glfw_window_host& operator=(glfw_window_host const&) = delete ("glfw_window_host is non-copyable: modify the existing instance instead");
@@ -295,7 +295,7 @@ namespace {
                 deren::utility::log("capture camera sweep: {:.3f} deg of yaw per frame, from whatever pose the scene settled on", options.sweep_yaw_deg_per_frame);
             }
             if (options.animation_seconds_per_frame != 0.0f) {
-                deren::utility::log("capture animation sweep: {:.4f} s of animation per frame, from the clip's own start", options.animation_seconds_per_frame);
+                deren::utility::log("capture animation sweep: {:.4f} s of animation per frame, from the clip's start", options.animation_seconds_per_frame);
             }
         }
         return options;
@@ -325,7 +325,7 @@ namespace {
 
 } // namespace
 
-// `int`, NOT `int32_t`: the C++ standard requires main's own signature to use the keyword, and this is the one
+// `int`, NOT `int32_t`: the C++ standard requires main's signature to use the keyword, and this is the one
 // place in the tree where that is a LANGUAGE rule rather than a choice about the project's arithmetic types.
 namespace deren::app {
     int run(int argc, char** argv) {
@@ -395,7 +395,7 @@ namespace deren::app {
         }
         std::filesystem::path const& shaders_dir = config.shaders_dir;
         deren::utility::vessel::string const& model_path = config.model_path;
-        // Keep the splash younger than its GLFW owner, including early-exit teardown.
+        // Keep the splash younger than its GLFW holder, including early-exit teardown.
         bool const offscreen = settings.render.offscreen || (capture.frames > 0 && !capture.windowed);
         glfw_window_host const window{settings.render.window_width, settings.render.window_height,
                                       settings.render.window_title.c_str(), capture.frames == 0, offscreen};
@@ -417,11 +417,11 @@ namespace deren::app {
 
         // ---- THE ENVIRONMENT IMAGE, WHEN THE CONFIG NAMES ONE ([lighting] environment_hdr) ----
         //
-        // This is the reference package's own route to an environment: its world is an equirectangular HDRI
+        // This is the reference package's route to an environment: its world is an equirectangular HDRI
         // (`lighting/studio_01_1k.exr`) that its manifest gives a `world_strength` of 0.35, not a procedural
         // sky. The engine's decoder is `stb_image` (see the include note at the top of this file), which reads
         // Radiance `.hdr` and NOT OpenEXR, so the package's file is converted once, offline, into exactly that
-        // format - `deren-ab/bg/_hdr_convert.py`, which is also where its own statistics were measured. The
+        // format - `deren-ab/bg/_hdr_convert.py`, which is also where its statistics were measured. The
         // engine gains no dependency: it gains a file it could already read.
         //
         // The pixels are MOVED into the async task that bakes the cubemap, so no buffer here has to outlive the
@@ -447,7 +447,7 @@ namespace deren::app {
             }
             environment_pixels.assign(decoded, decoded + static_cast<std::size_t>(environment_width) * static_cast<std::size_t>(environment_height) * 4);
             stbi_image_free(decoded);
-            // The image's own mean radiance is logged BEFORE the bake, because it turns the multiplier's effect
+            // The image's mean radiance is logged BEFORE the bake, because it turns the multiplier's effect
             // on the ambience into arithmetic instead of a guess - and it is the number the offline conversion
             // script prints for the same file, which is how the two ends are checked against each other.
             double luma_sum = 0.0;
@@ -456,7 +456,7 @@ namespace deren::app {
             }
             double const texel_count = static_cast<double>(environment_width) * static_cast<double>(environment_height);
             double const luma_mean = texel_count > 0.0 ? luma_sum / texel_count : 0.0;
-            deren::utility::log("environment: '{}' loaded as {}x{} RGBA float, linear luma mean {:.5f}; intensity {:.2f} (the reference package's own world_strength) scales it to {:.5f}",
+            deren::utility::log("environment: '{}' loaded as {}x{} RGBA float, linear luma mean {:.5f}; intensity {:.2f} (the reference package's world_strength) scales it to {:.5f}",
                                 environment_path.string(),
                                 environment_width,
                                 environment_height,
@@ -470,13 +470,13 @@ namespace deren::app {
         // shading's `light_dir` and the shadow cascades), the disc the sky draws - which reads that UBO's
         // `light_dir`, so the sky cannot put its sun where the shadows do not fall - and the env cubemap baked
         // below, whose sun has to sit in the same place for a reflection's glint to match the sky it reflects.
-        // (That last consumer is the analytic sky's alone: an environment image carries its own lights, and the
+        // (That last consumer is the analytic sky's alone: an environment image carries its lights, and the
         // direct light is not baked into it a second time.)
         auto const& sun_direction = settings.lighting.sun_direction;
         auto env_future = environment_pixels.empty()
                               ? deren::engine::generate_environment_cubemap_async(env_size, sun_direction)
                               : deren::engine::generate_environment_cubemap_from_equirect_async(std::move(environment_pixels), environment_width, environment_height, env_size, settings.lighting.environment_intensity);
-        // WHICH LOADER READS THE MODEL IS THE PATH'S OWN EXTENSION (app_config::model_format_of), decided HERE and
+        // WHICH LOADER READS THE MODEL IS THE PATH'S EXTENSION (app_config::model_format_of), decided HERE and
         // before anything is opened, so "what is this file?" has one answer - and a path this build cannot read is
         // NAMED as such rather than handed to the scene importer, which would answer with a parse error about a
         // format the file never claimed to be.
@@ -558,7 +558,7 @@ namespace deren::app {
         deren::promise::rhi::create_info core_options = {};
         core_options.window_width = settings.render.window_width;
         core_options.window_height = settings.render.window_height;
-        // the title is a BORROWED `char const*` (a deren::utility::vessel::string cannot cross the boundary): it has to outlive the
+        // the title is a REFERENCED `char const*` (a deren::utility::vessel::string cannot cross the boundary): it has to outlive the
         // core's construction. `settings` is a reference to `config.settings`, which lives to the end of main, so
         // this `.c_str()` is valid for the whole run - and it must never be a TEMPORARY's `.c_str()`, whose text
         // would be gone by the time the core reads it.
@@ -580,7 +580,7 @@ namespace deren::app {
         core_options.window_visible = capture.frames == 0;
         // ---- AND THE WINDOW IS HANDED OVER HERE: the pointer the application created above (and keeps alive for
         //      the whole run) selects the core's caller-window branch - it binds to that window, creates none of
-        //      its own and destroys none, so the window is still there when the runtime (and its surface) goes
+        //      its and destroys none, so the window is still there when the runtime (and its surface) goes
         //      down. `window_visible` above is now redundant for THIS path (a caller's window is bound as-is),
         //      but it is still filled because the contract carries the field and the fallback path - no window
         //      handed over - reads it; the visibility this run actually gets is the `GLFW_VISIBLE` hint on the
@@ -602,7 +602,7 @@ namespace deren::app {
             return 1;
         }
         // ---- STEP TWO: THE RENDERER, FROM THE ROOT AND THE SAME OPTIONS. It loads nothing; it checks
-        //      that the object attests `rhi::abi_version` (its own `api_version()`) and refuses an empty
+        //      that the object attests `rhi::abi_version` (its `api_version()`) and refuses an empty
         //      root, both as panics - the consumption-side half of the same handshake.
         deren::engine::runtime runtime{std::move(core), core_options};
         runtime.background_color = glm::vec3(settings.render.clear_color[0], settings.render.clear_color[1], settings.render.clear_color[2]);
@@ -625,14 +625,14 @@ namespace deren::app {
         //    imported scene) and the directional shadow pass. The legacy
         //    triangle demo pipeline is no longer created - nothing draws it.
         deren::app::setup_pipeline(runtime, shaders_dir);
-        // THIS APPLICATION'S OWN WIRING: its passes are fed by `deren.app.renderer`, which finds them
-        // in the chain the runtime owns and answers the frame's per-stage questions (see the module's header). The
+        // THIS APPLICATION'S WIRING: its passes are fed by `deren.app.renderer`, which finds them
+        // in the chain the runtime holds and answers the frame's per-stage questions (see the module's header). The
         // runtime holds none of these references itself any more, which is what lets a second application hand it a
-        // different chain - and the demo object outlives the frame loop because it lives here, in the app's own scope.
+        // different chain - and the demo object outlives the frame loop because it lives here, in the app's scope.
         deren::app::app_renderer app_renderer;
         static_cast<void>(app_renderer.attach(runtime)); // builds this app's chain and hands it over
         // ... and the CREATE step runs over that chain (the shaders above are registered by now): every pass builds what
-        // it owns, and the renderer's two jobs - which are not passes - are created with them.
+        // it holds, and the renderer's two jobs - which are not passes - are created with them.
         runtime.create_passes();
         // pass clamps them). OFF by default, so a stock config is the unshadowed path it always was.
         // Same bargain as the ray-traced shadows: a request the runtime grants only on a device with ray
@@ -669,7 +669,7 @@ namespace deren::app {
 
         // 7. Collect the async startup results. FOR A GAUSSIAN-ONLY RUN THERE IS NO MODEL, so the slot holds an EMPTY
         //    scene: the import, the material resolve, the toon lookup and the animation state below then all work over
-        //    nothing, rather than each needing a branch of its own.
+        //    nothing, rather than each needing A separate branch.
         deren::gltf::scenes const no_model{};
         // A Gaussian placement has no glTF scene, but the animation controller still needs a scene to bind
         // against (zero clips, zero skins). This empty scene is that anchor.
@@ -698,7 +698,7 @@ namespace deren::app {
 
         // 7b. THE GAUSSIAN CLOUD, WHEN THE MODEL PATH NAMED ONE: read from disk and packed onto the device HERE,
         //     because it is what the scene section below is told to frame. The bounds are taken through the asset's
-        //     own CPU side, which is why they outlive the move into it. NO CLOUD IS BUILT ON THE MODEL PATH - there is
+        //     CPU side, which is why they outlive the move into it. NO CLOUD IS BUILT ON THE MODEL PATH - there is
         //     none to build, and the stage records nothing without one.
         std::shared_ptr<deren::engine::gaussian_splatting::raster_asset const> gaussian_asset = {};
         glm::vec3 gaussian_min = glm::vec3(0.0f);
@@ -721,7 +721,7 @@ namespace deren::app {
             gaussian_min = glm::vec3{source.bounds_min[0], source.bounds_min[1], source.bounds_min[2]};
             gaussian_max = glm::vec3{source.bounds_max[0], source.bounds_max[1], source.bounds_max[2]};
             // THE REAL TOTALS, before a single frame is drawn: the design requires the viewer to report them, and the
-            // acceptance cloud is 562,974 splats - not a number to guess at. The table estimate uses the contract's own
+            // acceptance cloud is 562,974 splats - not a number to guess at. The table estimate uses the contract's
             // strides (48-byte geometry record, 192-byte SH record).
             deren::utility::log("gaussian: '{}' - {} splats, SH degree {}, bounds ({:.2f}, {:.2f}, {:.2f})..({:.2f}, {:.2f}, {:.2f}), static tables about {} MB",
                                 model_path, source.particles.size(), source.sh_degree, gaussian_min.x, gaussian_min.y, gaussian_min.z, gaussian_max.x, gaussian_max.y, gaussian_max.z,
@@ -752,12 +752,12 @@ namespace deren::app {
         //    the scene before import. Panics when the model has no drawable primitives.
         //    THE CLOUD IS THE SCENE ON THE GAUSSIAN-ONLY PATH, and the diagnostics are skipped rather than run over an
         //    empty scene (an empty scene is exactly "a model with no drawable primitive", which is what they panic on):
-        //    the bounds the orbit camera, the shadow fit and the area light frame are the CLOUD'S OWN, so "frame the
+        //    the bounds the orbit camera, the shadow fit and the area light frame are the CLOUD'S, so "frame the
         //    scene" means frame the cloud instead of a default model nobody configured.
         deren::gltf::scene_bounds bounds = {};
         if (gaussian_only) {
             // NO MODEL TO DESCRIBE, and the diagnostics panic on a scene with no drawable primitive - which an empty one
-            // is. The bounds the shadow fit, the area light and the camera fit frame are the CLOUD'S OWN, which is what
+            // is. The bounds the shadow fit, the area light and the camera fit frame are the CLOUD'S, which is what
             // makes "frame the scene" mean frame the cloud on this path.
             bounds.valid = true;
             bounds.min = gaussian_min;
@@ -768,12 +768,12 @@ namespace deren::app {
         }
 
         // THE ASSET POOL: one decoded scene per distinct model file, shared by every placement that names
-        // it. Slot 0 is the default model loaded above; slots 1.. own their scenes here. Bounds are the
-        // asset's own (before its import shift), which is what lets each placement be fitted and grounded
+        // it. Slot 0 is the default model loaded above; slots 1.. hold their scenes here. Bounds are the
+        // asset's (before its import shift), which is what lets each placement be fitted and grounded
         // independently instead of reusing the first asset's box.
         struct scene_asset_entry {
             deren::utility::vessel::string path;
-            deren::gltf::scenes* scenes = nullptr; // pool-owned; material resolution may consume texture pixels
+            deren::gltf::scenes* scenes = nullptr; // pool-held; material resolution may consume texture pixels
             deren::utility::vessel::vector<deren::gltf::resolved_material>* materials = nullptr;
             deren::gltf::scene_bounds bounds = {};
             glm::vec3 import_shift = glm::vec3(0.0f);
@@ -846,12 +846,12 @@ namespace deren::app {
         // ---- MULTIPLE GAME-TOON CHARACTERS, v1: THE SAME CHARACTER, REPEATED ----
         //
         // The engine draws a LIST of character leaves; what used to be single was the head frame. This app-side half
-        // stages N copies of the SAME loaded model, each imported with its own character index and X offset, so the
+        // stages N copies of the SAME loaded model, each imported with its character index and X offset, so the
         // per-character head frame is exercised on real geometry. Distinct models and scene composition are later
         // stages. The option is ignored unless the GameToon chain is on, and one copy is the shipping path.
         uint32_t game_toon_copies = 1;
         deren::utility::vessel::vector<float> game_toon_copy_offsets;
-        // With scene objects every placement can name its own asset; the default load then only exists to
+        // With scene objects every placement can name its asset; the default load then only exists to
         // satisfy the historic single-object path. Frame the first asset the placements actually reference
         // instead of letting an unused default model decide the floor, sink and area-light origin.
         bool const use_scene_objects = !settings.scene.objects.empty();
@@ -894,7 +894,7 @@ namespace deren::app {
             }
         } else if (settings.render.game_toon_copies > 1) {
             deren::utility::log("game_toon: ignoring game_toon_copies = {} because {}", settings.render.game_toon_copies,
-                                use_scene_objects ? "scene.objects owns the placements" : "the GameToon chain is off");
+                                use_scene_objects ? "scene.objects holds the placements" : "the GameToon chain is off");
         }
         if (game_toon_copy_offsets.empty()) {
             game_toon_copy_offsets.push_back(0.0f);
@@ -905,7 +905,7 @@ namespace deren::app {
 
         // 8a. THE AREA LIGHT, DERIVED ONCE (see `deren::app_config::derive_area_light` and the `[lighting] area_light_*`
         //     notes): the reference package's 30 m soft box, expressed through the frame's ONE directional light.
-        //     Its `position`/`target` keys are relative to the AUTHOR'S ORIGIN - the character's feet on the ground -
+        //     its `position`/`target` keys are relative to the AUTHOR'S ORIGIN - the character's feet on the ground -
         //     because that is the frame the manifest was authored in ("the character stands at the origin"), and in
         //     Blender that origin is on the ground under it. This engine does not keep that origin as a quantity: it
         //     sinks the whole model by `scene_radius` (see `scene_sink` below), which lands the feet at
@@ -940,7 +940,7 @@ namespace deren::app {
                                 scene_floor_y, area_light.world_centre[0], area_light.world_centre[1], area_light.world_centre[2],
                                 area_light.half, area_light.axis[0], area_light.axis[1], area_light.axis[2], area_light.radiance,
                                 area_light_takes_over ? " (TAKES OVER the main light: x sun_intensity, capped at 3.0 by set_sun_intensity)"
-                                                      : " (penumbra only: the sun keeps its own direction and intensity)",
+                                                      : " (penumbra only: the sun keeps its direction and intensity)",
                                 area_light.penumbra);
         }
 
@@ -962,9 +962,9 @@ namespace deren::app {
             // from that same asset's bottom edge.
             asset.import_shift = glm::vec3(-center.x, scene_floor_y - asset.bounds.min.y, -center.z);
         }
-        // 8c. SIMPLE MULTI-OBJECT ([scene.objects]): each entry imports ITS OWN asset (or the default
+        // 8c. SIMPLE MULTI-OBJECT ([scene.objects]): each entry imports its asset (or the default
         //     model when the entry names none) and wraps that import in a synthetic parent node carrying
-        //     its placement. The wrapper keeps the model's own root transforms intact. The placement
+        //     its placement. The wrapper keeps the model's root transforms intact. The placement
         //     pivots on the object's ground anchor, so `scale` grows an object out of the floor rather
         //     than out of its bounding-box centre, and `position` is a world-space offset from that anchor.
         //
@@ -999,7 +999,7 @@ namespace deren::app {
         glm::vec3 const object_anchor(0.0f, scene_floor_y, 0.0f);
         // ONE definition of a placement, used both for the import-time wrapper and for the live gui
         // edits below. Keeping the matrix here rather than in each caller is what makes a dragged
-        // scale continue to grow the object out of its ground anchor.
+        // scale continue to grow the separate object out ground anchor.
         auto const make_object_transform = [object_anchor](deren::app_config::scene_object_settings const& object) {
             glm::mat4 transform = glm::translate(glm::mat4(1.0f), glm::vec3(object.position[0], object.position[1], object.position[2]));
             transform = glm::translate(transform, object_anchor);
@@ -1063,7 +1063,7 @@ namespace deren::app {
         }
         runtime.camera.target = scene_focus;
 
-        // 8b. THE TOON MATERIAL SIDECAR, RESOLVED AGAINST THIS MODEL'S OWN IMAGES.
+        // 8b. THE TOON MATERIAL SIDECAR, RESOLVED AGAINST THIS MODEL'S IMAGES.
         //
         //     A toon character's materials read a SECOND set of texture slots that glTF has no concept of - a
         //     diffuse ramp, a shadow LUT, a specular ramp, a matcap, a face SDF - and the `.toon.tsv` beside the
@@ -1079,7 +1079,7 @@ namespace deren::app {
         //     and a slot that is ON while the model has no such image - which is the case a consumer must handle by
         //     leaving the feature off rather than by substituting something.
         // A sidecar names lanes by MATERIAL NAME and belongs to ONE asset. Load one per distinct asset;
-        // the import loop installs that asset's lookup immediately before its own materials are created.
+        // the import loop installs that asset's lookup immediately before its materials are created.
         for (scene_asset_entry& asset : scene_assets) {
             if (asset.is_gaussian() || !asset.scenes) {
                 continue; // a Gaussian cloud has no materials and no sidecar
@@ -1144,7 +1144,7 @@ namespace deren::app {
                 }
             }
         }
-        // An explicit `pipeline = "game_toon"` object must have its OWN sidecar: falling back to another
+        // An explicit `pipeline = "game_toon"` object must have its sidecar: falling back to another
         // asset's material table by name would be a guess, and the character would shade with the wrong lanes.
         for (std::size_t index = 0; index < settings.scene.objects.size(); ++index) {
             if (settings.scene.objects[index].pipeline != 3) {
@@ -1177,7 +1177,7 @@ namespace deren::app {
         deren::utility::vessel::vector<float> const irradiance = irradiance_future.get();
         deren::utility::vessel::vector<float> const brdf_lut = lut_future.get();
         auto materials = resolve_future.get();
-        // Resolve the extra assets' materials in parallel, then point each pool entry at its own slice.
+        // Resolve the extra assets' materials in parallel, then point each pool entry at its slice.
         // An asset without a sidecar consumes its raw pixels into the mip chains exactly like a PBR
         // import, so those pixels can be released as soon as its resolve future has delivered.
         deren::utility::vessel::vector<std::future<deren::utility::vessel::vector<deren::gltf::resolved_material>>> extra_material_futures;
@@ -1206,7 +1206,7 @@ namespace deren::app {
         }
         if (!scene_assets[0].sidecar.has_value()) {
             auto released = deren::gltf::release_texture_pixels(*scenes);
-            deren::utility::log("import memory: released {} B of decoded texture pixels; resolved mip owners remain valid", released);
+            deren::utility::log("import memory: released {} B of decoded texture pixels; resolved mip holders remain valid", released);
         }
         for (std::size_t index = 1; index < scene_assets.size(); ++index) {
             if (scene_assets[index].scenes && !scene_assets[index].sidecar.has_value()) {
@@ -1229,7 +1229,7 @@ namespace deren::app {
 
         // ---- THE ARTICLE'S POST LUT (`ZmdLutPost.shader`'s `_LutTex`), BAKED NEUTRAL ----
         //
-        // A `1024x32` strip of 32 `32x32` tiles holding a `32^3` cube: the layout the article's own addressing walks
+        // A `1024x32` strip of 32 `32x32` tiles holding a `32^3` cube: the layout the article's addressing walks
         // (blue picks the slice, red and green sit inside the tile, the tile's rows run bottom-up). THE CONTENT IS THE
         // IDENTITY UNDER THAT ADDRESSING rather than a placeholder, and the identity means INVERTING the article's
         // domain mapping: the shader encodes the frame with
@@ -1238,7 +1238,7 @@ namespace deren::app {
         //
         // AND IT IS STORED sRGB-ENCODED, because the lane is an `R8G8B8A8_SRGB` image and the sampler DECODES what it
         // reads: storing `srgb_encode(decode(a))` is what makes the shader receive `decode(a)` itstate. That is the same
-        // convention the shadow LUT's bake states for its own lane, and it is the difference between a neutral cube and
+        // convention the shadow LUT's bake states for its lane, and it is the difference between a neutral cube and
         // a brighter-than-neutral one.
         //
         // WHY IT IS BAKED RATHER THAN SHIPPED: the ramps, the shadow LUT and the matcap are all baked here for the same
@@ -1256,7 +1256,7 @@ namespace deren::app {
                 for (uint32_t column = 0; column < post_lut_width; ++column) {
                     float const address[3] = {
                         // THE AXES ARE THE ARTICLE'S, AND THEY ARE NOT THE SHADOW LUT'S - the trap this bake walked into
-                        // first: `xOffset = halfColX + lut_input.r * threshold / colors` puts RED in the tile's own X,
+                        // first: `xOffset = halfColX + lut_input.r * threshold / colors` puts RED in the tile's X,
                         // `yOffset = 1 - (halfColY + lut_input.g * threshold)` puts GREEN in the tile's Y (flipped, because
                         // v grows upward while the strip's rows grow downward), and the slice term `slice / colors` puts
                         // BLUE in the TILE INDEX. The shadow LUT's bake next door assigns those axes differently (tile =
@@ -1286,18 +1286,18 @@ namespace deren::app {
         // proves by measurement that these three FGD numbers are NOT a standard analytic form - the R channel is not
         // Karis' `scale` at any axis mapping (ratio 0.00 to 1.01 and non-monotone), the G channel is 5-35x the fit's
         // `bias` with no overlap in range, and the B channel differs from a 120k-sample Disney diffuse FGD by 2.4x
-        // (§3.3). So a bake here would be the port substituting its own invented curve for the reference's authored
-        // data - the one thing a port may not do - and the reference's own PNG is what travels.
+        // (§3.3). So a bake here would be the port substituting its invented curve for the reference's authored
+        // data - the one thing a port may not do - and the reference's PNG is what travels.
         //
         // WHY IT DOES NOT GO THROUGH THE SIDECAR / `toon_slot` EITHER: it is ONE image shared by three containers with
         // a coordinate computed from shading parameters, not from a material (see `heap_slots_goo_fgd_lut`), so a lane
         // per material would be eleven rows pointing at one file. This is the "自持的全局纹理 + 自持的 heap 槽" the
         // spec's §3.4 names, and the slot is `core::heap_slots::goo_fgd_lut` (754).
         //
-        // THE PATH IS RESOLVED FROM THE EXECUTABLE'S OWN DIRECTORY, not from the process's working directory: a
+        // THE PATH IS RESOLVED FROM THE EXECUTABLE'S DIRECTORY, not from the process's working directory: a
         // capture runs with `WorkingDirectory` set to its `-WorkDir` (see `scripts/gates/capture.ps1`), so a
         // CWD-relative path would miss. Nothing here is a new path *convention*: this file is a data file that ships
-        // beside the build's own `source/shaders/` and `chars/` directories, and `deren-ab/` is where the reference's assets
+        // beside the build's `source/shaders/` and `chars/` directories, and `deren-ab/` is where the reference's assets
         // live in this repository.
         //
         // A MISSING FILE IS LOGGED AND NOT FATAL, deliberately: with no LUT uploaded, the slot holds no descriptor and
@@ -1311,7 +1311,7 @@ namespace deren::app {
             // (see `scripts/gates/capture.ps1`'s launch), so `current_path()` resolved to
             // `...\deren-ab\laevat\deren-ab\gooblender\images\...` and EVERY step-5 frame was rendered with no LUT
             // uploaded at all - the log said so (`goo FGD LUT: NOT uploaded`) and the three FGD terms read zero.
-            // The executable's own directory is `build/`, which is where `deren-ab/` and the
+            // The executable's directory is `build/`, which is where `deren-ab/` and the
             // reference's assets live, so the path is right whatever the process's working directory is.
             std::filesystem::path const fgd_path = deren::utility::executable_directory() / "deren-ab" / "gooblender" / "images" / "PreIntegratedFGD_GGXDisneyDiffuse.png";
             if (!fgd_path.empty()) {
@@ -1339,7 +1339,7 @@ namespace deren::app {
                 runtime.set_goo_fgd_lut(std::span<uint8_t const>(fgd_pixels, static_cast<std::size_t>(fgd_width) * static_cast<std::size_t>(fgd_height) * 4u),
                                         static_cast<uint32_t>(fgd_width),
                                         static_cast<uint32_t>(fgd_height));
-                // The decode is `STB_IMAGE_STATIC`'s own allocation and is freed here rather than kept: the upload
+                // The decode is `STB_IMAGE_STATIC`'s allocation and is freed here rather than kept: the upload
                 // copies into a device-local image, so nothing downstream reads these bytes.
                 stbi_image_free(fgd_pixels);
             }
@@ -1354,7 +1354,7 @@ namespace deren::app {
         //     imported hierarchy. The orbit camera looks at the origin, so center the scene and
         //     pull it back to fit its radius (same framing as the old single-model fit).
         //
-        //     The scene tree is CALLER-OWNED: main declares it (AFTER the runtime, so C++ reverse
+        //     The scene tree is CALLER-HELD: main declares it (AFTER the runtime, so C++ reverse
         //     declaration order destroys it BEFORE the runtime — the leaves' GPU buffers release
         //     through the runtime's vma allocator while it is still alive) and binds it with
         //     set_scene() before any import.
@@ -1362,7 +1362,7 @@ namespace deren::app {
         runtime.set_scene(scene);
         // Initial camera framing ([render] camera_fit). "exterior" is the historic fit: 2.75 scene radii
         // frames a compact object, and for that it stays the default. It is also useless for a building -
-        // the camera ends up well outside its own walls, so the frame is a facade with no interior to
+        // the camera ends up well outside its walls, so the frame is a facade with no interior to
         // bounce light in, which is why GI work needs the other mode. "interior" stands inside and looks
         // along the LONGEST HORIZONTAL AXIS, because that is the axis a hall, nave or corridor runs down
         // (for Sponza: 29.8 x 18.3 in the ground plane, so the look direction is +X). The distance is a
@@ -1398,7 +1398,7 @@ namespace deren::app {
                                 half_extent.z);
         }
         // ONE place that turns the live pose into the six numbers the config and the command line take: the F12
-        // screenshot prints it (so a bug report carries its own camera) and so does the exit below.
+        // screenshot prints it (so a bug report carries its camera) and so does the exit below.
         auto const log_camera_pose = [&runtime](char const* const why) {
             deren::utility::log("camera pose ({}): {:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f}   -> [render] camera_pose = [...] or --capture-camera",
                                 why,
@@ -1433,10 +1433,10 @@ namespace deren::app {
                                                               settings.render.game_toon && model_path.find("game_toon") != deren::utility::vessel::string::npos,
                                                               true);
 
-        // ONE IMPORT PER PLACEMENT. Each placement borrows ITS asset's drawable/material stream; the historic
-        // GameToon X-staging path is the fallback when the list is empty, so both keep their own offsets and
+        // ONE IMPORT PER PLACEMENT. Each placement references ITS asset's drawable/material stream; the historic
+        // GameToon X-staging path is the fallback when the list is empty, so both keep their offsets and
         // character indices. The resolved materials stay alive until every import has finished: their drawable
-        // streams borrow them, and the runtime registers material records during the import. The FIRST import's
+        // streams reference them, and the runtime registers material records during the import. The FIRST import's
         // result is what animation.init() below binds the first object's controller to.
         deren::engine::scene_import_result imported = {};
         uint32_t total_primitive_count = 0;
@@ -1451,7 +1451,7 @@ namespace deren::app {
         deren::utility::vessel::vector<deren::utility::vessel::vector<deren::engine::material_id>> object_base_materials;
         deren::utility::vessel::vector<deren::utility::vessel::vector<deren::engine::material_id>> object_override_materials;
         // One animation controller per placement (phase 2): each is bound to that import's
-        // import_instance and owns a disjoint skin/morph region of the runtime's shared buffers.
+        // import_instance and holds a disjoint skin/morph region of the runtime's shared buffers.
         deren::utility::vessel::vector<uint64_t> object_import_instances;
         auto const wrap_imported_roots = [&scene](std::size_t const first_root, deren::utility::vessel::string const& name, glm::mat4 const& placement) {
             deren::engine::scene_tree::scene_node wrapper = {};
@@ -1683,7 +1683,7 @@ namespace deren::app {
             runtime.scene_changed();
         };
         // ONE splat stage, N clouds: clear and re-add the whole list before the frame snapshots it. The
-        // top-level cloud owns the empty-object-list path; with scene objects, their placements are the
+        // top-level cloud holds the empty-object-list path; with scene objects, their placements are the
         // authority and the same cloud named twice is staged once per placement.
         auto const gaussian_stage_active = [&] {
             if (!use_scene_objects) {
@@ -1720,7 +1720,7 @@ namespace deren::app {
         deren::utility::log("imported {} primitives ({} new materials) across {} object placement(s)", total_primitive_count, total_material_count, import_count);
         runtime.log_scene_tree();
         // The drawable iterators above are the last users of the asset material vectors. Drop the pool's
-        // non-owning pointers before the local vectors are emptied; slot 0 would otherwise dangle into the
+        // non-holding pointers before the local vectors are emptied; slot 0 would otherwise dangle into the
         // swapped-out storage for the rest of the run.
         for (scene_asset_entry& asset : scene_assets) {
             asset.materials = nullptr;
@@ -1746,8 +1746,8 @@ namespace deren::app {
         //      importer runs a SECOND time into the SAME scene tree, flagged as environment. The flag is the
         //      whole feature: it takes every leaf this import creates out of the toon character stage and out
         //      of the shadow casters (and out of the shadow fit, see runtime::update_shadow_frustum), while the
-        //      scene pass draws them through the ordinary PBR/unlit path - which is where the reference's own
-        //      matte ground and emissive backdrop live. Nothing about the subject's own import changes.
+        //      scene pass draws them through the ordinary PBR/unlit path - which is where the reference's
+        //      matte ground and emissive backdrop live. Nothing about the subject's import changes.
         //
         //      WHY A SECOND IMPORT AND NOT A MODEL MERGE: the two files are authored separately, the background
         //      is optional and off by default, and the importer already appends to the scene tree (it was built
@@ -1773,12 +1773,12 @@ namespace deren::app {
             deren::gltf::scene_bounds const background_bounds = deren::gltf::log_scene_diagnostics(*background_scenes);
             auto background_resolve = deren::gltf::resolve_materials_async(*background_scenes, true);
             deren::utility::vessel::vector<deren::gltf::resolved_material> const background_materials = background_resolve.get();
-            // THE OFFSET IS DERIVED FROM THE SUBJECT, NOT CONFIGURED: the background's own y = 0 is its author's
+            // THE OFFSET IS DERIVED FROM THE SUBJECT, NOT CONFIGURED: the background's y = 0 is its author's
             // GROUND plane and the subject's lowest point after ITS centering shift is `bounds.min.y +
             // scene_import_shift.y`, so shifting the background by the subject's shift plus that minimum puts the
             // ground exactly under the subject's feet. The two XZ centers coincide by construction: the subject's
-            // own import sends `scene_center` to `scene_sink`, whose XZ is 0, and the background is authored
-            // centered on its own origin. A background whose ground is not at its y = 0 does NOT land correctly -
+            // the import sends `scene_center` to `scene_sink`, whose XZ is 0, and the background is authored
+            // centered alone origin. A background whose ground is not at its y = 0 does NOT land correctly -
             // that assumption is stated rather than guessed at (see the config key's note).
             glm::vec3 const background_shift = scene_import_shift + glm::vec3(0.0f, bounds.min.y, 0.0f);
             deren::gltf::scene_node_iterator const background_node_first = background_scenes->nodes_begin();
@@ -1786,7 +1786,7 @@ namespace deren::app {
             deren::gltf::drawable_iterator const background_scene_first(*background_scenes, background_materials);
             deren::gltf::drawable_iterator const background_scene_last;
             deren::engine::scene_import_result const background_imported = runtime.import_scene(background_node_first, background_node_last, background_scene_first, background_scene_last, background_shift, true);
-            deren::utility::log("background: '{}' imported as the frame's static surround - {} primitives ({} new materials), own bounds y [{:.3f}, {:.3f}], offset ({:.3f}, {:.3f}, {:.3f}); the toon character stage and the shadow casters skip it",
+            deren::utility::log("background: '{}' imported as the frame's static surround - {} primitives ({} new materials), bounds y [{:.3f}, {:.3f}], offset ({:.3f}, {:.3f}, {:.3f}); the toon character stage and the shadow casters skip it",
                                 background_path.string(),
                                 background_imported.primitive_count,
                                 background_imported.material_count,
@@ -1908,7 +1908,7 @@ namespace deren::app {
         deren::utility::frame_stats frame_stats;
 
         // ---- keyframe animation playback + skinning + morph targets (deren.engine.animation) ----
-        // The controller owns playback (sampling + writing node locals), the skin rigs (per-frame
+        // The controller holds playback (sampling + writing node locals), the skin rigs (per-frame
         // joint matrices) and the morph rigs (static deltas + per-frame weights) against the
         // runtime scene tree; initialize it before the first frame (it bakes morph deltas and the
         // identity skin block into every frame slot's buffers). A float mirror of the playback
@@ -1916,7 +1916,7 @@ namespace deren::app {
         deren::engine::animation::controller animation;
         // the controller drives the runtime through an injected surface (chores wires the scene,
         // per-slot buffers and task pool), so it never depends on deren::engine::runtime itself
-        // ---- MMD motion (--mmd-motion): parsed, retargeted onto this model's own skeleton, and
+        // ---- MMD motion (--mmd-motion): parsed, retargeted onto this model's skeleton, and
         // appended to the loaded file's animations.  Appended rather than handed to the controller
         // because the controller takes its clip list from the scene at init() and never grows one
         // afterwards (select() only swaps the active clip), so a runtime clip has to join the
@@ -2006,7 +2006,7 @@ namespace deren::app {
                     converted.channels.push_back(out);
                 }
                 // The controller's translation channel REPLACES a node's local translation, so the node's
-                // own rest offset has to be added back: the bake emits an offset from rest, not a position.
+                // the rest offset has to be added back: the bake emits an offset from rest, not a position.
                 for (deren::gltf::animation_channel const& c : converted.channels) {
                     if (c.path != deren::gltf::animation_path::translation) {
                         continue;
@@ -2047,7 +2047,7 @@ namespace deren::app {
                 deren::utility::log("motion verified: {} clip(s) from '{}'", *result, motion_path);
             }
         }
-        // ONE CONTROLLER PER PLACEMENT. Every controller is bound to its own import_instance and
+        // ONE CONTROLLER PER PLACEMENT. Every controller is bound to its import_instance and
         // writes into a disjoint skin-matrix / morph region, so objects can play different clips at
         // different speeds. The first controller stays the process-wide `animation` handle (the toon
         // stage's head basis and the diagnostic lines read it).
@@ -2056,7 +2056,7 @@ namespace deren::app {
         uint32_t next_skin_block = 4; // block 0-3 is the shared identity block
         std::size_t next_morph_float = 0;
         // Per-asset animation: a controller samples the loader scene the placement was imported from,
-        // so two objects with different GLBs each see their own clip list and node numbering.
+        // so two objects with different GLBs each see their clip list and node numbering.
         auto const object_scenes = [&](std::size_t index) -> deren::gltf::scenes& {
             if (!use_scene_objects) {
                 return *scenes;
@@ -2085,8 +2085,8 @@ namespace deren::app {
         }
         // ONE CHARACTER STAGE PER PLACEMENT. The top-level `stage` above belongs to the default load and is
         // correct only for the historic single-object path; every scene object can name a different asset,
-        // with its own rig, face frame and toon-light-independent head sockets. Resolve each one here, after
-        // the controllers exist, so the frame loop can publish a basis in that object's own local space.
+        // with its rig, face frame and toon-light-independent head sockets. Resolve each one here, after
+        // the controllers exist, so the frame loop can publish a basis in that object's local space.
         deren::utility::vessel::vector<character_stage> object_stages;
         if (use_scene_objects) {
             object_stages.resize(settings.scene.objects.size());
@@ -2164,10 +2164,10 @@ namespace deren::app {
         // and from there the mouse keeps working normally (drag orbits, wheel zooms). The gui
         // combo below switches among "orbit" and the scene's cameras; the runtime's external-camera
         // override is not used by the demo (it stays available for exact/animated authored cameras).
-        // usable cameras: those whose owning node exists in the imported tree, in scenes.cameras order
+        // usable cameras: those whose holding node exists in the imported tree, in scenes.cameras order
         struct authored_camera {
             deren::gltf::camera const* camera = nullptr;
-            std::size_t source = 0; // owning loader node (asset node index)
+            std::size_t source = 0; // holding loader node (asset node index)
         };
         deren::utility::vessel::vector<authored_camera> authored_cameras;
         for (deren::gltf::camera const& cam : scenes->cameras) {
@@ -2331,7 +2331,7 @@ namespace deren::app {
         // KHR_lights_punctual lights load straight into the gui slots (up to
         // std::size(gui.point_lights)): main pushes the enabled set through
         // deren::app::apply_point_lights() every frame, so imported lights are adjustable in the overlay
-        // like the demo ones. Position comes from the owning node's loader-space world matrix,
+        // like the demo ones. Position comes from the holding node's loader-space world matrix,
         // shifted by the same import offset the geometry got. KHR directional lights are NOT mapped:
         // the engine sun is the shadow-casting analytic light configured by enable_shadows() above -
         // the log keeps that miss visible instead of silent. The lights are fixed to the base pose
@@ -2561,7 +2561,7 @@ namespace deren::app {
                 hit_t = t_min;
                 return t_max > 0.0f;
             };
-            // Intersect the ray with a box expressed in the box owner's local space, and answer the
+            // Intersect the ray with a box expressed in the box holder's local space, and answer the
             // WORLD-space distance. Dividing by the transformed direction's length is required: the
             // local `hit_t` is not comparable between placements with different scales.
             auto const intersect_world_box = [&](glm::mat4 const& box_to_world, glm::vec3 const& box_min, glm::vec3 const& box_max, float& world_t) -> bool {
@@ -2579,7 +2579,7 @@ namespace deren::app {
                 world_t = hit_t / direction_scale;
                 return true;
             };
-            // Intersect the same ray with a sphere in its owner's local space. Meshlets carry one
+            // Intersect the same ray with a sphere in its holder's local space. Meshlets carry one
             // object-space sphere each, which is much tighter than the leaf's AABB: the gap between
             // a character's body and its outstretched arm is one box but many spheres.
             auto const intersect_world_sphere = [&](glm::mat4 const& sphere_to_world, glm::vec3 const& center, float const radius, float& world_t) -> bool {
@@ -2657,7 +2657,7 @@ namespace deren::app {
                     }
                 }
                 if (!has_leaf_geometry) {
-                    // Bounds are the ASSET's own, shifted by the asset's import shift; the placement
+                    // Bounds are the ASSET's, shifted by the asset's import shift; the placement
                     // matrix is inverted above. This also gives a cloud a clickable box, since it has
                     // no mesh primitives. A cloud is drawn through its local flower-face rotation, so
                     // bound the ROTATED box.
@@ -2699,7 +2699,7 @@ namespace deren::app {
         double pick_press_x = 0.0;
         double pick_press_y = 0.0;
 
-        // Per-frame cheap clock: stamp() once per presented frame on this (the frame owner) thread,
+        // Per-frame cheap clock: stamp() once per presented frame on this (the frame holder) thread,
         // so any other thread can read the current frame time as a plain atomic load. Animation /
         // future parallel workers should prefer frame_clock.last_ns()/delta_ns() over now().
         deren::utility::frame_clock frame_clock;
@@ -2718,7 +2718,7 @@ namespace deren::app {
         // ---- THE CLOUD'S FRAMING, WHEN THE MODEL PATH NAMED ONE --------------------------------------------
         // The asset itself was read from disk and handed over in 7b (that is also where its bounds and its totals come
         // from); what is left HERE is where the camera looks. THE CLOUD IS THE SCENE ON THIS PATH, so the camera takes
-        // the cloud's own centre and a distance that holds two and a half of its radii - and because this runs BEFORE
+        // the cloud's centre and A separate distance that holds two and a half radii - and because this runs BEFORE
         // the capture-camera override below, an explicit --capture-camera still wins over it.
         if (gaussian_only && !use_scene_objects) {
             runtime.camera.target = (gaussian_min + gaussian_max) * 0.5f;
@@ -2737,7 +2737,7 @@ namespace deren::app {
                                 (*capture.camera)[0], (*capture.camera)[1], (*capture.camera)[2],
                                 runtime.camera.target.x, runtime.camera.target.y, runtime.camera.target.z);
         }
-        // The sweep's BASE pose is whatever the camera ended up as - the scene's own `camera_fit`, an authored
+        // The sweep's BASE pose is whatever the camera ended up as - the scene's `camera_fit`, an authored
         // glTF camera, or the pinned `--capture-camera` above - so a sweep composes with all three instead of
         // demanding a pinned pose it would have to be told twice.
         float const sweep_base_yaw = runtime.camera.yaw;
@@ -2891,7 +2891,7 @@ namespace deren::app {
             // object and the shared sort see the same list.
             stage_gaussian_clouds();
             // Click picking: select on RELEASE and only when the press-to-release travel is small, so
-            // an orbit drag does not change the selection. The overlay owns clicks that start or end
+            // an orbit drag does not change the selection. The overlay holds clicks that start or end
             // over a panel (the same wants_mouse gate the runtime's camera callbacks use).
             if (use_gui && !editable_objects.empty()) {
                 bool const mouse_down = glfwGetMouseButton(window.window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
@@ -2969,9 +2969,9 @@ namespace deren::app {
             }
 
             runtime.set_environment(gui.environment_rotation, gui.environment_strength, gui.environment_background, gui.environment_color, gui.environment_blur);
-            // The captured GameToon viewer's toon path ends in its own tone map (Q332 disabled); tone mode 2 is
+            // The captured GameToon viewer's toon path ends in its tone map (Q332 disabled); tone mode 2 is
             // that transcribed curve. Keep the selected mode for every other chain.
-            // The captured character.frag is written for the viewer's own tone map (mode 2); with the staged skin
+            // The captured character.frag is written for the viewer's tone map (mode 2); with the staged skin
             // payload accessors fixed, mode 2 no longer shifts skin green, so profile-on uses the captured display
             // path and the selected tone map is left for profile-off.
             // The captured display curve belongs to the character stage. A `game_toon` model flag without the
@@ -3030,7 +3030,7 @@ namespace deren::app {
             // head's forward and `-row1` its right, where "row" is HLSL's and therefore a COLUMN of the
             // column-major matrix this engine stores. `head_basis_from_axes` negates, re-orthogonalises and falls
             // back when the bone is degenerate, so a zero matrix here cannot put NaNs in the sigmoid.
-            // ---- THE CAPTURED FACE FRAME (`Q324`/`Q80`) OWNS THE HEAD BASIS WHEN THE LOADER MEASURED ONE ----
+            // ---- THE CAPTURED FACE FRAME (`Q324`/`Q80`) HOLDS THE HEAD BASIS WHEN THE LOADER MEASURED ONE ----
             //
             // The captured viewer re-derives `Q324`/`Q80` every frame by `transformDirection(head.matrixWorld)` on
             // the bind-pose axes (its `update()` loop; see the loader's `face_frame_of` for the load-side measurement).
@@ -3040,9 +3040,9 @@ namespace deren::app {
             // `front.w = 1.0` marks the block as the captured frame (see `head_ubo::front`); `skin_face.slang` reads
             // that flag and stops deriving `Q80` as `-head_right`.
             if (use_scene_objects) {
-                // EVERY OBJECT OWNS ITS HEAD SLOT. The historic block below publishes one asset's rig to every
+                // EVERY OBJECT HOLDS ITS HEAD SLOT. The historic block below publishes one asset's rig to every
                 // copy; with distinct assets that would point a second character's face at the first one's
-                // head. Each object instead reads its own controller and stage, then moves the result through
+                // head. Each object instead reads its controller and stage, then moves the result through
                 // its placement. `joint_world` already carries that asset's import shift; only the captured
                 // bind-pose centre still needs it, because the face frame is measured in source coordinates.
                 for (std::size_t slot = 0; slot < settings.scene.objects.size() && slot < object_animations.size(); ++slot) {
@@ -3126,7 +3126,7 @@ namespace deren::app {
                     glm::vec3 const forward_row(joint[0][2], joint[1][2], joint[2][2]); // HLSL `_31_32_33`
                     glm::vec3 const right_row(joint[0][0], joint[1][0], joint[2][0]);   // HLSL `_11_12_13`
                     deren::gltf::head_basis const basis = deren::gltf::head_basis_from_axes(forward_row, right_row);
-                    // ---- AND THE HEAD'S OWN POSITION, FROM THE SAME MATRIX'S TRANSLATION COLUMN ----
+                    // ---- AND THE HEAD'S POSITION, FROM THE SAME MATRIX'S TRANSLATION COLUMN ----
                     //
                     // `Recalculate normal` needs `normalize(posWS - headCenter)`, and the reference gets `headCenter`
                     // from an OBJECT's `Object Info.Location` (spec §5.1: `存储已命名属性.003 <- 物体信息(HC).Location`).
@@ -3139,7 +3139,7 @@ namespace deren::app {
                     // `center.w = 1.0` IS THE FLAG THAT SAYS THE SPHERE NORMAL HAS A CENTRE (see `head_ubo::center`):
                     // the initial publish below leaves it `0.0`, and on this repository's assets - every one of which
                     // is a BAKED pose with `skins = 0` - this branch is never taken, so the face arm keeps the socket's
-                    // own default instead of building a normal about the world origin.
+                    // the default instead of building a normal about the world origin.
                     glm::vec3 const head_center(joint[3][0], joint[3][1], joint[3][2]);
                     publish_head_basis(deren::engine::head_ubo{.front = glm::vec4(basis.front, 0.0f), .right = glm::vec4(basis.right, 0.0f), .up = glm::vec4(basis.up, 0.0f), .center = glm::vec4(head_center, 1.0f)});
                     static bool logged_head_probe = false;
@@ -3249,7 +3249,7 @@ namespace deren::app {
             // headless-overlay runs too (the demo slots stay off unless the user enabled them)
             deren::app::apply_point_lights(runtime, gui, demo_lights);
             if (gui.game_toon && gui.character_forward) {
-                // Captured hair rim depth: width 0.368, gain 10, modest strength; the contour stage owns
+                // Captured hair rim depth: width 0.368, gain 10, modest strength; the contour stage holds
                 // the only legal gbuffer_depth sample after the character pass. This follows the EFFECTIVE
                 // game-toon selection (the config value or a per-object `game_toon` pipeline), not only the
                 // historic `[render] game_toon` key, so the dedicated lane never draws with pass defaults.
@@ -3276,11 +3276,11 @@ namespace deren::app {
             // when the cluster pipeline does), so mirroring them earlier would report a stale answer for
             // the first frame of every run.
             runtime.set_clustered_lights(gui.clustered_lights);
-            // The toon character stage: mirrored like the other render toggles. Its own gate composes this knob
+            // The toon character stage: mirrored like the other render toggles. Its gate composes this knob
             // with the frame's opaque leaf list (feature_facts::character_forward_pending), so turning it on in a
             // frame with no opaque geometry records nothing rather than an empty instance.
             runtime.set_character_forward(gui.character_forward);
-            // ... and WHICH CHAIN that stage shades with, mirrored on the line above's own terms - CPU-side, read while
+            // ... and WHICH CHAIN that stage shades with, mirrored on the line above's terms - CPU-side, read while
             // ... and the THIRD model, mirrored on the same terms. The frame's three-way choice gives `game_toon`
             // precedence when both model switches are on, so this pair is never silently combined into a fourth state.
             runtime.set_game_toon(gui.game_toon);
@@ -3314,7 +3314,7 @@ namespace deren::app {
             // because "the soft box is the frame's main light" is the whole point: the shading, the cascades and
             // the sky's disc all follow it. With `irradiance = false` (penumbra only) the direction stays
             // `gui.sun_direction`, and with the default `size = 0` this is the line it always was. A consequence
-            // worth knowing: this scene also carries a studio HDRI and a background dome, so the analytic sky's own
+            // worth knowing: this scene also carries a studio HDRI and a background dome, so the analytic sky's
             // sun ends up behind the dome and is invisible - documented rather than worked around, and why the
             // environment stays the only other light in the frame.
             runtime.set_sun_direction(area_light_takes_over
@@ -3418,7 +3418,7 @@ namespace deren::app {
 namespace {
 
     // ---- THE TOON CHARACTER STAGE, defined after main: the head frame the face SDF shades against
-    // (a bone when the model has one, the reference own fallback otherwise), the captured GameToon
+    // (a bone when the model has one, the reference fallback otherwise), the captured GameToon
     // viewer face frame when the loader measured one, and the toon light rig. Runs before the scene
     // import; the caller keeps the returned rig/joint/face-frame for the loop per-frame publication. ----
     character_stage prepare_character_stage(deren::engine::runtime& runtime, deren::app_config::app_settings const& settings,
@@ -3429,7 +3429,7 @@ namespace {
         // THE LOADER IS ASKED FIRST, and the answer is a decision this code makes rather than a constant it never
         // questioned - which matters, because for the models in this repository the two answers happen to coincide.
         //
-        // THE FALLBACK IS THE REFERENCE'S OWN FRAME (`EfFaceGetHeadBasis`'s `valid < 0.5` branch), so a model with
+        // THE FALLBACK IS THE REFERENCE'S FRAME (`EfFaceGetHeadBasis`'s `valid < 0.5` branch), so a model with
         // no usable skeleton is shaded by the answer the reference itself gives for that case rather than by a guess
         // made here. This model is exactly that case: `zhuangfy_scalar.glb` is seven nodes and zero skins, a static
         // pose split by body part, and a model that cannot turn its head has one head frame whether it is read from
@@ -3452,7 +3452,7 @@ namespace {
         // face shadow popped there.
         //
         // THE GATE IS THE PUNCTUAL-RIG GATE below (SAME PREDICATE, SAME REASON): the captured frame is only published
-        // for the captured GameToon preview model's own render, so every other model in this repository keeps the
+        // for the captured GameToon preview model's render, so every other model in this repository keeps the
         // bone/fallback head frame it had (the game chains read the same `head_ubo`). The `front.w` flag tells the
         // shader which of the two it is looking at (see `head_ubo::front`); when the loader finds no face mesh the
         // block simply is not published and `skin_face.slang` keeps its historical `-head_right` derivation.
@@ -3490,7 +3490,7 @@ namespace {
             }
             // THE FOURTH MEMBER IS A POSITION AND A FLAG, and the fallback publish leaves BOTH at zero: this branch is
             // the one a model with NO HEAD BONE takes, and for such a model there is no `HC` object to read a centre
-            // from. `center.w = 0.0` is what tells the face arm that, and its answer is the socket's own default
+            // from. `center.w = 0.0` is what tells the face arm that, and its answer is the socket's default
             // (`sphereNormal_Strength = 0.0`) rather than a sphere about the world origin.
             //
             // THE CAPTURED FACE FRAME IS PUBLISHED HERE FOR FRAME 0 (the frame loop re-publishes every frame): it wins
@@ -3515,7 +3515,7 @@ namespace {
         //
         // THE ONE CONFIG KNOB THE RIG TAKES SO FAR IS THE DAY STRENGTH, and it is the one the two-state lighting is
         // driven by - so it is the one an A/B capture has to be able to move. Every other rig number keeps
-        // `deren::engine::toon_rig`'s own default, which is the article's value.
+        // `deren::engine::toon_rig`'s default, which is the article's value.
         //
         // PUBLISHING HERE RATHER THAN IN THE FRAME LOOP IS THE BLOCK'S CONTRACT (see core::heap_slots::toon_rig):
         // nothing rewrites it while a frame is in flight, which is what makes a write from outside the frame path
@@ -3546,7 +3546,7 @@ namespace {
             // by `analyse_config`): 0 is the shipped 3x3 PCF and the default, so this line changes nothing unless a
             // config asked for a wider kernel. The lane is read by the shared `toon_diffuse` body in
             // `source/shaders/toon/character_forward.slang`, which is compiled into the `character_forward`, `goo_toon` and
-            // `outline` stages (`goo_toon.slang`'s own `rs_shadow` lookup is a different call site and stays 3x3 at
+            // `outline` stages (`goo_toon.slang`'s `rs_shadow` lookup is a different call site and stays 3x3 at
             // every level; `overlay` has no shadow sample at all).
             rig.shadow_softness.x = settings.render.toon_shadow_softness;
             rig.shadow_softness.y = settings.toon.nose_shadow_reduction;

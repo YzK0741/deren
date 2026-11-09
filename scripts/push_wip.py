@@ -32,7 +32,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 class WipPushError(Exception):
-    """A refusal or failure this script can explain better than git's own message."""
+    """A refusal or failure this script can explain better than git's message."""
 
 
 class NothingToDelete(WipPushError):
@@ -172,7 +172,7 @@ def publish(branch, remote, force, dry_run):
     describe(branch, remote)
     command = ["push"]
     if force:
-        # --force-with-lease, not --force: rewriting your own backup branch keeps the ergonomics
+        # --force-with-lease, not --force: rewriting your backup branch keeps the ergonomics
         # while still refusing to clobber a concurrent update someone else pushed there.
         command.append("--force-with-lease")
     if dry_run:

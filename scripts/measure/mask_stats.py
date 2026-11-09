@@ -61,7 +61,7 @@ def table(values, label):
 print(f"frame means: raster {mean(cascade):.4f}  rt solid {mean(nobake):.4f}  rt baked {mean(baked):.4f}")
 table(err_before, "error vs raster, mask solid")
 table(err_after, "error vs raster, mask baked")
-print(f"  the bake's own effect on the frame: mean {mean(effect):+.4f}, mean|.| {sum(abs(v) for v in effect)/n:.4f}, "
+print(f"  the bake's effect on the frame: mean {mean(effect):+.4f}, mean|.| {sum(abs(v) for v in effect)/n:.4f}, "
       f"{sum(1 for v in effect if v != 0)} pixels changed")
 print(f"  correlation(effect, how wrong the solid frame was) = {pearson(effect, err_before):+.4f}")
 print(f"  pixels where the bake moved TOWARDS the raster: "

@@ -26,7 +26,7 @@
 //    so computing a value nobody consumes would be a claim rather than a port.
 //  - the hair shadow's `Stencil { Ref 1 Comp Equal Pass Keep }`. There is no stencil attachment anywhere in this
 //    renderer's dynamic rendering info (`stencilAttachmentFormat` is VK_FORMAT_UNDEFINED), so the test cannot be
-//    expressed; the geometry's own coverage stands in for it (see `core::make_overlay_pipeline`).
+//    expressed; the geometry's coverage stands in for it (see `core::make_overlay_pipeline`).
 
 #include "common/heap_access.slang"
 #include "common/surface.slang"
@@ -41,7 +41,7 @@ static const uint character_toon_colour_lanes = 46u;
 /// `_DayStrength` is a MATERIAL property in the article's two overlay shaders, but this port already models
 /// `_DayStrength` as the RIG's two-state lever (day = the sun's direct term is on, night = the head light
 /// carries the character), applied to the character chain at every step. The hair shadow is part of that same
-/// two-state look - it is the shadow the character's own bangs cast, which is a day-time phenomenon - so reading
+/// two-state look - it is the shadow the character's bangs cast, which is a day-time phenomenon - so reading
 /// the rig's lane keeps the overlay and the character it multiplies in ONE state instead of two that a config
 /// file could put out of step.
 struct ToonRigUBO {
@@ -69,13 +69,13 @@ static const uint kOverlayHairShadow = 128u; // bit7: `MyZmdHairShadowShader`
 
 #ifndef DOXYGEN
 /// @brief the article's multiplier for one overlay fragment
-/// @param v_uv the mesh's own UV, which is what its mask texture is addressed by
+/// @param v_uv the mesh's UV, which is what its mask texture is addressed by
 /// @param flags the material record's flags: bit6 selects the eye shadow, bit7 the hair shadow
 /// @param mat the material record: `base_color_factor.rgb` is `_Color` and `.a` is `_Alpha`
 /// @return the multiplier the blend applies, i.e. `lerp(1, _Color, w)` - 1 where the overlay says nothing
-/// @note THE MASK IS THE MATERIAL'S OWN baseColorTexture, and that is how the asset states it rather than a
+/// @note THE MASK IS THE MATERIAL'S baseColorTexture, and that is how the asset states it rather than a
 ///       convention invented here: `chars\chen_overlay_tex.glb` hangs `T_actor_common_eyeshadow_01_M` and
-///       `T_actor_common_hairshadow_01_M` on the two materials' `baseColorTexture` under glTF's own meaning of
+///       `T_actor_common_hairshadow_01_M` on the two materials' `baseColorTexture` under glTF's meaning of
 ///       that slot, and `chars\chen_full2.glb` is the character with those two materials merged in. The
 ///       article's `_MainTex` and glTF's `baseColorTexture` are the same slot, so `tex_indices.x` IS `_MainTex`.
 float3 overlay_multiplier(float2 v_uv, uint flags, Material mat)
@@ -90,7 +90,7 @@ float3 overlay_multiplier(float2 v_uv, uint flags, Material mat)
     if ((flags & kOverlayHairShadow) != 0u) {
         // `MyZmdHairShadowShader`: `color = lerp(1, _Color.rgb, _DayStrength)`.
         //
-        // THE MASK IS DELIBERATELY NOT SAMPLED HERE, which is the article's own code rather than an omission:
+        // THE MASK IS DELIBERATELY NOT SAMPLED HERE, which is the article's code rather than an omission:
         // the hair shadow's shape comes from its GEOMETRY (a mesh shaped to the bang region), and the shader's
         // only input beyond `_Color` is the state lever. Reading the mask anyway would be the eye shadow's
         // mechanism wearing the hair shadow's name.
@@ -99,7 +99,7 @@ float3 overlay_multiplier(float2 v_uv, uint flags, Material mat)
     }
     if ((flags & kOverlayEyeDark) != 0u) {
         // `MyZmdEyeDarkShader`: `color = lerp(1, _Color.rgb, alphaTex * _Alpha)`, where `alphaTex` is the
-        // mask's own channel. The article reads `.x` (and drives `_UseGrayAsAlpha` in the game's material,
+        // mask's channel. The article reads `.x` (and drives `_UseGrayAsAlpha` in the game's material,
         // i.e. "the gray channel is the alpha"), so `.r` is the channel.
         const float mask = frame_texture_sample(mat.tex_indices.x, v_uv).r;
         return lerp(float3(1.0, 1.0, 1.0), colour, saturate(mask * alpha));

@@ -2,7 +2,7 @@
 //
 // PRODUCES `software_merge.vert.spv` + `software_merge.frag.spv`. The hybrid visibility design's LAST step before the
 // HZB and the lighting (docs/superpowers/specs/2026-10-22-software-raster-design.md §3.2/§5.2): one fullscreen
-// depth-only draw over the frame's own G-buffer depth, with the pipeline's LESS_OR_EQUAL compare and depth write
+// depth-only draw over the frame's G-buffer depth, with the pipeline's LESS_OR_EQUAL compare and depth write
 // enabled. The merge's effect is then `min(hardware, software)` for free - including the design's tie rule (an equal
 // value writes the same value, so a tie changes nothing) - and the depth image every later stage samples stays the
 // ONE depth the frame has, rather than a second image someone must resolve later.

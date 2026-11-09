@@ -1,7 +1,7 @@
 # Asset directory
 
 The sample models and Gaussian clouds in this directory are third-party material. They are
-**not covered by the repository's MIT license**; each folder carries its own terms, and the
+**not covered by the repository's MIT license**; each folder carries its terms, and the
 engine source license does not change them.
 
 Models and Gaussian clouds are stored one folder per asset. The renderer's default model is

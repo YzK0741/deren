@@ -4,7 +4,7 @@
 // same question the same way. A second copy is a second predicate to keep in step with `shaders/surface.slang`
 // and `shaders/shadow.slang`; a drift there is silent, because the frame still looks like a shadow or a
 // reflection, only with the wrong cut. The caller supplies `heap_access.slang` first (this file reads the heap
-// through its macros) and then calls `rt_alpha_mask_cut` from its own any-hit entry.
+// through its macros) and then calls `rt_alpha_mask_cut` from its any-hit entry.
 //
 // WHAT THE CUT DOES, in one line: it interpolates the material's base-colour ALPHA at the hit and refuses the
 // intersection when that alpha is below the material's cutoff, with the SAME predicate the raster paths use
@@ -69,8 +69,8 @@ bool rt_alpha_mask_cut(RtMaskInstance instance, uint frame_slot)
         return false;
     }
 
-    // The three vertices of the triangle the ray hit, by the geometry's own addressing: an index (or, for a
-    // non-indexed source - which is what the mask bake's expanded geometry is - the vertex's own position in
+    // The three vertices of the triangle the ray hit, by the geometry's addressing: an index (or, for a
+    // non-indexed source - which is what the mask bake's expanded geometry is - the vertex's position in
     // the list), times the stride, off the base.
     float* vertices = (float*)rt_mask_lane_address(instance.vertex_address);
     const uint stride = instance.vertex_stride / 4u;

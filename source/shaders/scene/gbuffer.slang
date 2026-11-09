@@ -11,7 +11,7 @@
 // then the rest of the shared bodies. Compiling a body before surface.slang reports heap_frame_slot as an
 // undefined identifier - measured.
 //
-// WHAT THE FRAGMENT STILL OWNS, since visibility-buffer v0.4b: ONLY THE INTERPOLATORS. The five-target
+// WHAT THE FRAGMENT STILL HOLDS, since visibility-buffer v0.4b: ONLY THE INTERPOLATORS. The five-target
 // composition, the motion vector and the material decode live in `scene/gbuffer_body.slang` +
 // `common/surface_body.slang`, because the visibility path's COMPUTE resolve writes the same five targets from
 // the same material decode and a second copy of either is the divergence this file exists to prevent. What is
@@ -39,7 +39,7 @@ gbuffer_output main(
     [[vk::location(3)]] float3 v_prev_world_pos : TEXCOORD3, bool v_is_front : SV_IsFrontFace)
 {
     // the material decode (the MASK `discard` included) is `gather_surface`'s; the frame it derives from ddx/ddy
-    // is this stage's own, which is why the gather could not be a compute body itself.
+    // is this stage's, which is why the gather could not be a compute body itself.
     const surface_sample s = gather_surface(v_world_pos, v_normal, v_uv, v_is_front);
     // ... and the write is the SHARED composition: the same expression the visibility resolve runs per pixel, so
     // the two producers cannot disagree about what a G-buffer texel means.

@@ -13,7 +13,7 @@
 // and this pass reads only position/normal/uv and the joints/weights).
 //
 // THE OUTPUT KEEPS THE SOURCE'S VERTEX ORDER, one 32-byte record per vertex (position, normal, uv), so the
-// primitive's own index buffer stays valid and the structure keeps its triangle count - which is what makes a
+// primitive's index buffer stays valid and the structure keeps its triangle count - which is what makes a
 // REFIT possible rather than a rebuild.
 //
 // WHAT THE SLANG SIDE SPELLS DIFFERENTLY: the GLSL reads both buffers through GL_EXT_buffer_reference, i.e. a
@@ -71,7 +71,7 @@ void comp_main(uint3 invocation : SV_DispatchThreadID)
     const float3 normal = float3(asfloat(source[at + 3u]), asfloat(source[at + 4u]), asfloat(source[at + 5u]));
     const float2 uv = float2(asfloat(source[at + 6u]), asfloat(source[at + 7u]));
 
-    // The joints are read through their OWN reference at the vertex's byte 32: a word view rather than a
+    // The joints are read through their reference at the vertex's byte 32: a word view rather than a
     // float one, because a joint index is an integer and reinterpreting it as a float and back is the kind of
     // round trip that works until an index lands in a signaling NaN bit pattern.
     uint* joint_words = (uint*)(source_base + 32ull + uint64_t(at) * 4ull);
@@ -100,7 +100,7 @@ void comp_main(uint3 invocation : SV_DispatchThreadID)
 
     // OBJECT space, not world: the structures are built from object-space vertices and the instance carries
     // the object-to-world matrix (the same division of labour the unskinned path has, where the build reads
-    // the primitive's own vertex buffer).
+    // the primitive's vertex buffer).
     float* out_values = (float*)skin_lane_address(pc.destination);
     const uint out_at = vertex * (pc.destination_stride / 4u);
     out_values[out_at + 0u] = skinned_position.x;

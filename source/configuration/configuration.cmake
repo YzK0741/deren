@@ -3,7 +3,7 @@ include_guard(GLOBAL)
 
 # Startup configuration: parses config.toml (+ --config / argv merging) into app_settings.
 # Uses toml++ (header-only, system package mingw-w64-clang-x86_64-tomlplusplus; under clang64 its
-# headers live on the compiler's own include root, so nothing has to be added here). Pure CPU, no
+# headers live on the compiler's include root, so nothing has to be added here). Pure CPU, no
 # Vulkan.
 #
 # MSVC IS THE EXCEPTION, and it is the same shape as glm above: cl.exe has no such implicit root, so

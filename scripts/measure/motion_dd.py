@@ -16,16 +16,16 @@ be captured at THAT pose:
     capture.ps1 -Base <the scenario's config> -Camera ""            -Sweep 0.5 -Frames 40   # swept
     capture.ps1 -Base <the same config>        -Camera "20,0,19.24"              -Frames 40   # static
 
-where `20` is the base yaw plus 20 degrees of orbit, and the base pose is read from the run's own log
+where `20` is the base yaw plus 20 degrees of orbit, and the base pose is read from the run's log
 line - `initial camera: fit=exterior yaw 0.0 deg, pitch 0.0 deg, distance 19.24 (scene radius 6.99 ...)`.
 A static arm taken at the BASE pose instead measures the 20-degree orbit rather than the reprojection,
 and it is a plausible-looking number rather than an obviously wrong one. Two further traps, both of them
-this repository's: `capture.ps1`'s own `-Camera` DEFAULT is Sponza's interior pose, so the swept arm
+this repository's: `capture.ps1`'s `-Camera` DEFAULT is Sponza's interior pose, so the swept arm
 needs `-Camera ""` to leave the pose to the scene's `camera_fit`; and `-Base` resolves against
 `-WorkDir`, so a config outside the work directory has to be copied into it.
 
 Green channel throughout, like every other number in these records. The recorded arms are in
-The recorded arms: the reflection's own loss measured 0.4029 before the
+The recorded arms: the reflection's loss measured 0.4029 before the
 accumulation cap and 0.3492 after it, with the change confined to the smooth-material tiles and the
 rough ones coming out bit-identical.
 """
@@ -79,7 +79,7 @@ def main():
     print(f"  static_off {sys.argv[4]}")
     print(f"  mean|sweep - static|  lobe ON  {arm_on/n:.4f}")
     print(f"  mean|sweep - static|  lobe OFF {arm_off/n:.4f}")
-    print(f"  mean|DD|                      {abs_dd/n:.4f}   <- the reflection's own motion loss")
+    print(f"  mean|DD|                      {abs_dd/n:.4f}   <- the reflection's motion loss")
     print(f"  mean DD                       {sum_dd/n:+.4f}")
     print("  4x4 tiles of mean signed double difference:")
     for ty in range(4):

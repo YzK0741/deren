@@ -45,7 +45,7 @@
 //                                                `texture_lanes.Q44`, `_UseEmotionMap = 1`), whose slot is block-0
 //                                                `.w`; that lane is sampled as DATA (the sRGB sampler decode is
 //                                                undone), exactly like the ramp lanes. A zero lane keeps the
-//                                                viewer's own no-texture arm (`R48 = 0`).
+//                                                viewer's no-texture arm (`R48 = 0`).
 //   Q263 `_SplitNormalMap` present             - yes in the capture, and deren has `toon_slot::split_normal`
 //                                                (lane 8, `toon_lanes2_at(...).x`, staged UNORM as DATA). The
 //                                                captured channel dictionary (`readable:700-711`) is `.xy` = the
@@ -65,7 +65,7 @@
 //   Q2 USE_TANGENT                             - deren CARRIES the vertex TANGENT (`pbr_vertex_output.tangent`,
 //                                                location 4), and the preview asset this port is compared on ships
 //                                                a TANGENT VEC4 on every primitive, so the captured `USE_TANGENT`
-//                                                arm is the ported one for BOTH of its consumers:
+//                                                arm is the separate ported one for BOTH consumers:
 //                                                  * the split-normal decode's frame (`cross(N,T)*w`,
 //                                                    `readable:700-711`),
 //                                                  * the strand frame's `R292` blend (`readable:1023-1032`:
@@ -73,7 +73,7 @@
 //                                                    mix(1.0,-vWorldTangent.w,R202)`).
 //                                                The derivative frame remains only as the fallback for a primitive
 //                                                with no TANGENT attribute (`vertex_tangent.w == 0`), which is the
-//                                                viewer's own no-TANGENT arm (`R292 = cross(R159,R201)`).
+//                                                viewer's no-TANGENT arm (`R292 = cross(R159,R201)`).
 //
 // DEREN ADAPTERS USED, AND THE BRIDGES THEY IMPLY:
 //   * `L` (`uMainLightDirection`): the viewer builds it CAMERA-RELATIVE (`viewer-lighting.js`'s `Bf`, yawBias 10,
@@ -99,9 +99,9 @@
 //     documented fallback (packing in `tmp/game_toon-port/hair-notes.md`).
 //
 // MISSING INPUTS (each has a documented neutral behaviour, marked `// MISSING` at its use):
-//   * `_LineMap` texture (`extras.textures._LineMap`, `T_actor_common_hairline_03_M`): no `toon_slot` of its own;
+//   * `_LineMap` texture (`extras.textures._LineMap`, `T_actor_common_hairline_03_M`): no separate `toon_slot`;
 //     the staged preview sidecar aliases it onto `_EmotionMap` (block-0 `.w`, staged sRGB) - see the Q346 note.
-//     A zero lane keeps the viewer's own no-texture arm (`R48 = 0` -> `R257 = 1` -> the block is the identity).
+//     A zero lane keeps the viewer's no-texture arm (`R48 = 0` -> `R257 = 1` -> the block is the identity).
 //   * `_StrokeMap` / `_StrokeOn` / `_StrokeScale`: NOT part of the captured viewer's program - the hair payload
 //     binder (`material-uniform-bindings.js`'s `k3`) binds only `_LineMap`/`_LineMap_ST`/`_UseLineMap`/
 //     `_LineAmount`/`_LineValue`/`_LineIntensity`/`_LineRange`/`_LineSaturation`, a grep of the recovered module
@@ -261,7 +261,7 @@ static const float game_toon_hair_captured_line_saturation = 1.5;
 static const float game_toon_hair_captured_shadow_brightness = 0.550000011920929;
 static const float game_toon_hair_captured_shadow_saturation = 1.100000023841858;
 
-/// `R113`'s own luma (`readable:59`) - `vec3(0.2126, 0.7152, 0.0722)`, deliberately different in the last
+/// `R113`'s luma (`readable:59`) - `vec3(0.2126, 0.7152, 0.0722)`, deliberately different in the last
 /// digits from `R218`'s weights (`readable:423`); both are ported as written (the same split the eye/skin files
 /// record).
 static float game_toon_hair_shadow_luma(float3 c) {
@@ -309,14 +309,14 @@ static bool game_toon_hair_lane_stated(float4 value) {
 /// @param geo_normal interpolated geometric normal (only a degenerate-normal fallback; the captured hair's N is
 ///        `normalize(vWorldNormal)` with no normal map)
 /// @param uv the material uv (base map, P map, ramps and the line stripe all key off it)
-/// @param vertex_tangent the mesh's own TANGENT FRAME from the vertex stage: xyz the world-space tangent, w the
+/// @param vertex_tangent the mesh's TANGENT FRAME from the vertex stage: xyz the world-space tangent, w the
 ///        authored glTF handedness (+1/-1). ALL ZERO (`w == 0`) when the primitive carries no TANGENT attribute;
 ///        the split-normal decode then falls back to `surface_tbn`'s derivative frame, which is the behaviour
 ///        this stage had before the vertex path existed (see the header's Q2 note).
 /// @param is_front the rasterizer's front/back decision. UNUSED: the captured hair material is single-sided
 ///        (`M_actor_laevat_hair_01.json` `"doubleSided": false`) and deren's `s.normal` already carries the
 ///        double-sided flip for a double-sided material (`readable:694-698`'s `R180` is 1 here).
-/// @return LINEAR HDR radiance - no tone map, no sRGB encode (the post pass owns both, per the contract)
+/// @return LINEAR HDR radiance - no tone map, no sRGB encode (the post pass holds both, per the contract)
 float3 captured_hair_shade(surface_sample s, float3 world_pos, float3 geo_normal, float2 uv, float4 vertex_tangent, bool is_front) {
     const uint material_index = push.material_index;
     const uint4 toon_lanes = toon_lanes_at(heap_slots_toon_lanes, material_index);
@@ -325,7 +325,7 @@ float3 captured_hair_shade(surface_sample s, float3 world_pos, float3 geo_normal
     // ---- THE PROFILE LANES (game_toon_profile.h) ----
     //
     // lane 0: x = enable, y = character volume multiplier, z = environment multiplier, w = env-shadow multiplier.
-    // lane 2: rgb = main-light colour, w = the light's own intensity (the two captured values this branch needs
+    // lane 2: rgb = main-light colour, w = the light's intensity (the two captured values this branch needs
     //         are 1.05 - folded into rgb by the scene rig - and 2.0; see the MISSING note on the constant).
     // lane 3: rgb = shadow tint. Hair does NOT take the skin alias (`T3`), so lane 3 is right here.
     // lanes 7..12: this family's captured payload (a zero word = "not stated" -> captured fallback).
@@ -375,7 +375,7 @@ float3 captured_hair_shade(surface_sample s, float3 world_pos, float3 geo_normal
     // this branch's no-TANGENT arm), `.g` the F0/reflectivity scale, `.b` the AO/occlusion mask and `.a` the
     // smoothness. deren's carrier is `toon_slot::metallic_gloss`, `toon_lanes_at(...).y` (block 0, element 1 -
     // the same lane `game_toon/hair.slang` and `character_forward.slang` read).
-    // A zero lane is the capture's own `#ifdef Q13`-off state, where `R73 = vec4(1.0)` (`readable:1010`), so no
+    // A zero lane is the capture's `#ifdef Q13`-off state, where `R73 = vec4(1.0)` (`readable:1010`), so no
     // material value is invented: reflectivity 1, AO 1, smoothness 1.
     const bool has_p_map = toon_lanes.y != 0u;
     const float4 p_map = has_p_map
@@ -393,7 +393,7 @@ float3 captured_hair_shade(surface_sample s, float3 world_pos, float3 geo_normal
                                                     : normalize(geo_normal);
     float3 highlight_normal = shading_normal;                                                          // `R159`
     const float3 base_normal = normalize(geo_normal);
-    // ---- THE MESH'S OWN TANGENT FRAME (`Q2` USE_TANGENT, readable:1023-1033) ----
+    // ---- THE MESH'S TANGENT FRAME (`Q2` USE_TANGENT, readable:1023-1033) ----
     //
     // TWO consumers take the captured `USE_TANGENT` frame: the split-normal decode below (`readable:700-711`)
     // and the strand frame's `R292` blend (`readable:1023-1032`). The preview GLB
@@ -407,7 +407,7 @@ float3 captured_hair_shade(surface_sample s, float3 world_pos, float3 geo_normal
     //                                                          NO Unity/glTF Y bridge here: the authored w
     //                                                          already states the map's handedness)
     // `vertex_tangent.w == 0` is the loader's "no TANGENT attribute" record; then and only then the derivative
-    // frame stands in (the viewer's own no-TANGENT arm) and the Y bridge applies to it.
+    // frame stands in (the viewer's no-TANGENT arm) and the Y bridge applies to it.
     float3 mesh_tangent = float3(0.0, 0.0, 0.0);
     bool mesh_tangent_valid = false;
     if (abs(vertex_tangent.w) > 0.5) {
@@ -429,7 +429,7 @@ float3 captured_hair_shade(surface_sample s, float3 world_pos, float3 geo_normal
     //   `R210` the same for `.zw`; `R101 = split.xy*Q302` and `R168 = split.zw*Q251` are the SCALED xy;
     //   `R121 = cross(N, T_vertex)*T_vertex.w`; the model normal is `R101.x*T + R101.y*R121 + R231*N` and the
     //   smooth highlight normal `R159` is `R168.x*T + R168.y*R121 + R210*N`.
-    // `Q302`/`Q251` are profile lane 6 `.z`/`.w` (captured 1.0 each; the capture's own defaults are
+    // `Q302`/`Q251` are profile lane 6 `.z`/`.w` (captured 1.0 each; the capture's defaults are
     // `_BumpScale ?? 1` / `_SpecBumpScale ?? 1`).
     const uint split_normal_lane = toon_lanes2.x;
     if (split_normal_lane != 0u) {
@@ -524,7 +524,7 @@ float3 captured_hair_shade(surface_sample s, float3 world_pos, float3 geo_normal
         pre_light_colour *= clamp(game_toon_hair_luma(colour_mix) /
                                        max(game_toon_hair_luma(pre_light_colour), 0.001), 0.0, 1.5);   // `:964`
     } else {
-        // MISSING LANE for THIS MATERIAL'S RAMP ONLY (the capture states `_UseDiffRampMap = 1`): the viewer's own
+        // MISSING LANE for THIS MATERIAL'S RAMP ONLY (the capture states `_UseDiffRampMap = 1`): the viewer's
         // no-ramp arm (`readable:995-1004`), whose lit weight is the hard 0.48/0.52 step and whose colour is
         // `mix(R152, base.rgb, R144)` - not a second shading model.
         lit_weight = smoothstep(0.48, 0.52, ramp_x);

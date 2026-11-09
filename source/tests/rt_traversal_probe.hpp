@@ -5,7 +5,7 @@
 #include <fstream>
 
 // The caller has already built the indexed triangle and waited for it. Tests may use the native
-// queue to submit caller-owned commands; resource creation and recording stay on the RHI surface.
+// queue to submit caller-held commands; resource creation and recording stay on the RHI surface.
 static void check_rt_traversal(deren::promise::rhi::api_core& core,
                                deren::promise::rhi::device_address& addresses,
                                deren::promise::rhi::device_capabilities& capabilities,
@@ -189,7 +189,7 @@ static void check_rt_traversal(deren::promise::rhi::api_core& core,
     if (!checked(commands->end_recording())) {
         return;
     }
-    // abi 42: the owned primary submits through the CONTRACT (the escape's raw submit is gone).
+    // abi 42: the held primary submits through the CONTRACT (the escape's raw submit is gone).
     if (!checked(core.commands->submit(*commands))) {
         return;
     }

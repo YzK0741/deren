@@ -140,9 +140,9 @@ does not publish outgoing state. See [binding and recording](render_graph.md).
 enabled, so read the numbered items as the record of what was checked rather than as pending work.**
 
 The existing [post_bloom_pass::record](../source/engine/pass/post.cpp) is a graphics
-fullscreen draw chain, not a compute dispatch chain. It currently owns its input
+fullscreen draw chain, not a compute dispatch chain. It currently holds its input
 and output role barriers and its begin/end rendering scope. HDR input transition
-and composite consumption have additional owners outside this function.
+and composite consumption have additional holders outside this function.
 
 Before enabling a graph execution path:
 
@@ -155,10 +155,10 @@ Before enabling a graph execution path:
    HDR handoff and all four exported levels. A discard/CLEAR content declaration
    must not erase outstanding accesses from an earlier frame using that object.
 4. Specify outgoing sampled-state requirements or retain one explicit manual
-   handoff owner. export_resource currently roots contents; it emits no epilogue
+   handoff holder. export_resource currently roots contents; it emits no epilogue
    transition. In particular, the deepest Bloom level still needs its handoff.
 5. Prepare and validate the whole lowered plan before recording. Replace only
-   the barriers owned by that migrated boundary; do not execute both barrier paths.
+   the barriers held by that migrated boundary; do not execute both barrier paths.
 6. Publish final state after successful submission and retain all objects through
    completion. Preserve old state on failed prepare/record/submit. Slot readiness,
    uploads, WSI and cross-submission order remain external protocols.

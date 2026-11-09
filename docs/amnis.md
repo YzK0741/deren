@@ -5,7 +5,7 @@ streaming and supporting measurement work. Subfeatures retain their actual techn
 The name does not change existing APIs, configuration, environment variables or defaults.
 
 > **Phase closed (2026-10-28).** The opt-in baseline includes low-resolution fallback residency,
-> asynchronous uploads, progressive mip demand, immutable source ownership/consuming import and
+> asynchronous uploads, progressive mip demand, immutable source retention/consuming import and
 > asynchronous feedback copy readback. Further feature expansion is deferred. The phase closeout (accepted
 > scope, measured results, known limits, deferred directions and the next renderer investigation) is
 > maintainer material and is not distributed with this repository.
@@ -19,7 +19,7 @@ software routing. amnis does not select cluster cuts or replace subtilis HZB cul
 Both use shared visibility rendering, synchronization and resource services. Visibility resolve can
 emit visible-material and screen-footprint feedback for amnis, with or without subtilis DAG LOD.
 subtilis can likewise run with fully resident textures. Sharing these services does not imply a
-single subsystem switch or exclusive ownership of the renderer.
+single subsystem switch or exclusive retention of the renderer.
 
 ## Subfeatures
 
@@ -33,13 +33,13 @@ single subsystem switch or exclusive ownership of the renderer.
 
 ## Shared supporting infrastructure
 
-These services support amnis and other renderer clients; they are not amnis-owned selection policies.
+These services support amnis and other renderer clients; they are not amnis-held selection policies.
 
 | Shared service | Scope and documentation |
 |---|---|
 | Lazy resources | Allocate and upload on demand; the design record is not distributed. |
 | Resource unload | Release allocations when dependencies allow, preserving reload sources; the design record is not distributed. |
-| Resource ownership and synchronization | Retain generations until dependent work completes; see [managed resources](managed_resources.md) and [RHI standard](rhi_api_standard.md). |
+| Resource retention and synchronization | Retain generations until dependent work completes; see [managed resources](managed_resources.md) and [RHI standard](rhi_api_standard.md). |
 | GPU resource and vessel memory statistics | Shared allocation counters, not per-feature attribution; see [API guide](resource_memory_statistics.md). |
 
 subtilis M5 refers to future geometry-page streaming, not texture streaming. It remains deferred;
@@ -82,20 +82,20 @@ of total live resource allocation. VMA reserved host block capacity can grow sep
 the captured run). The full-frame timings, GPU tradeoffs and image limits were kept in a local report
 that is not distributed with the repository.
 
-## CPU source ownership
+## CPU source retention
 
-The loader publishes a shared immutable owner for each resolved mip chain. Import propagates
-that owner to lazy/progressive streaming, so those systems can retain the same source for later
-uploads and restoration. Sharing requires an explicit `shared_ptr<const vector<uint8_t>>` owner
-whose complete vector exactly matches the byte span. Mutable owners, borrowed data and partial
+The loader publishes a shared immutable holder for each resolved mip chain. Import propagates
+that holder to lazy/progressive streaming, so those systems can retain the same source for later
+uploads and restoration. Sharing requires an explicit `shared_ptr<const vector<uint8_t>>` holder
+whose complete vector exactly matches the byte span. Mutable holders, referenced data and partial
 spans retain snapshot-copy behavior. Every alias of a shared source must remain immutable.
 
 The application releases decoded source pixels after material resolution when no toon sidecar
 needs them. The consuming resolve path moves RGBA8 pixels directly into mip0 and releases
 unreferenced decoded textures before mip generation, so import does not retain the decoded set
 and the mip chains at the same time. It drops its resolved-material references after import;
-streaming retains needed owners, while eager uploads can release their CPU sources. Geometry and
-animation data remain alive. `release_texture_pixels` preserves metadata and resolved owners, but
+streaming retains needed holders, while eager uploads can release their CPU sources. Geometry and
+animation data remain alive. `release_texture_pixels` preserves metadata and resolved holders, but
 resolving materials again requires reloading the source. Toon-sidecar models conservatively retain
 decoded pixels.
 

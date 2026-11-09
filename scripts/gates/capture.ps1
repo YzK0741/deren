@@ -10,7 +10,7 @@
 #
 # The overrides are applied to WHOLE LINES in the [render] table (a key that is not already there is
 # appended), and the script asserts that every override actually changed the file - the repository's
-# own recorded trap is an edit that silently matched nothing, after which the numbers read as if they
+# recorded trap is an edit that silently matched nothing, after which the numbers read as if they
 # described a change that was never compiled. It also refuses an override whose value the base file
 # already has, for the same reason from the other side: "no change: the overrides matched nothing"
 # means the run you are about to read is the run you already have.
@@ -21,7 +21,7 @@
 #   pwsh -File scripts/gates/capture.ps1 -Base my.toml -Tag asan -BuildDir build-asan
 #
 # -Base is resolved relative to the WORK directory (see -WorkDir), which is where the configs and the
-# captures live; -Camera "" leaves the pose to the scene's own `camera_fit`, which is deterministic for
+# captures live; -Camera "" leaves the pose to the scene's `camera_fit`, which is deterministic for
 # a static scene and is what a scene with no pinned pose resolves to (the run's log prints it).
 #
 # TWO CAPTURES ARE ONLY COMPARABLE AT THE SAME POSE, which is worth stating because getting it wrong does
@@ -47,7 +47,7 @@ param(
     # other measurement in this repository is; a non-zero value makes the capture exercise the reprojection
     # paths (TAA's history, the GI temporal accumulation, the motion vectors) that a still camera leaves in
     # their trivial case. It is frame-indexed rather than clock-driven, so a sweep is as reproducible as a
-    # still capture - the harness's own two-run determinism check is what verifies that.
+    # still capture - the harness's two-run determinism check is what verifies that.
     [float]$Sweep = 0.0,
     [switch]$KeepLog
 )
@@ -84,7 +84,7 @@ if ($Model) {
     # THE `model` LINE IS COUNTED AS WELL AS REPLACED, because "the text did not change" is TWO different
     # situations and only one of them is a mistake: a `-Model` the base file does not have a line for (the
     # typo this guard exists for), and a `-Model` the base file ALREADY names. The second is the normal case
-    # on a step whose asset is part of its base config - `deren-ab/laevat/ab_goo.toml` names the goo asset - and
+    # on A separate step whose asset is part base config - `deren-ab/laevat/ab_goo.toml` names the goo asset - and
     # it used to abort the run with "no change: -Model matched no line", which is false about the file.
     $model_lines = 0
     $replaced = foreach ($line in ($cfgText -split "`n")) {
@@ -155,7 +155,7 @@ $log = Join-Path $WorkDir "deren-debug.log"
 Remove-Item $log -Force -ErrorAction SilentlyContinue
 
 $launch = @("--config", $cfg, "--capture-frames", "$Frames")
-# An empty -Camera leaves the pose to the scene's own `camera_fit`, which is deterministic for a static
+# An empty -Camera leaves the pose to the scene's `camera_fit`, which is deterministic for a static
 # scene and is what the model's framing rule resolves to (the log prints it). The flag is omitted
 # rather than passed empty, because `--capture-camera=` with no numbers is not a valid pose.
 if ($Camera) { $launch += "--capture-camera=$Camera" }
@@ -166,7 +166,7 @@ $sw = [System.Diagnostics.Stopwatch]::StartNew()
 # program") check on - so every capture raised a security prompt for an unsigned binary that is built locally on
 # the machine it runs on. `UseShellExecute = $false` uses CreateProcess, which has no such check. The two things
 # the shell was doing for us are done explicitly instead: the working directory, and a hidden window (STARTUPINFO
-# rather than a shell verb). Standard output is NOT redirected, deliberately: this app's own `deren-debug.log` is how a
+# rather than a shell verb). Standard output is NOT redirected, deliberately: this app's `deren-debug.log` is how a
 # capture is read, and a redirected pipe would need a concurrent reader or a 60-frame run could deadlock on a full
 # buffer.
 $start = [System.Diagnostics.ProcessStartInfo]::new()

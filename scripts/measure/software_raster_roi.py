@@ -395,7 +395,7 @@ def analyze(data: dict) -> dict:
             if workgroups_removed <= 0:
                 raise ValueError(f"{camera} round {round_index}: holes control removed no hardware workgroups")
             # explainability: the removed session workgroups/triangles must equal the probe frame's software suffix
-            # scaled by the session's own frame count. The multiplier is DERIVED from the baseline arm
+            # scaled by the session's frame count. The multiplier is DERIVED from the baseline arm
             # (baseline session workgroups / the probe frame's cluster count) instead of assumed, because the mesh
             # stats session covers one more frame than the GPU timing session in this renderer.
             frame_factor = base["mesh_workgroups"] / max(1, probe["totals"]["clusters"])

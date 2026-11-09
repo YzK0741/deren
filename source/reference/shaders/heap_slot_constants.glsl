@@ -20,7 +20,7 @@
 // size of the resource type rather than a flat grid. See docs/slang_migration.md.
 //
 // THESE NUMBERS MUST EQUAL vulkan/core/core.declarations.cppm's `core::heap_slots`, which is where the host
-// reserves them; the host logs its own table at startup (`descriptor heap: slot grid ...`), which is how a
+// reserves them; the host logs its table at startup (`descriptor heap: slot grid ...`), which is how a
 // drift is seen. See docs/descriptor_heap_migration.md.
 
 #ifndef HEAP_SLOT_CONSTANTS_GLSL
@@ -71,7 +71,7 @@ const uint heap_slots_meshlet_culled = heap_slot_base + 747u;
 // read", the same contract `material_record::toon_indices` uses for its four. Lanes 0..3 of `deren::vulkan::toon_slot`
 // live in the record; every lane from `sdf_lightmap` on lives here.
 //
-// WHY A BUFFER OF ITS OWN RATHER THAN A FIFTH COMPONENT THERE, and it is a measurement rather than a preference:
+// WHY A separate BUFFER RATHER THAN A FIFTH COMPONENT THERE, and it is a measurement rather than a preference:
 // the material record is INLINE IN THE PER-DRAW PUSH BLOCK (`surface.glsl`: 96 B of material fields plus two
 // heap lanes; `shadow.slang`: 96 + 3 lanes, with the cascade pinned at offset 96), so a word added to it moves
 // every one of those offsets and grows a push block that is already near its limit. The naive version compiled
@@ -88,7 +88,7 @@ const uint heap_slots_toon_lanes = heap_slot_base + 748u;
 // arrangement every other per-frame array here uses - one buffer per frame slot, so a frame being rendered
 // never reads a buffer the next frame is rewriting.
 //
-// IT IS A BLOCK OF ITS OWN RATHER THAN A FIELD OF THE CAMERA'S, which would have been smaller: the head frame
+// IT IS A separate BLOCK RATHER THAN A FIELD OF THE CAMERA'S, which would have been smaller: the head frame
 // is a property of the CHARACTER and not of the eye looking at it, and a renderer that put it in the camera UBO
 // would have a second thing to move the day a scene holds two characters facing different ways.
 const uint heap_slots_scene_head = heap_slot_base + 749u;
@@ -100,7 +100,7 @@ const uint heap_slots_scene_head = heap_slot_base + 749u;
 // as a rig that simply has the head frame's numbers in it, with no error anywhere.
 const uint heap_slots_toon_rig = heap_slot_base + 751u;
 // THE MATERIAL COLOURS: `toon_colour_lane::count` `vec4`s per material, `material_index`-addressed. Read through
-// the stage's own `character_toon_colour_lanes`, which must match `deren::vulkan::toon_colour_lane::count` EXACTLY - all
+// the stage's `character_toon_colour_lanes`, which must match `deren::vulkan::toon_colour_lane::count` EXACTLY - all
 // four of the spellings of it (`character_forward.slang`, `pbr.slang`, `goo_rim.slang` and `outline.slang` through
 // its `#include` of `pbr.slang`) are pinned against both the host enum and each other, most recently at 29 by step
 // 13 (two `RS EFF` lanes, `_GooRSScalars` / `_GooRSTint`), before that at 27 by step
@@ -157,7 +157,7 @@ const uint heap_slots_display_color = heap_slot_base + 695u;
 // one past the last array: 703 slots are in use, the grid reserves 1024
 const uint heap_slot_count = 1024u;
 
-// THE SAMPLER HEAP IS A SECOND GRID, and its own base: the sampler heap is a separate heap in this API, and the
+// THE SAMPLER HEAP IS A SECOND GRID, and its base: the sampler heap is a separate heap in this API, and the
 // API caps it at 128 KiB, so it CANNOT use the resource grid's 1 MiB - 64 KiB, the reserved window the
 // embedded-sampler path requires, is the largest base it can have, and the host refuses the heap path if a
 // device's reserved window were larger or its sampler stride were not 32 B (core.cpp checks both).
@@ -183,18 +183,18 @@ const uint heap_sampler_shadow = heap_sampler_base + 5u;         // depth compar
 // once: per-frame arrays add heap_frame_slot, per-swapchain-image arrays add heap_image_index. Getting that
 // backwards is silent - the read lands on another frame's or another image's descriptor.
 //
-// THE TWO INDICES ARE PUSH-CONSTANT LANES, and they live INSIDE each stage's own block: a heap pipeline has no
+// THE TWO INDICES ARE PUSH-CONSTANT LANES, and they live INSIDE each stage's block: a heap pipeline has no
 // pipeline layout, so vkCmdPushConstants has nothing to push to, but vkCmdPushDataEXT supplies exactly the same
 // bytes and the shader reads them exactly as it always read push constants (the extension proposal says so in
 // those words, and the heap-native probe proves it). A push_constant BLOCK may not carry an `offset` qualifier -
 // measured, glslang says "only applies to block members" - so there is no shared block to put them in: each stage
-// appends `uint frame_slot; uint image_index;` to ITS OWN block (at the end, so every existing field keeps its
+// appends `uint frame_slot; uint image_index;` to its block (at the end, so every existing field keeps its
 // offset) and then aliases them to the two names below:
 //
 //     #define heap_frame_slot (push.frame_slot)
 //     #define heap_image_index (push.image_index)
 //
-// (with `push` the stage's own block instance name). A stage that uses neither pays 8 bytes of push block.
+// (with `push` the stage's block instance name). A stage that uses neither pays 8 bytes of push block.
 #define heap_camera_slot (heap_slots_scene_camera + heap_frame_slot)
 #define heap_light_slot (heap_slots_scene_light + heap_frame_slot)
 #define heap_cluster_count_slot (heap_slots_cluster_counts + heap_frame_slot)
@@ -214,7 +214,7 @@ const uint heap_sampler_shadow = heap_sampler_base + 5u;         // depth compar
 #define heap_irradiance_slot (heap_slots_irradiance_cube)
 #define heap_lut_slot (heap_slots_brdf_lut)
 #define heap_material_slot (heap_slots_materials)
-#define heap_texture_base (heap_slots_textures) // the bindless array's first slot: + the texture's own index
+#define heap_texture_base (heap_slots_textures) // the bindless array's first slot: + the texture's index
 #define heap_image_slot(base) ((base) + heap_image_index) // for the per-swapchain-image arrays
 
 #endif // HEAP_SLOT_CONSTANTS_GLSL

@@ -3,7 +3,7 @@
 
 WHY THIS EXISTS, AND WHY IT IS NOT `check_render.ps1`'s EXIT CODE
     `scripts/gates/check_render.ps1` renders a fixed set of scenarios and compares each one against a
-    reference captured earlier ON THIS MACHINE. Its own verdict is therefore about those references -
+    reference captured earlier ON THIS MACHINE. Its verdict is therefore about those references -
     and this repository's local reference set is a 2026-10-01 set, so `CHANGED` is the NORMAL answer and
     the script exits 1 on a perfectly correct tree. The instrument that means something is the actual
     per-scenario hash it prints, compared against:
@@ -38,7 +38,7 @@ import re
 import sys
 
 # THE FROZEN FOURTEEN (the reference set the whole migration was gated against, reproduced by every
-# batch of it). They are also what `check_render.ps1`'s own references were built from, so a tree
+# batch of it). They are also what `check_render.ps1`'s references were built from, so a tree
 # that matches the frozen list matches the control tree the migration used.
 FROZEN = {
     "deferred": "972A31EC5FF55C87",

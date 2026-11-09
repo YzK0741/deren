@@ -18,7 +18,7 @@ export namespace deren::promise::rhi::synchronization {
                                   mesh_shader = 512,
                                   /// APPENDED WITH ITS MEASUREMENT SITE (RT stage 1): the ray-traced shadow pass writes its
                                   /// visibility image from a traceRays LAUNCH, and the hand-off to the lighting stage needs
-                                  /// the stage that actually ran in the mask (see the site's own note in
+                                  /// the stage that actually ran in the mask (see the site's note in
                                   /// source/engine/pass/ray_traced_shadow.cpp - with the recipe's stage the model lost
                                   /// half its sun). A ray query inside a compute shader uses `compute_shader`; this value
                                   /// names the ray-tracing pipeline stages only.

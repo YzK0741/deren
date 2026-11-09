@@ -39,7 +39,7 @@
 // `DOXYGEN` is DEFINED for Doxygen alone (Doxyfile's PREDEFINED), so the compiler preprocesses this region away and
 // sees the stage exactly as it was - the module it produces is byte-identical (verified by hash).
 //
-// The entry's own documentation is inside the guard with it, so Doxygen has no dangling comment block to attach to
+// The entry's documentation is inside the guard with it, so Doxygen has no dangling comment block to attach to
 // the wrong symbol; the file's header describes the pair.
 #ifndef DOXYGEN
 
@@ -97,7 +97,7 @@ struct pbr_vertex_output
     [[vk::location(1)]] float3 normal : WORLD_NORMAL;
     [[vk::location(2)]] float2 uv : UV_OUT;
     [[vk::location(3)]] float3 prev_world_pos : PREV_WORLD_POS;
-    /// THE MESH'S OWN TANGENT FRAME, for the fragment stages that want one (the GameToon hair's split-normal
+    /// THE MESH'S TANGENT FRAME, for the fragment stages that want one (the GameToon hair's split-normal
     /// decode is the first): xyz is the world-space tangent, w the authored glTF handedness (+1/-1). APPENDED at
     /// location 4 so every existing fragment interface keeps its locations 0..3 - a stage that does not read it
     /// simply does not declare it, and the rasterizer drops an unwritten interpolant.
@@ -170,7 +170,7 @@ pbr_vertex_output pbr_shade_vertex(const MeshVertex v, const uint vertex_index, 
     float3 skinned_normal = morph_normal;
     // ... and the TANGENT goes through the SAME rotation as the normal: it is a direction in the mesh's frame,
     // so it takes the skin's rotation exactly as the normal does (the fragment stage re-orthogonalises it
-    // against the interpolated normal, which is where non-uniform scale is repaired). A morph target's own
+    // against the interpolated normal, which is where non-uniform scale is repaired). A morph target's
     // TANGENT deltas are NOT in the morph block (animation::controller writes position/normal deltas only), so
     // the authored tangent is the one that travels - documented rather than silently approximated.
     float3 skinned_tangent = v.tangent.xyz;
@@ -225,7 +225,7 @@ pbr_vertex_output pbr_shade_vertex(const MeshVertex v, const uint vertex_index, 
     o.tangent = float4(world_tangent_len_sq > 0.0 ? world_tangent * rsqrt(world_tangent_len_sq) : float3(0.0, 0.0, 0.0), v.tangent.w);
 
     // The previous LOCAL position through the previous frame's world matrix. The node's rigid motion comes
-    // from that matrix, and a vertex's own movement inside its object space comes from prev_local_pos above -
+    // from that matrix, and a vertex's movement inside its object space comes from prev_local_pos above -
     // the previous MORPH weights and the previous SKIN matrices, composed in that order. Which is why this is
     // no longer "the current local position through last frame's model": that version reported a motion
     // vector of exactly zero for a mesh whose node never moved, no matter how it deformed.
@@ -299,7 +299,7 @@ void mesh_main(out vertices pbr_vertex_output verts[mesh_vertices_per_workgroup]
 // than a vertex stage) is the only shape available: the vertex geometry path was removed (see the note above the
 // mesh stage), and the author's expansion is per-vertex behaviour that fits inside the same triangle loop.
 //
-// THE AUTHOR'S ARITHMETIC, in its own order (`:134-170`), with the two substitutions this port has to make:
+// THE AUTHOR'S ARITHMETIC, in its order (`:134-170`), with the two substitutions this port has to make:
 //
 //   float2 scaledScreenParams = GetScaledScreenParams(); float ScaleX = abs(x/y);        <- the viewport aspect
 //   float weightN = sqrt(saturate(1.0 - dot(v.uv1.xy, v.uv1.xy)));                       <- uv1 == 0 for chen
@@ -319,7 +319,7 @@ void mesh_main(out vertices pbr_vertex_output verts[mesh_vertices_per_workgroup]
 //     mesh's world-space normal (already the world-transformed, skinned, morphed one - `pbr_shade_vertex`).
 //  2. THE VIEW SPACE NORMAL IS `mat3(view) * o.normal`. The author's `UNITY_MATRIX_IT_MV` is the inverse
 //     transpose of the model-view matrix applied to an OBJECT-space normal; this port's normal is already world
-//     space, and for the rigid view transform the inverse transpose of its 3x3 IS its 3x3. THE SPELLING MATTERS
+//     space, and for the separate rigid view transform the inverse transpose 3x3 IS its 3x3. THE SPELLING MATTERS
 //     Native mul(normal, (float3x3)matrix) retains that GLSL product.
 //     Projection composition similarly reverses operands to preserve column-vector semantics.
 //
@@ -330,7 +330,7 @@ void mesh_main(out vertices pbr_vertex_output verts[mesh_vertices_per_workgroup]
 // only thing the author divides by - is the same number. The `abs` is not decoration: this engine's projection
 // carries Vulkan's Y flip, so `proj[1][1]` is NEGATIVE, and an unsigned aspect would flip the hull inside out.
 //
-// `0.01` IS THE AUTHOR'S OWN CONSTANT (`:168`, verbatim in the source - it was the PDF's one truncated scalar
+// `0.01` IS THE AUTHOR'S CONSTANT (`:168`, verbatim in the source - it was the PDF's one truncated scalar
 // and the source settled it), NOT a port fudge.
 //
 // `_ZMinRefine` IS THE ARTICLE'S DEFAULT (0.4, `:17`): the game's parameter table carries no such row (measured
@@ -344,7 +344,7 @@ void mesh_main(out vertices pbr_vertex_output verts[mesh_vertices_per_workgroup]
 // THE GATE IS THE WIDTH ITSELF (`> 0`), read from the material's outline lane, and it is per DRAW rather than
 // per material: `push.material_index` is this draw's record, so the branch is UNIFORM across the workgroup. A
 // material whose width is 0 still emits its vertices and simply is not expanded - which is what lets the whole
-// outline pass be recorded in ONE batch: the game's own `chen` cloth_02 states `_OutlineWidth = 0.0` (measured),
+// outline pass be recorded in ONE batch: the game's `chen` cloth_02 states `_OutlineWidth = 0.0` (measured),
 // so "this material has no outline" is data rather than a host-side list.
 // =============================================================================================================
 /// `deren::vulkan::toon_colour_lane::outline_edge`: the material's outline lane in `heap_slots::toon_colours`, whose
@@ -364,7 +364,7 @@ static const uint pbr_outline_edge_lane = 3u;
 // lobe's two roughnesses), which this one does not read either.
 // STEP 13 MOVED THEM ONCE MORE for `_GooRSScalars` / `_GooRSTint`, the surface stage's twenty-eighth and
 // twenty-ninth lanes (mechanism table #14, `RS EFF`), which this pass must NOT read: the RS term belongs to the
-// stage that owns the emission term and adding it to the outline hull would make the outline carry a colour the
+// stage that holds the emission term and adding it to the outline hull would make the outline carry a colour the
 // pixel behind it does not.
 // STEP 15 MOVED THEM ONCE MORE for `_GooRSArm0`, the surface stage's thirtieth lane (the same mechanism's `armA`
 // sockets: `RS_Index` / `RS Strength` / `Layer weight Value` / `Layer weight Value Offset`), which this pass must
@@ -378,7 +378,7 @@ void outline_mesh_main(out vertices pbr_vertex_output verts[mesh_vertices_per_wo
 {
     const MeshGeometryLanes geometry = push.geometry;
     const uint triangle_count = geometry.index_count / mesh_indices_per_triangle;
-    // this workgroup's first triangle, and how many of the draw's triangles are left for it - `mesh_main`'s own
+    // this workgroup's first triangle, and how many of the draw's triangles are left for it - `mesh_main`'s
     // window arithmetic, kept identical on purpose: the hull's triangles must be the surface's triangles.
     const uint first_triangle = group_id.x * mesh_triangles_per_workgroup;
     const uint remaining = first_triangle < triangle_count ? triangle_count - first_triangle : 0u;
@@ -403,7 +403,7 @@ void outline_mesh_main(out vertices pbr_vertex_output verts[mesh_vertices_per_wo
             const uint raw_index = mesh_index_at(geometry, geometry.first_index + (first_triangle + t) * mesh_indices_per_triangle + corner);
             const uint vertex_index = uint(int(raw_index) + geometry.base_vertex);
             const MeshVertex v = mesh_vertex_at(geometry, vertex_index);
-            // THE SURFACE'S OWN VERTEX FIRST, through the shared body: everything the hull inherits - morph, skin,
+            // THE SURFACE'S VERTEX FIRST, through the shared body: everything the hull inherits - morph, skin,
             // the world transform, the previous-frame position - is this call.
             pbr_vertex_output o = pbr_shade_vertex(v, vertex_index, group_id.y);
             if (outline_width > 0.0)
@@ -418,7 +418,7 @@ void outline_mesh_main(out vertices pbr_vertex_output verts[mesh_vertices_per_wo
                 // points straight along the view axis the projected normal is (0,0), `normalize` returns NaN, and
                 // ONE NaN vertex drops every triangle that touches it - the first attempt at this outline in this
                 // repository moved zero pixels for exactly that reason. A degenerate normal expands by nothing,
-                // which is the article's own zero-offset case.
+                // which is the article's zero-offset case.
                 const float clip_normal_length = length(clip_normal_2d);
                 const float2 normal_2d_raw = clip_normal_length > 1e-5 ? clip_normal_2d / clip_normal_length : float2(0.0, 0.0);
                 // ... and `normal2D.x /= ScaleX` is the author's correction for the projection NOT being
@@ -470,7 +470,7 @@ void meshlet_main(out vertices pbr_vertex_output verts[mesh_vertices_per_workgro
     const MeshletRecord meshlet = host_culled ? culled_meshlet_at(push.frame_slot, geometry.first_index + group_id.x) : meshlet_at(geometry.first_index + group_id.x);
     // ONE ATOMIC PER WORKGROUP, counting what the culling below decided (docs/mesh_shaders.md step 3's measurement:
     // a rejected meshlet and a meshlet nobody dispatched are the same pixels, so the numbers are the only witness).
-    // Lane 0 owns the workgroup's accounting so a wider workgroup does not multiply every counter.
+    // Lane 0 holds the workgroup's accounting so a wider workgroup does not multiply every counter.
     if (thread_id.x == 0u)
     {
         mesh_stat_add(push.frame_slot, mesh_stat_workgroups, 1u);

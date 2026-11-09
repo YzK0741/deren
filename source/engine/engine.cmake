@@ -198,7 +198,7 @@ target_include_directories(deren_engine
 
 # The engine side gets the backend's modules (BMIs) and symbols from deren_vulkan. PUBLIC, because a
 # static library's link interface is what carries the module file set to the exe and to the tests
-# (§11.2): deren_engine's own name and its outward link surface are unchanged by S1-A.
+# (§11.2): deren_engine's name and its outward link surface are unchanged by S1-A.
 # THE ENGINE DOES NOT LINK THE BACKEND ANY MORE, and that is what makes the backend a DLL rather than
 # an auto-import library: the runtime resolves `deren_make_api_core` BY NAME out of deren_vulkan.dll
 # (source/engine/runtime/runtime.constructor.cppm, through deren.utility.dynamic_link, detaching the handle so the

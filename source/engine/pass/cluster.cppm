@@ -6,9 +6,9 @@
  *        slice grid the shading stages then read.
  * @defgroup engine_pass_cluster Clustered-Light Sort Pass
  *
- * WHAT IT OWNS: its pipeline layout and its compute pipeline (built at create time from the shared scene block
- * layout and its own shader - the first compute pipeline in this tree that came out of `deren.vulkan.core`, where
- * `core::make_cluster_pipeline` built it against the core's own scene pipeline layout); the bind of the shared
+ * WHAT IT HOLDS: its pipeline layout and its compute pipeline (built at create time from the shared scene block
+ * layout and its shader - the first compute pipeline in this tree that came out of `deren.vulkan.core`, where
+ * `core::make_cluster_pipeline` built it against the core's scene pipeline layout); the bind of the shared
  * scene set; the one-dimensional dispatch over the cluster grid; and the TWO BUFFER BARRIERS that make its
  * writes visible to the fragment stages reading them later in the same submission. That last part is why the
  * framework grew `pass_io::barrier_buffers` in the same step - see the header of `deren.engine.pass`'s
@@ -16,10 +16,10 @@
  *
  * WHY `extent_rule::none`: this dispatch is `tiles_x * tiles_y * slices` workgroups, a count derived from the
  * frame's extent but equal to neither it nor half of it. Declaring `full` would have been a claim the host
- * cannot honour (and one the pass would have to ignore), so the pass declares that it sizes its own work and
- * reads the count from its own frame - the same split as the scene pass's leaves.
+ * cannot honour (and one the pass would have to ignore), so the pass declares that it sizes its work and
+ * reads the count from its frame - the same split as the scene pass's leaves.
  *
- * WHAT IT DOES NOT OWN: the two cluster buffers themselves (the passchain allocates them per frame slot, and
+ * WHAT IT DOES NOT hold: the two cluster buffers themselves (the passchain allocates them per frame slot, and
  * they live in the shared scene block as bindings 11 and 12) and the grid's dimensions, which the renderer derives
  * from the swapchain extent once per frame.
  */
@@ -42,7 +42,7 @@ export namespace deren::engine::pass {
     /**
      * @brief what the renderer hands the sort: how many clusters this frame has
      *
-     * One number, and it is the frame's: the grid comes from the extent, the slice count is the shader's own,
+     * One number, and it is the frame's: the grid comes from the extent, the slice count is the shader's,
      * and the two buffers arrive through `resolved_io::barrier_buffers` because the pass orders them without
      * binding them (they are the shared scene block's bindings 11 and 12).
      */
@@ -55,7 +55,7 @@ export namespace deren::engine::pass {
      * @brief the clustered-light sort: a 1D dispatch that bins the punctual lights into clusters
      *
      * It runs before the scene pass (the shading stages read the bins it writes) and is skipped entirely when
-     * no punctual light is active or the frame is flat-shaded: `feature()` is the renderer's own predicate, so a
+     * no punctual light is active or the frame is flat-shaded: `feature()` is the renderer's predicate, so a
      * frame whose light list is empty records nothing - which is what keeps every pre-M5 reference byte-identical.
      */
     class cluster_pass final : public frame_pass {
@@ -74,9 +74,9 @@ export namespace deren::engine::pass {
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const& host) override;
 
-        /// @brief the dispatch alone, with none of this pass's own ordering
+        /// @brief the dispatch alone, with none of this pass's ordering
         ///
-        /// The removed legacy path's `record()` owned the two buffer barriers that publish the sort's writes to the
+        /// The removed legacy path's `record()` held the two buffer barriers that publish the sort's writes to the
         /// fragment stages (see its comment). A graph-recorded frame declares those same buffers instead and
         /// the graph emits the ordering, so its recorder calls THIS entry: the two barrier paths must never
         /// both run for one submission (the migration rule the post chain's passes already follow).
@@ -84,8 +84,8 @@ export namespace deren::engine::pass {
 
         /// @brief whether the pass built what it records with (the renderer gates its feature on this)
         [[nodiscard]] bool pipeline_ready() const noexcept;
-        /// @brief the framework's generic form of the same question, so an owner holding only a chain can ask it
-        ///        (a pass with nothing of its own to build keeps the interface's `true`; see `frame_pass::ready`)
+        /// @brief the framework's generic form of the same question, so a holder holding only a chain can ask it
+        ///        (a pass with nothing separate to build keeps the interface's `true`; see `frame_pass::ready`)
         [[nodiscard]] bool ready() const noexcept override {
             return this->pipeline_ready();
         }

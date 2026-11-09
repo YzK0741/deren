@@ -71,7 +71,7 @@ export namespace deren::promise::rhi {
     };
 
     /// "THIS GROUP SLOT NAMES NO STAGE", the spelling a `ray_tracing_group` uses for the slots it leaves empty
-    /// (`VK_SHADER_UNUSED_KHR` in the API's own vocabulary, as a value so the descriptor stays portable).
+    /// (`VK_SHADER_UNUSED_KHR` in the API's vocabulary, as a value so the descriptor stays portable).
     inline constexpr std::uint32_t shader_group_none = 0xFFFFFFFFu;
 
     /// ONE SHADER GROUP of a ray-tracing pipeline: the STAGE INDICES it binds, in the order
@@ -79,7 +79,7 @@ export namespace deren::promise::rhi {
     ///
     /// A GENERAL group names ONE shader (`general`: a raygen, a miss or an intersection entry); a HIT group
     /// names up to three (`closest_hit`, `any_hit`, `intersection`) and its geometry kind. WHICH KIND a group is
-    /// follows from which slots are filled, which is the rule the API's own group type states - so the
+    /// follows from which slots are filled, which is the rule the API's group type states - so the
     /// descriptor does not carry a group-type enumerator that could disagree with the slots.
     ///
     /// THE GROUP ORDER IS THE CALLER'S SHADER BINDING TABLE ORDER: the caller fills its SBT regions in exactly
@@ -96,7 +96,7 @@ export namespace deren::promise::rhi {
     };
 
     /// A shader AS binding backed by an existing descriptor heap range. No descriptor set is allocated.
-    /// The backend translates the binding to its own heap mapping; array elements are stride bytes apart.
+    /// The backend translates the binding to its heap mapping; array elements are stride bytes apart.
     struct acceleration_structure_heap_binding {
         shader_stage stage = shader_stage::ray_generation;
         std::uint32_t descriptor_set = 0;
@@ -129,7 +129,7 @@ export namespace deren::promise::rhi {
          * formats, the depth format, the blend modes, the sample count and the depth test are then IGNORED,
          * exactly as `fragment_code` is ignored for a stage that has no fragment shader. The name says what
          * the bytes ARE rather than reusing `vertex_code` for a shader that is not a vertex stage: the two
-         * graphics fields are named for their stages, and this one is named for its own.
+         * graphics fields are named for their stages, and this one is named for its stage.
          *
          * THE ENTRY POINT IS NOT HERE, on purpose: every shader this renderer builds is entered at "main"
          * (the graphics path hardcodes the same name in `make_pipeline`), so a field for it would carry one
@@ -151,7 +151,7 @@ export namespace deren::promise::rhi {
          * compute and blend fields are ignored, exactly as the compute spelling ignores the attachment state.
          *
          * WHAT IS NOT HERE: the SHADER BINDING TABLE. Its handles are per-pipeline data read back after
-         * creation, and its regions are the CALLER's memory with the device's own stride rules - both are the
+         * creation, and its regions are the CALLER's memory with the device's stride rules - both are the
          * caller's side of the boundary (see the pass that fills one), and a descriptor carrying them would be
          * promising a lifetime this contract cannot state.
          */
@@ -175,7 +175,7 @@ export namespace deren::promise::rhi {
     /// Each one is a polymorphic handle and not much more yet: the operations the engine
     /// performs on them (bind, draw, dispatch, barrier, present) are exactly the S1
     /// design surface, held back by §6.4's "explicit barrier first, then shadow mode"
-    /// decision. What they carry today is ownership: destroying one through this base
+    /// decision. What they carry today is retention: destroying one through this base
     /// has to reach the backend's destructor, which is the property the boundary rests
     /// on.
     struct shader : object {

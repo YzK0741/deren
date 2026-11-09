@@ -53,7 +53,7 @@ namespace deren::engine::pass {
             return rhi::error::invalid_argument;
         }
         // THE FRAME'S RECORD STEP BOUND THE PIPELINE the declaration resolved from `pipeline_handle()` (the pass's
-        // own contract object), so this entry binds nothing: a second bind would be a duplicated state change.
+        // its contract object), so this entry binds nothing: a second bind would be a duplicated state change.
         //
         // THE PUSH BLOCK IS THE TWO HEAP INDICES (and the endpoint's third lane): the shader reads its per-frame and
         // per-image slots through them, and the block's declared shape is `VisibilityResolvePush` in the shader -
@@ -61,7 +61,7 @@ namespace deren::engine::pass {
         if (!io.push_block(*io.list, {})) {
             return rhi::error::invalid_argument;
         }
-        // Preserve the endpoint's third word (software/hybrid visibility). Feedback has its own word.
+        // Preserve the endpoint's third word (software/hybrid visibility). Feedback has its word.
         auto status = io.list->push_constants(12, std::as_bytes(std::span(&mip_feedback_slot, 1)));
         if (status != rhi::error::ok) {
             return status;

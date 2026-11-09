@@ -5,7 +5,7 @@
 // run_heap_graphics_probe renders the bindings of one material through the heap-native shaders and
 // reads the result back. Both exist to answer "did the heap get what the shader expects" without a
 // validation layer, which is how this migration was debugged - and neither belongs in the production
-// runtime, so they live in their own partition.
+// runtime, so they live in their partition.
 //
 // Imports are NOT transitive: this partition imports what the probe code calls for itself.
 // ============================================================================
@@ -40,10 +40,10 @@ import deren.engine.frame_constants; // one frame's shared constants (see update
 
 namespace deren::engine {
     rhi::shared_object<rhi::command_buffer> runtime::make_probe_commands(std::string_view const what) {
-        // ONE PROBE'S OWN RECORDING SESSION, THROUGH THE CONTRACT (abi 22): a primary command buffer the backend
-        // owns, begun with the one-time-submit usage the raw pool's TRANSIENT flag used to spell. The pool, the
+        // ONE PROBE'S RECORDING SESSION, THROUGH THE CONTRACT (abi 22): a primary command buffer the backend
+        // holds, begun with the one-time-submit usage the raw pool's TRANSIENT flag used to spell. The pool, the
         // queue family and the submission are the backend's now - the probe keeps what it always had, which is a
-        // buffer of its own that nothing else records into (the mask bake looked isolated too and turned out to
+        // buffer that nothing else records into (the mask bake looked isolated too and turned out to
         // record into the frame's buffer; this one really is).
         rhi::shared_object<rhi::command_buffer> commands = this->rhi_face().commands->make_command_buffer({.kind = rhi::command_buffer_kind::primary});
         if (commands == nullptr) {
@@ -61,10 +61,10 @@ namespace deren::engine {
     }
 
     bool runtime::submit_probe_commands(rhi::command_buffer& commands) {
-        // THE CONTRACT SUBMITS IT (plan X4): `api_core::submit()` takes a list the CALLER owns as well as the
+        // THE CONTRACT SUBMITS IT (plan X4): `api_core::submit()` takes a list the CALLER holds as well as the
         // frame's, so an isolated probe buffer no longer goes to the queue through the escape - the raw
         // `vkQueueSubmit` that stood here was this file's second and last Vulkan call. NOTHING IS PRESENTED for an
-        // owned list (no swapchain image, no acquire state), and the wait afterwards is still the contract's
+        // held list (no swapchain image, no acquire state), and the wait afterwards is still the contract's
         // `wait_idle()`, which the callers already perform.
         return this->rhi_face().commands->submit(commands) == rhi::error::ok;
     }
@@ -76,8 +76,8 @@ namespace deren::engine {
         // assumptions: a pipeline created with VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT and NO layout, a
         // shader that declares its resources with `descriptor_heap` and indexes the grid by slot, a combined image
         // sampler CONSTRUCTED at the use site from a sampler in the sampler heap, and its parameters delivered by
-        // vkCmdPushDataEXT. It runs in its own command buffer at scene setup, which is what makes it isolated -
-        // the mask bake looked isolated too and turned out to record into the frame's own buffer.
+        // vkCmdPushDataEXT. It runs in its command buffer at scene setup, which is what makes it isolated -
+        // the mask bake looked isolated too and turned out to record into the frame's buffer.
         rhi::api_core& vk = this->core_face;
         // Slot 0 of the sampler heap is the texture sampler: the first of the six core::create_samplers makes, in
         // the order source/shaders/heap_slots.glsl names (the contract test compares that order, and the host has no
@@ -94,7 +94,7 @@ namespace deren::engine {
         }
 
         // The answer's buffer: 16 bytes, host-visible, and ADDRESSABLE because the push carries its address.
-        // THE CONTRACT OWNS IT (unique_object releases the reference on every path out of this function,
+        // THE CONTRACT HOLDS IT (unique_object releases the reference on every path out of this function,
         // including the two early returns below), and `mapped()` is the byte view `create_buffer` threw away
         // for everything that is not host-visible.
         rhi::unique_object<rhi::buffer> answer{this->core_face.resources->create_buffer(rhi::buffer_desc{
@@ -110,10 +110,10 @@ namespace deren::engine {
         uint64_t const answer_address = this->buffer_address(*answer);
 
         // ---- THE RECORDING, THROUGH THE CONTRACT (abi 22) ----
-        // A contract command buffer of its own, the heap bind and the push through the `descriptor_heap` ability's
-        // OWN verbs, a contract `dispatch`, a contract `submit` and a device idle. The hand-made
+        // A separate contract command buffer, the heap bind and the push through the `descriptor_heap` ability's
+        // DEDICATED VERBS, a contract `dispatch`, a contract `submit` and a device idle. The hand-made
         // `VkCommandPool`/`VkCommandBuffer`/`VkFence`/`vkQueueSubmit`/`vkWaitForFences` that stood here named a
-        // device and a queue the contract already owns, and the pipeline arrives as the CONTRACT object the
+        // device and a queue the contract already holds, and the pipeline arrives as the CONTRACT object the
         // builder returned (no `get_pipeline()`).
         rhi::shared_object<rhi::command_buffer> const commands = this->make_probe_commands("the heap-native probe");
         if (commands == nullptr) {
@@ -126,7 +126,7 @@ namespace deren::engine {
         }
         rhi::descriptor_bind_info const heap_bind{.commands = commands.get()};
         if (heap->bind(heap_bind) != rhi::error::ok) {
-            deren::utility::log("descriptor heap: the heap-native probe could not bind the heaps on its own command buffer");
+            deren::utility::log("descriptor heap: the heap-native probe could not bind the heaps alone command buffer");
             return;
         }
         if (commands->bind_pipeline(*built->trace->contract) != rhi::error::ok) {
@@ -155,7 +155,7 @@ namespace deren::engine {
             deren::utility::log("descriptor heap: the heap-native probe's submission was refused");
             return;
         }
-        // THE IDLE IS THE PROBE'S OWN REQUIREMENT, not a synchronisation shortcut: the answer is read out of HOST
+        // THE IDLE IS THE PROBE'S REQUIREMENT, not a synchronisation shortcut: the answer is read out of HOST
         // memory below, so the work has to be DONE - and the contract's `wait_idle()` says exactly that. It runs
         // once, at scene setup, with nothing else in flight (the fence this replaced waited for the same thing).
         vk.wait_idle();
@@ -198,7 +198,7 @@ namespace deren::engine {
 
         // ---- THE READ-BACK PATH, NOW SINGLE (docs/host_image_copy.md) ----
         // With VK_EXT_host_image_copy the copy out of the image is performed by the IMPLEMENTATION into a pointer
-        // of the app's own memory: the target needs the HOST_TRANSFER usage instead of TRANSFER_SRC, no staging
+        // of the app's memory: the target needs the HOST_TRANSFER usage instead of TRANSFER_SRC, no staging
         // buffer is created and no copy command is recorded. The capability is REQUIRED of the device now, so
         // there is no second path to choose between and no predicate for later branches to disagree about.
         //
@@ -227,7 +227,7 @@ namespace deren::engine {
         }
 
         // ---- THE RECORDING, THROUGH THE CONTRACT (abi 22) ----
-        // The same shape the compute probe took: a contract command buffer of its own, the heap bind + the push
+        // The same shape the compute probe took: A separate contract command buffer, the heap bind + the push
         // through the `descriptor_heap` verbs, the rendering scope / dynamic state / pipeline bind / draw through
         // the record series (the MESH arm is `draw_mesh_tasks`, NOT a resolved entry point - the contract has that
         // verb, so no `vkGetDeviceProcAddr` is involved), and a contract submit + idle.
@@ -242,14 +242,14 @@ namespace deren::engine {
         }
         rhi::descriptor_bind_info const heap_bind{.commands = commands.get()};
         if (heap->bind(heap_bind) != rhi::error::ok) {
-            deren::utility::log("descriptor heap: the heap-native graphics probe could not bind the heaps on its own command buffer");
+            deren::utility::log("descriptor heap: the heap-native graphics probe could not bind the heaps alone command buffer");
             return;
         }
         // THE TARGET'S FIRST TRANSITION IS A CONTRACT ROLE PAIR: `undefined -> color_attachment` is what the raw
         // barrier spelled (TOP_OF_PIPE -> COLOR_ATTACHMENT_OUTPUT, no source access, UNDEFINED -> GENERAL).
         // THE TARGET'S FIRST TRANSITION IS A CONTRACT BARRIER (the general `barrier(image_barrier)` form, not
         // `use()`): `use()` declares the FRAME image's role pair and REFUSES a buffer that records into a buffer
-        // the caller created (its own doc), while `barrier` resolves any image the backend handed out and records
+        // the caller created (its doc), while `barrier` resolves any image the backend handed out and records
         // into whatever list is recording. `undefined -> color_attachment` is what the raw barrier spelled
         // (TOP_OF_PIPE -> COLOR_ATTACHMENT_OUTPUT, no source access, UNDEFINED -> GENERAL).
         rhi::image_barrier const to_colour{.resource = target.get(),
@@ -268,7 +268,7 @@ namespace deren::engine {
             .colors = colors,
             .depth = {},
             .has_depth = false,
-            .secondary_contents = false, // recorded into its own primary, not a secondary
+            .secondary_contents = false, // recorded into its primary, not a secondary
         };
         if (commands->begin_rendering(rendering) != rhi::error::ok) {
             deren::utility::log("descriptor heap: the heap-native graphics probe's rendering scope was refused");
@@ -291,7 +291,7 @@ namespace deren::engine {
         }
         if (mesh_shader) {
             // ONE workgroup, ONE triangle: the mesh entry emits three vertices and one index triple, and the
-            // launch size is the dispatch's business (the shader's own [numthreads(1, 1, 1)] sizes the group).
+            // launch size is the dispatch's business (the shader's [numthreads(1, 1, 1)] sizes the group).
             // This call is the whole host-side difference between the two probes - there is no vertex buffer, no
             // vertex input and no layout either way, and the verb is the same one the passes use.
             commands->draw_mesh_tasks(1u, 1u, 1u);
@@ -366,7 +366,7 @@ namespace deren::engine {
     // frame, only when DEREN_HZB_PROBE_CAPTURE is set, and ONLY after the caller has made the device idle - the
     // frame's copy into the two readback buffers is recorded in runtime.post_graph.cpp, and the mapped bytes are
     // not valid until the frame has completed. runtime.readback.cppm calls this right after the device idle it
-    // already performs for the depth dump, which is the same point its own dumps are written from.
+    // already performs for the depth dump, which is the same point its dumps are written from.
     //
     // THE THREE FILES, and what pins each one (scripts/measure/hzb_verify.py):
     //   <prefix>.pyramid.bin - u32 {file magic, width, height, level_count} then `words` float32 words: the
@@ -376,7 +376,7 @@ namespace deren::engine {
     //                          view[16]/proj[16]/camera_pos[3] BITS the build pass snapshotted from the camera
     //                          UBO (see common/hzb.slang).
     //   <prefix>.json        - the metadata that makes the header checkable without a second probe: this frame's
-    //                          extent/level count/frame slot and the HOST's own camera snapshot for the same
+    //                          extent/level count/frame slot and the HOST's camera snapshot for the same
     //                          frame. "Header view/proj == this frame's camera" is the C21 invariant (§4.1);
     //                          the floats are printed with %.9g, which is exact for a float32 round trip.
     // =============================================================================================

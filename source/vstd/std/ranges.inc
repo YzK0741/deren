@@ -157,7 +157,7 @@ export namespace std {
     // This is used internally in C++20 mode.
 #if VSTD_IMPLEMENTATION_LIBCXX
     // LIBC++-ONLY BY NECESSITY, not by preference: libc++ declares this operator in std::ranges and
-    // it can be named, while libstdc++ implements it as a HIDDEN FRIEND of its range-adaptor closure
+    // it can be named, while libstdc++ implements it as A separate HIDDEN FRIEND range-adaptor closure
     // type - measured, `using std::views::operator|;` and `using std::ranges::operator|;` both fail
     // there, and a hidden friend is reachable by ADL only and cannot be re-exported by name at all.
     // Pipelines still work on that toolchain (`views::a | views::b`); what cannot be done there is to
@@ -178,7 +178,7 @@ export namespace std {
     // [range.ref.view], ref view
     using std::ranges::ref_view;
 
-    // [range.owning.view], owning view
+    // [range.holding.view], holding view
     using std::ranges::owning_view;
 
 #if VSTD_STD_VER >= 23

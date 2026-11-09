@@ -24,7 +24,7 @@ struct post_vertex_output
 post_vertex_output main(uint vertex_index : SV_VertexID)
 {
     // GLSL's gl_VertexIndex is SPIR-V's VertexIndex; SV_VertexID subtracts BaseVertex, which a
-    // fullscreen draw never sets - the two are the same value here (Slang's own docs state the mapping).
+    // fullscreen draw never sets - the two are the same value here (Slang's docs state the mapping).
     float2 pos = float2(float((vertex_index << 1u) & 2u), float(vertex_index & 2u));
 
     post_vertex_output out;
@@ -62,12 +62,12 @@ struct PostPush
     float fxaa_edge_threshold;
     // THE ARTICLE'S LUT WEIGHT (`ZmdLutPost.shader`'s `_LutWeight`). It sits HERE, at the end of the floats and
     // before the three heap indices, because that is where the CPU's `post_push_constants` puts it - see this
-    // struct's own note above about a block that stops short reading its lanes out of the wrong members.
+    // struct's note above about a block that stops short reading its lanes out of the wrong members.
     float lut_weight;
     float tone_mapping;
     uint frame_slot;
     uint image_index;
-    uint post_source_slot; // this chain's own lane: the host names the pass's ABSOLUTE grid slot per pass
+    uint post_source_slot; // this chain's lane: the host names the pass's ABSOLUTE grid slot per pass
 };
 [[vk::push_constant]] ConstantBuffer<PostPush> pc;
 #define heap_frame_slot (pc.frame_slot)
@@ -128,10 +128,10 @@ float3 downsample_13(DescriptorHandle<Texture2D<float4>> source, uint sampler_sl
     return sum;
 }
 
-/// @brief 3x3 tent filter (1 2 1 / 2 4 2 / 1 2 1) over one texel of @p level 's own resolution: the footprint
+/// @brief 3x3 tent filter (1 2 1 / 2 4 2 / 1 2 1) over one texel of @p level 's resolution: the footprint
 ///        an upsample step of the bloom pyramid stands for
 /// @return the filtered RGB (weights sum to 1)
-/// @note sampling a coarse level with a single bilinear fetch (or a half-texel box) makes one of ITS texels a
+/// @note sampling a coarse level with a single bilinear fetch (or a half-texel box) makes a separate one texels a
 ///       block on screen - at 1/16 resolution that is 16x16 pixels of flat light with square edges. The tent
 ///       is what UE's bloom upsample uses (PostProcessBloom.usf), and it is the reason a coarse level reads
 ///       as a wide glow instead of a tile.
@@ -229,7 +229,7 @@ float4 frag_main([[vk::location(0)]] float2 v_uv : TEXCOORD0) : SV_Target
     // THE ADDRESSING IS THE ARTICLE'S, LINE FOR LINE: blue picks the slice and the two neighbouring slices are
     // lerped, red and green sit inside the tile with the vertical flip its `yOffset` carries, and every index is
     // pulled half a texel in (`halfColX` / `halfColY`) so a linear filter reads texel CENTRES. `_LutWeight` is the
-    // article's own blend (`lerp(origin, lut, w)`), not a multiply.
+    // article's blend (`lerp(origin, lut, w)`), not a multiply.
     //
     // THE SLOT HOLDS A NEUTRAL CUBE BY DEFAULT (`runtime::set_post_lut` bakes it), so this block is the identity with
     // no artist's cube present: the weight can be the article's 1.0 and the frame is unchanged, which is what makes
@@ -237,7 +237,7 @@ float4 frag_main([[vk::location(0)]] float2 v_uv : TEXCOORD0) : SV_Target
     //
     // WHAT IS NOT REPRODUCED IS THE ARTICLE'S DITHER (`ditherNoise * 0.0013725491 * _LutWeight`), a recorded
     // difference rather than an oversight: it needs the pixel coordinate and this stage has no screen-size constant
-    // to build one from (the bloom's filters derive their spacing from each level's own size instead). Its amplitude
+    // to build one from (the bloom's filters derive their spacing from each level's size instead). Its amplitude
     // is 1.4e-3 of the graded value, below what an 8-bit attachment can hold, so the grade is applied exactly and the
     // dither is left to a stage that knows the resolution.
     if (pc.lut_weight > 0.0)

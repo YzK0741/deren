@@ -4,7 +4,7 @@
 // and bumps the failure counter; the test's main returns 1 when anything failed so
 // CTest sees the test as failed. One test executable = one translation unit.
 //
-// TESTS ARE PLAIN TUs, and this harness formats its own output (`std::format` into one `std::fwrite`) rather
+// TESTS ARE PLAIN TUs, and this harness formats its output (`std::format` into one `std::fwrite`) rather
 // than calling the project's `deren::utility::println`, WHICH IS A MEASURED WORKAROUND FOR A CLANG BUG rather than a
 // layering preference:
 //
@@ -16,10 +16,10 @@
 //     with "clang frontend command failed due to signal" inside `EmitBuiltinNewDeleteCall`
 //     (`std::__libcpp_allocate`). The minimal reproduction of that shape - a module exporting such a template,
 //     a header with an inline function calling it, a TU that imports and then includes - compiles cleanly on
-//     its own, so the trigger is the combination of the two rather than either half.
+//     its, so the trigger is the combination of the two rather than either half.
 //
 // A harness is not worth a compiler bug, so it formats here: `std::format` is compiler and library neutral, and
-// every test TU stays a plain TU that imports only the module under test. The engine's own printing goes
+// every test TU stays a plain TU that imports only the module under test. The engine's printing goes
 // through `deren::utility::print`/`println` as it should.
 
 #include <cstddef>

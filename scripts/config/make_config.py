@@ -225,7 +225,7 @@ def write_toml(path: str, cfg: dict) -> None:
         f"lut_size = {cfg['lut_size']}",
         # QUOTED like `model` above: `fmt_toml_string` escapes the contents but the CALLER supplies the quotes,
         # and without them the empty default wrote `environment_hdr = ` - a line no TOML parser accepts, i.e.
-        # the generator's own default output was an unreadable config (found while adding area_light_*).
+        # the generator's default output was an unreadable config (found while adding area_light_*).
         f"environment_hdr = \"{fmt_toml_string(cfg['environment_hdr'])}\"",
         f"environment_intensity = {cfg['environment_intensity']}",
         f"area_light_size = {cfg['area_light_size']}",
@@ -399,7 +399,7 @@ def ask_all(output_dir: str) -> dict:
     # area_light_*: the reference package's 30 m soft box, expressed through the frame's ONE directional light
     # (see config.example.toml and app_config::derive_area_light). The DEFAULT IS SIZE 0 = off, and the
     # generator must be able to write that off state, so 0 is a legal answer to the first question. The
-    # manifest's own numbers are size 30 / power 4000 / position [-3, 15, 4] (Blender's [-3, -4, 15] turned
+    # manifest's numbers are size 30 / power 4000 / position [-3, 15, 4] (Blender's [-3, -4, 15] turned
     # Y-up) aiming at [0, 0, 0], and position/target are measured from the AUTHOR'S ORIGIN - the character's
     # feet on the ground - not from the scene's bounding-box centre; `irradiance` decides whether that emitter
     # IS the main light (its direction and radiance drive the sun) or contributes only its penumbra, `shadow`

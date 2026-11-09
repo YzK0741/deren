@@ -302,7 +302,7 @@ namespace deren::engine::animation {
                 // region BEFORE overwriting the current one: that copy is the whole of the morph half of a
                 // morphing vertex's motion vector (see the layout note in source/shaders/scene/pbr.slang, and
                 // docs/deformation_motion_vectors.md for why the previous weights are stored here rather
-                // than in a buffer of their own). Both regions are `rig.target_count` floats, so this is
+                // than in A separate buffer). Both regions are `rig.target_count` floats, so this is
                 // the ONLY place that has to keep them in step.
                 float* const weight_dst = active_scratch + weight_offset;
                 std::memcpy(weight_dst + rig.target_count, rig.last_weights.data(), static_cast<std::size_t>(rig.target_count) * sizeof(float));
@@ -338,7 +338,7 @@ namespace deren::engine::animation {
 
         // 1. playback: advance the clock (when playing) and sample the active clip into the
         //    scene node locals + the active slot's morph weights. Each source samples
-        //    independently (channels are keyed by target node; only that source's own runtime
+        //    independently (channels are keyed by target node; only that source's runtime
         //    nodes are written), so heavy animations fan the per-source sampling out over the
         //    runtime's shared task pool while light ones stay on this thread.
         if (this->active != nullptr) {
@@ -352,9 +352,9 @@ namespace deren::engine::animation {
             bool changed = false;
             if (this->parallel_sampling && !this->sample_keys.empty()) {
                 // slice the stable source list over the runtime's shared task pool; each worker
-                // owns a contiguous range and reports whether it moved any node. Different
+                // holds a contiguous range and reports whether it moved any node. Different
                 // sources touch different runtime nodes / morph offsets, so no shared state is
-                // written concurrently (debug_translation has one writer: its own source's slice).
+                // written concurrently (debug_translation has one writer: its source's slice).
                 // The tasks capture only `this` (+ the slice bounds): self-contained, so the
                 // list can be handed to the host's run_tasks and executed on the host pool.
                 // sampling_tasks is MEMBER scratch, reused every frame (no per-frame allocation
@@ -431,7 +431,7 @@ namespace deren::engine::animation {
             deren::utility::vessel::vector<glm::mat4>& matrices = this->skin_matrices_scratch;
             matrices.clear();
             // The shared identity block (indices 0-3) is written by the first controller only: a
-            // later controller uploads its joint blocks at its own region base, so it must not
+            // later controller uploads its joint blocks at its region base, so it must not
             // prepend the identity block (that would overwrite the preceding region).
             bool const prepends_identity_block = this->skin_region_base == 4;
             std::size_t const prefix = prepends_identity_block ? 4 : 0;

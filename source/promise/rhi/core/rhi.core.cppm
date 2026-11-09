@@ -64,8 +64,8 @@ export namespace deren::promise::rhi {
         }
     };
 
-    /// Borrowed independent command allocation/submission interface; rejects acquired-frame commands.
-    /// Submit validates provenance and recording state before queuing. Caller-owned buffers/images
+    /// Referenced independent command allocation/submission interface; rejects acquired-frame commands.
+    /// Submit validates provenance and recording state before queuing. Caller-held buffers/images
     /// must outlive GPU use; existing primary/secondary/texture-group retention remains in force.
     /// Batches execute in span order, validate atomically, and add no implicit visibility barriers.
 

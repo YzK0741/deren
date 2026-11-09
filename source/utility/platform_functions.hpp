@@ -13,7 +13,7 @@
  * "a preprocessor directive carries the declaration", so the declarations moved here and every file
  * that needs them includes this one header instead of restating them.
  *
- * WHY THE FUNCTIONS ARE NOT MODULES AT ALL is documented in each definition's own file comment:
+ * WHY THE FUNCTIONS ARE NOT MODULES AT ALL is documented in each definition's file comment:
  * <windows.h> pulls in (via crtdbg) placement forms of operator new, and a module's global module
  * fragment feeds the global module - including it there made libc++'s operator new ambiguous in every
  * TU that imported `utility`. The module side therefore only sees the C entry points declared below.

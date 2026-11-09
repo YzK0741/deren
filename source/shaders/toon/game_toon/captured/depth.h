@@ -48,7 +48,7 @@
 //   * `tmp/game_toon-studio-audit/final/responses/eadba1af4f-DIaZSo8d.js:38` (the bundled app chunk; the saved
 //     `final/viewer-lighting.js` is only a 2,511-byte lighting-rig excerpt and does NOT contain it):
 //       `const Nm=bt,pt={Q285:{value:Nm},Q272:{value:0}},...`               - the shared uniform pair
-//       `class YQ`  = the scene-depth prepass: its own `WebGLRenderTarget` at renderer size with a
+//       `class YQ`  = the scene-depth prepass: its `WebGLRenderTarget` at renderer size with a
 //                     `DepthTexture`, `NearestFilter`; an override material `{colorWrite:false, side:Ir}` named
 //                     `"scene-depth"`; render() hides every mesh that is NOT opaque/depth-writing/non-instanced
 //                     (and all lines/points/sprites), clears DEPTH ONLY, renders the camera, then publishes
@@ -69,7 +69,7 @@
 // SO THE EYE DOES NOT READ THIS IMAGE. `eye.slang` has no depth term in the capture, the shared `R114` loop
 // skips `mode==3` for `FAMILY_EYE` (`readable:238-241`), and the uniform builder only merges `Km()` for
 // `fam==="hair"` (`material-uniform-bindings.js:1`). `hair-notes.md:217`'s "eye-through-hair depth test" is a
-// misreading of this block - it is the HAIR RIM's own occlusion test. Do not add a depth read to the eye.
+// misreading of this block - it is the HAIR RIM's occlusion test. Do not add a depth read to the eye.
 // (The same `Q285/Q272` names appear again in the VFX `_USE_SOFTBLEND` template - `...js:690`, `#ifdef Q271`,
 // `Q259=_SoftDistance`, `Q130=_SoftBias` at `...js:744` - but no recovered code ever writes `pt.Q285/Q272` into
 // a VFX material, so that program is either inert in this build or supplied by a path the audit did not
@@ -102,7 +102,7 @@
 //    `proj[i][j]` is the SAME element as GLSL's `projectionMatrix[i][j]` (this is the documented reason the
 //    buffer uses `VR_MAT4`; `shading.slang:44-45`, `mesh_fetch.slang:20`). deren builds `perspectiveRH_ZO`
 //    (`primitive.cpp:360-366`) - Vulkan's [0,1] depth, not GL's [-1,1] - so the capture's `*2-1` step and its
-//    GL constants are replaced by deren's own inversion, the one this engine already uses
+//    GL constants are replaced by deren's inversion, the one this engine already uses
 //    (`toon_screen_rim.slang:63-71`, `goo_rim.slang:218-236`):
 //        window depth d, z_ndc_vk = d;  z_view = proj[3][2] / (d + proj[2][2])       (perspective)
 //    EQUIVALENCE, so the transcription is provable rather than a reinterpretation: for the same near/far the
@@ -113,13 +113,13 @@
 // 3. VIEW CONSTANTS. `CameraUBO.view` (same `VR_MAT4`). deren's shaders multiply column-vector style -
 //    `mul(view, float4(...))` (see `game_toon_lights.h:39,44-47`) - which is GLSL's `viewMatrix * vec4(...)`, so
 //    `mul(view, float4(world_pos,1)).z` is the capture's `R258.z`, and `R219 = abs(view.z)` is
-//    `game_toon_depth_own_view_distance`. The capture's `1.0/gl_FragCoord.w` arm is the same distance; it is not
+//    `game_toon_depth_surface_view_distance`. The capture's `1.0/gl_FragCoord.w` arm is the same distance; it is not
 //    needed because the capture's MAIN character program takes the `#else` arm anyway: `Q198` (the lit-outline
 //    define) is never set on a character material (`...js:606` `addOutline` does `this.litOutlines&&(c.Q198="")`),
 //    and `character.vert.glsl` has neither `Q198` nor `Q76` (only `outline.vert.glsl:6,17-18,39-40` does).
 // 4. SCREEN UV. `camera.proj` is the CURRENT projection INCLUDING the TAA jitter when TAA is on
 //    (`primitive.cppm:111-126`) - the same matrix `gbuffer_depth` was rasterized with - so projecting
-//    `world_pos` with it reproduces the depth image's own pixel grid. deren's projection has `proj[1][1] *= -1`
+//    `world_pos` with it reproduces the depth image's pixel grid. deren's projection has `proj[1][1] *= -1`
 //    (`primitive.cpp:364`), the Vulkan y-down framebuffer flip, so `clip.y/w*0.5+0.5` is the top-left-origin v
 //    Vulkan textures use: the uv expression is the capture's, unchanged. What DOES change is the DIRECTION of
 //    the screen-space normal's y: the capture's uv is bottom-up (GL), deren's is top-down, so the offset uses
@@ -239,10 +239,10 @@ WD_INLINE float wf_depth_view_distance(float window_depth, float proj_22, float 
 }
 
 /// the captured comparison itself (`readable:318`), on two LINEAR view distances:
-/// `R24((abs(scene) - own - 0.1) * 10.0)`.
+/// `R24((abs(scene) - hold - 0.1) * 10.0)`.
 /// 1 = the neighbour is farther than this fragment (rim kept); 0 = nearer/equal within the 0.1 bias (rim cut).
-WD_INLINE float wf_depth_occlusion(float scene_view_distance, float own_view_distance) {
-    return wf_depth_smoothstep((WD_ABS(scene_view_distance) - own_view_distance - game_toon_depth_bias) *
+WD_INLINE float wf_depth_occlusion(float scene_view_distance, float surface_view_distance) {
+    return wf_depth_smoothstep((WD_ABS(scene_view_distance) - surface_view_distance - game_toon_depth_bias) *
                                game_toon_depth_gain);
 }
 
@@ -310,7 +310,7 @@ WD_INLINE WdFloat2 wf_depth_clamp_uv(WdFloat2 uv, WdFloat2 texel) {
 ///                       heap_sampler_gbuffer, uv).r;
 ///
 /// and then set `GAME_TOON_DEPTH_RESOURCE_BOUND` to 1. DO NOT sample `heap_slots_gbuffer_depth` from
-/// `character_forward`: it is the pass's own depth attachment.
+/// `character_forward`: it is the pass's depth attachment.
 ///
 /// Until then this returns the captured no-prepass default. The viewer's `pt.Q285` starts as a 1x1 all-white
 /// texture (`const Nm=bt`, `...js:38`), i.e. window depth 1.0 = the far plane; mode OFF is what actually keeps
@@ -328,7 +328,7 @@ static float game_toon_depth_height_over_width() {
 }
 
 /// the captured `R68` (`readable:317`) for the current frame's projection. `proj[2][2]`/`proj[3][2]` are the
-/// same elements whose host copies the engine passes to its own screen-rim stages
+/// same elements whose host copies the engine passes to its screen-rim stages
 /// (`toon_screen_rim.cpp:175-176`, `goo_rim.cpp:162-163`); `false` because the camera is `perspectiveRH_ZO`.
 static float game_toon_depth_view_distance(float window_depth) {
     const float proj_22 = camera_at(heap_camera_slot).proj[2][2];
@@ -337,11 +337,11 @@ static float game_toon_depth_view_distance(float window_depth) {
 }
 
 /// the captured `R219` (`readable:307`) - this fragment's view-axis distance, `abs(view.z)`.
-static float game_toon_depth_own_view_distance(float3 world_pos) {
+static float game_toon_depth_surface_view_distance(float3 world_pos) {
     return abs(mul(camera_at(heap_camera_slot).view, float4(world_pos, 1.0)).z);
 }
 
-/// the captured `R247` (`readable:304-306`) - the SCREEN uv of a world position, through the frame's own
+/// the captured `R247` (`readable:304-306`) - the SCREEN uv of a world position, through the frame's
 /// (TAA-jittered, y-flipped, ZO) camera. This is not the mesh uv: the capture projects the world position.
 static float2 game_toon_depth_screen_uv(float3 world_pos) {
     const float4 view_pos = mul(camera_at(heap_camera_slot).view, float4(world_pos, 1.0));
@@ -369,8 +369,8 @@ static float game_toon_depth_rim_factor(float3 world_pos, float3 world_normal, f
     const float2 offset_normal = wf_depth_offset_normal(view_normal.xy, height_over_width);
     const float2 sample_uv = wf_depth_clamp_uv(wf_depth_offset_uv(screen_uv, offset_normal, rim_width), texel);
     const float scene_view_distance = game_toon_depth_view_distance(game_toon_depth_scene_raw(sample_uv));
-    const float own_view_distance = game_toon_depth_own_view_distance(world_pos);
-    return wf_depth_occlusion(scene_view_distance, own_view_distance);
+    const float surface_view_distance = game_toon_depth_surface_view_distance(world_pos);
+    return wf_depth_occlusion(scene_view_distance, surface_view_distance);
 }
 
 /// THE CAPTURED `R29` COMPOSITION, depth gate included (`readable:296-297, 318`):

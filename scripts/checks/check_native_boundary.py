@@ -8,7 +8,7 @@ a grep; it is (a) the executable's IMPORT TABLE, (b) the UNRESOLVED SYMBOLS of t
 fails while any of them is non-empty.
 
 THE ENGINE SCOPE is source/engine/ plus source/app/. Graphics plugin sources are
-excluded according to their actual CMake target ownership. Every portable module,
+excluded according to their actual CMake target retention. Every portable module,
 including the shared render layout, is checked without source exemptions.
 
 USAGE
@@ -31,7 +31,7 @@ REPO = pathlib.Path(__file__).resolve().parents[2]
 ALLOWED = ()
 
 # Sources of the SMALL STATIC LIBRARIES the DLL links (they are compiled into `deren_vulkan.dll` even though
-# they are not in its own `target_sources` block). Read from CMakeLists.txt the same way the DLL's list is, so
+# they are not in its `target_sources` block). Read from CMakeLists.txt the same way the DLL's list is, so
 # a file that joins or leaves one of those targets cannot drift out of this gate.
 DLL_LINKED_TARGETS = ("vulkan_error_tables", "vulkan_constant_init", "vulkan_synchronization")
 PLUGIN_TARGETS = ("deren_vulkan", "deren_gui_vulkan")
@@ -41,10 +41,10 @@ PLUGIN_TARGETS = ("deren_vulkan", "deren_gui_vulkan")
 TOKEN_PATTERNS = (
     ("type", re.compile(r"\bVk[A-Z][A-Za-z0-9_]*")),
     ("macro", re.compile(r"\bVK_[A-Z0-9_]+")),
-    ("entry point", re.compile(r"#include\s*<vulkan/")),  # the header, as its own category
+    ("entry point", re.compile(r"#include\s*<vulkan/")),  # the header, as its category
 )
 
-# The escape's own door: `escape()->native_x(...)`, and the engine's wrappers around it (`native_x_of`).
+# The escape's door: `escape()->native_x(...)`, and the engine's wrappers around it (`native_x_of`).
 ESCAPE_PATTERN = re.compile(r"(?:escape\(\)\.|escape->|escape_->)\s*(native_[a-z_]+|get_basis|shader_group_handles)")
 
 BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)

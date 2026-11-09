@@ -59,7 +59,7 @@ target_sources(deren_assets
         FILE_SET CXX_MODULES
         FILES
         source/gltf_loader/gltf_loader.cppm
-        # The TOON MATERIAL SIDECAR is a module of its own rather than more code in gltf_loader, because what
+        # The separate TOON MATERIAL SIDECAR is a module rather than more code in gltf_loader, because what
         # it reads is not glTF: a glTF material carries the spec's five texture slots and six factors, and a
         # toon character needs a second set (a diffuse ramp, a shadow LUT, a specular ramp, a matcap, a face
         # SDF) that glTF has no concept of and that lives in a sidecar keyed by MATERIAL NAME. Two formats,
@@ -72,10 +72,10 @@ target_sources(deren_assets
 )
 
 # THE EXTRAS PARSE CALLBACK'S ONE HEADER, and it is SYSTEM on purpose: fastgltf reports a material's `extras`
-# block by CALLING BACK with a `simdjson::dom::object*` (see its `ExtrasParseCallback`), so the loader's own
+# block by CALLING BACK with a `simdjson::dom::object*` (see its `ExtrasParseCallback`), so the loader's
 # translation unit has to know that type - and `simdjson.h` is upstream code whose warnings this project does
-# not own, exactly like the vendored libraries above. PRIVATE, because nothing that CONSUMES this DLL ever
-# sees a simdjson type: the extras are copied out into `deren::gltf::material`'s own maps before `load_model` returns.
+# not hold, exactly like the vendored libraries above. PRIVATE, because nothing that CONSUMES this DLL ever
+# sees a simdjson type: the extras are copied out into `deren::gltf::material`'s hold maps before `load_model` returns.
 target_include_directories(deren_assets
     SYSTEM PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/source/third_party/simdjson/singleheader
@@ -84,7 +84,7 @@ target_include_directories(deren_assets
 # fastgltf + simdjson, vendored under source/third_party/ (the sources ship in the repo, so no
 # network FetchContent is needed and both Windows/MSYS2 and Linux build self-contained).
 # fastgltf's headers deliberately do NOT include simdjson (it is hidden inside the .cpp
-# files), so only two translation units ever see it: this library's own sources, and
+# files), so only two translation units ever see it: this library's sources, and
 # gltf_loader's (which needs the type because fastgltf's EXTRAS PARSE CALLBACK hands it a
 # `simdjson::dom::object*` - see the SYSTEM include on that target, which is what keeps a
 # vendored header out of this project's -Werror set). simdjson is compiled from its amalgamated
@@ -98,12 +98,12 @@ target_include_directories(deren_assets
 # mimalloc (vendored under source/third_party/mimalloc, v3.4.4, MIT — see the LICENSE there):
 # allocator backing deren.utility.shared's memory service and utility::vessel.
 # Allocation and deallocation stay in one DLL; no default PMR resource is installed. Compiled as
-# its own plain-C static target from the upstream mi_sources set, mirroring the imgui /
+# its plain-C static target from the upstream mi_sources set, mirroring the imgui /
 # xxhash policy (vendored code does not follow the project's -Werror set; headers are
 # SYSTEM so the -Werror consumers that include <mimalloc.h> do not see upstream warnings).
 # PRIVATE throughout, and that is what the DLL shape changes: the vendored loader, stb and the
 # per-half toolkit are compiled INTO deren_assets.dll, so no consumer of theirs is a consumer of this
-# target's link interface any more. `vstd_lib` stays here because the module's own interface re-exports
+# target's link interface any more. `vstd_lib` stays here because the module's interface re-exports
 # it (`export import deren.vstd`), and the consumers that import the module link vstd_lib themselves.
 target_link_libraries(deren_assets
         PUBLIC

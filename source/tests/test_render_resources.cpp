@@ -9,7 +9,7 @@
 // malformed declaration below is asserted to be REJECTED: an unset resource, a binding kind that does not
 // fit the resource, an access the kind cannot perform, an element outside the family, a descriptor count of
 // zero, a sampled image with no sampler (and a uniform buffer with one), a duplicated binding, a gap in the
-// own bindings, and a push block that does not fit.
+// dedicated bindings, and a push block that does not fit.
 #include "vk_test.h"
 
 #include <algorithm>
@@ -29,7 +29,7 @@ import deren.utility.shared;
 import deren.engine.render_resource;
 import deren.engine.render_layout;             // the slot grid: its texture run IS the bindless array's capacity, checked below
 import deren.engine.pass.upscale;              // make_easu_constants: the ported FsrEasuCon, checked as arithmetic below
-import deren.engine.pass.output_targets;       // the software raster's separate surface: its two image declarations and the CSR tile-list buffer
+import deren.engine.pass.output_targets;       // the software raster's surface: its two image declarations and the CSR tile-list buffer
 import deren.promise.rhi;                      // the image/buffer request vocabulary the software surface's requests are checked against
 import deren.engine.render_resource.instances; // the request/lifetime vocabulary the software surface's declarations use
 import deren.engine.visibility.software;       // the CSR tile-list layout the buffer size is derived from
@@ -48,7 +48,7 @@ namespace {
         return rr::validate(io);
     }
 
-    /// a well-formed own binding, the starting point of every malformed one below
+    /// a well-formed dedicated binding, the starting point of every malformed one below
     constexpr rr::pass_binding good_binding = {
         .binding = 0,
         .parent = rr::binding_scope::local,
@@ -114,7 +114,7 @@ namespace {
             CHECK(families[i].life == rr::instances::lifetime::output_size);
             CHECK(families[i].debug_name != nullptr);
         }
-        // THE GRID'S SPACING IS THE DECLARATION'S OWN: the depth family lives in the range visibility-buffer v0.5
+        // THE GRID'S SPACING IS THE DECLARATION'S: the depth family lives in the range visibility-buffer v0.5
         // RESERVED for it (1239..1246, one per-image run) and is therefore not adjacent to the id family, which follows
         // the HZB tables; only the id run and the tile-list lane are one capacity apart (the layout's static_asserts
         // state the same relations on the other side).
@@ -229,14 +229,14 @@ int32_t main() {
     CHECK(rr::find(rr::resource_id::taa_history)->scope == rr::resource_scope::per_swapchain_image);
     CHECK(rr::find(rr::resource_id::furnace_cube)->scope == rr::resource_scope::device_wide);
 
-    // The binding owner decides which rules apply: the pass's OWN bindings must be numbered contiguously from
+    // The binding holder decides which rules apply: the pass's bindings must be numbered contiguously from
     // zero, while a `shared` binding only USES a resource the frame's heap provides and carries no such
     // requirement - which is the distinction the resolver and this declaration layer key on.
     {
         deren::utility::vessel::array<rr::pass_binding, 2> const mixed = {
-            good_binding, // the pass's own binding 0
-            // One of the SCENE's resources, reached through the frame's heap rather than owned - deliberately
-            // numbered 4, which would be a contiguity error if it were an `own` binding
+            good_binding, // the pass's binding 0
+            // One of the SCENE's resources, reached through the frame's heap rather than held - deliberately
+            // numbered 4, which would be a contiguity error if it were an `separate` binding
             {.binding = 4,
              .parent = rr::binding_scope::shared,
              .kind = rr::binding_kind::sampled_image,
@@ -249,7 +249,7 @@ int32_t main() {
                                 .targets = {},
                                 .push = rr::push_block{.offset = 0, .size = 56, .stages = rr::stage_flag::compute}};
         CHECK(rr::validate(io).has_value());
-        // ... and the SAME pair with the shared binding marked `own` is refused, because 0,4 is not contiguous
+        // ... and the SAME pair with the shared binding marked `separate` is refused, because 0,4 is not contiguous
         deren::utility::vessel::array<rr::pass_binding, 2> const not_contiguous = {good_binding, {.binding = 4, .parent = rr::binding_scope::local, .kind = rr::binding_kind::sampled_image, .resource = rr::resource_id::scene_textures, .access = rr::binding_access::read, .sampler = rr::sampler_hint::post}};
         rr::pass_io const gap = {.name = "shared-like", .bindings = not_contiguous, .targets = {}, .push = std::nullopt};
         CHECK(!rr::validate(gap).has_value());
@@ -318,8 +318,8 @@ int32_t main() {
         CHECK(!validate_one(b).has_value());
     }
     {
-        // The case that stood here ("an own binding outside the pass's own set") went with the set index itself:
-        // there is no set to be outside any more, and the surviving rule - own bindings numbered contiguously
+        // The case that stood here ("a dedicated binding outside the pass's set") went with the set index itself:
+        // there is no set to be outside any more, and the surviving rule - dedicated bindings numbered contiguously
         // from zero - is the next case.
         rr::pass_binding b = good_binding;
         b.binding = 3; // ... numbered contiguously from zero
@@ -388,7 +388,7 @@ int32_t main() {
         CHECK(!rr::validate(io).has_value()); // two depth attachments cannot be recorded
     }
 
-    // ---- the SECOND declaration: the TAA resolve, whose bindings are FRAGMENT and all its own with nothing
+    // ---- the SECOND declaration: the TAA resolve, whose bindings are FRAGMENT and all its with nothing
     //      shared beside them, and which is the first one to declare a render TARGET ----
     {
         CHECK(rr::validate(rr::taa_io).has_value());
@@ -414,15 +414,15 @@ int32_t main() {
             descriptors += b.descriptor_count;
         }
         CHECK(descriptors == 4);
-        // nothing is shared: the resolve's four inputs are all its own
+        // nothing is shared: the resolve's four inputs are all its
         CHECK(std::none_of(rr::taa_io.bindings.begin(), rr::taa_io.bindings.end(), [](rr::pass_binding const& b) { return b.parent != rr::binding_scope::local; }));
     }
 
-    // ---- the THIRD declaration: the scene pass, the first one with NO own bindings (everything it reads is a
+    // ---- the THIRD declaration: the scene pass, the first one with NO dedicated bindings (everything it reads is a
     //      shared resource and it writes the frame's surface) and the first with six targets including DEPTH ----
     {
         CHECK(rr::validate(rr::scene_io).has_value());
-        CHECK(rr::scene_io.bindings.empty()); // it owns no binding: everything arrives through the frame's heap
+        CHECK(rr::scene_io.bindings.empty()); // it holds no binding: everything arrives through the frame's heap
         CHECK(rr::scene_io.targets.size() == 6);
         CHECK(rr::scene_io.targets[0].resource == rr::resource_id::gbuffer_targets);
         CHECK(rr::scene_io.targets[2].element == 2); // all three stored surface targets
@@ -442,7 +442,7 @@ int32_t main() {
         // was about is above: this pass declares no binding at all.
     }
     {
-        // The two cases that stood here - a set declared as both its own and a shared one, and the same shared
+        // The two cases that stood here - a set declared as both its and a shared one, and the same shared
         // set declared twice - went with the set vocabulary. Their surviving subject is covered: `binding_scope`
         // exemption from contiguity above, and duplicate binding numbers just below.
         deren::utility::vessel::array<rr::pass_binding, 2> const twice = {rr::pass_binding{.binding = 2, .parent = rr::binding_scope::shared, .kind = rr::binding_kind::storage_buffer, .resource = rr::resource_id::cluster_counts, .access = rr::binding_access::write},
@@ -451,7 +451,7 @@ int32_t main() {
         CHECK(!rr::validate(io).has_value()); // two bindings may not share a number, whatever their parent
     }
 
-    // The GI tracer's declaration was asserted here (two shared sets, no own binding, twelve barrier images).
+    // The GI tracer's declaration was asserted here (two shared sets, no dedicated binding, twelve barrier images).
     // The pass is gone, so what remains is the validator rule it exercised.
     {
         // the barrier-image rule the validator enforces: they must be images the schema declares, and a pass
@@ -467,8 +467,8 @@ int32_t main() {
 
     // ---- the SIXTH declaration: the stochastic punctual lighting chain's temporal resolve ----
     // (the GI denoiser's declaration stood here; it went with that chain) - the stochastic punctual
-    // lighting chain's resolve - is a declaration of its own (megalights_temporal_io) with the same shape, and
-    // it is covered by the lighting chain's own tests rather than by a GI scenario.
+    // lighting chain's resolve - is A separate declaration (megalights_temporal_io) with the same shape, and
+    // it is covered by the lighting chain's tests rather than by a GI scenario.
 
     // The spatial filter's declaration was asserted here - the third pass on the shared-sets shape. It went with
     // the chain; the shape itself is still covered by the ray-traced shadow's declaration below.
@@ -526,15 +526,15 @@ int32_t main() {
     }
 
     // ---- the TENTH declaration: the deferred lighting stage, a fullscreen pass over the same shared resources the
-    //      traced compute passes reach, whose only resource of its own is the target it renders into - and whose target is a
+    //      traced compute passes reach, whose only resource is the target it renders into - and whose target is a
     //      recorded deviation (it names scene_color; the host hands over hdr on the frames TAA is off) ----
     {
         CHECK(rr::validate(rr::deferred_io).has_value());
         CHECK(rr::deferred_io.bindings.empty());    // every binding it uses is one of the frame's shared resources
-        CHECK(rr::deferred_io.targets.size() == 1); // the only resource of its own: what it renders into
+        CHECK(rr::deferred_io.targets.size() == 1); // the separate only resource: what it renders into
         CHECK(rr::deferred_io.targets[0].resource == rr::resource_id::scene_color);
         CHECK(rr::deferred_io.targets[0].kind == rr::target_kind::color);
-        CHECK(rr::deferred_io.barrier_images.empty()); // it moves no image of its own
+        CHECK(rr::deferred_io.barrier_images.empty()); // it moves no separate image
         CHECK(rr::deferred_io.push.has_value());
         CHECK(rr::deferred_io.push->size == 92);                         // mat4 + vec4 + three floats
         CHECK(rr::deferred_io.push->stages == rr::stage_flag::fragment); // the vertex stage pushes nothing
@@ -555,7 +555,7 @@ int32_t main() {
             CHECK(io.targets[0].kind == rr::target_kind::color);
             // the level it READS is declared exactly when it has to move it: level 0's input is the HDR target,
             // whose transition is the frame loop's (the composite reads it too, and on a bloom-off frame nobody
-            // else does), and levels 1..3 own the transition of the level before them
+            // else does), and levels 1..3 hold the transition of the level before them
             CHECK((level == 0 ? io.barrier_images.empty() : io.barrier_images.size() == 1));
             if (level > 0) {
                 CHECK(io.barrier_images[0].resource == rr::resource_id::bloom);
@@ -638,10 +638,10 @@ int32_t main() {
         // ... and the map family holds exactly that many layers: FOUR, like the image create_shadow_resources
         // creates (the count was 1 until this declaration, the same correction the bloom family needed)
         CHECK(rr::find(rr::resource_id::shadow_map)->count == 4);
-        CHECK(rr::shadow_io.barrier_images.empty()); // each layer is moved through its own target
+        CHECK(rr::shadow_io.barrier_images.empty()); // each layer is moved through its target
         CHECK(rr::shadow_io.push.has_value());
         CHECK(rr::shadow_io.push->size == 4); // the cascade index
-        // AT 108, NOT 96: the scene's own push block ends at 96 (scene_push_constant_size), and the host appends
+        // AT 108, NOT 96: the scene's push block ends at 96 (scene_push_constant_size), and the host appends
         // THE HEAP INDEX LANES - three of them - at exactly that offset for every stage. The cascade used to be
         // declared at 96, which put it UNDER the first lane: the shader read frame_slot as its cascade, the pass
         // rendered every caster into the wrong cascade layer, and the lanes themselves were shifted. It rides
@@ -649,7 +649,7 @@ int32_t main() {
         CHECK(rr::shadow_io.push->offset == 108); // scene_push_constant_size + three 4-byte heap index lanes
         CHECK(rr::shadow_io.push->stages == (rr::stage_flag::vertex | rr::stage_flag::fragment));
 
-        // THE RUN'S OWN CHECKS: a run that reaches past its family is a declaration error ...
+        // THE RUN'S CHECKS: a run that reaches past its family is a declaration error ...
         deren::utility::vessel::array<rr::render_target, 1> const run_past_the_family = {rr::render_target{.resource = rr::resource_id::shadow_map, .element = 2, .kind = rr::target_kind::depth, .count = 4}};
         rr::pass_io const bad_run = {.name = "shadow", .bindings = {}, .targets = run_past_the_family, .push = std::nullopt};
         CHECK(!rr::validate(bad_run).has_value());
@@ -686,7 +686,7 @@ int32_t main() {
         CHECK(rr::upscale_io.barrier_images[0].resource == rr::resource_id::ldr);
         CHECK(rr::upscale_io.barrier_images[0].element == 0);
         CHECK(rr::upscale_io.push.has_value());
-        // THE PASS'S OWN BLOCK, NOT THE POST CHAIN'S: EASU's four constants plus the two scalar lanes (which
+        // THE PASS'S BLOCK, NOT THE POST CHAIN'S: EASU's four constants plus the two scalar lanes (which
         // filter, and the display transfer). The shader's block is this size PLUS the heap index lanes the
         // framework appends (the LDR image is a per-swapchain-image heap slot the shader names itself), which is
         // why the declaration stops at the bytes the pass composes - see upscale_push_bytes.
@@ -820,7 +820,7 @@ int32_t main() {
             // The grid's namespace-scope scalars are `inline constexpr` - a module cannot export an entity
             // with internal linkage, and namespace-scope `static constexpr` has exactly that linkage -
             // while the struct's members stay `static constexpr` (implicitly inline). Both spellings are
-            // the grid's own declarations, so both are read.
+            // the grid's declarations, so both are read.
             if (line.find("static constexpr") == deren::utility::vessel::string::npos && line.find("inline constexpr") == deren::utility::vessel::string::npos) {
                 continue;
             }
@@ -905,7 +905,7 @@ int32_t main() {
         // The array occupies the grid slots between `textures` and the material table, one slot per scene
         // texture, and the RUNTIME refuses to upload past `scene_texture_capacity`. That capacity is DERIVED
         // in `deren.engine.render_layout` (`materials - textures`), so the two parsed tables above and the
-        // C++ constant must agree - the shader has no capacity constant of its own, which is exactly why a
+        // C++ constant must agree - the separate shader has no capacity constant, which is exactly why a
         // drift here would be a silent overrun rather than an error.
         {
             auto const textures = host_slots.find("textures");

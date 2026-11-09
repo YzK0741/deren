@@ -4,7 +4,7 @@
 
 With TAA disabled, rotating the camera produced two displaced character silhouettes.
 The same mismatch also affected PBR objects. The user's desktop recording showed
-the fault; a scripted fast camera sweep reproduced it in the renderer's own PNG.
+the fault; a scripted fast camera sweep reproduced it in the renderer's PNG.
 
 ## Cause
 

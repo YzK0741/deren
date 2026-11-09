@@ -22,8 +22,8 @@ implementation details, measured results and the limits of each feature.
   graphics backend today. See \ref md_docs_2dynamic__runtime "The dynamic API", and the normative
   [RHI API standard](rhi_api_standard.md) for every interface/virtual clause.
 - **Core facets.** The Vulkan backend's `core` is split into frame, command, resource and device
-  facets; each facet owns its state and implementation unit, while `core` forwards the public RHI
-  entry points. See \ref md_docs_2core__facets "Core facets" for the ownership map and the folder
+  facets; each facet holds its state and implementation unit, while `core` forwards the public RHI
+  entry points. See \ref md_docs_2core__facets "Core facets" for the retention map and the folder
   layout.
 - **Gaussian splatting.** Trained PLY clouds retain their anisotropic shape, opacity and
   view-dependent spherical-harmonic color. GPU preparation, VRDX stable sorting, cached
@@ -32,7 +32,7 @@ implementation details, measured results and the limits of each feature.
   setup, validation and measured costs. These trained colors are separate from mesh PBR lighting.
 - **Per-object rendering paths.** A `[[scene.objects]]` entry selects `default`, `pbr`, `unlit`,
   `game_toon` or `gaussian`; one frame can mix deferred meshes, GameToon characters and multiple
-  Gaussian clouds within sixteen entries (and at most sixteen GameToon characters). The owning stage
+  Gaussian clouds within sixteen entries (and at most sixteen GameToon characters). The holding stage
   still chooses the pipeline, so the frame keeps one G-buffer, one character stage and one splat
   stage. See \ref md_docs_2multi__pipeline__objects "Multi-pipeline objects" for a complete
   mixed-scene TOML example and the v1 boundaries.
@@ -79,7 +79,7 @@ implementation details, measured results and the limits of each feature.
 - **Visibility buffer (experimental).** An alternative opaque producer: a mesh-shader raster writes a
   packed 32-bit surface id plus the frame's shared G-buffer depth, and a compute resolve rebuilds the five
   G-buffer targets from it. It is off by default, falls back per frame for geometry it cannot name, and is
-  gated by its own frozen reference set. See \ref md_docs_2visibility__buffer "The visibility buffer lane"
+  gated by its frozen reference set. See \ref md_docs_2visibility__buffer "The visibility buffer lane"
   for the pipeline, the admission rules and the measured cost.
 - **Hierarchical geometry (subtilis).** The static opaque cluster-LOD lane is implemented: an offline-style
   builder produces a unique-parent cluster forest, an explicit upload ties it to a resource generation, and a
@@ -105,15 +105,15 @@ implementation details, measured results and the limits of each feature.
   record - diffuse ramp, shadow LUT, specular ramp, matcap - and twelve more in three toon lane
   blocks, from the face SDF lightmap on) come from a `<model>.glb.toon.tsv` file so a
   model can be tuned without recompiling; the face terminator is a distance field
-  thresholded against the light angle **in the head's own frame**, not against N.L. The
+  thresholded against the light angle **in the head's frame**, not against N.L. The
   MMD/VMD motion path (IK, retargeting, morph tracks, physics baking) lives entirely in
   `deren.engine.animation.mmd_motion`. A missing sidecar is an empty sidecar - the toon lanes
   simply stay off.
 - **Heap-native scene descriptors.** Scene bindings live in a heap the renderer manages.
   Backend integrations such as VRDX sorting and the GUI may use traditional descriptors;
-  the sorting wrapper restores heap bindings before subsequent stages, and the GUI's own
+  the sorting wrapper restores heap bindings before subsequent stages, and the GUI's
   recording segment starts with `command_buffer_begin_info::inherit_descriptor_heaps = false`
-  (abi 45) because the Dear ImGui Vulkan backend binds its own classic descriptor sets.
+  (abi 45) because the Dear ImGui Vulkan backend binds its classic descriptor sets.
   \ref md_docs_2descriptor__heap__migration "Descriptor heap migration" and
   \ref md_docs_2descriptor__heap__handover "Descriptor heap handover" are the record of
   how it got there and what it cost.
@@ -133,7 +133,7 @@ The project was named `vulkan_render` until 2026-10-02. Portable modules and nam
 now use `deren.engine.*` and `deren::engine`; native Vulkan implementations retain
 `deren.vulkan.*` and `deren::vulkan`. Project code is under `source/`, with the engine
 in `source/engine/`, backend implementation in `source/backends/vulkan/`, and contracts
-in `source/promise/`. `ENABLE_VULKAN_RENDERDOC_CAPTURE` is RenderDoc's own variable.
+in `source/promise/`. `ENABLE_VULKAN_RENDERDOC_CAPTURE` is RenderDoc's variable.
 
 ## How to read this manual
 
@@ -151,11 +151,11 @@ finally the migration history.
 | 6 | \subpage md_docs_2multi__pipeline__objects "Multi-pipeline objects" | Per-object `pipeline` selection, a complete mixed-scene TOML example, validation rules and the v1 boundaries. |
 | 7 | \subpage md_docs_2environment__lighting "Environment lighting" | HDR presets, live rotation/strength, backgrounds and tone-mapping comparisons. |
 | 8 | \subpage md_docs_2rt__reflections "Ray-traced reflections" | The opt-in reflection pass: keys, traced rays, denoiser, limitations and validation. |
-| 9 | \subpage md_docs_2core__facets "Core facets" | The frame/command/resource/device split behind the Vulkan core, its state ownership and folder layout. |
+| 9 | \subpage md_docs_2core__facets "Core facets" | The frame/command/resource/device split behind the Vulkan core, its state retention and folder layout. |
 | 10 | \subpage md_docs_2mesh__shaders "Mesh shaders" | The mesh-shader geometry path: what it replaced, what it measured. |
 | 11 | \subpage md_docs_2visibility__buffer "The visibility buffer lane" | An experimental opaque producer: packed id raster plus a compute resolve, its gate and its measured limits. |
 | 12 | \subpage md_docs_2subtilis "subtilis (hierarchical cluster LOD)" | The static opaque cluster-LOD lane: asset builder, explicit upload, CPU screen-error cut, measured gains, fallbacks and open milestones. |
-| 13 | \subpage md_docs_2amnis "amnis texture residency" | The opt-in texture-residency feature: visibility and screen-footprint demand, whole-image/two-tier/progressive streaming, immutable source ownership, and measured CPU/memory limits. |
+| 13 | \subpage md_docs_2amnis "amnis texture residency" | The opt-in texture-residency feature: visibility and screen-footprint demand, whole-image/two-tier/progressive streaming, immutable source retention, and measured CPU/memory limits. |
 | 14 | \subpage md_docs_2deformation__motion__vectors "Deformation motion vectors" | Why a deforming mesh needs more than a camera motion vector, and what was stored. |
 | 15 | \subpage md_docs_2gltf__loader__usage "glTF loader usage" | Loading models, animations, skins, morph targets and punctual lights. |
 | 16 | \subpage md_docs_2gaussian__loader "Gaussian PLY loader" | Trained PLY conventions, validation, limits and loading diagnostics. |
@@ -198,33 +198,33 @@ One contract, and every graphics backend is an implementation of it.
 
 - **The contract** is the module `deren.promise.rhi` (`source/promise/rhi/`): the `api_core` virtual
   surface - create and release objects, record commands, walk frames, report abilities - plus the
-  creation parameters (`create_info`). OWNERSHIP IS THE CONTRACT'S OWN: the `create_*` factories and
+  creation parameters (`create_info`). RETENTION IS THE CONTRACT'S: the `create_*` factories and
   `image::make_view()` return `rhi::unique_object<T>` (one reference, move-only RAII whose destructor
-  calls `release()`), while a handle more than one owner may hold is `rhi::shared_object<T>` (one
+  calls `release()`), while a handle more than one holder may hold is `rhi::shared_object<T>` (one
   control block whose last copy releases the one factory reference, a top-level `weak_object<T>`
-  observer, and an aliasing constructor for an engine owner keeping a non-owning RHI pointer alive) -
+  observer, and an aliasing constructor for an engine holder keeping a non-holding RHI pointer alive) -
   `std::shared_ptr` no longer manages an RHI handle. Both sides of the boundary compile the SAME
   interface unit, so the two compilations cannot drift.
 - **The C ABI is one symbol.** `source/promise/rhi/backend_entry.hpp` declares the single `extern "C"` entry
   the host resolves, `deren_make_api_core`. Its first argument is `rhi::abi_version` (61 today), so a
-  mismatched backend is refused BEFORE an object exists, with the backend's own number in the returned
-  error; it returns an owning `rhi::shared_object<api_core>` (the contract's own shared container), so there
+  mismatched backend is refused BEFORE an object exists, with the backend's number in the returned
+  error; it returns a holding `rhi::shared_object<api_core>` (the contract's shared container), so there
   is no second destroy entry.
 - **Capabilities are queried, not assumed.** `abilities()` says what the device can do and
   `query_extension<T>()` hands out the optional interfaces - the descriptor heap, host
   image copy, the device capabilities (which carry mesh-shader support, the ray-query fact, the push-block limit and the
   acceleration-structure numbers). The engine asks for what it needs and keeps compiling when an answer
   is "no".
-- **The backends are DLLs resolved BY NAME** out of the executable's own directory, by absolute path
+- **The backends are DLLs resolved BY NAME** out of the executable's directory, by absolute path
   (`deren.engine.backend_loader` over `deren.utility.dynamic_link`): `deren_vulkan.dll` exports one
   name and `deren_gui_vulkan.dll` exports one name. The handle is detached and the image is never
   unloaded, so a missing DLL is a named diagnosis rather than a loader error.
-- **The GUI plugin has its own number and its own recording targets.** `deren_gui_vulkan.dll` answers
+- **The GUI plugin has its number and its recording targets.** `deren_gui_vulkan.dll` answers
   `deren_make_gui`, whose first argument is `gui::gui_abi_version` (6 today). The device root crosses
   as the opaque `rhi::main_context_view` (abi 39), and `gui::create_info` carries two contract
   `mergeable_command_buffer_ref` targets the host created; the overlay records its ImGui segment into
   one of them and returns it, and the host executes that segment in a dedicated LOAD + secondary-contents
-  rendering instance after the pass's own instance ends. The GUI never records into the frame's command
+  rendering instance after the pass's instance ends. The GUI never records into the frame's command
   buffer and no native type crosses the contract.
 - **The run-time package is five images plus the C++ runtime.** Beside `deren.exe`:
   `deren_assets.dll` (glTF/GLB loading, linked through its import library so it loads before `main`),
@@ -260,7 +260,7 @@ you are free to recombine or rewire them.
   Shadow + main pass commands are recorded into per-slot `mergeable_command_buffer` segments and
   merged into the frame's primary in one `command_buffer::execute(span)` batch; the main pass
   fans its leaf recording out over the shared task pool (task_pool batches), each recording
-  worker getting its own render_environment (thread-local pipeline-bind state)
+  worker getting its render_environment (thread-local pipeline-bind state)
 - `deren.engine.render_environment` - per-recording-session render state: the session's command
   buffer, the available named pipelines (pointer to the runtime's stable name table), the
   session's default pipeline and a deduplicated binder (std::function, injected by the
@@ -298,7 +298,7 @@ Modular composition is the point, not a side effect:
   on top and can be replaced wholesale.
 
 Use the modules as-is to extend this renderer (new pass / primitive strategy / loader) or
-link only the ones you need into your own project.
+link only the ones you need into your project.
 
 Module reference is grouped under the `vulkan_core`, `runtime`,
 `engine_scene_tree`, `engine_render_environment`, `engine_render_resource`,
@@ -341,13 +341,13 @@ disocclusions) - measured against the same frame without TAA, 1.05/255 mean diff
 then-still-present forward path byte-identical. TAA is the engine's anti-aliasing because a
 1x G-buffer cannot be multisampled. **M4 (done)** is cascaded shadow maps: the sun's shadow
 pass fills a layered 2D-array depth map (1..4 cascades, three by default), each cascade
-fitting its own light-space box to its own slice of the view range (practical split scheme,
+fitting its light-space box to its slice of the view range (practical split scheme,
 lambda 0.75), with the fragment shader selecting its cascade per pixel from the view depth
 and blending across the boundary - one cascade is byte-identical to the pre-M4 single-map
 path. **M5 (done)** is clustered light culling: `source/shaders/lighting/light_cluster.slang` (the engine's
 first compute pipeline, on the graphics queue) sorts up to 128 punctual lights into a 64
 px-tile x 16-exponential-depth-slice grid once per frame with one atomic counter per
-cluster, and the shading stage loops only its own cluster's list - measured with 64 lights,
+cluster, and the shading stage loops only its cluster's list - measured with 64 lights,
 the forward shading pass drops 1.28 -> 0.44 ms and the deferred lighting pass 0.25 -> 0.08
 ms with a byte-identical image, since the cluster test is conservative. **M6 (done)** is
 screen-space ambient occlusion in the deferred lighting stage: a golden-angle hemisphere
@@ -364,11 +364,11 @@ rendered them, so the skip is byte-identical by construction - a skinned caster 
 constant world matrix, which is why the skin upload has to be part of the signal or an
 animated model silently keeps a frozen map. Still ahead on this path: alpha-blended geometry
 in the deferred path (it is composited outside the G-buffer and so writes no motion vector
-at all), and anything else that moves inside its own object space. What a DEFORMING mesh
+at all), and anything else that moves inside its object space. What a DEFORMING mesh
 needs is done: the previous-frame skin matrices and the previous-frame morph weights are
 both stored, so a skinned or morphed vertex reprojects where it actually was - see
 \ref md_docs_2deformation__motion__vectors "Deformation motion vectors" for the design,
 the measurements and the two half-steps it was built in.
 
-Resource ownership and dynamic pass requirements are described in \ref managed_resources; the
+Resource retention and dynamic pass requirements are described in \ref managed_resources; the
 [pass inventory](render_resource_inventory.md) lists the current GPU access methods.

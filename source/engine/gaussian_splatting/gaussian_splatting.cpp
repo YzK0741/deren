@@ -144,9 +144,9 @@ namespace deren::engine::gaussian_splatting {
         return result;
     }
     namespace {
-        /// THE TWO SHARED PIECES OF A PARALLEL PASS, and this partition keeps its own copy because it is a different
+        /// THE TWO SHARED PIECES OF A PARALLEL PASS, and this partition keeps its copy because it is a different
         /// module from the raster one that has the same pair (imports are not transitive and neither is an anonymous
-        /// namespace): the follow-up is to publish those two once, the way this file's own header asks for its
+        /// namespace): the follow-up is to publish those two once, the way this file's header asks for its
         /// duplicated heap helpers.
         ///
         /// MEASURED, not assumed: on this cloud (562,974 splats, 16 cores) the sort still spent 93 ms of a 127 ms
@@ -289,9 +289,9 @@ namespace deren::engine::gaussian_splatting {
                 keyed[g] = depth_reference{depth, {static_cast<std::uint32_t>(instance), static_cast<std::uint32_t>(j)}};
             }
         });
-        // THE SAME TOTAL ORDER, PRODUCED BY EVERY CORE: each worker sorts its own contiguous chunk, then the merge
+        // THE SAME TOTAL ORDER, PRODUCED BY EVERY CORE: each worker sorts its contiguous chunk, then the merge
         // levels run as parallel pairs. No new comparison and no new key - the comparator below IS the order, and
-        // because it is a total one (depth, then stable id, then the particle's own index) the merged sequence is
+        // because it is a total one (depth, then stable id, then the particle's index) the merged sequence is
         // the one `std::sort` produced, element for element. That is what makes this an optimization and not a
         // different answer.
         auto const less = [&](depth_reference const& a, depth_reference const& b) {

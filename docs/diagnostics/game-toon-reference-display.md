@@ -9,7 +9,7 @@ Date: 2026-11-01.
    output still goes through the existing display encoding exactly once.
 2. The reference material's `_SpecRampMap` was previously replaced by the
    generic 256x8 threshold ramp. When `_GameToon0.x > 0.5` and the model
-   provides the texture, the model's own highlight-colour map is now bound;
+   provides the texture, the model's highlight-colour map is now bound;
    other materials keep the previous fallback.
 
 Result: the hair's broad pale highlight becomes the finer, cooler pink

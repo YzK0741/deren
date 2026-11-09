@@ -233,7 +233,7 @@ namespace {
         auto const resolved = resolve_indices(item, packed->value, 400u);
         CHECK(resolved.meshlet_table_index == 105u);
         CHECK(resolved.first_index == 400u + 21u);
-        // the meshlet order's field width is the id's own; a maximum-order id stays inside meshlet_base's run
+        // the meshlet order's field width is the id's; a maximum-order id stays inside meshlet_base's run
         auto const maximum = pack_id(4095u, 4095u, 85u);
         CHECK(maximum.has_value());
         auto const far = resolve_indices(item, maximum->value, 0u);
@@ -351,7 +351,7 @@ namespace {
         CHECK_MSG(!text_contains(code, "ddx(") && !text_contains(code, "ddy("), "a compute stage has no derivatives: the tangent frame must come from the triangle's edges");
         CHECK_MSG(text_contains(code, "#include \"scene/gbuffer_body.slang\""), "the resolve must include the shared G-buffer composition");
         CHECK_MSG(text_contains(code, "#include \"geometry/mesh_geometry.slang\""), "the resolve must fetch through the shared mesh geometry helpers");
-        // ---- the push block's field order (the host appends the two heap index lanes to the pass's own payload)
+        // ---- the push block's field order (the host appends the two heap index lanes to the pass's payload)
         std::vector<std::string> push_fields;
         for (std::size_t i = 0; i < lines.size(); ++i) {
             if (lines[i].find("struct VisibilityResolvePush") == std::string::npos) {
@@ -387,8 +387,8 @@ namespace {
         CHECK_MSG(text_contains(gbuffer, "motion_vector("), "gbuffer.slang must compute its velocity through the shared body");
         CHECK_MSG(!text_contains(gbuffer, "struct gbuffer_output"), "gbuffer_output moved to gbuffer_body.slang: a second declaration is a second contract");
         std::string const body = strip_comments(shader_lines("scene/gbuffer_body.slang"));
-        CHECK_MSG(text_contains(body, "struct gbuffer_output"), "gbuffer_body.slang owns the five-target struct");
-        CHECK_MSG(text_contains(body, "gbuffer_empty_output("), "gbuffer_body.slang owns the clear value the resolve writes for empty pixels");
+        CHECK_MSG(text_contains(body, "struct gbuffer_output"), "gbuffer_body.slang holds the five-target struct");
+        CHECK_MSG(text_contains(body, "gbuffer_empty_output("), "gbuffer_body.slang holds the clear value the resolve writes for empty pixels");
         for (char const* const location : {"[[vk::location(0)]]", "[[vk::location(1)]]", "[[vk::location(2)]]", "[[vk::location(3)]]", "[[vk::location(4)]]"}) {
             CHECK_MSG(text_contains(body, location), location);
         }
@@ -410,8 +410,8 @@ namespace {
             CHECK_MSG(surface.find("(base.material.flags & 1u) != 0u") != std::string::npos, "the derivative frame is requested only for a normal-mapped material");
         }
         std::string const decode = strip_comments(shader_lines("common/surface_body.slang"));
-        CHECK_MSG(text_contains(decode, "surface_base gather_surface_base("), "surface_body.slang owns the material/MASK phase");
-        CHECK_MSG(text_contains(decode, "surface_sample gather_surface_finish("), "surface_body.slang owns the surface decode");
+        CHECK_MSG(text_contains(decode, "surface_base gather_surface_base("), "surface_body.slang holds the material/MASK phase");
+        CHECK_MSG(text_contains(decode, "surface_sample gather_surface_finish("), "surface_body.slang holds the surface decode");
         CHECK_MSG(!text_contains(decode, "discard;"), "the shared decode must not discard: a compute caller cannot");
         CHECK_MSG(!text_contains(decode, "ddx(") && !text_contains(decode, "ddy("), "the shared decode must not use derivatives: the frame is an argument");
         // ---- the visibility mesh entry fetches the MESHLET's window, not the geometry lanes' run base/count

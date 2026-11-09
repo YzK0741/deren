@@ -2,7 +2,7 @@
 
 `resource_group` is an immutable, shared composition of shader resources. Descriptor heaps, sets,
 pools and physical allocations stay inside the backend. An engine `resource_cluster` remains a
-separate ownership/lifetime mechanism; a resource group describes shader bindings.
+separate retention/lifetime mechanism; a resource group describes shader bindings.
 
 Members can be an existing `texture_group`, sampled/storage image, uniform/storage buffer, sampler,
 or top-level acceleration structure. A texture group retains its indexed texture-array behavior as
@@ -14,7 +14,7 @@ slots. Existing texture-group entry points remain available for incremental migr
 ```cpp
 namespace rhi = deren::promise::rhi;
 
-// Transfer the factory owner into shared ownership; never manufacture a second owner from its raw pointer.
+// Transfer the factory holder into shared retention; never manufacture a second holder from its raw pointer.
 rhi::shared_object<rhi::buffer> data(core.resources->create_buffer({
     .size = 256,
     .usage = rhi::buffer_usage::storage_coherent,
@@ -55,23 +55,23 @@ sampled/storage role and mip/layer range. Buffer `offset`/`size` are bytes; size
 range. Buffers need the appropriate usage and device_address capability. Vulkan's uniform-to-storage
 translation is internal and requires no additional frontend flags.
 
-## Ownership and execution
+## Retention and execution
 
-Members must carry lifetime ownership. An empty or otherwise non-retaining handle is rejected during
-creation/loading; a lifetime alias is accepted only when its owner actually keeps the target alive.
-Never wrap an already-owned raw pointer with an independent control block. The originating core/backend
+Members must carry lifetime retention. An empty or otherwise non-retaining handle is rejected during
+creation/loading; a lifetime alias is accepted only when its holder actually keeps the target alive.
+Never wrap an already-held raw pointer with an independent control block. The originating core/backend
 must outlive every group and member reference.
 
 Composition fixes member references, kinds, ranges and views. It does not freeze resource contents or
 nested texture-group writes through the existing `descriptor_space::write` interface; those retain
-their own mutation/freeze and synchronization rules. Loading inserts no barriers, builds no TLAS,
+their mutation/freeze and synchronization rules. Loading inserts no barriers, builds no TLAS,
 and does not automatically retain all external scene dependencies of an acceleration structure.
 
 `load_resource_group` requires recording and a compatible bound pipeline. It validates the complete
 group before recording bindings. Recorded commands retain groups; pending submissions preserve them
 through GPU use. Primary, secondary composition, batch and frame paths share this rule. Rerecording
-or final submission retirement releases the corresponding owners; private descriptor slots return
-only after the group's last owner dies. Loading a later group cannot release resources used by earlier
+or final submission retirement releases the corresponding holders; private descriptor slots return
+only after the group's last holder dies. Loading a later group cannot release resources used by earlier
 recorded draws.
 
 Under ABI 53, `load_resource_group` (like push parameters) queues logical recorder state; a

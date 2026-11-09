@@ -2,7 +2,7 @@
 //
 // There is deliberately NO vertex buffer: what this probe tests is the FRAGMENT stage's access to the heap (see
 // heap_probe.frag), and a vertex buffer would add a second thing that could be wrong. It is a separate file from
-// heap_probe.comp because a graphics pipeline needs its own stage pair, and the compute probe's job (a
+// heap_probe.comp because a graphics pipeline needs its stage pair, and the compute probe's job (a
 // layout-less, push-data-fed, heap-flagged pipeline) is already done.
 #version 460
 

@@ -29,7 +29,7 @@ namespace deren::app {
         if (!use_gui) {
             return;
         }
-        // GUI ABI3 owns vessel strings and containers, matching the application.
+        // GUI ABI3 holds vessel strings and containers, matching the application.
         runtime.enable_debug_gui();
         deren::gui::panel& panel = runtime.debug_gui().add_panel("deren debug");
         panel.set_default_size(settings.gui.panel_width, settings.gui.panel_height);
@@ -60,7 +60,7 @@ namespace deren::app {
         // whole group (switch + its three knobs) is offered only in a session whose G-buffer pipelines
         // exist - an AVAILABILITY question, which is what visible_when asks (a widget never gates on
         // feature_active: that is the runner's per-frame "this stage ran", so gating on it made the group
-        // vanish the moment the user switched to unlit). The knobs then follow the switch's OWN state,
+        // vanish the moment the user switched to unlit). The knobs then follow the switch's state,
         // which is what they are attached to. The sliders edit the radius (world units), the applied
         // intensity and the sample count.
         {
@@ -161,14 +161,14 @@ namespace deren::app {
             make_taa_slider("taa history (min)", &bindings.taa_blend_min, 0.0f, 0.98f);
         }
         // THE TOON CHARACTER STAGE: re-shades the scene's opaque leaves OVER the lit frame, at depth-EQUAL,
-        // so a character can carry its own shading instead of the deferred one - and without being lit twice.
+        // so a character can carry its shading instead of the deferred one - and without being lit twice.
         // Offered only when the renderer registered the pipeline the stage binds (it needs the mesh stage), so
         // a switch that would draw nothing is not shown at all - the failure mode feature_available exists for.
         {
             panel.add_checkbox("character forward (toon)", &bindings.character_forward).set_visible_when([&runtime] { return runtime.feature_available("character_forward"); });
             // ... AND WHICH CHAIN IT DRAWS WITH. Offered only while the character stage itself is on, because a
             // switch that selects a shading model for a pass that is not recording is a control with no effect -
-            // and offered only when the rewritten pipeline was actually built, on the checkbox above's own terms.
+            // and offered only when the rewritten pipeline was actually built, on the checkbox above's terms.
 
             // THE GAME-SHADER MODEL. Offered only while the stage is on and only when the game pipeline was
             // actually built.
@@ -237,9 +237,9 @@ namespace deren::app {
             }
         }
         // ---- LIVE SCENE-OBJECT EDITING ------------------------------------------------
-        // A SECOND PANEL, not more rows in the main one: an object has its own transform
+        // A SECOND PANEL, not more rows in the main one: an object has its transform
         // vocabulary, and the main panel already carries every render/light knob. Only the
-        // selected object's three rows draw; selection is owned by main because it is also what
+        // selected object's three rows draw; selection is held by main because it is also what
         // the viewport click pick writes. The widgets edit app_settings.scene.objects in place
         // and raise the dirty flag main consumes - edits are runtime-only, never written back.
         if (bindings.scene_objects != nullptr && !bindings.scene_objects->empty()) {
@@ -273,7 +273,7 @@ namespace deren::app {
             for (std::size_t i = 0; i < bindings.scene_objects->size(); ++i) {
                 deren::app_config::scene_object_settings& object = (*bindings.scene_objects)[i];
                 auto const selected = [&bindings, i] { return bindings.selected_object == static_cast<std::int32_t>(i); };
-                // The splat stage owns a cloud's look; environment/material and skeletal-animation
+                // The splat stage holds a cloud's look; environment/material and skeletal-animation
                 // widgets would edit state that path never reads. Treat an unpopulated flag as mesh
                 // so the historic single-object panel keeps its old layout.
                 auto const is_gaussian = [&bindings, i] {
@@ -326,7 +326,7 @@ namespace deren::app {
                     .set_visible_when(material_override_visible);
                 object_panel.add_slider("  emissive", &object.emissive_scale, 0.0f, 4.0f, [mark_dirty](float) { mark_dirty(); })
                     .set_visible_when(material_override_visible);
-                // Phase 2: this placement's own clock. The clip combo is drawn only when this
+                // Phase 2: this placement's clock. The clip combo is drawn only when this
                 // object has more than one channel-bearing clip; index 0 is always valid.
                 object_panel.add_slider("  speed", &object.animation_speed, 0.0f, 8.0f, [mark_dirty](float) { mark_dirty(); })
                     .set_visible_when(selected_mesh);

@@ -22,7 +22,7 @@ import deren.toon_material_sidecar;
  */
 export namespace deren::app::detail {
 
-    /// the per-asset lookup state; pointers borrow the imported scene and its sidecar
+    /// the per-asset lookup state; pointers reference the imported scene and its sidecar
     struct toon_lookup_state {
         deren::toon::sidecar const* sidecar = nullptr;
         deren::gltf::scenes const* scenes = nullptr;

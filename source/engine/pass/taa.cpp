@@ -84,7 +84,7 @@ namespace deren::engine::pass {
     }
 
     void taa_pass::on_swapchain_recreated(pass_host const&) {
-        // THE PASS'S OWN GENERATION RESET, and the framework's `recreate_stage` is what guarantees it happens:
+        // THE PASS'S GENERATION RESET, and the framework's `recreate_stage` is what guarantees it happens:
         // the histories belong to images that no longer exist.
         this->valid_history.assign(this->valid_history.size(), false);
         this->history_written = false;
@@ -212,7 +212,7 @@ namespace deren::engine::pass {
             }
             // NOTE: the G-buffer depth the disocclusion guard samples is transitioned by the HOST, just before
             // this stage (see runtime::record_scene_tail): it is a shared per-image transition whose flag belongs
-            // to the G-buffer pass, and a pass can only declare its own bindings. The order the host has to
+            // to the G-buffer pass, and a pass can only declare its bindings. The order the host has to
             // preserve is "after this batch, before the draw" only in the sense that the barrier must precede the
             // draw - the barrier commands are independent of this batch, so the host places them first.
             // THE TARGET'S PAIR, also the contract's (abi 20): UNDEFINED -> COLOR_ATTACHMENT, the shipped
@@ -226,7 +226,7 @@ namespace deren::engine::pass {
         }
 
         // The record step has bound the pipeline and set the viewport and scissor from io.extent (this pass
-        // declared resync_viewport); what a fullscreen pass still owns is its instance - the load op is its
+        // declared resync_viewport); what a fullscreen pass still holds is its instance - the load op is its
         // knowledge - and the state the viewport fields do not cover.
         // THE RENDERING SCOPE RIDES THE CONTRACT NOW (abi 20): one colour attachment, CLEAR + STORE (what
         // `make_color_attachment_info` spelled), zero clear colour, no depth and no secondary contents.
@@ -248,7 +248,7 @@ namespace deren::engine::pass {
         io.list->set_cull_mode(rhi::cull_mode::none);
         // No set to bind: the history and the surface are heap slots, one pair per swapchain image, and the frame
         // bound the heaps for this command buffer (see begin_recording).
-        // THE PUSH BLOCK IS THE PASS'S OWN (S3): every lane of it is a fact this pass has - its two blend
+        // THE PUSH BLOCK IS THE PASS'S (S3): every lane of it is a fact this pass has - its two blend
         // weights, the texel size of the extent it was resolved at, the projection's two depth terms (which
         // arrive as frame CONSTANTS, the channel that exists for exactly this) and the history flag it maintains
         // per image. The renderer used to compose it and hand it over as raw bytes.

@@ -2,7 +2,7 @@
 #extension GL_EXT_ray_tracing : require
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
-// The bindless texture array is indexed by the material's own index, exactly as shaders/surface.glsl and
+// The bindless texture array is indexed by the material's index, exactly as shaders/surface.glsl and
 // shaders/mask_bake.comp index it: plain indices into a partially-bound array.
 #extension GL_EXT_nonuniform_qualifier : enable
 
@@ -34,7 +34,7 @@
  * WHY `hitAttributeEXT` IS NOT USED: it is written by an INTERSECTION shader, and this pipeline has none -
  * triangle geometry is intersected by the fixed-function unit - and
  * `VkAccelerationStructureGeometryTrianglesDataKHR` has no attribute field to declare one in. The fetch above
- * is therefore not a workaround; it is the only channel a triangle hit has to its own vertices.
+ * is therefore not a workaround; it is the only channel a triangle hit has to its vertices.
  *
  * TWO FLAGS WERE LIFTED FOR THIS STAGE, AND WHAT THEY ACTUALLY DO WAS MEASURED RATHER THAN ASSUMED:
  *  - `gl_RayFlagsOpaqueEXT` in the raygen and `VK_GEOMETRY_OPAQUE_BIT_KHR` on the BLAS geometry both DECLARE
@@ -51,7 +51,7 @@
  *    the geometry flag.
  *
  * WHAT IT COSTS: three vertex fetches and one texture fetch per hit on a MASK material (not per pixel - the
- * fetch is behind the material's own flag), against the bake's cost of expanding every MASK triangle once at
+ * fetch is behind the material's flag), against the bake's cost of expanding every MASK triangle once at
  * load. A later step compares the two arms and can put an opacity micromap in front of this stage, which is the
  * hardware answer to the same question and is why `VK_EXT_opacity_micromap` is enabled.
  */
@@ -65,7 +65,7 @@
 
 // This stage declares no other constants, but it reads the per-FRAME mask instance table, so it needs the two HEAP
 // INDICES - and a heap pipeline has no layout to put a push constant in, so they arrive through vkCmdPushDataEXT
-// (see heap_slots.glsl). The block is its own because a stage has exactly one.
+// (see heap_slots.glsl). The block is its because a stage has exactly one.
 layout(push_constant) uniform AnyHitPush {
     uint frame_slot;
     uint image_index;
@@ -130,8 +130,8 @@ void main() {
         return;
     }
 
-    // The three vertices of the triangle the ray hit, by the geometry's own addressing: an index (or, for a
-    // non-indexed source - which is what the mask bake's expanded geometry is - the vertex's own position in
+    // The three vertices of the triangle the ray hit, by the geometry's addressing: an index (or, for a
+    // non-indexed source - which is what the mask bake's expanded geometry is - the vertex's position in
     // the list), times the stride, off the base.
     MaskVertexFloats vertices = MaskVertexFloats(mask_lane_address(instance.vertex_address));
     const uint stride = instance.vertex_stride / 4u;
@@ -155,7 +155,7 @@ void main() {
     }
 
     // The hit's barycentric coordinates, computed in OBJECT space because that is the space the vertices are
-    // in: the ray is taken there by the traversal's own inverse transform. `gl_WorldToObjectEXT` is a mat4x3 -
+    // in: the ray is taken there by the traversal's inverse transform. `gl_WorldToObjectEXT` is a mat4x3 -
     // an affine transform stored as three columns of four - so it multiplies a vec4 and yields a vec3, which is
     // also what makes the direction's translation drop out (w = 0) and leaves the parametric hit distance
     // unchanged. Möller-Trumbore's u and v are the weights of vertices 1 and 2, which is what the interpolation

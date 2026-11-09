@@ -287,10 +287,10 @@ int main() {
     auto islands = sub::build_serial(disconnected, options, {});
     CHECK(islands && islands->asset.data().roots.size() > 1);
     // Regression for the real-asset full-validation rule: a UV-seam geometry can share one vertex
-    // between triangles that are only attribute-connected on their own side, so the attribute-class
+    // between triangles that are only attribute-connected alone side, so the attribute-class
     // graph has two components that share that vertex class while the position-class graph (the
     // design's geometric adjacency, spec 3.4) is one component. The full validator used to judge
-    // components/pinch with the attribute graph only and rejected the builder's own accepted
+    // components/pinch with the attribute graph only and rejected the builder's accepted
     // reductions ("reduction boundary or components differ") on Bistro. The contract is the two-graph
     // one: position classes for geometric boundary/components, attribute classes for the seam
     // boundary. This synthetic seam grid previously failed full validation and must now build.

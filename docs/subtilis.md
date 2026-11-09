@@ -58,7 +58,7 @@ the composed geometry path.
 |---|---|
 | subtilis | Offline cluster/DAG construction, geometry generation validation, screen-error LOD selection, HZB geometry occlusion and optional hardware/software geometry routing. |
 | amnis | Visible-material texture demand, screen mip demand, texture prefetch/upload scheduling, fallback quality and texture residency budgets. |
-| Shared infrastructure | Visibility-buffer raster/resolve, render graph and synchronization, RHI allocation/upload/unload and ownership, task execution and memory statistics. |
+| Shared infrastructure | Visibility-buffer raster/resolve, render graph and synchronization, RHI allocation/upload/unload and retention, task execution and memory statistics. |
 
 The geometry path supplies selected/surviving geometry to visibility rendering. The visibility resolve
 can produce material and screen-footprint feedback that amnis consumes to schedule texture residency.
@@ -115,7 +115,7 @@ when the comparison matters):
 | Step | What happens | Where |
 | --- | --- | --- |
 | Offline asset | shared-vertex cluster DAG, complete LOD0 prefix and appended coarse indices | `tools/subtilis`, `source/asset/subtilis/` |
-| Loader/import | opt-in owned raw bytes; engine checks profile/source binding, structure and windows; CPU and GPU generations shared by source/payload identity | `gltf_loader`, `subtilis_dag_import.cppm`, `runtime::import_scene` |
+| Loader/import | opt-in held raw bytes; engine checks profile/source binding, structure and windows; CPU and GPU generations shared by source/payload identity | `gltf_loader`, `subtilis_dag_import.cppm`, `runtime::import_scene` |
 | Validation | DAG factory checks producer/consumer reciprocity, references, coverage, bounds/errors and index windows; full geometry validation stays offline | `subtilis_dag_asset.cppm`; legacy forest: `subtilis_asset.cppm` |
 | Upload | adopted payload or explicit `subtilis_geometry` becomes a shared generation: CPU hierarchy + two GPU buffers retained through the pass chain; normal draws/shadows/BLAS stay on LOD0 | `subtilis_upload.cppm`, `primitive_create_info::subtilis_geometry` |
 | Per-frame cut | `subtilis::prepare_item` uses the current model, frozen view/jittered projection and render extent; picks a complete run, or LOD0 on any fallback | `runtime.cpp` (`record_visibility_items`), `subtilis_selection.cppm`, `subtilis_dag_lod.cppm` (legacy: `subtilis_lod.cppm`) |
@@ -264,7 +264,7 @@ is summarized here; its raw records are not distributed with this repository.
   `test_visibility_buffer`, `test_render_graph_visibility` cover the consumer lane, `test_hzb` the
   occlusion composition. `ctest -R subtilis` covers the first group.
 - Offline converter: `tools/subtilis` builds the `DEREN_subtilis` asset (build/inspect/validate/export-cut;
-  `--threads N` deterministic, `validate --full`, per-stage report). Its own tests are built from
+  `--threads N` deterministic, `validate --full`, per-stage report). Its tests are built from
   `tools/subtilis/CMakeLists.txt` (`ctest --test-dir build-subtilis`), separately from the engine CTest set;
   measurement scripts live in `scripts/measure/`. The Task 8 acceptance record is maintainer material and
   is not distributed with this repository.
@@ -337,8 +337,8 @@ the consumer lanes are documented in the [visibility-buffer lane](visibility_buf
 
 ## Geometry upload update (2026-10-25)
 
-Immutable vertex/index uploads now use one buffer-transfer batch on capable owning cores, while keeping
+Immutable vertex/index uploads now use one buffer-transfer batch on capable holding cores, while keeping
 the public ready-on-return contract. Synchronous creation remains available for older/test backends and
 explicit comparisons. This affects asset upload latency, not per-frame raster performance. See the
-[transfer guide](buffer_transfers.md) for modes, ownership and cache limits; the local consumer
+[transfer guide](buffer_transfers.md) for modes, retention and cache limits; the local consumer
 measurements are not distributed with this repository.

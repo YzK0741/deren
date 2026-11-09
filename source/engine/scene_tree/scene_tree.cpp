@@ -64,7 +64,7 @@ namespace deren::engine::scene_tree {
         for (scene_node const& child : this->children) {
             copy.children.push_back(child.clone());
         }
-        // primitive leaves are intentionally NOT cloned: their ownership is
+        // primitive leaves are intentionally NOT cloned: their retention is
         // external (the runtime registers them once); copy preserves null
         return copy;
     }

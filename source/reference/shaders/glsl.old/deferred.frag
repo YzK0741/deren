@@ -8,12 +8,12 @@
  *
  * The second half of the deferred path. It reads the three G-buffer targets plus the pass's 1x depth
  * image, rebuilds the world position from that depth, and evaluates the same lighting the forward
- * path evaluates per fragment - literally the same code: shaders/shading.glsl owns the sun, the
+ * path evaluates per fragment - literally the same code: shaders/shading.glsl holds the sun, the
  * shadow test, the punctual lights, the split-sum IBL and the BRDF presets, and this stage only
  * supplies a shade_input assembled from G-buffer texels instead of from interpolated vertex data.
  * That is what makes the forward and the deferred image comparable rather than merely similar.
  *
- * It also owns the screen-space ambient occlusion (M6): the occlusion is computed from the very depth
+ * It also holds the screen-space ambient occlusion (M6): the occlusion is computed from the very depth
  * and normals this stage already reads, folded into the shade_input's ao, and therefore scales the
  * IBL ambient exactly like a material's baked AO map does - no extra render target, no extra pass.
  *
@@ -47,7 +47,7 @@
 // shading.glsl's declarations are heap-native: this stage asks for the two extensions they need (see pbr.frag).
 #extension GL_EXT_descriptor_heap : require
 #extension GL_EXT_nonuniform_qualifier : enable
-// THE GRID HEADER, early: this stage's OWN declarations below are heap-native and need its constants, while
+// THE GRID HEADER, early: this stage's declarations below are heap-native and need its constants, while
 // shading.glsl (which also carries it) is included only after the push block. The header has an include guard, so
 // the second inclusion costs nothing.
 #include "heap_slots.glsl"
@@ -59,7 +59,7 @@ layout(location = 0) out vec4 out_color;
 
 // HEAP-NATIVE (see docs/descriptor_heap_migration.md): a heap image descriptor is an IMAGE, so every read
 // constructs its sampler from the sampler heap - and the sampler for all five is the G-buffer's NEAREST one, which
-// is what these exact texel fetches want (the declaration this replaces said so in its own comment). The G-buffer,
+// is what these exact texel fetches want (the declaration this replaces said so in its comment). The G-buffer,
 // the scene colour and the lighting image are per SWAPCHAIN IMAGE; the ray-traced visibility is per FRAME SLOT.
 layout(descriptor_heap, descriptor_stride = heap_slot_stride) uniform texture2D gbuffer_albedo_texture[];   // RGBA8: albedo.rgb + metallic
 layout(descriptor_heap, descriptor_stride = heap_slot_stride) uniform texture2D gbuffer_normal_texture[];   // RGBA16F: normal.xyz + roughness
@@ -81,7 +81,7 @@ vec4 gbuffer_texel(uint slot, vec2 uv) {
 // G-buffer pass and this one.
 layout(descriptor_heap, descriptor_stride = heap_slot_stride) uniform texture2D rt_visibility_texture[];
 // The STOCHASTIC PUNCTUAL LIGHTING image (docs/megalights.md): half resolution, per swapchain image, added by this
-// stage instead of by its own composite pass. Read at exact texels too (the 2x2 gather below), so the same NEAREST
+// stage instead of by its composite pass. Read at exact texels too (the 2x2 gather below), so the same NEAREST
 // sampler serves it.
 layout(descriptor_heap, descriptor_stride = heap_slot_stride) uniform texture2D ml_lighting_texture[];
 
@@ -117,7 +117,7 @@ layout(push_constant) uniform DeferredPush {
  * @note the engine's projection is a RH_ZO matrix with its Y row flipped for Vulkan
  *       (make_orbit_camera_ubo), and post.vert's v_uv already maps (0,0) to the top-left texel, so
  *       the NDC of a pixel is (2*uv - 1) in both axes: no extra flip belongs here - the inverse
- *       matrix already carries the projection's own conventions.
+ *       matrix already carries the projection's conventions.
  */
 vec3 world_position_from_depth(vec2 uv, float depth) {
     const vec4 world = pc.inv_view_proj * vec4(uv * 2.0 - 1.0, depth, 1.0);
@@ -244,7 +244,7 @@ void main() {
     // UBO's, and it is only ever set when the pass ran and the device has ray queries - so a frame with
     // rt_shadows off samples nothing that does not exist and shades exactly as it did before.
     si.shadow_override = (light[heap_light_slot].rt_shadows > 0.5) ? texture(sampler2D(rt_visibility_texture[heap_slots_rt_visibility + heap_frame_slot], heap_samplers[heap_sampler_gbuffer]), v_uv).r : -1.0;
-    // ... and the punctual lights' own switch: with the stochastic pass having answered this frame, the cluster
+    // ... and the punctual lights' switch: with the stochastic pass having answered this frame, the cluster
     // loop inside shade_surface adds nothing and what is added instead is `ml_lighting`, right below.
     si.punctual_replaced = pc.punctual_replaced;
 
@@ -266,7 +266,7 @@ void main() {
         const vec2 ml_texel = 1.0 / ml_extent;
         const vec2 base = floor(v_uv * ml_extent - 0.5);
         const float view_here = -length(si.world_pos - camera[heap_camera_slot].camera_pos.xyz);
-        // The tolerance is relative to the pixel's own view distance: the same absolute depth error means far
+        // The tolerance is relative to the pixel's view distance: the same absolute depth error means far
         // less at 5 units than at 50 (the argument the chain's filters make).
         const float depth_tolerance = max(0.02 * abs(view_here), 1e-5);
         vec3 ml_sum = vec3(0.0);
@@ -288,7 +288,7 @@ void main() {
                 ml_weight_sum += weight;
             }
         }
-        // The fallback is the filtered fetch at the pixel's own uv, which is what a sliver of geometry whose
+        // The fallback is the filtered fetch at the pixel's uv, which is what a sliver of geometry whose
         // whole 2x2 block belongs to somebody else gets - the same answer the composite's upsample gives.
         color += ml_weight_sum > 1e-5 ? ml_sum / ml_weight_sum : texture(sampler2D(ml_lighting_texture[heap_slots_ml_resolved + heap_image_index], heap_samplers[heap_sampler_gbuffer]), v_uv).rgb;
     }

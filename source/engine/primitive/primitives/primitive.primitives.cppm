@@ -203,7 +203,7 @@ namespace deren::engine {
      * @ingroup engine_primitive
      * @brief max entries of the GPU material table
      * @note sized for the heaviest glTF stress sample (NodePerformanceTest: 10000 rocks, each
-     *       with its own material record - factors differ per rock, so content dedup cannot
+     *       with its material record - factors differ per rock, so content dedup cannot
      *       collapse them). 16384 x 80 B = 1.3 MiB storage buffer, negligible. The runtime
      *       dedups byte-identical materials (register_material) and reserves index 0 as the
      *       default material; registrations past the capacity degrade to it with a logged
@@ -220,7 +220,7 @@ namespace deren::engine {
     /**
      * @ingroup engine_primitive
      * @brief max motion slots of the scene's previous-transform buffer (set 0 binding 13), in mat4s
-     * @note Every draw owns at least one slot - an instanced draw owns one per instance - and the
+     * @note Every draw holds at least one slot - an instanced draw holds one per instance - and the
      *       slots are why the same capacity as the instance buffer is plenty: a scene of N leaves
      *       uses N, and only an instanced stress draw uses thousands.
      */
@@ -291,7 +291,7 @@ namespace deren::engine {
         uint32_t instance_base = 0;
         // Start of THIS draw's previous-frame world matrices in the scene block's motion buffer
         // (binding 13), where the vertex shader reads the matrix that turns into TAA's motion
-        // vector. Every draw owns at least one slot (an instanced draw owns one per instance), and
+        // vector. Every draw holds at least one slot (an instanced draw holds one per instance), and
         // the runtime advances them once per frame from the scene tree's world matrices - see
         // runtime::advance_motion_transforms(). The field sits in the 4 bytes std430 leaves between
         // instance_base and model, so the block stays 96 bytes and the pipeline layout is unchanged.
@@ -326,7 +326,7 @@ namespace deren::engine {
      */
     export constexpr uint32_t mesh_geometry_lanes_offset = 112;
     export constexpr uint32_t mesh_geometry_push_offset_scene = deren::engine::render_layout::scene_push_constant_size + 3u * sizeof(uint32_t);
-    /// ... and the shadow pass's own end: the same offset plus the cascade lane its block declares
+    /// ... and the shadow pass's end: the same offset plus the cascade lane its block declares
     export constexpr uint32_t mesh_geometry_push_offset_shadow = mesh_geometry_push_offset_scene + sizeof(uint32_t);
     /**
      * @ingroup engine_primitive
@@ -362,17 +362,17 @@ namespace deren::engine {
 
     /**
      * @ingroup engine_primitive
-     * @brief base class of every GPU primitive: owns geometry buffers + material push constants
+     * @brief base class of every GPU primitive: holds geometry buffers + material push constants
      *        and declares the draw strategy interface. Derived classes implement how the
      *        geometry is drawn (single draw, instanced grid, ...), so the runtime's frame loop
      *        stays a generic "for each primitive: primitive->draw()" — new strategies only add
      *        a subclass. Implements the scene tree's leaf concept (scene_tree::primitive).
      * @note
-     *      - owns only its geometry (contract buffers); textures live in the runtime's shared texture
+     *      - holds only its geometry (contract buffers); textures live in the runtime's shared texture
      *        array, and the descriptors that reach them are the runtime's (the frame's one heap,
      *        bound once, holding this frame slot's scene block)
      *      - the runtime binds the pipeline and the scene block before calling draw()
-     *      - destroy() frees whatever the instance owns (contract buffers); call it before teardown
+     *      - destroy() frees whatever the instance holds (contract buffers); call it before teardown
      *      - a scene tree node holds one of these as its primitive_leaf and update_world() feeds
      *        the accumulated world matrix straight into push.model (the push block layout is
      *        shared, so draw() keeps working unchanged)
@@ -385,8 +385,8 @@ namespace deren::engine {
         uint64_t const lifetime_id = next_lifetime.fetch_add(1, std::memory_order_relaxed);
         ~primitive() override = default;
 
-        // Geometry views carry allocation leases. Production generations own buffers and device;
-        // legacy assignments own their transferred RHI reference. BLAS retains leases separately.
+        // Geometry views carry allocation leases. Production generations hold buffers and device;
+        // legacy assignments hold their transferred RHI reference. BLAS retains leases separately.
         std::shared_ptr<void const> geometry_resources; // subchain drains after the views below release
         std::shared_ptr<subtilis::uploaded_geometry const> subtilis_geometry;
         std::shared_ptr<subtilis::imported_asset const> subtilis_import;
@@ -409,7 +409,7 @@ namespace deren::engine {
          * object-space bounding sphere. Filled at upload, where the geometry bytes and the layout are in hand.
          *
          * THEY ARE HOST-SIDE FOR NOW, and deliberately: the meshlet table the shaders will read is a heap
-         * resource of its own (a per-frame slot, written once at import and registered like the material table),
+         * resource of its (a per-frame slot, written once at import and registered like the material table),
          * and the split is the part of that step worth having early - it is arithmetic whose bugs are invisible
          * on screen, so it is built and tested (source/tests/test_meshlet.cpp) before anything consumes it.
          */
@@ -434,7 +434,7 @@ namespace deren::engine {
         // is where the matrix it had one frame ago lives - the vertex shader reads it through
         // push.motion_base and the fragment stage turns the difference into TAA's motion vector.
         // no_motion_slot = not tracked frame to frame (an instanced draw, whose slots are filled
-        // once at setup with its own instance transforms, so its object motion reads as zero).
+        // once at setup with its instance transforms, so its object motion reads as zero).
         uint32_t motion_slot_index = deren::engine::scene_tree::no_motion_slot;
 
         /** @brief where this leaf's previous world matrix lives (see the member) */
@@ -454,7 +454,7 @@ namespace deren::engine {
          * are collected rather than by draw(): an overlay surface must be ABSENT from the opaque, transparent
          * and shadow lists altogether - not drawn-and-then-ignored - because those passes would shade it (the
          * measured 8.22% of the standard frame and 68.92% of the face close-up that made this port necessary)
-         * and the shadow pass would let its quad cast a shadow of its own onto the face it darkens.
+         * and the separate shadow pass would let its quad cast a shadow onto the face it darkens.
          *
          * The same shape as `transparent` above: a fact the host needs, mirrored on the primitive so no GPU
          * readback is involved in a decision about which list a leaf goes into. See `overlay_kind_of` in
@@ -475,12 +475,12 @@ namespace deren::engine {
          * IT IS THE SAME KIND OF FACT AS `overlay_kind` ABOVE AND IS MIRRORED FOR THE SAME REASON: the colour
          * lanes are uploaded into `core::heap_slots::toon_colours`, one `vec4` per lane per material, and the
          * per-material `material_record` is fixed at 96 bytes and explicitly refused growth (see the record's
-         * own note). The frame's leaf lists are therefore built while the only thing available is the
+         * the note). The frame's leaf lists are therefore built while the only thing available is the
          * primitive, exactly as they are for the overlay channel - and the shader reads the lane itself for the
          * width, so this mirror is a LIST-BUILDING gate and never a second source of truth for the number.
          *
          * 0.0f MEANS "THIS MATERIAL HAS NO OUTLINE", WHICH IS THE `toon_inputs` DEFAULT for that lane's `.w`
-         * and the article's own gate (`outline.slang` tests `w > 0`). It is NOT the white the other three lanes
+         * and the article's gate (`outline.slang` tests `w > 0`). It is NOT the white the other three lanes
          * default to: white in `.w` would be a width of 1.0 around every material that states no
          * `_OutlineWidth` row, which is the whole character.
          */
@@ -495,7 +495,7 @@ namespace deren::engine {
         bool environment = false;
 
         /**
-         * WHICH SHADING STAGE OWNS THIS LEAF (see `deren::engine::shading_path`).
+         * WHICH SHADING STAGE HOLDS THIS LEAF (see `deren::engine::shading_path`).
          *
          * Default `deferred`, i.e. the ordinary G-buffer + deferred-lighting path. The host sets `character` on the
          * leaves of a GameToon object and on the historic single-character path; the character-forward stage then
@@ -525,7 +525,7 @@ namespace deren::engine {
         bool ray_tracing_shadow = true;
         bool ray_tracing_reflection = true;
 
-        /// which GameToon character owns this leaf; copied into the high bits of `push.flags` at creation. See
+        /// which GameToon character holds this leaf; copied into the high bits of `push.flags` at creation. See
         /// `primitive_create_info::character_index`.
         uint32_t character_index = 0u;
 
@@ -609,7 +609,7 @@ namespace deren::engine {
         }
 
         /**
-         * @brief store the world transform accumulated by the owning scene tree node
+         * @brief store the world transform accumulated by the holding scene tree node
          * @param world the node's world matrix (parent_world * local)
          * @note the primitive's world transform lives in push.model, which draw() pushes as-is
          */
@@ -626,7 +626,7 @@ namespace deren::engine {
         virtual void draw(render_environment& env) const = 0;
         /// THE ALLOCATOR IS GONE FROM THIS HOOK (the boundary batch's import cleanup): it took a
         /// `vma_allocator&`, which was the ONLY reason this module imported `deren.vulkan.core` - and every
-        /// implementation already ignored it, because the geometry is owned by CONTRACT handles
+        /// implementation already ignored it, because the geometry is held by CONTRACT handles
         /// (`rhi::unique_object<rhi::buffer>`) whose `reset()` is the whole of what this does. No caller
         /// anywhere passed one either. The hook itself now depends on no backend type.
         virtual void destroy() noexcept = 0;
@@ -642,9 +642,9 @@ namespace deren::engine {
          *
          * @param env the session (see `render_environment::meshlet_culled`)
          * @param geometry the primitive whose meshlets this draw covers
-         * @param first_index the draw's own first index, used when the session is not a meshlet one
-         * @param index_count the draw's own index count, same condition
-         * @param base_vertex the draw's own base vertex, same condition (a meshlet session's lanes carry
+         * @param first_index the draw's first index, used when the session is not a meshlet one
+         * @param index_count the draw's index count, same condition
+         * @param base_vertex the draw's base vertex, same condition (a meshlet session's lanes carry
          *        the primitive's run instead, see the notes below)
          * @param material_two_sided the draw's material is two-sided, which keeps both sides: no
          *        back-face test may reject a meshlet for facing away from the camera
@@ -674,7 +674,7 @@ namespace deren::engine {
 
     /**
      * @ingroup engine_primitive
-     * @brief the standard primitive: one indexed draw of its own geometry (push.model places it)
+     * @brief the standard primitive: one indexed draw of its geometry (push.model places it)
      */
     export class normal_draw_primitive final : public primitive {
     public:
@@ -705,7 +705,7 @@ namespace deren::engine {
      * @ingroup engine_primitive
      * @brief instanced primitive: draws the geometry of another primitive (source)
      *        instance_count times in ONE draw call; per-instance world transforms come from the
-     *        runtime's instance transform buffer (scene block slot 6, push flag bit0). Owns
+     *        runtime's instance transform buffer (scene block slot 6, push flag bit0). Holds
      *        nothing: geometry belongs to source, destroy() is a no-op, source must outlive it.
      */
     export class instanced_draw_primitive final : public primitive {
@@ -762,10 +762,10 @@ namespace deren::engine {
 
     /**
      * @ingroup engine_primitive
-     * @brief static batch primitive: OWNS one merged vertex/index buffer and draws a chunk
+     * @brief static batch primitive: HOLDS one merged vertex/index buffer and draws a chunk
      *        table over it — every chunk shares the single buffer bind, each chunk is one
-     *        offset draw with its own material (push.material_index). Self-contained: no
-     *        source primitive to outlive, destroy() releases the owned buffers like a normal
+     *        offset draw with its material (push.material_index). Self-contained: no
+     *        source primitive to outlive, destroy() releases the held buffers like a normal
      *        draw. This is the primitive-level form of a static scene: one buffer, one bind,
      *        N offset draws. Placement works like every other leaf: the node's local
      *        transform (set from static_draw_create_info::model_matrix by the static-draw builder)
@@ -777,7 +777,7 @@ namespace deren::engine {
      */
     export class static_draw_primitive final : public primitive {
     public:
-        // merged geometry: owned the same way normal_draw owns its two buffers (see the note there)
+        // merged geometry: held the same way normal_draw holds its two buffers (see the note there)
         deren::promise::rhi::unique_object<deren::promise::rhi::buffer> vertex_buffer = {};
         deren::promise::rhi::unique_object<deren::promise::rhi::buffer> index_buffer = {};
         deren::promise::rhi::index_type index_type = deren::promise::rhi::index_type::uint32;
@@ -849,7 +849,7 @@ namespace deren::engine {
      * @param fast true for the SHIFT speed multiplier (4x)
      * @return the target's translation for this frame (world units; y is non-zero only while UP/DOWN
      *         is held)
-     * @note pure function: the runtime owns the time base (glfwGetTime) and the key state, so the
+     * @note pure function: the runtime holds the time base (glfwGetTime) and the key state, so the
      *       arithmetic is unit-testable headlessly. Both axes are normalized together, so a diagonal
      *       press is not faster than a straight one, and no key held returns exactly zero (an idle
      *       frame never touches the camera).
@@ -863,7 +863,7 @@ namespace deren::engine {
      *        shadows, the PBR direct light and the visible sun disc all agree.
      * @param sun_direction the sun's direction in world space, pointing FROM the surface TOWARD the sun; it
      *        is normalized here and it is the SINGLE source for three consumers that must not disagree -
-     *        this UBO's own matrices, the shader's `light_dir`, and the disc the sky draws (which reads this
+     *        this UBO's matrices, the shader's `light_dir`, and the disc the sky draws (which reads this
      *        block's `light_dir`, so the sky cannot put its sun where the shadows do not fall). It comes from
      *        `[lighting] sun_direction`, which is what makes the light movable without rebuilding.
      * @param scene_center world-space center of the shadow frustum (e.g. the imported scene

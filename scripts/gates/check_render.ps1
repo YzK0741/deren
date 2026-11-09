@@ -17,8 +17,8 @@
 # TWO PROPERTIES IT DEPENDS ON, both measured rather than assumed:
 #  1. [gui] show = false. With the overlay on, the frame is NOT deterministic - it prints a live fps
 #     counter, and three consecutive runs of one binary produced three different hashes. With it off,
-#     three runs produced one hash. Every scenario therefore forces the overlay off and passes its own
-#     config file, so a developer's own config.toml cannot influence it.
+#     three runs produced one hash. Every scenario therefore forces the overlay off and passes its
+#     config file, so a developer's config.toml cannot influence it.
 #  2. A fixed frame count: TAA accumulates over frames, so frame 10 and frame 40 differ.
 # Check mode runs every scenario TWICE and requires the two runs to agree before comparing against the
 # reference, so "flaky" is reported as flaky instead of as a regression.
@@ -53,7 +53,7 @@
 #     NVIDIA driver from 591.59 to 616.92 made 8 of the 9 scenarios differ (`transparent_blend` was the only one
 #     that survived), and the PARENT COMMIT - built without the change that was under test - reproduced exactly
 #     the same 8 against the same references, which is how the driver was shown to be the cause rather than the
-#     code. The lesson is procedural: after a driver update, run the gate on the commit BEFORE your own change
+#     code. The lesson is procedural: after a driver update, run the gate on the commit BEFORE your change
 #     to see whether "changed" is yours, and re-baseline (-Update) with the reason written down - archiving the
 #     old set first, because it is the only record of what the previous driver looked like.
 #
@@ -97,7 +97,7 @@ param(
     [string]$BuildDir = "",
     # THE STANDARD COMPARISON (G2): "" = none, "frozen" = the migration's fourteen frozen hashes, or a
     # PATH = another gate round's actual-hash file (how the two-tree phase was compared). The verdict it
-    # prints is the one that means something; this script's own `changed`/exit 1 is about the stale local
+    # prints is the one that means something; this script's `changed`/exit 1 is about the stale local
     # reference set (see the note at the summary).
     [string]$Compare = "",
     # THE SAMPLE-ASSET ROOT: the glTF-Sample-Assets `Models/` directory the generic scenarios draw from.
@@ -115,7 +115,7 @@ param(
     [int]$Height = 960,
     # THE A/B INSTRUMENT: `[render]`-section lines injected into EVERY scenario's config (e.g.
     # @("visibility_buffer = true") for the visibility path's ON arm). They land after the pinned defaults and
-    # before the scenario's own `extra` keys, so a scenario that names the same key wins (and the default line it
+    # before the scenario's `extra` keys, so a scenario that names the same key wins (and the default line it
     # would have duplicated is suppressed). With the same cameras, models and frame counts a normal -Full round
     # uses, one -ExtraConfig round is one A/B arm - which is how docs/reviews/2026-10-18-visibility-buffer-ab.md
     # was measured. Refused with -Update: an override that changes the picture must never be accepted as a
@@ -167,7 +167,7 @@ $workDir = Join-Path $BuildDir "render-check"
 # hand-run A/B captures, which is not a net) and to hold the chain's two arms apart - the rewritten one on
 # the sidecar-carrying asset, the same chain on an asset with NO sidecar (the fallback control), the OLD
 # chain on the first asset (the byte-identity criterion), and the rewritten chain ONE POSE FURTHER IN, at
-# the body, where alone the two `_GooRSScalars` / `_GooRSTint` materials are drawn (see its own note).
+# the body, where alone the two `_GooRSScalars` / `_GooRSTint` materials are drawn (see its note).
 # The first three are one character at ONE pose, so they answer a question the core five do not; the fourth
 # exists because that one pose cannot see that mechanism at all. `-Full` is where they run, and
 # `-Only laevatain_goo_toon` runs one.
@@ -195,7 +195,7 @@ $scenarios = @(
     # `config.toml` renders. Every other scenario is that frame plus the one difference its name claims,
     # which is why a key equal to its compiled default must never be spelled out here.
     @{ name = "deferred";          desc = "deferred G-buffer + lighting, no AA stage";   tier = "core";  extra = @{} }
-    # THE VISIBILITY PATH'S OWN REFERENCE (visibility-buffer plan v0.7): the deferred frame with the switch on,
+    # THE VISIBILITY PATH'S REFERENCE (visibility-buffer plan v0.7): the deferred frame with the switch on,
     # i.e. the one scenario whose frozen hash describes the raster+resolve lanes instead of the geometry lane.
     # The SAME model/camera/frames as `deferred` and one key different, so the two rounds' hashes on this
     # scenario ARE the A/B on one frame. tier = "visibility" keeps it out of -Full on purpose: -Full's verdict
@@ -208,7 +208,7 @@ $scenarios = @(
     @{ name = "shadow_single";     desc = "one cascade, i.e. the historic shadow path"; tier = "extra"; extra = @{ shadow_cascades = "1" } }
     @{ name = "unlit";             desc = "flat base colour, no shading";               tier = "core";  extra = @{ unlit = "true" } }
     # The one scenario that uses a different model, and it has to: alphaMode BLEND geometry is drawn
-    # by a pass of its own, so no model without a BLEND material can exercise it - DamagedHelmet has
+    # by A separate pass, so no model without a BLEND material can exercise it - DamagedHelmet has
     # only OPAQUE/MASK. AlphaBlendModeTest carries one of each alphaMode (OPAQUE / MASK at two cutoffs
     # / BLEND) plus a decal, so this also covers the G-buffer's MASK discard path.
     @{ name = "transparent_blend"; desc = "deferred + an alphaMode BLEND material"; tier = "core"; extra = @{}
@@ -249,7 +249,7 @@ $scenarios = @(
     # with TAA off, a wrong motion vector changes nothing a shaded frame would show, so the regression has
     # to BE the channel-8 image (gbuffer_debug draws the velocity amplified and biased so that "did not
     # move" is one flat value - see scripts/measure/motion_channel.py, which is how the before and after
-    # were read). The model is the repository's own fixture: a plane skinned to two joints with its MESH
+    # were read). The model is the repository's fixture: a plane skinned to two joints with its MESH
     # NODE STATIC and one joint pinned, so the rigid half of every motion vector is exactly zero and the
     # deformation is the ONLY motion in the frame. Before deformation-aware motion vectors the whole
     # swinging half reported "did not move": 229,267 px, ONE distinct value.
@@ -260,7 +260,7 @@ $scenarios = @(
        animation_sweep = "0.02" }
     # A GAUSSIAN SPLAT CLOUD, and the reason it exists is that a .ply MODEL PATH is the ONLY way to turn the
     # gaussian feature on at all: without a scenario the whole splat chain - the GPU compute preparation, the
-    # raster and their graph migration - is unreachable by the net. The asset is the repository's own ASCII
+    # raster and their graph migration - is unreachable by the net. The asset is the repository's ASCII
     # fixture, so a fresh checkout renders the same 160-splat ribbon.
     @{ name = "gaussian_splat"; desc = "a gaussian splat cloud (the splat chain)"; tier = "extra";
        extra = @{ taa = "false" }
@@ -273,12 +273,12 @@ $scenarios = @(
     # from here on a change to that chain has to move a RECORDED reference or it is not a change.
     #
     # `character_forward = true` IS PART OF THE SCENARIO AND NOT AN OPTION: with it off no material is drawn
-    # through the character pipeline at all ([render] character_forward's own note), so `goo_toon` would select
+    # through the character pipeline at all ([render] character_forward's note), so `goo_toon` would select
     # nothing and the frame would be the deferred one - a green scenario that measures the wrong thing. The pose
-    # is the A/B's own close pose, the one every step 2..7 reproduced exactly.
+    # is the A/B's close pose, the one every step 2..7 reproduced exactly.
     #
     # THE ASSET IS THE ONE THAT CARRIES THE DATA: `laevatain_goo.glb` and its `.toon.tsv` sidecar, whose rows are
-    # every per-material value the rewritten chain reads (the reference's own Goo node presets). It lives under
+    # every per-material value the rewritten chain reads (the reference's Goo node presets). It lives under
     # the BUILD directory because it is a locally-authored asset, not a committed fixture - see the note on
     # $charDir above - so a `-BuildDir` pointing elsewhere needs the same `chars\` beside it, and this scenario
     # then fails loudly ("no screenshot" / exit code) rather than passing green against a frame it never drew.
@@ -302,11 +302,11 @@ $scenarios = @(
        extra = @{ character_forward = "true"; goo_toon = "true" }
        model = "$charDir\laevatain_goo.glb"
        camera = "0,0,2.4,0,-0.9,0" }
-    # THE FALLBACK ARM, and it is the negative control the chain's own contract asks for: `laevatain.glb` is the
+    # THE FALLBACK ARM, and it is the negative control the chain's contract asks for: `laevatain.glb` is the
     # SAME character with NO `.toon.tsv` sidecar, so every per-material value the rewritten chain reads is
-    # ABSENT and the chain must come back to the reference's own socket defaults rather than guess (a zeroed or
+    # ABSENT and the chain must come back to the reference's socket defaults rather than guess (a zeroed or
     # stale lane read as a value). The two assets are the same geometry and the same 11 materials, measured with
-    # this repository's own `deren-ab/glb_info.py`: the goo file adds only the extra IMAGES the sidecar's rows
+    # this repository's `deren-ab/glb_info.py`: the goo file adds only the extra IMAGES the sidecar's rows
     # resolve, and a copy of it with no sidecar beside it renders THIS scenario's frame exactly (92473A82…), so
     # the sidecar is the whole of the difference and not the textures.
     #
@@ -324,7 +324,7 @@ $scenarios = @(
     # is the recorded version of that criterion (the anchors are hand-run captures, re-verified at this commit;
     # this one runs in every -Full round). One variable separates it from `laevatain_goo_toon`: the chain.
     # NOTE that it is NOT the identity against the scenario above - measured, the two differ - because the
-    # sidecar it reads is present, and that difference IS the rewrite's own output on a real character.
+    # sidecar it reads is present, and that difference IS the rewrite's output on a real character.
     @{ name = "laevatain_old_chain"; desc = "the OLD toon chain on the same goo character"; tier = "extra";
        extra = @{ character_forward = "true"; goo_toon = "false" }
        model = "$charDir\laevatain_goo.glb"
@@ -363,7 +363,7 @@ function Write-ScenarioConfig {
     # toml++ rejects the whole file (which reads as "the scenario silently fell back to the
     # compiled-in defaults"). Hence the -notcontains filter below.
     #
-    # -ExtraConfig lines obey the same rule: the scenario's own `extra` key WINS over an override of the
+    # -ExtraConfig lines obey the same rule: the scenario's `extra` key WINS over an override of the
     # same name (a scenario that means to differ must be able to), and an override of a pinned default replaces
     # that default line rather than duplicating it.
     $overrideKeys = [System.Collections.Generic.HashSet[string]]::new()
@@ -405,7 +405,7 @@ function Write-ScenarioConfig {
     foreach ($line in $ExtraConfig) {
         $eq = $line.IndexOf('=')
         $key = $line.Substring(0, $eq).Trim()
-        if ($Scenario.extra.ContainsKey($key)) { continue } # the scenario's own value wins
+        if ($Scenario.extra.ContainsKey($key)) { continue } # the scenario's value wins
         $lines += $line
     }
     foreach ($k in $Scenario.extra.Keys) { $lines += "$k = $($Scenario.extra[$k])" }
@@ -436,7 +436,7 @@ function Invoke-Scenario {
     #
     # An EMPTY scenario camera means "let the scene frame itself" (camera_fit), and the flag is then
     # omitted rather than passed empty: `--capture-camera=` with no numbers is not a valid pose, and one
-    # scenario needs the scene's own framing - the metal/roughness sweep, whose grid a pinned pose would
+    # scenario needs the scene's framing - the metal/roughness sweep, whose grid a pinned pose would
     # have to be reverse-engineered for. camera_fit is deterministic for a static scene (the metadata
     # rule, not the clock), which is the same reason a scenario may pin one.
     $scenarioCamera = if ($Scenario.ContainsKey('camera')) { $Scenario.camera } else { $Camera }
@@ -467,7 +467,7 @@ function Invoke-Scenario {
     $start.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
     foreach ($arg in $launch) { $null = $start.ArgumentList.Add($arg) }
     $p = [System.Diagnostics.Process]::Start($start)
-    # the capture exits on its own; the timeout is a safety net, not the expected path
+    # the capture exits alone; the timeout is a safety net, not the expected path
     if (-not $p.WaitForExit(180000)) { $p.Kill(); return @{ ok = $false; why = "timed out" } }
     # KEEP THIS RUN'S LOG next to its screenshot, before any early return: a round reads its graph/fallback
     # inventory from the "main graph:" lines in it, a validation finding is only in it, and the next
@@ -487,11 +487,11 @@ function Invoke-Scenario {
     $shot = Get-Item $kept
 
     # the run has to have been VALIDATION clean: a difference in validation output is a finding on its
-    # own, and a scenario that silently stopped being validation-clean should not be accepted as a
+    # separate, and a scenario that silently stopped being validation-clean should not be accepted as a
     # baseline either.
     #
     # [WARNING] is part of the pattern DELIBERATELY, and it was added after this hole hid a real defect:
-    # the descriptor pool was missing the storage-image and acceleration-structure types its own set
+    # the descriptor pool was missing the storage-image and acceleration-structure types its set
     # layouts declared, so the layer named them on every single run - and every run was reported clean,
     # because the pattern only looked for errors and VUIDs. A warning from the layer is the layer saying
     # the application did something the specification does not allow; a driver that enforces it returns
@@ -559,7 +559,7 @@ $assetRequirements = @(
     # CHANGED - which is exactly how a rendering regression reads.
     @{ scenarios = @($scenarios | Where-Object { -not $_.ContainsKey('model') } | ForEach-Object { $_.name });
        path      = $Model;
-       why       = "the default helmet model every scenario without its own model key draws (path from -ModelRoot / DEREN_MODEL_ROOT)";
+       why       = "the default helmet model every scenario without its model key draws (path from -ModelRoot / DEREN_MODEL_ROOT)";
        root      = "sample" },
     @{ scenarios = @("transparent_blend");
        path      = (Resolve-SampleModel "AlphaBlendModeTest\glTF\AlphaBlendModeTest.gltf");
@@ -724,7 +724,7 @@ if ($Compare) {
     $compareArgs = @($hashesFile)
     if ($Compare -eq "frozen") { $compareArgs += "--frozen" } else { $compareArgs += @("--against", $Compare) }
     # --expect is how many scenarios THIS round was supposed to render, so a selection that silently
-    # dropped one cannot compare equal (see the script's own note).
+    # dropped one cannot compare equal (see the script's note).
     $compareArgs += @("--expect", "$ran")
     Write-Host ""
     & python (Join-Path $PSScriptRoot "..\diagnostics\compare_render_hashes.py") @compareArgs
@@ -737,7 +737,7 @@ if ($Compare) {
     # AND IT IS THE EXIT CODE: with -Compare the comparison REPLACES the reference-vs-frame verdict, so a
     # round whose fourteen actual hashes are the ones the frozen list names exits 0 even though the local
     # references are old (which is the normal state of this machine's reference set, and the reason this
-    # script's own exit code has never been the gate's verdict).
+    # script's exit code has never been the gate's verdict).
     exit 0
 }
 if ($fail -gt 0 -or $flaky -gt 0) { exit 1 }

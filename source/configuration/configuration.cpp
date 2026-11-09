@@ -19,8 +19,8 @@ namespace deren::app_config {
         /// A TOML INTEGER IS 64-BIT and several settings fields are 32. `static_cast<int32_t>` is a modulo
         /// conversion, so 2^32 + 2 arrives at a later range check looking like a perfectly valid 2 - the value
         /// was out of range, but nothing downstream could see it. Saturating instead keeps an out-of-range
-        /// integer out of range, where the rule that owns the range (the sanity clamp at the end of
-        /// `load_settings` or its documented fallback) can reject it. Where no later rule owns a bound, validate
+        /// integer out of range, where the rule that holds the range (the sanity clamp at the end of
+        /// `load_settings` or its documented fallback) can reject it. Where no later rule holds a bound, validate
         /// the 64-bit value at the call site instead of saturating into a value nobody asked for (see
         /// `[render] window_width`).
         constexpr int32_t saturating_int32(int64_t const value) noexcept {
@@ -490,7 +490,7 @@ namespace deren::app_config {
 
         // ---- THE TOON LIGHT RIG ([toon]) ----
         //
-        // A TABLE OF ITS OWN rather than more keys under `[render]`, because these are the CHARACTER stage's art
+        // A separate TABLE rather than more keys under `[render]`, because these are the CHARACTER stage's art
         // direction rather than the frame's render settings - and because they belong together: they are the
         // lanes of one block (`deren::vulkan::toon_rig`), and a reader who moves one of them wants to see the others.
         if (toml::table const* toon = table.get_as<toml::table>("toon")) {
@@ -516,7 +516,7 @@ namespace deren::app_config {
                 }
             }
             // THE DAY STRENGTH IS CLAMPED rather than trusted, because it is a blend weight between two whole
-            // shading outcomes: a value above 1 would extrapolate past the sun's own state and a negative one
+            // shading outcomes: a value above 1 would extrapolate past the sun's state and a negative one
             // past the head light's, and neither is a look anybody asked for. Every other rig number is a scale
             // whose useful range is the artist's. The clamp runs in double space, BEFORE the narrowing, so a
             // finite number larger than float can hold arrives as 1 instead of as the +inf a float clamp would
@@ -534,7 +534,7 @@ namespace deren::app_config {
             settings.toon.hair_highlight_shift = shape_control("hair_highlight_shift", -1, 1);
             settings.toon.hair_masked_highlights = (*toon)["hair_masked_highlights"].is_boolean() && (*toon)["hair_masked_highlights"].value<bool>().value_or(false);
             settings.toon.face_angular_sdf = (*toon)["face_angular_sdf"].is_boolean() && (*toon)["face_angular_sdf"].value<bool>().value_or(false);
-            // THE EMOTION TYPE IS AN ATLAS CELL INDEX, not a scale: 0 keeps the face's own albedo and 1..3 pick
+            // THE EMOTION TYPE IS AN ATLAS CELL INDEX, not a scale: 0 keeps the face's albedo and 1..3 pick
             // one of the other three `_EmotionMap` cells. The shader turns the number into a uv cell through
             // `frac`/`floor`, so a value outside 0..3 would sample outside the atlas instead of reading back as a
             // bad number; the documented range is enforced here, and a non-finite one keeps the default 0.
@@ -600,7 +600,7 @@ namespace deren::app_config {
             // Three numbers or nothing (see `read_finite_vec3`): a partly-specified direction would silently mix
             // this config's components with the default's, which is a light nobody asked for and no way to see it.
             read_finite_vec3(*lighting, "sun_direction", settings.lighting.sun_direction);
-            // The environment image and its multiplier (see the struct's own note). The path is taken
+            // The environment image and its multiplier (see the struct's note). The path is taken
             // VERBATIM and left relative here; the host resolves it against the executable's directory,
             // because that is where the assets live and this module has no business guessing.
             if (toml::node const* node = lighting->get("environment_hdr")) {
@@ -630,7 +630,7 @@ namespace deren::app_config {
                     settings.lighting.demo_lights = static_cast<int32_t>(*value);
                 }
             }
-            // The generated lights' geometry (see the struct's own note): a radius and a range, both as
+            // The generated lights' geometry (see the struct's note): a radius and a range, both as
             // fractions of the scene radius, whose defaults are the helix this mode has always used.
             for (auto const& [key, target] : {
                      std::pair{"demo_light_radius", &settings.lighting.demo_light_radius},
@@ -642,7 +642,7 @@ namespace deren::app_config {
                     }
                 }
             }
-            // The area light (see the struct's own note for the manifest these keys come from). The two
+            // The area light (see the struct's note for the manifest these keys come from). The two
             // vectors take exactly the shape sun_direction takes, and for the same reason: three numbers or
             // nothing, because a partly-specified vector would mix this config's components with the default's
             // and put a light somewhere nobody asked for.
@@ -708,7 +708,7 @@ namespace deren::app_config {
         if (toml::table const* scene = table.get_as<toml::table>("scene")) {
             // `[[scene.objects]]`: an ordered list of placements for the ONE loaded model. Absent or empty
             // keeps the historic single-object import; the list is capped because each entry builds a full
-            // retained hierarchy and draws its own submeshes.
+            // retained hierarchy and draws its submeshes.
             if (toml::array const* objects = scene->get_as<toml::array>("objects")) {
                 auto const read_vec3 = [](toml::table const& source, char const* key, deren::utility::vessel::array<float, 3>& target) {
                     if (toml::node const* node = source.get(key)) {
@@ -938,7 +938,7 @@ namespace deren::app_config {
         // the rig lane into the shader's `int(clamp(floor(level + 0.5), 0.0, 4.0))`, and `int(NaN)` is
         // UNDEFINED in SPIR-V: it may land on any level, including one whose dynamic PCF loop is long enough to
         // hang the GPU. TOML can spell `nan`, so this is reachable rather than theoretical. A NaN is read as
-        // "no level stated" (0, the shipped lookup) and gets ITS OWN log line, kept distinct from the
+        // "no level stated" (0, the shipped lookup) and gets its log line, kept distinct from the
         // round/clamp line so the two cannot be confused after the fact. THE INFINITIES ARE NOT FOLDED INTO
         // THAT CASE: `round(+inf)` stays `+inf` and clamps to the top of the ladder exactly as a very large
         // finite number would, and `-inf` clamps to the bottom.
@@ -985,13 +985,13 @@ namespace deren::app_config {
             settings.lighting.lut_size = 256;
         }
         // The environment multiplier scales radiance: a negative one would mirror the image into nonsense
-        // and a NaN would poison every texel of the IBL it feeds. Both fall back to the reference's own
+        // and a NaN would poison every texel of the IBL it feeds. Both fall back to the reference's
         // number instead of rendering an environment nobody chose. (`!(x >= 0)` is the NaN test.)
         if (!(settings.lighting.environment_intensity >= 0.0f) || !std::isfinite(settings.lighting.environment_intensity)) {
             deren::utility::log("app_config: invalid environment_intensity {} (use a finite value >= 0), falling back to 0.35", settings.lighting.environment_intensity);
             settings.lighting.environment_intensity = 0.35f;
         }
-        // The area light's own numbers. A negative size/power means "no such emitter" rather than a negative
+        // The area light's numbers. A negative size/power means "no such emitter" rather than a negative
         // one, a negative multiplier would give a negative radiance (a light that sucks photons out of the
         // frame), and a NaN or infinity in ANY of them travels straight into the light UBO and then into every
         // pixel - the same failure mode task-91 found for `toon_shadow_softness`. `!(x >= 0)` is the NaN test.
@@ -1079,7 +1079,7 @@ namespace deren::app_config {
             derived.world_centre[1] - scene_origin[1],
             derived.world_centre[2] - scene_origin[2],
         };
-        // The emitter's own normal, i.e. the side that emits: centre -> target. It is the penumbra's direction
+        // The emitter's normal, i.e. the side that emits: centre -> target. It is the penumbra's direction
         // (the second UBO lane's xyz) and the axis the shadow is offset along - see `calc_shadow_area`.
         deren::utility::vessel::array<float, 3> const to_target = {
             world_target[0] - derived.world_centre[0],

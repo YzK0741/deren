@@ -32,7 +32,7 @@ layout(location = 0) out vec4 out_color;
 // and the composite all work on this frame's targets), read through the post chain's sampler - and the SOURCE is
 // `heap_post_source_slot`, a SPECIALIZATION CONSTANT the host fixes per pass, because the five post passes each
 // read a different image at what the set called `source_color`. THE HOST SETS THE ABSOLUTE SLOT (base + image
-// index), which is why this one carries no heap_image_index of its own.
+// index), which is why this one carries no separate heap_image_index.
 #extension GL_EXT_descriptor_heap : require
 #extension GL_EXT_nonuniform_qualifier : enable
 #include "heap_slots.glsl"
@@ -58,7 +58,7 @@ layout(push_constant) uniform PostPush {
     // members than the CPU writes but not a different layout up to the ones it uses, so anything
     // inserted here has to be inserted in fxaa.frag's block too - at the same position.
     // THE HEAP INDICES (see heap_slots.glsl), at the END so every field above keeps its offset. The third one is
-    // this chain's own: the five post passes each read a DIFFERENT image at what the set called `source_color`, so
+    // this chain's: the five post passes each read a DIFFERENT image at what the set called `source_color`, so
     // the host names its ABSOLUTE grid slot per pass (base + image index) - one lane instead of a spec constant.
     // FXAA'S TWO LANES, declared here even though this stage does not read them: the CPU pushes the WHOLE
     // post_push_constants struct (28 bytes) and the host appends the three heap indices after it, so a block that
@@ -138,13 +138,13 @@ vec3 downsample_13(uint slot, uint sampler_slot, vec2 uv) {
 }
 
 /**
- * @brief 3x3 tent filter (1 2 1 / 2 4 2 / 1 2 1) over one texel of @p s 's own resolution: the
+ * @brief 3x3 tent filter (1 2 1 / 2 4 2 / 1 2 1) over one texel of @p s 's hold resolution: the
  *        footprint an upsample step of the bloom pyramid stands for
  * @param s the level to filter
  * @param uv the sample position
  * @return the filtered RGB (weights sum to 1)
  *
- * Sampling a coarse level with a single bilinear fetch (or a half-texel box) makes one of ITS texels
+ * Sampling a coarse level with a single bilinear fetch (or a half-texel box) makes a separate one texels
  * a block on screen - at 1/16 resolution that is 16x16 pixels of flat light with square edges. The
  * tent is what UE's bloom upsample uses (PostProcessBloom.usf), and it is the reason a coarse level
  * reads as a wide glow instead of a tile.
@@ -192,7 +192,7 @@ void main() {
         // pixel still entered the chain at full value and the whole pyramid carried it - which is
         // what turns a tiny highlight into a large round patch that appears and vanishes as the
         // camera moves. UE clamps the bloom input for exactly this reason (Bloom/BloomClampKernel)
-        // and its own ramp assumes an exposure-scaled input, which ours is not.
+        // and its ramp assumes an exposure-scaled input, which ours is not.
         //
         // The curve leaves everything at or below the ceiling untouched and folds the rest towards
         // 2x the ceiling (an excess of 97.5 becomes 4.94 at a ceiling of 2.5) - smoothly, so the

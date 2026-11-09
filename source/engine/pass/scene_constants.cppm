@@ -1,5 +1,5 @@
 /** @file
- * @brief Shared per-slot camera, lighting and character constants, owned by the passchain.
+ * @brief Shared per-slot camera, lighting and character constants, held by the passchain.
  * @defgroup engine_pass_scene_constants Shared Scene Constants
  * This resource producer records no GPU commands. The host derives values, and the chain uploads
  * them only after slot completion. Every shading pass reads the existing shared heap descriptors.

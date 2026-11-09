@@ -32,7 +32,7 @@ Deterministic scheduling works on two levels and never nests two pools:
 
 - Several eligible primitives: a bounded work pool over coarse primitive tasks
   (largest known-work estimate first), each inner build serial. Each task
-  prepares into its own preallocated slot; only the scheduling thread appends
+  prepares into its preallocated slot; only the scheduling thread appends
   the payload in primitive-key order.
 - Exactly one primitive (or a single reduction group): the primitive gets the
   whole budget and parallelizes its per-round reduction groups. Candidates are
@@ -42,7 +42,7 @@ Deterministic scheduling works on two levels and never nests two pools:
   no later visible ID; a failed prepare runs no partial cut (`--threads 1` keeps
   the serial reference interleaving).
 
-Known-work budgeting covers the source records, owned payload/workspace and a
+Known-work budgeting covers the source records, held payload/workspace and a
 conservative per-task estimate. The parallel scheduler admits
 `min(threads, tasks, budget / max task estimate)` tasks at once; shrinking
 `execution_options::limits.max_known_work_bytes` lowers that planned concurrency

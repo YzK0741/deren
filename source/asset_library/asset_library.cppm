@@ -71,13 +71,13 @@ export import deren.vstd;
  * manifest is skipped with a warning rather than silently becoming an asset.
  * The library never guesses that `type = "toon"` means the experimental
  * game-toon renderer: that stage is enabled only by `[toon] game_toon = true`,
- * which mirrors the configuration's separate opt-in.
+ * which mirrors the configuration's opt-in.
  */
 namespace deren::asset_library {
     /**
      * @ingroup asset_library
      * @brief how an asset is shaded by default; metadata only, the renderer's
-     *        own switches still decide which pipeline runs
+     *        the switches still decide which pipeline runs
      */
     export enum class asset_type {
         pbr,

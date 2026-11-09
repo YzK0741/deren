@@ -37,7 +37,7 @@ namespace deren::engine {
     /// Load the GUI plugin that serves @p info.api and bring it up.
     ///
     /// An EMPTY pointer is the refusal, and it is always the result of a NAMED log line: an unknown `api`, a
-    /// DLL that is not beside the executable, a library without the entry point, or the plugin's own refusal
+    /// DLL that is not beside the executable, a library without the entry point, or the plugin's refusal
     /// (an abi mismatch, or an `api_type` it does not serve). The plugin NEVER UNLOADS: the resolved address
     /// has to stay valid for the process's life, which is why the loader object is detached below.
     export [[nodiscard]] std::shared_ptr<deren::gui::overlay> load_gui(deren::gui::create_info const& info) {

@@ -78,10 +78,10 @@ layout(push_constant) uniform PushConstants {
     // single range covers 100 bytes: the 96-byte material block plus this uint).
     // THE HEAP INDICES (see heap_slots.glsl) come FIRST among the trailing words, because the host appends them
     // at sizeof(material_push_constants) = 96 - the end of the material fields. A field placed BEFORE them (the
-    // cascade used to be) is overwritten by the first lane; one placed after the third lane is out of its way.
+    // cascade used to be) is overwritten by the first lane; one placed after the separate third lane is out way.
     uint frame_slot;
     uint image_index;
-    uint spare_lane; // every stage gets three lanes; the third is the post chain's own source slot
+    uint spare_lane; // every stage gets three lanes; the third is the post chain's source slot
     // ... AND THE CASCADE RIDES AFTER THEM: the per-caster material push covers 96 + 3 lanes = 108 bytes, so a
     // cascade word at 96 was overwritten by frame_slot and the pass rendered every draw into the wrong layer.
     // This is the offset render_resource::shadow_io.push names, and what runtime::record_shadow_cascade pushes.

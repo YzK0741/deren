@@ -55,7 +55,7 @@ namespace deren::engine::shadow_fit {
         glm::mat4 const light_rotation = light_rotation_of(light_dir);
 
         // ---- the camera's usable depth range, then the cascade splits over it ----
-        // The camera's own projection carries a deliberately generous far plane (see
+        // The camera's projection carries a deliberately generous far plane (see
         // make_orbit_camera_ubo: max(100, distance + 2r, 8 * distance)) so that zooming in never clips
         // the scene - but fitting the SHADOW volume to that whole range throws the map away on empty
         // space AND (the actual bug this originally fixed) pushes the up-light end of the fit behind
@@ -165,7 +165,7 @@ namespace deren::engine::shadow_fit {
             // it (a wall behind the camera), so fitting only the frustum corners would clip them and
             // let sunlight leak: every caster whose light-space xy overlaps this cascade's footprint
             // contributes its depth range. Under the orthographic light a caster's shadow lands at the
-            // caster's own light-space xy, so that overlap test is exact.
+            // caster's light-space xy, so that overlap test is exact.
             float const cone_min_x = min_ls.x;
             float const cone_max_x = max_ls.x;
             float const cone_min_y = min_ls.y;
@@ -176,7 +176,7 @@ namespace deren::engine::shadow_fit {
                     continue; // this caster's shadow cannot land inside this cascade
                 }
                 // Only the merged DEPTH (light-space z) may grow past the cascade footprint: an
-                // orthographic sun drops a caster's shadow at the caster's own light-space xy, and only
+                // orthographic sun drops a caster's shadow at the caster's light-space xy, and only
                 // xy inside the view is ever sampled - so clamping the merged xy to the cone keeps the
                 // box (and thus the texel density) as tight as the cascade fit, while the full z range
                 // makes sure the caster's depth actually reaches the map. Merging the raw AABB instead

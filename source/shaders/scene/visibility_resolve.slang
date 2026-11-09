@@ -2,7 +2,7 @@
 //
 // PRODUCES `visibility_resolve.comp.spv`, the compute stage that turns a pixel's packed id back into the five
 // G-buffer targets. The raster lane (`visibility.slang`) wrote ONE `r32_uint` word per pixel - the triangle that won
-// the depth test - and the frame's own G-buffer depth (v0.5: the raster lane is the opaque producer, so the depth it
+// the depth test - and the frame's G-buffer depth (v0.5: the raster lane is the opaque producer, so the depth it
 // wrote is the one the lighting stage samples); this stage reads both, rebuilds the triangle's world-space attributes
 // from the per-frame draw-item and meshlet tables, and writes the same five values `scene/gbuffer.slang` writes,
 // through the same shared bodies (`scene/gbuffer_body.slang` + `common/surface_body.slang`). Downstream pixel
@@ -12,11 +12,11 @@
 // interpolators and has no derivatives, so everything a fragment stage gets from the rasterizer is reconstructed
 // here: the barycentric weights from the pixel centre and the triangle's projected vertices (THE MATH IS THE CPU
 // REFERENCE's, `deren.engine.visibility` section 4, mirrored by hand - see the notes on each function), the
-// perspective correction from the vertices' clip w, and the tangent frame from the TRIANGLE'S OWN EDGES rather
+// perspective correction from the vertices' clip w, and the tangent frame from the TRIANGLE'S EDGES rather
 // than ddx/ddy (`surface_tbn`'s frame and this one describe the same plane - see `gather_surface_finish`).
 //
 // WHAT IT DOES NOT DO, deliberately:
-//  * it does not write DEPTH. The raster lane owns the depth target: the depth test is the visibility decision,
+//  * it does not write DEPTH. The raster lane holds the depth target: the depth test is the visibility decision,
 //    and a compute pass has no load/store semantics over it. The depth is READ back here for a correctness check
 //    of the reconstructed triangle (see `visibility_depth_tolerance`): the pixel's stored depth must belong to
 //    the triangle the id names, and the counter is how a wrong-id resolve would be caught.
@@ -169,7 +169,7 @@ gbuffer_output resolve_pixel(const uint2 pixel,
     }
 
     // ---- the geometry fetch: the SAME 80-byte interleaved vertex and index decode the raster lane used, through
-    //      the same helpers (`mesh_geometry.slang`), with the item's addresses and the meshlet's own window ----
+    //      the same helpers (`mesh_geometry.slang`), with the item's addresses and the meshlet's window ----
     const MeshGeometryLanes geometry = visibility_geometry(item);
 
     const VR_MAT4 view_proj = mul(visibility_camera.view, visibility_camera.proj);
@@ -262,12 +262,12 @@ gbuffer_output resolve_pixel(const uint2 pixel,
             continue;
         screen_barycentrics(centre, screen[0], screen[1], screen[2], screen_weights);
         // THE UNCLIPPED TRIANGLE KEEPS v0's BEHAVIOUR EXACTLY: the id was written by the rasterizer for this
-        // pixel, so its own triangle is accepted as it was before this clip existed (an edge pixel can produce
+        // pixel, so its triangle is accepted as it was before this clip existed (an edge pixel can produce
         // a barycentric a hair negative through the top-left rule, and rejecting it would turn a rendered pixel
         // into a hole). Only a CLIPPED polygon needs the containment test: its fan triangles are new geometry.
         if (behind == 0u) {
             if (all(screen_weights == float3(0.0, 0.0, 0.0))) {
-                unresolved = true; // degenerate screen triangle: it covered no pixel (v0's own verdict)
+                unresolved = true; // degenerate screen triangle: it covered no pixel (v0's verdict)
                 return gbuffer_empty_output();
             }
         } else if (any(screen_weights < float3(-1e-5, -1e-5, -1e-5))) {
@@ -352,8 +352,8 @@ gbuffer_output resolve_pixel(const uint2 pixel,
     const surface_base base = gather_surface_base(item.material_index, uv);
     // A masked MASK pixel cannot reach this point: the RASTER RASTER fragment ran the glTF test and discarded it
     // before the depth write (item 2), so a valid id means the raster KEPT the fragment. This stage therefore does
-    // NOT re-cut it: its own texel can differ by a mip (the LOD is rebuilt from the triangle, not the derivative),
-    // and re-cutting would turn a raster-accepted pixel into a hole. The verdict belongs to the lane that owns the
+    // NOT re-cut it: its texel can differ by a mip (the LOD is rebuilt from the triangle, not the derivative),
+    // and re-cutting would turn a raster-accepted pixel into a hole. The verdict belongs to the lane that holds the
     // depth test.
     const surface_sample surface = gather_surface_finish(base, normal, uv, is_front, frame_tangent, frame_bitangent, frame_valid);
     const float2 velocity = motion_vector(world_pos, prev_world_pos, visibility_camera.view_proj_unjittered, visibility_camera.prev_view_proj);

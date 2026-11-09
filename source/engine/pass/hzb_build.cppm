@@ -10,7 +10,7 @@
  * acceptance gate (the capture must be byte-identical to the OFF run), and it is why the pass lands before the
  * cull pass that will consume its output (phase B).
  *
- * WHY THE PASS RECORDS ITS OWN BARRIERS BETWEEN LEVELS. Level L's 2x2 max reads level L-1 WHOLE, so adjacent
+ * WHY THE PASS RECORDS Its BARRIERS BETWEEN LEVELS. Level L's 2x2 max reads level L-1 WHOLE, so adjacent
  * dispatches inside this one pass have a real write -> read dependency. The render graph sees a pass as one
  * node and cannot order commands inside it, so this pass records exactly one buffer barrier
  * `{shader_write -> shader_read}` between adjacent dispatches (§8.1: on the same buffer, COMPUTE -> COMPUTE, the
@@ -18,7 +18,7 @@
  * declared by the graph adapter (render_graph pass "hzb build", appended in runtime.post_graph.cpp): the depth
  * sampled read after the raster lane wrote it, and the two HZB buffer writes.
  *
- * WHY THE BUFFERS ARE TARGETS RATHER THAN OWN BINDINGS. The pass records nothing with the buffers except the
+ * WHY THE BUFFERS ARE TARGETS RATHER THAN dedicated BINDINGS. The pass records nothing with the buffers except the
  * inter-level barrier above - the shader reaches all three tables through the frame's heap (the per-image depth
  * slot, `heap_slots_hzb_levels`, `heap_slots_hzb_header`), exactly like the visibility resolve and the cluster
  * sort. So there is no descriptor set to resolve; what the recording half needs is the LEVELS buffer's handle
@@ -50,7 +50,7 @@ export namespace deren::engine::pass {
      * there as `hzb_magic`.
      *
      * @note THIS PAIR BELONGS IN `deren.engine.visibility.hzb` ONCE PHASE B GIVES THE HEADER A READER: the cull
-     *       pass will need the same constants, and `hzb.cppm` is the module that owns "the layout the host and
+     *       pass will need the same constants, and `hzb.cppm` is the module that holds "the layout the host and
      *       the shaders share". It is here for phase A because that module is the CPU test's reference and this
      *       slice must not edit it (task-4 scope); the readback probe's metadata check is what pins the two
      *       spellings until then (scripts/measure/hzb_verify.py refuses a header whose magic/extent disagree).
@@ -69,7 +69,7 @@ export namespace deren::engine::pass {
 
         [[nodiscard]] render_resource::pass_io const& io() const noexcept override {
             // NO BINDINGS, NO TARGETS, NO DECLARED PUSH BLOCK: every resource travels through the frame's heap (the
-            // per-image depth, the two HZB tables, the camera) and the graph's declaration owns the ordering. The
+            // per-image depth, the two HZB tables, the camera) and the graph's declaration holds the ordering. The
             // push block is composed per dispatch at record time (one `level` lane plus the framework's two heap
             // index lanes) - the same empty-declaration shape the visibility resolve records with.
             static constinit render_resource::pass_io const value{.name = "hzb build"};
@@ -113,11 +113,11 @@ export namespace deren::engine::pass {
 
         /**
          * @brief hand the pass the LEVELS buffer the inter-level barriers are recorded on
-         * @param levels the runtime-owned HZB pyramid buffer, or null when this frame has none (the pass then
+         * @param levels the runtime-held HZB pyramid buffer, or null when this frame has none (the pass then
          *        refuses to record rather than recording an unordered sequence of dispatches)
-         * @note the buffer itself lives in the RUNTIME (spec §5.2's runtime-owned fallback), because its lane
+         * @note the buffer itself lives in the RUNTIME (spec §5.2's runtime-held fallback), because its lane
          *       stride depends on the render extent and the resource manager's scene tables do not fit a
-         *       GPU-only, extent-dependent table (see runtime::ensure_hzb_resources's note). The pass borrows the
+         *       GPU-only, extent-dependent table (see runtime::ensure_hzb_resources's note). The pass references the
          *       handle for exactly one pass's recording.
          */
         void set_hzb_levels(rhi::buffer* levels) noexcept {

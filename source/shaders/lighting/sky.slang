@@ -39,7 +39,7 @@ float3 sky_color(float3 dir, float3 sun_dir) {
     float s = smoothstep(0.50, 0.92, t); // horizon -> sky
     float3 env = ground + (horizon - ground) * g;
     env += (sky - env) * s;
-    // soft-edged sun disc along the CALLER's sun direction - not a second constant of its own
+    // soft-edged sun disc along the CALLER's sun direction - not A separate second constant
     env += float3(1.0, 0.95, 0.85) * smoothstep(0.98, 1.0, dot(dir, sun_dir)) * 1.5;
     return env;
 }

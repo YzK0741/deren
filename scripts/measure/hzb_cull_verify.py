@@ -212,7 +212,7 @@ def main() -> int:
     checker.check(len(header_raw) == HEADER_BYTES, f"history header file is {HEADER_BYTES} B")
     header_words = parse_u32s(header_raw, HEADER_BYTES // 4)
     header = parse_header(header_words)
-    checker.check(header["magic"] == HZB_HEADER_MAGIC, "history header MAGIC (the GPU table's own magic)")
+    checker.check(header["magic"] == HZB_HEADER_MAGIC, "history header MAGIC (the GPU table's magic)")
     checker.check((header["width"], header["height"], header["levels"]) == (width, height, levels),
                   "history header extent/level count match the metadata")
     checker.check(int(history.get("header_magic", -1)) == header["magic"], "metadata header magic matches the dumped header")
@@ -384,7 +384,7 @@ def main() -> int:
             bad_models += 1
     checker.check(bad_models == 0, f"every item's model matrix is finite ({bad_models} bad item(s))")
 
-    # ---- 8. THE IN-ENGINE VERIFICATION'S OWN RESULT, CROSS-CHECKED ----
+    # ---- 8. THE IN-ENGINE VERIFICATION'S RESULT, CROSS-CHECKED ----
     verify = metadata.get("verify", {})
     decisions = int(verify.get("decisions", -1))
     agree = int(verify.get("agree", -1))

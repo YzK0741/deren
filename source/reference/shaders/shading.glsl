@@ -89,7 +89,7 @@ layout(descriptor_heap, descriptor_stride = heap_slot_stride) uniform texture2D 
 
 // The SLOTS these declarations resolve to live in heap_slots.glsl with every other stage's, because a stage that
 // does not include this file needs them too (see that file's note on which index each kind of array takes).
-// ... and the specular half of the split sum, which lives in a file of its own so that the two sides of a
+// ... and the specular half of the split sum, which lives in A separate file so that the two sides of a
 // subtraction compute it from the same expressions (see that file's header).
 #include "ibl_specular.glsl"
 
@@ -258,7 +258,7 @@ float toon_band(float x, float steps, float softness) {
  * - the 3x3 grid of hardware 2x2 comparison taps (4x4 texel footprint) smooths the edge; a single
  *   tap flickered badly on thin geometry. The grid is unrotated on purpose: a rotated grid needs TAA
  *   to hide its per-pixel noise (the deferred path has TAA, the forward path does not yet).
- * - outside the light frustum the fragment is reported lit: each cascade's map covers its own fitted
+ * - outside the light frustum the fragment is reported lit: each cascade's map covers its fitted
  *   box only, and runtime::update_shadow_frustum() keeps those boxes on the part of the scene the
  *   camera can see.
  */
@@ -452,15 +452,15 @@ float calc_shadow_proto(vec3 world_pos, vec3 normal, int half_extent, int spacin
  * only the tap half-extent differs, and it is derived per cascade from the world penumbra radius.
  *
  * THE RADIUS IS CONVERTED TO A TAP COUNT, NOT SOLVED FOR: `area_light_axis.w` is the penumbra half-width in
- * world metres (the host publishes it), the cascade's own `cascade_texel_world` says how many metres one texel
+ * world metres (the host publishes it), the cascade's `cascade_texel_world` says how many metres one texel
  * covers there, and `spacing` texels between taps turn that into `half_extent = round(radius_world / (2 *
  * spacing * texel_world))`, clamped to [1, 8] so the kernel is never degenerate and never wider than the
- * ladder @ref calc_shadow_soft already ships. EACH CASCADE SIZES ITS OWN KERNEL: cascade N's texels cover
+ * ladder @ref calc_shadow_soft already ships. EACH CASCADE SIZES its KERNEL: cascade N's texels cover
  * more world metres than cascade 0's, so the same world radius is fewer taps there.
  *
  * THIS IS NOT PCSS AND NOT RAY TRACING, and it cannot become either without a new shadow representation: the
  * shadow map is exposed only through a comparison sampler (shaders/heap_access.slang's `shadow_sample`, which
- * returns the hardware-compared 0/1 for its own 2x2 footprint), so there is no readable blocker depth and the
+ * returns the hardware-compared 0/1 for its 2x2 footprint), so there is no readable blocker depth and the
  * physical penumbra `(d_receiver - d_blocker) / d_blocker * size` cannot be reconstructed. The width is
  * whatever `[lighting] area_light_softness` specifies (0 = the host's automatic "5 cm gap + source side" default),
  * which is why the name here is a world-space PCF radius and nothing more. A real partially-occluded
@@ -492,7 +492,7 @@ float calc_shadow_area(vec3 world_pos, vec3 normal) {
         int(round(radius_world / (2.0 * float(spacing) * light_at(heap_light_slot).cascade_texel_world[cascade]))), 1, 8);
     float shadow = calc_shadow_cascade_proto(world_pos, normal, cascade, half_extent, spacing);
 
-    // blend into the next cascade across the boundary band (the next cascade sizes its own kernel)
+    // blend into the next cascade across the boundary band (the next cascade sizes its kernel)
     const int next = cascade + 1;
     if (next < int(light_at(heap_light_slot).cascade_count + 0.5)) {
         const float boundary = light_at(heap_light_slot).cascade_splits[cascade];
@@ -517,7 +517,7 @@ float calc_shadow_area(vec3 world_pos, vec3 normal) {
  * THE LADDER IS FROZEN and it is `(half_extent, spacing)` in texels: 1 = (2,2), 2 = (3,3), 3 = (5,4),
  * 4 = (8,3), i.e. `(2*half_extent + 1)^2` = 25 / 49 / 121 / 289 taps. The number to quote for the width is
  * the TEXEL SPAN the taps reach, `2*half_extent*spacing + 2` indices first-to-last (each hardware comparison
- * tap carries its own 2x2 texel footprint, which is the same counting as this file's shipped `calc_shadow`
+ * tap carries its 2x2 texel footprint, which is the same counting as this file's shipped `calc_shadow`
  * note - "the 3x3 grid of hardware 2x2 comparison taps (4x4 texel footprint)" - and level 0 is exactly that
  * lookup), so levels 1..4 span 10 / 20 / 42 / 50 and level 0 spans 4. The host publishes the level already
  * sanitized (see the `[render] toon_shadow_softness` note in `config.example.toml`); the rounding and the
@@ -527,7 +527,7 @@ float calc_shadow_area(vec3 world_pos, vec3 normal) {
  * NaN IS NOT HANDLED IN THIS SHADER, and no amount of rounding here could handle it: `floor(NaN + 0.5)`,
  * `clamp` and the float-to-int conversion are each undefined on NaN, so a NaN reaching this lane is undefined
  * behaviour. The guard that actually exists is the host's `std::isnan` gate (`configuration.cpp`,
- * NaN -> 0) together with this lane's default of 0; the host's `std::clamp` also owns the infinities
+ * NaN -> 0) together with this lane's default of 0; the host's `std::clamp` also holds the infinities
  * (+inf -> 4, -inf -> 0). So do NOT read the rule below as "any writer of the lane is safe" - it is false for
  * NaN, and it is only true because the host sanitizes before publishing.
  *
@@ -826,7 +826,7 @@ int cluster_light_index(int cluster, int i) {
  * @return linear radiance arriving at the point, BEFORE the BRDF
  *
  * THE ONE DEFINITION OF A PUNCTUAL LIGHT'S ATTENUATION, extracted so that the stochastic lighting pass
- * (`shaders/megalights_trace.slang`) and this shader's own loop cannot disagree about it: the trace pass
+ * (`shaders/megalights_trace.slang`) and this shader's loop cannot disagree about it: the trace pass
  * has to evaluate a light's contribution to build its sampling PDF, and a second copy of inverse-square
  * plus the range fade plus the spot cone is a second chance to pick different thresholds.
  *
@@ -895,7 +895,7 @@ struct shade_input {
  * @brief evaluate the full lighting of one surface point
  * @param s the surface properties (see shade_input)
  * @return linear HDR outgoing radiance - no exposure, no tonemapping, no display encoding: the post
- *         pass owns all display-referred work, so a deferred frame and a forward frame of the same
+ *         pass holds all display-referred work, so a deferred frame and a forward frame of the same
  *         scene go through exactly the same display pipeline
  *
  * The directional sun through evaluate_direct_light() (attenuated by calc_shadow()), the active

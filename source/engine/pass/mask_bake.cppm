@@ -12,7 +12,7 @@
  * command buffer that builds the bottom level structures, and its input is the caster list the runtime is
  * walking at that moment. Pretending it were a frame pass would mean a feature gate that is true on exactly one
  * frame and a frame struct standing in for a build loop - two lies instead of one honest difference. What it
- * DOES share with a pass is the ownership rule this branch has been extracting: the compute pipeline and the
+ * DOES share with a pass is the retention rule this branch has been extracting: the compute pipeline and the
  * recording are the JOB's, and the renderer keeps only the policy (which casters, which buffers, when).
  *
  * WHY IT HAS NO DECLARATION in `render_resource` either: everything it reads is a heap slot (the bindless
@@ -63,7 +63,7 @@ export namespace deren::engine::pass {
      * request is the dispatch.
      */
     struct mask_bake_request {
-        // THE ADDRESSES ARE `uint64_t` (the contract's own spelling for a device address, as
+        // THE ADDRESSES ARE `uint64_t` (the contract's spelling for a device address, as
         // `shader_binding_table_region` already uses): a device address is a NUMBER, not a graphics-API type,
         // and the only reason this struct ever named one was that the entry point below takes the API's
         // spelling - a conversion this file now makes where it calls.
@@ -78,11 +78,11 @@ export namespace deren::engine::pass {
     };
 
     /**
-     * @brief the one-shot bake job: it owns its pipeline
+     * @brief the one-shot bake job: it holds its pipeline
      *
      * `create` is handed the same `pass_context` a pass gets and NOTHING else: the material table and the
      * bindless texture array are heap slots the shader names itself. `record` is one caster's dispatch.
-     * Everything the job owns is released in its destructor, so what the renderer holds is one member instead of
+     * Everything the job holds is released in its destructor, so what the renderer holds is one member instead of
      * four raw handles.
      */
     class mask_bake_job {

@@ -6,7 +6,7 @@
  *        materials, read into something a renderer can query.
  * @defgroup gltf_toon_material_sidecar Toon Material Sidecar
  *
- * WHY IT IS A MODULE OF ITS OWN rather than more code in `gltf_loader`: what it reads is NOT glTF. A glTF
+ * WHY IT IS A separate MODULE rather than more code in `gltf_loader`: what it reads is NOT glTF. A glTF
  * material carries the five texture slots and the six factors the spec defines - base colour,
  * metallic-roughness, normal, occlusion, emissive - and a toon character needs a SECOND set that glTF has no
  * concept of: a diffuse ramp, a shadow LUT, a specular ramp, a matcap, a face SDF. Those live in a sidecar
@@ -55,7 +55,7 @@ import deren.vstd;
 export namespace deren::toon {
 
     /// @brief the suffix the asset pipeline writes beside a model: `<model path>` + this
-    /// @note INCLUDING the model's own extension, so `x.glb` is described by `x.glb.toon.tsv`. That is the
+    /// @note INCLUDING the model's extension, so `x.glb` is described by `x.glb.toon.tsv`. That is the
     ///       convention the files on disk follow, and reproducing it rather than inventing a cleaner one is
     ///       what lets this module find them without a search path or a manifest.
     inline constexpr std::string_view sidecar_suffix = ".toon.tsv";
@@ -127,7 +127,7 @@ export namespace deren::toon {
         ///
         /// A FILE'S ORDER IS NOT THE ONLY WAY TO WRITE ONE, and this counter is the evidence for that: a material's
         /// rows are usually contiguous, but APPENDING a row - the natural way to extend a sidecar, and how the
-        /// rewritten chain's own rows were added - puts it in a second block at the end. The first version of this
+        /// rewritten chain's rows were added - puts it in a second block at the end. The first version of this
         /// reader pushed a NEW entry whenever the name CHANGED, so such a file described one material TWICE and
         /// `find` returned the FIRST, i.e. the one WITHOUT the appended rows. MEASURED on
         /// `laevatain_goo.glb.toon.tsv`: `_UseGooBaseRamp` was in the file and absent from the entry the lookup

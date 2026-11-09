@@ -6,8 +6,8 @@
 // widget classes). The port is deliberately a WRAP and not a rewrite: every class below this line is
 // unchanged, and the host sees verbs instead of objects.
 //
-// The boundary carries a borrowed PLATFORM WINDOW, the RHI's opaque main-thread context (abi 39) and the
-// overlay's OWN recording targets (gui abi 5): two contract `mergeable_command_buffer` handles the HOST
+// The boundary carries a referenced PLATFORM WINDOW, the RHI's opaque main-thread context (abi 39) and the
+// overlay's recording targets (gui abi 5): two contract `mergeable_command_buffer` handles the HOST
 // creates and hands over. The context is cast HERE, through the shared Vulkan layout
 // (`denen.vulkan.main_context`), because the native handles and the presentation format are this API's
 // vocabulary and must not cross the contract.
@@ -45,12 +45,12 @@ import deren.utility;
 namespace deren::vulkan::gui {
     namespace {
         /// ONE PANEL, AS THE BOUNDARY SPEAKS IT: every verb forwards to the `debug_panel` the overlay already
-        /// owns, and each widget verb CONSTRUCTS the class this plugin already had.
+        /// holds, and each widget verb CONSTRUCTS the class this plugin already had.
         /// ONE WIDGET, AS THE BOUNDARY SPEAKS IT: it holds the class the plugin already had, so the only verb
         /// the host can call on it - a visibility predicate - writes the member that class already has.
         class widget_adapter final : public deren::gui::widget {
         public:
-            /// THE PLUGIN'S OWN widget CLASS, qualified: inside this adapter widget would name the BOUNDARY
+            /// THE PLUGIN'S widget CLASS, qualified: inside this adapter widget would name the BOUNDARY
             /// interface it derives from, and the member has to be the class that actually has `visible_when`.
             explicit widget_adapter(deren::vulkan::gui::widget& target) noexcept
                 : item(&target) {
@@ -130,7 +130,7 @@ namespace deren::vulkan::gui {
         };
 
         /// THE OVERLAY, AS THE BOUNDARY SPEAKS IT: one `gui_content` (unchanged) plus the panel adapters this
-        /// plugin hands out. Each panel adapter lives in its own owned list node, so a retained
+        /// plugin hands out. Each panel adapter lives in its held list node, so a retained
         /// `deren::gui::panel&` stays valid when other panels are added or removed.
         class overlay_adapter final : public deren::gui::overlay {
         public:
@@ -157,7 +157,7 @@ namespace deren::vulkan::gui {
                 }
                 namespace rhi = deren::promise::rhi;
                 // THE OPAQUE CONTEXT IS THE DEVICE ROOT NOW (abi 39): this plugin is the VULKAN one, so it
-                // knows its own concrete layout and casts - the contract only carries the tag. A context this
+                // knows its concrete layout and casts - the contract only carries the tag. A context this
                 // plugin does not recognise is refused by name, exactly like a wrong api_type.
                 if (info.main_context == nullptr || !deren::vulkan::is_main_context(*info.main_context)) {
                     deren::utility::log("gui plugin: the create_info carried no main context this Vulkan plugin serves");
@@ -168,7 +168,7 @@ namespace deren::vulkan::gui {
                     deren::utility::log("gui plugin: no compatible RHI device root in the main context");
                     return false;
                 }
-                // THE OVERLAY'S OWN RECORDING TARGETS (abi 5): the host created these through the contract and
+                // THE OVERLAY'S RECORDING TARGETS (abi 5): the host created these through the contract and
                 // handed them over; the plugin holds them for the session and records into them.
                 for (std::size_t index = 0; index < 2; ++index) {
                     this->recording_targets[index] = info.recording_targets[index];
@@ -251,7 +251,7 @@ namespace deren::vulkan::gui {
             }
             [[nodiscard]] deren::promise::rhi::mergeable_command_buffer_ref record(
                 deren::promise::rhi::command_buffer_begin_info const& begin) override {
-                // abi 5: the overlay OWNS its recording targets. The host created the two mergeable segments,
+                // abi 5: the overlay HOLDS its recording targets. The host created the two mergeable segments,
                 // this plugin holds them and alternates; each frame it starts the CURRENT one under the
                 // host's instance inheritance, asks the shared Vulkan class for the native target (`get()`),
                 // records ImGui, ends the segment and hands it back for the host to execute in-place.
@@ -274,7 +274,7 @@ namespace deren::vulkan::gui {
                     deren::utility::log("gui plugin: the recording target names no native command buffer");
                     return {};
                 }
-                // Start from explicit heap state before ImGui replaces it with its own descriptor sets.
+                // Start from explicit heap state before ImGui replaces it with its descriptor sets.
                 // This keeps GUI texture sampling reliable on static/empty scene command streams.
                 // The segment must not inherit heaps: the following legacy binds invalidate them.
                 if (this->engine_heap) {
@@ -305,13 +305,13 @@ namespace deren::vulkan::gui {
 
         private:
             gui_content content;
-            deren::promise::rhi::descriptor_heap const* engine_heap = nullptr; // borrowed from the GUI device
+            deren::promise::rhi::descriptor_heap const* engine_heap = nullptr; // referenced from the GUI device
             bool platform_ready = false;
-            /// THE OVERLAY'S OWN RECORDING TARGETS (abi 5): two mergeable segments the host created and the
+            /// THE OVERLAY'S RECORDING TARGETS (abi 5): two mergeable segments the host created and the
             /// overlay alternates between - the frame's slot ring makes alternating reuse safe.
             deren::promise::rhi::mergeable_command_buffer_ref recording_targets[2] = {};
             std::uint32_t recording_index = 0;
-            /// One stable owned node per panel; erasure destroys only the removed adapter.
+            /// One stable held node per panel; erasure destroys only the removed adapter.
             detail::panel_adapter_storage<panel_adapter> panels;
         };
     } // namespace

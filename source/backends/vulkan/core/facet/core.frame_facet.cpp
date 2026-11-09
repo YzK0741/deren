@@ -2,9 +2,9 @@
 // ============================================================================
 // file: source/backends/vulkan/core/facet/core.frame_facet.cpp
 //
-// The frame face owns the swapchain, the frame ring and the frame's borrowed
+// The frame face holds the swapchain, the frame ring and the frame's referenced
 // views. Its virtual entry points implement the frame lifecycle here; the root
-// keeps thin forwarders for its own callers.
+// keeps thin forwarders for its callers.
 // ============================================================================
 module;
 #include <cstddef>
@@ -22,7 +22,7 @@ namespace deren::vulkan {
 
     rhi::command_buffer* core::frame_facet::begin_commands() {
         // THE RECORDING VIEW OF THE FRAME IN FLIGHT, OR nullptr WHEN THERE IS NONE. The verb is not
-        // literal yet: the frame's own vkBeginCommandBuffer/vkEndCommandBuffer still belong to the
+        // literal yet: the frame's vkBeginCommandBuffer/vkEndCommandBuffer still belong to the
         // engine, which also decides the present recipe - this call starts nothing, it hands out the
         // list the frame's recording is already going into. The `nullptr` when no frame is in flight
         // is the contract's way of saying "there is nothing to record into".
@@ -96,7 +96,7 @@ namespace deren::vulkan {
         VkResult const acquired = this->full_core.acquire_next_image(image_index);
         if (acquired != VK_SUCCESS && acquired != VK_SUBOPTIMAL_KHR) {
             // tier-1's frame_begin() has no error channel (plan §3.3): a zeroed answer is the contract's
-            // way of saying "no frame started", and the caller's own pacing path owns the diagnosis.
+            // way of saying "no frame started", and the caller's pacing path holds the diagnosis.
             return rhi::submit_info{};
         }
         // The contract's "index in the frame-in-flight ring" IS this core's frame slot.
@@ -107,7 +107,7 @@ namespace deren::vulkan {
         if (this->full_core.create_options.native_window == nullptr) {
             return rhi::error::unsupported;
         }
-        // The contract's present() has no argument: it presents the image its own acquire took, and
+        // The contract's present() has no argument: it presents the image its acquire took, and
         // the PRESENT call site's translation answers (out_of_date => the caller rebuilds; a failed
         // presentation never reports silence - the abi 14 note on the verb).
         //
@@ -133,9 +133,9 @@ namespace deren::vulkan {
 
     // ---- the frame face (abi 13) ----------------------------------------------------------------
     //
-    // THE ACCESSORS hand out this core's two borrowed views - the same object every call, the
-    // constructor set their `owner`. The views' methods compose the machinery this class already
-    // owned: the walker is today's frame prologue fused (wait -> latch timings -> acquire -> report),
+    // THE ACCESSORS hand out this core's two views - the same object every call, the
+    // constructor set their `holder`. The views' methods compose the machinery this class already
+    // held: the walker is today's frame prologue fused (wait -> latch timings -> acquire -> report),
     // the profiler reads the timing snapshot the walker's latch produced.
 
     rhi::frame_walker* core::frame_facet::walk_frames() noexcept {

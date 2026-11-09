@@ -1,11 +1,11 @@
 // Test-only: a DLL whose DllMain BLOCKS, so the thread inside LoadLibrary keeps the loader lock
 // for as long as the test wants. A crash on another thread then finds the lock held - the one
 // context the crash filter must survive, because a fault really can arrive while a plugin, the
-// Vulkan loader or a driver's DLL is being initialized (mimalloc's TLS callbacks and our own
+// Vulkan loader or a driver's DLL is being initialized (mimalloc's TLS callbacks and our
 // DLLs' static initialization run in that same window).
 //
 // The two events are looked up BY NAME: DllMain runs INSIDE LoadLibrary, so the loading thread
-// cannot call an exported setter first. The owner (a test child process) creates both events with
+// cannot call an exported setter first. The holder (a test child process) creates both events with
 // the same name and never signals the release one.
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -16,7 +16,7 @@ namespace {
     constexpr wchar_t release_prefix[] = L"deren-loader-fixture-release-";
     constexpr wchar_t fault_prefix[] = L"deren-loader-fixture-fault-";
 
-    /// `<prefix><pid>`, built without the CRT (this runs before our own static initialization, and
+    /// `<prefix><pid>`, built without the CRT (this runs before our static initialization, and
     /// a test fixture has no business calling into a runtime it is proving the filter does not need).
     void event_name(wchar_t const* prefix, wchar_t (&name)[128]) noexcept {
         unsigned used = 0;
@@ -64,7 +64,7 @@ BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID) {
     HANDLE const release = open_event(release_prefix);
     if (release != nullptr) {
         // Deliberately pathological, and deliberately test-only: THE LOADER LOCK IS HELD HERE
-        // until the owner terminates the process. (A real plugin never does this; what this
+        // until the holder terminates the process. (A real plugin never does this; what this
         // simulates is a holder that is stuck, which is one of the two ways a crash filter can
         // meet a held lock.)
         static_cast<void>(WaitForSingleObject(release, INFINITE));

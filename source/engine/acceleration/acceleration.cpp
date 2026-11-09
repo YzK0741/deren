@@ -19,9 +19,9 @@ import deren.utility;
 // is what makes the interface portable: a backend with no explicit acceleration structures at all can answer
 // the same four verbs however it must.
 //
-// WHAT IT STILL OWNS, and this is the honest list: the SCENE-SHAPED knowledge - which geometries and instances
+// WHAT IT STILL HOLDS, and this is the honest list: the SCENE-SHAPED knowledge - which geometries and instances
 // exist, the per-geometry refit flag, the growth of a top level's capacity, and the instance table the SHADER
-// reads (through `instanceCustomIndex`), which is the engine's own data and not a driver structure. It also
+// reads (through `instanceCustomIndex`), which is the engine's data and not a driver structure. It also
 // still measures what a build cost, because the runtime reports that.
 //
 // THE ONE THING IT CANNOT EXPRESS YET is the opacity-micromap attachment: the contract's
@@ -35,7 +35,7 @@ namespace deren::engine::acceleration_structure {
 
     namespace {
         /// THE DEVICE'S INSTANCE LIMIT, from the `device_capabilities` ability: the check that used to need a
-        /// properties query of this module's own. Zero means "the device did not answer", which the callers
+        /// properties query of this module's. Zero means "the device did not answer", which the callers
         /// treat as "no limit known" - the allocation is the real constraint either way.
         std::uint64_t max_instances_of(rhi::api_core& face) {
             rhi::device_capabilities* const capabilities = rhi::query_extension<rhi::device_capabilities>(face);
@@ -67,7 +67,7 @@ namespace deren::engine::acceleration_structure {
     }
 
     // The entries hold `unique_object<rhi::acceleration_structure>`, so the reference each structure carries is
-    // given back here - and the BACKEND's `release()` is what destroys the driver's object, in the order its own
+    // given back here - and the BACKEND's `release()` is what destroys the driver's object, in the order its
     // destructor documents.
     bottom_level_structures::~bottom_level_structures() = default;
 
@@ -76,13 +76,13 @@ namespace deren::engine::acceleration_structure {
             return std::unexpected(deren::utility::vessel::string("acceleration structure: this structure set has no contract face"));
         }
         // THE MICROMAP RIDES THE DESCRIPTION NOW (plan S1's P4): the contract's geometry carries the object, and
-        // nothing here refuses it any more - the BACKEND owns the 256-byte address alignment, the setup buffers
+        // nothing here refuses it any more - the BACKEND holds the 256-byte address alignment, the setup buffers
         // and the index array the traversal reads, which is exactly what made this inexpressible before.
         entry item{};
         item.refittable = refittable;
         std::uint32_t const triangles = triangle_count_of(source);
         if (triangles == 0) {
-            // A SOURCE WITH NO TRIANGLES IS SKIPPED, and its index is still taken so the caller's own arrays
+            // A SOURCE WITH NO TRIANGLES IS SKIPPED, and its index is still taken so the caller's arrays
             // stay aligned with this set's indices (see the class note).
             this->entries.push_back(std::move(item));
             this->stats.geometry_count += 1u;
@@ -90,7 +90,7 @@ namespace deren::engine::acceleration_structure {
         }
 
         // THE GEOMETRY IN THE CONTRACT'S VOCABULARY: addresses as `uint64_t` (the shape
-        // `shader_binding_table_region` uses), the index width as the contract's own enum - so the description
+        // `shader_binding_table_region` uses), the index width as the contract's enum - so the description
         // this hands over names no Vulkan type.
         rhi::acceleration_structure_geometry const geometry{
             .vertex_address = static_cast<std::uint64_t>(source.vertex_address),
@@ -119,12 +119,12 @@ namespace deren::engine::acceleration_structure {
             return structure && structure->device_address() && structure->size_bytes() ? rhi::error::ok : rhi::error::unsupported;
         };
         if (!device_lease) {
-            return std::unexpected(deren::utility::vessel::string("acceleration structure: an owning device lease is required to prepare storage"));
+            return std::unexpected(deren::utility::vessel::string("acceleration structure: a holding device lease is required to prepare storage"));
         }
         auto root = device_lease;
         if (item.storage_chain.prepare_resources(root, {}, admit) != rhi::error::ok) {
             return std::unexpected(deren::utility::vessel::string("acceleration structure: the backend could not create the bottom level structure "
-                                                                  "(see its own log line for why)"));
+                                                                  "(see its log line for why)"));
         }
         item.storage_view = item.storage_chain.resources().snapshot();
         item.structure = {structure};
@@ -143,8 +143,8 @@ namespace deren::engine::acceleration_structure {
                 continue; // a geometry with no triangles: nothing was created, so there is nothing to build
             }
             // ONE CALL PER STRUCTURE, where this module used to batch every build into one
-            // `vkCmdBuildAccelerationStructuresKHR`. That batching was a CPU-side win and its own note says so;
-            // what it cost was the BACKEND owning the scratch, which is exactly the trade this interface makes.
+            // `vkCmdBuildAccelerationStructuresKHR`. That batching was a CPU-side win and its note says so;
+            // what it cost was the BACKEND holding the scratch, which is exactly the trade this interface makes.
             if (rhi::error const recorded = commands.build_acceleration_structure(*item.structure); recorded != rhi::error::ok) {
                 return std::unexpected(deren::utility::vessel::string("acceleration structure: recording a bottom level build failed with error ") + deren::utility::vessel::to_string(static_cast<std::uint32_t>(recorded)));
             }
@@ -251,7 +251,7 @@ namespace deren::engine::acceleration_structure {
                 return rhi::error::ok;
             };
             if (!device_lease) {
-                return std::unexpected(deren::utility::vessel::string("acceleration structures: an owning device lease is required to prepare top-level storage"));
+                return std::unexpected(deren::utility::vessel::string("acceleration structures: a holding device lease is required to prepare top-level storage"));
             }
             auto root = device_lease;
             if (target.storage_chain.prepare_resources(root, managed::resource_context{.frame_slots = 1, .output_images = 1}, admit) != rhi::error::ok) {
@@ -276,7 +276,7 @@ namespace deren::engine::acceleration_structure {
         instance.structure_reference = blas->device_address();
         target.pending.push_back(instance);
 
-        // ... and the ENGINE's own record beside it, which is what a shader reads at a hit.
+        // ... and the ENGINE's record beside it, which is what a shader reads at a hit.
         std::memcpy(target.records->mapped().data() + static_cast<std::size_t>(target.count) * sizeof(instance_record),
                     &source.record,
                     sizeof(source.record));
@@ -295,7 +295,7 @@ namespace deren::engine::acceleration_structure {
             return {}; // an empty scene has an empty top level structure, and nothing to trace against
         }
         // THE RECORDS GO TO THE BACKEND FIRST, then the build records: `write_instances` is host work on the
-        // backend's own memory, and the build reads it by address.
+        // backend's memory, and the build reads it by address.
         if (rhi::error const written = target.structure->write_instances(target.pending); written != rhi::error::ok) {
             return std::unexpected(deren::utility::vessel::string("acceleration structures: writing the instance records failed with error ") + deren::utility::vessel::to_string(static_cast<std::uint32_t>(written)));
         }

@@ -12,7 +12,7 @@ import deren.application_configuration;
  *        first: resolving the startup config (config file + argv merge, source/shaders/ and
  *        default-model dirs) and loading shader SPIR-V files. Demo/application layer only - this
  *        module knows about deren::app_config (settings) and the utility log/panic, never about
- *        glTF (the loader's own diagnostics live in gltf_loader).
+ *        glTF (the loader's diagnostics live in gltf_loader).
  * @note interface only - the implementations live in app_config.cpp (the module follows the
  *       export import std pattern of the other split modules)
  */

@@ -21,7 +21,7 @@
 
 import deren.promise.rhi;
 // NO BACKEND MODULE IS IMPORTED ANY MORE (the SHARED flip): the translators and `failed` live in
-// `deren.vulkan.error_tables`, a NEUTRAL module owned by the static target `vulkan_error_tables`,
+// `deren.vulkan.error_tables`, a NEUTRAL module held by the static target `vulkan_error_tables`,
 // which this test links. So the test drives the REAL tables without needing the DLL to export a module
 // interface - the thing the flip's one-export rule forbids - and without a second copy of them.
 import deren.vulkan.error_tables;
@@ -79,13 +79,13 @@ namespace {
             CHECK_MSG(deren::vulkan::generic_error(row.native) == row.at_generic, "generic row diverged");
         }
         // spell the load-bearing row out once more, by name, so a table edit that drops it cannot
-        // pass silently: SUBOPTIMAL is the one code whose meaning the call site owns.
+        // pass silently: SUBOPTIMAL is the one code whose meaning the call site holds.
         CHECK(deren::vulkan::acquire_error(VK_SUBOPTIMAL_KHR) == rhi::error::ok);
         CHECK(deren::vulkan::present_error(VK_SUBOPTIMAL_KHR) == rhi::error::out_of_date);
     }
 
     // zone_of is total over the error enum and a pure function of the code - the mapping is the
-    // contract's own comment made executable (rhi.contract.cppm).
+    // contract's comment made executable (rhi.contract.cppm).
     void test_zone_of_total_mapping() {
         CHECK(rhi::zone_of(rhi::error::unsupported) == rhi::error_zone::resource);
         CHECK(rhi::zone_of(rhi::error::invalid_argument) == rhi::error_zone::argument);
