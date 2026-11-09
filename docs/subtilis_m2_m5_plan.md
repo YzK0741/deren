@@ -1,8 +1,9 @@
 # Subtilis M2/M5 implementation plan
 
 Status: M2 v1 is implemented in this branch and is off by default
-(`[render] subtilis_gpu_cut`). M5a (offline page table) is implemented in this branch;
-runtime page residency and streaming are not started. The v1 shader keeps one persistent
+(`[render] subtilis_gpu_cut`). M5a (offline page table) and M5b (synchronous page
+residency manager) are implemented in this branch; runtime page upload and streaming
+are not started. The v1 shader keeps one persistent
 workgroup per item (64 lanes, word-owned coarsen bitset, iterated closure, contiguous
 chunk compaction); a global cross-item node/cluster queue is deliberately deferred
 until the flat group table gains explicit child links. `test_subtilis_cut_gpu` exercises
@@ -290,8 +291,9 @@ to the page that stores the element (`groups -> references -> clusters -> indice
 order, and every cluster's index window must sit inside one index page. Residency is a
 closure: every dependency of an always-resident page must also be always-resident.
 `compute_pages` derives the cover; `validate_pages` enforces these invariants on both the
-builder output and decoded payloads. This milestone stores metadata only; all pages remain
-resident until M5b adds the runtime manager.
+builder output and decoded payloads. This milestone stores metadata only; the render path
+keeps every page resident, and M5b adds a synchronous CPU manager over the table without
+changing uploads.
 
 ### 4.3 Runtime residency
 
@@ -340,7 +342,12 @@ M5a: offline page format and page table, no runtime streaming. All pages residen
 the render matches the pre-M5 path exactly.
 
 M5b: synchronous residency manager, one asset, small budget, LRU, dependency requests. All
-pages still loaded before first use to prove the page table.
+pages still loaded before first use to prove the page table. This is implemented as
+`page_manager` in `source/engine/geometry/subtilis_residency.cppm`: the version-1.1 page
+table is retained by `imported_asset`, `request_all` installs the whole table in dependency
+order, requests install a complete dependency closure, and eviction only removes unpinned
+pages that no remaining resident page depends on. The render path still uploads every page;
+it does not consult eviction yet.
 
 M5c: asynchronous transfer, request buffer from the cut pass, budgeted installs, fallback to
 LOD0, and a page-miss metric. This is the first milestone that can actually miss a page during

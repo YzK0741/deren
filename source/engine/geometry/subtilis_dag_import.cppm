@@ -43,6 +43,10 @@ export namespace deren::engine::subtilis {
         dag_asset hierarchy_;
         utility::vessel::vector<uint8_t> vertices_;
         utility::vessel::vector<uint32_t> indices_;
+        // The version-1.1 page table is kept with the immutable hierarchy so a residency manager can
+        // address the same element ranges the payload validated. Empty for a version-1.0 payload.
+        utility::vessel::vector<deren::asset::subtilis::page_entry> pages_;
+        utility::vessel::vector<uint32_t> page_dependencies_;
         uint32_t vertex_count_ = 0;
         /// the source record's byte stride: 80 after the TANGENT was appended to the engine's interleaved
         /// vertex (`gltf_loader.cpp`), carried rather than assumed so the payload's bytes and the mesh fetch's
@@ -50,10 +54,12 @@ export namespace deren::engine::subtilis {
         uint32_t vertex_stride_ = 0;
         import_key key_;
         import_digest build_hash_;
-        imported_asset(dag_asset hierarchy, utility::vessel::vector<uint8_t> vertices, utility::vessel::vector<uint32_t> indices, uint32_t count, uint32_t stride, import_key key, import_digest build_hash)
+        imported_asset(dag_asset hierarchy, utility::vessel::vector<uint8_t> vertices, utility::vessel::vector<uint32_t> indices, utility::vessel::vector<deren::asset::subtilis::page_entry> pages, utility::vessel::vector<uint32_t> page_dependencies, uint32_t count, uint32_t stride, import_key key, import_digest build_hash)
             : hierarchy_(std::move(hierarchy))
             , vertices_(std::move(vertices))
             , indices_(std::move(indices))
+            , pages_(std::move(pages))
+            , page_dependencies_(std::move(page_dependencies))
             , vertex_count_(count)
             , vertex_stride_(stride)
             , key_(key)
@@ -74,6 +80,12 @@ export namespace deren::engine::subtilis {
         }
         std::span<uint32_t const> indices() const noexcept {
             return indices_;
+        }
+        std::span<deren::asset::subtilis::page_entry const> pages() const noexcept {
+            return {pages_.data(), pages_.size()};
+        }
+        std::span<uint32_t const> page_dependencies() const noexcept {
+            return {page_dependencies_.data(), page_dependencies_.size()};
         }
         std::span<meshlet const> lod0_clusters() const noexcept {
             return hierarchy_.lod0_clusters();
@@ -194,7 +206,7 @@ export namespace deren::engine::subtilis {
             return std::unexpected(hierarchy.error() == dag_error::capacity ? import_failure::capacity_item : import_failure::invalid_dag);
         }
         import_key key{*source_hash, wire::sha256(bytes)};
-        return imported_asset(std::move(*hierarchy), utility::vessel::vector<uint8_t>(input.vertex_bytes.begin(), input.vertex_bytes.begin() + static_cast<size_t>(vertex_bytes)), std::move(decoded->indices), input.vertex_count, input.vertex_stride, key, decoded->build_hash);
+        return imported_asset(std::move(*hierarchy), utility::vessel::vector<uint8_t>(input.vertex_bytes.begin(), input.vertex_bytes.begin() + static_cast<size_t>(vertex_bytes)), std::move(decoded->indices), std::move(decoded->pages), std::move(decoded->page_dependencies), input.vertex_count, input.vertex_stride, key, decoded->build_hash);
     }
     [[nodiscard]] inline std::expected<void, import_failure> admit_table(imported_asset const& asset, uint64_t used, uint32_t capacity) noexcept {
         if (used > capacity || asset.lod0_clusters().size() > capacity - used) {
