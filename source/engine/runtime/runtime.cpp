@@ -3270,7 +3270,7 @@ namespace deren::engine {
                 return false;
             }
         }
-        std::size_t const workers = std::min<std::size_t>(segments.size(), static_cast<std::size_t>(count));
+        std::size_t const workers = segments.size();
         bool ok = true;
         if (workers == 0u) {
             range_totals totals;
@@ -3304,7 +3304,6 @@ namespace deren::engine {
                 for (auto const& worker_totals : totals) {
                     merge_totals(worker_totals);
                 }
-                ok = command_buffer.execute(std::span(segments.data(), workers)) == rhi::error::ok;
             }
         }
         if (!ok) {

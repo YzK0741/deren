@@ -138,7 +138,8 @@ namespace deren::engine::subtilis {
                     .size = bytes[i].size(),
                     .usage = upload_rhi::buffer_usage::storage_coherent,
                     .flags = upload_rhi::to_bits(upload_rhi::buffer_flag::device_address) |
-                             upload_rhi::to_bits(upload_rhi::buffer_flag::storage),
+                             upload_rhi::to_bits(upload_rhi::buffer_flag::storage) |
+                             upload_rhi::to_bits(upload_rhi::buffer_flag::transfer_destination),
                 };
                 request.dependencies.push_back(cut_payload);
                 if (!batch_upload) {
