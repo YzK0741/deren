@@ -14,6 +14,9 @@ export namespace deren::engine::subtilis {
     // table and its bookkeeping; no GPU upload or cut request is attached yet.
     struct residency_limits {
         std::uint64_t max_resident_bytes = 64ull << 20;
+        // Zero means byte-budget only. The device page arena is a fixed slot set, so a byte budget
+        // alone would admit more tiny pages than there are slots.
+        std::uint32_t max_resident_pages = 0;
     };
     enum class residency_error { invalid_page_table,
                                  invalid_page,

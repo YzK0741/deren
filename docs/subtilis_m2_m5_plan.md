@@ -3,9 +3,10 @@
 Status: M2 v1 is implemented in this branch and is off by default
 (`[render] subtilis_gpu_cut`). M5a (offline page table), M5b (synchronous page
 residency manager), and M5c (cut requests, budgeted installs, raster page-id fetch,
-LOD0 fallback) are implemented on this branch; the local Release build, full CTest,
-boundary, format, and changed-file tidy checks pass. M5c publishes table state on the frame
-after a request; it does not yet perform a device-to-device page copy or eviction. The
+LOD0 fallback) are implemented on this branch; the local Release build, headless CTest,
+subtilis device tests, boundary, format, and changed-file tidy checks pass. M5c copies
+admitted pages into a bounded device slot arena, publishes a table row only after the
+transfer ticket completes, and evicts LRU victims when the slot set is full. The
 v1 shader keeps one persistent
 workgroup per item (64 lanes, word-packed coarsen bitset, iterated closure, contiguous
 chunk compaction); a global cross-item node/cluster queue is deliberately deferred
@@ -355,8 +356,9 @@ it does not consult eviction yet.
 
 M5c: request-driven page install, budgeted installs, fallback to LOD0, and a page-miss metric.
 This is the first milestone that can actually miss a page during rendering. The install is
-`request -> next-frame table publish`; the arena already contains every page's bytes, so this slice
-does not yet perform a device-to-device copy or wait on a transfer fence.
+`request -> staging copy -> device copy -> fence -> next-frame table publish`. The arena holds a
+bounded slot set rather than every page's bytes, so an admitted page is copied into a free slot and
+its table offset is published only after the transfer ticket completes.
 
 M5c-1 (the first slice) is implemented in
 `source/engine/geometry/subtilis_page_streaming.cppm`: `page_arena_layout` assigns one 64-byte
@@ -373,8 +375,14 @@ geometry generation now carries three additional buffers, `scene_page_arena`,
 `page_arena()`, `page_table()`, `page_requests()`, `page_count()`, and
 `page_request_capacity()`, plus `install_requested_pages(budget, frame)`. Upload leaves only
 pinned pages resident; a cut index-page miss appends a 16-byte request, and the host promotes
-requests under an 8 MiB per-frame budget before the next cut dispatch. Pages that do not fit stay
-`requested` and are compacted forward; the request overflow flag is logged.
+requests under an 8 MiB per-frame budget before the next cut dispatch. The upload creates a bounded
+slot arena: slot count is `min(page count, budget / slot size)`, and slot size is the largest
+64-byte aligned page, so small assets do not pay a full 64 KiB per page. `install_requested_pages` copies
+each admitted page from the host payload through `buffer_transfer_service`, waits on the ticket, and
+then writes the page-table row. When the slot set is full, `page_manager::plan_request` names the LRU
+victims; the install waits for the device before clearing their rows, reuses the slots, and rolls the
+table back if the transfer fails. Pages that do not fit stay `requested` and are compacted forward; the
+request overflow flag is logged.
 
 M5c-2 keeps the cut's group/reference/cluster reads on the existing full buffers: the 32-byte wire
 cluster has no normal-cone axis/cosine, so the cut cannot build the 48-byte output record from the

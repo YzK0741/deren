@@ -55,10 +55,12 @@ export namespace deren::engine::subtilis {
     };
     static_assert(sizeof(cut_cluster_record) == 56u);
     class uploaded_geometry;
+    struct page_state;
     /// The source must remain immutable through every alias after publication;
     /// do not move-assign or modify it through a second, mutable shared handle.
-    /// Returns only after both GPU buffers are ready. Automatic selects a single transfer batch
-    /// when the device, submission and scoped synchronization are available; otherwise it uses
+    /// Returns only after both GPU buffers are ready. `resident_page_bytes` caps the device slot
+    /// arena for streaming pages (default 8 MiB). Automatic selects a single transfer batch when
+    /// the device, submission and scoped synchronization are available; otherwise it uses
     /// synchronous creation. Forced batched mode refuses missing capabilities; failures are propagated.
     /// Separate batched uploads do not share the backend's initial-content cache: reuse the returned uploaded_geometry.
     /// @details The feature overview, the measured numbers and the document index are in @ref md_docs_2subtilis.
@@ -66,7 +68,8 @@ export namespace deren::engine::subtilis {
     upload_geometry(upload_rhi::shared_object<upload_rhi::api_core> const& device,
                     std::shared_ptr<built_geometry const> source,
                     upload_rhi::buffer_flags flags = upload_rhi::to_bits(upload_rhi::buffer_flag::device_address),
-                    geometry_upload_mode mode = geometry_upload_mode::automatic);
+                    geometry_upload_mode mode = geometry_upload_mode::automatic,
+                    std::uint64_t resident_page_bytes = 8ull << 20);
     /// One immutable CPU hierarchy and its complete GPU payload. Buffers reachable through it
     /// are valid while this generation, or a view that shares it, still exists.
     class uploaded_geometry {
@@ -81,8 +84,10 @@ export namespace deren::engine::subtilis {
         std::shared_ptr<render_resource::instances::generation const> page_arena_, page_table_, page_requests_;
         std::uint32_t cut_group_count_ = 0, cut_reference_count_ = 0, cut_cluster_count_ = 0;
         std::uint32_t page_count_ = 0, page_request_capacity_ = 0;
+        std::shared_ptr<page_state> page_state_;
         friend std::expected<std::shared_ptr<uploaded_geometry const>, upload_rhi::error>
-        upload_geometry(upload_rhi::shared_object<upload_rhi::api_core> const&, std::shared_ptr<built_geometry const>, upload_rhi::buffer_flags, geometry_upload_mode);
+        upload_geometry(upload_rhi::shared_object<upload_rhi::api_core> const&, std::shared_ptr<built_geometry const>, upload_rhi::buffer_flags,
+                        geometry_upload_mode, std::uint64_t);
 
     public:
         uploaded_geometry(construction_key /*unused*/, std::shared_ptr<void const> resources, std::shared_ptr<built_geometry const> source,
@@ -96,7 +101,7 @@ export namespace deren::engine::subtilis {
                           std::shared_ptr<render_resource::instances::generation const> page_table,
                           std::shared_ptr<render_resource::instances::generation const> page_requests,
                           std::uint32_t page_count, std::uint32_t page_request_capacity,
-                          deren::utility::vessel::vector<triangle_edge_record> edges)
+                          deren::utility::vessel::vector<triangle_edge_record> edges, std::shared_ptr<page_state> page_state)
             : resources_(std::move(resources))
             , source_(std::move(source))
             , triangle_edges_(std::move(edges))
@@ -112,7 +117,8 @@ export namespace deren::engine::subtilis {
             , cut_reference_count_(cut_reference_count)
             , cut_cluster_count_(cut_cluster_count)
             , page_count_(page_count)
-            , page_request_capacity_(page_request_capacity) {
+            , page_request_capacity_(page_request_capacity)
+            , page_state_(std::move(page_state)) {
         }
 
         uploaded_geometry(uploaded_geometry const&) = delete ("uploaded_geometry is non-copyable: pass it by reference or construct a new instance");
@@ -168,8 +174,9 @@ export namespace deren::engine::subtilis {
         }
         /// Promote last frame's index-page requests into the host-visible page table under a byte
         /// budget. Pages that do not fit stay `requested` and are compacted to the front of the
-        /// request buffer for the next frame. The page bytes are already in the arena; this install
-        /// publishes their table state, it does not perform a device-to-device copy.
+        /// request buffer for the next frame. Admitted pages are copied from the host-side payload
+        /// into a free arena slot, the transfer is fenced, and only then is the table published.
+        /// Installing past the resident slot count evicts least-recently-used pages first.
         [[nodiscard]] page_install_stats install_requested_pages(std::uint64_t budget_bytes, std::uint32_t frame = 0) const noexcept;
     };
 } // namespace deren::engine::subtilis

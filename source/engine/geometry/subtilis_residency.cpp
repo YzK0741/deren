@@ -49,7 +49,12 @@ namespace deren::engine::subtilis {
                 pinned_bytes += pages_[i].bytes;
             }
         }
-        if (pinned_bytes > limits_.max_resident_bytes) {
+        std::uint32_t pinned_pages = 0;
+        for (std::uint32_t i = 0; i < pages_.size(); ++i) {
+            pinned_pages += pinned(i) ? 1u : 0u;
+        }
+        if (pinned_bytes > limits_.max_resident_bytes ||
+            (limits_.max_resident_pages != 0u && pinned_pages > limits_.max_resident_pages)) {
             return std::unexpected(residency_error::capacity);
         }
         for (std::uint32_t i = 0; i < pages_.size(); ++i) {
@@ -144,8 +149,10 @@ namespace deren::engine::subtilis {
             }
         }
         std::uint64_t projected = resident_bytes_ + plan.installed_bytes;
+        std::uint64_t projected_pages = resident_pages_ + plan.installs.size();
         utility::vessel::vector<std::uint8_t> evicted(pages_.size(), std::uint8_t{0});
-        while (projected > limits_.max_resident_bytes) {
+        while (projected > limits_.max_resident_bytes ||
+               (limits_.max_resident_pages != 0u && projected_pages > limits_.max_resident_pages)) {
             auto victim = no_page;
             auto victim_use = UINT64_MAX;
             for (std::uint32_t candidate = 0; candidate < pages_.size(); ++candidate) {
@@ -177,6 +184,7 @@ namespace deren::engine::subtilis {
             plan.evictions.push_back(victim);
             plan.evicted_bytes += pages_[victim].bytes;
             projected -= pages_[victim].bytes;
+            --projected_pages;
         }
         return plan;
     }
@@ -229,7 +237,9 @@ namespace deren::engine::subtilis {
             evicted_bytes += pages_[id].bytes;
         }
         std::uint64_t projected = resident_bytes_ + installed_bytes - evicted_bytes;
-        if (projected > limits_.max_resident_bytes) {
+        std::uint64_t projected_pages = resident_pages_ + plan.installs.size() - plan.evictions.size();
+        if (projected > limits_.max_resident_bytes ||
+            (limits_.max_resident_pages != 0u && projected_pages > limits_.max_resident_pages)) {
             return std::unexpected(residency_error::capacity);
         }
         for (auto id : plan.evictions) {
@@ -285,7 +295,9 @@ namespace deren::engine::subtilis {
         for (auto id : order) {
             needed += pages_[id].bytes;
         }
-        if (resident_bytes_ + needed > limits_.max_resident_bytes) {
+        auto const projected_pages = static_cast<std::uint64_t>(resident_pages_) + order.size();
+        if (resident_bytes_ + needed > limits_.max_resident_bytes ||
+            (limits_.max_resident_pages != 0u && projected_pages > limits_.max_resident_pages)) {
             return std::unexpected(residency_error::capacity);
         }
         for (auto id : order) {

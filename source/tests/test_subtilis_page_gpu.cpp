@@ -147,6 +147,7 @@ int main() {
     auto const* table = reinterpret_cast<sub::gpu_page_table_entry const*>(table_bytes.data());
     auto const* arena = arena_bytes.data();
     std::uint64_t arena_end = 0;
+    std::uint32_t resident_pages = 0;
     for (std::uint32_t i = 0; i < image.page_count(); ++i) {
         auto const& row = table[i];
         auto const& page = geometry->pages()[i];
@@ -155,6 +156,11 @@ int main() {
         bool const pinned = (page.flags & static_cast<std::uint16_t>(wire::page_flags::always_resident)) != 0;
         CHECK(row.state == static_cast<std::uint32_t>(pinned ? sub::gpu_page_state::resident : sub::gpu_page_state::absent));
         CHECK(row.flags == page.flags);
+        if (row.state != static_cast<std::uint32_t>(sub::gpu_page_state::resident)) {
+            CHECK(row.offset == 0u);
+            continue;
+        }
+        ++resident_pages;
         CHECK(row.offset % 64u == 0u);
         CHECK(std::uint64_t(row.offset) + row.bytes <= arena_bytes.size());
         if (std::uint64_t(row.offset) + row.bytes > arena_bytes.size()) {
@@ -190,7 +196,7 @@ int main() {
             CHECK(matches<std::uint32_t>(arena, dag->roots(), page.first, page.count, row.offset));
         }
     }
-    CHECK(arena_end > 0);
+    CHECK(resident_pages == 0 || arena_end > 0);
     CHECK(arena_end <= arena_bytes.size());
 
     auto request_bytes = image.page_requests()->mapped();
@@ -227,10 +233,17 @@ int main() {
                   static_cast<std::uint32_t>(sub::gpu_page_state::requested));
 
             auto const installed = image.install_requested_pages(1ull << 30, 8);
-            CHECK(installed.requests == 1 && installed.installed == 1 && installed.pending == 0);
+            CHECK(installed.requests == 1 && installed.installed >= 1 && installed.pending == 0);
             CHECK(header->count == 0);
-            CHECK(reinterpret_cast<sub::gpu_page_table_entry const*>(table_bytes.data())[target].state ==
-                  static_cast<std::uint32_t>(sub::gpu_page_state::resident));
+            auto const& installed_row = reinterpret_cast<sub::gpu_page_table_entry const*>(table_bytes.data())[target];
+            CHECK(installed_row.state == static_cast<std::uint32_t>(sub::gpu_page_state::resident));
+            CHECK(installed_row.offset % 64u == 0u);
+            CHECK(std::uint64_t(installed_row.offset) + installed_row.bytes <= arena_bytes.size());
+            auto const& installed_page = geometry->pages()[target];
+            if (installed_page.section == 1) {
+                CHECK(matches<std::uint32_t>(arena_bytes.data(), geometry->indices(), installed_page.first, installed_page.count,
+                                             installed_row.offset));
+            }
         }
     }
     deren::vk_test::write_line("page image: {} pages, {} arena bytes, table {} bytes", image.page_count(), arena_bytes.size(), table_bytes.size());
