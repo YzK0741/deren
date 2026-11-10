@@ -430,5 +430,18 @@ int32_t main() {
     }
     CHECK(render_graph_visibility.find("std::optional<buffer_ref> hzb_results") != deren::utility::vessel::string::npos);
     CHECK(render_graph_visibility.find("visibility_recovery") != deren::utility::vessel::string::npos);
+    // Reflection rays need the nearest accepted surface, unlike visibility rays.
+    auto const reflection = read_text(deren::utility::vessel::string(VR_TEST_SOURCE_DIR) + "/source/shaders/lighting/rt_reflection.slang");
+    CHECK(reflection.find("RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH") == deren::utility::vessel::string::npos);
+    // The shared mapped request queue must be drained before any host read, even
+    // on an empty queue or when this frame cannot admit another page.
+    auto const upload = read_text(deren::utility::vessel::string(VR_TEST_SOURCE_DIR) + "/source/engine/geometry/subtilis_upload.cpp");
+    auto const install = upload.substr(upload.find("page_install_stats uploaded_geometry::install_requested_pages("));
+    CHECK(install.find("state->device->wait_idle();") < install.find("auto request_bytes = request_buffer->mapped();"));
+    auto const runtime = read_text(deren::utility::vessel::string(VR_TEST_SOURCE_DIR) + "/source/engine/runtime/runtime.cpp");
+    auto const cut_end = runtime.find("this->cut_job.record(");
+    auto const cut_publication = runtime.substr(cut_end, runtime.find("std::size_t const workers", cut_end) - cut_end);
+    CHECK(cut_publication.find("page_requests()") != deren::utility::vessel::string::npos);
+    CHECK(cut_publication.find("rhi::buffer_use::host_read") != deren::utility::vessel::string::npos);
     return deren::vk_test::finish("test_shader_sources");
 }

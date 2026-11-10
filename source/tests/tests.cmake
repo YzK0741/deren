@@ -160,6 +160,15 @@ if(VR_BUILD_TESTS)
     # deren.engine.math lives in deren_engine; the module itself is pure CPU (see math.cppm), the
     # link chain just rides the library's PUBLIC dependencies (Vulkan/glfw are not pulled in
     # unless the math code actually references them).
+    set(VR_RENDER_MATH_FIXTURE "${CMAKE_CURRENT_BINARY_DIR}/test-generated/render_math_fixture.h")
+    add_custom_command(OUTPUT "${VR_RENDER_MATH_FIXTURE}"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/source/tests/generate_render_math_fixture.py"
+                --root "${CMAKE_CURRENT_SOURCE_DIR}" --output "${VR_RENDER_MATH_FIXTURE}"
+        DEPENDS source/tests/generate_render_math_fixture.py source/tests/generate_vulkan_query_fixture.py
+                source/app/app_application.cpp source/shaders/lighting/rt_reflection.slang
+        VERBATIM)
+    target_sources(test_math PRIVATE "${VR_RENDER_MATH_FIXTURE}")
+    target_include_directories(test_math PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/test-generated")
     target_link_libraries(test_math
             deren_engine
             vstd_lib
