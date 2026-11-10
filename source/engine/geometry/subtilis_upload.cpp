@@ -435,6 +435,11 @@ namespace deren::engine::subtilis {
             page_request_capacity_ == 0u || state->payload->table.size() != page_count_) {
             return stats;
         }
+        // The request queue and page table are shared by all frame slots. Waiting
+        // only for the paced slot does not finish the other slot's cut dispatch.
+        // Drain before reading OR resetting the queue, including empty/budget-limited
+        // calls. Keep this synchronous until requests have per-submission storage.
+        state->device->wait_idle();
         auto request_bytes = request_buffer->mapped();
         auto table_bytes = table_buffer->mapped();
         constexpr std::size_t header_size = sizeof(gpu_page_request_header);
@@ -510,7 +515,6 @@ namespace deren::engine::subtilis {
                 };
                 deren::utility::vessel::vector<evicted_entry> evicted;
                 deren::utility::vessel::vector<std::uint32_t> assigned;
-                state->device->wait_idle();
                 for (auto page : plan.evictions) {
                     auto victim = read_entry(page);
                     if (state->slot_of[page] != UINT32_MAX) {

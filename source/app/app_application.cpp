@@ -2562,8 +2562,8 @@ namespace deren::app {
                 return t_max > 0.0f;
             };
             // Intersect the ray with a box expressed in the box's local space, and answer the
-            // WORLD-space distance. Dividing by the transformed direction's length is required: the
-            // local `hit_t` is not comparable between placements with different scales.
+            // WORLD-space distance. Keep the transformed direction unnormalized so
+            // the intersection parameter stays on the original unit world ray.
             auto const intersect_world_box = [&](glm::mat4 const& box_to_world, glm::vec3 const& box_min, glm::vec3 const& box_max, float& world_t) -> bool {
                 glm::mat4 const world_to_box = glm::inverse(box_to_world);
                 glm::vec3 const local_origin = glm::vec3(world_to_box * glm::vec4(ray_origin, 1.0f));
@@ -2576,7 +2576,7 @@ namespace deren::app {
                 if (!intersect_box(local_origin, local_direction, box_min, box_max, hit_t)) {
                     return false;
                 }
-                world_t = hit_t / direction_scale;
+                world_t = hit_t;
                 return true;
             };
             // Intersect the same ray with a sphere in the object's local space. Meshlets carry one
@@ -2605,7 +2605,7 @@ namespace deren::app {
                 if (hit_t < 0.0f) {
                     return false;
                 }
-                world_t = hit_t / std::sqrt(direction_squared);
+                world_t = hit_t;
                 return true;
             };
             std::int32_t best_object = -1;
