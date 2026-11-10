@@ -75,6 +75,22 @@ int main() {
         CHECK(!manager->request(7) && manager->request(7).error() == sub::residency_error::invalid_page);
     }
     {
+        // A page-count cap evicts an unpinned resident page even when the byte budget has room.
+        auto t = small_table();
+        auto limits = budget(1000);
+        limits.max_resident_pages = 3;
+        auto manager = sub::make_page_manager(t.pages, t.dependencies, limits);
+        CHECK(manager);
+        if (manager) {
+            CHECK(manager->request(1));
+            CHECK(manager->stats().resident_pages == 3);
+            CHECK(manager->request(5));
+            CHECK(manager->resident(4) && manager->resident(5));
+            CHECK(!manager->resident(1));
+            CHECK(manager->stats().resident_pages == 3);
+        }
+    }
+    {
         // A failed request must not leave a partial installation behind.
         auto t = small_table();
         auto manager = sub::make_page_manager(t.pages, t.dependencies, budget(250));
