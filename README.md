@@ -283,6 +283,7 @@ The engine source code is [MIT](LICENSE), copyright 2026 YzK0741.
 The MIT license does **not** cover the third-party sample assets under `asset/`. Each asset keeps its terms, listed in [`asset/README.md`](asset/README.md):
 
 - `asset/DamagedHelmet/` and `asset/FlightHelmet/`: see each folder's `LICENSE.md`.
+- `asset/bistro/`: Amazon Lumberyard Bistro, CC BY 4.0; see [`asset/bistro/LICENSE.md`](asset/bistro/LICENSE.md).
 - `asset/flowers/`: NVIDIA's Bouquet of Flowers, CC BY 4.0; see [`asset/flowers/README.md`](asset/flowers/README.md).
 - `asset/laevatain/`: Laevatain / GameToon preview model and Toon sidecar, all rights reserved by Hypergryph Network Technology Co., Ltd. No license is granted; redistribution and reuse are not granted, and whether the files may be redistributed at all is unresolved. See [`asset/laevatain/LICENSE.md`](asset/laevatain/LICENSE.md).
 - `asset/tangtang/`: Tangtang / GameToon preview model and Toon sidecar, under the same Hypergryph notice and the same unresolved redistribution status. See [`asset/tangtang/LICENSE.md`](asset/tangtang/LICENSE.md).

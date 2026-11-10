@@ -1,0 +1,6 @@
+id = "bistro"
+name = "Bistro"
+type = "pbr"
+model = "bistro.gltf"
+license = "LICENSE.md"
+tags = ["pbr", "scene", "sample"]

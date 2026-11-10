@@ -271,8 +271,8 @@ is summarized here; its raw records are not distributed with this repository.
   `subtilis = true`; the full OFF/ON matrix and raw logs were kept in maintainer records that are not
   distributed with this repository. The textured asset preparation/verification scripts are
   `scripts/measure/prepare_bistro_textures.py`, `convert_bistro_metalrough.py`, `verify_bistro_textured.py`.
-- The Bistro assets themselves stay outside the repository and are not distributed with it; the captured
-  evidence (webp/logs/json) behind the numbers above is not distributed either.
+- The textured Bistro package is distributed as `asset/bistro` (CC BY 4.0, Git LFS); the captured
+  evidence (webp/logs/json) behind the numbers above is not distributed with the repository.
 
 ## 8. Known limits and open items
 

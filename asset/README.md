@@ -39,12 +39,14 @@ experimental game-toon path on by itself.
 | --- | --- | --- |
 | `DamagedHelmet/` | Khronos DamagedHelmet sample (glTF, textures, license) | See `DamagedHelmet/LICENSE.md` |
 | `FlightHelmet/` | Khronos FlightHelmet sample (glTF, textures, license) | CC0-1.0, see `FlightHelmet/LICENSE.md` |
+| `bistro/` | Amazon Lumberyard Bistro, textured glTF package | CC BY 4.0, see `bistro/LICENSE.md` |
 | `flowers/` | NVIDIA Bouquet of Flowers Gaussian splat cloud | CC BY 4.0, see `flowers/README.md` |
 | `laevatain/` | Laevatain / GameToon preview model and Toon sidecar | **All rights reserved by Hypergryph Network Technology Co., Ltd.** — see `laevatain/LICENSE.md` |
 | `tangtang/` | Tangtang / GameToon preview model and Toon sidecar | **All rights reserved by Hypergryph Network Technology Co., Ltd.** — see `tangtang/LICENSE.md` |
 
-`laevatain/*.glb`, `tangtang/*.glb` and `flowers/*.ply` are stored with Git LFS. After cloning, install
-`git-lfs` and run `git lfs pull` if the assets were not fetched automatically.
+`laevatain/*.glb`, `tangtang/*.glb`, `flowers/*.ply` and the binary files under `bistro/` are stored
+with Git LFS. After cloning, install `git-lfs` and run `git lfs pull` if the assets were not fetched
+automatically. The Bistro package is about 600 MB.
 
 The Laevatain and Tangtang assets are included only so deren's game-toon profile path can be
 exercised against the same source material as the repository's hand-captured GameToon
