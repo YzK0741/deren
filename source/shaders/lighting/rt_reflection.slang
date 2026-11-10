@@ -128,7 +128,8 @@ float3 reflection_ggx_direction(float3 normal, float3 view, float roughness, flo
     const float radius = sqrt(u.x);
     const float phi = 6.28318530718 * u.y;
     const float disc_x = radius * cos(phi);
-    const float disc_y = radius * sin(phi);
+    const float projected_scale = 0.5 * (1.0 + stretched_view.z);
+    const float disc_y = (1.0 - projected_scale) * sqrt(max(1.0 - disc_x * disc_x, 0.0)) + projected_scale * radius * sin(phi);
     const float3 disc_point = disc_x * axis_x + disc_y * axis_y +
                               sqrt(max(1.0 - disc_x * disc_x - disc_y * disc_y, 0.0)) * stretched_view;
     const float3 half_local = normalize(float3(alpha * disc_point.x, alpha * disc_point.y, max(disc_point.z, 1.0e-6)));
@@ -227,7 +228,7 @@ void rgen_main()
 
         reflection_payload payload;
         TraceRay(mapped_tlas[heap_frame_slot],
-                 RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH,
+                 RAY_FLAG_NONE,
                  0x2, // RT-reflection instances only; bit0 marks shadow-only geometry
                  0,
                  0,

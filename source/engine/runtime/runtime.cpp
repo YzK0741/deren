@@ -3299,6 +3299,22 @@ namespace deren::engine {
             if (!this->cut_job.record(command_buffer, items_address, gpu_cut_items, *this->mesh_indirect_buffer, *this->meshlet_culled_buffer)) {
                 return false;
             }
+            // Publish the GPU request writes to the host domain before a later
+            // install_requested_pages() drains submissions and reads the queue.
+            // Coherent mapping removes invalidation, not this memory dependency.
+            for (auto const& plan : plans) {
+                if (!plan.gpu_cut || plan.cut_source->page_requests() == nullptr) {
+                    continue;
+                }
+                rhi::buffer_barrier const requests{
+                    .resource = plan.cut_source->page_requests(),
+                    .from = rhi::buffer_use::shader_write,
+                    .to = rhi::buffer_use::host_read,
+                };
+                if (command_buffer.barrier(rhi::barrier_group{.buffers = std::span(&requests, 1)}) != rhi::error::ok) {
+                    return false;
+                }
+            }
         }
         std::size_t const workers = segments.size();
         bool ok = true;

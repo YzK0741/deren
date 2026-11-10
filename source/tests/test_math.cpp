@@ -4,6 +4,7 @@
 #include "../engine/lighting/radiance_capture.hpp"
 #include "../engine/lighting/reflection_probe.hpp"
 #include "../shaders/toon/reference_shape.h"
+#include "render_math_fixture.h"
 #include "vk_test.h"
 
 #include <algorithm>
@@ -16,6 +17,41 @@ import deren.engine.math;
 import deren.engine.primitive; // orbit_camera_pan_delta: the arrow-key camera pan
 
 namespace {
+    void test_scaled_picking_distance() {
+        for (bool sphere : {false, true}) {
+            auto placement = [](glm::vec3 scale, float center_z) {
+                glm::mat4 transform(1.0f);
+                transform[0][0] = scale.x;
+                transform[1][1] = scale.y;
+                transform[2][2] = scale.z;
+                transform[3][2] = center_z;
+                return transform;
+            };
+            glm::vec3 const origin(0), direction(0, 0, 1);
+            auto const near_hit = render_math_fixture::pick_distance(sphere, placement({2, 2, 2}, 6), origin, direction);
+            auto const far_hit = render_math_fixture::pick_distance(sphere, placement({.5f, .5f, .5f}, 6.5f), origin, direction);
+            CHECK(std::abs(near_hit - 4.0f) < 1e-5f);
+            CHECK(std::abs(far_hit - 6.0f) < 1e-5f);
+            CHECK(near_hit < far_hit);
+            CHECK(std::abs(render_math_fixture::pick_distance(sphere, placement({2, .5f, 3}, 8), origin, direction) - 5.0f) < 1e-5f);
+        }
+    }
+
+    void test_ggx_visible_normal_grazing_sample() {
+        // At u.x=0, Heitz's projected-area mapping still shifts the disc sample
+        // away from the centre at oblique incidence. This analytic sample catches
+        // omitting that mapping even when all returned rays remain above ground.
+        float const roughness = .5f, alpha = roughness * roughness;
+        glm::vec3 const view = glm::normalize(glm::vec3(1, 0, .1f));
+        auto const vh = glm::normalize(glm::vec3(alpha * view.x, 0, view.z));
+        float const y = (1.0f - vh.z) * .5f;
+        glm::vec3 const nh = y * glm::vec3(-vh.z, 0, vh.x) + std::sqrt(1 - y * y) * vh;
+        auto const half = glm::normalize(glm::vec3(alpha * nh.x, 0, nh.z));
+        auto const expected = glm::reflect(-view, half);
+        auto const actual = render_math_fixture::reflection_ggx_direction({0, 0, 1}, view, roughness, {0, 0});
+        CHECK(glm::length(actual - expected) < 1e-5f);
+        CHECK(std::abs(glm::length(actual) - 1.0f) < 1e-5f);
+    }
     void test_radiance_cube_camera_and_pixels() {
         using namespace deren::engine::environment_detail;
         using namespace deren::engine::radiance_detail;
@@ -538,5 +574,7 @@ int32_t main() {
     test_equirect_environment_axes();
     test_reflection_probe_math();
     test_orbit_camera_pan();
+    test_scaled_picking_distance();
+    test_ggx_visible_normal_grazing_sample();
     return deren::vk_test::finish("test_math");
 }
