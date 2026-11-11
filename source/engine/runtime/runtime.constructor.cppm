@@ -485,7 +485,8 @@ namespace deren::engine {
         for (auto const& source : this->subtilis_page_uploads) {
             auto const result = source->collect_page_uploads();
             if (result.result != rhi::error::ok) {
-                deren::utility::panic(std::source_location::current(), "subtilis: final page upload completion failed ({})", static_cast<std::uint32_t>(result.result));
+                deren::utility::log("runtime: final subtilis page upload completion failed ({}) during shutdown; abandoning the upload",
+                                    static_cast<std::uint32_t>(result.result));
             }
         }
         this->subtilis_page_uploads.clear();

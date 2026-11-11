@@ -850,6 +850,19 @@ int32_t main() {
         CHECK(deren::app_config::load_settings(file.string()).render.subtilis_error_px == 1.f);
         std::filesystem::remove(file);
     }
+    {
+        auto file = std::filesystem::path("subtilis-page-budget-range.toml");
+        {
+            std::ofstream out(file);
+            out << "[render]\n"
+                   "subtilis_page_upload_bytes = 4294967297\n"
+                   "subtilis_resident_page_bytes = 1234\n";
+        }
+        auto const settings = deren::app_config::load_settings(file.string());
+        CHECK(settings.render.subtilis_page_upload_bytes == 4294967296ull);
+        CHECK(settings.render.subtilis_resident_page_bytes == 65536ull);
+        std::filesystem::remove(file);
+    }
     test_load_settings_applies_toml();
     test_example_config_matches_documentation();
     test_rt_reflection_whitelist_parses_and_clamps();

@@ -455,6 +455,12 @@ int main() {
         }
     }
     {
+        auto oversized = sub::page_arena_pool::create(core, sub::page_arena_pool::max_bytes + sub::page_arena_pool::slot_bytes);
+        CHECK(!oversized);
+        auto empty = sub::page_arena_pool::create(core, 0);
+        CHECK(!empty);
+    }
+    {
         auto adapter = std::make_shared<controlled_core>(core);
         rhi::shared_object<rhi::api_core> wrapped{adapter, adapter.get()};
         auto const pool_bytes = geometry->pages().size() * std::uint64_t{sub::page_arena_pool::slot_bytes};
@@ -502,20 +508,45 @@ int main() {
             CHECK(duplicate.in_flight_bytes == submitted.bytes);
             core->wait_idle(); // Test setup only: the pager must still observe pending until allowed.
             adapter->completion.fail_poll = true;
-            for (int i = 0; i < 3; ++i) {
-                auto const failed = pages.collect_page_uploads();
-                CHECK(failed.result == rhi::error::operation_failed);
-                CHECK(failed.in_flight_bytes == submitted.bytes);
-            }
+            auto const first_failure = pages.collect_page_uploads();
+            CHECK(first_failure.result == rhi::error::ok);
+            CHECK(first_failure.in_flight_bytes == submitted.bytes);
+            CHECK(first_failure.abandoned == 0);
             CHECK(pages.has_pending_page_upload());
+            auto const second_failure = pages.collect_page_uploads();
+            CHECK(second_failure.result == rhi::error::ok);
+            CHECK(second_failure.in_flight_bytes == submitted.bytes);
+            CHECK(second_failure.abandoned == 0);
+            CHECK(pages.has_pending_page_upload());
+            auto const abandoned = pages.collect_page_uploads();
+            CHECK(abandoned.result == rhi::error::ok);
+            CHECK(abandoned.abandoned == targets.size());
+            CHECK(abandoned.in_flight_bytes == 0);
+            CHECK(!pages.has_pending_page_upload());
             deren::utility::vessel::vector<std::uint32_t> competing;
             bool const reused = (*pool)->acquire(1, competing);
-            CHECK(!reused);
+            CHECK(reused);
             if (reused) {
                 (*pool)->release(competing);
             }
             CHECK(std::memcmp(before.data(), frozen.data(), frozen.size()) == 0);
+            // The abandoned pages are absent, not resident, and the same demand can be
+            // submitted again without a stale ticket or reservation blocking it.
+            auto const cleared = pages.install_requested_pages(0, 3, 1);
+            CHECK(cleared.result == rhi::error::ok && cleared.pending == 0);
+            {
+                auto const rows = reinterpret_cast<sub::gpu_page_table_entry const*>(pages.page_table(1)->mapped().data());
+                for (auto id : targets) {
+                    CHECK(rows[id].state == static_cast<std::uint32_t>(sub::gpu_page_state::absent));
+                }
+            }
             adapter->completion.fail_poll = false;
+            adapter->completion.ready = false;
+            queue(pages, 1);
+            auto const retried = pages.install_requested_pages(1ull << 20, 4, 1);
+            CHECK(retried.result == rhi::error::ok && retried.submitted == targets.size());
+            CHECK(pages.has_pending_page_upload());
+            core->wait_idle();
             adapter->completion.ready = true;
             auto completed = pages.collect_page_uploads();
             CHECK(completed.result == rhi::error::ok && completed.installed == targets.size() && completed.bytes == 0);
@@ -554,6 +585,16 @@ int main() {
                 CHECK(adapter->completion.waits == 0);
             }
         }
+        // Destroying a paged source after publishing snapshots must drop every retained
+        // slot reference, otherwise the shared arena leaks the whole source forever.
+        CHECK(async);
+        async->reset();
+        CHECK(!*async);
+        auto const capacity = (*pool)->capacity_slots();
+        deren::utility::vessel::vector<std::uint32_t> all_slots;
+        CHECK((*pool)->acquire(capacity, all_slots));
+        CHECK(all_slots.size() == capacity);
+        (*pool)->release(all_slots);
     }
     return deren::vk_test::finish("test_subtilis_page_gpu");
 }

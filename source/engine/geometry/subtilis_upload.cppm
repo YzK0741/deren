@@ -84,6 +84,11 @@ export namespace deren::engine::subtilis {
 
     public:
         static constexpr std::uint32_t slot_bytes = 64u << 10;
+        /// A page-table entry stores a 32-bit byte offset, so an arena may not contain a slot whose
+        /// offset would wrap. The last addressable slot starts at UINT32_MAX / 64 KiB * 64 KiB,
+        /// making 65536 slots and exactly 4 GiB the architectural maximum.
+        static constexpr std::uint64_t max_slots = 0xFFFFFFFFull / slot_bytes + 1u;
+        static constexpr std::uint64_t max_bytes = max_slots * slot_bytes;
 
         [[nodiscard]] static std::expected<std::shared_ptr<page_arena_pool>, upload_rhi::error>
         create(upload_rhi::shared_object<upload_rhi::api_core> const& device, std::uint64_t bytes);

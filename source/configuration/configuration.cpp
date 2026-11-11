@@ -28,6 +28,12 @@ namespace deren::app_config {
                 std::clamp<int64_t>(value, std::numeric_limits<int32_t>::min(), std::numeric_limits<int32_t>::max()));
         }
 
+        // The Subtilis page arena uses 64 KiB slots and 32-bit byte offsets in its page table.
+        // Keep parsed budgets inside the range the arena can actually address.
+        constexpr std::int64_t subtilis_page_slot_bytes = 64ll << 10;
+        constexpr std::int64_t subtilis_page_arena_max_bytes =
+            (std::int64_t{0xFFFFFFFF} / subtilis_page_slot_bytes + 1) * subtilis_page_slot_bytes;
+
         /// THREE NUMBERS OR NOTHING: parses a three-component vector or colour into a temporary and commits it
         /// only when every component is a finite number. Writing component by component would leave a
         /// half-applied value - this config's first number next to the default's second - which is a light
@@ -423,16 +429,24 @@ namespace deren::app_config {
                     settings.render.subtilis_gpu_cut = *value;
                 }
             }
-            if (auto const* node = render->get("subtilis_page_upload_bytes")) {
-                if (auto value = node->value<std::int64_t>(); value && *value > 0) {
-                    settings.render.subtilis_page_upload_bytes = static_cast<std::uint64_t>(*value);
+            auto const read_subtilis_page_budget = [&](char const* key, std::uint64_t& target) {
+                auto const* node = render->get(key);
+                if (node == nullptr) {
+                    return;
                 }
-            }
-            if (auto const* node = render->get("subtilis_resident_page_bytes")) {
-                if (auto value = node->value<std::int64_t>(); value && *value > 0) {
-                    settings.render.subtilis_resident_page_bytes = static_cast<std::uint64_t>(*value);
+                auto const value = node->value<std::int64_t>();
+                if (!value || *value <= 0) {
+                    return;
                 }
-            }
+                auto const clamped = std::clamp(*value, subtilis_page_slot_bytes, subtilis_page_arena_max_bytes);
+                if (clamped != *value) {
+                    deren::utility::log("app_config: {} {} is outside the Subtilis page arena range [{}, {}], clamping",
+                                        key, *value, subtilis_page_slot_bytes, subtilis_page_arena_max_bytes);
+                }
+                target = static_cast<std::uint64_t>(clamped);
+            };
+            read_subtilis_page_budget("subtilis_page_upload_bytes", settings.render.subtilis_page_upload_bytes);
+            read_subtilis_page_budget("subtilis_resident_page_bytes", settings.render.subtilis_resident_page_bytes);
             if (toml::node const* node = render->get("software_raster")) {
                 if (auto value = node->value<bool>()) {
                     settings.render.software_raster = *value;

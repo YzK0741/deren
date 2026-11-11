@@ -157,7 +157,7 @@ namespace deren::engine::subtilis {
             return std::unexpected(upload_rhi::error::invalid_argument);
         }
         auto const count = bytes / slot_bytes;
-        if (count > UINT32_MAX) {
+        if (count == 0 || count > max_slots) {
             return std::unexpected(upload_rhi::error::invalid_argument);
         }
         namespace managed = render_resource::instances;
@@ -384,6 +384,7 @@ namespace deren::engine::subtilis {
             buffer_transfer_ticket ticket;
             residency_plan plan;
             deren::utility::vessel::vector<std::uint32_t> assigned;
+            std::uint32_t failed_polls = 0;
         };
         std::optional<upload> uploading;
         struct frame {
@@ -405,8 +406,24 @@ namespace deren::engine::subtilis {
         deren::utility::vessel::vector<std::uint8_t> reserved;
         std::span<std::uint32_t const> installing_pages{};
 
+        void drop_frame_references(frame& value) const {
+            if (pool) {
+                for (auto const physical : value.references) {
+                    pool->drop(physical);
+                }
+            }
+            value.references.clear();
+            value.published = false;
+        }
+
         ~page_state() {
             transfers.reset(); // Drain accepted copies before returning their destination slots.
+            // Published snapshots retain arena slots. Drop every frame's references before the
+            // owned slots are released, or a destroyed source leaves slots permanently referenced
+            // and the shared pool can never reclaim them.
+            for (auto& frame : frames) {
+                drop_frame_references(frame);
+            }
             if (pool) {
                 for (auto const slot : owned_slots) {
                     pool->clear_owner(slot);
@@ -784,6 +801,8 @@ namespace deren::engine::subtilis {
         auto& frame = state->frames[slot];
         auto bytes = frame.requests->mapped();
         if (bytes.size() != frame.requests->size()) {
+            // The snapshot is not being consumed, so its retained slots must not outlive it.
+            state->drop_frame_references(frame);
             return upload_rhi::error::operation_failed;
         }
         gpu_page_request_header header{};
@@ -872,39 +891,45 @@ namespace deren::engine::subtilis {
                 std::erase_if(state->pending, [&](auto page) {
                     return std::ranges::find(installs, page) != installs.end();
                 });
-                state->uploading.reset();
                 stats.abandoned = static_cast<std::uint32_t>(installs.size());
                 stats.in_flight = 0;
                 stats.in_flight_bytes = 0;
+                state->uploading.reset(); // Invalidates the installs/assigned spans; publish stats first.
             };
+            constexpr std::uint32_t poll_failure_limit = 3;
             auto const result = upload.ticket.poll();
-            if (result != upload_rhi::error::not_ready) {
+            if (result == upload_rhi::error::device_lost) {
                 stats.result = result;
-                if (result == upload_rhi::error::ok) {
-                    auto const installs = upload.plan.installs;
-                    if (!state->payload->manager.apply(std::move(upload.plan))) {
-                        abandon(installs, upload.assigned);
-                        return stats;
-                    }
-                    for (std::size_t k = 0; k < installs.size(); ++k) {
-                        auto const id = installs[k];
-                        auto const physical = upload.assigned[k];
-                        auto& entry = state->payload->table[id];
-                        entry.state = static_cast<std::uint32_t>(gpu_page_state::resident);
-                        entry.offset = physical * state->payload->slot_bytes;
-                        state->slot_of[id] = physical;
-                        state->pending_priority[id] = 0u;
-                        state->reserved[physical] = 0;
-                        state->pool->set_owner(physical, state, &page_state::evict_slot);
-                    }
-                    stats.installed = static_cast<std::uint32_t>(installs.size());
-                    stats.in_flight = 0;
-                    stats.in_flight_bytes = 0;
-                    state->uploading.reset();
-                    stats.result = state->transfers->collect();
+            } else if (result == upload_rhi::error::ok) {
+                auto const installs = upload.plan.installs;
+                if (!state->payload->manager.apply(std::move(upload.plan))) {
+                    abandon(installs, upload.assigned);
+                    return stats;
                 }
-                // Failed observation retains the ticket, its resources and all
-                // reserved slots. It is never interpreted as a completed upload.
+                for (std::size_t k = 0; k < installs.size(); ++k) {
+                    auto const id = installs[k];
+                    auto const physical = upload.assigned[k];
+                    auto& entry = state->payload->table[id];
+                    entry.state = static_cast<std::uint32_t>(gpu_page_state::resident);
+                    entry.offset = physical * state->payload->slot_bytes;
+                    state->slot_of[id] = physical;
+                    state->pending_priority[id] = 0u;
+                    state->reserved[physical] = 0;
+                    state->pool->set_owner(physical, state, &page_state::evict_slot);
+                }
+                stats.installed = static_cast<std::uint32_t>(installs.size());
+                stats.in_flight = 0;
+                stats.in_flight_bytes = 0;
+                state->uploading.reset();
+                stats.result = state->transfers->collect();
+            } else if (result != upload_rhi::error::not_ready) {
+                // A retryable poll failure does not invalidate the copy. Count it so a
+                // permanently unobservable ticket eventually returns its slots instead of
+                // pinning arena capacity forever; the frame keeps rendering with LOD0.
+                ++upload.failed_polls;
+                if (upload.failed_polls >= poll_failure_limit) {
+                    abandon(upload.plan.installs, upload.assigned);
+                }
             }
         }
         std::erase_if(state->pending, [&](auto page) {
@@ -942,8 +967,7 @@ namespace deren::engine::subtilis {
             return stats;
         }
         stats = collect_page_uploads();
-        if (stats.result == upload_rhi::error::device_lost ||
-            (stats.result != upload_rhi::error::ok && !state->uploading)) {
+        if (stats.result != upload_rhi::error::ok) {
             return stats;
         }
         stats.result = complete_page_frame(slot);
