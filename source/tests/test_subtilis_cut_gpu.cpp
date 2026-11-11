@@ -17,6 +17,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <span>
 #include <string>
@@ -200,7 +201,7 @@ int main() {
             return false;
         }
         auto submitted = submission->submit(*commands);
-        return submitted && submission->wait(*submitted, UINT64_MAX) == rhi::error::ok;
+        return submitted && submission->wait(*submitted, std::numeric_limits<std::uint64_t>::max()) == rhi::error::ok;
     };
     CHECK(dispatch());
 

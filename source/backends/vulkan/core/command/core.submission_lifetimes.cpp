@@ -1,5 +1,5 @@
 module;
-#include <cstdint>
+
 #include <vulkan/vulkan.h>
 module deren.vulkan.core;
 import deren.vstd;

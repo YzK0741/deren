@@ -1,6 +1,8 @@
 #include "vk_test.h"
 
 #include <array>
+#include <cstdint>
+#include <limits>
 #include <vector>
 
 import deren.engine.visibility.progressive_texture;
@@ -42,7 +44,7 @@ int main() {
     CHECK(p::can_start(40, 60, 1, 100, 2));
     CHECK(!p::can_start(41, 60, 1, 100, 2));
     CHECK(!p::can_start(40, 60, 2, 100, 2));
-    CHECK(!p::can_start(UINT64_MAX, 1, 0, 100, 2));
+    CHECK(!p::can_start(std::numeric_limits<std::uint64_t>::max(), 1, 0, 100, 2));
     // Mip suffixes must upload existing bytes without re-filtering or losing odd source edges.
     auto suffix = p::mip_range(9, 8, 4, 1);
     CHECK(suffix && suffix->width == 4 && suffix->height == 4 && suffix->levels == 3);

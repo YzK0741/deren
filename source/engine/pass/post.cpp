@@ -7,8 +7,7 @@
 // bloom chain as well.
 
 module;
-#include <cstdint>
-#include <cstring>
+
 module deren.engine.pass.post;
 import deren.vstd;
 import deren.utility.shared;
@@ -62,8 +61,8 @@ namespace deren::engine::pass {
         if (this->composite.has_value()) {
             return; // already built for this device
         }
-        std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.parent, vertex_shader_name) : std::span<uint8_t const>{};
-        std::span<uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.parent, fragment_shader_name) : std::span<uint8_t const>{};
+        std::span<std::uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.parent, vertex_shader_name) : std::span<std::uint8_t const>{};
+        std::span<std::uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.parent, fragment_shader_name) : std::span<std::uint8_t const>{};
         if (vertex_spirv.empty() || fragment_spirv.empty()) {
             deren::utility::log("post chain disabled: the parent has no {} or {}", vertex_shader_name, fragment_shader_name);
             return;
@@ -249,7 +248,7 @@ namespace deren::engine::pass {
     // THE BLOOM CHAIN's FOUR LEVELS
     // =============================================================================================
 
-    post_bloom_pass::post_bloom_pass(uint32_t const level) noexcept
+    post_bloom_pass::post_bloom_pass(std::uint32_t const level) noexcept
         : bloom_level(level < render_resource::post_bloom_io.size() ? level : 0u)
         , declared_io(&render_resource::post_bloom_io[this->bloom_level]) {
         // The behaviour is a MEMBER because the ELEMENT is part of it: four instances of this class cannot share
@@ -259,7 +258,7 @@ namespace deren::engine::pass {
             .kind = behaviour_kind::fullscreen,
             .extent = extent_rule::resource,
             .extent_of = resource_id::bloom,
-            .extent_of_element = static_cast<uint16_t>(this->bloom_level),
+            .extent_of_element = static_cast<std::uint16_t>(this->bloom_level),
             .pipelines = pipeline_names,
             .resync_viewport = true,
         };
@@ -297,7 +296,7 @@ namespace deren::engine::pass {
         // and its target through its declaration).
     }
 
-    uint32_t post_bloom_pass::level() const noexcept {
+    std::uint32_t post_bloom_pass::level() const noexcept {
         return this->bloom_level;
     }
 

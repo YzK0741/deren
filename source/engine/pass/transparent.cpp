@@ -5,7 +5,6 @@
 
 module;
 
-#include <cstdint>
 module deren.engine.pass.transparent;
 import deren.vstd;
 import deren.utility.shared;

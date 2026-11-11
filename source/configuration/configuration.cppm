@@ -10,7 +10,6 @@
 // ============================================================================
 module;
 
-#include <cstdint>
 // toml++ is header-only and picks its API from the exception mode it detects in the compiler flags
 // (TOML_EXCEPTIONS): with exceptions OFF, parse_result is a type with operator bool and error(); with
 // them ON it is an alias of toml::table and the parse functions return something else. This project
@@ -110,8 +109,8 @@ namespace deren::app_config {
      *        that the source/engine/runtime/core layers add); parsed here but not interpreted by app_config.
      */
     export struct render_settings {
-        int32_t window_width = 1080;
-        int32_t window_height = 960;
+        std::int32_t window_width = 1080;
+        std::int32_t window_height = 960;
         deren::utility::vessel::string window_title = "deren";                       // GLFW window title
         bool vsync = true;                                                           // true = FIFO_LATEST_READY (FIFO fallback), false = mailbox (uncapped)
         double max_fps = 0.0;                                                        // 0 = uncapped; a positive value caps the render loop
@@ -138,7 +137,7 @@ namespace deren::app_config {
         // single-map behavior) and the fraction of a cascade's range over which the shader blends into
         // the next one. 3 by default: the cheapest point where the near range stops paying for the far
         // range's texel size. Applied BEFORE the scene import - see runtime::set_shadow_cascades.
-        int32_t shadow_cascades = 3;
+        std::int32_t shadow_cascades = 3;
         float shadow_cascade_blend = 0.1f;
         // THE TOON CHAIN'S GLOBAL SHADOW SOFTNESS ([render] toon_shadow_softness), a five-step ladder whose
         // MEMBERS ARE `(half_extent, spacing)` IN TEXELS: 0 = (1,1) = the shipped lookup, 1 = (2,2), 2 = (3,3),
@@ -172,7 +171,7 @@ namespace deren::app_config {
         // shading path's constant 7.5 unchanged; the gui exposes it as "sun intensity".
         float sun_intensity = 1.0f;
         float exposure = 1.0f;
-        int32_t tone_mapping = 0;
+        std::int32_t tone_mapping = 0;
         // Clustered light culling ([render] clustered_lights, M5): the punctual lights are sorted
         // into a screen-tile x depth-slice grid once per frame and the shading stage loops only its
         // the cluster's list. false = the brute-force loop over every active light - the reference
@@ -186,7 +185,7 @@ namespace deren::app_config {
         // choices - resolution against the pass cost and memory (the layered map is
         // shadow_map_size^2 x 4 layers x 4 bytes per cascade set, per frame slot). Applied before the
         // scene import; the runtime clamps it to 256..8192 and rounds to a power of two.
-        int32_t shadow_map_size = 2048;
+        std::int32_t shadow_map_size = 2048;
         // Ray-traced sun shadows ([render] rt_shadows): one ray per pixel against the scene's
         // acceleration structures instead of a sample of the cascaded shadow maps. Off by default, and
         // granted only on a device with ray queries - a device without them keeps running the cascaded
@@ -206,7 +205,7 @@ namespace deren::app_config {
         // mirror trace and its roughness fallback; two or more importance-sample the material lobe below the
         // 0.55 trace cutoff (rougher surfaces still take the prefiltered environment) and widen the denoiser's
         // glossy band to match.
-        uint32_t rt_reflection_samples = 1;
+        std::uint32_t rt_reflection_samples = 1;
         deren::utility::vessel::string rt_reflection_materials = {};
         // Bake alphaMode MASK into the acceleration structures ([render] rt_mask_bake): a compute pass
         // collapses the triangles a material's alpha covers nowhere. This is the SUBSTITUTE for an any-hit
@@ -239,7 +238,7 @@ namespace deren::app_config {
         bool ssao = true;
         float ssao_radius = 0.5f;
         float ssao_intensity = 1.0f;
-        int32_t ssao_samples = 8;
+        std::int32_t ssao_samples = 8;
         // Render mode ([render] unlit): the "pbr (lit)" / "unlit (flat)" combo of the debug overlay
         // as a startup setting - the flat base-color reference, useful as a shading-free view. It
         // selects the runtime's default pipeline for the transparent pass, and the lighting stage is
@@ -290,7 +289,7 @@ namespace deren::app_config {
         // chain. A development view of the deferred path's data - the deferred lighting pass (M2)
         // takes over the display role and this stays as the inspection tool.
         bool gbuffer_debug = false;
-        int32_t gbuffer_channel = 1; // 0 albedo, 1 normal, 2 roughness, 3 metallic, 4 ao, 5 material id, 6 depth, 7 flags, 8 motion
+        std::int32_t gbuffer_channel = 1; // 0 albedo, 1 normal, 2 roughness, 3 metallic, 4 ao, 5 material id, 6 depth, 7 flags, 8 motion
         // Temporal anti-aliasing ([render] taa / taa_blend_static / taa_blend_min): the deferred path's
         // anti-aliasing (a G-buffer cannot be multisampled, so there is no MSAA to fall back on). The projection is jittered every frame and a resolve pass blends the
         // reprojected, neighborhood-clamped history in - see runtime::set_taa. There is no per-object
@@ -361,7 +360,7 @@ namespace deren::app_config {
          * is the shipping path and must stay byte-identical. Values outside the range are clamped by `main.cpp`,
          * which is where `max_game_toon_characters` lives; the option is ignored unless `game_toon` is on.
          */
-        int32_t game_toon_copies = 1;
+        std::int32_t game_toon_copies = 1;
         /**
          * THE FRAME'S STATIC SURROUND AS A SECOND MODEL ([render] background_glb): the path of a glTF/GLB
          * whose geometry is the environment rather than the subject. Empty by default and that default is the
@@ -392,10 +391,10 @@ namespace deren::app_config {
      * @brief image-based-lighting precompute resolutions ([lighting] in the config)
      */
     export struct lighting_settings {
-        int32_t env_size = 256;    // base environment cubemap size
-        int32_t env_mip_count = 5; // prefiltered-environment mip chain length
-        int32_t irr_size = 32;     // irradiance cubemap size
-        int32_t lut_size = 256;    // BRDF LUT size
+        std::int32_t env_size = 256;    // base environment cubemap size
+        std::int32_t env_mip_count = 5; // prefiltered-environment mip chain length
+        std::int32_t irr_size = 32;     // irradiance cubemap size
+        std::int32_t lut_size = 256;    // BRDF LUT size
         // sun_direction ([lighting] sun_direction): the sun's direction in world space, pointing FROM the
         // surface TOWARD the sun, unnormalized (it is normalized where it is used). ONE setting feeds three
         // consumers that must agree or the frame contradicts itself - the shadow cascades and the shading's
@@ -435,7 +434,7 @@ namespace deren::app_config {
         float environment_intensity = 0.35f;
         float environment_rotation = 0.0f;
         float environment_strength = 1.0f;
-        int32_t environment_background = 0;
+        std::int32_t environment_background = 0;
         deren::utility::vessel::array<float, 3> environment_color = {0.18f, 0.18f, 0.18f};
         float environment_blur = 0.5f;
         /**
@@ -511,7 +510,7 @@ namespace deren::app_config {
         // only; the generated ones are pushed every frame together with the overlay's slots.
         // Capped at max_demo_lights: the light UBO holds max_punctual_lights lights in total, and the
         // overlay's slots share that array.
-        int32_t demo_lights = 0;
+        std::int32_t demo_lights = 0;
         /**
          * WHERE the generated lights sit and how far they reach, both as FRACTIONS of the scene radius.
          *
@@ -529,7 +528,7 @@ namespace deren::app_config {
     };
 
     /** @brief upper bound for [lighting] demo_lights (the UBO's light array is deren::vulkan::max_punctual_lights) */
-    export constexpr uint32_t max_demo_lights = 64;
+    export constexpr std::uint32_t max_demo_lights = 64;
 
     /**
      * @ingroup app_config
@@ -645,7 +644,7 @@ namespace deren::app_config {
         float fade = .5f, gain = 1;
     };
     /// @brief the `pipeline = "gaussian"` value: a .ply cloud drawn by the shared splat stage
-    export inline constexpr int32_t scene_object_pipeline_gaussian = 4;
+    export inline constexpr std::int32_t scene_object_pipeline_gaussian = 4;
 
     /**
      * @ingroup app_config
@@ -688,7 +687,7 @@ namespace deren::app_config {
         // the ones the demo registers; an object may only choose among them, not name an arbitrary pipeline.
         // `pbr`, `unlit` and `default` stay on the deferred path; `game_toon` is re-shaded by the character
         // stage, and `gaussian` draws a .ply cloud in the shared splat stage.
-        int32_t pipeline = 0;
+        std::int32_t pipeline = 0;
         // Per-object material multipliers. Disabled means "use the shared imported material unchanged",
         // so an untouched scene still shares one record per material. When enabled, main() clones the
         // object's materials and applies these multipliers to the clone only.
@@ -702,11 +701,11 @@ namespace deren::app_config {
         // `environment_index` for the live combo. `environment_slot` is the runtime IBL slot the material
         // record names (0 = scene-wide, 1..3 = a custom slot); both are runtime state, not re-read from TOML.
         deren::utility::vessel::string environment = {};
-        int32_t environment_index = 0;
-        uint32_t environment_slot = 0;
+        std::int32_t environment_index = 0;
+        std::uint32_t environment_slot = 0;
         // Phase 2 per-object playback. Each placement holds its animation controller, so these
         // select that placement's clip/clock independently of every other object.
-        int32_t animation = 0;         // playable-clip index (0 = the first channel-bearing clip)
+        std::int32_t animation = 0;    // playable-clip index (0 = the first channel-bearing clip)
         float animation_speed = 1.0f;  // playback-rate multiplier (1 = real time, 0 = frozen)
         bool animation_playing = true; // false leaves the pose at the current time
     };
@@ -733,7 +732,7 @@ namespace deren::app_config {
         // asset-library id to load when `model` is empty ([--asset] overrides the file). The id is
         // resolved after the library root is scanned, so this field never carries a path.
         deren::utility::vessel::string asset = {};
-        int32_t grid_side = 0; // > 1 enables the instancing stress grid
+        std::int32_t grid_side = 0; // > 1 enables the instancing stress grid
         path_settings paths = {};
         render_settings render = {};
         lighting_settings lighting = {};
@@ -808,12 +807,12 @@ namespace deren::app_config {
      *        positional[1] = grid side (numeric)
      * @return the merged settings (see app_settings notes for the "not specified" semantics)
      */
-    export app_settings resolve_from_argv(int32_t argc, char const* const* argv);
+    export app_settings resolve_from_argv(std::int32_t argc, char const* const* argv);
 
     /**
      * @ingroup app_config
      * @brief like resolve_from_argv() but with an explicit default config path when no --config
      *        argument is present (used when the caller does not want the cwd-relative default)
      */
-    export app_settings resolve_from_argv(int32_t argc, char const* const* argv, deren::utility::vessel::string const& default_config_path);
+    export app_settings resolve_from_argv(std::int32_t argc, char const* const* argv, deren::utility::vessel::string const& default_config_path);
 } // namespace deren::app_config

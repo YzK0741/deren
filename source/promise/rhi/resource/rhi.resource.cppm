@@ -2,9 +2,6 @@
 // module: deren.promise.rhi:resource
 module;
 
-#include <cstddef>
-#include <cstdint>
-
 export module deren.promise.rhi:resource;
 export import deren.vstd;
 export import deren.utility.shared;
@@ -724,7 +721,7 @@ export namespace deren::promise::rhi {
         for (std::size_t i = 0; i < layout.size(); ++i) {
             auto const& a = layout[i];
             if (a.kind > resource_kind::acceleration_structure || a.shader_stage_bits == 0 ||
-                (a.shader_stage_bits & ~15u) || (a.push_byte_offset & 3u) || a.push_byte_offset > UINT32_MAX - 4u) {
+                (a.shader_stage_bits & ~15u) || (a.push_byte_offset & 3u) || a.push_byte_offset > std::numeric_limits<std::uint32_t>::max() - 4u) {
                 return error::invalid_argument;
             }
             for (std::size_t j = 0; j < i; ++j) {

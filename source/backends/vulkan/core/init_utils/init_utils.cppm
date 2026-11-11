@@ -1,8 +1,6 @@
 module;
 
 #include <GLFW/glfw3.h>
-#include <cstddef>
-#include <cstdint>
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.core:init_utils;
@@ -26,8 +24,8 @@ import deren.promise.rhi; // rhi::image_extent: the swapchain extent is the CONT
  */
 export struct logical_device {
     VkDevice device = VK_NULL_HANDLE;
-    uint32_t graphics_family_index = 0;
-    uint32_t present_family_index = 0;
+    std::uint32_t graphics_family_index = 0;
+    std::uint32_t present_family_index = 0;
     VkQueue graphics_queue = VK_NULL_HANDLE;
     VkQueue present_queue = VK_NULL_HANDLE;
 };
@@ -48,10 +46,10 @@ export struct swap_chain_support_details {
  * @note is_complete() is true when both graphics and present families are found
  */
 export struct queue_family_indices {
-    std::optional<uint32_t> graphics_family = {};
-    std::optional<uint32_t> present_family = {};
-    std::optional<uint32_t> compute_family = {};
-    std::optional<uint32_t> transfer_family = {};
+    std::optional<std::uint32_t> graphics_family = {};
+    std::optional<std::uint32_t> present_family = {};
+    std::optional<std::uint32_t> compute_family = {};
+    std::optional<std::uint32_t> transfer_family = {};
 
     [[nodiscard]] bool is_complete() const noexcept {
         return graphics_family.has_value() && present_family.has_value();
@@ -231,7 +229,7 @@ export struct device_capabilities {
     ///        because the only question asked of it is "is GENERAL listed": if a device listed more layouts than
     ///        fit here the tail would be invisible, whose worst case is a named startup failure (GENERAL not
     ///        found), never a copy issued in a layout the device does not accept.
-    static constexpr uint32_t host_image_copy_max_src_layouts = 16;
+    static constexpr std::uint32_t host_image_copy_max_src_layouts = 16;
     deren::utility::vessel::array<VkImageLayout, host_image_copy_max_src_layouts> host_image_copy_src_layouts = {};
     /// @brief the layouts a host copy may write TO (host_image_copy_properties.pCopyDstLayouts) - the upload
     ///        direction's list, kept separate from the source list for the same reason the properties are.
@@ -258,7 +256,7 @@ export struct device_capabilities {
      * @param physical_device the device to query
      * @param api_version the API version to target, decides which 1.x structs are chained
      */
-    void query(VkPhysicalDevice physical_device, uint32_t api_version = VK_API_VERSION_1_3) noexcept;
+    void query(VkPhysicalDevice physical_device, std::uint32_t api_version = VK_API_VERSION_1_3) noexcept;
 
     // 选卡和创建设备共用同一份强制能力检查，避免选中不能启动渲染器的 GPU。
     [[nodiscard]] deren::utility::vessel::vector<char const*> renderer_missing_requirements() const {
@@ -417,7 +415,7 @@ export VkSurfaceFormatKHR choose_swap_surface_format(deren::utility::vessel::vec
  * @param requested_height the height `glfwCreateWindow` was asked for, as the fallback
  * @return the chosen extent
  */
-export deren::promise::rhi::image_extent choose_swap_extent(VkSurfaceCapabilitiesKHR capabilities, GLFWwindow* window, int32_t requested_width, int32_t requested_height) noexcept;
+export deren::promise::rhi::image_extent choose_swap_extent(VkSurfaceCapabilitiesKHR capabilities, GLFWwindow* window, std::int32_t requested_width, std::int32_t requested_height) noexcept;
 
 /**
  * @ingroup vulkan_init_utils
@@ -427,7 +425,7 @@ export deren::promise::rhi::image_extent choose_swap_extent(VkSurfaceCapabilitie
  * @param physical_device the physical device to query
  * @return the matching memory type index; panics if none matches
  */
-export uint32_t find_memory_type(uint32_t type_filter, VkMemoryPropertyFlags properties, VkPhysicalDevice physical_device) noexcept;
+export std::uint32_t find_memory_type(std::uint32_t type_filter, VkMemoryPropertyFlags properties, VkPhysicalDevice physical_device) noexcept;
 
 /**
  * @ingroup vulkan_init_utils
@@ -479,7 +477,7 @@ export VkImageView create_image_view(VkImage image, VkFormat format, VkImageAspe
  *       six-layer image is the only user, and it needs all six layers in one view or the sampler sees one
  *       face.
  */
-export VkImageView create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspect_flags, VkDevice device, VkImageViewType view_type, uint32_t layer_count) noexcept;
+export VkImageView create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspect_flags, VkDevice device, VkImageViewType view_type, std::uint32_t layer_count) noexcept;
 
 [[maybe_unused]] VKAPI_ATTR VkBool32 VKAPI_CALL
 debug_callback(
@@ -502,7 +500,7 @@ debug_callback(
 }
 
 bool check_validation_layer_support(deren::utility::vessel::vector<char const*> const& validation_layers) noexcept {
-    uint32_t layer_count;
+    std::uint32_t layer_count;
     vkEnumerateInstanceLayerProperties(&layer_count, nullptr);
     deren::utility::vessel::vector<VkLayerProperties> available_layers(layer_count);
     vkEnumerateInstanceLayerProperties(&layer_count, available_layers.data());
@@ -519,7 +517,7 @@ bool check_validation_layer_support(deren::utility::vessel::vector<char const*> 
 bool check_device_extension_support(
     VkPhysicalDevice physical_device,
     deren::utility::vessel::vector<char const*> const& required_extensions) noexcept {
-    uint32_t extension_count;
+    std::uint32_t extension_count;
     vkEnumerateDeviceExtensionProperties(physical_device, nullptr, &extension_count, nullptr);
     deren::utility::vessel::vector<VkExtensionProperties> available_extensions(extension_count);
     vkEnumerateDeviceExtensionProperties(physical_device, nullptr, &extension_count,
@@ -533,11 +531,11 @@ bool check_device_extension_support(
     return required_set.empty();
 }
 
-void device_capabilities::query(VkPhysicalDevice const physical_device, uint32_t const api_version) noexcept {
+void device_capabilities::query(VkPhysicalDevice const physical_device, std::uint32_t const api_version) noexcept {
     // ---- Ray tracing first, because it decides whether two structs join the chains below: the
     //      feature structs of an extension that is not enabled must not be in the vkCreateDevice
     //      chain, and the device may support the extensions without the features (or vice versa). ----
-    uint32_t extension_count = 0;
+    std::uint32_t extension_count = 0;
     vkEnumerateDeviceExtensionProperties(physical_device, nullptr, &extension_count, nullptr);
     deren::utility::vessel::vector<VkExtensionProperties> available_extensions(extension_count);
     vkEnumerateDeviceExtensionProperties(physical_device, nullptr, &extension_count, available_extensions.data());
@@ -714,9 +712,9 @@ void device_capabilities::query(VkPhysicalDevice const physical_device, uint32_t
     // itself, so adding it cannot make any later property struct unreachable. It is a "count in, count out"
     // query: copySrcLayoutCount comes back as the device's total and at most the number passed in is written.
     host_image_copy_properties.pCopySrcLayouts = host_image_copy_src_layouts.data();
-    host_image_copy_properties.copySrcLayoutCount = static_cast<uint32_t>(host_image_copy_src_layouts.size());
+    host_image_copy_properties.copySrcLayoutCount = static_cast<std::uint32_t>(host_image_copy_src_layouts.size());
     host_image_copy_properties.pCopyDstLayouts = host_image_copy_dst_layouts.data();
-    host_image_copy_properties.copyDstLayoutCount = static_cast<uint32_t>(host_image_copy_dst_layouts.size());
+    host_image_copy_properties.copyDstLayoutCount = static_cast<std::uint32_t>(host_image_copy_dst_layouts.size());
     // 每项属性按自身条件接到尾部，缺少前一个可选扩展不能截断后续查询。
     {
         auto* tail = reinterpret_cast<VkBaseOutStructure*>(&maintenance4_properties);
@@ -745,20 +743,20 @@ void device_capabilities::query(VkPhysicalDevice const physical_device, uint32_t
     //      device creation; it is not a downgrade to another mechanism. Counts are clamped to the arrays for the
     //      same reason as above.
     if (host_image_copy_available) {
-        uint32_t const listed = host_image_copy_properties.copySrcLayoutCount < host_image_copy_max_src_layouts
-                                    ? host_image_copy_properties.copySrcLayoutCount
-                                    : host_image_copy_max_src_layouts;
+        std::uint32_t const listed = host_image_copy_properties.copySrcLayoutCount < host_image_copy_max_src_layouts
+                                         ? host_image_copy_properties.copySrcLayoutCount
+                                         : host_image_copy_max_src_layouts;
         bool general_listed = false;
-        for (uint32_t index = 0; index < listed; ++index) {
+        for (std::uint32_t index = 0; index < listed; ++index) {
             general_listed = general_listed || host_image_copy_src_layouts[index] == VK_IMAGE_LAYOUT_GENERAL;
         }
         host_image_copy_available = general_listed;
 
-        uint32_t const upload_listed = host_image_copy_properties.copyDstLayoutCount < host_image_copy_max_src_layouts
-                                           ? host_image_copy_properties.copyDstLayoutCount
-                                           : host_image_copy_max_src_layouts;
+        std::uint32_t const upload_listed = host_image_copy_properties.copyDstLayoutCount < host_image_copy_max_src_layouts
+                                                ? host_image_copy_properties.copyDstLayoutCount
+                                                : host_image_copy_max_src_layouts;
         bool general_dst_listed = false;
-        for (uint32_t index = 0; index < upload_listed; ++index) {
+        for (std::uint32_t index = 0; index < upload_listed; ++index) {
             general_dst_listed = general_dst_listed || host_image_copy_dst_layouts[index] == VK_IMAGE_LAYOUT_GENERAL;
         }
         host_image_copy_upload_available = general_dst_listed;
@@ -790,9 +788,9 @@ void const* device_capabilities::device_pnext() const noexcept {
 namespace {
     // Append names of enabled (VK_TRUE) members to the output string, return the enabled count
     template <typename T>
-    size_t append_enabled_features(deren::utility::vessel::string& out, T const& features,
-                                   std::initializer_list<std::pair<char const*, VkBool32 T::*>> const& entries) {
-        size_t count = 0;
+    std::size_t append_enabled_features(deren::utility::vessel::string& out, T const& features,
+                                        std::initializer_list<std::pair<char const*, VkBool32 T::*>> const& entries) {
+        std::size_t count = 0;
         for (auto const& [name, member] : entries) {
             if (features.*member == VK_TRUE) {
                 if (!out.empty()) {
@@ -806,14 +804,14 @@ namespace {
     }
 
     // Wrap output at the given width, indenting continuation lines
-    void print_wrapped(deren::utility::vessel::string const& text, int32_t const width, std::string_view const indent) {
+    void print_wrapped(deren::utility::vessel::string const& text, std::int32_t const width, std::string_view const indent) {
         deren::utility::vessel::string current(indent);
-        size_t start = 0;
+        std::size_t start = 0;
         while (start < text.size()) {
-            size_t const comma = text.find(", ", start);
-            size_t const token_end = comma == deren::utility::vessel::string::npos ? text.size() : comma;
+            std::size_t const comma = text.find(", ", start);
+            std::size_t const token_end = comma == deren::utility::vessel::string::npos ? text.size() : comma;
             std::string_view const token(text.data() + start, token_end - start);
-            if (current.size() > indent.size() && current.size() + token.size() + 2 > static_cast<size_t>(width)) {
+            if (current.size() > indent.size() && current.size() + token.size() + 2 > static_cast<std::size_t>(width)) {
                 deren::utility::log("{}", current);
                 current = deren::utility::vessel::string(indent);
             }
@@ -847,7 +845,7 @@ void print_device_capabilities(device_capabilities const& capabilities) {
         "virtual gpu",
         "cpu",
     };
-    uint32_t const device_type = static_cast<uint32_t>(capabilities.properties_2.properties.deviceType);
+    std::uint32_t const device_type = static_cast<std::uint32_t>(capabilities.properties_2.properties.deviceType);
     char const* type_name = device_type < device_type_names.size() ? device_type_names[device_type] : "unknown";
 
     deren::utility::log(" driver        : {} {}", capabilities.driver_properties.driverName, capabilities.driver_properties.driverInfo);
@@ -863,94 +861,94 @@ void print_device_capabilities(device_capabilities const& capabilities) {
     using feature_1_3 = VkPhysicalDeviceVulkan13Features;
 
     deren::utility::vessel::string enabled_1_1;
-    size_t const count_1_1 = append_enabled_features(enabled_1_1, capabilities.features_1_1, {
-                                                                                                 {"storageBuffer16BitAccess", &feature_1_1::storageBuffer16BitAccess},
-                                                                                                 {"uniformAndStorageBuffer16BitAccess", &feature_1_1::uniformAndStorageBuffer16BitAccess},
-                                                                                                 {"storagePushConstant16", &feature_1_1::storagePushConstant16},
-                                                                                                 {"storageInputOutput16", &feature_1_1::storageInputOutput16},
-                                                                                                 {"multiview", &feature_1_1::multiview},
-                                                                                                 {"multiviewGeometryShader", &feature_1_1::multiviewGeometryShader},
-                                                                                                 {"multiviewTessellationShader", &feature_1_1::multiviewTessellationShader},
-                                                                                                 {"variablePointersStorageBuffer", &feature_1_1::variablePointersStorageBuffer},
-                                                                                                 {"variablePointers", &feature_1_1::variablePointers},
-                                                                                                 {"protectedMemory", &feature_1_1::protectedMemory},
-                                                                                                 {"samplerYcbcrConversion", &feature_1_1::samplerYcbcrConversion},
-                                                                                                 {"shaderDrawParameters", &feature_1_1::shaderDrawParameters},
-                                                                                             });
+    std::size_t const count_1_1 = append_enabled_features(enabled_1_1, capabilities.features_1_1, {
+                                                                                                      {"storageBuffer16BitAccess", &feature_1_1::storageBuffer16BitAccess},
+                                                                                                      {"uniformAndStorageBuffer16BitAccess", &feature_1_1::uniformAndStorageBuffer16BitAccess},
+                                                                                                      {"storagePushConstant16", &feature_1_1::storagePushConstant16},
+                                                                                                      {"storageInputOutput16", &feature_1_1::storageInputOutput16},
+                                                                                                      {"multiview", &feature_1_1::multiview},
+                                                                                                      {"multiviewGeometryShader", &feature_1_1::multiviewGeometryShader},
+                                                                                                      {"multiviewTessellationShader", &feature_1_1::multiviewTessellationShader},
+                                                                                                      {"variablePointersStorageBuffer", &feature_1_1::variablePointersStorageBuffer},
+                                                                                                      {"variablePointers", &feature_1_1::variablePointers},
+                                                                                                      {"protectedMemory", &feature_1_1::protectedMemory},
+                                                                                                      {"samplerYcbcrConversion", &feature_1_1::samplerYcbcrConversion},
+                                                                                                      {"shaderDrawParameters", &feature_1_1::shaderDrawParameters},
+                                                                                                  });
     deren::utility::log(" vulkan 1.1 features ({})", count_1_1);
     print_wrapped(enabled_1_1, 100, "   ");
 
     deren::utility::vessel::string enabled_1_2;
-    size_t const count_1_2 = append_enabled_features(enabled_1_2, capabilities.features_1_2, {
-                                                                                                 {"samplerMirrorClampToEdge", &feature_1_2::samplerMirrorClampToEdge},
-                                                                                                 {"drawIndirectCount", &feature_1_2::drawIndirectCount},
-                                                                                                 {"storageBuffer8BitAccess", &feature_1_2::storageBuffer8BitAccess},
-                                                                                                 {"uniformAndStorageBuffer8BitAccess", &feature_1_2::uniformAndStorageBuffer8BitAccess},
-                                                                                                 {"storagePushConstant8", &feature_1_2::storagePushConstant8},
-                                                                                                 {"shaderBufferInt64Atomics", &feature_1_2::shaderBufferInt64Atomics},
-                                                                                                 {"shaderSharedInt64Atomics", &feature_1_2::shaderSharedInt64Atomics},
-                                                                                                 {"shaderFloat16", &feature_1_2::shaderFloat16},
-                                                                                                 {"shaderInt8", &feature_1_2::shaderInt8},
-                                                                                                 {"descriptorIndexing", &feature_1_2::descriptorIndexing},
-                                                                                                 {"shaderInputAttachmentArrayDynamicIndexing", &feature_1_2::shaderInputAttachmentArrayDynamicIndexing},
-                                                                                                 {"shaderUniformTexelBufferArrayDynamicIndexing", &feature_1_2::shaderUniformTexelBufferArrayDynamicIndexing},
-                                                                                                 {"shaderStorageTexelBufferArrayDynamicIndexing", &feature_1_2::shaderStorageTexelBufferArrayDynamicIndexing},
-                                                                                                 {"shaderUniformBufferArrayNonUniformIndexing", &feature_1_2::shaderUniformBufferArrayNonUniformIndexing},
-                                                                                                 {"shaderSampledImageArrayNonUniformIndexing", &feature_1_2::shaderSampledImageArrayNonUniformIndexing},
-                                                                                                 {"shaderStorageBufferArrayNonUniformIndexing", &feature_1_2::shaderStorageBufferArrayNonUniformIndexing},
-                                                                                                 {"shaderStorageImageArrayNonUniformIndexing", &feature_1_2::shaderStorageImageArrayNonUniformIndexing},
-                                                                                                 {"shaderInputAttachmentArrayNonUniformIndexing", &feature_1_2::shaderInputAttachmentArrayNonUniformIndexing},
-                                                                                                 {"shaderUniformTexelBufferArrayNonUniformIndexing", &feature_1_2::shaderUniformTexelBufferArrayNonUniformIndexing},
-                                                                                                 {"shaderStorageTexelBufferArrayNonUniformIndexing", &feature_1_2::shaderStorageTexelBufferArrayNonUniformIndexing},
-                                                                                                 {"descriptorBindingUniformBufferUpdateAfterBind", &feature_1_2::descriptorBindingUniformBufferUpdateAfterBind},
-                                                                                                 {"descriptorBindingSampledImageUpdateAfterBind", &feature_1_2::descriptorBindingSampledImageUpdateAfterBind},
-                                                                                                 {"descriptorBindingStorageImageUpdateAfterBind", &feature_1_2::descriptorBindingStorageImageUpdateAfterBind},
-                                                                                                 {"descriptorBindingStorageBufferUpdateAfterBind", &feature_1_2::descriptorBindingStorageBufferUpdateAfterBind},
-                                                                                                 {"descriptorBindingUniformTexelBufferUpdateAfterBind", &feature_1_2::descriptorBindingUniformTexelBufferUpdateAfterBind},
-                                                                                                 {"descriptorBindingStorageTexelBufferUpdateAfterBind", &feature_1_2::descriptorBindingStorageTexelBufferUpdateAfterBind},
-                                                                                                 {"descriptorBindingUpdateUnusedWhilePending", &feature_1_2::descriptorBindingUpdateUnusedWhilePending},
-                                                                                                 {"descriptorBindingPartiallyBound", &feature_1_2::descriptorBindingPartiallyBound},
-                                                                                                 {"descriptorBindingVariableDescriptorCount", &feature_1_2::descriptorBindingVariableDescriptorCount},
-                                                                                                 {"runtimeDescriptorArray", &feature_1_2::runtimeDescriptorArray},
-                                                                                                 {"samplerFilterMinmax", &feature_1_2::samplerFilterMinmax},
-                                                                                                 {"scalarBlockLayout", &feature_1_2::scalarBlockLayout},
-                                                                                                 {"imagelessFramebuffer", &feature_1_2::imagelessFramebuffer},
-                                                                                                 {"uniformBufferStandardLayout", &feature_1_2::uniformBufferStandardLayout},
-                                                                                                 {"shaderSubgroupExtendedTypes", &feature_1_2::shaderSubgroupExtendedTypes},
-                                                                                                 {"separateDepthStencilLayouts", &feature_1_2::separateDepthStencilLayouts},
-                                                                                                 {"hostQueryReset", &feature_1_2::hostQueryReset},
-                                                                                                 {"timelineSemaphore", &feature_1_2::timelineSemaphore},
-                                                                                                 {"bufferDeviceAddress", &feature_1_2::bufferDeviceAddress},
-                                                                                                 {"bufferDeviceAddressCaptureReplay", &feature_1_2::bufferDeviceAddressCaptureReplay},
-                                                                                                 {"bufferDeviceAddressMultiDevice", &feature_1_2::bufferDeviceAddressMultiDevice},
-                                                                                                 {"vulkanMemoryModel", &feature_1_2::vulkanMemoryModel},
-                                                                                                 {"vulkanMemoryModelDeviceScope", &feature_1_2::vulkanMemoryModelDeviceScope},
-                                                                                                 {"vulkanMemoryModelAvailabilityVisibilityChains", &feature_1_2::vulkanMemoryModelAvailabilityVisibilityChains},
-                                                                                                 {"shaderOutputViewportIndex", &feature_1_2::shaderOutputViewportIndex},
-                                                                                                 {"shaderOutputLayer", &feature_1_2::shaderOutputLayer},
-                                                                                                 {"subgroupBroadcastDynamicId", &feature_1_2::subgroupBroadcastDynamicId},
-                                                                                             });
+    std::size_t const count_1_2 = append_enabled_features(enabled_1_2, capabilities.features_1_2, {
+                                                                                                      {"samplerMirrorClampToEdge", &feature_1_2::samplerMirrorClampToEdge},
+                                                                                                      {"drawIndirectCount", &feature_1_2::drawIndirectCount},
+                                                                                                      {"storageBuffer8BitAccess", &feature_1_2::storageBuffer8BitAccess},
+                                                                                                      {"uniformAndStorageBuffer8BitAccess", &feature_1_2::uniformAndStorageBuffer8BitAccess},
+                                                                                                      {"storagePushConstant8", &feature_1_2::storagePushConstant8},
+                                                                                                      {"shaderBufferInt64Atomics", &feature_1_2::shaderBufferInt64Atomics},
+                                                                                                      {"shaderSharedInt64Atomics", &feature_1_2::shaderSharedInt64Atomics},
+                                                                                                      {"shaderFloat16", &feature_1_2::shaderFloat16},
+                                                                                                      {"shaderInt8", &feature_1_2::shaderInt8},
+                                                                                                      {"descriptorIndexing", &feature_1_2::descriptorIndexing},
+                                                                                                      {"shaderInputAttachmentArrayDynamicIndexing", &feature_1_2::shaderInputAttachmentArrayDynamicIndexing},
+                                                                                                      {"shaderUniformTexelBufferArrayDynamicIndexing", &feature_1_2::shaderUniformTexelBufferArrayDynamicIndexing},
+                                                                                                      {"shaderStorageTexelBufferArrayDynamicIndexing", &feature_1_2::shaderStorageTexelBufferArrayDynamicIndexing},
+                                                                                                      {"shaderUniformBufferArrayNonUniformIndexing", &feature_1_2::shaderUniformBufferArrayNonUniformIndexing},
+                                                                                                      {"shaderSampledImageArrayNonUniformIndexing", &feature_1_2::shaderSampledImageArrayNonUniformIndexing},
+                                                                                                      {"shaderStorageBufferArrayNonUniformIndexing", &feature_1_2::shaderStorageBufferArrayNonUniformIndexing},
+                                                                                                      {"shaderStorageImageArrayNonUniformIndexing", &feature_1_2::shaderStorageImageArrayNonUniformIndexing},
+                                                                                                      {"shaderInputAttachmentArrayNonUniformIndexing", &feature_1_2::shaderInputAttachmentArrayNonUniformIndexing},
+                                                                                                      {"shaderUniformTexelBufferArrayNonUniformIndexing", &feature_1_2::shaderUniformTexelBufferArrayNonUniformIndexing},
+                                                                                                      {"shaderStorageTexelBufferArrayNonUniformIndexing", &feature_1_2::shaderStorageTexelBufferArrayNonUniformIndexing},
+                                                                                                      {"descriptorBindingUniformBufferUpdateAfterBind", &feature_1_2::descriptorBindingUniformBufferUpdateAfterBind},
+                                                                                                      {"descriptorBindingSampledImageUpdateAfterBind", &feature_1_2::descriptorBindingSampledImageUpdateAfterBind},
+                                                                                                      {"descriptorBindingStorageImageUpdateAfterBind", &feature_1_2::descriptorBindingStorageImageUpdateAfterBind},
+                                                                                                      {"descriptorBindingStorageBufferUpdateAfterBind", &feature_1_2::descriptorBindingStorageBufferUpdateAfterBind},
+                                                                                                      {"descriptorBindingUniformTexelBufferUpdateAfterBind", &feature_1_2::descriptorBindingUniformTexelBufferUpdateAfterBind},
+                                                                                                      {"descriptorBindingStorageTexelBufferUpdateAfterBind", &feature_1_2::descriptorBindingStorageTexelBufferUpdateAfterBind},
+                                                                                                      {"descriptorBindingUpdateUnusedWhilePending", &feature_1_2::descriptorBindingUpdateUnusedWhilePending},
+                                                                                                      {"descriptorBindingPartiallyBound", &feature_1_2::descriptorBindingPartiallyBound},
+                                                                                                      {"descriptorBindingVariableDescriptorCount", &feature_1_2::descriptorBindingVariableDescriptorCount},
+                                                                                                      {"runtimeDescriptorArray", &feature_1_2::runtimeDescriptorArray},
+                                                                                                      {"samplerFilterMinmax", &feature_1_2::samplerFilterMinmax},
+                                                                                                      {"scalarBlockLayout", &feature_1_2::scalarBlockLayout},
+                                                                                                      {"imagelessFramebuffer", &feature_1_2::imagelessFramebuffer},
+                                                                                                      {"uniformBufferStandardLayout", &feature_1_2::uniformBufferStandardLayout},
+                                                                                                      {"shaderSubgroupExtendedTypes", &feature_1_2::shaderSubgroupExtendedTypes},
+                                                                                                      {"separateDepthStencilLayouts", &feature_1_2::separateDepthStencilLayouts},
+                                                                                                      {"hostQueryReset", &feature_1_2::hostQueryReset},
+                                                                                                      {"timelineSemaphore", &feature_1_2::timelineSemaphore},
+                                                                                                      {"bufferDeviceAddress", &feature_1_2::bufferDeviceAddress},
+                                                                                                      {"bufferDeviceAddressCaptureReplay", &feature_1_2::bufferDeviceAddressCaptureReplay},
+                                                                                                      {"bufferDeviceAddressMultiDevice", &feature_1_2::bufferDeviceAddressMultiDevice},
+                                                                                                      {"vulkanMemoryModel", &feature_1_2::vulkanMemoryModel},
+                                                                                                      {"vulkanMemoryModelDeviceScope", &feature_1_2::vulkanMemoryModelDeviceScope},
+                                                                                                      {"vulkanMemoryModelAvailabilityVisibilityChains", &feature_1_2::vulkanMemoryModelAvailabilityVisibilityChains},
+                                                                                                      {"shaderOutputViewportIndex", &feature_1_2::shaderOutputViewportIndex},
+                                                                                                      {"shaderOutputLayer", &feature_1_2::shaderOutputLayer},
+                                                                                                      {"subgroupBroadcastDynamicId", &feature_1_2::subgroupBroadcastDynamicId},
+                                                                                                  });
     deren::utility::log(" vulkan 1.2 features ({})", count_1_2);
     print_wrapped(enabled_1_2, 100, "   ");
 
     deren::utility::vessel::string enabled_1_3;
-    size_t const count_1_3 = append_enabled_features(enabled_1_3, capabilities.features_1_3, {
-                                                                                                 {"robustImageAccess", &feature_1_3::robustImageAccess},
-                                                                                                 {"inlineUniformBlock", &feature_1_3::inlineUniformBlock},
-                                                                                                 {"descriptorBindingInlineUniformBlockUpdateAfterBind", &feature_1_3::descriptorBindingInlineUniformBlockUpdateAfterBind},
-                                                                                                 {"pipelineCreationCacheControl", &feature_1_3::pipelineCreationCacheControl},
-                                                                                                 {"privateData", &feature_1_3::privateData},
-                                                                                                 {"shaderDemoteToHelperInvocation", &feature_1_3::shaderDemoteToHelperInvocation},
-                                                                                                 {"shaderTerminateInvocation", &feature_1_3::shaderTerminateInvocation},
-                                                                                                 {"subgroupSizeControl", &feature_1_3::subgroupSizeControl},
-                                                                                                 {"computeFullSubgroups", &feature_1_3::computeFullSubgroups},
-                                                                                                 {"synchronization2", &feature_1_3::synchronization2},
-                                                                                                 {"textureCompressionASTC_HDR", &feature_1_3::textureCompressionASTC_HDR},
-                                                                                                 {"shaderZeroInitializeWorkgroupMemory", &feature_1_3::shaderZeroInitializeWorkgroupMemory},
-                                                                                                 {"dynamicRendering", &feature_1_3::dynamicRendering},
-                                                                                                 {"shaderIntegerDotProduct", &feature_1_3::shaderIntegerDotProduct},
-                                                                                                 {"maintenance4", &feature_1_3::maintenance4},
-                                                                                             });
+    std::size_t const count_1_3 = append_enabled_features(enabled_1_3, capabilities.features_1_3, {
+                                                                                                      {"robustImageAccess", &feature_1_3::robustImageAccess},
+                                                                                                      {"inlineUniformBlock", &feature_1_3::inlineUniformBlock},
+                                                                                                      {"descriptorBindingInlineUniformBlockUpdateAfterBind", &feature_1_3::descriptorBindingInlineUniformBlockUpdateAfterBind},
+                                                                                                      {"pipelineCreationCacheControl", &feature_1_3::pipelineCreationCacheControl},
+                                                                                                      {"privateData", &feature_1_3::privateData},
+                                                                                                      {"shaderDemoteToHelperInvocation", &feature_1_3::shaderDemoteToHelperInvocation},
+                                                                                                      {"shaderTerminateInvocation", &feature_1_3::shaderTerminateInvocation},
+                                                                                                      {"subgroupSizeControl", &feature_1_3::subgroupSizeControl},
+                                                                                                      {"computeFullSubgroups", &feature_1_3::computeFullSubgroups},
+                                                                                                      {"synchronization2", &feature_1_3::synchronization2},
+                                                                                                      {"textureCompressionASTC_HDR", &feature_1_3::textureCompressionASTC_HDR},
+                                                                                                      {"shaderZeroInitializeWorkgroupMemory", &feature_1_3::shaderZeroInitializeWorkgroupMemory},
+                                                                                                      {"dynamicRendering", &feature_1_3::dynamicRendering},
+                                                                                                      {"shaderIntegerDotProduct", &feature_1_3::shaderIntegerDotProduct},
+                                                                                                      {"maintenance4", &feature_1_3::maintenance4},
+                                                                                                  });
     deren::utility::log(" vulkan 1.3 features ({})", count_1_3);
     print_wrapped(enabled_1_3, 100, "   ");
 
@@ -1051,7 +1049,7 @@ logical_device create_logical_device(
     }
 
     // Use a set to collect unique queue family indices
-    deren::utility::vessel::set<uint32_t> unique_queue_families = {
+    deren::utility::vessel::set<std::uint32_t> unique_queue_families = {
         create_info.queue_families.graphics_family.value(),
         create_info.queue_families.present_family.value(),
     };
@@ -1068,7 +1066,7 @@ logical_device create_logical_device(
     deren::utility::vessel::vector<VkDeviceQueueCreateInfo> queue_create_infos;
     constexpr float queue_priority = 1.0f;
 
-    for (uint32_t queue_family : unique_queue_families) {
+    for (std::uint32_t queue_family : unique_queue_families) {
         queue_create_infos.push_back(deren::vulkan::make_device_queue_info(queue_family, &queue_priority));
     }
 
@@ -1083,7 +1081,7 @@ logical_device create_logical_device(
     // Create the device
     VkDeviceCreateInfo device_create_info = {};
     device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    device_create_info.queueCreateInfoCount = static_cast<uint32_t>(queue_create_infos.size());
+    device_create_info.queueCreateInfoCount = static_cast<std::uint32_t>(queue_create_infos.size());
     device_create_info.pQueueCreateInfos = queue_create_infos.data();
     // Features go through the pNext chain (headed by VkPhysicalDeviceFeatures2, provided by the
     // caller through create_info.pNext - see device_capabilities::device_pnext(), which carries
@@ -1093,12 +1091,12 @@ logical_device create_logical_device(
     device_create_info.pEnabledFeatures = nullptr;
 
     // Extensions - must handle empty vectors correctly
-    device_create_info.enabledExtensionCount = static_cast<uint32_t>(create_info.extensions.size());
+    device_create_info.enabledExtensionCount = static_cast<std::uint32_t>(create_info.extensions.size());
     device_create_info.ppEnabledExtensionNames =
         create_info.extensions.empty() ? nullptr : create_info.extensions.data();
 
     // Validation layers - modern Vulkan usually doesn't enable them at device level
-    device_create_info.enabledLayerCount = static_cast<uint32_t>(create_info.validation_layers.size());
+    device_create_info.enabledLayerCount = static_cast<std::uint32_t>(create_info.validation_layers.size());
     device_create_info.ppEnabledLayerNames =
         create_info.validation_layers.empty() ? nullptr : create_info.validation_layers.data();
 
@@ -1116,7 +1114,7 @@ logical_device create_logical_device(
     VkDevice device = {};
     VkResult const result = vkCreateDevice(physical_device, &device_create_info, nullptr, &device);
     if (result != VK_SUCCESS) {
-        deren::utility::panic(std::source_location::current(), "Failed to create logical device: {}", deren::utility::vessel::to_string(static_cast<int32_t>(result)));
+        deren::utility::panic(std::source_location::current(), "Failed to create logical device: {}", deren::utility::vessel::to_string(static_cast<std::int32_t>(result)));
     }
 
     // Get queues
@@ -1137,14 +1135,14 @@ queue_family_indices find_queue_families(VkPhysicalDevice device, VkSurfaceKHR s
     queue_family_indices indices;
 
     // Get queue family properties
-    uint32_t queue_family_count = 0;
+    std::uint32_t queue_family_count = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count, nullptr);
 
     deren::utility::vessel::vector<VkQueueFamilyProperties> queue_families(queue_family_count);
     vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count, queue_families.data());
 
     // Find a suitable queue family
-    for (uint32_t i = 0; i < queue_family_count; ++i) {
+    for (std::uint32_t i = 0; i < queue_family_count; ++i) {
         auto const& queue_family = queue_families[i];
 
         // Check graphics support
@@ -1218,7 +1216,7 @@ queue_family_indices find_queue_families(VkPhysicalDevice device, VkSurfaceKHR s
 }
 
 VkPhysicalDevice pick_suitable_device(VkInstance instance, VkSurfaceKHR surface) noexcept {
-    uint32_t device_count = 0;
+    std::uint32_t device_count = 0;
     vkEnumeratePhysicalDevices(instance, &device_count, nullptr);
     if (device_count == 0) {
         deren::utility::panic("Failed to find GPUs with Vulkan support");
@@ -1275,7 +1273,7 @@ swap_chain_support_details query_swap_chain_support(VkPhysicalDevice device, VkS
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &details.capabilities);
 
     // 2. Query surface formats
-    uint32_t format_count;
+    std::uint32_t format_count;
     vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &format_count, nullptr);
     if (format_count != 0) {
         details.formats.resize(format_count);
@@ -1283,7 +1281,7 @@ swap_chain_support_details query_swap_chain_support(VkPhysicalDevice device, VkS
     }
 
     // 3. Query present modes
-    uint32_t present_mode_count = 0;
+    std::uint32_t present_mode_count = 0;
     vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &present_mode_count, nullptr);
     if (present_mode_count != 0) {
         details.present_modes.resize(present_mode_count);
@@ -1322,10 +1320,10 @@ VkSurfaceFormatKHR choose_swap_surface_format(deren::utility::vessel::vector<VkS
     return available_formats[0];
 }
 
-deren::promise::rhi::image_extent choose_swap_extent(VkSurfaceCapabilitiesKHR capabilities, GLFWwindow* window, int32_t requested_width, int32_t requested_height) noexcept {
+deren::promise::rhi::image_extent choose_swap_extent(VkSurfaceCapabilitiesKHR capabilities, GLFWwindow* window, std::int32_t requested_width, std::int32_t requested_height) noexcept {
     // ONE LINE, AND IT IS THE MEASUREMENT RATHER THAN A TIDY-UP: this function has two paths and only one
     // of them asks the window anything. VK_EXT_headless_surface and Wayland report `currentExtent` as
-    // UINT32_MAX and leave the extent to the application; the Win32 surface this renderer runs on ANSWERS
+    // std::numeric_limits<std::uint32_t>::max() and leave the extent to the application; the Win32 surface this renderer runs on ANSWERS
     // the question, and the branch below this line is then never entered - measured, `surface currentExtent
     // 1080x960 (the surface answers, the window is not consulted)` for a HIDDEN 1080x960 window, i.e. a
     // window's visibility is not what this surface reads. That matters to the hidden-window path, because
@@ -1336,14 +1334,14 @@ deren::promise::rhi::image_extent choose_swap_extent(VkSurfaceCapabilitiesKHR ca
     deren::utility::log("swapchain extent: surface currentExtent {}x{} ({})",
                         capabilities.currentExtent.width,
                         capabilities.currentExtent.height,
-                        capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max() ? "the surface answers, the window is not consulted" : "unspecified - the window is consulted");
-    if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
+                        capabilities.currentExtent.width != std::numeric_limits<std::uint32_t>::max() ? "the surface answers, the window is not consulted" : "unspecified - the window is consulted");
+    if (capabilities.currentExtent.width != std::numeric_limits<std::uint32_t>::max()) {
         // THE SURFACE'S SIZE, IN THE CONTRACT'S TYPE (plan X5 B3.2): `currentExtent` is a `VkExtent2D`, and the
         // return type no longer is, so the conversion happens here where the Vulkan value is read.
         return deren::promise::rhi::image_extent{.width = capabilities.currentExtent.width, .height = capabilities.currentExtent.height};
     }
-    int32_t width = 0;
-    int32_t height = 0;
+    std::int32_t width = 0;
+    std::int32_t height = 0;
     glfwGetFramebufferSize(window, &width, &height);
 
     // A ZERO (OR ABSURD) FRAMEBUFFER SIZE IS A REAL ANSWER FROM A WINDOW NOBODY HAS SHOWN, and it must not
@@ -1367,8 +1365,8 @@ deren::promise::rhi::image_extent choose_swap_extent(VkSurfaceCapabilitiesKHR ca
     }
 
     deren::promise::rhi::image_extent actual_extent = {
-        .width = static_cast<uint32_t>(std::max(width, 1)),
-        .height = static_cast<uint32_t>(std::max(height, 1)),
+        .width = static_cast<std::uint32_t>(std::max(width, 1)),
+        .height = static_cast<std::uint32_t>(std::max(height, 1)),
     };
 
     actual_extent.width = std::clamp(actual_extent.width,
@@ -1381,13 +1379,13 @@ deren::promise::rhi::image_extent choose_swap_extent(VkSurfaceCapabilitiesKHR ca
     return actual_extent;
 }
 
-uint32_t find_memory_type(uint32_t type_filter, VkMemoryPropertyFlags properties, VkPhysicalDevice physical_device) noexcept {
+std::uint32_t find_memory_type(std::uint32_t type_filter, VkMemoryPropertyFlags properties, VkPhysicalDevice physical_device) noexcept {
     // Get the physical device's memory properties
     VkPhysicalDeviceMemoryProperties mem_properties;
     vkGetPhysicalDeviceMemoryProperties(physical_device, &mem_properties);
 
     // Iterate over all memory types
-    for (uint32_t i = 0; i < mem_properties.memoryTypeCount; i++) {
+    for (std::uint32_t i = 0; i < mem_properties.memoryTypeCount; i++) {
         // Check whether the memory type satisfies the filter
         // type_filter is a bitmask; each bit corresponds to a memory type
         if ((type_filter & (1 << i)) &&
@@ -1438,7 +1436,7 @@ VkImageView create_image_view(VkImage image, VkFormat format, VkImageAspectFlags
 
     return image_view;
 }
-VkImageView create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspect_flags, VkDevice device, VkImageViewType view_type, uint32_t layer_count) noexcept {
+VkImageView create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspect_flags, VkDevice device, VkImageViewType view_type, std::uint32_t layer_count) noexcept {
     // identity swizzle, one mip, and the caller''s layer count: the sixth parameter is the whole reason this
     // overload exists (a cube view covers six layers, and the other two overloads fix it at one)
     VkImageViewCreateInfo const view_info = deren::vulkan::make_image_view_info(image, format, view_type, aspect_flags, 1, layer_count);

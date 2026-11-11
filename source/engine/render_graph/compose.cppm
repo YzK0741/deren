@@ -1,5 +1,5 @@
 module;
-#include <cstdint>
+
 export module deren.engine.render_graph.compose;
 export import deren.vstd;
 export import deren.engine.render_graph.execute;
@@ -37,7 +37,7 @@ export namespace deren::engine::render_graph::execution {
         build_error_code code = build_error_code::invalid_argument;
         std::optional<graph_error> graph{};
         std::optional<execution_error> execution{};
-        uint32_t pass = invalid_index, resource = invalid_index;
+        std::uint32_t pass = invalid_index, resource = invalid_index;
         deren::utility::vessel::string pass_name{}, resource_name{};
     };
     struct import_state {
@@ -297,7 +297,7 @@ export namespace deren::engine::render_graph::execution {
                     return std::unexpected(latch({.code = code, .pass = pass, .pass_name = plan->passes[pass].name}));
                 }
             }
-            for (uint32_t i = 0; i < plan->passes.size(); ++i) {
+            for (std::uint32_t i = 0; i < plan->passes.size(); ++i) {
                 if (!plan->passes[i].live) {
                     recorders_[i].reset();
                 }

@@ -11,7 +11,6 @@
 module;
 
 #include <cstddef>
-#include <cstdint>
 #include <glm/glm.hpp>
 
 export module deren.engine.primitive:records;
@@ -132,23 +131,23 @@ namespace deren::engine {
      *       VkPhysicalDeviceLimits::maxUniformBufferRange every implementation guarantees; the
      *       clustered path (see the cluster_* constants below) is what makes that many affordable
      *       per pixel - a brute-force loop over 128 lights would be the whole frame budget. */
-    export constexpr uint32_t max_punctual_lights = 128;
+    export constexpr std::uint32_t max_punctual_lights = 128;
     /** @brief clustered light culling (M5): the screen is cut into tiles of this many pixels */
-    export constexpr uint32_t cluster_tile_size = 64;
+    export constexpr std::uint32_t cluster_tile_size = 64;
     /** @brief number of exponential depth slices per tile (the cluster grid's z dimension) */
-    export constexpr uint32_t cluster_slice_count = 16;
+    export constexpr std::uint32_t cluster_slice_count = 16;
     /** @brief cluster grid capacity: tiles_x * tiles_y * slices clusters are allocated; a larger
      *         screen clamps its tile count to this capacity (2048x1536 at a 64 px tile) */
-    export constexpr uint32_t max_cluster_tiles_x = 32;
-    export constexpr uint32_t max_cluster_tiles_y = 24;
+    export constexpr std::uint32_t max_cluster_tiles_x = 32;
+    export constexpr std::uint32_t max_cluster_tiles_y = 24;
     /** @brief lights one cluster can contain; a cluster that overflows keeps the first
      *         @ref cluster_light_capacity lights the compute pass found (see its shader) */
-    export constexpr uint32_t cluster_light_capacity = 32;
+    export constexpr std::uint32_t cluster_light_capacity = 32;
     /** @brief allocated cluster count (the per-slot count/index buffers are sized for this) */
-    export constexpr uint32_t max_cluster_count = max_cluster_tiles_x * max_cluster_tiles_y * cluster_slice_count;
+    export constexpr std::uint32_t max_cluster_count = max_cluster_tiles_x * max_cluster_tiles_y * cluster_slice_count;
     /** @brief cascaded shadow maps: the light UBO carries one view-projection per cascade, and the
      *         shadow map is a 2D ARRAY depth texture with this many layers (see light_ubo below) */
-    export constexpr uint32_t max_shadow_cascades = 4;
+    export constexpr std::uint32_t max_shadow_cascades = 4;
     /** @brief one punctual light in the GPU light UBO (std140, 64 bytes; mirror PunctualLight in pbr.frag) */
     export struct point_light {
         glm::vec4 position = {}; // xyz: world position (w unused)
@@ -233,7 +232,7 @@ namespace deren::engine {
      * per-frame array. Sixteen matches `max_scene_objects`, and the shader's character index is 8 bits wide, so the
      * CPU-side array and descriptor range are the only storage that grow: 16 * 64 = 1024 bytes per frame slot.
      */
-    export constexpr uint32_t max_game_toon_characters = 16;
+    export constexpr std::uint32_t max_game_toon_characters = 16;
 
     /**
      * @ingroup engine_primitive
@@ -441,24 +440,24 @@ namespace deren::engine {
     export struct texture_input {
         // RGBA8 bytes of mip level 0 (or the whole mip chain, mip-major: mip0, mip1, ..., when
         // mip_levels > 1); the vma upload path copies each level at a computed buffer offset
-        std::span<uint8_t const> data = {};
-        uint32_t width = 0;
-        uint32_t height = 0;
-        uint32_t mip_levels = 1;
+        std::span<std::uint8_t const> data = {};
+        std::uint32_t width = 0;
+        std::uint32_t height = 0;
+        std::uint32_t mip_levels = 1;
         ::deren::promise::rhi::image_format format = ::deren::promise::rhi::image_format::rgba8_unorm;
         bool valid = false;
         /// Optional immutable source. All aliases must remain immutable for as long as the runtime uses it.
-        std::shared_ptr<deren::utility::vessel::vector<uint8_t> const> parent = {};
+        std::shared_ptr<deren::utility::vessel::vector<std::uint8_t> const> parent = {};
         bool override_format = false; // Opt-in explicit colour/data encoding, otherwise lane default.
     };
 
     /// Reuse only an exact whole-vector source; a partial span needs its own snapshot.
-    export [[nodiscard]] inline std::shared_ptr<deren::utility::vessel::vector<uint8_t> const>
+    export [[nodiscard]] inline std::shared_ptr<deren::utility::vessel::vector<std::uint8_t> const>
     share_texture_source(texture_input const& input) {
         if (input.parent && input.data.data() == input.parent->data() && input.data.size() == input.parent->size()) {
             return input.parent;
         }
-        return std::make_shared<deren::utility::vessel::vector<uint8_t> const>(input.data.begin(), input.data.end());
+        return std::make_shared<deren::utility::vessel::vector<std::uint8_t> const>(input.data.begin(), input.data.end());
     }
 
     /**
@@ -467,13 +466,13 @@ namespace deren::engine {
      * @note env_size == 0 disables the IBL bindings
      */
     export struct ibl_input {
-        std::span<uint8_t const> prefiltered_env = {};
-        std::span<uint8_t const> irradiance = {};
-        std::span<uint8_t const> brdf_lut = {};
-        uint32_t env_size = 0;
-        uint32_t env_mip_count = 0;
-        uint32_t irr_size = 0;
-        uint32_t lut_size = 0;
+        std::span<std::uint8_t const> prefiltered_env = {};
+        std::span<std::uint8_t const> irradiance = {};
+        std::span<std::uint8_t const> brdf_lut = {};
+        std::uint32_t env_size = 0;
+        std::uint32_t env_mip_count = 0;
+        std::uint32_t irr_size = 0;
+        std::uint32_t lut_size = 0;
     };
 
     /**
@@ -498,11 +497,11 @@ namespace deren::engine {
      * @brief result of one runtime::import_scene() batch import
      */
     export struct scene_import_result {
-        uint32_t primitive_count = 0;
-        uint32_t material_count = 0;
-        uint64_t import_instance = 0;
-        uint32_t subtilis_imported = 0, subtilis_fallback_lod0 = 0, subtilis_cache_hits = 0;
-        std::array<uint32_t, static_cast<size_t>(subtilis::import_failure::count)> subtilis_failures{};
+        std::uint32_t primitive_count = 0;
+        std::uint32_t material_count = 0;
+        std::uint64_t import_instance = 0;
+        std::uint32_t subtilis_imported = 0, subtilis_fallback_lod0 = 0, subtilis_cache_hits = 0;
+        std::array<std::uint32_t, static_cast<std::size_t>(subtilis::import_failure::count)> subtilis_failures{};
     };
 
     // The scene_drawable_iterator concept is STRUCTURAL over the getters' result shapes, so a
@@ -513,26 +512,26 @@ namespace deren::engine {
     /** @brief a vertex source: interleaved byte span + stride + vertex count */
     export template <class T>
     concept vertex_source = requires(T const& v) {
-        { v.data } -> std::convertible_to<std::span<uint8_t const>>;
-        { v.stride } -> std::convertible_to<uint32_t>;
-        { v.count } -> std::convertible_to<uint32_t>;
+        { v.data } -> std::convertible_to<std::span<std::uint8_t const>>;
+        { v.stride } -> std::convertible_to<std::uint32_t>;
+        { v.count } -> std::convertible_to<std::uint32_t>;
     };
 
     /** @brief an index source: byte span + bytes-per-index (2 or 4) + index count */
     export template <class T>
     concept index_source = requires(T const& v) {
-        { v.data } -> std::convertible_to<std::span<uint8_t const>>;
-        { v.width } -> std::convertible_to<uint8_t>;
-        { v.count } -> std::convertible_to<uint32_t>;
+        { v.data } -> std::convertible_to<std::span<std::uint8_t const>>;
+        { v.width } -> std::convertible_to<std::uint8_t>;
+        { v.count } -> std::convertible_to<std::uint32_t>;
     };
 
     /** @brief a texture source: mip-major RGBA8 byte span + dimensions + validity */
     export template <class T>
     concept image_source = requires(T const& v) {
-        { v.data } -> std::convertible_to<std::span<uint8_t const>>;
-        { v.width } -> std::convertible_to<uint32_t>;
-        { v.height } -> std::convertible_to<uint32_t>;
-        { v.mip_levels } -> std::convertible_to<uint32_t>;
+        { v.data } -> std::convertible_to<std::span<std::uint8_t const>>;
+        { v.width } -> std::convertible_to<std::uint32_t>;
+        { v.height } -> std::convertible_to<std::uint32_t>;
+        { v.mip_levels } -> std::convertible_to<std::uint32_t>;
         { v.valid } -> std::convertible_to<bool>;
     };
 

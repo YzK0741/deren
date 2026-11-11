@@ -40,8 +40,6 @@
 
 module;
 
-#include <cstdint>
-
 export module deren.engine.filters;
 export import deren.utility.shared;
 // THIS FILE NO LONGER EXPORTS A BACKEND MODULE. It used to `export import deren.vulkan.core;`, which is
@@ -94,7 +92,7 @@ export namespace deren::engine {
         /// the ring depth the engine sizes its per-slot arrays by. THIS STAYS, and it is why the contract
         /// import above is not an `export import`: the value is re-exported as this facade's constant,
         /// so a consumer names `user_filter::max_frames_in_flight` and never a backend module.
-        static constexpr int32_t max_frames_in_flight = static_cast<int32_t>(deren::promise::rhi::max_frames_in_flight);
+        static constexpr std::int32_t max_frames_in_flight = static_cast<std::int32_t>(deren::promise::rhi::max_frames_in_flight);
 
         /// the ONE forwarded operation a consumer calls (main.cpp at shutdown): a contract virtual, so this
         /// emits no backend symbol on either side of the boundary.
@@ -132,21 +130,21 @@ export namespace deren::engine {
          * one. A `resource_id` that was never registered resolves to a null handle, which is what a pass's
          * "missing resource" branch already handles.
          */
-        deren::utility::vessel::vector<std::pair<uint32_t, resource_handles>> registered;
+        deren::utility::vessel::vector<std::pair<std::uint32_t, resource_handles>> registered;
 
     public:
         /// an empty table: the runtime publishes what it has through `register_resource`
         pass_filter() noexcept = default;
 
         /// @brief publish one of the runtime's resources, by the DECLARATION's identity (resource + element)
-        void register_resource(render_resource::resource_id id, uint32_t element, resource_handles const& handles) noexcept;
+        void register_resource(render_resource::resource_id id, std::uint32_t element, resource_handles const& handles) noexcept;
         /**
          * @brief what this pass declared, if it was registered: session-stable handles, or all-null
          * @param id the resource, from the same `resource_id` vocabulary the declaration uses
          * @param element which one of the family: the frame SLOT for a per-frame-slot resource (the skin
          *        matrices, the cluster bins), or 0 for a device-wide one
          */
-        [[nodiscard]] resource_handles resource(render_resource::resource_id id, uint32_t element) const noexcept;
+        [[nodiscard]] resource_handles resource(render_resource::resource_id id, std::uint32_t element) const noexcept;
     };
 
 } // namespace deren::engine

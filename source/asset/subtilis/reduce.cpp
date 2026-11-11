@@ -1,7 +1,7 @@
 module;
-#include <cfenv>
-#include <cstddef>
-#include <cstdint>
+
+
+
 #include <meshoptimizer.h>
 module deren.asset.subtilis.builder;
 import deren.vstd;
@@ -15,11 +15,11 @@ namespace deren::asset::subtilis::builder_detail {
             return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();
         }
         struct compact_geometry {
-            vector<uint32_t> original, indices;
+            vector<std::uint32_t> original, indices;
             vector<array<float, 3>> positions;
         };
-        result<compact_geometry> compact(source_geometry const& source, std::span<uint32_t const> indices, primitive_scale const& scale) {
-            if (indices.empty() || indices.size() % 3 || indices.size() > UINT32_MAX || !std::isfinite(scale.diagonal) || scale.diagonal < 0) {
+        result<compact_geometry> compact(source_geometry const& source, std::span<std::uint32_t const> indices, primitive_scale const& scale) {
+            if (indices.empty() || indices.size() % 3 || indices.size() > std::numeric_limits<std::uint32_t>::max() || !std::isfinite(scale.diagonal) || scale.diagonal < 0) {
                 return fail("invalid candidate shape or scale");
             }
             for (auto id : indices) {
@@ -33,7 +33,7 @@ namespace deren::asset::subtilis::builder_detail {
             out.original.erase(std::unique(out.original.begin(), out.original.end()), out.original.end());
             out.positions.resize(out.original.size());
             out.indices.reserve(indices.size());
-            for (size_t i = 0; i < out.original.size(); ++i) {
+            for (std::size_t i = 0; i < out.original.size(); ++i) {
                 for (unsigned k = 0; k < 3; ++k) {
                     double value = scale.diagonal ? (double(source.positions[out.original[i]][k]) - scale.origin[k]) / scale.diagonal : 0;
                     out.positions[i][k] = static_cast<float>(value);
@@ -43,14 +43,14 @@ namespace deren::asset::subtilis::builder_detail {
                 }
             }
             for (auto id : indices) {
-                out.indices.push_back(static_cast<uint32_t>(std::lower_bound(out.original.begin(), out.original.end(), id) - out.original.begin()));
+                out.indices.push_back(static_cast<std::uint32_t>(std::lower_bound(out.original.begin(), out.original.end(), id) - out.original.begin()));
             }
             return out;
         }
     } // namespace
     void initialize_meshoptimizer() {
         static std::once_flag once;
-        std::call_once(once, [] { meshopt_setAllocator([](size_t size) { return utility::memory::allocate(size); }, [](void* pointer) { utility::memory::deallocate(pointer); }); });
+        std::call_once(once, [] { meshopt_setAllocator([](std::size_t size) { return utility::memory::allocate(size); }, [](void* pointer) { utility::memory::deallocate(pointer); }); });
     }
     primitive_scale measure_scale(source_geometry const& source) {
         primitive_scale out;
@@ -58,7 +58,7 @@ namespace deren::asset::subtilis::builder_detail {
             return out;
         }
         array<double, 3> hi{};
-        for (size_t i = 0; i < source.indices.size(); ++i) {
+        for (std::size_t i = 0; i < source.indices.size(); ++i) {
             auto id = source.indices[i];
             if (id >= source.positions.size()) {
                 return {};
@@ -72,12 +72,12 @@ namespace deren::asset::subtilis::builder_detail {
         out.diagonal = std::hypot(hi[0] - out.origin[0], hi[1] - out.origin[1], hi[2] - out.origin[2]);
         return out;
     }
-    result<sphere> geometry_sphere(source_geometry const& source, std::span<uint32_t const> indices) {
+    result<sphere> geometry_sphere(source_geometry const& source, std::span<std::uint32_t const> indices) {
         if (indices.empty()) {
             return fail("empty sphere input");
         }
         array<double, 3> lo{}, hi{};
-        for (size_t i = 0; i < indices.size(); ++i) {
+        for (std::size_t i = 0; i < indices.size(); ++i) {
             auto id = indices[i];
             if (id >= source.positions.size()) {
                 return fail("sphere index outside source");
@@ -109,7 +109,7 @@ namespace deren::asset::subtilis::builder_detail {
         }
         return sphere{center[0], center[1], center[2], rounded};
     }
-    result<frontier> cluster_indices(source_geometry const& source, std::span<uint32_t const> indices, build_options const& options, primitive_scale const& scale) {
+    result<frontier> cluster_indices(source_geometry const& source, std::span<std::uint32_t const> indices, build_options const& options, primitive_scale const& scale) {
         auto identity = build_digest(options);
         if (!identity) {
             return std::unexpected(identity.error());
@@ -121,7 +121,7 @@ namespace deren::asset::subtilis::builder_detail {
         initialize_meshoptimizer();
         auto bound = meshopt_buildMeshletsBound(indices.size(), options.vertex_limit, options.triangle_limit);
         vector<meshopt_Meshlet> meshlets(bound);
-        vector<uint32_t> vertices(indices.size());
+        vector<std::uint32_t> vertices(indices.size());
         vector<unsigned char> triangles(indices.size());
         auto count = meshopt_buildMeshlets(meshlets.data(), vertices.data(), triangles.data(), local->indices.data(), local->indices.size(), local->positions[0].data(), local->positions.size(), sizeof(array<float, 3>), options.vertex_limit, options.triangle_limit, 0);
         if (!count || count > bound) {
@@ -130,13 +130,13 @@ namespace deren::asset::subtilis::builder_detail {
         frontier out;
         out.indices.reserve(indices.size());
         out.clusters.reserve(count);
-        for (size_t i = 0; i < count; ++i) {
+        for (std::size_t i = 0; i < count; ++i) {
             auto const& c = meshlets[i];
-            if (!c.triangle_count || c.triangle_count > options.triangle_limit || c.vertex_count > options.vertex_limit || c.vertex_offset > vertices.size() || c.vertex_count > vertices.size() - c.vertex_offset || c.triangle_offset > triangles.size() || size_t(c.triangle_count) * 3 > triangles.size() - c.triangle_offset) {
+            if (!c.triangle_count || c.triangle_count > options.triangle_limit || c.vertex_count > options.vertex_limit || c.vertex_offset > vertices.size() || c.vertex_count > vertices.size() - c.vertex_offset || c.triangle_offset > triangles.size() || std::size_t(c.triangle_count) * 3 > triangles.size() - c.triangle_offset) {
                 return fail("invalid meshlet output window");
             }
-            auto first = static_cast<uint32_t>(out.indices.size());
-            for (size_t k = 0; k < size_t(c.triangle_count) * 3; ++k) {
+            auto first = static_cast<std::uint32_t>(out.indices.size());
+            for (std::size_t k = 0; k < std::size_t(c.triangle_count) * 3; ++k) {
                 auto v = triangles[c.triangle_offset + k];
                 if (v >= c.vertex_count || vertices[c.vertex_offset + v] >= local->original.size()) {
                     return fail("invalid meshlet vertex");
@@ -165,21 +165,21 @@ namespace deren::asset::subtilis::builder_detail {
         }
         return cluster_indices(source, source.indices, options, measure_scale(source));
     }
-    result<vector<vector<uint32_t>>> partition_clusters(source_geometry const& source, std::span<cluster_input const> clusters, build_options const& options, primitive_scale const& scale) {
+    result<vector<vector<std::uint32_t>>> partition_clusters(source_geometry const& source, std::span<cluster_input const> clusters, build_options const& options, primitive_scale const& scale) {
         auto identity = build_digest(options);
         if (!identity) {
             return std::unexpected(identity.error());
         }
-        vector<vector<uint32_t>> groups;
+        vector<vector<std::uint32_t>> groups;
         if (clusters.empty()) {
             return groups;
         }
-        vector<uint32_t> indices, counts;
+        vector<std::uint32_t> indices, counts;
         for (auto c : clusters) {
-            if (c.indices.empty() || c.indices.size() % 3 || c.indices.size() > 255 || c.indices.size() > UINT32_MAX - indices.size()) {
+            if (c.indices.empty() || c.indices.size() % 3 || c.indices.size() > 255 || c.indices.size() > std::numeric_limits<std::uint32_t>::max() - indices.size()) {
                 return fail("invalid partition input");
             }
-            counts.push_back(static_cast<uint32_t>(c.indices.size()));
+            counts.push_back(static_cast<std::uint32_t>(c.indices.size()));
             indices.insert(indices.end(), c.indices.begin(), c.indices.end());
         }
         auto local = compact(source, indices, scale);
@@ -187,13 +187,13 @@ namespace deren::asset::subtilis::builder_detail {
             return std::unexpected(local.error());
         }
         initialize_meshoptimizer();
-        vector<uint32_t> partitions(clusters.size());
+        vector<std::uint32_t> partitions(clusters.size());
         auto count = meshopt_partitionClusters(partitions.data(), local->indices.data(), local->indices.size(), counts.data(), counts.size(), local->positions[0].data(), local->positions.size(), sizeof(array<float, 3>), options.target_group_size);
         if (!count || count > clusters.size()) {
             return fail("invalid partition count");
         }
         groups.resize(count);
-        for (uint32_t i = 0; i < partitions.size(); ++i) {
+        for (std::uint32_t i = 0; i < partitions.size(); ++i) {
             if (partitions[i] >= count) {
                 return fail("invalid partition ID");
             }
@@ -213,9 +213,9 @@ namespace deren::asset::subtilis::builder_detail {
         if (source.normals.size() != source.positions.size() || source.uv0.size() != source.positions.size()) {
             return fail("source attributes have different counts");
         }
-        vector<uint32_t> indices;
+        vector<std::uint32_t> indices;
         for (auto c : inputs) {
-            if (c.indices.size() > UINT32_MAX - indices.size()) {
+            if (c.indices.size() > std::numeric_limits<std::uint32_t>::max() - indices.size()) {
                 return fail("group index count exceeds u32");
             }
             indices.insert(indices.end(), c.indices.begin(), c.indices.end());
@@ -239,7 +239,7 @@ namespace deren::asset::subtilis::builder_detail {
         }
         vector<array<float, 5>> attributes(local->original.size());
         vector<unsigned char> locks(local->original.size(), 0);
-        for (size_t i = 0; i < local->original.size(); ++i) {
+        for (std::size_t i = 0; i < local->original.size(); ++i) {
             auto id = local->original[i];
             auto n = source.normals[id];
             auto uv = source.uv0[id];
@@ -252,9 +252,9 @@ namespace deren::asset::subtilis::builder_detail {
             auto c = t.position_class[id];
             locks[i] = (t.seams[c] || std::binary_search(original.boundary_classes.begin(), original.boundary_classes.end(), c)) ? meshopt_SimplifyVertex_Lock : 0;
         }
-        vector<uint32_t> simplified(indices.size());
+        vector<std::uint32_t> simplified(indices.size());
         array<float, 5> weights{options.normal_weight, options.normal_weight, options.normal_weight, options.uv_weight, options.uv_weight};
-        auto target = std::max<size_t>(1, static_cast<size_t>(double(indices.size() / 3) * options.target_ratio)) * 3;
+        auto target = std::max<std::size_t>(1, static_cast<std::size_t>(double(indices.size() / 3) * options.target_ratio)) * 3;
         float step_error = 0;
         initialize_meshoptimizer();
         double const simplify_started = stage_now();
@@ -275,7 +275,7 @@ namespace deren::asset::subtilis::builder_detail {
             return reduction_candidate{{}, 0, rejection_reason::no_progress};
         }
         simplified.resize(count);
-        vector<uint32_t> candidate;
+        vector<std::uint32_t> candidate;
         candidate.reserve(count);
         for (auto id : simplified) {
             if (id >= local->original.size()) {

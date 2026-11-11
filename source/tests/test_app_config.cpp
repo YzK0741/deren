@@ -4,15 +4,7 @@
 // build injects rather than relative to the working directory.
 #include "vk_test.h"
 
-#include <array>
-#include <cmath>
-#include <cstdint>
-#include <filesystem>
-#include <fstream>
-#include <string>
-#include <string_view>
-#include <utility>
-
+import deren.vstd;
 import deren.utility.shared;
 import deren.application_configuration;
 
@@ -781,7 +773,7 @@ namespace {
         std::filesystem::remove("vec3-full.toml");
     }
 
-    // INTEGER OPTIONS ARE VALIDATED IN 64-BIT SPACE, BEFORE THE NARROWING: `static_cast<int32_t>` is a
+    // INTEGER OPTIONS ARE VALIDATED IN 64-BIT SPACE, BEFORE THE NARROWING: `static_cast<std::int32_t>` is a
     // modulo conversion, so 2^32 + 2 used to arrive at a 1..4 check looking like a valid 2, and 2^32 + 5000
     // used to become a plausible 5000-pixel window. Out-of-range values now saturate (and are then clamped
     // or rejected by the rule that holds the range) or keep the default - but they never wrap.
@@ -817,7 +809,7 @@ namespace {
     }
 } // namespace
 
-int32_t main() {
+std::int32_t main() {
     std::ofstream("probe-invalid.toml") << "[reflection_probe]\nenabled=true\nposition=\"bad\"\nfade=\"bad\"\n";
     auto invalid_probe = deren::app_config::load_settings("probe-invalid.toml").reflection_probe;
     CHECK(!std::isfinite(invalid_probe.position[0]));

@@ -29,8 +29,6 @@
 
 module;
 
-#include <cstdint>
-
 export module deren.engine.pass.taa;
 export import deren.utility.shared;
 export import deren.vstd;
@@ -141,7 +139,7 @@ export namespace deren::engine::pass {
         static bool record_copy(resolved_io const& io, bool local_transitions);
         render_resource::instances::resource_snapshot resource_view;
         /// the four inputs the resolve reads, which the declaration numbers contiguously from zero
-        static constexpr uint32_t local_binding_count = 4;
+        static constexpr std::uint32_t local_binding_count = 4;
         static constexpr std::string_view vertex_shader_name = "post.vert.spv"; // the synthetic fullscreen triangle
         static constexpr std::string_view fragment_shader_name = "taa.frag.spv";
 

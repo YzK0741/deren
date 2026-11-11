@@ -4,7 +4,7 @@
  *        OF Its).
  */
 module;
-#include <cstdint>
+
 module deren.engine.pass.hzb_cull;
 import deren.vstd;
 

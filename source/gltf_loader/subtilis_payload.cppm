@@ -10,19 +10,12 @@
 // ============================================================================
 module;
 
-#include <algorithm>
-#include <cstddef>
-#include <cstdint>
-#include <cstring>
 #include <fastgltf/core.hpp>
 #include <fastgltf/types.hpp>
-#include <memory>
-#include <span>
-#include <string_view>
-#include <utility>
 #include <yyjson.h>
 
 export module deren.gltf_loader:subtilis_payload;
+import deren.vstd;
 
 import deren.gltf_loader;
 import deren.utility;
@@ -43,16 +36,16 @@ namespace deren::gltf::detail {
                                              source_bytes_fn get_source_bytes) {
         subtilis_cache cache;
         cache.resize(asset.meshes.size());
-        for (size_t m = 0; m < asset.meshes.size(); ++m) {
+        for (std::size_t m = 0; m < asset.meshes.size(); ++m) {
             cache[m].resize(asset.meshes[m].primitives.size());
         }
-        if (file.totalSize() > uint64_t(4) << 30) {
+        if (file.totalSize() > std::uint64_t(4) << 30) {
             return cache;
         }
         file.reset();
         auto input = file.read(file.totalSize(), 0);
         std::span<std::byte const> raw(input.data(), input.size()), json = raw;
-        auto u32 = [&](size_t at) {uint32_t n=0;for(unsigned i=0;i<4;++i){n|=uint32_t(std::to_integer<unsigned>(raw[at+i]))<<(i*8);
+        auto u32 = [&](std::size_t at) {std::uint32_t n=0;for(unsigned i=0;i<4;++i){n|=std::uint32_t(std::to_integer<unsigned>(raw[at+i]))<<(i*8);
 }return n; };
         if (raw.size() >= 4 && u32(0) == 0x46546c67) {
             if (raw.size() < 20 || u32(16) != 0x4e4f534a || u32(12) > raw.size() - 20) {
@@ -60,12 +53,12 @@ namespace deren::gltf::detail {
             }
             json = raw.subspan(20, u32(12));
         }
-        if (json.size() > uint64_t(64) << 20) {
+        if (json.size() > std::uint64_t(64) << 20) {
             return cache;
         }
         yyjson_alc allocator{
-            [](void*, size_t n) -> void* { return deren::utility::memory::allocate(n); },
-            [](void*, void* old, size_t before, size_t n) -> void* {auto* next=deren::utility::memory::allocate(n);if(old){std::memcpy(next,old,std::min(before,n));
+            [](void*, std::size_t n) -> void* { return deren::utility::memory::allocate(n); },
+            [](void*, void* old, std::size_t before, std::size_t n) -> void* {auto* next=deren::utility::memory::allocate(n);if(old){std::memcpy(next,old,std::min(before,n));
 }deren::utility::memory::deallocate(old);return next; },
             [](void*, void* p) { deren::utility::memory::deallocate(p); },
             nullptr,
@@ -76,12 +69,12 @@ namespace deren::gltf::detail {
             return cache;
         }
         auto* meshes = yyjson_obj_get(yyjson_doc_get_root(document), "meshes");
-        uint64_t total = 0;
-        uint32_t available = 0, unavailable = 0;
-        constexpr uint64_t payload_limit = uint64_t(1) << 30;
-        for (size_t m = 0; m < asset.meshes.size(); ++m) {
+        std::uint64_t total = 0;
+        std::uint32_t available = 0, unavailable = 0;
+        constexpr std::uint64_t payload_limit = std::uint64_t(1) << 30;
+        for (std::size_t m = 0; m < asset.meshes.size(); ++m) {
             auto* primitives = yyjson_obj_get(yyjson_arr_get(meshes, m), "primitives");
-            for (size_t p = 0; p < asset.meshes[m].primitives.size(); ++p) {
+            for (std::size_t p = 0; p < asset.meshes[m].primitives.size(); ++p) {
                 auto* declaration = yyjson_obj_get(yyjson_obj_get(yyjson_arr_get(primitives, p), "extensions"), "DEREN_subtilis");
                 if (!declaration) {
                     continue;
@@ -102,21 +95,21 @@ namespace deren::gltf::detail {
                 auto* version = yyjson_obj_get(declaration, "version");
                 auto* profile = yyjson_obj_get(declaration, "profile");
                 auto* view = yyjson_obj_get(declaration, "bufferView");
-                if (yyjson_is_uint(version) && yyjson_get_uint(version) <= UINT32_MAX) {
-                    payload->version = static_cast<uint32_t>(yyjson_get_uint(version));
+                if (yyjson_is_uint(version) && yyjson_get_uint(version) <= std::numeric_limits<std::uint32_t>::max()) {
+                    payload->version = static_cast<std::uint32_t>(yyjson_get_uint(version));
                 }
                 if (yyjson_is_str(profile) && yyjson_get_len(profile) <= 64) {
                     payload->profile.assign(yyjson_get_str(profile), yyjson_get_len(profile));
                 }
                 if (yyjson_is_uint(view) && yyjson_get_uint(view) < asset.bufferViews.size()) {
-                    payload->buffer_view = static_cast<uint32_t>(yyjson_get_uint(view));
+                    payload->buffer_view = static_cast<std::uint32_t>(yyjson_get_uint(view));
                     auto const& bv = asset.bufferViews[payload->buffer_view];
                     if (bv.bufferIndex < asset.buffers.size() && !bv.target && !bv.byteStride) {
                         auto const& buffer = asset.buffers[bv.bufferIndex];
                         auto bytes = get_source_bytes(asset, buffer.data);
                         if (bv.byteOffset <= bytes.size() && bv.byteLength <= bytes.size() - bv.byteOffset && bv.byteOffset <= buffer.byteLength && bv.byteLength <= buffer.byteLength - bv.byteOffset && bv.byteLength <= payload_limit - total) {
                             auto data = bytes.subspan(bv.byteOffset, bv.byteLength);
-                            auto* first = reinterpret_cast<uint8_t const*>(data.data());
+                            auto* first = reinterpret_cast<std::uint8_t const*>(data.data());
                             payload->bytes.assign(first, first + data.size());
                             total += data.size();
                         }

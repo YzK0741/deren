@@ -10,8 +10,6 @@
 // ============================================================================
 module;
 
-#include <cstdint> // int32_t / uint8_t below: the fixed-width names the project's arithmetic types come from
-
 export module deren.engine.math;
 export import deren.utility.shared;
 export import deren.vstd;
@@ -36,7 +34,7 @@ namespace deren::engine {
      *        the light UBO's direction, and a baked environment whose sun disagreed with it would put the
      *        reflections' glint somewhere the sky does not have a sun.
      */
-    export deren::utility::vessel::vector<float> generate_environment_cubemap(int32_t size, deren::utility::vessel::array<float, 3> sun_direction = {0.3f, 1.0f, 0.5f});
+    export deren::utility::vessel::vector<float> generate_environment_cubemap(std::int32_t size, deren::utility::vessel::array<float, 3> sun_direction = {0.3f, 1.0f, 0.5f});
 
     /**
      * @ingroup engine_math
@@ -62,7 +60,7 @@ namespace deren::engine {
      * 1:1 and loses nothing; the polar rows are oversampled in the source and are the one place where a
      * box average would beat this interpolation.
      */
-    export deren::utility::vessel::vector<float> generate_environment_cubemap_from_equirect(std::span<float const> equirect, int32_t width, int32_t height, int32_t size, float intensity = 1.0f);
+    export deren::utility::vessel::vector<float> generate_environment_cubemap_from_equirect(std::span<float const> equirect, std::int32_t width, std::int32_t height, std::int32_t size, float intensity = 1.0f);
 
     /**
      * @ingroup engine_math
@@ -76,19 +74,19 @@ namespace deren::engine {
      * @param mip_count number of mip levels
      * @return mip-major RGBA32F data (mip0 all faces, then mip1, ...), ready for a cubemap upload
      */
-    export deren::utility::vessel::vector<float> prefilter_environment(std::span<float const> env, int32_t env_size, int32_t mip_count);
+    export deren::utility::vessel::vector<float> prefilter_environment(std::span<float const> env, std::int32_t env_size, std::int32_t mip_count);
 
     /**
      * @ingroup engine_math
      * @brief cosine-weighted hemisphere convolution for the diffuse irradiance cubemap
      */
-    export deren::utility::vessel::vector<float> generate_irradiance_map(std::span<float const> env, int32_t env_size, int32_t irr_size);
+    export deren::utility::vessel::vector<float> generate_irradiance_map(std::span<float const> env, std::int32_t env_size, std::int32_t irr_size);
 
     /**
      * @ingroup engine_math
      * @brief BRDF integration LUT filled with the Frostbite analytic approximation (RG32F: scale, bias)
      */
-    export deren::utility::vessel::vector<float> generate_brdf_lut(int32_t size);
+    export deren::utility::vessel::vector<float> generate_brdf_lut(std::int32_t size);
 
     // ---- async wrappers (each runs its synchronous twin on a fresh std::async thread) ----
     // The heavy CPU stages get _async siblings returning std::future; the caller only blocks
@@ -96,7 +94,7 @@ namespace deren::engine {
     // @note span parameters are taken by view: the pointed-to data (e.g. the env cubemap)
     //       must stay valid until the returned future is consumed.
 
-    export std::future<deren::utility::vessel::vector<float>> generate_environment_cubemap_async(int32_t size, deren::utility::vessel::array<float, 3> sun_direction = {0.3f, 1.0f, 0.5f});
+    export std::future<deren::utility::vessel::vector<float>> generate_environment_cubemap_async(std::int32_t size, deren::utility::vessel::array<float, 3> sun_direction = {0.3f, 1.0f, 0.5f});
     /**
      * @ingroup engine_math
      * @brief async twin of generate_environment_cubemap_from_equirect()
@@ -104,20 +102,20 @@ namespace deren::engine {
      *       caller loads a few lines earlier, and it would otherwise have to keep that buffer valid across
      *       a whole startup stage - the exact lifetime a moved-in vector makes impossible to get wrong.
      */
-    export std::future<deren::utility::vessel::vector<float>> generate_environment_cubemap_from_equirect_async(deren::utility::vessel::vector<float> equirect, int32_t width, int32_t height, int32_t size, float intensity = 1.0f);
-    export std::future<deren::utility::vessel::vector<float>> prefilter_environment_async(std::span<float const> env, int32_t env_size, int32_t mip_count);
-    export std::future<deren::utility::vessel::vector<float>> generate_irradiance_map_async(std::span<float const> env, int32_t env_size, int32_t irr_size);
-    export std::future<deren::utility::vessel::vector<float>> generate_brdf_lut_async(int32_t size);
+    export std::future<deren::utility::vessel::vector<float>> generate_environment_cubemap_from_equirect_async(deren::utility::vessel::vector<float> equirect, std::int32_t width, std::int32_t height, std::int32_t size, float intensity = 1.0f);
+    export std::future<deren::utility::vessel::vector<float>> prefilter_environment_async(std::span<float const> env, std::int32_t env_size, std::int32_t mip_count);
+    export std::future<deren::utility::vessel::vector<float>> generate_irradiance_map_async(std::span<float const> env, std::int32_t env_size, std::int32_t irr_size);
+    export std::future<deren::utility::vessel::vector<float>> generate_brdf_lut_async(std::int32_t size);
 
     /**
      * @ingroup engine_math
      * @brief convert 4-channel float data to a packed RGBA16F byte stream
      */
-    export deren::utility::vessel::vector<uint8_t> to_half_rgba(std::span<float const> data);
+    export deren::utility::vessel::vector<std::uint8_t> to_half_rgba(std::span<float const> data);
 
     /**
      * @ingroup engine_math
      * @brief convert 2-channel float data to a packed RG16F byte stream
      */
-    export deren::utility::vessel::vector<uint8_t> to_half_rg(std::span<float const> data);
+    export deren::utility::vessel::vector<std::uint8_t> to_half_rg(std::span<float const> data);
 } // namespace deren::engine

@@ -4,16 +4,7 @@
 // padded DAG structs.
 #include "vk_test.h"
 
-#include <algorithm>
-#include <array>
-#include <cstddef>
-#include <cstdint>
-#include <cstring>
-#include <memory>
-#include <span>
-#include <string>
-#include <vector>
-
+import deren.vstd;
 import deren.engine.backend_loader;
 import deren.engine.subtilis;
 import deren.engine.subtilis.builder;
@@ -478,8 +469,8 @@ int main() {
         auto manager = sub::make_page_manager(geometry->pages(), geometry->page_dependencies());
         CHECK(manager);
         if (manager) {
-            std::uint32_t single = UINT32_MAX;
-            std::uint32_t pair = UINT32_MAX;
+            std::uint32_t single = std::numeric_limits<std::uint32_t>::max();
+            std::uint32_t pair = std::numeric_limits<std::uint32_t>::max();
             for (std::uint32_t page = 0; page < geometry->pages().size(); ++page) {
                 auto plan = manager->plan_request(page);
                 if (plan && plan->installs.size() == 1) {
@@ -488,8 +479,8 @@ int main() {
                     pair = page;
                 }
             }
-            CHECK(single != UINT32_MAX && pair != UINT32_MAX);
-            if (single != UINT32_MAX && pair != UINT32_MAX) {
+            CHECK(single != std::numeric_limits<std::uint32_t>::max() && pair != std::numeric_limits<std::uint32_t>::max());
+            if (single != std::numeric_limits<std::uint32_t>::max() && pair != std::numeric_limits<std::uint32_t>::max()) {
                 auto pool = sub::page_arena_pool::create(core, 2u * sub::page_arena_pool::slot_bytes);
                 CHECK(pool);
                 if (pool) {

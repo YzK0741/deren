@@ -14,7 +14,6 @@
 // ============================================================================
 module;
 
-#include <cstdint>
 #include <glm/glm.hpp>
 
 export module deren.engine.acceleration_structure;
@@ -83,11 +82,11 @@ namespace deren::engine::acceleration_structure {
      */
     export struct geometry_source {
         std::uintptr_t vertex_address = 0; // first vertex, already offset into the buffer
-        uint32_t vertex_stride = 0;        // bytes per vertex (the engine's interleaved layout)
-        uint32_t vertex_count = 0;
+        std::uint32_t vertex_stride = 0;   // bytes per vertex (the engine's interleaved layout)
+        std::uint32_t vertex_count = 0;
         std::uintptr_t index_address = 0; // first index, already offset into the buffer
         deren::promise::rhi::index_type index_type = deren::promise::rhi::index_type::uint32;
-        uint32_t index_count = 0; // triangles = index_count / 3
+        std::uint32_t index_count = 0; // triangles = index_count / 3
         /**
          * THE OPACITY MICROMAP this geometry consults, when it has one: the handle, the PER-TRIANGLE index buffer
          * the traversal reads to find its micromap triangle, and the usage record the micromap was built with (the
@@ -116,10 +115,10 @@ namespace deren::engine::acceleration_structure {
      *       frame's, and belongs in the pass timings like any other pass.
      */
     export struct build_stats {
-        uint32_t geometry_count = 0;
-        uint64_t triangle_count = 0;
-        uint64_t structure_bytes = 0;
-        uint64_t scratch_bytes = 0; // the scratch BUFFER, i.e. the aligned per-geometry ranges in it
+        std::uint32_t geometry_count = 0;
+        std::uint64_t triangle_count = 0;
+        std::uint64_t structure_bytes = 0;
+        std::uint64_t scratch_bytes = 0; // the scratch BUFFER, i.e. the aligned per-geometry ranges in it
         double build_ms = 0.0;
     };
 
@@ -150,10 +149,10 @@ namespace deren::engine::acceleration_structure {
         std::uintptr_t vertex_address = 0; // the vertex buffer's device address (base)
         std::uintptr_t index_address = 0;  // the index buffer's device address (base)
         glm::mat4 model = glm::mat4(1.0f); // object -> world, for the vertex normal
-        uint32_t vertex_stride = 0;
-        uint32_t index_type = 0;     // RHI index type, for the shader that indexes with it
-        uint32_t material_index = 0; // into the scene's material table (set 0 binding 5)
-        uint32_t primitive_index = 0;
+        std::uint32_t vertex_stride = 0;
+        std::uint32_t index_type = 0;     // RHI index type, for the shader that indexes with it
+        std::uint32_t material_index = 0; // into the scene's material table (set 0 binding 5)
+        std::uint32_t primitive_index = 0;
     };
     static_assert(sizeof(instance_record) == 96, "the shader's copy of instance_record must match this layout");
 
@@ -163,11 +162,11 @@ namespace deren::engine::acceleration_structure {
      */
     export struct instance_source {
         glm::mat4 transform = glm::mat4(1.0f); // the world matrix the raster passes draw this instance with
-        uint32_t blas_index = 0;               // index into the bottom_level_structures it was added to
+        std::uint32_t blas_index = 0;          // index into the bottom_level_structures it was added to
         instance_record record = {};           // what the shader sees through instanceCustomIndex
         // Instance mask tested by TraceRay before any hit. 0xFF preserves "visible to every ray"; the scene
         // sets bit0 for RT shadows and bit1 for RT reflections (see runtime::rt_casters).
-        uint32_t mask = 0xFFu;
+        std::uint32_t mask = 0xFFu;
     };
 
     /**
@@ -226,8 +225,8 @@ namespace deren::engine::acceleration_structure {
          *       record_build(). A source with no triangles is skipped and returns the index it WOULD
          *       have had, so the caller's indices stay aligned with its array.
          */
-        std::expected<uint32_t, deren::utility::vessel::string> add(geometry_source const& source, bool refittable = false, std::span<std::shared_ptr<void const> const> dependencies = {});
-        [[nodiscard]] render_resource::instances::resource_snapshot resources(uint32_t index) const noexcept {
+        std::expected<std::uint32_t, deren::utility::vessel::string> add(geometry_source const& source, bool refittable = false, std::span<std::shared_ptr<void const> const> dependencies = {});
+        [[nodiscard]] render_resource::instances::resource_snapshot resources(std::uint32_t index) const noexcept {
             return index < entries.size() ? entries[index].storage_view : render_resource::instances::resource_snapshot{};
         }
 
@@ -254,15 +253,15 @@ namespace deren::engine::acceleration_structure {
          * @note the caller must have made the writes visible to the acceleration structure build stage
          *       first (a command-level barrier), or the refit reads whatever was there before
          */
-        std::expected<void, deren::utility::vessel::string> record_update(deren::promise::rhi::command_buffer& commands, std::span<uint32_t const> indices) const;
+        std::expected<void, deren::utility::vessel::string> record_update(deren::promise::rhi::command_buffer& commands, std::span<std::uint32_t const> indices) const;
 
         /** @brief how many structures were added */
-        [[nodiscard]] uint32_t size() const noexcept {
-            return static_cast<uint32_t>(this->entries.size());
+        [[nodiscard]] std::uint32_t size() const noexcept {
+            return static_cast<std::uint32_t>(this->entries.size());
         }
 
         /** @brief the structure at @p index, or nullptr when it was skipped (a geometry with no triangles) */
-        [[nodiscard]] deren::promise::rhi::acceleration_structure* structure(uint32_t index) const noexcept {
+        [[nodiscard]] deren::promise::rhi::acceleration_structure* structure(std::uint32_t index) const noexcept {
             return index < this->entries.size() ? this->entries[index].structure.get() : nullptr;
         }
 
@@ -306,8 +305,8 @@ namespace deren::engine::acceleration_structure {
             /// `record_build` (the backend copies it into its memory: the contract's record POD, the same
             /// shape a caller writes anywhere else).
             deren::utility::vessel::vector<deren::promise::rhi::acceleration_structure_instance> pending = {};
-            uint32_t capacity = 0; // instances the records buffer can hold
-            uint32_t count = 0;    // instances added this frame
+            std::uint32_t capacity = 0; // instances the records buffer can hold
+            std::uint32_t count = 0;    // instances added this frame
             bool build_ready = false;
         };
 
@@ -322,7 +321,7 @@ namespace deren::engine::acceleration_structure {
         rhi::shared_object<rhi::api_core> device_root;
         std::uint64_t max_instances = 0;
         deren::utility::vessel::vector<slot> slots = {};
-        uint32_t current_slot = 0;
+        std::uint32_t current_slot = 0;
         build_stats stats = {};
 
     public:
@@ -332,13 +331,13 @@ namespace deren::engine::acceleration_structure {
          * @param frame_slot_count how many per-frame slots to allocate (the runtime's frame count)
          * @param access
          */
-        explicit top_level_structure(rhi::api_core& face, uint32_t frame_slot_count, rhi::shared_object<rhi::api_core> const& access = {});
+        explicit top_level_structure(rhi::api_core& face, std::uint32_t frame_slot_count, rhi::shared_object<rhi::api_core> const& access = {});
         top_level_structure(top_level_structure const&) = delete ("top_level_structure is non-copyable: construct it in place and keep its identity");
         top_level_structure& operator=(top_level_structure const&) = delete ("top_level_structure is non-copyable: configure the object in place");
         top_level_structure(top_level_structure&&) = delete ("top_level_structure is non-movable: its resources are tied to the current address");
         top_level_structure& operator=(top_level_structure&&) = delete ("top_level_structure is non-movable: its resources are tied to the current address");
         ~top_level_structure();
-        [[nodiscard]] render_resource::instances::resource_snapshot resources(uint32_t slot) const noexcept {
+        [[nodiscard]] render_resource::instances::resource_snapshot resources(std::uint32_t slot) const noexcept {
             return slot < slots.size() ? slots[slot].storage_view : render_resource::instances::resource_snapshot{};
         }
 
@@ -350,7 +349,7 @@ namespace deren::engine::acceleration_structure {
          * @note the slot is free to write because the runtime waits for it before recording (see
          *       runtime::pace_and_acquire), the same reason every other per-slot buffer is.
          */
-        std::expected<void, deren::utility::vessel::string> begin(uint32_t frame_slot);
+        std::expected<void, deren::utility::vessel::string> begin(std::uint32_t frame_slot);
 
         /**
          * @ingroup engine_acceleration_structure
@@ -369,7 +368,7 @@ namespace deren::engine::acceleration_structure {
         std::expected<void, deren::utility::vessel::string> record_build(deren::promise::rhi::command_buffer& commands);
 
         /** @brief the structure the slot's frame must bind, or nullptr when the slot is empty */
-        [[nodiscard]] deren::promise::rhi::acceleration_structure* structure(uint32_t frame_slot) const noexcept {
+        [[nodiscard]] deren::promise::rhi::acceleration_structure* structure(std::uint32_t frame_slot) const noexcept {
             return frame_slot < this->slots.size() && this->slots[frame_slot].build_ready ? this->slots[frame_slot].structure.get() : nullptr;
         }
 
@@ -382,7 +381,7 @@ namespace deren::engine::acceleration_structure {
          *       material table (VUID-VkDeviceAddressRangeKHR-address-11365). The size query at creation is the only
          *       place that number exists, so it is kept rather than re-derived by a caller that cannot know it.
          */
-        [[nodiscard]] std::uint64_t structure_size(uint32_t frame_slot) const noexcept {
+        [[nodiscard]] std::uint64_t structure_size(std::uint32_t frame_slot) const noexcept {
             // THE NUMBER IS THE OBJECT'S NOW (tier-1 since abi 26): `size_bytes()` is what the backend cached
             // when it created the structure, so this module keeps no copy of it that could drift.
             return frame_slot < this->slots.size() && this->slots[frame_slot].structure
@@ -397,16 +396,16 @@ namespace deren::engine::acceleration_structure {
          *       VK_WHOLE_SIZE (legal there), while a HEAP range must carry a real size
          *       (VUID-VkDeviceAddressRangeKHR-address-11365), and the capacity is this module's to know.
          */
-        [[nodiscard]] std::uint64_t instance_table_size(uint32_t frame_slot) const noexcept {
+        [[nodiscard]] std::uint64_t instance_table_size(std::uint32_t frame_slot) const noexcept {
             return frame_slot < this->slots.size() ? static_cast<std::uint64_t>(this->slots[frame_slot].capacity) * sizeof(instance_record) : 0;
         }
 
         /** @brief the slot's instance table as a contract buffer, or nullptr before a build.
          *  @note Its device address is queried through the device_address ability. */
-        [[nodiscard]] deren::promise::rhi::buffer const* instance_table_buffer(uint32_t frame_slot) const noexcept;
+        [[nodiscard]] deren::promise::rhi::buffer const* instance_table_buffer(std::uint32_t frame_slot) const noexcept;
 
         /** @brief how many instances the slot's last build recorded */
-        [[nodiscard]] uint32_t instance_count(uint32_t frame_slot) const noexcept {
+        [[nodiscard]] std::uint32_t instance_count(std::uint32_t frame_slot) const noexcept {
             return frame_slot < this->slots.size() ? this->slots[frame_slot].count : 0;
         }
 

@@ -9,6 +9,10 @@
 #include <string_view>
 #include <vector>
 
+#include <limits>
+
+#include <cstdint>
+
 namespace deren::tools::subtilis {
     namespace {
         path normalized_directory(path const& directory) {
@@ -64,7 +68,7 @@ namespace deren::tools::subtilis {
         }
         auto* parameters = yyjson_obj_get(root, "parameters");
         asset::build_options options;
-        auto u32 = [&](char const* name, uint32_t& out) {auto* v=yyjson_obj_get(parameters,name);if(!yyjson_is_uint(v) || yyjson_get_uint(v)>UINT32_MAX){return false;
+        auto u32 = [&](char const* name, uint32_t& out) {auto* v=yyjson_obj_get(parameters,name);if(!yyjson_is_uint(v) || yyjson_get_uint(v)>std::numeric_limits<std::uint32_t>::max()){return false;
 }out=static_cast<uint32_t>(yyjson_get_uint(v));return true; };
         auto f32 = [&](char const* name, float& out) {auto* v=yyjson_obj_get(parameters,name);if(!yyjson_is_num(v)){return false;
 }out=static_cast<float>(yyjson_get_num(v));return std::isfinite(out); };

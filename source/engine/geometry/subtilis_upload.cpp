@@ -1,12 +1,7 @@
 module;
-#include <algorithm>
-#include <array>
+
 #include <cstddef>
-#include <cstdint>
-#include <cstdlib>
-#include <cstring>
-#include <memory>
-#include <mutex>
+
 module deren.engine.subtilis.upload;
 import deren.vstd;
 import deren.engine.pass.chain;
@@ -355,7 +350,7 @@ namespace deren::engine::subtilis {
         double maximum_squared = 0.0;
         for (std::uint32_t t = 0u; t < record.index_count; t += 3u) {
             std::array<std::array<float, 3>, 3> p{};
-            for (uint32_t c = 0u; c < 3u; ++c) {
+            for (std::uint32_t c = 0u; c < 3u; ++c) {
                 auto const index = static_cast<std::int64_t>(indices[static_cast<std::size_t>(record.first_index) + t + c]) + record.base_vertex;
                 if (index < 0 || static_cast<std::uint64_t>(index) >= vertices.size() / stride) {
                     return invalid;
@@ -367,9 +362,9 @@ namespace deren::engine::subtilis {
                     }
                 }
             }
-            for (uint32_t c = 0u; c < 3u; ++c) {
+            for (std::uint32_t c = 0u; c < 3u; ++c) {
                 double squared = 0.0;
-                for (uint32_t axis = 0u; axis < 3u; ++axis) {
+                for (std::uint32_t axis = 0u; axis < 3u; ++axis) {
                     double const delta = static_cast<double>(p[c][axis]) - p[(c + 1u) % 3u][axis];
                     squared += delta * delta;
                 }
@@ -470,7 +465,7 @@ namespace deren::engine::subtilis {
             auto& entry = state->payload->table[page];
             entry.state = static_cast<std::uint32_t>(gpu_page_state::absent);
             entry.offset = 0;
-            state->slot_of[page] = UINT32_MAX;
+            state->slot_of[page] = std::numeric_limits<std::uint32_t>::max();
             state->pending_priority[page] = 0u;
             state->reserved[slot] = 0;
             state->release_owned(slot);
@@ -560,7 +555,7 @@ namespace deren::engine::subtilis {
                 page_pages->payload = page_payload;
                 page_pages->device = device;
                 page_pages->arena = pool->arena();
-                page_pages->slot_of.assign(pages.size(), UINT32_MAX);
+                page_pages->slot_of.assign(pages.size(), std::numeric_limits<std::uint32_t>::max());
                 page_pages->pending_priority.assign(pages.size(), 0u);
                 page_pages->reserved.assign(pool->capacity_slots(), 0u);
                 std::size_t next_slot = 0;
@@ -690,7 +685,7 @@ namespace deren::engine::subtilis {
             if (!submitted) {
                 return std::unexpected(submitted.error());
             }
-            if (auto result = submitted->wait(UINT64_MAX); result != upload_rhi::error::ok) {
+            if (auto result = submitted->wait(std::numeric_limits<std::uint64_t>::max()); result != upload_rhi::error::ok) {
                 return std::unexpected(result);
             }
         }
@@ -861,7 +856,7 @@ namespace deren::engine::subtilis {
         }
         std::memcpy(bytes.data(), source.data(), source.size());
         for (auto physical : state->slot_of) {
-            if (physical != UINT32_MAX) {
+            if (physical != std::numeric_limits<std::uint32_t>::max()) {
                 frame.references.push_back(physical);
                 state->pool->retain(physical);
             }
@@ -891,7 +886,7 @@ namespace deren::engine::subtilis {
                     state->release_owned(physical);
                 }
                 for (auto page : installs) {
-                    state->slot_of[page] = UINT32_MAX;
+                    state->slot_of[page] = std::numeric_limits<std::uint32_t>::max();
                     state->pending_priority[page] = 0;
                     auto& entry = state->payload->table[page];
                     entry.state = static_cast<std::uint32_t>(gpu_page_state::absent);
@@ -1022,11 +1017,11 @@ namespace deren::engine::subtilis {
                         return stats;
                     }
                     auto const slot = state->slot_of[victim];
-                    state->slot_of[victim] = UINT32_MAX;
+                    state->slot_of[victim] = std::numeric_limits<std::uint32_t>::max();
                     state->pending_priority[victim] = 0u;
                     table[victim].state = static_cast<std::uint32_t>(gpu_page_state::absent);
                     table[victim].offset = 0;
-                    if (slot != UINT32_MAX) {
+                    if (slot != std::numeric_limits<std::uint32_t>::max()) {
                         state->reserved[slot] = 0;
                         state->release_owned(slot);
                     }

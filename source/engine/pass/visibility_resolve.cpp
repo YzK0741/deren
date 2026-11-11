@@ -4,7 +4,6 @@
  */
 module;
 
-#include <cstdint>
 module deren.engine.pass.visibility_resolve;
 import deren.vstd;
 

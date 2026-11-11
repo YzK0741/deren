@@ -1,6 +1,7 @@
 module;
+
 #include <cstddef>
-#include <cstdint>
+
 export module deren.engine.subtilis.upload;
 export import deren.vstd;
 import deren.engine.subtilis.builder;
@@ -85,7 +86,7 @@ export namespace deren::engine::subtilis {
     public:
         static constexpr std::uint32_t slot_bytes = 64u << 10;
         /// A page-table entry stores a 32-bit byte offset, so an arena may not contain a slot whose
-        /// offset would wrap. The last addressable slot starts at UINT32_MAX / 64 KiB * 64 KiB,
+        /// offset would wrap. The last addressable slot starts at std::numeric_limits<std::uint32_t>::max() / 64 KiB * 64 KiB,
         /// making 65536 slots and exactly 4 GiB the architectural maximum.
         static constexpr std::uint64_t max_slots = 0xFFFFFFFFull / slot_bytes + 1u;
         static constexpr std::uint64_t max_bytes = max_slots * slot_bytes;

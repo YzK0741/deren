@@ -9,6 +9,8 @@ import deren.asset.subtilis.dag;
 import deren.engine.subtilis.dag_cut_closure;
 import deren.engine.subtilis.dag_lod;
 #include "subtilis_dag_fixtures.hpp"
+
+#include <cstdint>
 namespace wire = deren::asset::subtilis;
 namespace sub = deren::engine::subtilis;
 using deren::utility::vessel::vector;
@@ -102,7 +104,7 @@ namespace {
             vector<deren::engine::meshlet> cut;
             auto step = [&](float target, uint64_t epoch, bool coarse) {
                 h.target_error_px = target;
-                CHECK(sub::select_cut(*asset, h, UINT32_MAX, cut, &history, epoch));
+                CHECK(sub::select_cut(*asset, h, std::numeric_limits<std::uint32_t>::max(), cut, &history, epoch));
                 CHECK(!cut.empty() && (cut.front().first_index >= asset->lod0_index_count()) == coarse);
             };
             step(.11f, 1, false);
@@ -116,7 +118,7 @@ namespace {
             CHECK(replacement);
             if (replacement) {
                 h.target_error_px = .11f;
-                CHECK(sub::select_cut(*replacement, h, UINT32_MAX, cut, &history, 2));
+                CHECK(sub::select_cut(*replacement, h, std::numeric_limits<std::uint32_t>::max(), cut, &history, 2));
                 CHECK(cut.front().first_index < replacement->lod0_index_count());
             }
         }
@@ -141,7 +143,7 @@ namespace {
             }
             auto expected = wire::select_cut(reference, parameters);
             vector<deren::engine::meshlet> out;
-            auto cut = sub::select_cut(*asset, view, UINT32_MAX, out);
+            auto cut = sub::select_cut(*asset, view, std::numeric_limits<std::uint32_t>::max(), out);
             CHECK(cut && expected);
             if (!cut || !expected) {
                 return;
@@ -154,7 +156,7 @@ namespace {
                 }
             }
             vector<deren::engine::meshlet> repeat;
-            auto again = sub::select_cut(*asset, view, UINT32_MAX, repeat);
+            auto again = sub::select_cut(*asset, view, std::numeric_limits<std::uint32_t>::max(), repeat);
             CHECK(again && repeat.size() == out.size());
             if (repeat.size() == out.size()) {
                 for (size_t i = 0; i < out.size(); ++i) {

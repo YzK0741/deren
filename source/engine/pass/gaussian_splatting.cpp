@@ -1,6 +1,5 @@
 module;
-#include <cstddef>
-#include <cstdint>
+
 module deren.engine.pass.gaussian_splatting;
 import deren.vstd;
 import deren.utility.shared;

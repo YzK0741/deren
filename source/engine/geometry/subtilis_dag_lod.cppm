@@ -1,6 +1,5 @@
 module;
 
-#include <cstdint>
 export module deren.engine.subtilis.dag_lod;
 import deren.engine.subtilis.dag_cut_closure;
 export import deren.vstd;
@@ -9,7 +8,7 @@ export import deren.engine.subtilis.lod;
 export namespace deren::engine::subtilis {
     struct dag_cut_history {
         dag_asset const* asset = nullptr;
-        uint64_t epoch = 0;
+        std::uint64_t epoch = 0;
         utility::vessel::vector<bool> decisions;
         void reset() noexcept {
             asset = nullptr;
@@ -17,7 +16,7 @@ export namespace deren::engine::subtilis {
         }
     };
     namespace dag_lod_detail {
-        inline int32_t projection_type(std::array<float, 16> const& p) {
+        inline std::int32_t projection_type(std::array<float, 16> const& p) {
             if (!lod_detail::finite(p) || p[0] <= 0 || p[5] == 0 || p[1] != 0 || p[2] != 0 || p[3] != 0 || p[4] != 0 || p[6] != 0 || p[7] != 0 || p[14] >= 0) {
                 return 0;
             }
@@ -32,10 +31,10 @@ export namespace deren::engine::subtilis {
         inline double scale_bound(lod_detail::matrix const& m) {
             double one = 0;
             double inf = 0;
-            for (uint32_t i = 0; i < 3; ++i) {
+            for (std::uint32_t i = 0; i < 3; ++i) {
                 double col = 0;
                 double row = 0;
-                for (uint32_t j = 0; j < 3; ++j) {
+                for (std::uint32_t j = 0; j < 3; ++j) {
                     col += std::abs(m[i * 4 + j]);
                     row += std::abs(m[j * 4 + i]);
                 }
@@ -47,10 +46,10 @@ export namespace deren::engine::subtilis {
     } // namespace dag_lod_detail
     /// Whole-object DAG cut, in stable cluster ID order. Object/frustum and HZB
     /// culling stay in the caller's existing pipeline. Capacity never truncates.
-    inline std::expected<cut_statistics, cut_error> select_cut(dag_asset const& geometry, view_parameters const& view, uint32_t capacity, utility::vessel::vector<meshlet>& out, dag_cut_history* history = nullptr, uint64_t epoch = 0) {
+    inline std::expected<cut_statistics, cut_error> select_cut(dag_asset const& geometry, view_parameters const& view, std::uint32_t capacity, utility::vessel::vector<meshlet>& out, dag_cut_history* history = nullptr, std::uint64_t epoch = 0) {
         out.clear();
         auto kind = dag_lod_detail::projection_type(view.projection);
-        int32_t declared_kind = 0;
+        std::int32_t declared_kind = 0;
         if (view.kind == projection_kind::perspective) {
             declared_kind = 1;
         } else if (view.kind == projection_kind::orthographic) {
@@ -72,7 +71,7 @@ export namespace deren::engine::subtilis {
         utility::vessel::vector<bool> coarsen(geometry.groups().size(), false);
         bool previous = history && history->asset == &geometry && history->epoch == epoch && history->decisions.size() == geometry.groups().size();
         auto clusters = geometry.clusters();
-        for (uint32_t id = 0; id < geometry.groups().size(); ++id) {
+        for (std::uint32_t id = 0; id < geometry.groups().size(); ++id) {
             ++stats.groups_visited;
             if (force) {
                 continue;
@@ -101,7 +100,7 @@ export namespace deren::engine::subtilis {
         }
         // Close every dependency decision before inspecting output clusters.
         dag_lod_detail::close_coarsening(geometry, coarsen);
-        stats.groups_selected = static_cast<uint32_t>(std::ranges::count(coarsen, true));
+        stats.groups_selected = static_cast<std::uint32_t>(std::ranges::count(coarsen, true));
         out.reserve(std::min(capacity, geometry.maximum_selected_bound()));
         for (auto const& c : clusters) {
             if ((c.producer == dag_none || coarsen[c.producer]) && (c.consumer == dag_none || !coarsen[c.consumer])) {

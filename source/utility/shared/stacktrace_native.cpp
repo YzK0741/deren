@@ -1,16 +1,13 @@
 // Keep OS headers in a plain TU. The fatal path holds no C++ heap objects.
+import deren.vstd;
 #include "stacktrace_native.hpp"
 
-#include <algorithm>
-#include <atomic>
-#include <cstdlib>
-#include <cstring>
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
 #else
-#include <chrono>
+
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -87,9 +84,9 @@ namespace deren::utility::detail::trace_native {
                     return;
                 }
                 std::size_t units = 1; // the terminating empty entry
-                for (wchar_t const* entry = source; *entry; entry += std::wcslen(entry) + 1) {
+                for (wchar_t const* entry = source; *entry; entry += ::wcslen(entry) + 1) {
                     if (!blocked(entry)) {
-                        units += std::wcslen(entry) + 1;
+                        units += ::wcslen(entry) + 1;
                     }
                 }
                 // A pathological environment is inherited rather than failing symbolization: the
@@ -99,11 +96,11 @@ namespace deren::utility::detail::trace_native {
                 }
                 if (this->block) {
                     std::size_t written = 0;
-                    for (wchar_t const* entry = source; *entry; entry += std::wcslen(entry) + 1) {
+                    for (wchar_t const* entry = source; *entry; entry += ::wcslen(entry) + 1) {
                         if (blocked(entry)) {
                             continue;
                         }
-                        auto const length = (std::wcslen(entry) + 1) * sizeof(wchar_t);
+                        auto const length = (::wcslen(entry) + 1) * sizeof(wchar_t);
                         std::memcpy(this->block + written, entry, length);
                         written += length / sizeof(wchar_t);
                     }

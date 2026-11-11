@@ -1,7 +1,5 @@
 module;
 
-#include <cstdint>
-
 module deren.engine.runtime;
 import deren.vstd;
 import deren.engine.render_graph.post;
@@ -114,7 +112,7 @@ namespace deren::engine {
                 }
                 auto error = passes[index]->record_content(ios[index]);
                 if (error != rhi::error::ok) { // which lane refused, and with what - one line, once per failure
-                    deren::utility::log("post graph: lane {} refused recording ({})", static_cast<std::uint32_t>(index), static_cast<uint32_t>(error));
+                    deren::utility::log("post graph: lane {} refused recording ({})", static_cast<std::uint32_t>(index), static_cast<std::uint32_t>(error));
                 }
                 return error;
             }
@@ -125,7 +123,7 @@ namespace deren::engine {
             }
             // WHICH PASS AND RESOURCE, when the execution layer names them: an unusable usage or stage is the one
             // failure whose code alone cannot be acted on.
-            deren::utility::log("post graph: execution refused ({}) at pass {} resource {}", static_cast<uint32_t>(error.execution->code),
+            deren::utility::log("post graph: execution refused ({}) at pass {} resource {}", static_cast<std::uint32_t>(error.execution->code),
                                 error.execution->pass, error.execution->resource);
             return error.execution->code;
         }
@@ -286,7 +284,7 @@ namespace deren::engine {
                 ++it;
             }
         }
-        auto access_for = [&](uint32_t family, uint32_t pending, graph::resource_state& state) -> access {
+        auto access_for = [&](std::uint32_t family, std::uint32_t pending, graph::resource_state& state) -> access {
             auto generation = this->output_resource_views[family].find(pass::output_targets_pass::ids[family]);
             if (!generation || generation->device.get() != this->core_lifetime.get() || index >= generation->objects.size()) {
                 return {};
@@ -374,7 +372,7 @@ namespace deren::engine {
         if (this->taa_active() && index < this->taa_history_initialized.size()) {
             this->taa_history_initialized[index] = true;
         }
-        for (uint32_t i = 0; i < 4; ++i) {
+        for (std::uint32_t i = 0; i < 4; ++i) {
             auto level = access_for(9 + i, i, level_states[i]);
             if (!level || level.get() != this->bloom_images[i][index].get()) {
                 return rhi::error::not_ready;
@@ -446,7 +444,7 @@ namespace deren::engine {
             }
             graph::lighting::inputs lighting_inputs{};
             lighting_inputs.color = scene_target;
-            for (uint32_t i = 0; i < 3; ++i) {
+            for (std::uint32_t i = 0; i < 3; ++i) {
                 graph::resource_state state{};
                 auto surface = access_for(1 + i, graph::invalid_index, state);
                 if (!surface || surface.get() != this->gbuffer_images[i][index].get()) {
@@ -584,7 +582,7 @@ namespace deren::engine {
             struct shared_import {
                 snapshot const* resources;
                 id resource;
-                size_t instance;
+                std::size_t instance;
                 rhi::buffer* expected;
                 graph::pipeline_stage stages;
                 // THE ACCESS THE IMPORT REPORTS AS ITS PRIOR STATE, and the one that has to differ: the mesh
@@ -640,7 +638,7 @@ namespace deren::engine {
                 },
             };
             std::array<graph::buffer_ref, 13> shared_refs;
-            for (uint32_t i = 0; i < shared_imports.size(); ++i) {
+            for (std::uint32_t i = 0; i < shared_imports.size(); ++i) {
                 auto const& entry = shared_imports[i];
                 auto generation = entry.resources->find(entry.resource);
                 if (!generation || generation->device.get() != this->core_lifetime.get() || entry.instance >= generation->objects.size()) {
@@ -1500,7 +1498,7 @@ namespace deren::engine {
                     scene_target_image,
                     depth.get(),
                 };
-                for (uint32_t i = 0; i < expected.size(); ++i) {
+                for (std::uint32_t i = 0; i < expected.size(); ++i) {
                     if (ios[lane_slot(lane::scene)].targets[i].image_handle != expected[i]) {
                         return rhi::error::invalid_argument;
                     }
@@ -1946,13 +1944,13 @@ namespace deren::engine {
                 }
             }
         }
-        for (uint32_t i = 0; i < 4; ++i) {
+        for (std::uint32_t i = 0; i < 4; ++i) {
             passes[i] = this->bloom_pass[i];
         }
         passes[lane_slot(lane::post_composite)] = this->post_composite_stage[0];
         passes[lane_slot(lane::post_resolve)] = settings.resolution == graph::post::resolve::fxaa ? this->fxaa_pass[0] : this->upscale_pass[0];
-        uint32_t count = settings.resolution == graph::post::resolve::none ? 5 : 6;
-        for (uint32_t i = 0; i < count; ++i) {
+        std::uint32_t count = settings.resolution == graph::post::resolve::none ? 5 : 6;
+        for (std::uint32_t i = 0; i < count; ++i) {
             ios[i].push_block = host.push_block;
             if (!passes[i] || !host.resolve || !host.resolve(host.context, *passes[i], ios[i]) ||
                 ios[i].list != commands || ios[i].targets.size() != 1) {
@@ -1981,7 +1979,7 @@ namespace deren::engine {
         if (!output) {
             return post_build_error(output.error());
         }
-        for (uint32_t i = 0; i < 4; ++i) {
+        for (std::uint32_t i = 0; i < 4; ++i) {
             auto bound = settings.bloom_enabled
                              ? build.bind_pass<graph::post::bloom_parameters>(output->bloom[i], [payload, i](graph::post::bloom_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(post_lane(i)); })
                              : build.bind_pass<graph::post::clear_parameters>(output->bloom[i], [payload, i](graph::post::clear_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return clear_post_target(payload->ios[i]); });

@@ -1,7 +1,5 @@
 module;
 
-#include <cstddef>
-#include <cstdint>
 #include <glm/glm.hpp>
 
 module deren.engine.math;
@@ -13,7 +11,7 @@ namespace deren::engine {
         constexpr float k_pi = 3.14159265359f;
 
         // Cubemap face direction: texel (u, v) in [-1, 1] -> unit direction (Vulkan/GL cubemap convention)
-        glm::vec3 cube_face_direction(int32_t const face, float const u, float const v) {
+        glm::vec3 cube_face_direction(std::int32_t const face, float const u, float const v) {
             switch (face) {
             case 0:
                 return glm::normalize(glm::vec3(1.0f, -v, -u)); // +X
@@ -67,7 +65,7 @@ namespace deren::engine {
         // fetch is pulled toward its face centre and the six faces stop agreeing at the seams. That
         // warps the irradiance and prefilter bakes (the CPU samplers below are the only consumers),
         // i.e. exactly the environment the shaders then sample with the GPU's correct convention.
-        void cube_face_uv(glm::vec3 const& dir, int32_t& face, float& u, float& v) {
+        void cube_face_uv(glm::vec3 const& dir, std::int32_t& face, float& u, float& v) {
             float const ax = std::abs(dir.x);
             float const ay = std::abs(dir.y);
             float const az = std::abs(dir.z);
@@ -100,7 +98,7 @@ namespace deren::engine {
         // generate_environment_cubemap_from_equirect() documents, plus bilinear interpolation in texel
         // space. Row 0 of the buffer is the image's TOP row (the decoder's order) and v = 0 (the zenith)
         // lands there; u wraps around the seam, v clamps at the poles.
-        glm::vec3 sample_equirect(std::span<float const> const pixels, int32_t const width, int32_t const height, glm::vec3 const& dir) {
+        glm::vec3 sample_equirect(std::span<float const> const pixels, std::int32_t const width, std::int32_t const height, glm::vec3 const& dir) {
             float const u = 0.5f + std::atan2(dir.x, dir.z) / (2.0f * k_pi);
             float const v = std::acos(std::clamp(dir.y, -1.0f, 1.0f)) / k_pi;
             // texel-centre convention: texel i covers [i, i+1) and is sampled at i + 0.5
@@ -110,16 +108,16 @@ namespace deren::engine {
             float const y0f = std::floor(fy);
             float const tx = fx - x0f;
             float const ty = fy - y0f;
-            int32_t const y0 = std::clamp(static_cast<int32_t>(y0f), 0, height - 1);
-            int32_t const y1 = std::clamp(static_cast<int32_t>(y0f) + 1, 0, height - 1);
-            auto const wrap = [width](int32_t const x) {
-                int32_t const w = x % width;
+            std::int32_t const y0 = std::clamp(static_cast<std::int32_t>(y0f), 0, height - 1);
+            std::int32_t const y1 = std::clamp(static_cast<std::int32_t>(y0f) + 1, 0, height - 1);
+            auto const wrap = [width](std::int32_t const x) {
+                std::int32_t const w = x % width;
                 return w < 0 ? w + width : w;
             };
-            int32_t const x0 = wrap(static_cast<int32_t>(x0f));
-            int32_t const x1 = wrap(static_cast<int32_t>(x0f) + 1);
-            auto const texel = [&](int32_t const x, int32_t const y) {
-                size_t const offset = (static_cast<size_t>(y) * static_cast<size_t>(width) + static_cast<size_t>(x)) * 4;
+            std::int32_t const x0 = wrap(static_cast<std::int32_t>(x0f));
+            std::int32_t const x1 = wrap(static_cast<std::int32_t>(x0f) + 1);
+            auto const texel = [&](std::int32_t const x, std::int32_t const y) {
+                std::size_t const offset = (static_cast<std::size_t>(y) * static_cast<std::size_t>(width) + static_cast<std::size_t>(x)) * 4;
                 return glm::vec3(pixels[offset], pixels[offset + 1], pixels[offset + 2]);
             };
             glm::vec3 const top = glm::mix(texel(x0, y0), texel(x1, y0), tx);
@@ -128,7 +126,7 @@ namespace deren::engine {
         }
 
         // Van der Corput sequence (second component of Hammersley)
-        float radical_inverse_vdc(uint32_t bits) {
+        float radical_inverse_vdc(std::uint32_t bits) {
             bits = (bits << 16u) | (bits >> 16u);
             bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
             bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
@@ -137,7 +135,7 @@ namespace deren::engine {
             return static_cast<float>(bits) * 2.3283064365386963e-10f;
         }
 
-        glm::vec2 hammersley(uint32_t const i, uint32_t const n) {
+        glm::vec2 hammersley(std::uint32_t const i, std::uint32_t const n) {
             return glm::vec2(static_cast<float>(i) / static_cast<float>(n), radical_inverse_vdc(i));
         }
 
@@ -155,30 +153,30 @@ namespace deren::engine {
         }
 
         // IEEE 754 binary32 -> binary16 (truncated; plenty for ambient light)
-        uint16_t float_to_half(float const value) {
-            uint32_t const bits = std::bit_cast<uint32_t>(value);
-            uint16_t const sign = static_cast<uint16_t>((bits >> 16) & 0x8000u);
-            int32_t const exponent = static_cast<int32_t>((bits >> 23) & 0xFFu) - 127 + 15;
-            uint32_t const mantissa = bits & 0x7FFFFFu;
+        std::uint16_t float_to_half(float const value) {
+            std::uint32_t const bits = std::bit_cast<std::uint32_t>(value);
+            std::uint16_t const sign = static_cast<std::uint16_t>((bits >> 16) & 0x8000u);
+            std::int32_t const exponent = static_cast<std::int32_t>((bits >> 23) & 0xFFu) - 127 + 15;
+            std::uint32_t const mantissa = bits & 0x7FFFFFu;
             if (exponent >= 31) {
-                return static_cast<uint16_t>(sign | 0x7C00u); // infinity
+                return static_cast<std::uint16_t>(sign | 0x7C00u); // infinity
             }
             if (exponent <= 0) {
                 return sign; // subnormal/zero -> 0
             }
-            return static_cast<uint16_t>(sign | (static_cast<uint32_t>(exponent) << 10) | (mantissa >> 13));
+            return static_cast<std::uint16_t>(sign | (static_cast<std::uint32_t>(exponent) << 10) | (mantissa >> 13));
         }
     } // namespace
 
-    deren::utility::vessel::vector<float> generate_environment_cubemap(int32_t const size, deren::utility::vessel::array<float, 3> const sun_direction) {
-        deren::utility::vessel::vector<float> data(static_cast<size_t>(6) * size * size * 4);
-        for (int32_t face = 0; face < 6; ++face) {
-            for (int32_t y = 0; y < size; ++y) {
-                for (int32_t x = 0; x < size; ++x) {
+    deren::utility::vessel::vector<float> generate_environment_cubemap(std::int32_t const size, deren::utility::vessel::array<float, 3> const sun_direction) {
+        deren::utility::vessel::vector<float> data(static_cast<std::size_t>(6) * size * size * 4);
+        for (std::int32_t face = 0; face < 6; ++face) {
+            for (std::int32_t y = 0; y < size; ++y) {
+                for (std::int32_t x = 0; x < size; ++x) {
                     float const u = (static_cast<float>(x) + 0.5f) / static_cast<float>(size) * 2.0f - 1.0f;
                     float const v = (static_cast<float>(y) + 0.5f) / static_cast<float>(size) * 2.0f - 1.0f;
                     glm::vec3 const color = environment_color(cube_face_direction(face, u, v), sun_direction);
-                    size_t const offset = (static_cast<size_t>(face) * size * size + static_cast<size_t>(y) * size + x) * 4;
+                    std::size_t const offset = (static_cast<std::size_t>(face) * size * size + static_cast<std::size_t>(y) * size + x) * 4;
                     data[offset + 0] = color.r;
                     data[offset + 1] = color.g;
                     data[offset + 2] = color.b;
@@ -189,21 +187,21 @@ namespace deren::engine {
         return data;
     }
 
-    deren::utility::vessel::vector<float> generate_environment_cubemap_from_equirect(std::span<float const> const equirect, int32_t const width, int32_t const height, int32_t const size, float const intensity) {
+    deren::utility::vessel::vector<float> generate_environment_cubemap_from_equirect(std::span<float const> const equirect, std::int32_t const width, std::int32_t const height, std::int32_t const size, float const intensity) {
         // The source is required, and a degenerate one would otherwise be read out of bounds: the one
         // caller panics before getting here, so this is the belt to that pair of braces rather than a
         // silent fallback to a sky nobody asked for.
-        if (width <= 0 || height <= 0 || equirect.size() < static_cast<size_t>(width) * static_cast<size_t>(height) * 4 || size <= 0) {
-            return deren::utility::vessel::vector<float>(static_cast<size_t>(std::max(size, 0)) * std::max(size, 0) * 6 * 4, 0.0f);
+        if (width <= 0 || height <= 0 || equirect.size() < static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4 || size <= 0) {
+            return deren::utility::vessel::vector<float>(static_cast<std::size_t>(std::max(size, 0)) * std::max(size, 0) * 6 * 4, 0.0f);
         }
-        deren::utility::vessel::vector<float> data(static_cast<size_t>(6) * size * size * 4);
-        for (int32_t face = 0; face < 6; ++face) {
-            for (int32_t y = 0; y < size; ++y) {
-                for (int32_t x = 0; x < size; ++x) {
+        deren::utility::vessel::vector<float> data(static_cast<std::size_t>(6) * size * size * 4);
+        for (std::int32_t face = 0; face < 6; ++face) {
+            for (std::int32_t y = 0; y < size; ++y) {
+                for (std::int32_t x = 0; x < size; ++x) {
                     float const u = (static_cast<float>(x) + 0.5f) / static_cast<float>(size) * 2.0f - 1.0f;
                     float const v = (static_cast<float>(y) + 0.5f) / static_cast<float>(size) * 2.0f - 1.0f;
                     glm::vec3 const color = sample_equirect(equirect, width, height, cube_face_direction(face, u, v)) * intensity;
-                    size_t const offset = (static_cast<size_t>(face) * size * size + static_cast<size_t>(y) * size + x) * 4;
+                    std::size_t const offset = (static_cast<std::size_t>(face) * size * size + static_cast<std::size_t>(y) * size + x) * 4;
                     data[offset + 0] = color.r;
                     data[offset + 1] = color.g;
                     data[offset + 2] = color.b;
@@ -217,9 +215,9 @@ namespace deren::engine {
     // The levels a cubemap of this size can carry at all: level 0 down to 1x1. The prefilter bake takes
     // its depth from `[lighting] env_mip_count` (the SHADER's chain), while the irradiance bake is free to
     // build the whole chain: it is the CPU side and each level is one 2x2 box filter of the level above.
-    static int32_t environment_pyramid_levels(int32_t const env_size) {
-        int32_t levels = 1;
-        for (int32_t size = env_size; size > 1; size >>= 1) {
+    static std::int32_t environment_pyramid_levels(std::int32_t const env_size) {
+        std::int32_t levels = 1;
+        for (std::int32_t size = env_size; size > 1; size >>= 1) {
             ++levels;
         }
         return levels;
@@ -228,23 +226,23 @@ namespace deren::engine {
     // One box-filtered source mip chain: level k is 2^k times smaller than the environment. The
     // prefilter reads a level per sample instead of always reading level 0, which is what keeps
     // the coarse levels smooth (see prefilter_environment).
-    static deren::utility::vessel::vector<deren::utility::vessel::vector<float>> build_environment_pyramid(std::span<float const> const env, int32_t const env_size, int32_t const levels) {
+    static deren::utility::vessel::vector<deren::utility::vessel::vector<float>> build_environment_pyramid(std::span<float const> const env, std::int32_t const env_size, std::int32_t const levels) {
         deren::utility::vessel::vector<deren::utility::vessel::vector<float>> pyramid;
         pyramid.reserve(static_cast<std::size_t>(levels));
         pyramid.emplace_back(env.begin(), env.end());
-        for (int32_t level = 1; level < levels; ++level) {
-            int32_t const source_size = std::max(1, env_size >> (level - 1));
-            int32_t const target_size = std::max(1, env_size >> level);
+        for (std::int32_t level = 1; level < levels; ++level) {
+            std::int32_t const source_size = std::max(1, env_size >> (level - 1));
+            std::int32_t const target_size = std::max(1, env_size >> level);
             deren::utility::vessel::vector<float> const& source = pyramid.back();
             deren::utility::vessel::vector<float> target(static_cast<std::size_t>(6) * target_size * target_size * 4, 0.0f);
-            for (int32_t face = 0; face < 6; ++face) {
-                for (int32_t y = 0; y < target_size; ++y) {
-                    for (int32_t x = 0; x < target_size; ++x) {
+            for (std::int32_t face = 0; face < 6; ++face) {
+                for (std::int32_t y = 0; y < target_size; ++y) {
+                    for (std::int32_t x = 0; x < target_size; ++x) {
                         glm::vec4 sum(0.0f);
-                        for (int32_t dy = 0; dy < 2; ++dy) {
-                            for (int32_t dx = 0; dx < 2; ++dx) {
-                                int32_t const sx = std::min(x * 2 + dx, source_size - 1);
-                                int32_t const sy = std::min(y * 2 + dy, source_size - 1);
+                        for (std::int32_t dy = 0; dy < 2; ++dy) {
+                            for (std::int32_t dx = 0; dx < 2; ++dx) {
+                                std::int32_t const sx = std::min(x * 2 + dx, source_size - 1);
+                                std::int32_t const sy = std::min(y * 2 + dy, source_size - 1);
                                 std::size_t const at = (static_cast<std::size_t>(face) * source_size * source_size + static_cast<std::size_t>(sy) * source_size + sx) * 4;
                                 sum += glm::vec4(source[at], source[at + 1], source[at + 2], source[at + 3]);
                             }
@@ -265,20 +263,20 @@ namespace deren::engine {
     // Bilinear fetch of one pyramid level, inside the face of @p dir. Filtering stops at the face
     // edge (the environment is a smooth analytic gradient and the sun disc sits well inside a
     // face, so nothing visible crosses a seam).
-    static glm::vec3 sample_cubemap_level(std::span<float const> const level, int32_t const size, glm::vec3 const& dir) {
-        int32_t face = 0;
+    static glm::vec3 sample_cubemap_level(std::span<float const> const level, std::int32_t const size, glm::vec3 const& dir) {
+        std::int32_t face = 0;
         float u = 0.0f;
         float v = 0.0f;
         cube_face_uv(dir, face, u, v);
         float const fx = std::clamp((u * 0.5f + 0.5f) * static_cast<float>(size) - 0.5f, 0.0f, static_cast<float>(size - 1));
         float const fy = std::clamp((v * 0.5f + 0.5f) * static_cast<float>(size) - 0.5f, 0.0f, static_cast<float>(size - 1));
-        int32_t const x0 = static_cast<int32_t>(fx);
-        int32_t const y0 = static_cast<int32_t>(fy);
-        int32_t const x1 = std::min(x0 + 1, size - 1);
-        int32_t const y1 = std::min(y0 + 1, size - 1);
+        std::int32_t const x0 = static_cast<std::int32_t>(fx);
+        std::int32_t const y0 = static_cast<std::int32_t>(fy);
+        std::int32_t const x1 = std::min(x0 + 1, size - 1);
+        std::int32_t const y1 = std::min(y0 + 1, size - 1);
         float const tx = fx - static_cast<float>(x0);
         float const ty = fy - static_cast<float>(y0);
-        auto const fetch = [&](int32_t const x, int32_t const y) {
+        auto const fetch = [&](std::int32_t const x, std::int32_t const y) {
             std::size_t const at = (static_cast<std::size_t>(face) * size * size + static_cast<std::size_t>(y) * size + x) * 4;
             return glm::vec3(level[at], level[at + 1], level[at + 2]);
         };
@@ -288,17 +286,17 @@ namespace deren::engine {
     }
 
     // Trilinear fetch across the pyramid: one bilinear fetch per level, blended by the fraction.
-    static glm::vec3 sample_environment_trilinear(deren::utility::vessel::vector<deren::utility::vessel::vector<float>> const& pyramid, int32_t const env_size, glm::vec3 const& dir, float const lod) {
+    static glm::vec3 sample_environment_trilinear(deren::utility::vessel::vector<deren::utility::vessel::vector<float>> const& pyramid, std::int32_t const env_size, glm::vec3 const& dir, float const lod) {
         float const clamped = std::clamp(lod, 0.0f, static_cast<float>(pyramid.size() - 1));
-        int32_t const low = static_cast<int32_t>(clamped);
-        int32_t const high = std::min(low + 1, static_cast<int32_t>(pyramid.size()) - 1);
+        std::int32_t const low = static_cast<std::int32_t>(clamped);
+        std::int32_t const high = std::min(low + 1, static_cast<std::int32_t>(pyramid.size()) - 1);
         float const blend = clamped - static_cast<float>(low);
         glm::vec3 const a = sample_cubemap_level(pyramid[static_cast<std::size_t>(low)], std::max(1, env_size >> low), dir);
         glm::vec3 const b = sample_cubemap_level(pyramid[static_cast<std::size_t>(high)], std::max(1, env_size >> high), dir);
         return glm::mix(a, b, blend);
     }
 
-    deren::utility::vessel::vector<float> prefilter_environment(std::span<float const> const env, int32_t const env_size, int32_t const mip_count) {
+    deren::utility::vessel::vector<float> prefilter_environment(std::span<float const> const env, std::int32_t const env_size, std::int32_t const mip_count) {
         // Why the samples read a source mip instead of level 0: this environment carries a hard
         // sun disc, and a narrow GGX lobe either lands on it or misses it. With 64 taps of level 0
         // a coarse level ended up with isolated texels several times brighter than the rest of the
@@ -314,18 +312,18 @@ namespace deren::engine {
         deren::utility::vessel::vector<deren::utility::vessel::vector<float>> const pyramid = build_environment_pyramid(env, env_size, mip_count);
         float const texel_solid_angle = 4.0f * k_pi / (6.0f * static_cast<float>(env_size) * static_cast<float>(env_size));
         deren::utility::vessel::vector<float> result;
-        for (int32_t mip = 0; mip < mip_count; ++mip) {
-            int32_t const mip_size = std::max(1, env_size >> mip);
+        for (std::int32_t mip = 0; mip < mip_count; ++mip) {
+            std::int32_t const mip_size = std::max(1, env_size >> mip);
             float const roughness = static_cast<float>(mip) / static_cast<float>(mip_count - 1);
             // 128 taps at the first roughness level, halved per level (32 is the floor); level 0 needs
             // none - see the comment above. That is still about the cost of the naive version this
             // replaces, because the source mips do the averaging and level 0 does no work at all.
-            uint32_t const sample_count = mip == 0 ? 1u : std::max(32u, 128u >> (mip - 1));
+            std::uint32_t const sample_count = mip == 0 ? 1u : std::max(32u, 128u >> (mip - 1));
             float const alpha = roughness * roughness;
-            deren::utility::vessel::vector<float> mip_data(static_cast<size_t>(6) * mip_size * mip_size * 4, 0.0f);
-            for (int32_t face = 0; face < 6; ++face) {
-                for (int32_t y = 0; y < mip_size; ++y) {
-                    for (int32_t x = 0; x < mip_size; ++x) {
+            deren::utility::vessel::vector<float> mip_data(static_cast<std::size_t>(6) * mip_size * mip_size * 4, 0.0f);
+            for (std::int32_t face = 0; face < 6; ++face) {
+                for (std::int32_t y = 0; y < mip_size; ++y) {
+                    for (std::int32_t x = 0; x < mip_size; ++x) {
                         float const u = (static_cast<float>(x) + 0.5f) / static_cast<float>(mip_size) * 2.0f - 1.0f;
                         float const v = (static_cast<float>(y) + 0.5f) / static_cast<float>(mip_size) * 2.0f - 1.0f;
                         glm::vec3 const n = cube_face_direction(face, u, v);
@@ -337,7 +335,7 @@ namespace deren::engine {
                         } else {
                             glm::vec3 sum(0.0f);
                             float total_weight = 0.0f;
-                            for (uint32_t i = 0; i < sample_count; ++i) {
+                            for (std::uint32_t i = 0; i < sample_count; ++i) {
                                 glm::vec3 const h = importance_sample_ggx(hammersley(i, sample_count), n, roughness);
                                 glm::vec3 const l = glm::normalize(2.0f * glm::dot(n, h) * h - n);
                                 float const ndotl = glm::dot(n, l);
@@ -358,7 +356,7 @@ namespace deren::engine {
                             }
                             color = total_weight > 0.0f ? sum / total_weight : glm::vec3(0.0f);
                         }
-                        size_t const offset = (static_cast<size_t>(face) * mip_size * mip_size + static_cast<size_t>(y) * mip_size + x) * 4;
+                        std::size_t const offset = (static_cast<std::size_t>(face) * mip_size * mip_size + static_cast<std::size_t>(y) * mip_size + x) * 4;
                         mip_data[offset + 0] = color.r;
                         mip_data[offset + 1] = color.g;
                         mip_data[offset + 2] = color.b;
@@ -371,10 +369,10 @@ namespace deren::engine {
         return result;
     }
 
-    deren::utility::vessel::vector<float> generate_irradiance_map(std::span<float const> const env, int32_t const env_size, int32_t const irr_size) {
-        deren::utility::vessel::vector<float> result(static_cast<size_t>(6) * irr_size * irr_size * 4, 0.0f);
+    deren::utility::vessel::vector<float> generate_irradiance_map(std::span<float const> const env, std::int32_t const env_size, std::int32_t const irr_size) {
+        deren::utility::vessel::vector<float> result(static_cast<std::size_t>(6) * irr_size * irr_size * 4, 0.0f);
         // Loop-invariant constant: deliberately at function scope (not inside the loops)
-        constexpr uint32_t sample_count = 512; // NOLINT (some toolchains flag the constant when scoped to the inner loop)
+        constexpr std::uint32_t sample_count = 512; // NOLINT (some toolchains flag the constant when scoped to the inner loop)
         // AREA-AVERAGED TAPS, the cure `prefilter_environment` already applies to the specular chain and
         // for the same measured reason: a point tap of level 0 either lands on a bright texel of the
         // environment or misses it, so no finite tap count converges cleanly. An irradiance texel covers a
@@ -389,9 +387,9 @@ namespace deren::engine {
         // mean luma stay where they were.
         deren::utility::vessel::vector<deren::utility::vessel::vector<float>> const pyramid = build_environment_pyramid(env, env_size, environment_pyramid_levels(env_size));
         float const texel_solid_angle = 4.0f * k_pi / (6.0f * static_cast<float>(env_size) * static_cast<float>(env_size));
-        for (int32_t face = 0; face < 6; ++face) {
-            for (int32_t y = 0; y < irr_size; ++y) {
-                for (int32_t x = 0; x < irr_size; ++x) {
+        for (std::int32_t face = 0; face < 6; ++face) {
+            for (std::int32_t y = 0; y < irr_size; ++y) {
+                for (std::int32_t x = 0; x < irr_size; ++x) {
                     float const u = (static_cast<float>(x) + 0.5f) / static_cast<float>(irr_size) * 2.0f - 1.0f;
                     float const v = (static_cast<float>(y) + 0.5f) / static_cast<float>(irr_size) * 2.0f - 1.0f;
                     glm::vec3 const n = cube_face_direction(face, u, v);
@@ -400,7 +398,7 @@ namespace deren::engine {
                     glm::vec3 const bitangent = glm::cross(n, tangent);
                     glm::vec3 sum(0.0f);
                     float total_weight = 0.0f;
-                    for (uint32_t i = 0; i < sample_count; ++i) {
+                    for (std::uint32_t i = 0; i < sample_count; ++i) {
                         glm::vec2 const xi = hammersley(i, sample_count);
                         float const phi = 2.0f * k_pi * xi.x;
                         float const cos_theta = std::sqrt(xi.y);
@@ -416,7 +414,7 @@ namespace deren::engine {
                         total_weight += cos_theta;
                     }
                     glm::vec3 const color = total_weight > 0.0f ? sum / total_weight : glm::vec3(0.0f);
-                    size_t const offset = (static_cast<size_t>(face) * irr_size * irr_size + static_cast<size_t>(y) * irr_size + x) * 4;
+                    std::size_t const offset = (static_cast<std::size_t>(face) * irr_size * irr_size + static_cast<std::size_t>(y) * irr_size + x) * 4;
                     result[offset + 0] = color.r;
                     result[offset + 1] = color.g;
                     result[offset + 2] = color.b;
@@ -427,39 +425,39 @@ namespace deren::engine {
         return result;
     }
 
-    deren::utility::vessel::vector<float> generate_brdf_lut(int32_t const size) {
-        deren::utility::vessel::vector<float> result(static_cast<size_t>(size) * size * 2);
-        for (int32_t y = 0; y < size; ++y) {
-            for (int32_t x = 0; x < size; ++x) {
+    deren::utility::vessel::vector<float> generate_brdf_lut(std::int32_t const size) {
+        deren::utility::vessel::vector<float> result(static_cast<std::size_t>(size) * size * 2);
+        for (std::int32_t y = 0; y < size; ++y) {
+            for (std::int32_t x = 0; x < size; ++x) {
                 float const ndotv = (static_cast<float>(x) + 0.5f) / static_cast<float>(size);
                 float const roughness = (static_cast<float>(y) + 0.5f) / static_cast<float>(size);
                 constexpr glm::vec4 c0(-1.0f, -0.0275f, -0.572f, 0.022f);
                 constexpr glm::vec4 c1(1.0f, 0.0425f, 1.04f, -0.04f);
                 glm::vec4 const r = roughness * c0 + c1;
                 float const a004 = std::min(r.x * r.x, std::exp2(-9.28f * ndotv)) * r.x + r.y;
-                result[static_cast<size_t>(y) * size * 2 + static_cast<size_t>(x) * 2 + 0] = -1.04f * a004 + r.z;
-                result[static_cast<size_t>(y) * size * 2 + static_cast<size_t>(x) * 2 + 1] = 1.04f * a004 + r.w;
+                result[static_cast<std::size_t>(y) * size * 2 + static_cast<std::size_t>(x) * 2 + 0] = -1.04f * a004 + r.z;
+                result[static_cast<std::size_t>(y) * size * 2 + static_cast<std::size_t>(x) * 2 + 1] = 1.04f * a004 + r.w;
             }
         }
         return result;
     }
 
-    deren::utility::vessel::vector<uint8_t> to_half_rgba(std::span<float const> const data) {
-        deren::utility::vessel::vector<uint8_t> out(data.size() * 2);
-        for (size_t i = 0; i < data.size(); ++i) {
-            uint16_t const h = float_to_half(data[i]);
-            out[i * 2 + 0] = static_cast<uint8_t>(h & 0xFFu);
-            out[i * 2 + 1] = static_cast<uint8_t>(h >> 8);
+    deren::utility::vessel::vector<std::uint8_t> to_half_rgba(std::span<float const> const data) {
+        deren::utility::vessel::vector<std::uint8_t> out(data.size() * 2);
+        for (std::size_t i = 0; i < data.size(); ++i) {
+            std::uint16_t const h = float_to_half(data[i]);
+            out[i * 2 + 0] = static_cast<std::uint8_t>(h & 0xFFu);
+            out[i * 2 + 1] = static_cast<std::uint8_t>(h >> 8);
         }
         return out;
     }
 
-    deren::utility::vessel::vector<uint8_t> to_half_rg(std::span<float const> const data) {
-        deren::utility::vessel::vector<uint8_t> out(data.size() * 2);
-        for (size_t i = 0; i < data.size(); ++i) {
-            uint16_t const h = float_to_half(data[i]);
-            out[i * 2 + 0] = static_cast<uint8_t>(h & 0xFFu);
-            out[i * 2 + 1] = static_cast<uint8_t>(h >> 8);
+    deren::utility::vessel::vector<std::uint8_t> to_half_rg(std::span<float const> const data) {
+        deren::utility::vessel::vector<std::uint8_t> out(data.size() * 2);
+        for (std::size_t i = 0; i < data.size(); ++i) {
+            std::uint16_t const h = float_to_half(data[i]);
+            out[i * 2 + 0] = static_cast<std::uint8_t>(h & 0xFFu);
+            out[i * 2 + 1] = static_cast<std::uint8_t>(h >> 8);
         }
         return out;
     }
@@ -467,27 +465,27 @@ namespace deren::engine {
     // ---- async wrappers (see math.cppm): delegate to the synchronous functions on a
     //      std::async thread; the caller consumes the future when the result is needed ----
 
-    std::future<deren::utility::vessel::vector<float>> generate_environment_cubemap_async(int32_t const size, deren::utility::vessel::array<float, 3> const sun_direction) {
+    std::future<deren::utility::vessel::vector<float>> generate_environment_cubemap_async(std::int32_t const size, deren::utility::vessel::array<float, 3> const sun_direction) {
         // The direction is captured BY VALUE: the caller's vector may be gone by the time the async thread runs.
         return std::async(std::launch::async, [size, sun_direction] { return generate_environment_cubemap(size, sun_direction); });
     }
 
-    std::future<deren::utility::vessel::vector<float>> generate_environment_cubemap_from_equirect_async(deren::utility::vessel::vector<float> equirect, int32_t const width, int32_t const height, int32_t const size, float const intensity) {
+    std::future<deren::utility::vessel::vector<float>> generate_environment_cubemap_from_equirect_async(deren::utility::vessel::vector<float> equirect, std::int32_t const width, std::int32_t const height, std::int32_t const size, float const intensity) {
         // The pixels are MOVED in, not viewed: see the declaration's note.
         return std::async(std::launch::async, [equirect = std::move(equirect), width, height, size, intensity] {
             return generate_environment_cubemap_from_equirect(equirect, width, height, size, intensity);
         });
     }
 
-    std::future<deren::utility::vessel::vector<float>> prefilter_environment_async(std::span<float const> const env, int32_t const env_size, int32_t const mip_count) {
+    std::future<deren::utility::vessel::vector<float>> prefilter_environment_async(std::span<float const> const env, std::int32_t const env_size, std::int32_t const mip_count) {
         return std::async(std::launch::async, [env, env_size, mip_count] { return prefilter_environment(env, env_size, mip_count); });
     }
 
-    std::future<deren::utility::vessel::vector<float>> generate_irradiance_map_async(std::span<float const> const env, int32_t const env_size, int32_t const irr_size) {
+    std::future<deren::utility::vessel::vector<float>> generate_irradiance_map_async(std::span<float const> const env, std::int32_t const env_size, std::int32_t const irr_size) {
         return std::async(std::launch::async, [env, env_size, irr_size] { return generate_irradiance_map(env, env_size, irr_size); });
     }
 
-    std::future<deren::utility::vessel::vector<float>> generate_brdf_lut_async(int32_t const size) {
+    std::future<deren::utility::vessel::vector<float>> generate_brdf_lut_async(std::int32_t const size) {
         return std::async(std::launch::async, [size] { return generate_brdf_lut(size); });
     }
 } // namespace deren::engine

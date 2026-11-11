@@ -8,11 +8,6 @@
 // ============================================================================
 module;
 #include <cstddef>
-#include <cstdint>
-#include <memory>
-#include <mutex>
-#include <new>
-#include <span>
 #include <vulkan/vulkan.h>
 module deren.vulkan.core;
 import deren.vstd;

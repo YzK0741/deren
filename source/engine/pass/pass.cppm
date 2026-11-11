@@ -32,9 +32,6 @@
 
 module;
 
-#include <cstddef>
-#include <cstdint>
-
 export module deren.engine.pass;
 export import deren.vstd;
 export import deren.utility.shared;
@@ -61,7 +58,7 @@ export namespace deren::engine::pass {
     // =============================================================================================
 
     /// @brief where a pass's dispatch or draw extent comes from
-    enum class extent_rule : uint8_t {
+    enum class extent_rule : std::uint8_t {
         full,     // the frame's extent
         half,     // half the frame's extent - the stochastic chain's resolution
         resource, // the extent of the resource named in `extent_of` (the probe grid is not the frame's size)
@@ -77,7 +74,7 @@ export namespace deren::engine::pass {
     };
 
     /// @brief the shape of the work: what the record step must do AROUND the pass, not what the pass computes
-    enum class behaviour_kind : uint8_t {
+    enum class behaviour_kind : std::uint8_t {
         compute,     // a dispatch: the pass records it, the extent and the workgroup size are declared
         ray_tracing, // a vkCmdTraceRaysKHR: the pass records it, the launch dims ARE the declared extent, and
                      // the graph's record step applies the same bind - only the bind POINT differs (see host_apply_behaviour)
@@ -102,9 +99,9 @@ export namespace deren::engine::pass {
      */
     struct behaviour {
         behaviour_kind kind = behaviour_kind::compute;
-        uint32_t group_size_x = 8;
-        uint32_t group_size_y = 8;
-        uint32_t group_size_z = 1;
+        std::uint32_t group_size_x = 8;
+        std::uint32_t group_size_y = 8;
+        std::uint32_t group_size_z = 1;
         extent_rule extent = extent_rule::full;
         resource_id extent_of = resource_id::none; // read only when extent == resource
         /**
@@ -119,7 +116,7 @@ export namespace deren::engine::pass {
          * the host had nothing to do with the size. The mapping from (resource, element) to an extent is the
          * HOST's - only it knows its images - so this field is carried, not interpreted here.
          */
-        uint16_t extent_of_element = 0;
+        std::uint16_t extent_of_element = 0;
         /**
          * The pipelines this pass records with, BY NAME, in the order it will use them.
          *
@@ -143,12 +140,12 @@ export namespace deren::engine::pass {
 
     /// @brief the frame a pass is being recorded in: the two counters this project has confused before
     struct frame_identity {
-        uint32_t image_index = 0; // per-swapchain-image resources (GI, TAA, the G-buffer)
-        uint32_t slot = 0;        // per-frame-slot resources (shadow maps, the light/camera buffers)
+        std::uint32_t image_index = 0; // per-swapchain-image resources (GI, TAA, the G-buffer)
+        std::uint32_t slot = 0;        // per-frame-slot resources (shadow maps, the light/camera buffers)
         /// how many swapchain images THIS generation has, which is not the same number as `image_index` and
         /// is what a pass with per-image bindings sizes it from. The passes that have them need it,
         /// and it is the kind of fact that used to be reachable only from inside `deren.engine.runtime`
-        uint32_t image_count = 0;
+        std::uint32_t image_count = 0;
         deren::promise::rhi::image_extent extent = {};
     };
 
@@ -171,18 +168,18 @@ export namespace deren::engine::pass {
     /**
      * @brief how many dedicated bindings one pass may resolve (the most any pass declares today)
      */
-    inline constexpr uint32_t max_local_bindings = 16;
+    inline constexpr std::uint32_t max_local_bindings = 16;
     /// @brief how many pipelines one pass may name (the post chain's five are the most today)
-    inline constexpr uint32_t max_pass_pipelines = 8;
+    inline constexpr std::uint32_t max_pass_pipelines = 8;
     /// @brief how many images one pass may render into (one fullscreen pass has one; the deferred scene has five,
     ///        and the shadow pass's cascade RUN is the widest single declaration at four)
-    inline constexpr uint32_t max_render_targets = 8;
+    inline constexpr std::uint32_t max_render_targets = 8;
     /// @brief how many images one pass may declare for its transitions (the most any pass declares today)
-    inline constexpr uint32_t max_barrier_images = 16;
+    inline constexpr std::uint32_t max_barrier_images = 16;
     /// @brief how many BUFFERS one pass may declare for its ordering (the cluster sort's two are the only ones today)
-    inline constexpr uint32_t max_barrier_buffers = 8;
+    inline constexpr std::uint32_t max_barrier_buffers = 8;
     /// @brief the largest push block a pass may declare: the 128 bytes Vulkan guarantees
-    inline constexpr uint32_t max_push_bytes = 128;
+    inline constexpr std::uint32_t max_push_bytes = 128;
 
     /**
      * @brief what a pass is given: its declaration, resolved
@@ -246,13 +243,13 @@ export namespace deren::engine::pass {
          */
         struct push_endpoint {
             void* parent = nullptr;
-            bool (*push)(void* parent, deren::promise::rhi::command_buffer& command_buffer, std::span<std::byte const> bytes, uint32_t extra_lane) = nullptr;
+            bool (*push)(void* parent, deren::promise::rhi::command_buffer& command_buffer, std::span<std::byte const> bytes, std::uint32_t extra_lane) = nullptr;
 
             /// @param command_buffer the command buffer the block is sent on
             /// @param bytes the stage's push block, with the heap index lanes already appended
             /// @param extra_lane the POST chain's source slot, which only that chain's passes can name; every
             ///        other stage leaves it 0 and its shader does not declare the third field at all.
-            [[nodiscard]] bool operator()(deren::promise::rhi::command_buffer& command_buffer, std::span<std::byte const> bytes, uint32_t extra_lane = 0u) const {
+            [[nodiscard]] bool operator()(deren::promise::rhi::command_buffer& command_buffer, std::span<std::byte const> bytes, std::uint32_t extra_lane = 0u) const {
                 return this->push != nullptr && this->push(this->parent, command_buffer, bytes, extra_lane);
             }
         };
@@ -418,7 +415,7 @@ export namespace deren::engine::pass {
          * The extent of a resource element the behaviour named (`extent_rule::resource`), or {0,0} for an
          * element the renderer does not have - only the renderer knows its images' sizes
          */
-        deren::promise::rhi::image_extent (*extent_of)(void* parent, render_resource::resource_id id, uint32_t element) = nullptr;
+        deren::promise::rhi::image_extent (*extent_of)(void* parent, render_resource::resource_id id, std::uint32_t element) = nullptr;
         /// the pipeline a `behaviour::pipelines` NAME refers to, or all-null when the renderer has none
         pipeline_ref (*pipeline)(void* parent, std::string_view name) = nullptr;
         /// what every lookup above is called with
@@ -469,7 +466,7 @@ export namespace deren::engine::pass {
          * this renderer the app loads them and hands them over), which keeps a path and a file format out of
          * this framework.
          */
-        std::span<uint8_t const> (*shader)(void* parent, std::string_view name) = nullptr;
+        std::span<std::uint8_t const> (*shader)(void* parent, std::string_view name) = nullptr;
         /**
          * The three numbers a SHADER BINDING TABLE is built against: the handle size, the base alignment of a
          * region's device address and the alignment of a handle inside a region. THEY ARE THE CONTRACT'S TYPE
@@ -498,8 +495,8 @@ export namespace deren::engine::pass {
          * when the renderer could not create the buffer, which is the same "named failure" the flags mapping used to
          * raise.
          */
-        deren::promise::rhi::buffer* (*create_upload_buffer)(void* parent, void const* data, uint64_t bytes, deren::promise::rhi::buffer_flags flags,
-                                                             uint64_t* out_address) = nullptr;
+        deren::promise::rhi::buffer* (*create_upload_buffer)(void* parent, void const* data, std::uint64_t bytes, deren::promise::rhi::buffer_flags flags,
+                                                             std::uint64_t* out_address) = nullptr;
         /**
          * The SURFACE's format, which is a session-stable device fact rather than a frame's.
          *
@@ -552,7 +549,7 @@ export namespace deren::engine::pass {
          * exactly that reason. A pass that cached one of those here would be storing a handle its
          * `on_swapchain_recreated` cannot repair.
          */
-        resolved_binding (*resource)(void* parent, render_resource::resource_id id, uint32_t element) = nullptr;
+        resolved_binding (*resource)(void* parent, render_resource::resource_id id, std::uint32_t element) = nullptr;
         /**
          * How many frames the renderer has in flight - the number of per-frame-slot resources it will publish.
          *
@@ -560,7 +557,7 @@ export namespace deren::engine::pass {
          * looping until a slot answers with nothing - makes "the renderer has three slots" and "this provider forgot
          * to publish the fourth" the same statement.
          */
-        uint32_t frames_in_flight = 0;
+        std::uint32_t frames_in_flight = 0;
         /// what the lookups above are called with (the renderer passes itself)
         void* parent = nullptr;
     };
@@ -740,7 +737,7 @@ export namespace deren::engine::pass {
         /// the composed `gbuffer-debug` answer (see the note above), which is what suppresses the bloom sum
         bool debug_view = false;
         /// the clustered lighting's bin count, which is the sort's only input beyond its dispatch
-        uint32_t cluster_count = 0;
+        std::uint32_t cluster_count = 0;
     };
 
     // =============================================================================================
@@ -841,7 +838,7 @@ export namespace deren::engine::pass {
         virtual void set_rt_reflection_strength([[maybe_unused]] float strength) noexcept {
         }
         /// @brief the traced-reflection ray count per pixel (only the reflection trace pass acts on it)
-        virtual void set_rt_reflection_samples([[maybe_unused]] uint32_t samples) noexcept {
+        virtual void set_rt_reflection_samples([[maybe_unused]] std::uint32_t samples) noexcept {
         }
         /// @brief select the denoiser's output rather than the raw trace (only the lighting stage acts on it)
         virtual void set_reflection_denoised([[maybe_unused]] bool enabled) noexcept {
@@ -937,8 +934,8 @@ export namespace deren::engine::pass {
      * anything if it can be checked - and checked without a device.
      */
     struct run_report {
-        uint32_t created = 0;
-        uint32_t recreated = 0;
+        std::uint32_t created = 0;
+        std::uint32_t recreated = 0;
         /// the name of the pass whose declaration the record step refused; empty when the stage was built
         std::string_view rejected = {};
     };
@@ -1018,7 +1015,7 @@ export namespace deren::engine::pass {
      * @param frame the frame being recorded
      * @return the instance index to use as the table's third key field
      */
-    [[nodiscard]] constexpr uint32_t instance_for(render_resource::resource_scope const scope, frame_identity const& frame) noexcept {
+    [[nodiscard]] constexpr std::uint32_t instance_for(render_resource::resource_scope const scope, frame_identity const& frame) noexcept {
         switch (scope) {
         case render_resource::resource_scope::per_swapchain_image:
             return frame.image_index;
@@ -1070,7 +1067,7 @@ export namespace deren::engine::pass {
          * @param image_handles one contract image per instance, in instance order (empty = nothing published)
          * @param view_handles the views behind them, in the same order (a buffer family passes an empty span)
          */
-        void publish_family(render_resource::resource_id const id, uint32_t const element,
+        void publish_family(render_resource::resource_id const id, std::uint32_t const element,
                             std::span<deren::promise::rhi::image* const> image_handles = {},
                             std::span<deren::promise::rhi::image_view* const> view_handles = {}) noexcept {
             if (image_handles.empty() && view_handles.empty()) {
@@ -1095,7 +1092,7 @@ export namespace deren::engine::pass {
          * @note publishing the same key twice REPLACES it, so a frame that re-publishes an alias (or a provider
          *       that publishes in two passes) ends with the last value rather than with two entries
          */
-        void publish(render_resource::resource_id const id, uint32_t const element, uint32_t const instance, resolved_binding const& binding) noexcept {
+        void publish(render_resource::resource_id const id, std::uint32_t const element, std::uint32_t const instance, resolved_binding const& binding) noexcept {
             for (entry& e : this->entries) {
                 if (e.id == id && e.element == element && e.instance == instance) {
                     e.binding = binding;
@@ -1114,7 +1111,7 @@ export namespace deren::engine::pass {
          *       is published per frame (the TAA input or the HDR image), while the families around it are
          *       published once per frame from the renderer's arrays
          */
-        [[nodiscard]] resolved_binding find(render_resource::resource_id const id, uint32_t const element, uint32_t const instance) const noexcept {
+        [[nodiscard]] resolved_binding find(render_resource::resource_id const id, std::uint32_t const element, std::uint32_t const instance) const noexcept {
             for (entry const& e : this->entries) {
                 if (e.id == id && e.element == element && e.instance == instance) {
                     return e.binding;
@@ -1143,7 +1140,7 @@ export namespace deren::engine::pass {
         /// THE PER-IMAGE CHANNEL SPEAKS CONTRACT VIEWS NOW (plan X5 B2): it used to be a run of `VkImageView`,
         /// which is the lane this batch removes - a pass with a per-image family reaches its other images
         /// through the recording face's verbs, and those take these handles.
-        [[nodiscard]] std::span<deren::promise::rhi::image_view* const> views_of(render_resource::resource_id const id, uint32_t const element) const noexcept {
+        [[nodiscard]] std::span<deren::promise::rhi::image_view* const> views_of(render_resource::resource_id const id, std::uint32_t const element) const noexcept {
             for (family_entry const& f : this->families) {
                 if (f.id == id && f.element == element) {
                     return f.view_handles;
@@ -1153,13 +1150,13 @@ export namespace deren::engine::pass {
         }
 
         /// @brief how many things are published (a diagnostic: what a frame published, and what a test pins)
-        [[nodiscard]] uint32_t size() const noexcept {
-            return static_cast<uint32_t>(this->entries.size() + this->families.size());
+        [[nodiscard]] std::uint32_t size() const noexcept {
+            return static_cast<std::uint32_t>(this->entries.size() + this->families.size());
         }
 
         /// @brief how many instances of one (resource, element) are published - 0 when the renderer has none
-        [[nodiscard]] uint32_t instances_of(render_resource::resource_id const id, uint32_t const element) const noexcept {
-            uint32_t count = 0;
+        [[nodiscard]] std::uint32_t instances_of(render_resource::resource_id const id, std::uint32_t const element) const noexcept {
+            std::uint32_t count = 0;
             for (entry const& e : this->entries) {
                 if (e.id == id && e.element == element) {
                     ++count;
@@ -1167,7 +1164,7 @@ export namespace deren::engine::pass {
             }
             for (family_entry const& f : this->families) {
                 if (f.id == id && f.element == element) {
-                    count += static_cast<uint32_t>(std::max(f.view_handles.size(), f.image_handles.size()));
+                    count += static_cast<std::uint32_t>(std::max(f.view_handles.size(), f.image_handles.size()));
                 }
             }
             return count;
@@ -1176,8 +1173,8 @@ export namespace deren::engine::pass {
     private:
         struct entry {
             render_resource::resource_id id = render_resource::resource_id::none;
-            uint32_t element = 0;
-            uint32_t instance = 0;
+            std::uint32_t element = 0;
+            std::uint32_t instance = 0;
             resolved_binding binding = {};
         };
         /// one family element, kept as the run of views and images the renderer already has (see publish_family)
@@ -1192,7 +1189,7 @@ export namespace deren::engine::pass {
         /// empty means "the renderer has not published them", which the resolve-side check reports.
         struct family_entry {
             render_resource::resource_id id = render_resource::resource_id::none;
-            uint32_t element = 0;
+            std::uint32_t element = 0;
             // (the raw `views`/`images` spans stood here until plan X5 B2: the contract columns below are the
             //  only ones now, which is why `publish_family` no longer takes the native pair at all.)
             /// one contract image per instance (empty = not published yet)
@@ -1310,7 +1307,7 @@ export namespace deren::engine::pass {
         out.push = {}; // a push block is composed by the pass that pushes it
 
         // ---- the pass's bindings, indexed by their binding number ----
-        uint32_t local_count = 0;
+        std::uint32_t local_count = 0;
         for (render_resource::pass_binding const& binding : declaration.bindings) {
             if (binding.parent != render_resource::binding_scope::local) {
                 continue;
@@ -1324,7 +1321,7 @@ export namespace deren::engine::pass {
                 return false; // this frame does not have it: do not record the pass at all
             }
             out.local_storage[binding.binding] = handles;
-            local_count = std::max(local_count, static_cast<uint32_t>(binding.binding) + 1u);
+            local_count = std::max(local_count, static_cast<std::uint32_t>(binding.binding) + 1u);
         }
         out.local = std::span<resolved_binding const>(out.local_storage.data(), local_count);
         // THE PER-IMAGE CHANNEL: for a dedicated binding whose resource is per SWAPCHAIN IMAGE, every image's view -
@@ -1344,13 +1341,13 @@ export namespace deren::engine::pass {
         }
 
         // ---- the targets, in declaration order, a RUN expanding to one slot per element ----
-        uint32_t slot = 0;
+        std::uint32_t slot = 0;
         for (render_resource::render_target const& target : declaration.targets) {
             render_resource::resource_info const* const info = render_resource::find(target.resource);
             if (info == nullptr) {
                 return false;
             }
-            for (uint16_t i = 0; i < target.count; ++i) {
+            for (std::uint16_t i = 0; i < target.count; ++i) {
                 if (slot >= out.target_storage.size()) {
                     return false; // more targets than the fixed storage: the declaration outgrew the framework
                 }

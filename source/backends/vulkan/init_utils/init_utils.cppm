@@ -29,8 +29,6 @@
 // ============================================================================
 module;
 
-#include <cstddef>
-#include <cstdint>
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.init_utils;
@@ -104,7 +102,7 @@ namespace deren::vulkan::init_utils {
      *       loop by every caller
      */
     export void create_host_buffers(core& device,
-                                    uint32_t slots,
+                                    std::uint32_t slots,
                                     std::span<std::byte const> initial,
                                     buffer_type type,
                                     std::string_view what,

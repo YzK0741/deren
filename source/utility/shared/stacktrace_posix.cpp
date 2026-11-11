@@ -1,13 +1,9 @@
 // Signal reporting is deliberately smaller than healthy-context stack diagnostics.
 #ifndef _WIN32
+import deren.vstd;
 #include "stacktrace_native.hpp"
 
-#include <algorithm>
-#include <cerrno>
 #include <csignal>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
 #include <fcntl.h>
 #include <poll.h>
 #include <spawn.h>

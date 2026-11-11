@@ -1,8 +1,8 @@
 module;
 #include "cut_closure.hpp"
 
-#include <cstddef>
-#include <cstdint>
+
+
 module deren.asset.subtilis.dag;
 import deren.vstd;
 namespace deren::asset::subtilis {
@@ -12,9 +12,9 @@ namespace deren::asset::subtilis {
         }
         array<double, 16> multiply(array<float, 16> const& a, array<float, 16> const& b) {
             array<double, 16> out{};
-            for (size_t col = 0; col < 4; ++col) {
-                for (size_t row = 0; row < 4; ++row) {
-                    for (size_t k = 0; k < 4; ++k) {
+            for (std::size_t col = 0; col < 4; ++col) {
+                for (std::size_t row = 0; row < 4; ++row) {
+                    for (std::size_t k = 0; k < 4; ++k) {
                         out[col * 4 + row] += static_cast<double>(a[k * 4 + row]) * b[col * 4 + k];
                     }
                 }
@@ -23,9 +23,9 @@ namespace deren::asset::subtilis {
         }
         double scale_bound(array<double, 16> const& m) {
             double one = 0, inf = 0;
-            for (size_t i = 0; i < 3; ++i) {
+            for (std::size_t i = 0; i < 3; ++i) {
                 double col = 0, row = 0;
-                for (size_t j = 0; j < 3; ++j) {
+                for (std::size_t j = 0; j < 3; ++j) {
                     col += std::abs(m[i * 4 + j]);
                     row += std::abs(m[j * 4 + i]);
                 }
@@ -48,10 +48,10 @@ namespace deren::asset::subtilis {
             return 0;
         }
     } // namespace
-    result<vector<uint32_t>> select_cut(validated_asset const& asset, cut_parameters const& parameters) {
+    result<vector<std::uint32_t>> select_cut(validated_asset const& asset, cut_parameters const& parameters) {
         auto const& p = asset.data();
         auto const& v = parameters;
-        auto fallback = [&]() -> result<vector<uint32_t>> {
+        auto fallback = [&]() -> result<vector<std::uint32_t>> {
             if (p.leaves.size() > v.max_clusters) {
                 return std::unexpected(error{error_code::capacity, "complete LOD0 exceeds cut capacity", {}, {}});
             }
@@ -80,7 +80,7 @@ namespace deren::asset::subtilis {
             return fallback();
         }
         vector<bool> coarsen(p.groups.size(), false);
-        for (uint32_t id = 0; id < p.groups.size(); ++id) {
+        for (std::uint32_t id = 0; id < p.groups.size(); ++id) {
             auto const& g = p.groups[id];
             double metric = g.error;
             if (kind) {
@@ -97,8 +97,8 @@ namespace deren::asset::subtilis {
             coarsen[id] = std::isfinite(metric) && metric <= static_cast<double>(v.threshold);
         }
         detail::close_coarsening(p, coarsen);
-        vector<uint32_t> selected;
-        for (uint32_t id = 0; id < p.clusters.size(); ++id) {
+        vector<std::uint32_t> selected;
+        for (std::uint32_t id = 0; id < p.clusters.size(); ++id) {
             auto const& c = p.clusters[id];
             if ((c.producer == none || coarsen[c.producer]) && (c.consumer == none || !coarsen[c.consumer])) {
                 selected.push_back(id);

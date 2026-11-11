@@ -1,7 +1,5 @@
 module;
 
-#include <cstdint> // ::uint64_t (used unqualified below)
-
 export module deren.vulkan.core:vma_handles;
 
 import deren.vstd;
@@ -40,9 +38,9 @@ namespace deren::vulkan {
          * @brief adopt one share of @p handle; @p add_use / @p release adjust the
          *        allocator's count (injected by vma_allocator::create_buffer)
          */
-        explicit vk_buffer(uint64_t handle,
-                           std::function<void(uint64_t)> add_use,
-                           std::function<void(uint64_t)> release) noexcept
+        explicit vk_buffer(std::uint64_t handle,
+                           std::function<void(std::uint64_t)> add_use,
+                           std::function<void(std::uint64_t)> release) noexcept
             : native_handle{handle}
             , add_use_fn{std::move(add_use)}
             , release_fn{std::move(release)} {
@@ -93,7 +91,7 @@ namespace deren::vulkan {
         }
 
         /** @brief the underlying allocator handle (0 = empty) */
-        [[nodiscard]] uint64_t handle() const noexcept {
+        [[nodiscard]] std::uint64_t handle() const noexcept {
             return this->native_handle;
         }
 
@@ -121,9 +119,9 @@ namespace deren::vulkan {
         // called add_use_fn, not add_use: the add_use parameter of the constructor would hide a member of that name and
         // MSVC /W4 reports C4458, an error under /WX
         // called release_fn, not release: the release() method of this class would collide with a member of that name
-        uint64_t native_handle = 0;
-        std::function<void(uint64_t)> add_use_fn = {};
-        std::function<void(uint64_t)> release_fn = {};
+        std::uint64_t native_handle = 0;
+        std::function<void(std::uint64_t)> add_use_fn = {};
+        std::function<void(std::uint64_t)> release_fn = {};
     };
 
     /**
@@ -135,9 +133,9 @@ namespace deren::vulkan {
     public:
         vk_image() noexcept = default;
 
-        explicit vk_image(uint64_t handle,
-                          std::function<void(uint64_t)> add_use,
-                          std::function<void(uint64_t)> release) noexcept
+        explicit vk_image(std::uint64_t handle,
+                          std::function<void(std::uint64_t)> add_use,
+                          std::function<void(std::uint64_t)> release) noexcept
             : native_handle{handle}
             , add_use_fn{std::move(add_use)}
             , release_fn{std::move(release)} {
@@ -188,7 +186,7 @@ namespace deren::vulkan {
         }
 
         /** @brief the underlying allocator handle (0 = empty) */
-        [[nodiscard]] uint64_t handle() const noexcept {
+        [[nodiscard]] std::uint64_t handle() const noexcept {
             return this->native_handle;
         }
 
@@ -216,8 +214,8 @@ namespace deren::vulkan {
         // called add_use_fn, not add_use: the add_use parameter of the constructor would hide a member of that name and
         // MSVC /W4 reports C4458, an error under /WX
         // called release_fn, not release: the release() method of this class would collide with a member of that name
-        uint64_t native_handle = 0;
-        std::function<void(uint64_t)> add_use_fn = {};
-        std::function<void(uint64_t)> release_fn = {};
+        std::uint64_t native_handle = 0;
+        std::function<void(std::uint64_t)> add_use_fn = {};
+        std::function<void(std::uint64_t)> release_fn = {};
     };
 } // namespace deren::vulkan

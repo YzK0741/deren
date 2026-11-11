@@ -1,5 +1,9 @@
 #pragma once
 
+#include <cstdint>
+
+#include <limits>
+
 inline void check_lazy_resource_contract(rhi::api_core& core) {
     using bytes = deren::utility::vessel::vector<std::uint8_t>;
     auto source = std::make_shared<bytes const>(64, std::uint8_t{23});
@@ -53,7 +57,7 @@ inline void check_lazy_resource_contract(rhi::api_core& core) {
     auto view = (*image)->make_view({});
     CHECK(view);
     CHECK((*image)->state() == rhi::lazy_state::unloaded);
-    CHECK(!(*image)->make_view({.base_mip = UINT32_MAX}));
+    CHECK(!(*image)->make_view({.base_mip = std::numeric_limits<std::uint32_t>::max()}));
     auto* host_copy = rhi::query_extension<rhi::host_image_copy>(core);
     std::array<std::byte, 16> copied{};
     if (host_copy) {

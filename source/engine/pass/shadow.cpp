@@ -8,8 +8,6 @@
 
 module;
 
-#include <cstddef>
-#include <cstdint>
 module deren.engine.pass.shadow;
 import deren.vstd;
 import deren.utility.shared;
@@ -60,7 +58,7 @@ namespace deren::engine::pass {
         if (this->mesh_pipeline.has_value()) {
             return; // already built for this device
         }
-        std::span<uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.parent, fragment_shader_name) : std::span<uint8_t const>{};
+        std::span<std::uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.parent, fragment_shader_name) : std::span<std::uint8_t const>{};
         // ---- THE VERTEX FORM IS GONE (docs/mesh_shaders.md step 4): the pass's geometry arrives through a MESH
         // stage, so the vertex module is neither loaded nor registered anywhere, and the mesh one is REQUIRED. A
         // device without VK_EXT_mesh_shader does not reach here at all (the runtime refuses to start), which is why
@@ -73,7 +71,7 @@ namespace deren::engine::pass {
             deren::utility::log("shadow disabled: the device has no mesh shaders, and the vertex form is gone (docs/mesh_shaders.md step 4)");
             return;
         }
-        std::span<uint8_t const> const mesh_spirv = context.shader != nullptr ? context.shader(context.parent, mesh_shader_name) : std::span<uint8_t const>{};
+        std::span<std::uint8_t const> const mesh_spirv = context.shader != nullptr ? context.shader(context.parent, mesh_shader_name) : std::span<std::uint8_t const>{};
         if (mesh_spirv.empty()) {
             deren::utility::log("shadow disabled: the parent has no {}", mesh_shader_name);
             return;
@@ -92,7 +90,7 @@ namespace deren::engine::pass {
         deren::utility::log("SUCCESS: shadow MESH pipeline created (the depth-only pass, fed by mesh dispatches)");
         // ---- ... and the MESHLET form (docs/mesh_shaders.md step 3): only the MESH module differs (same fragment
         // stage), and a missing shader or a refusal is a log line - the mesh form above is a complete answer.
-        std::span<uint8_t const> const meshlet_spirv = context.shader != nullptr ? context.shader(context.parent, meshlet_shader_name) : std::span<uint8_t const>{};
+        std::span<std::uint8_t const> const meshlet_spirv = context.shader != nullptr ? context.shader(context.parent, meshlet_shader_name) : std::span<std::uint8_t const>{};
         if (!meshlet_spirv.empty()) {
             if (auto meshlet_built = pipelines::build_shadow(*context.face, rhi::image_format::depth, create_bias_constant, create_bias_slope, create_bias_clamp, meshlet_spirv, fragment_spirv, rhi::shader_stage::mesh)) {
                 this->meshlet_pipeline = std::move(*meshlet_built);
@@ -171,7 +169,7 @@ namespace deren::engine::pass {
         // (render_resource::shadow_targets) and the FRAME caps it at the layers the image actually has - so the
         // two counts meet here. The secondaries are the frame's count, and they are what decides how many
         // layers this frame renders: a cascade with no secondary to record into is not rendered at all.
-        uint32_t const layers = static_cast<uint32_t>(std::min<std::size_t>(this->pass_frame.cascades.size(), io.targets.size()));
+        std::uint32_t const layers = static_cast<std::uint32_t>(std::min<std::size_t>(this->pass_frame.cascades.size(), io.targets.size()));
         if (layers == 0u) {
             return;
         }
@@ -191,7 +189,7 @@ namespace deren::engine::pass {
         deren::utility::vessel::vector<std::function<void()>> tasks;
         tasks.reserve(layers);
         deren::utility::vessel::vector<bool> recorded(layers, false);
-        for (uint32_t cascade = 0; cascade < layers; ++cascade) {
+        for (std::uint32_t cascade = 0; cascade < layers; ++cascade) {
             tasks.emplace_back([this, cascade, pipeline, mesh_stage, meshlets, &recorded] {
                 // THE CASCADE'S SECONDARY IS A CONTRACT HANDLE NOW (abi 20), REFERENCED from the frame: the
                 // callback begins and ends it through the contract, so no raw handle is named here at all.
@@ -206,7 +204,7 @@ namespace deren::engine::pass {
 
         // ---- ONE INSTANCE PER CASCADE, in the primary ----
         rhi::image_extent const map_extent = {this->pass_frame.map_size, this->pass_frame.map_size};
-        for (uint32_t cascade = 0; cascade < layers; ++cascade) {
+        for (std::uint32_t cascade = 0; cascade < layers; ++cascade) {
             rhi::image_view* layer_view = io.targets[cascade].view_handle;
             rhi::image* layer_image = io.targets[cascade].image_handle;
             if (managed) {

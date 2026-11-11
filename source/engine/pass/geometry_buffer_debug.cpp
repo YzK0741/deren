@@ -6,7 +6,6 @@
 
 module;
 
-#include <cstdint>
 module deren.engine.pass.geometry_buffer_debug;
 import deren.vstd;
 import deren.utility.shared;
@@ -53,8 +52,8 @@ namespace deren::engine::pass {
         if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
-        std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.parent, vertex_shader_name) : std::span<uint8_t const>{};
-        std::span<uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.parent, fragment_shader_name) : std::span<uint8_t const>{};
+        std::span<std::uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.parent, vertex_shader_name) : std::span<std::uint8_t const>{};
+        std::span<std::uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.parent, fragment_shader_name) : std::span<std::uint8_t const>{};
         if (vertex_spirv.empty() || fragment_spirv.empty()) {
             deren::utility::log("gbuffer debug view disabled: the parent has no {} or {}", vertex_shader_name, fragment_shader_name);
             return;
@@ -83,13 +82,13 @@ namespace deren::engine::pass {
         return this->pass_pipeline.has_value() ? this->pass_pipeline->contract : nullptr;
     }
 
-    void gbuffer_debug_pass::set_channel(int32_t const channel) noexcept {
+    void gbuffer_debug_pass::set_channel(std::int32_t const channel) noexcept {
         // The clamp came with the parameter: the count is the declaration's `gbuffer_channel_count`, and a
         // channel outside it would index the shader's switch by a value it does not know.
         this->debug_channel = std::clamp(channel, 0, channel_count - 1);
     }
 
-    int32_t gbuffer_debug_pass::channel() const noexcept {
+    std::int32_t gbuffer_debug_pass::channel() const noexcept {
         return this->debug_channel;
     }
 

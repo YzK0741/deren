@@ -50,10 +50,10 @@ int main() {
     reject([](auto& x) { std::swap(x.data.indices[0], x.data.indices[1]); });                                                     // leaf winding
     reject([](auto& x) { x.data.indices[x.data.clusters[8].first_index] = x.data.indices[x.data.clusters[8].first_index + 1]; }); // broken boundary/degenerate face
     reject([](auto& x) { x.source.positions[0][0] = .01f; });                                                                     // stale source binding
-    reject([](auto& x) { x.data.groups[0].fine_count = UINT32_MAX; });
-    reject([](auto& x) { x.data.clusters[0].index_count = UINT32_MAX; });
+    reject([](auto& x) { x.data.groups[0].fine_count = std::numeric_limits<std::uint32_t>::max(); });
+    reject([](auto& x) { x.data.clusters[0].index_count = std::numeric_limits<std::uint32_t>::max(); });
     reject([](auto& x) { x.data.leaves[1] = 0; });
-    reject([](auto& x) { x.data.references.push_back(UINT32_MAX); }); // even unused reference cells carry cluster IDs
+    reject([](auto& x) { x.data.references.push_back(std::numeric_limits<std::uint32_t>::max()); }); // even unused reference cells carry cluster IDs
     reject([](auto& x) { x.data.groups[0].error = std::numeric_limits<float>::quiet_NaN(); });
     reject([](auto& x) { for(auto& c:x.data.clusters){ c.geometry.radius=std::sqrt(2.f);
 } }); // f32 sqrt rounds inward

@@ -34,11 +34,8 @@
 //     device and the swapchain are.
 // ============================================================================
 module;
-#include <algorithm>
+
 #include <cstddef>
-#include <cstdint>
-#include <cstdlib>
-#include <memory> // std::shared_ptr: the backend's INTERNAL share of a concrete command buffer (the contract hands out shared_object)
 #include <vulkan/vulkan.h>
 
 module deren.vulkan.core;
@@ -470,8 +467,8 @@ namespace deren::vulkan {
         [[nodiscard]] deren::promise::rhi::image_view_desc sanitize_image_view_desc(deren::promise::rhi::image_view_desc const& desc) {
             using rhi_view_desc = deren::promise::rhi::image_view_desc;
 
-            uint32_t const declared = desc.struct_size;
-            constexpr uint32_t known = static_cast<uint32_t>(sizeof(rhi_view_desc));
+            std::uint32_t const declared = desc.struct_size;
+            constexpr std::uint32_t known = static_cast<std::uint32_t>(sizeof(rhi_view_desc));
             if (declared != known) {
                 deren::utility::log("core: the RHI image_view_desc is {} B here and {} B in the caller -> only the caller's declared prefix is read",
                                     known, declared);
@@ -739,7 +736,7 @@ namespace deren::vulkan {
         }
         auto const capacity = this->parent->resource.descriptor_heaps.resource_size();
         auto const stride = this->parent->resource.descriptor_heaps.descriptor_stride(type);
-        if (info.address == 0 || info.size == 0 || info.size > UINT64_MAX - info.address ||
+        if (info.address == 0 || info.size == 0 || info.size > std::numeric_limits<std::uint64_t>::max() - info.address ||
             info.offset > capacity || stride > capacity - info.offset) {
             return rhi::error::invalid_argument;
         }
@@ -932,8 +929,8 @@ namespace deren::vulkan {
                        (desc.mip_count && desc.mip_count > mip_levels - desc.base_mip))) {
             return nullptr;
         }
-        uint32_t const layers = desc.layer_count == 0 ? this->array_layers - desc.base_layer : desc.layer_count;
-        uint32_t const mips = desc.mip_count == 0 ? this->mip_levels - desc.base_mip : desc.mip_count;
+        std::uint32_t const layers = desc.layer_count == 0 ? this->array_layers - desc.base_layer : desc.layer_count;
+        std::uint32_t const mips = desc.mip_count == 0 ? this->mip_levels - desc.base_mip : desc.mip_count;
         if (desc.base_layer >= this->array_layers || layers == 0 || desc.base_layer + layers > this->array_layers) {
             deren::utility::log("rhi: make_view refused: layer range [{} + {}) outside the image's {}", desc.base_layer, layers, this->array_layers);
             return nullptr;
@@ -1078,7 +1075,7 @@ namespace deren::vulkan {
             return nullptr;
         }
         std::optional<vk_shader_module> module = ::deren::vulkan::make_shader_module(
-            std::span<uint8_t const>(reinterpret_cast<uint8_t const*>(desc.compute_code.data()), desc.compute_code.size()),
+            std::span<std::uint8_t const>(reinterpret_cast<std::uint8_t const*>(desc.compute_code.data()), desc.compute_code.size()),
             this->device.logical_device);
         if (!module.has_value()) {
             deren::utility::log("rhi: create_pipeline {} refused: vkCreateShaderModule failed", what);
@@ -1237,7 +1234,7 @@ namespace deren::vulkan {
                 return nullptr;
             }
             modules[index] = ::deren::vulkan::make_shader_module(
-                std::span<uint8_t const>(reinterpret_cast<uint8_t const*>(declared.code.data()), declared.code.size()), this->device.logical_device);
+                std::span<std::uint8_t const>(reinterpret_cast<std::uint8_t const*>(declared.code.data()), declared.code.size()), this->device.logical_device);
             if (!modules[index].has_value()) {
                 deren::utility::log("rhi: create_pipeline {} refused: vkCreateShaderModule failed for ray-tracing stage {}", what, index);
                 return nullptr;
@@ -1811,8 +1808,8 @@ namespace deren::vulkan {
         // this implementation: the presentation image is what it is. A range outside it is refused, not
         // clamped - the same rule `core::image::make_view` follows, for the same reason (a clamped view
         // samples something the caller did not ask for and says nothing).
-        uint32_t const layers = desc.layer_count == 0 ? 1u : desc.layer_count;
-        uint32_t const mips = desc.mip_count == 0 ? 1u : desc.mip_count;
+        std::uint32_t const layers = desc.layer_count == 0 ? 1u : desc.layer_count;
+        std::uint32_t const mips = desc.mip_count == 0 ? 1u : desc.mip_count;
         if (desc.base_layer != 0u || layers != 1u || desc.base_mip != 0u || mips != 1u) {
             deren::utility::log("rhi: make_view on the frame image refused: it is a single-layer, single-mip image "
                                 "(asked for layer {} + {}, mip {} + {})",

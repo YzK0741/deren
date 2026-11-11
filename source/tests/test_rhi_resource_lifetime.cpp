@@ -10,6 +10,9 @@ import deren.promise.rhi;
 import deren.vulkan.core_support;
 namespace rhi = deren::promise::rhi;
 #include "lazy_loading_contract.hpp"
+
+#include <cstdint>
+#include <limits>
 static_assert(requires(rhi::resource_factory& resources, rhi::resource_group_desc const& desc) {
     resources.create_resource_group(desc);
 });
@@ -28,7 +31,7 @@ template <class T>
 concept heap_push_limit = requires { &T::max_push_data; };
 static_assert(!heap_push_limit<rhi::descriptor_heap_properties>);
 static_assert(rhi::validate_push_constants_range(0, 4, 4) == rhi::error::ok);
-static_assert(rhi::validate_push_constants_range(4, UINT64_MAX, 8) == rhi::error::invalid_argument);
+static_assert(rhi::validate_push_constants_range(4, std::numeric_limits<std::uint64_t>::max(), 8) == rhi::error::invalid_argument);
 template <class T>
 concept reserved_query_factory = requires { &T::create_query; };
 template <class T>

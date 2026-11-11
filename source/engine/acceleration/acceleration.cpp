@@ -1,7 +1,5 @@
 module;
-#include <cstddef>
-#include <cstdint>
-#include <cstring>
+
 #include <glm/glm.hpp>
 module deren.engine.acceleration_structure;
 import deren.vstd;
@@ -48,7 +46,7 @@ namespace deren::engine::acceleration_structure {
         void fill_instance_transform(rhi::acceleration_structure_instance& out, glm::mat4 const& matrix) noexcept {
             for (std::uint32_t row = 0; row < 3u; ++row) {
                 for (std::uint32_t column = 0; column < 4u; ++column) {
-                    out.transform[static_cast<int32_t>(row * 4u + column)] = matrix[static_cast<int32_t>(column)][static_cast<int32_t>(row)];
+                    out.transform[static_cast<std::int32_t>(row * 4u + column)] = matrix[static_cast<std::int32_t>(column)][static_cast<std::int32_t>(row)];
                 }
             }
         }
@@ -71,7 +69,7 @@ namespace deren::engine::acceleration_structure {
     // destructor documents.
     bottom_level_structures::~bottom_level_structures() = default;
 
-    std::expected<uint32_t, deren::utility::vessel::string> bottom_level_structures::add(geometry_source const& source, bool const refittable, std::span<std::shared_ptr<void const> const> dependencies) {
+    std::expected<std::uint32_t, deren::utility::vessel::string> bottom_level_structures::add(geometry_source const& source, bool const refittable, std::span<std::shared_ptr<void const> const> dependencies) {
         if (this->contract == nullptr) {
             return std::unexpected(deren::utility::vessel::string("acceleration structure: this structure set has no contract face"));
         }
@@ -153,7 +151,7 @@ namespace deren::engine::acceleration_structure {
         return {};
     }
 
-    std::expected<void, deren::utility::vessel::string> bottom_level_structures::record_update(rhi::command_buffer& commands, std::span<uint32_t const> const indices) const {
+    std::expected<void, deren::utility::vessel::string> bottom_level_structures::record_update(rhi::command_buffer& commands, std::span<std::uint32_t const> const indices) const {
         for (std::uint32_t const index : indices) {
             if (index >= this->entries.size()) {
                 continue;
@@ -175,7 +173,7 @@ namespace deren::engine::acceleration_structure {
     // Spelled exactly as the declaration in the module interface is: doxygen matches a definition against
     // its declaration by the written signature, and `std::uint32_t` here against `uint32_t` there made it
     // report "no matching class member found" for this one constructor (the only warning in the doc build).
-    top_level_structure::top_level_structure(rhi::api_core& face, uint32_t const frame_slot_count, rhi::shared_object<rhi::api_core> const& access)
+    top_level_structure::top_level_structure(rhi::api_core& face, std::uint32_t const frame_slot_count, rhi::shared_object<rhi::api_core> const& access)
         : contract(access && access.get() != &face ? nullptr : &face)
         , device_root(access)
         , max_instances(max_instances_of(face))

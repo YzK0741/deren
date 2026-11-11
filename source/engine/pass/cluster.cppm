@@ -26,8 +26,6 @@
 
 module;
 
-#include <cstdint>
-
 export module deren.engine.pass.cluster;
 export import deren.vstd;
 export import deren.utility.shared;
@@ -48,7 +46,7 @@ export namespace deren::engine::pass {
      */
     struct cluster_frame {
         /// `tiles_x * tiles_y * cluster_slice_count`, i.e. the number of work items (one cluster each)
-        uint32_t cluster_count = 0;
+        std::uint32_t cluster_count = 0;
     };
 
     /**
@@ -100,10 +98,10 @@ export namespace deren::engine::pass {
     private:
         static constexpr std::string_view shader_name = "light_cluster.comp.spv";
         /// the workgroup size, which must be `light_cluster.slang`'s `local_size_x`
-        static constexpr uint32_t group_size = 64;
+        static constexpr std::uint32_t group_size = 64;
         /// the declared barrier buffers, by the position the declaration gives them
-        static constexpr uint32_t barrier_counts = 0;
-        static constexpr uint32_t barrier_indices = 1;
+        static constexpr std::uint32_t barrier_counts = 0;
+        static constexpr std::uint32_t barrier_indices = 1;
         static_assert(barrier_indices + 1 == render_resource::cluster_barriers.size(),
                       "the sort's barrier slots must match the declaration it indexes");
 

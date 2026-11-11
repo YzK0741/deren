@@ -3,8 +3,7 @@
  * @brief the software raster pass's pipeline and tile dispatch (see the header's WHY THIS PASS EXISTS).
  */
 module;
-#include <cstdint>
-#include <cstdlib>
+
 module deren.engine.pass.software_visibility;
 import deren.vstd;
 
@@ -78,7 +77,7 @@ namespace deren::engine::pass {
         }
         // Shader pixel indices are uint32. Reject rather than truncate a scratch allocation/index.
         std::uint64_t const pixels = static_cast<std::uint64_t>(width) * height;
-        if (pixels > UINT32_MAX) {
+        if (pixels > std::numeric_limits<std::uint32_t>::max()) {
             return false;
         }
         auto* heap = rhi::query_extension<rhi::descriptor_space>(*this->device);

@@ -1,6 +1,5 @@
 module;
-#include <cstddef>
-#include <cstdint>
+
 module deren.engine.render_graph;
 import deren.vstd;
 namespace deren::engine::render_graph {
@@ -8,7 +7,7 @@ namespace deren::engine::render_graph {
         namespace vessel = deren::utility::vessel;
         template <typename E, std::size_t N>
         std::string_view enum_name(E value, char const* const (&names)[N]) noexcept {
-            auto index = static_cast<uint32_t>(value);
+            auto index = static_cast<std::uint32_t>(value);
             return index < N ? names[index] : "unknown";
         }
         std::string_view label(resource_kind value) noexcept {
@@ -44,17 +43,17 @@ namespace deren::engine::render_graph {
             void raw(std::string_view value) {
                 output.append(value);
             }
-            void number(uint64_t value) {
+            void number(std::uint64_t value) {
                 char bytes[32];
                 auto result = std::to_chars(bytes, bytes + sizeof(bytes), value);
                 output.append(bytes, static_cast<std::size_t>(result.ptr - bytes));
             }
-            void decimal_string(uint64_t value) {
+            void decimal_string(std::uint64_t value) {
                 raw("\"");
                 number(value);
                 raw("\"");
             }
-            void index(uint32_t value) {
+            void index(std::uint32_t value) {
                 if (value == invalid_index) {
                     raw("null");
                 } else {
@@ -67,7 +66,7 @@ namespace deren::engine::render_graph {
             void string(std::string_view text) {
                 raw("\"");
                 for (std::size_t i = 0; i < text.size();) {
-                    auto c = static_cast<uint8_t>(text[i]);
+                    auto c = static_cast<std::uint8_t>(text[i]);
                     if (c < 0x80) {
                         ++i;
                         switch (c) { // NOLINT(bugprone-branch-clone): the cases emit different escapes; the module AST misreports them.
@@ -98,7 +97,7 @@ namespace deren::engine::render_graph {
                         }
                         continue;
                     }
-                    uint32_t width = 0;
+                    std::uint32_t width = 0;
                     if (c >= 0xc2 && c <= 0xdf) {
                         width = 2;
                     } else if (c >= 0xe0 && c <= 0xef) {
@@ -107,11 +106,11 @@ namespace deren::engine::render_graph {
                         width = 4;
                     }
                     bool valid = width && width <= text.size() - i;
-                    for (uint32_t j = 1; valid && j < width; ++j) {
-                        valid = (static_cast<uint8_t>(text[i + j]) & 0xc0) == 0x80;
+                    for (std::uint32_t j = 1; valid && j < width; ++j) {
+                        valid = (static_cast<std::uint8_t>(text[i + j]) & 0xc0) == 0x80;
                     }
                     if (valid) {
-                        auto second = static_cast<uint8_t>(text[i + 1]);
+                        auto second = static_cast<std::uint8_t>(text[i + 1]);
                         valid = !(c == 0xe0 && second < 0xa0) && !(c == 0xed && second >= 0xa0) && !(c == 0xf0 && second < 0x90) && !(c == 0xf4 && second >= 0x90);
                     }
                     if (valid) {
@@ -149,8 +148,8 @@ namespace deren::engine::render_graph {
                 constexpr std::array names{"vertex_shader", "fragment_shader", "compute_shader", "color_output", "depth_stencil", "transfer", "vertex_input", "draw_indirect", "task_shader", "mesh_shader"};
                 raw("[");
                 bool first = true;
-                for (uint32_t bit = 0; bit < names.size(); ++bit) {
-                    if (static_cast<uint32_t>(value) & (1U << bit)) {
+                for (std::uint32_t bit = 0; bit < names.size(); ++bit) {
+                    if (static_cast<std::uint32_t>(value) & (1U << bit)) {
                         if (!first) {
                             raw(",");
                         }
@@ -166,9 +165,9 @@ namespace deren::engine::render_graph {
                 raw(",\"stages\":");
                 stages(value.stages);
                 raw(",\"stage_mask\":");
-                number(static_cast<uint32_t>(value.stages));
+                number(static_cast<std::uint32_t>(value.stages));
                 raw(",\"access\":[");
-                auto bits = static_cast<uint32_t>(value.access);
+                auto bits = static_cast<std::uint32_t>(value.access);
                 if (bits & 1) {
                     string("read");
                 }
@@ -188,7 +187,7 @@ namespace deren::engine::render_graph {
                 raw(",\"stages\":");
                 stages(value.stages);
                 raw(",\"stage_mask\":");
-                number(static_cast<uint32_t>(value.stages));
+                number(static_cast<std::uint32_t>(value.stages));
                 raw("}");
             }
             void range(resource_range const& value) {
@@ -202,7 +201,7 @@ namespace deren::engine::render_graph {
                     raw(",\"layer_count\":");
                     number(image->layer_count);
                     raw(",\"aspect_mask\":");
-                    number(static_cast<uint32_t>(image->aspects));
+                    number(static_cast<std::uint32_t>(image->aspects));
                     raw("}");
                 } else {
                     auto bytes = std::get<buffer_range>(value);
@@ -220,7 +219,7 @@ namespace deren::engine::render_graph {
                     raw(",\"array_layers\":");
                     number(image->array_layers);
                     raw(",\"aspect_mask\":");
-                    number(static_cast<uint32_t>(image->aspects));
+                    number(static_cast<std::uint32_t>(image->aspects));
                     raw("}");
                 } else {
                     raw("{\"kind\":\"buffer\",\"byte_size\":");

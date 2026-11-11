@@ -1,5 +1,5 @@
 module;
-#include <cstdint>
+
 export module deren.engine.texture_residency;
 export import deren.vstd;
 export import deren.utility.shared;

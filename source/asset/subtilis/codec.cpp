@@ -1,7 +1,7 @@
 module;
-#include <cstddef>
-#include <cstdint>
-#include <cstring>
+
+
+
 #include <yyjson.h>
 module deren.asset.subtilis.codec;
 import deren.vstd;
@@ -9,38 +9,38 @@ import deren.asset.subtilis.pages;
 
 namespace deren::asset::subtilis {
     namespace {
-        constexpr uint32_t strides[]{4, 32, 48, 4, 4, 4, 1, 32, 4};
-        constexpr uint64_t directory_end_v1_0 = 352;
-        constexpr uint64_t directory_end_v1_1 = 416;
+        constexpr std::uint32_t strides[]{4, 32, 48, 4, 4, 4, 1, 32, 4};
+        constexpr std::uint64_t directory_end_v1_0 = 352;
+        constexpr std::uint64_t directory_end_v1_1 = 416;
         struct section {
-            uint64_t count = 0, offset = 0, length = 0;
+            std::uint64_t count = 0, offset = 0, length = 0;
         };
         struct layout_result {
             array<section, 9> sections{};
-            size_t count = 7;
-            uint64_t directory_end = directory_end_v1_0;
-            uint16_t minor = 0;
+            std::size_t count = 7;
+            std::uint64_t directory_end = directory_end_v1_0;
+            std::uint16_t minor = 0;
         };
         auto failure(error_code code, char const* context) {
             return std::unexpected(error{code, context, {}, {}});
         }
-        uint64_t read(std::span<byte const> bytes, size_t at, size_t width) {
-            uint64_t value = 0;
-            for (size_t i = 0; i < width; ++i) {
-                value |= uint64_t(std::to_integer<unsigned>(bytes[at + i])) << (8 * i);
+        std::uint64_t read(std::span<byte const> bytes, std::size_t at, std::size_t width) {
+            std::uint64_t value = 0;
+            for (std::size_t i = 0; i < width; ++i) {
+                value |= std::uint64_t(std::to_integer<unsigned>(bytes[at + i])) << (8 * i);
             }
             return value;
         }
-        float read_float(std::span<byte const> bytes, size_t at) {
-            return std::bit_cast<float>(uint32_t(read(bytes, at, 4)));
+        float read_float(std::span<byte const> bytes, std::size_t at) {
+            return std::bit_cast<float>(std::uint32_t(read(bytes, at, 4)));
         }
-        void put(std::span<byte> bytes, size_t at, uint64_t value, size_t width) {
-            for (size_t i = 0; i < width; ++i) {
+        void put(std::span<byte> bytes, std::size_t at, std::uint64_t value, std::size_t width) {
+            for (std::size_t i = 0; i < width; ++i) {
                 bytes[at + i] = byte((value >> (8 * i)) & 255);
             }
         }
-        void put_float(std::span<byte> bytes, size_t at, float value) {
-            put(bytes, at, std::bit_cast<uint32_t>(value), 4);
+        void put_float(std::span<byte> bytes, std::size_t at, float value) {
+            put(bytes, at, std::bit_cast<std::uint32_t>(value), 4);
         }
         bool zero(std::span<byte const> bytes) {
             return std::all_of(bytes.begin(), bytes.end(), [](byte b) { return b == byte{0}; });
@@ -48,10 +48,10 @@ namespace deren::asset::subtilis {
         bool valid_sphere(sphere s) {
             return std::isfinite(s.x) && std::isfinite(s.y) && std::isfinite(s.z) && std::isfinite(s.radius) && s.radius >= 0;
         }
-        sphere read_sphere(std::span<byte const> b, size_t at) {
+        sphere read_sphere(std::span<byte const> b, std::size_t at) {
             return {read_float(b, at), read_float(b, at + 4), read_float(b, at + 8), read_float(b, at + 12)};
         }
-        void put_sphere(std::span<byte> b, size_t at, sphere s) {
+        void put_sphere(std::span<byte> b, std::size_t at, sphere s) {
             put_float(b, at, s.x);
             put_float(b, at + 4, s.y);
             put_float(b, at + 8, s.z);
@@ -59,8 +59,8 @@ namespace deren::asset::subtilis {
         }
         bool valid_meta(std::span<byte const> bytes) {
             yyjson_alc allocator{
-                [](void*, size_t size) -> void* { return utility::memory::allocate(size); },
-                [](void*, void* old, size_t old_size, size_t size) -> void* {
+                [](void*, std::size_t size) -> void* { return utility::memory::allocate(size); },
+                [](void*, void* old, std::size_t old_size, std::size_t size) -> void* {
                     auto* next = utility::memory::allocate(size);
                     if (old) {
                         std::memcpy(next, old, std::min(old_size, size));
@@ -77,7 +77,7 @@ namespace deren::asset::subtilis {
             yyjson_doc_free(doc);
             return object;
         }
-        array<uint64_t, 7> element_counts(payload const& p) {
+        array<std::uint64_t, 7> element_counts(payload const& p) {
             return {p.indices.size(), p.clusters.size(), p.groups.size(), p.references.size(), p.leaves.size(), p.roots.size(), p.build_meta.size()};
         }
         result<layout_result> layout(payload const& p, limits const& lim) {
@@ -96,18 +96,18 @@ namespace deren::asset::subtilis {
             out.count = has_pages ? 9 : 7;
             out.directory_end = has_pages ? directory_end_v1_1 : directory_end_v1_0;
             out.minor = has_pages ? 1 : 0;
-            uint64_t cursor = out.directory_end;
-            for (size_t i = 0; i < out.count; ++i) {
+            std::uint64_t cursor = out.directory_end;
+            for (std::size_t i = 0; i < out.count; ++i) {
                 auto const count = i < 7 ? counts[i] : (i == 7 ? p.pages.size() : p.page_dependencies.size());
-                if (count > lim.max_records || count > UINT32_MAX || ((i == 1 || i == 2) && count == none)) {
+                if (count > lim.max_records || count > std::numeric_limits<std::uint32_t>::max() || ((i == 1 || i == 2) && count == none)) {
                     return failure(error_code::capacity, "section count exceeds limit");
                 }
                 auto const length = count * strides[i];
-                if (cursor > lim.max_payload_bytes || length > lim.max_payload_bytes - cursor || cursor + length > SIZE_MAX - 7) {
+                if (cursor > lim.max_payload_bytes || length > lim.max_payload_bytes - cursor || cursor + length > std::numeric_limits<std::size_t>::max() - 7) {
                     return failure(error_code::capacity, "payload exceeds byte limit");
                 }
                 out.sections[i] = {count, cursor, length};
-                cursor = (cursor + length + 7) & ~uint64_t(7);
+                cursor = (cursor + length + 7) & ~std::uint64_t(7);
             }
             if (cursor > lim.max_payload_bytes) {
                 return failure(error_code::capacity, "payload padding exceeds byte limit");
@@ -134,8 +134,8 @@ namespace deren::asset::subtilis {
         if (!valid_meta(std::as_bytes(std::span(p.build_meta)))) {
             return failure(error_code::invalid_payload, "BUILD_META must be a strict UTF-8 JSON object");
         }
-        auto const total = (sections->sections[sections->count - 1].offset + sections->sections[sections->count - 1].length + 7) & ~uint64_t(7);
-        vector<byte> bytes(static_cast<size_t>(total), byte{0});
+        auto const total = (sections->sections[sections->count - 1].offset + sections->sections[sections->count - 1].length + 7) & ~std::uint64_t(7);
+        vector<byte> bytes(static_cast<std::size_t>(total), byte{0});
         put(bytes, 0, 0x00474144534e5244ULL, 8);
         put(bytes, 8, 1, 2);
         put(bytes, 10, sections->minor, 2);
@@ -144,8 +144,8 @@ namespace deren::asset::subtilis {
         put(bytes, 24, sections->count, 4);
         std::copy(p.source_hash.begin(), p.source_hash.end(), bytes.begin() + 32);
         std::copy(p.build_hash.begin(), p.build_hash.end(), bytes.begin() + 64);
-        for (size_t i = 0; i < sections->count; ++i) {
-            size_t const d = 128 + i * 32;
+        for (std::size_t i = 0; i < sections->count; ++i) {
+            std::size_t const d = 128 + i * 32;
             auto const s = sections->sections[i];
             put(bytes, d, i + 1, 4);
             put(bytes, d + 4, strides[i], 4);
@@ -153,12 +153,12 @@ namespace deren::asset::subtilis {
             put(bytes, d + 16, s.offset, 8);
             put(bytes, d + 24, s.length, 8);
         }
-        auto write_ids = [&](size_t id, vector<uint32_t> const& ids) { size_t at = sections->sections[id].offset; for (auto n : ids) { put(bytes, at, n, 4); at += 4; } };
+        auto write_ids = [&](std::size_t id, vector<std::uint32_t> const& ids) { std::size_t at = sections->sections[id].offset; for (auto n : ids) { put(bytes, at, n, 4); at += 4; } };
         write_ids(0, p.indices);
         write_ids(3, p.references);
         write_ids(4, p.leaves);
         write_ids(5, p.roots);
-        size_t at = sections->sections[1].offset;
+        std::size_t at = sections->sections[1].offset;
         for (auto const& c : p.clusters) {
             put(bytes, at, c.first_index, 4);
             put(bytes, at + 4, c.index_count, 4);
@@ -214,7 +214,7 @@ namespace deren::asset::subtilis {
         if (minor != 0 && minor != 1) {
             return failure(error_code::unsupported_version, "unsupported payload minor version");
         }
-        uint64_t const directory_end = minor ? directory_end_v1_1 : directory_end_v1_0;
+        std::uint64_t const directory_end = minor ? directory_end_v1_1 : directory_end_v1_0;
         if (bytes.size() < directory_end) {
             return failure(error_code::invalid_payload, "truncated directory");
         }
@@ -223,19 +223,19 @@ namespace deren::asset::subtilis {
         }
         array<section, 9> sections{};
         array<bool, 9> seen{};
-        for (size_t i = 0; i < (minor ? 9 : 7); ++i) {
-            size_t const d = 128 + i * 32;
+        for (std::size_t i = 0; i < (minor ? 9 : 7); ++i) {
+            std::size_t const d = 128 + i * 32;
             auto const type = read(bytes, d, 4);
             if (type < 1 || type > 9 || seen[type - 1]) {
                 return failure(error_code::invalid_payload, "unknown or duplicate section");
             }
-            size_t const slot = type - 1;
+            std::size_t const slot = type - 1;
             seen[slot] = true;
             auto const stride = read(bytes, d + 4, 4), count = read(bytes, d + 8, 8), offset = read(bytes, d + 16, 8), length = read(bytes, d + 24, 8);
             if (stride != strides[slot]) {
                 return failure(error_code::invalid_payload, "invalid section stride");
             }
-            if (count > lim.max_records || count > UINT32_MAX || ((slot == 1 || slot == 2) && count == none)) {
+            if (count > lim.max_records || count > std::numeric_limits<std::uint32_t>::max() || ((slot == 1 || slot == 2) && count == none)) {
                 return failure(error_code::capacity, "section count exceeds limit");
             }
             if (length != count * stride || offset < directory_end || offset % 8 || offset > bytes.size() || length > bytes.size() - offset) {
@@ -248,7 +248,7 @@ namespace deren::asset::subtilis {
         }
         auto sorted = sections;
         std::sort(sorted.begin(), sorted.end(), [](section a, section b) { return a.offset < b.offset || (a.offset == b.offset && a.length < b.length); });
-        uint64_t cursor = directory_end;
+        std::uint64_t cursor = directory_end;
         for (auto s : sorted) {
             if (s.count == 0) {
                 continue;
@@ -262,12 +262,12 @@ namespace deren::asset::subtilis {
             return failure(error_code::invalid_payload, "nonzero trailing padding");
         }
         // All scalar records are validated before allocating decoded arrays.
-        for (uint64_t i = 0, at = sections[1].offset; i < sections[1].count; ++i, at += 32) {
+        for (std::uint64_t i = 0, at = sections[1].offset; i < sections[1].count; ++i, at += 32) {
             if (!valid_sphere(read_sphere(bytes, at + 16))) {
                 return failure(error_code::invalid_payload, "invalid cluster sphere");
             }
         }
-        for (uint64_t i = 0, at = sections[2].offset; i < sections[2].count; ++i, at += 48) {
+        for (std::uint64_t i = 0, at = sections[2].offset; i < sections[2].count; ++i, at += 48) {
             auto const value = read_float(bytes, at + 32);
             if (!valid_sphere(read_sphere(bytes, at + 16)) || !std::isfinite(value) || value < 0 || !zero(bytes.subspan(at + 36, 12))) {
                 return failure(error_code::invalid_payload, "invalid group record");
@@ -280,25 +280,25 @@ namespace deren::asset::subtilis {
         payload p;
         std::copy_n(bytes.begin() + 32, 32, p.source_hash.begin());
         std::copy_n(bytes.begin() + 64, 32, p.build_hash.begin());
-        auto read_ids = [&](size_t id, vector<uint32_t>& ids) { auto s = sections[id]; ids.resize(s.count); for (size_t i = 0; i < ids.size(); ++i){ ids[i] = uint32_t(read(bytes, s.offset + i * 4, 4));
+        auto read_ids = [&](std::size_t id, vector<std::uint32_t>& ids) { auto s = sections[id]; ids.resize(s.count); for (std::size_t i = 0; i < ids.size(); ++i){ ids[i] = std::uint32_t(read(bytes, s.offset + i * 4, 4));
 } };
         read_ids(0, p.indices);
         read_ids(3, p.references);
         read_ids(4, p.leaves);
         read_ids(5, p.roots);
         p.clusters.reserve(sections[1].count);
-        for (uint64_t i = 0, at = sections[1].offset; i < sections[1].count; ++i, at += 32) {
-            p.clusters.push_back({uint32_t(read(bytes, at, 4)), uint32_t(read(bytes, at + 4, 4)), uint32_t(read(bytes, at + 8, 4)), uint32_t(read(bytes, at + 12, 4)), read_sphere(bytes, at + 16)});
+        for (std::uint64_t i = 0, at = sections[1].offset; i < sections[1].count; ++i, at += 32) {
+            p.clusters.push_back({std::uint32_t(read(bytes, at, 4)), std::uint32_t(read(bytes, at + 4, 4)), std::uint32_t(read(bytes, at + 8, 4)), std::uint32_t(read(bytes, at + 12, 4)), read_sphere(bytes, at + 16)});
         }
         p.groups.reserve(sections[2].count);
-        for (uint64_t i = 0, at = sections[2].offset; i < sections[2].count; ++i, at += 48) {
-            p.groups.push_back({uint32_t(read(bytes, at, 4)), uint32_t(read(bytes, at + 4, 4)), uint32_t(read(bytes, at + 8, 4)), uint32_t(read(bytes, at + 12, 4)), read_sphere(bytes, at + 16), read_float(bytes, at + 32)});
+        for (std::uint64_t i = 0, at = sections[2].offset; i < sections[2].count; ++i, at += 48) {
+            p.groups.push_back({std::uint32_t(read(bytes, at, 4)), std::uint32_t(read(bytes, at + 4, 4)), std::uint32_t(read(bytes, at + 8, 4)), std::uint32_t(read(bytes, at + 12, 4)), read_sphere(bytes, at + 16), read_float(bytes, at + 32)});
         }
         p.build_meta.assign(reinterpret_cast<char const*>(meta.data()), meta.size());
         if (minor) {
             p.pages.reserve(sections[7].count);
-            for (uint64_t i = 0, at = sections[7].offset; i < sections[7].count; ++i, at += 32) {
-                p.pages.push_back({uint32_t(read(bytes, at, 4)), uint32_t(read(bytes, at + 4, 4)), uint32_t(read(bytes, at + 8, 4)), uint32_t(read(bytes, at + 12, 4)), uint16_t(read(bytes, at + 16, 2)), uint16_t(read(bytes, at + 18, 2)), uint32_t(read(bytes, at + 20, 4)), uint32_t(read(bytes, at + 24, 4)), uint32_t(read(bytes, at + 28, 4))});
+            for (std::uint64_t i = 0, at = sections[7].offset; i < sections[7].count; ++i, at += 32) {
+                p.pages.push_back({std::uint32_t(read(bytes, at, 4)), std::uint32_t(read(bytes, at + 4, 4)), std::uint32_t(read(bytes, at + 8, 4)), std::uint32_t(read(bytes, at + 12, 4)), std::uint16_t(read(bytes, at + 16, 2)), std::uint16_t(read(bytes, at + 18, 2)), std::uint32_t(read(bytes, at + 20, 4)), std::uint32_t(read(bytes, at + 24, 4)), std::uint32_t(read(bytes, at + 28, 4))});
             }
             read_ids(8, p.page_dependencies);
             auto valid = validate_pages(p, lim);

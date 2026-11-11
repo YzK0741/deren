@@ -4,7 +4,9 @@
 #include <array>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
+#include <limits>
 #include <memory>
 #include <numeric>
 #include <span>
@@ -58,7 +60,7 @@ namespace {
         if (!receipt) {
             return 0;
         }
-        CHECK(submission->wait(*receipt, UINT64_MAX) == rhi::error::ok);
+        CHECK(submission->wait(*receipt, std::numeric_limits<std::uint64_t>::max()) == rhi::error::ok);
         return receipt->sequence;
     }
     void verify(rhi::shared_object<rhi::api_core> core, std::shared_ptr<sub::built_geometry const> source, sub::geometry_upload_mode mode) {
@@ -91,7 +93,7 @@ namespace {
         if (!receipt) {
             return;
         }
-        CHECK(receipt->wait(UINT64_MAX) == rhi::error::ok);
+        CHECK(receipt->wait(std::numeric_limits<std::uint64_t>::max()) == rhi::error::ok);
         for (unsigned i = 0; i < 2; ++i) {
             auto output = receipt->readback(i);
             CHECK(output && std::equal(output->begin(), output->end(), payloads[i].begin(), payloads[i].end()));
@@ -129,7 +131,7 @@ namespace {
             auto built = submission->submit(*commands);
             CHECK(built);
             if (built) {
-                CHECK(submission->wait(*built, UINT64_MAX) == rhi::error::ok);
+                CHECK(submission->wait(*built, std::numeric_limits<std::uint64_t>::max()) == rhi::error::ok);
             }
         }
     }

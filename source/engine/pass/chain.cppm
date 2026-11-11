@@ -34,8 +34,6 @@
 
 module;
 
-#include <cstdint>
-
 export module deren.engine.pass.chain;
 export import deren.vstd;
 export import deren.utility.shared;
@@ -99,11 +97,11 @@ export namespace deren::engine::pass {
             }
             return result;
         }
-        deren::promise::rhi::error begin_frame(uint32_t completed_slot, std::span<render_resource::resource_id const> preserved = {}) {
+        deren::promise::rhi::error begin_frame(std::uint32_t completed_slot, std::span<render_resource::resource_id const> preserved = {}) {
             return managed_resources.initialize_frame(completed_slot, preserved);
         }
 
-        deren::promise::rhi::error write_frame_buffer(uint32_t completed_slot, render_resource::resource_id id, std::span<std::byte const> bytes) {
+        deren::promise::rhi::error write_frame_buffer(std::uint32_t completed_slot, render_resource::resource_id id, std::span<std::byte const> bytes) {
             return managed_resources.write_frame_buffer(completed_slot, id, bytes);
         }
 

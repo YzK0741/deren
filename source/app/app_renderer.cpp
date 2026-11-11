@@ -6,8 +6,6 @@
 
 module;
 
-#include <cstddef>
-#include <cstdint>
 #include <glm/glm.hpp>
 // NO VULKAN HEADER: this demo hands passes their frames and runs the frame's ordering rules - every value it
 // touches is the contract's or the renderer's.

@@ -42,8 +42,6 @@
 
 module;
 
-#include <cstdint>
-
 export module deren.engine.pass.character_forward;
 export import deren.vstd;
 export import deren.utility.shared;

@@ -3,7 +3,6 @@
 
 module;
 
-#include <cstdint>
 #include <glm/glm.hpp>
 
 export module deren.engine.pass.subtilis_cut;

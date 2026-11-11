@@ -1,6 +1,6 @@
 module;
-#include <cstddef>
-#include <cstdint>
+
+
 module deren.asset.subtilis.builder;
 import deren.vstd;
 
@@ -11,7 +11,7 @@ namespace deren::asset::subtilis::builder_detail {
         }
     } // namespace
 
-    result<void> run_ordered(size_t count, uint32_t threads, std::span<size_t const> estimates, size_t max_known_work_bytes, task_fn prepare, commit_fn commit) {
+    result<void> run_ordered(std::size_t count, std::uint32_t threads, std::span<std::size_t const> estimates, std::size_t max_known_work_bytes, task_fn prepare, commit_fn commit) {
         if (estimates.size() != count) {
             return fail(error_code::invalid_options, "workspace estimates must match the task count");
         }
@@ -24,7 +24,7 @@ namespace deren::asset::subtilis::builder_detail {
         if (!prepare || !commit) {
             return fail(error_code::invalid_options, "task callbacks are required");
         }
-        size_t max_estimate = 0;
+        std::size_t max_estimate = 0;
         for (auto estimate : estimates) {
             max_estimate = std::max(max_estimate, estimate);
         }
@@ -37,13 +37,13 @@ namespace deren::asset::subtilis::builder_detail {
         if (max_estimate > max_known_work_bytes) {
             return fail(error_code::capacity, "known workspace budget cannot hold one reduction task");
         }
-        size_t const by_budget = max_known_work_bytes / max_estimate;
-        size_t const concurrency = std::min({static_cast<size_t>(threads), count, by_budget});
+        std::size_t const by_budget = max_known_work_bytes / max_estimate;
+        std::size_t const concurrency = std::min({static_cast<std::size_t>(threads), count, by_budget});
         // Coarse tasks first for load balance; index ties stay ascending. This only changes dispatch
         // order, never commit order or any visible ID.
-        vector<size_t> order(count);
-        std::iota(order.begin(), order.end(), static_cast<size_t>(0));
-        std::stable_sort(order.begin(), order.end(), [&](size_t left, size_t right) {
+        vector<std::size_t> order(count);
+        std::iota(order.begin(), order.end(), static_cast<std::size_t>(0));
+        std::stable_sort(order.begin(), order.end(), [&](std::size_t left, std::size_t right) {
             return estimates[left] != estimates[right] ? estimates[left] > estimates[right] : left < right;
         });
         if (concurrency <= 1) {
@@ -57,15 +57,15 @@ namespace deren::asset::subtilis::builder_detail {
             }
         } else {
             std::mutex mutex;
-            size_t next = 0;
+            std::size_t next = 0;
             bool cancelled = false;
             vector<std::optional<error>> failures(count);
             vector<std::thread> workers;
             workers.reserve(concurrency);
-            for (size_t worker = 0; worker < concurrency; ++worker) {
+            for (std::size_t worker = 0; worker < concurrency; ++worker) {
                 workers.emplace_back([&] {
                     for (;;) {
-                        size_t index = 0;
+                        std::size_t index = 0;
                         {
                             std::lock_guard guard(mutex);
                             if (cancelled || next == order.size()) {
@@ -86,7 +86,7 @@ namespace deren::asset::subtilis::builder_detail {
             for (auto& worker : workers) {
                 worker.join();
             }
-            for (size_t index = 0; index < count; ++index) {
+            for (std::size_t index = 0; index < count; ++index) {
                 if (failures[index]) {
                     return std::unexpected(*failures[index]);
                 }
@@ -95,7 +95,7 @@ namespace deren::asset::subtilis::builder_detail {
         // Commits stay on the calling thread and always run in ascending ID order, never in task
         // completion order and never interleaved with concurrent prepares (callers may append to
         // shared output that other tasks read).
-        for (size_t index = 0; index < count; ++index) {
+        for (std::size_t index = 0; index < count; ++index) {
             auto committed = commit(index);
             if (!committed) {
                 return committed;

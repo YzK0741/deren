@@ -15,6 +15,8 @@ import deren.engine.primitive;
 import deren.engine.runtime;
 import deren.engine.scene_tree;
 #include "probe_backend.hpp"
+
+#include <cstdint>
 namespace sub = deren::engine::subtilis;
 namespace rhi = deren::promise::rhi;
 namespace {
@@ -107,7 +109,7 @@ int main() {
         CHECK(edge == sub::maximum_triangle_edge(record, original->vertices(), original->indices(), original->vertex_stride()));
     }
     deren::engine::meshlet missing{};
-    missing.first_index = UINT32_MAX;
+    missing.first_index = std::numeric_limits<std::uint32_t>::max();
     CHECK(!std::isfinite(generation.triangle_edge(missing)));
 
     CHECK(generation.vertices()->size() == original->vertices().size());

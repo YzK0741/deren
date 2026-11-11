@@ -18,16 +18,9 @@ module;
 #include <stb/stb_image.h>
 // `std::optional`: `scenes::texture_index_by_name` answers "no such name" with one, and `load_texture`'s
 // name lookup is a lookup that can miss by design.
-#include <cmath>
-#include <fstream>
-#include <limits>
-#include <mutex>
-#include <new>
-#include <optional>
-#include <stdexcept>
-#include <string_view>
 
 module deren.gltf_loader;
+import deren.vstd;
 import deren.utility.shared;
 
 import deren.utility;
@@ -39,11 +32,11 @@ namespace {
     using fastgltf::Asset;
 
     struct parsed_data {
-        deren::utility::vessel::vector<uint8_t> data;
+        deren::utility::vessel::vector<std::uint8_t> data;
         deren::gltf::component_type component_type = deren::gltf::component_type::unknown;
         deren::gltf::element_type element_type = deren::gltf::element_type::unknown;
-        uint64_t count = 0;
-        uint64_t byte_size = 0;
+        std::uint64_t count = 0;
+        std::uint64_t byte_size = 0;
     };
 
     deren::gltf::component_type to_component_type(fastgltf::ComponentType const type) {
@@ -129,7 +122,7 @@ namespace {
     }
 
     template <typename T>
-    deren::utility::vessel::vector<uint8_t> copy_accessor(Asset const& asset, fastgltf::Accessor const& accessor) {
+    deren::utility::vessel::vector<std::uint8_t> copy_accessor(Asset const& asset, fastgltf::Accessor const& accessor) {
         // The cap (see accessor_within_byte_cap) is enforced by the validation pass before any decode; this
         // repeat guard keeps a template that allocates straight from file numbers from ever multiplying into
         // a wrapped size. sizeof(T) equals the accessor's element size for every pair get_data_from_accessor
@@ -137,7 +130,7 @@ namespace {
         if (accessor.count > max_accessor_bytes / sizeof(T)) {
             return {};
         }
-        deren::utility::vessel::vector<uint8_t> data(accessor.count * sizeof(T));
+        deren::utility::vessel::vector<std::uint8_t> data(accessor.count * sizeof(T));
         fastgltf::copyFromAccessor<T>(asset, accessor, data.data());
         return data;
     }
@@ -337,7 +330,7 @@ namespace {
     }
 
     // TRUE WHEN [offset, offset + length) FITS INSIDE `size`, decided by subtraction: `offset + length <= size`
-    // overflows for a hostile pair such as {SIZE_MAX, 2} and the wrapped sum would then pass as "small".
+    // overflows for a hostile pair such as {std::numeric_limits<std::size_t>::max(), 2} and the wrapped sum would then pass as "small".
     bool range_within(std::size_t const offset, std::size_t const length, std::size_t const size) noexcept {
         return offset <= size && length <= size - offset;
     }
@@ -514,44 +507,44 @@ namespace {
             return out;
         }
 
-        int32_t width = 0;
-        int32_t height = 0;
-        int32_t channels = 0;
-        uint8_t* pixels = stbi_load_from_memory(
-            reinterpret_cast<uint8_t const*>(bytes.data()),
-            static_cast<int32_t>(bytes.size()),
+        std::int32_t width = 0;
+        std::int32_t height = 0;
+        std::int32_t channels = 0;
+        std::uint8_t* pixels = stbi_load_from_memory(
+            reinterpret_cast<std::uint8_t const*>(bytes.data()),
+            static_cast<std::int32_t>(bytes.size()),
             &width, &height, &channels, 0);
         if (pixels == nullptr) {
             return out;
         }
 
         out.data.assign(pixels, pixels + static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * static_cast<std::size_t>(channels));
-        out.width = static_cast<uint32_t>(width);
-        out.height = static_cast<uint32_t>(height);
-        out.component = static_cast<uint8_t>(channels);
+        out.width = static_cast<std::uint32_t>(width);
+        out.height = static_cast<std::uint32_t>(height);
+        out.component = static_cast<std::uint8_t>(channels);
         stbi_image_free(pixels);
         return out;
     }
 
-    deren::utility::vessel::map<deren::utility::vessel::string, uint16_t> get_texture_indices(fastgltf::Material const& material) {
+    deren::utility::vessel::map<deren::utility::vessel::string, std::uint16_t> get_texture_indices(fastgltf::Material const& material) {
         // THE uint16_t CASTS BELOW ARE LOSSLESS FOR EVERY ASSET THAT LOADS: load_model() rejects a texture array
         // larger than 65536 before any material is built, because material::texture_indices exposes uint16_t
         // (a breaking change to widen) and a truncated index would alias the wrong image.
-        deren::utility::vessel::map<deren::utility::vessel::string, uint16_t> texture_indices;
+        deren::utility::vessel::map<deren::utility::vessel::string, std::uint16_t> texture_indices;
         if (material.pbrData.baseColorTexture) {
-            texture_indices["albedo"] = static_cast<uint16_t>(material.pbrData.baseColorTexture->textureIndex);
+            texture_indices["albedo"] = static_cast<std::uint16_t>(material.pbrData.baseColorTexture->textureIndex);
         }
         if (material.pbrData.metallicRoughnessTexture) {
-            texture_indices["metallic_roughness"] = static_cast<uint16_t>(material.pbrData.metallicRoughnessTexture->textureIndex);
+            texture_indices["metallic_roughness"] = static_cast<std::uint16_t>(material.pbrData.metallicRoughnessTexture->textureIndex);
         }
         if (material.occlusionTexture) {
-            texture_indices["occlusion"] = static_cast<uint16_t>(material.occlusionTexture->textureIndex);
+            texture_indices["occlusion"] = static_cast<std::uint16_t>(material.occlusionTexture->textureIndex);
         }
         if (material.normalTexture) {
-            texture_indices["normal"] = static_cast<uint16_t>(material.normalTexture->textureIndex);
+            texture_indices["normal"] = static_cast<std::uint16_t>(material.normalTexture->textureIndex);
         }
         if (material.emissiveTexture) {
-            texture_indices["emissive"] = static_cast<uint16_t>(material.emissiveTexture->textureIndex);
+            texture_indices["emissive"] = static_cast<std::uint16_t>(material.emissiveTexture->textureIndex);
         }
         return texture_indices;
     }
@@ -682,15 +675,15 @@ namespace {
             .index = std::move(index_data.data),
             .index_component_type = index_data.component_type,
             .material_index = primitive.materialIndex
-                                  ? static_cast<uint32_t>(*primitive.materialIndex)
-                                  : std::numeric_limits<uint32_t>::max(),
+                                  ? static_cast<std::uint32_t>(*primitive.materialIndex)
+                                  : std::numeric_limits<std::uint32_t>::max(),
         };
     }
 
     glm::mat4 to_glm_mat4(fastgltf::math::fmat4x4 const& matrix) {
         glm::mat4 result;
-        for (int32_t column = 0; column < 4; ++column) {
-            for (int32_t row = 0; row < 4; ++row) {
+        for (std::int32_t column = 0; column < 4; ++column) {
+            for (std::int32_t row = 0; row < 4; ++row) {
                 result[column][row] = matrix[column][row];
             }
         }
@@ -763,7 +756,7 @@ namespace {
                     // skip the others with a warning instead of drawing garbage.
                     if (primitive.type != fastgltf::PrimitiveType::Triangles) {
                         deren::utility::log("gltf: skipping primitive {} of mesh '{}': mode {} is not supported (only TRIANGLES render)",
-                                            prim_index, mesh_name, static_cast<int32_t>(primitive.type));
+                                            prim_index, mesh_name, static_cast<std::int32_t>(primitive.type));
                         ++prim_index;
                         continue;
                     }
@@ -848,7 +841,7 @@ namespace {
 
     // Read one scalar component (little-endian, element index @p index) of a decoded accessor
     // byte buffer as a float, converting any supported component type.
-    float read_float_component(uint8_t const* data, deren::gltf::component_type const type, std::size_t const index) {
+    float read_float_component(std::uint8_t const* data, deren::gltf::component_type const type, std::size_t const index) {
         switch (type) {
         case deren::gltf::component_type::float_t: {
             float value;
@@ -1123,9 +1116,9 @@ namespace {
 
     struct built_mesh {
         deren::utility::vessel::vector<vertex> vertices;
-        deren::utility::vessel::vector<uint8_t> index_data;
-        uint8_t index_width = 2; // bytes per index (2 or 4)
-        uint32_t index_count = 0;
+        deren::utility::vessel::vector<std::uint8_t> index_data;
+        std::uint8_t index_width = 2; // bytes per index (2 or 4)
+        std::uint32_t index_count = 0;
     };
 
     built_mesh build_mesh(deren::gltf::primitive const& prim) {
@@ -1258,7 +1251,7 @@ namespace {
         deren::utility::vessel::vector<glm::vec2> uvs;
         positions.reserve(vertex_count);
         uvs.reserve(vertex_count);
-        for (size_t i = 0; i < vertex_count; ++i) {
+        for (std::size_t i = 0; i < vertex_count; ++i) {
             // component-type aware: POSITION may be quantized (KHR_mesh_quantization), and TEXCOORD_0
             // may be normalized u8/u16 in the CORE spec - see read_attribute. N is the accessor's
             // component count, so each call strides by exactly its element size (asking for 3
@@ -1283,7 +1276,7 @@ namespace {
         deren::utility::vessel::vector<glm::vec4> tangents;
         tangents.resize(vertex_count, glm::vec4(0.0f));
         if (tangent_portion != nullptr) {
-            for (size_t i = 0; i < vertex_count; ++i) {
+            for (std::size_t i = 0; i < vertex_count; ++i) {
                 // signed_normalized: KHR_mesh_quantization allows TANGENT as a signed normalized integer whose
                 // full range maps to [-1, 1], exactly like NORMAL (see read_attribute)
                 deren::utility::vessel::array<float, 4> const t = read_attribute.operator()<4>(*tangent_portion, i, true);
@@ -1295,39 +1288,39 @@ namespace {
         // primitives may omit "indices" entirely (non-indexed triangle soup, e.g. the Fox
         // sample) — synthesize a sequential uint32 index buffer [0, vertex_count) so the rest
         // of the pipeline can stay indexed-only.
-        deren::utility::vessel::vector<uint8_t> synthesized_indices;
-        deren::utility::vessel::vector<uint8_t> widened_indices; // u8 -> u16 widening result (empty unless used)
-        uint8_t const index_width = [&] {
+        deren::utility::vessel::vector<std::uint8_t> synthesized_indices;
+        deren::utility::vessel::vector<std::uint8_t> widened_indices; // u8 -> u16 widening result (empty unless used)
+        std::uint8_t const index_width = [&] {
             if (prim.index.empty()) {
                 if (vertex_count > 0) {
-                    synthesized_indices.resize(vertex_count * sizeof(uint32_t));
-                    auto* const dst = reinterpret_cast<uint32_t*>(synthesized_indices.data());
+                    synthesized_indices.resize(vertex_count * sizeof(std::uint32_t));
+                    auto* const dst = reinterpret_cast<std::uint32_t*>(synthesized_indices.data());
                     for (std::size_t i = 0; i < vertex_count; ++i) {
-                        dst[i] = static_cast<uint32_t>(i);
+                        dst[i] = static_cast<std::uint32_t>(i);
                     }
                 }
-                return static_cast<uint8_t>(4);
+                return static_cast<std::uint8_t>(4);
             }
             if (prim.index_component_type == deren::gltf::component_type::unsigned_int_t) {
-                return static_cast<uint8_t>(4);
+                return static_cast<std::uint8_t>(4);
             }
             if (prim.index_component_type == deren::gltf::component_type::unsigned_short_t) {
-                return static_cast<uint8_t>(2);
+                return static_cast<std::uint8_t>(2);
             }
             if (prim.index_component_type == deren::gltf::component_type::unsigned_byte_t) {
                 // u8 indices are legal glTF (componentType 5121; at most 256 vertices): widen to u16
-                widened_indices.resize(prim.index.size() * sizeof(uint16_t));
-                auto* const dst = reinterpret_cast<uint16_t*>(widened_indices.data());
+                widened_indices.resize(prim.index.size() * sizeof(std::uint16_t));
+                auto* const dst = reinterpret_cast<std::uint16_t*>(widened_indices.data());
                 for (std::size_t i = 0; i < prim.index.size(); ++i) {
-                    dst[i] = static_cast<uint16_t>(prim.index[i]);
+                    dst[i] = static_cast<std::uint16_t>(prim.index[i]);
                 }
-                return static_cast<uint8_t>(2);
+                return static_cast<std::uint8_t>(2);
             }
-            deren::utility::panic(std::source_location::current(), "unsupported index component type: {}", static_cast<int32_t>(prim.index_component_type));
+            deren::utility::panic(std::source_location::current(), "unsupported index component type: {}", static_cast<std::int32_t>(prim.index_component_type));
         }();
-        deren::utility::vessel::vector<uint8_t> const& fallback_indices = prim.index.empty() ? synthesized_indices : prim.index;
-        deren::utility::vessel::vector<uint8_t> const& index_bytes = widened_indices.empty() ? fallback_indices : widened_indices;
-        uint32_t const index_count = static_cast<uint32_t>(index_bytes.size() / index_width);
+        deren::utility::vessel::vector<std::uint8_t> const& fallback_indices = prim.index.empty() ? synthesized_indices : prim.index;
+        deren::utility::vessel::vector<std::uint8_t> const& index_bytes = widened_indices.empty() ? fallback_indices : widened_indices;
+        std::uint32_t const index_count = static_cast<std::uint32_t>(index_bytes.size() / index_width);
 
         // ---- Normals: use the authored NORMAL attribute when the primitive has one; otherwise
         //      GENERATE them from the triangle connectivity. A hard-coded fallback direction
@@ -1339,7 +1332,7 @@ namespace {
         deren::utility::vessel::vector<glm::vec3> normals;
         normals.resize(vertex_count);
         if (normal_portion != nullptr) {
-            for (size_t i = 0; i < vertex_count; ++i) {
+            for (std::size_t i = 0; i < vertex_count; ++i) {
                 // signed_normalized: a quantized NORMAL is a signed normalized integer whose full
                 // range is [-1, 1] (remapping it as [0, 1] would point every normal into one octant)
                 deren::utility::vessel::array<float, 3> const n = read_attribute.operator()<3>(*normal_portion, i, true);
@@ -1348,18 +1341,18 @@ namespace {
         } else {
             // accumulate area-weighted face normals per vertex over the triangle list (glTF
             // front faces are counter-clockwise, so cross(e1, e2) points outward)
-            auto const index_at = [index_bytes, index_width](size_t const k) -> uint32_t {
-                size_t const off = k * index_width;
+            auto const index_at = [index_bytes, index_width](std::size_t const k) -> std::uint32_t {
+                std::size_t const off = k * index_width;
                 if (index_width == 4) {
-                    return *reinterpret_cast<uint32_t const*>(index_bytes.data() + off);
+                    return *reinterpret_cast<std::uint32_t const*>(index_bytes.data() + off);
                 }
                 // u8 indices were widened to u16 above, so 2 is the smallest width here
-                return *reinterpret_cast<uint16_t const*>(index_bytes.data() + off);
+                return *reinterpret_cast<std::uint16_t const*>(index_bytes.data() + off);
             };
-            for (size_t t = 0; t + 2 < index_count; t += 3) {
-                uint32_t const a = index_at(t);
-                uint32_t const b = index_at(t + 1);
-                uint32_t const c = index_at(t + 2);
+            for (std::size_t t = 0; t + 2 < index_count; t += 3) {
+                std::uint32_t const a = index_at(t);
+                std::uint32_t const b = index_at(t + 1);
+                std::uint32_t const c = index_at(t + 2);
                 if (a >= vertex_count || b >= vertex_count || c >= vertex_count) {
                     continue; // malformed index list: skip the triangle
                 }
@@ -1381,24 +1374,24 @@ namespace {
 
         // skinned attributes decoded per vertex (portions declared above, default semantics
         // keep non-skinned meshes correct under the shared skinned vertex layout)
-        auto const read_joints = [joints_portion](size_t const i) -> glm::uvec4 {
+        auto const read_joints = [joints_portion](std::size_t const i) -> glm::uvec4 {
             glm::uvec4 out(0u);
             if (joints_portion == nullptr) {
                 return out;
             }
             if (joints_portion->component == deren::gltf::component_type::unsigned_byte_t) {
-                for (int32_t c = 0; c < 4; ++c) {
+                for (std::int32_t c = 0; c < 4; ++c) {
                     out[c] = joints_portion->data[i * 4 + static_cast<std::size_t>(c)];
                 }
             } else if (joints_portion->component == deren::gltf::component_type::unsigned_short_t) {
                 auto const* p = reinterpret_cast<std::uint16_t const*>(joints_portion->data.data());
-                for (int32_t c = 0; c < 4; ++c) {
+                for (std::int32_t c = 0; c < 4; ++c) {
                     out[c] = p[i * 4 + static_cast<std::size_t>(c)];
                 }
             }
             return out;
         };
-        auto const read_weights = [weights_portion](size_t const i) -> glm::vec4 {
+        auto const read_weights = [weights_portion](std::size_t const i) -> glm::vec4 {
             if (weights_portion == nullptr) {
                 return glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
             }
@@ -1424,7 +1417,7 @@ namespace {
 
         // interleave into the single-binding layout the mesh stages fetch (stride 80)
         result.vertices.reserve(vertex_count);
-        for (size_t i = 0; i < vertex_count; ++i) {
+        for (std::size_t i = 0; i < vertex_count; ++i) {
             result.vertices.push_back(vertex{.position = positions[i], .normal = normals[i], .uv = uvs[i], .joints = read_joints(i), .weights = read_weights(i), .tangent = tangents[i]});
         }
         if (prim.index.empty()) {
@@ -1460,15 +1453,15 @@ namespace {
 
     // Convert stb-decoded texture data to RGBA (3 channels get alpha, 2 channels are gray + alpha, 1 channel
     // is gray-scaled)
-    deren::utility::vessel::vector<uint8_t> to_rgba(deren::gltf::texture_data const& texture) {
-        size_t const pixel_count = static_cast<size_t>(texture.width) * texture.height;
-        deren::utility::vessel::vector<uint8_t> rgba(pixel_count * 4, 255);
+    deren::utility::vessel::vector<std::uint8_t> to_rgba(deren::gltf::texture_data const& texture) {
+        std::size_t const pixel_count = static_cast<std::size_t>(texture.width) * texture.height;
+        deren::utility::vessel::vector<std::uint8_t> rgba(pixel_count * 4, 255);
         switch (texture.component) {
         case 4:
             rgba = texture.data;
             break;
         case 3:
-            for (size_t i = 0; i < pixel_count; ++i) {
+            for (std::size_t i = 0; i < pixel_count; ++i) {
                 rgba[i * 4 + 0] = texture.data[i * 3 + 0];
                 rgba[i * 4 + 1] = texture.data[i * 3 + 1];
                 rgba[i * 4 + 2] = texture.data[i * 3 + 2];
@@ -1477,7 +1470,7 @@ namespace {
         case 2:
             // GRAY + ALPHA (PNG color type 4, which stb reports as 2 channels): the gray byte feeds RGB and
             // the second byte is copied verbatim as alpha, so an LA image keeps the coverage its author drew.
-            for (size_t i = 0; i < pixel_count; ++i) {
+            for (std::size_t i = 0; i < pixel_count; ++i) {
                 rgba[i * 4 + 0] = texture.data[i * 2 + 0];
                 rgba[i * 4 + 1] = texture.data[i * 2 + 0];
                 rgba[i * 4 + 2] = texture.data[i * 2 + 0];
@@ -1485,7 +1478,7 @@ namespace {
             }
             break;
         case 1:
-            for (size_t i = 0; i < pixel_count; ++i) {
+            for (std::size_t i = 0; i < pixel_count; ++i) {
                 rgba[i * 4 + 0] = texture.data[i];
                 rgba[i * 4 + 1] = texture.data[i];
                 rgba[i * 4 + 2] = texture.data[i];
@@ -1502,7 +1495,7 @@ namespace {
     /// Consume the decoded pixels when the caller promises they are no longer needed. RGBA8 can move the
     /// source buffer directly; 3/1-channel inputs must convert first, then release the source. This is what
     /// stops the loader from making a second full copy of every texture through mip generation.
-    deren::utility::vessel::vector<uint8_t> to_rgba(deren::gltf::texture_data& texture, bool const consume) {
+    deren::utility::vessel::vector<std::uint8_t> to_rgba(deren::gltf::texture_data& texture, bool const consume) {
         if (!consume) {
             return to_rgba(static_cast<deren::gltf::texture_data const&>(texture));
         }
@@ -1510,16 +1503,16 @@ namespace {
             return std::move(texture.data);
         }
         auto rgba = to_rgba(static_cast<deren::gltf::texture_data const&>(texture));
-        deren::utility::vessel::vector<uint8_t>{}.swap(texture.data);
+        deren::utility::vessel::vector<std::uint8_t>{}.swap(texture.data);
         return rgba;
     }
 
     // 8-bit sRGB <-> linear conversion: color textures (slot 0) are averaged in linear space so
     // their mips keep correct brightness; the other (UNORM data) slots are averaged in byte space.
-    float srgb_to_linear(uint8_t const c) {
+    float srgb_to_linear(std::uint8_t const c) {
         static deren::utility::vessel::array<float, 256> const table = [] {
             deren::utility::vessel::array<float, 256> t = {};
-            for (int32_t i = 0; i < 256; ++i) {
+            for (std::int32_t i = 0; i < 256; ++i) {
                 float const v = static_cast<float>(i) / 255.0f;
                 t[i] = v <= 0.04045f ? v / 12.92f : std::pow((v + 0.055f) / 1.055f, 2.4f);
             }
@@ -1528,29 +1521,29 @@ namespace {
         return table[c];
     }
 
-    uint8_t linear_to_srgb(float const v) {
-        static deren::utility::vessel::array<uint8_t, 4096> const table = [] {
-            deren::utility::vessel::array<uint8_t, 4096> t = {};
-            for (int32_t i = 0; i < 4096; ++i) {
+    std::uint8_t linear_to_srgb(float const v) {
+        static deren::utility::vessel::array<std::uint8_t, 4096> const table = [] {
+            deren::utility::vessel::array<std::uint8_t, 4096> t = {};
+            for (std::int32_t i = 0; i < 4096; ++i) {
                 float const v = static_cast<float>(i) / 4095.0f;
                 float const s = v <= 0.0031308f ? v * 12.92f : 1.055f * std::pow(v, 1.0f / 2.4f) - 0.055f;
-                t[i] = static_cast<uint8_t>(std::clamp(std::lround(s * 255.0f), 0L, 255L));
+                t[i] = static_cast<std::uint8_t>(std::clamp(std::lround(s * 255.0f), 0L, 255L));
             }
             return t;
         }();
-        int32_t const idx = std::clamp(static_cast<int32_t>(std::lround(v * 4095.0f)), 0, 4095);
+        std::int32_t const idx = std::clamp(static_cast<std::int32_t>(std::lround(v * 4095.0f)), 0, 4095);
         return table[idx];
     }
 
     // A full RGBA8 mip chain: mip0, mip1, ... laid out contiguously (mip-major). The level
     // count is floor(log2(min(width, height))) + 1.
     struct mip_chain {
-        deren::utility::vessel::vector<uint8_t> data = {};
-        uint32_t mip_levels = 0;
+        deren::utility::vessel::vector<std::uint8_t> data = {};
+        std::uint32_t mip_levels = 0;
     };
 
-    mip_chain generate_mip_chain(deren::utility::vessel::vector<uint8_t> rgba, uint32_t const width, uint32_t const height, bool const srgb) {
-        uint32_t const mip_count = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::min(width, height))))) + 1;
+    mip_chain generate_mip_chain(deren::utility::vessel::vector<std::uint8_t> rgba, std::uint32_t const width, std::uint32_t const height, bool const srgb) {
+        std::uint32_t const mip_count = static_cast<std::uint32_t>(std::floor(std::log2(static_cast<float>(std::min(width, height))))) + 1;
         mip_chain result;
         result.mip_levels = mip_count;
         std::size_t const base_bytes = static_cast<std::size_t>(width) * height * 4;
@@ -1558,7 +1551,7 @@ namespace {
             return result;
         }
         std::size_t total_bytes = 0;
-        for (uint32_t mip = 0, w = width, h = height; mip < mip_count; ++mip) {
+        for (std::uint32_t mip = 0, w = width, h = height; mip < mip_count; ++mip) {
             total_bytes += static_cast<std::size_t>(w) * h * 4;
             if (w == 1 && h == 1) {
                 break;
@@ -1569,37 +1562,37 @@ namespace {
         result.data = std::move(rgba);
         result.data.resize(base_bytes); // drop any trailing padding before appending mips
         result.data.reserve(total_bytes);
-        deren::utility::vessel::vector<uint8_t> b;
+        deren::utility::vessel::vector<std::uint8_t> b;
         std::size_t offset = 0;
-        uint32_t w = width;
-        uint32_t h = height;
-        for (uint32_t mip = 0; mip < mip_count; ++mip) {
-            std::span<uint8_t const> const cur(result.data.data() + offset, static_cast<std::size_t>(w) * h * 4);
+        std::uint32_t w = width;
+        std::uint32_t h = height;
+        for (std::uint32_t mip = 0; mip < mip_count; ++mip) {
+            std::span<std::uint8_t const> const cur(result.data.data() + offset, static_cast<std::size_t>(w) * h * 4);
             // mip0 is already in place; append only levels declared by mip_count. Rectangular
             // chains can end before 1x1, and must not append an extra unadvertised level.
             if (mip + 1 == mip_count || (w == 1 && h == 1)) {
                 break;
             }
-            uint32_t const nw = std::max(1u, w / 2);
-            uint32_t const nh = std::max(1u, h / 2);
+            std::uint32_t const nw = std::max(1u, w / 2);
+            std::uint32_t const nh = std::max(1u, h / 2);
             b.assign(static_cast<std::size_t>(nw) * nh * 4, 0);
-            for (uint32_t y = 0; y < nh; ++y) {
-                uint32_t const sy0 = std::min(y * 2, h - 1);
-                uint32_t const sy1 = std::min(y * 2 + 1, h - 1);
-                for (uint32_t x = 0; x < nw; ++x) {
-                    uint32_t const sx0 = std::min(x * 2, w - 1);
-                    uint32_t const sx1 = std::min(x * 2 + 1, w - 1);
-                    size_t const p00 = (static_cast<size_t>(sy0) * w + sx0) * 4;
-                    size_t const p10 = (static_cast<size_t>(sy0) * w + sx1) * 4;
-                    size_t const p01 = (static_cast<size_t>(sy1) * w + sx0) * 4;
-                    size_t const p11 = (static_cast<size_t>(sy1) * w + sx1) * 4;
-                    size_t const dst = (static_cast<size_t>(y) * nw + x) * 4;
-                    for (int32_t c = 0; c < 4; ++c) {
+            for (std::uint32_t y = 0; y < nh; ++y) {
+                std::uint32_t const sy0 = std::min(y * 2, h - 1);
+                std::uint32_t const sy1 = std::min(y * 2 + 1, h - 1);
+                for (std::uint32_t x = 0; x < nw; ++x) {
+                    std::uint32_t const sx0 = std::min(x * 2, w - 1);
+                    std::uint32_t const sx1 = std::min(x * 2 + 1, w - 1);
+                    std::size_t const p00 = (static_cast<std::size_t>(sy0) * w + sx0) * 4;
+                    std::size_t const p10 = (static_cast<std::size_t>(sy0) * w + sx1) * 4;
+                    std::size_t const p01 = (static_cast<std::size_t>(sy1) * w + sx0) * 4;
+                    std::size_t const p11 = (static_cast<std::size_t>(sy1) * w + sx1) * 4;
+                    std::size_t const dst = (static_cast<std::size_t>(y) * nw + x) * 4;
+                    for (std::int32_t c = 0; c < 4; ++c) {
                         if (srgb && c < 3) {
                             float const l = (srgb_to_linear(cur[p00 + c]) + srgb_to_linear(cur[p10 + c]) + srgb_to_linear(cur[p01 + c]) + srgb_to_linear(cur[p11 + c])) * 0.25f;
                             b[dst + c] = linear_to_srgb(l);
                         } else {
-                            b[dst + c] = static_cast<uint8_t>((static_cast<uint32_t>(cur[p00 + c]) + cur[p10 + c] + cur[p01 + c] + cur[p11 + c] + 2) / 4);
+                            b[dst + c] = static_cast<std::uint8_t>((static_cast<std::uint32_t>(cur[p00 + c]) + cur[p10 + c] + cur[p01 + c] + cur[p11 + c] + 2) / 4);
                         }
                     }
                 }
@@ -1672,11 +1665,11 @@ namespace deren::gltf {
         // character's skeleton. So the name is split on non-alphanumerics and a token has to BE `head`.
         std::size_t i = 0;
         while (i < node_name.size()) {
-            while (i < node_name.size() && std::isalnum(static_cast<uint8_t>(node_name[i])) == 0) {
+            while (i < node_name.size() && std::isalnum(static_cast<std::uint8_t>(node_name[i])) == 0) {
                 ++i;
             }
             std::size_t const start = i;
-            while (i < node_name.size() && std::isalnum(static_cast<uint8_t>(node_name[i])) != 0) {
+            while (i < node_name.size() && std::isalnum(static_cast<std::uint8_t>(node_name[i])) != 0) {
                 ++i;
             }
             if (i == start) {
@@ -1685,7 +1678,7 @@ namespace deren::gltf {
             deren::utility::vessel::string token;
             token.reserve(i - start);
             for (std::size_t k = start; k < i; ++k) {
-                token.push_back(static_cast<char>(std::tolower(static_cast<uint8_t>(node_name[k]))));
+                token.push_back(static_cast<char>(std::tolower(static_cast<std::uint8_t>(node_name[k]))));
             }
             if (token == "head") {
                 return true;
@@ -1975,7 +1968,7 @@ namespace deren::gltf {
         deren::utility::vessel::string lowered;
         lowered.reserve(name.size());
         for (char const c : name) {
-            lowered.push_back(static_cast<char>(std::tolower(static_cast<uint8_t>(c))));
+            lowered.push_back(static_cast<char>(std::tolower(static_cast<std::uint8_t>(c))));
         }
         auto const has = [&lowered](std::string_view const needle) { return lowered.find(needle) != deren::utility::vessel::string::npos; };
         // ---- THE TWO OVERLAY MATERIALS ARE NOT TOON MATERIALS, AND THAT COMES BEFORE EVERY GROUP BELOW ----
@@ -2084,7 +2077,7 @@ namespace deren::gltf {
         deren::utility::vessel::string lowered;
         lowered.reserve(name.size());
         for (char const c : name) {
-            lowered.push_back(static_cast<char>(std::tolower(static_cast<uint8_t>(c))));
+            lowered.push_back(static_cast<char>(std::tolower(static_cast<std::uint8_t>(c))));
         }
         // `hairshadow` FIRST, because `eyeshadow` is not a substring of it and vice versa - they are disjoint, so
         // the order is only a reading convenience rather than the priority rule `toon_family_of` needs. What the
@@ -2100,13 +2093,13 @@ namespace deren::gltf {
         return overlay_kind::none;
     }
 
-    std::optional<uint16_t> scenes::texture_index_by_name(std::string_view const name) const noexcept {
+    std::optional<std::uint16_t> scenes::texture_index_by_name(std::string_view const name) const noexcept {
         if (name.empty()) {
             return std::nullopt; // an unnamed texture must never match an empty query: most files are all-unnamed
         }
         for (std::size_t i = 0; i < this->textures.size(); ++i) {
             if (this->textures[i].name == name) {
-                return static_cast<uint16_t>(i); // lossless: load_model() rejects more than 65536 textures
+                return static_cast<std::uint16_t>(i); // lossless: load_model() rejects more than 65536 textures
             }
         }
         return std::nullopt;
@@ -2186,7 +2179,7 @@ namespace deren::gltf {
         // interface change), and get_texture_indices() casts every textureIndex to it, so a file with more
         // textures than a uint16_t can address would silently alias material slots onto the wrong image. Such a
         // file is rejected here, before any material is built, instead of being mis-rendered.
-        constexpr std::size_t max_addressable_textures = static_cast<std::size_t>(std::numeric_limits<uint16_t>::max()) + 1;
+        constexpr std::size_t max_addressable_textures = static_cast<std::size_t>(std::numeric_limits<std::uint16_t>::max()) + 1;
         if (asset.textures.size() > max_addressable_textures) {
             deren::utility::error("gltf validate err [texture count]: {} textures exceed the {} a uint16_t texture index can address",
                                   asset.textures.size(), max_addressable_textures);
@@ -2297,7 +2290,7 @@ namespace deren::gltf {
         return *this;
     }
 
-    void scene_iterator::operator++(int32_t) {
+    void scene_iterator::operator++(std::int32_t) {
         ++*this;
     }
 
@@ -2393,7 +2386,7 @@ namespace deren::gltf {
         return *this;
     }
 
-    void scene_node_iterator::operator++(int32_t) {
+    void scene_node_iterator::operator++(std::int32_t) {
         ++*this;
     }
 
@@ -2436,7 +2429,7 @@ namespace deren::gltf {
         std::uint64_t bytes = 0;
         for (auto& texture : scene.textures) {
             bytes += texture.data.size();
-            deren::utility::vessel::vector<uint8_t>{}.swap(texture.data);
+            deren::utility::vessel::vector<std::uint8_t>{}.swap(texture.data);
         }
         return bytes;
     }
@@ -2447,7 +2440,7 @@ namespace deren::gltf {
             if (consume_scene != nullptr) {
                 // Textures no material references will never be decoded; release their decoded bytes
                 // before the mip peak rather than carrying them through the whole resolve.
-                deren::utility::vessel::vector<uint8_t> referenced(consume_scene->textures.size(), 0);
+                deren::utility::vessel::vector<std::uint8_t> referenced(consume_scene->textures.size(), 0);
                 for (auto const& material : consume_scene->materials) {
                     for (auto const& val : material.texture_indices | std::views::values) {
                         if (val < referenced.size()) {
@@ -2457,7 +2450,7 @@ namespace deren::gltf {
                 }
                 for (std::size_t i = 0; i < referenced.size(); ++i) {
                     if (!referenced[i]) {
-                        deren::utility::vessel::vector<uint8_t>{}.swap(consume_scene->textures[i].data);
+                        deren::utility::vessel::vector<std::uint8_t>{}.swap(consume_scene->textures[i].data);
                     }
                 }
             }
@@ -2465,14 +2458,14 @@ namespace deren::gltf {
             // decoded texture cache: one entry per glTF texture index; shared textures decode once,
             // and the shared pointers keep every image_view's span valid for the caller
             struct decoded_texture {
-                std::shared_ptr<deren::utility::vessel::vector<uint8_t> const> data = {};
-                uint32_t width = 0;
-                uint32_t height = 0;
-                uint32_t mip_levels = 1;
+                std::shared_ptr<deren::utility::vessel::vector<std::uint8_t> const> data = {};
+                std::uint32_t width = 0;
+                std::uint32_t height = 0;
+                std::uint32_t mip_levels = 1;
             };
             deren::utility::vessel::vector<std::optional<decoded_texture>> cache(scenes.textures.size());
 
-            auto const decode = [&scenes, &cache, consume_scene](uint16_t const texture_index, bool const srgb) -> decoded_texture {
+            auto const decode = [&scenes, &cache, consume_scene](std::uint16_t const texture_index, bool const srgb) -> decoded_texture {
                 decoded_texture out = {};
                 auto& entry = cache[texture_index];
                 if (!entry) {
@@ -2483,7 +2476,7 @@ namespace deren::gltf {
                     auto rgba = consume_scene != nullptr ? to_rgba(consume_scene->textures[texture_index], true) : to_rgba(tex);
                     if (!rgba.empty() && tex.width > 0 && tex.height > 0) {
                         mip_chain mips = generate_mip_chain(std::move(rgba), tex.width, tex.height, srgb);
-                        entry->data = std::make_shared<deren::utility::vessel::vector<uint8_t> const>(std::move(mips.data));
+                        entry->data = std::make_shared<deren::utility::vessel::vector<std::uint8_t> const>(std::move(mips.data));
                         entry->width = tex.width;
                         entry->height = tex.height;
                         entry->mip_levels = mips.mip_levels;
@@ -2514,16 +2507,16 @@ namespace deren::gltf {
                 // family, and no string. Classifying at the consumer instead would mean either carrying the name
                 // through the whole pipeline or re-deriving it, and a per-draw string match is exactly the kind
                 // of work that belongs at import.
-                out.toon_family = static_cast<uint32_t>(toon_family_of(mat.name));
+                out.toon_family = static_cast<std::uint32_t>(toon_family_of(mat.name));
                 // ... AND THE OVERLAY CHANNEL, resolved at the same moment from the same name: a material that
                 // classified into one of the article's two framebuffer multiplies is not shaded at all, so this is
                 // the fact that takes it out of the shading passes and into the overlay pass. The two are disjoint
                 // by construction - `toon_family_of` answers `none` for exactly these names.
-                out.overlay_kind = static_cast<uint32_t>(overlay_kind_of(mat.name));
+                out.overlay_kind = static_cast<std::uint32_t>(overlay_kind_of(mat.name));
                 // ... AND THE NAME ITSELF, because the toon sidecar is keyed by it: a consumer that has only the
                 // family cannot look up the entry describing THIS material. See resolved_material::name.
                 out.name = mat.name;
-                for (int32_t i = 0; i < 5; ++i) {
+                for (std::int32_t i = 0; i < 5; ++i) {
                     constexpr deren::utility::vessel::array<std::string_view, 5> slot_names = {"albedo", "metallic_roughness", "normal", "occlusion", "emissive"};
                     auto const it = mat.texture_indices.find(deren::utility::vessel::string(slot_names[i]));
                     if (it == mat.texture_indices.end() || it->second >= scenes.textures.size()) {
@@ -2567,10 +2560,10 @@ namespace deren::gltf {
             return;
         }
         built_mesh const mesh = build_mesh(*(this->inner->primitive));
-        auto const* const first = reinterpret_cast<uint8_t const*>(mesh.vertices.data());
+        auto const* const first = reinterpret_cast<std::uint8_t const*>(mesh.vertices.data());
         this->vertex_bytes.assign(first, first + mesh.vertices.size() * sizeof(vertex));
         this->vertex_stride = sizeof(vertex);
-        this->vertex_count = static_cast<uint32_t>(mesh.vertices.size());
+        this->vertex_count = static_cast<std::uint32_t>(mesh.vertices.size());
         this->index_bytes = mesh.index_data;
         this->index_width = mesh.index_width;
         this->index_count = mesh.index_count;
@@ -2603,11 +2596,11 @@ namespace deren::gltf {
     }
 
     resolved_material const* drawable_iterator::current_material() const {
-        uint32_t const index = this->inner->primitive->material_index;
+        std::uint32_t const index = this->inner->primitive->material_index;
         return index < this->materials.size() ? &this->materials[index] : nullptr;
     }
 
-    image_view drawable_iterator::slot(int32_t const i) const {
+    image_view drawable_iterator::slot(std::int32_t const i) const {
         resolved_material const* material = this->current_material();
         // The slot count is a fixed five (resolved_material::slots) and `i` is an arbitrary int32_t from
         // the caller, so the index is checked rather than trusted.
@@ -2647,12 +2640,12 @@ namespace deren::gltf {
         return material != nullptr && material->double_sided;
     }
 
-    uint32_t drawable_iterator::get_toon_family() const {
+    std::uint32_t drawable_iterator::get_toon_family() const {
         resolved_material const* material = this->current_material();
         return material == nullptr ? 0u : material->toon_family; // 0 == toon_family::none
     }
 
-    uint32_t drawable_iterator::get_overlay_kind() const {
+    std::uint32_t drawable_iterator::get_overlay_kind() const {
         resolved_material const* material = this->current_material();
         return material == nullptr ? 0u : material->overlay_kind; // 0 == overlay_kind::none
     }
@@ -2869,9 +2862,9 @@ namespace deren::gltf {
             }
             ++result.primitive_count;
             // TRS transforms map an AABB to an AABB, so transforming the 8 corners is exact
-            for (int32_t x = 0; x < 2; ++x) {
-                for (int32_t y = 0; y < 2; ++y) {
-                    for (int32_t z = 0; z < 2; ++z) {
+            for (std::int32_t x = 0; x < 2; ++x) {
+                for (std::int32_t y = 0; y < 2; ++y) {
+                    for (std::int32_t z = 0; z < 2; ++z) {
                         glm::vec3 const corner(x ? local_max.x : local_min.x, y ? local_max.y : local_min.y, z ? local_max.z : local_min.z);
                         glm::vec4 const world = drawable.transform_matrix * glm::vec4(corner, 1.0f);
                         glm::vec3 const world_xyz(world);
@@ -2914,13 +2907,13 @@ namespace deren::gltf {
         // nodes / max depth / mesh-bearing nodes) for diagnostics. Walks that tree through
         // scene_node_iterator (DFS pre-order, transform-only nodes included).
         {
-            size_t total_nodes = 0;
-            size_t mesh_nodes = 0;
-            size_t max_depth = 0;
+            std::size_t total_nodes = 0;
+            std::size_t mesh_nodes = 0;
+            std::size_t max_depth = 0;
             deren::utility::vessel::vector<deren::utility::vessel::string> tree_lines;
             for (scene_node_iterator it = scenes.nodes_begin(); it != deren::gltf::scenes::nodes_end(); ++it) {
                 ++total_nodes;
-                size_t const depth = it.get_depth();
+                std::size_t const depth = it.get_depth();
                 max_depth = std::max(max_depth, depth);
                 bool const has_mesh = it.get_drawable_count() > 0;
                 if (has_mesh) {
@@ -2947,7 +2940,7 @@ namespace deren::gltf {
             for (animation const& anim : scenes.animations) {
                 std::string_view const anim_name = anim.name.empty() ? std::string_view("<unnamed>") : std::string_view(anim.name);
                 // a typical animation shares one keyframe count across its samplers; report the first
-                size_t const keys = anim.samplers.empty() ? 0 : anim.samplers.front().times.size();
+                std::size_t const keys = anim.samplers.empty() ? 0 : anim.samplers.front().times.size();
                 deren::utility::log("  animation '{}': {} channels, {} samplers, {} keyframes", anim_name, anim.channels.size(), anim.samplers.size(), keys);
             }
         }
@@ -2965,9 +2958,9 @@ namespace deren::gltf {
         // Morph summary: primitives may carry morph targets (POSITION/NORMAL deltas), meshes/
         // nodes default weights, and "weights" animation channels.
         {
-            size_t morph_prims = 0;
-            size_t morph_targets = 0;
-            size_t weighty_meshes = 0;
+            std::size_t morph_prims = 0;
+            std::size_t morph_targets = 0;
+            std::size_t weighty_meshes = 0;
             for (scene const& loader_scene : scenes.scene) {
                 for (node const& loader_node : loader_scene.nodes) {
                     for (mesh const& m : loader_node.meshes) {
@@ -2993,7 +2986,7 @@ namespace deren::gltf {
         // viewpoint seeds; point/spot lights are consumed by the demo main (auto-enabled via
         // the runtime's punctual-light UBO) - this block logs what the loader exported.
         if (!scenes.cameras.empty()) {
-            size_t perspective = 0;
+            std::size_t perspective = 0;
             for (camera const& cam : scenes.cameras) {
                 if (cam.type == camera_type::perspective) {
                     ++perspective;
@@ -3002,9 +2995,9 @@ namespace deren::gltf {
             deren::utility::log("cameras: {} ({} perspective, {} orthographic)", scenes.cameras.size(), perspective, scenes.cameras.size() - perspective);
         }
         if (!scenes.lights.empty()) {
-            size_t directional = 0;
-            size_t point = 0;
-            size_t spot = 0;
+            std::size_t directional = 0;
+            std::size_t point = 0;
+            std::size_t spot = 0;
             for (light const& l : scenes.lights) {
                 switch (l.type) {
                 case light_type::directional:

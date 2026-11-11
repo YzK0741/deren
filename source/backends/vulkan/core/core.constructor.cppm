@@ -26,7 +26,6 @@ module;
 #define GLFW_EXPOSE_NATIVE_WIN32 // HWND, and the windows.h that names it
 #include <GLFW/glfw3native.h>
 #include <cstddef>
-#include <cstdint>
 #include <vulkan/vulkan.h>
 
 // LOAD-BEARING, and it is the same trap app_pipelines.cpp documents at length: with -fno-exceptions and the vendored
@@ -82,8 +81,8 @@ namespace {
     deren::promise::rhi::create_info sanitize_create_info(deren::promise::rhi::create_info const& desc) {
         using rhi_create_info = deren::promise::rhi::create_info;
 
-        uint32_t const declared = desc.struct_size;
-        if (constexpr uint32_t known = sizeof(rhi_create_info); declared != known) {
+        std::uint32_t const declared = desc.struct_size;
+        if (constexpr std::uint32_t known = sizeof(rhi_create_info); declared != known) {
             deren::utility::log("core: the RHI create_info is {} B here and {} B in the caller -> the caller's structure is treated as TOO SHORT: a field whose whole extent is not inside those {} B keeps this build's default",
                                 known, declared, declared);
         }
@@ -248,7 +247,7 @@ namespace deren::vulkan {
                                         this->resource.descriptor_heaps.limits().buffer_descriptor_size,
                                         this->resource.descriptor_heaps.limits().image_descriptor_size,
                                         this->resource.descriptor_heaps.limits().sampler_descriptor_size,
-                                        static_cast<uint64_t>(heap_slot_stride));
+                                        static_cast<std::uint64_t>(heap_slot_stride));
                     this->resource.heap_grid_offset = VK_WHOLE_SIZE;
                 }
                 // THE LAYOUT, reserved once and published (see core.cppm): the runtime WRITES the contents, the
@@ -272,8 +271,8 @@ namespace deren::vulkan {
                 // heap's grid, in the order source/shaders/heap_slots.glsl names them.
                 if (descriptors_fit) {
                     constexpr VkDeviceSize sampler_grid = static_cast<VkDeviceSize>(heap_sampler_base) * heap_sampler_stride;
-                    uint32_t written = 0;
-                    for (uint32_t index = 0; index < this->resource.shared_sampler_infos.size(); ++index) {
+                    std::uint32_t written = 0;
+                    for (std::uint32_t index = 0; index < this->resource.shared_sampler_infos.size(); ++index) {
                         VkSamplerCreateInfo const& info = this->resource.shared_sampler_infos[index];
                         if (info.sType != VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO) {
                             continue; // a sampler that never got created is not written, and validation would say so
@@ -322,7 +321,7 @@ namespace deren::vulkan {
         this->device.capabilities_view.parent = this;
         this->resource.shader_groups_view.parent = this;
         this->frame.frame_command_buffers.reserve(static_cast<std::size_t>(frame.frames_in_flight));
-        for (int32_t slot = 0; slot < frame.frames_in_flight; ++slot) {
+        for (std::int32_t slot = 0; slot < frame.frames_in_flight; ++slot) {
             // EACH ONE BRINGS its POOL: make_command_buffer() creates a pool per buffer (see
             // deren::vulkan::vk_command_buffer), so the per-slot primaries share no command pool - and
             // the cleanup below, which empties this vector while the device is idle, destroys those
@@ -417,7 +416,7 @@ namespace deren::vulkan {
             deren::utility::log("  - {}", ext);
         }
 
-        create_info.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
+        create_info.enabledExtensionCount = static_cast<std::uint32_t>(extensions.size());
         create_info.ppEnabledExtensionNames = extensions.data();
         // enable validation_layers
         deren::utility::vessel::vector<char const*> validation_layers;
@@ -429,7 +428,7 @@ namespace deren::vulkan {
 
             // Check validation layer support
             if (check_validation_layer_support(validation_layers)) {
-                create_info.enabledLayerCount = static_cast<uint32_t>(validation_layers.size());
+                create_info.enabledLayerCount = static_cast<std::uint32_t>(validation_layers.size());
                 create_info.ppEnabledLayerNames = validation_layers.data();
                 deren::utility::log("validation layers enabled ( {} )", validation_layers.size());
                 for (auto const& layer : validation_layers) {
@@ -467,13 +466,13 @@ namespace deren::vulkan {
                 error_msg += "VK_ERROR_INCOMPATIBLE_DRIVER";
                 break;
             default:
-                error_msg += deren::utility::vessel::to_string(static_cast<int32_t>(result));
+                error_msg += deren::utility::vessel::to_string(static_cast<std::int32_t>(result));
                 break;
             }
             deren::utility::panic(error_msg);
         }
         deren::utility::log("instance init succeeded");
-        deren::utility::log("instance handler is 0x{:x}", reinterpret_cast<uint64_t>(this->device.instance));
+        deren::utility::log("instance handler is 0x{:x}", reinterpret_cast<std::uint64_t>(this->device.instance));
 
         // register instance destruction first, then the messenger cleanup INSIDE the
         // validation branch below: cleanup runs LIFO, so the messenger (when created) is
@@ -759,10 +758,10 @@ namespace deren::vulkan {
                 .sampler_alignment = heap.samplerHeapAlignment,
                 .resource_reserved = heap.minResourceHeapReservedRange,
                 .sampler_reserved_with_embedded = heap.minSamplerHeapReservedRangeWithEmbedded,
-                .buffer_descriptor_size = static_cast<uint32_t>(heap.bufferDescriptorSize),
-                .image_descriptor_size = static_cast<uint32_t>(heap.imageDescriptorSize),
-                .sampler_descriptor_size = static_cast<uint32_t>(heap.samplerDescriptorSize),
-                .max_push_data = static_cast<uint32_t>(heap.maxPushDataSize),
+                .buffer_descriptor_size = static_cast<std::uint32_t>(heap.bufferDescriptorSize),
+                .image_descriptor_size = static_cast<std::uint32_t>(heap.imageDescriptorSize),
+                .sampler_descriptor_size = static_cast<std::uint32_t>(heap.samplerDescriptorSize),
+                .max_push_data = static_cast<std::uint32_t>(heap.maxPushDataSize),
                 .max_embedded_samplers = heap.maxDescriptorHeapEmbeddedSamplers,
             };
         }
@@ -792,11 +791,11 @@ namespace deren::vulkan {
     void core::init_swap_chain() noexcept {
         if (this->create_options.native_window == nullptr) {
             this->frame.swap_chain_image_format = VK_FORMAT_B8G8R8A8_SRGB;
-            this->frame.swap_chain_extent = {static_cast<uint32_t>(std::max(1, this->create_options.window_width)), static_cast<uint32_t>(std::max(1, this->create_options.window_height))};
+            this->frame.swap_chain_extent = {static_cast<std::uint32_t>(std::max(1, this->create_options.window_width)), static_cast<std::uint32_t>(std::max(1, this->create_options.window_height))};
             this->frame.swapchain_transfer_src_supported = true;
             this->frame.swap_chain_images.resize(deren::promise::rhi::max_frames_in_flight);
             deren::utility::vessel::vector<VkDeviceMemory> allocations(this->frame.swap_chain_images.size());
-            for (size_t i = 0; i < allocations.size(); ++i) {
+            for (std::size_t i = 0; i < allocations.size(); ++i) {
                 VkImageCreateInfo info{};
                 info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
                 info.imageType = VK_IMAGE_TYPE_2D;
@@ -863,7 +862,7 @@ namespace deren::vulkan {
         // mapped window can). See that function: the value is the caller's, not one invented there.
         ::deren::promise::rhi::image_extent const extent = choose_swap_extent(capabilities, this->device.window, this->create_options.window_width, this->create_options.window_height);
 
-        uint32_t image_count = capabilities.minImageCount + 1;
+        std::uint32_t image_count = capabilities.minImageCount + 1;
 
         if (capabilities.maxImageCount > 0 && image_count > capabilities.maxImageCount) {
             image_count = capabilities.maxImageCount;
@@ -914,7 +913,7 @@ namespace deren::vulkan {
             deren::utility::panic("find queue family index failed");
         }
 
-        uint32_t const queue_family_indices[] = {indices.graphics_family.value(), indices.present_family.value()};
+        std::uint32_t const queue_family_indices[] = {indices.graphics_family.value(), indices.present_family.value()};
 
         if (indices.graphics_family != indices.present_family) {
             create_info.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
@@ -969,7 +968,7 @@ namespace deren::vulkan {
     void core::init_image_views() noexcept {
 
         this->frame.swap_chain_image_views.resize(this->frame.swap_chain_images.size());
-        for (size_t i = 0; i < this->frame.swap_chain_images.size(); i++) {
+        for (std::size_t i = 0; i < this->frame.swap_chain_images.size(); i++) {
             VkImageViewCreateInfo const create_info = make_image_view_info(this->frame.swap_chain_images[i], frame.swap_chain_image_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 1, 1);
             if (vkCreateImageView(this->device.logical_device, &create_info, nullptr, &this->frame.swap_chain_image_views[i]) != VK_SUCCESS) {
                 deren::utility::panic("failed to create image views!");
@@ -1052,7 +1051,7 @@ namespace deren::vulkan {
         frame.depth_image_views.resize(frame.swap_chain_image_views.size());
         frame.depth_image_memories.resize(frame.swap_chain_image_views.size()); // make sure memory is allocated
 
-        for (size_t i = 0; i < frame.swap_chain_image_views.size(); i++) {
+        for (std::size_t i = 0; i < frame.swap_chain_image_views.size(); i++) {
             // Call create_depth_image directly, but make sure the arguments are correct
             create_depth_image(frame.depth_images[i], frame.depth_image_memories[i], frame.depth_image_views[i]);
         }
@@ -1098,7 +1097,7 @@ namespace deren::vulkan {
         VkSemaphoreTypeCreateInfo timeline_type = make_timeline_semaphore_type_info();
         VkSemaphoreCreateInfo binary_info = make_binary_semaphore_info();
 
-        for (size_t i = 0; i < frame.frames_in_flight; ++i) {
+        for (std::size_t i = 0; i < frame.frames_in_flight; ++i) {
             if (vkCreateSemaphore(this->device.logical_device, &binary_info, nullptr, &frame.image_available_semaphores[i]) != VK_SUCCESS) {
                 deren::utility::panic("failed to create image-available semaphore");
             }
@@ -1131,7 +1130,7 @@ namespace deren::vulkan {
         // Two device facts decide whether pass timings are possible: how wide the timestamp
         // counter of a graphics queue is (timestampValidBits - a family that cannot write
         // timestamps reports 0) and how long one tick takes (timestampPeriod, ns/tick).
-        uint32_t family_count = 0;
+        std::uint32_t family_count = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(this->device.physical_device, &family_count, nullptr);
         deren::utility::vessel::vector<VkQueueFamilyProperties> families(family_count);
         vkGetPhysicalDeviceQueueFamilyProperties(this->device.physical_device, &family_count, families.data());
@@ -1148,7 +1147,7 @@ namespace deren::vulkan {
             return;
         }
 
-        VkQueryPoolCreateInfo const pool_info = make_query_pool_info(VK_QUERY_TYPE_TIMESTAMP, static_cast<uint32_t>(frame.frames_in_flight) * gpu_timing_mark_capacity); // NOLINT
+        VkQueryPoolCreateInfo const pool_info = make_query_pool_info(VK_QUERY_TYPE_TIMESTAMP, static_cast<std::uint32_t>(frame.frames_in_flight) * gpu_timing_mark_capacity); // NOLINT
         if (vkCreateQueryPool(this->device.logical_device, &pool_info, nullptr, &this->frame.timestamp_query_pool) != VK_SUCCESS) {
             deren::utility::log("gpu timing: timestamp query pool creation failed - pass timings are off");
             this->frame.timestamp_query_pool = VK_NULL_HANDLE;

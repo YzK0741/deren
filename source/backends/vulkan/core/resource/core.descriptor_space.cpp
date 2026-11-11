@@ -3,7 +3,7 @@
 // this file is the vocabulary layer over it, so the two semantics ("write into the space" and "where the group
 // is") have ONE implementation each.
 module;
-#include <cstdint>
+
 #include <vulkan/vulkan.h>
 
 module deren.vulkan.core;
@@ -132,7 +132,7 @@ namespace deren::vulkan {
         }
         auto address = parent->internal_address(buffer, info.offset);
         if (!address || (properties.limits.minStorageBufferOffsetAlignment && address % properties.limits.minStorageBufferOffsetAlignment) ||
-            info.size > properties.limits.maxStorageBufferRange || info.size > UINT64_MAX - address) {
+            info.size > properties.limits.maxStorageBufferRange || info.size > std::numeric_limits<std::uint64_t>::max() - address) {
             return rhi::error::invalid_argument;
         }
         auto status = parent->resource.heap_view.write_buffer({

@@ -1,6 +1,5 @@
 module;
 #include <cstddef>
-#include <cstdint>
 #include <glm/glm.hpp>
 export module deren.engine.gaussian_splatting.gpu_frame;
 export import deren.vstd;

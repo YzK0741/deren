@@ -5,8 +5,6 @@
  */
 module;
 
-#include <cstddef>
-#include <cstdint>
 // NO GLOBAL-MODULE-FRAGMENT INCLUDE, deliberately, and it is a measured decision rather than an
 // oversight: source/app/app_pipelines.cpp keeps a textual <glm/glm.hpp> in its GMF to dodge the
 // ambiguous-operator-new trap (with -fno-exceptions and the vendored std module, an impl unit that

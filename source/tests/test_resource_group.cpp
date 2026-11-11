@@ -23,6 +23,9 @@ namespace rhi = deren::promise::rhi;
 #include "lazy_resource_contract.hpp"
 #include "recording_scope_contract.hpp"
 
+#include <cstdint>
+#include <limits>
+
 struct queue_gate {
     VkDevice device;
     VkSemaphore semaphore = VK_NULL_HANDLE;
@@ -115,7 +118,7 @@ int main(int argc, char** argv) {
     invalid[1].push_byte_offset = 0;
     CHECK(rhi::validate_resource_group_layout(invalid) == rhi::error::invalid_argument);
     invalid = layout;
-    invalid[0].push_byte_offset = UINT32_MAX;
+    invalid[0].push_byte_offset = std::numeric_limits<std::uint32_t>::max();
     CHECK(rhi::validate_resource_group_layout(invalid) == rhi::error::invalid_argument);
     invalid = layout;
     invalid[0].shader_stage_bits = 0;
@@ -169,7 +172,7 @@ int main(int argc, char** argv) {
             }
             gate.release();
             if (token) {
-                CHECK(completion->wait(*token, UINT64_MAX) == rhi::error::ok);
+                CHECK(completion->wait(*token, std::numeric_limits<std::uint64_t>::max()) == rhi::error::ok);
             }
             CHECK((*value)->unload() == rhi::error::not_ready); // reusable recording still keeps the allocation
             CHECK(candidate->begin_recording({}) == rhi::error::ok);
@@ -186,7 +189,7 @@ int main(int argc, char** argv) {
             }
             pending_gate.release();
             if (pending_token) {
-                CHECK(completion->wait(*pending_token, UINT64_MAX) == rhi::error::ok);
+                CHECK(completion->wait(*pending_token, std::numeric_limits<std::uint64_t>::max()) == rhi::error::ok);
             }
             CHECK((*value)->unload() == rhi::error::ok);
         }
@@ -201,7 +204,7 @@ int main(int argc, char** argv) {
         CHECK(recorder.push_constants(0u, {}) == rhi::error::invalid_argument);
         CHECK(recorder.push_constants(1u, word) == rhi::error::invalid_argument);
         CHECK(recorder.push_constants(0u, std::span(word).first(1)) == rhi::error::invalid_argument);
-        CHECK(recorder.push_constants(UINT32_MAX, word) == rhi::error::invalid_argument);
+        CHECK(recorder.push_constants(std::numeric_limits<std::uint32_t>::max(), word) == rhi::error::invalid_argument);
         CHECK(recorder.push_constants(push_capacity, word) == rhi::error::invalid_argument);
         CHECK(recorder.push_constants(push_capacity - 4u, word) == rhi::error::ok);
     };
@@ -359,10 +362,10 @@ int main(int argc, char** argv) {
     bad[0].binding = 20;
     CHECK(!core->resources->create_resource_group({.entries = bad}));
     bad = entries;
-    bad[6].offset = UINT64_MAX;
+    bad[6].offset = std::numeric_limits<std::uint64_t>::max();
     CHECK(!core->resources->create_resource_group({.entries = bad}));
     bad = entries;
-    bad[6].size = UINT64_MAX;
+    bad[6].size = std::numeric_limits<std::uint64_t>::max();
     CHECK(!core->resources->create_resource_group({.entries = bad}));
     bad = entries;
     bad[2].resource = sampler;
@@ -443,7 +446,7 @@ int main(int argc, char** argv) {
         CHECK(token);
         segment.reset();
         if (token) {
-            CHECK(completion->wait(*token, UINT64_MAX) == rhi::error::ok);
+            CHECK(completion->wait(*token, std::numeric_limits<std::uint64_t>::max()) == rhi::error::ok);
         }
         CHECK(candidate.expired());
         auto* values = reinterpret_cast<std::uint32_t const*>(output->mapped().data()) + index * 5;
@@ -615,7 +618,7 @@ int main(int argc, char** argv) {
     }
     gate.release();
     if (token) {
-        CHECK(completion->wait(*token, UINT64_MAX) == rhi::error::ok);
+        CHECK(completion->wait(*token, std::numeric_limits<std::uint64_t>::max()) == rhi::error::ok);
     }
     auto* result = reinterpret_cast<std::uint32_t const*>(output->mapped().data());
     deren::vk_test::write_line("group readback: {} {} {} {} {}", result[0], result[1], result[2], result[3], result[4]);

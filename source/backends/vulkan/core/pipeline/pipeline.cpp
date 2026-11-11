@@ -1,6 +1,5 @@
 module;
 
-#include <cstdint>
 #include <vulkan/vulkan.h>
 
 module deren.vulkan.core.pipeline;
@@ -37,8 +36,8 @@ namespace deren::vulkan {
         VkDevice const device,
         VkFormat const color_format,
         VkFormat const depth_format,
-        std::span<uint8_t const> const vertex_shader_code,
-        std::span<uint8_t const> const fragment_shader_code,
+        std::span<std::uint8_t const> const vertex_shader_code,
+        std::span<std::uint8_t const> const fragment_shader_code,
         VkSampleCountFlagBits const msaa_level,
         bool const depth_test_enabled,
         bool const has_color_attachment,
@@ -72,8 +71,8 @@ namespace deren::vulkan {
         VkDevice device,
         std::span<VkFormat const> const color_formats,
         VkFormat const depth_format,
-        std::span<uint8_t const> const vertex_shader_code,
-        std::span<uint8_t const> const fragment_shader_code,
+        std::span<std::uint8_t const> const vertex_shader_code,
+        std::span<std::uint8_t const> const fragment_shader_code,
         VkSampleCountFlagBits const msaa_level,
         bool const depth_test_enabled,
         float const depth_bias_constant_factor,
@@ -93,7 +92,7 @@ namespace deren::vulkan {
         // as a VERTEX interface would derive nothing (it declares no Input variables) - an empty attribute
         // list that silently reads no geometry. See docs/mesh_shaders.md.
         deren::utility::vessel::vector<VkVertexInputAttributeDescription> attribute_descriptions;
-        uint32_t stride = 0;
+        std::uint32_t stride = 0;
         if (first_stage == VK_SHADER_STAGE_VERTEX_BIT) {
             auto vertex_interface_expected = pipeline::parse_shader_stage_interface(vertex_shader_code, VK_SHADER_STAGE_VERTEX_BIT);
             if (!vertex_interface_expected) {
@@ -125,7 +124,7 @@ namespace deren::vulkan {
         vertex_input_state_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
         vertex_input_state_create_info.vertexBindingDescriptionCount = attribute_descriptions.empty() ? 0u : 1u;
         vertex_input_state_create_info.pVertexBindingDescriptions = attribute_descriptions.empty() ? nullptr : &vertex_input_binding;
-        vertex_input_state_create_info.vertexAttributeDescriptionCount = static_cast<uint32_t>(attribute_descriptions.size());
+        vertex_input_state_create_info.vertexAttributeDescriptionCount = static_cast<std::uint32_t>(attribute_descriptions.size());
         vertex_input_state_create_info.pVertexAttributeDescriptions = attribute_descriptions.empty() ? nullptr : attribute_descriptions.data();
 
         // ---- 2. Create shader modules (errors only on failure) ----
@@ -153,7 +152,7 @@ namespace deren::vulkan {
         // transparent (alphaMode BLEND) leaves disable depth writes per draw, also a 1.3 core
         // dynamic state, so one pipeline serves both opaque and blended draws
         deren::utility::vessel::array<VkDynamicState, 6> dynamic_states = {};
-        uint32_t dynamic_state_count = 4;
+        std::uint32_t dynamic_state_count = 4;
         dynamic_states[0] = VK_DYNAMIC_STATE_VIEWPORT;
         dynamic_states[1] = VK_DYNAMIC_STATE_SCISSOR;
         dynamic_states[2] = VK_DYNAMIC_STATE_CULL_MODE;
@@ -178,7 +177,7 @@ namespace deren::vulkan {
         constexpr VkPipelineColorBlendAttachmentState default_blend = make_color_blend_attachment_opaque();
         utility::vessel::vector const opaque_blend_attachments(color_formats.size(), default_blend);
         std::span<VkPipelineColorBlendAttachmentState const> const blends = blend_attachments.empty() ? std::span<VkPipelineColorBlendAttachmentState const>(opaque_blend_attachments) : blend_attachments;
-        VkPipelineColorBlendStateCreateInfo const color_blend_state_create_info = make_color_blend_state(blends.data(), static_cast<uint32_t>(blends.size()));
+        VkPipelineColorBlendStateCreateInfo const color_blend_state_create_info = make_color_blend_state(blends.data(), static_cast<std::uint32_t>(blends.size()));
         VkPipelineMultisampleStateCreateInfo const multisample_state_create_info = make_multisample_state(msaa_level);
 
         // ---- 4. Pipeline layout: the shared scene layout (passed in) already carries the
@@ -192,7 +191,7 @@ namespace deren::vulkan {
         // declared through VkPipelineRenderingCreateInfo in the pNext chain instead of a render
         // pass + subpass. Depth-only pipelines (has_color_attachment == false, e.g. the shadow
         // pass) declare no color attachment format.
-        VkPipelineRenderingCreateInfo const rendering_create_info = make_rendering_create_info(color_formats.data(), static_cast<uint32_t>(color_formats.size()), depth_format);
+        VkPipelineRenderingCreateInfo const rendering_create_info = make_rendering_create_info(color_formats.data(), static_cast<std::uint32_t>(color_formats.size()), depth_format);
         // THE HEAP FLAG AND THE NULL LAYOUT (see docs/descriptor_heap_migration.md): every stage is heap-native now,
         // and validation's rule is explicit - a shader that declares heap resources cannot also be given a pipeline
         // layout ("either set the layout to NULL or remove the heaps from the shader"). The flag is a flags2 bit, so

@@ -26,8 +26,6 @@
  */
 module;
 
-#include <cstdint>
-
 export module deren.engine.pass.visibility_raster;
 export import deren.vstd;
 

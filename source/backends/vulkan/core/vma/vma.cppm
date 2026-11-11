@@ -1,7 +1,5 @@
 module;
 
-#include <cstddef>
-#include <cstdint>
 #include <vulkan/vulkan.h>
 #define VMA_IMPLEMENTATION
 #include <vma/vk_mem_alloc.h>
@@ -55,7 +53,7 @@ namespace deren::vulkan {
         VmaAllocation allocation = VK_NULL_HANDLE;
         VmaAllocationInfo allocation_info = {};
         // reference count for shared resources; buffers have no digest today, so this stays 1
-        std::atomic<uint32_t> use_count = 1;
+        std::atomic<std::uint32_t> use_count = 1;
 
         buffer_detail() = default;
         // std::atomic is neither copyable nor movable: a custom move constructor carries the
@@ -130,10 +128,10 @@ namespace deren::vulkan {
      */
     // Helper structure for Image
     export struct image_create_info {
-        uint32_t width = 0;
-        uint32_t height = 0;
-        uint32_t mip_levels = 1;
-        uint32_t array_layers = 1;
+        std::uint32_t width = 0;
+        std::uint32_t height = 0;
+        std::uint32_t mip_levels = 1;
+        std::uint32_t array_layers = 1;
         VkFormat format = {};
         VkImageUsageFlags extra_usage = 0;
         bool operator==(image_create_info const&) const = default;
@@ -157,7 +155,7 @@ namespace deren::vulkan {
         image_create_info create_info = {};
         image_type type = image_type::texture_2d;
         // reference count for shared images; free_image() only really destroys at zero
-        std::atomic<uint32_t> use_count = 1;
+        std::atomic<std::uint32_t> use_count = 1;
 
         image_detail() = default;
         // std::atomic is neither copyable nor movable: a custom move constructor carries the
@@ -202,8 +200,8 @@ namespace deren::vulkan {
         VkQueue upload_queue = VK_NULL_HANDLE;
         deren::utility::vessel::vector<std::pair<VkCommandPool, VkCommandBuffer>> command_cache;
         deren::utility::vessel::vector<VkFence> fence_cache = {};
-        deren::utility::vessel::map<uint64_t, buffer_detail> buffers = {};
-        deren::utility::vessel::map<uint64_t, image_detail> images = {};
+        deren::utility::vessel::map<std::uint64_t, buffer_detail> buffers = {};
+        deren::utility::vessel::map<std::uint64_t, image_detail> images = {};
         std::mutex access_mutex = {};
         // Guards command_cache / fence_cache so uploads can safely reuse them outside access_mutex
         std::mutex cache_mutex = {};
@@ -221,7 +219,7 @@ namespace deren::vulkan {
         // The staging buffer is shared; writes and GPU copies must be serialized
         std::mutex staging_mutex = {};
         // see the note on logical_device above: the same C4458 rule for init()`s queue_family_index parameter
-        uint32_t upload_queue_family_index = 0;
+        std::uint32_t upload_queue_family_index = 0;
         /// The host image copy's UPLOAD entry point (`vkCopyMemoryToImageEXT`), handed down by `core`,
         /// which resolves and CHECKS it at startup - the extension is required, so a running process has
         /// it. It is a device-level call rather than a queue one, which is exactly why the image upload
@@ -236,20 +234,20 @@ namespace deren::vulkan {
         // Shared (deduplicated) resources are reference-counted: free decrements and really
         // destroys only the last reference; add_use adds one count so a second wrapper can
         // name the same resource.
-        void free_buffer(uint64_t handle);
-        void free_image(uint64_t handle);
-        void add_use_buffer(uint64_t handle);
-        void add_use_image(uint64_t handle);
+        void free_buffer(std::uint64_t handle);
+        void free_image(std::uint64_t handle);
+        void add_use_buffer(std::uint64_t handle);
+        void add_use_image(std::uint64_t handle);
 
         [[nodiscard]] VkFence create_fence() const;
         // true when the memory type @p memory_type_index (a memory TYPE INDEX, resolved through
         // VMA's memory table) is HOST_COHERENT, i.e. host writes need no vmaFlushAllocation.
         // NOTE: VmaAllocationInfo::memoryType is an index, never a property bit mask - comparing
         // it against VK_MEMORY_PROPERTY_* bits directly is a bug.
-        [[nodiscard]] bool is_host_coherent(uint32_t memory_type_index) const noexcept;
+        [[nodiscard]] bool is_host_coherent(std::uint32_t memory_type_index) const noexcept;
         // Called with staging_mutex locked: reuse the cached buffer if large enough, else destroy and rebuild
         bool ensure_staging_buffer(VkDeviceSize size, VkBuffer& buffer, VmaAllocation& allocation, VmaAllocationInfo& info);
-        bool direct_upload(VmaAllocation const& allocation, VmaAllocationInfo& allocation_info, void const* data, uint64_t size) const;
+        bool direct_upload(VmaAllocation const& allocation, VmaAllocationInfo& allocation_info, void const* data, std::uint64_t size) const;
         bool staging_upload(VkBuffer dst_buffer, void const* data, VkDeviceSize size);
         bool direct_image_upload(VmaAllocation allocation, void const* data, VkDeviceSize size) const;
         /// THE image upload: one mechanism, `vkCopyMemoryToImageEXT` (see its definition). The name says
@@ -272,7 +270,7 @@ namespace deren::vulkan {
          * @param queue a queue used for staging uploads
          * @param queue_family_index the queue family of the given queue
          */
-        void init(VkInstance instance, VkDevice device, VkPhysicalDevice physical_device, VkQueue queue, uint32_t queue_family_index);
+        void init(VkInstance instance, VkDevice device, VkPhysicalDevice physical_device, VkQueue queue, std::uint32_t queue_family_index);
 
         /**
          * @ingroup vulkan_vma
@@ -297,7 +295,7 @@ namespace deren::vulkan {
          *       this exists for the paths that write through a mapping VMA did not promise coherency
          *       for (or chose not to provide), where skipping it is a silent stale-data bug
          */
-        void flush_if_not_coherent(VmaAllocation allocation, uint32_t memory_type_index, VkDeviceSize offset, VkDeviceSize size) const;
+        void flush_if_not_coherent(VmaAllocation allocation, std::uint32_t memory_type_index, VkDeviceSize offset, VkDeviceSize size) const;
 
         /**
          * @ingroup vulkan_vma
@@ -310,7 +308,7 @@ namespace deren::vulkan {
          *       call, but a device that served the allocation from a non-coherent host-visible type
          *       would otherwise hand the CPU a stale cache line
          */
-        void invalidate_if_not_coherent(VmaAllocation allocation, uint32_t memory_type_index, VkDeviceSize offset, VkDeviceSize size) const;
+        void invalidate_if_not_coherent(VmaAllocation allocation, std::uint32_t memory_type_index, VkDeviceSize offset, VkDeviceSize size) const;
 
         /**
          * @ingroup vulkan_vma
@@ -334,7 +332,7 @@ namespace deren::vulkan {
          *       replacement for it (a usage bit is not a feature; enabling one the device lacks is a
          *       validation error, not a fallback).
          */
-        vk_buffer create_buffer(uint8_t const* data, uint64_t size_byte, buffer_type type, VkBufferUsageFlags extra_usage = 0);
+        vk_buffer create_buffer(std::uint8_t const* data, std::uint64_t size_byte, buffer_type type, VkBufferUsageFlags extra_usage = 0);
 
         /**
          * @ingroup vulkan_vma
@@ -347,7 +345,7 @@ namespace deren::vulkan {
          */
         template <typename T>
         vk_buffer create_buffer(std::span<T> data, buffer_type const type, VkBufferUsageFlags const extra_usage = 0) {
-            return this->create_buffer(reinterpret_cast<uint8_t*>(data.data()), data.size_bytes(), type, extra_usage);
+            return this->create_buffer(reinterpret_cast<std::uint8_t*>(data.data()), data.size_bytes(), type, extra_usage);
         }
 
         /**
@@ -362,7 +360,7 @@ namespace deren::vulkan {
          */
         template <typename T, std::size_t N>
         vk_buffer create_buffer(std::span<T, N> data, buffer_type const type, VkBufferUsageFlags const extra_usage = 0) {
-            return this->create_buffer(reinterpret_cast<uint8_t*>(data.data()), data.size_bytes(), type, extra_usage);
+            return this->create_buffer(reinterpret_cast<std::uint8_t*>(data.data()), data.size_bytes(), type, extra_usage);
         }
 
         /**
@@ -375,7 +373,7 @@ namespace deren::vulkan {
          * @return a vk_image (copying shares the image, destroying releases one
          *         reference); empty when creation failed
          */
-        vk_image create_image(uint8_t const* data, uint64_t size_byte, image_create_info const& create_info, image_type type);
+        vk_image create_image(std::uint8_t const* data, std::uint64_t size_byte, image_create_info const& create_info, image_type type);
 
         /**
          * @ingroup vulkan_vma
@@ -396,7 +394,7 @@ namespace deren::vulkan {
         // compiles and runs it.
         template <typename T>
         vk_image create_image(std::span<T const> data, image_create_info create_info, image_type const type) {
-            return this->create_image(reinterpret_cast<uint8_t const*>(data.data()), data.size_bytes(), create_info, type);
+            return this->create_image(reinterpret_cast<std::uint8_t const*>(data.data()), data.size_bytes(), create_info, type);
         }
 
         /**
@@ -409,9 +407,9 @@ namespace deren::vulkan {
          * @param type image usage type
          * @return a vk_image (see create_image)
          */
-        template <typename T, size_t N>
+        template <typename T, std::size_t N>
         vk_image create_image(std::span<T const, N> data, image_create_info create_info, image_type const type) {
-            return this->create_image(reinterpret_cast<uint8_t const*>(data.data()), data.size_bytes(), create_info, type);
+            return this->create_image(reinterpret_cast<std::uint8_t const*>(data.data()), data.size_bytes(), create_info, type);
         }
 
         /**
@@ -420,7 +418,7 @@ namespace deren::vulkan {
          * @param handle the buffer handle
          * @return pointer to the buffer detail, or nullptr if the handle is invalid
          */
-        [[nodiscard]] buffer_detail const* get_buffer_detail(uint64_t handle);
+        [[nodiscard]] buffer_detail const* get_buffer_detail(std::uint64_t handle);
 
         /**
          * @ingroup vulkan_vma
@@ -428,7 +426,7 @@ namespace deren::vulkan {
          * @param handle the image handle
          * @return pointer to the image detail, or nullptr if the handle is invalid
          */
-        [[nodiscard]] image_detail const* get_image_detail(uint64_t handle);
+        [[nodiscard]] image_detail const* get_image_detail(std::uint64_t handle);
 
         /**
          * @brief log the memory this allocator has allocated: requested allocation bytes against the block bytes VMA
@@ -742,7 +740,7 @@ namespace deren::vulkan {
         VkDevice const device,                  // NOLINT(*-misplaced-const)
         VkPhysicalDevice const physical_device, // NOLINT(*-misplaced-const)
         VkQueue const queue,                    // NOLINT(*-misplaced-const)
-        uint32_t const queue_family_index) {
+        std::uint32_t const queue_family_index) {
 
         std::lock_guard guard(this->access_mutex);
         if (this->allocator != VK_NULL_HANDLE) {
@@ -774,19 +772,19 @@ namespace deren::vulkan {
         this->command_cache.push_back(this->create_command_pair());
     }
 
-    bool vma_allocator::is_host_coherent(uint32_t const memory_type_index) const noexcept {
+    bool vma_allocator::is_host_coherent(std::uint32_t const memory_type_index) const noexcept {
         VkMemoryPropertyFlags properties = 0;
         vmaGetMemoryTypeProperties(this->allocator, memory_type_index, &properties);
         return (properties & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) != 0;
     }
 
-    void vma_allocator::flush_if_not_coherent(VmaAllocation const allocation, uint32_t const memory_type_index, VkDeviceSize const offset, VkDeviceSize const size) const {
+    void vma_allocator::flush_if_not_coherent(VmaAllocation const allocation, std::uint32_t const memory_type_index, VkDeviceSize const offset, VkDeviceSize const size) const {
         if (!this->is_host_coherent(memory_type_index)) {
             vmaFlushAllocation(this->allocator, allocation, offset, size);
         }
     }
 
-    void vma_allocator::invalidate_if_not_coherent(VmaAllocation const allocation, uint32_t const memory_type_index, VkDeviceSize const offset, VkDeviceSize const size) const {
+    void vma_allocator::invalidate_if_not_coherent(VmaAllocation const allocation, std::uint32_t const memory_type_index, VkDeviceSize const offset, VkDeviceSize const size) const {
         if (!this->is_host_coherent(memory_type_index)) {
             vmaInvalidateAllocation(this->allocator, allocation, offset, size);
         }
@@ -872,7 +870,7 @@ namespace deren::vulkan {
             &info);
 
         if (result != VK_SUCCESS) {
-            deren::utility::error("Failed to create staging buffer: {}", static_cast<int32_t>(result));
+            deren::utility::error("Failed to create staging buffer: {}", static_cast<std::int32_t>(result));
             return false;
         }
 
@@ -884,7 +882,7 @@ namespace deren::vulkan {
     bool vma_allocator::direct_upload(VmaAllocation const& allocation, VmaAllocationInfo& allocation_info, void const* data, VkDeviceSize const size) const {
         void* mapped_data = nullptr;
         if (VkResult const result = vmaMapMemory(this->allocator, allocation, &mapped_data); result != VK_SUCCESS) {
-            deren::utility::error("Failed to map memory: {}", static_cast<int32_t>(result));
+            deren::utility::error("Failed to map memory: {}", static_cast<std::int32_t>(result));
             return false;
         }
 
@@ -967,13 +965,13 @@ namespace deren::vulkan {
             [&] { VkBufferCopy copy_region{}; copy_region.size = size; vkCmdCopyBuffer(command_buffer, staging_buffer, dst_buffer, 1, &copy_region); },
             [&] { return vkEndCommandBuffer(command_buffer); },
             [&] { std::lock_guard guard(this->queue_mutex); return vkQueueSubmit(this->upload_queue, 1, &submit_info, fence); },
-            [&] { return vkWaitForFences(this->logical_device, 1, &fence, VK_TRUE, UINT64_MAX); },
+            [&] { return vkWaitForFences(this->logical_device, 1, &fence, VK_TRUE, std::numeric_limits<std::uint64_t>::max()); },
             [&] { auto reset = vkResetFences(this->logical_device, 1, &fence); return reset == VK_SUCCESS ? vkResetCommandBuffer(command_buffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT) : reset; });
         if (result.may_be_pending) {
             deren::utility::fast_panic("upload wait failed with GPU completion unknown");
         }
         if (result.status != VK_SUCCESS) {
-            deren::utility::error("buffer upload failed: {}", static_cast<int32_t>(result.status));
+            deren::utility::error("buffer upload failed: {}", static_cast<std::int32_t>(result.status));
             discard();
             return false;
         }
@@ -989,7 +987,7 @@ namespace deren::vulkan {
     bool vma_allocator::direct_image_upload(VmaAllocation const allocation, void const* data, VkDeviceSize const size) const { // NOLINT(*-misplaced-const)
         void* mapped_data = nullptr;
         if (VkResult const result = vmaMapMemory(this->allocator, allocation, &mapped_data); result != VK_SUCCESS) {
-            deren::utility::error("Failed to map image memory: {}", static_cast<int32_t>(result));
+            deren::utility::error("Failed to map image memory: {}", static_cast<std::int32_t>(result));
             return false;
         }
 
@@ -1097,14 +1095,14 @@ namespace deren::vulkan {
                 [&] { vkCmdPipelineBarrier(command_buffer, src_stage, dst_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier); },
                 [&] { return vkEndCommandBuffer(command_buffer); },
                 [&] { std::lock_guard guard(this->queue_mutex); return vkQueueSubmit(this->upload_queue, 1, &submit_info, fence); },
-                [&] { return vkWaitForFences(this->logical_device, 1, &fence, VK_TRUE, UINT64_MAX); },
+                [&] { return vkWaitForFences(this->logical_device, 1, &fence, VK_TRUE, std::numeric_limits<std::uint64_t>::max()); },
                 [&] { auto reset = vkResetFences(this->logical_device, 1, &fence); return reset == VK_SUCCESS ? vkResetCommandBuffer(command_buffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT) : reset; });
             if (result.may_be_pending) {
                 deren::utility::fast_panic("image upload wait failed with GPU completion unknown");
             }
             if (result.status != VK_SUCCESS) {
                 reusable = false;
-                deren::utility::error("image upload barrier failed: {}", static_cast<int32_t>(result.status));
+                deren::utility::error("image upload barrier failed: {}", static_cast<std::int32_t>(result.status));
                 return false;
             }
             return true;
@@ -1124,12 +1122,12 @@ namespace deren::vulkan {
         deren::utility::vessel::vector<VkMemoryToImageCopyEXT> regions;
         regions.reserve(info.mip_levels);
         VkDeviceSize memory_offset = 0;
-        for (uint32_t mip = 0; mip < info.mip_levels; ++mip) {
-            uint32_t const mip_width = std::max(1u, info.width >> mip);
-            uint32_t const mip_height = std::max(1u, info.height >> mip);
+        for (std::uint32_t mip = 0; mip < info.mip_levels; ++mip) {
+            std::uint32_t const mip_width = std::max(1u, info.width >> mip);
+            std::uint32_t const mip_height = std::max(1u, info.height >> mip);
 
             regions.push_back(make_memory_to_image_copy(
-                static_cast<uint8_t const*>(data) + memory_offset,
+                static_cast<std::uint8_t const*>(data) + memory_offset,
                 make_image_subresource_layers(VK_IMAGE_ASPECT_COLOR_BIT, mip, 0, info.array_layers),
                 {0, 0, 0}, {mip_width, mip_height, 1}));
 
@@ -1144,10 +1142,10 @@ namespace deren::vulkan {
         }
 
         VkCopyMemoryToImageInfoEXT const copy_info = make_copy_memory_to_image_info(
-            dst_image, VK_IMAGE_LAYOUT_GENERAL, static_cast<uint32_t>(regions.size()), regions.data());
+            dst_image, VK_IMAGE_LAYOUT_GENERAL, static_cast<std::uint32_t>(regions.size()), regions.data());
         VkResult const copied = this->copy_memory_to_image(this->logical_device, &copy_info);
         if (copied != VK_SUCCESS) {
-            deren::utility::error("host image upload: vkCopyMemoryToImageEXT failed (VkResult {})", static_cast<int32_t>(copied));
+            deren::utility::error("host image upload: vkCopyMemoryToImageEXT failed (VkResult {})", static_cast<std::int32_t>(copied));
             release_pair();
             return false;
         }
@@ -1162,16 +1160,16 @@ namespace deren::vulkan {
         release_pair();
         return true;
     }
-    vk_buffer vma_allocator::create_buffer(uint8_t const* data, uint64_t const size_byte, buffer_type const type, VkBufferUsageFlags const extra_usage) {
+    vk_buffer vma_allocator::create_buffer(std::uint8_t const* data, std::uint64_t const size_byte, buffer_type const type, VkBufferUsageFlags const extra_usage) {
         // the returned wrapper carries lambdas that call back into this allocator; they are
         // created here (a member function), so they may call the private free/add_use below
-        auto const make_handle = [this](uint64_t const handle) {
+        auto const make_handle = [this](std::uint64_t const handle) {
             return vk_buffer{handle,
-                             [this](uint64_t const h) { this->add_use_buffer(h); },
-                             [this](uint64_t const h) { this->free_buffer(h); }};
+                             [this](std::uint64_t const h) { this->add_use_buffer(h); },
+                             [this](std::uint64_t const h) { this->free_buffer(h); }};
         };
 
-        uint64_t handle;
+        std::uint64_t handle;
         // distribute() locks internally (enable_handle_distribute::access_mutex); no outer lock needed
         if (auto const result = this->distribute(); result) {
             handle = result.value();
@@ -1199,7 +1197,7 @@ namespace deren::vulkan {
             &alloc_info);
 
         if (result != VK_SUCCESS) {
-            deren::utility::error("Failed to create buffer: {}", static_cast<int32_t>(result));
+            deren::utility::error("Failed to create buffer: {}", static_cast<std::int32_t>(result));
             this->recycle(handle);
             return vk_buffer{};
         }
@@ -1255,13 +1253,13 @@ namespace deren::vulkan {
         return make_handle(handle);
     }
 
-    vk_image vma_allocator::create_image(uint8_t const* data, uint64_t const size_byte, image_create_info const& create_info, image_type const type) {
+    vk_image vma_allocator::create_image(std::uint8_t const* data, std::uint64_t const size_byte, image_create_info const& create_info, image_type const type) {
         // the returned wrapper carries lambdas that call back into this allocator; they are
         // created here (a member function), so they may call the private free/add_use below
-        auto const make_handle = [this](uint64_t const handle) {
+        auto const make_handle = [this](std::uint64_t const handle) {
             return vk_image{handle,
-                            [this](uint64_t const h) { this->add_use_image(h); },
-                            [this](uint64_t const h) { this->free_image(h); }};
+                            [this](std::uint64_t const h) { this->add_use_image(h); },
+                            [this](std::uint64_t const h) { this->free_image(h); }};
         };
 
         // XXH3-128 is pure CPU work; keep it outside the critical section. It is computed
@@ -1290,7 +1288,7 @@ namespace deren::vulkan {
             }
         }
 
-        uint64_t handle = 0;
+        std::uint64_t handle = 0;
         // distribute() locks internally (enable_handle_distribute::access_mutex); no outer lock needed
         if (auto const result = this->distribute(); result) {
             handle = result.value();
@@ -1304,7 +1302,7 @@ namespace deren::vulkan {
         if (data != nullptr) {
             auto const packed_size = detail::packed_image_size(create_info.format, create_info.width, create_info.height, create_info.array_layers, create_info.mip_levels);
             if (!packed_size) {
-                deren::utility::error("Invalid or overflowing image upload layout (format {})", static_cast<int32_t>(create_info.format));
+                deren::utility::error("Invalid or overflowing image upload layout (format {})", static_cast<std::int32_t>(create_info.format));
                 this->recycle(handle);
                 return vk_image{};
             }
@@ -1345,7 +1343,7 @@ namespace deren::vulkan {
             &alloc_detail);
 
         if (vk_result != VK_SUCCESS) {
-            deren::utility::error("Failed to create image: {}", static_cast<int32_t>(vk_result));
+            deren::utility::error("Failed to create image: {}", static_cast<std::int32_t>(vk_result));
             this->recycle(handle);
             return vk_image{};
         }
@@ -1390,7 +1388,7 @@ namespace deren::vulkan {
         return make_handle(handle);
     }
 
-    buffer_detail const* vma_allocator::get_buffer_detail(uint64_t const handle) {
+    buffer_detail const* vma_allocator::get_buffer_detail(std::uint64_t const handle) {
         std::lock_guard guard(this->access_mutex);
         if (this->buffers.contains(handle)) {
             return &this->buffers[handle];
@@ -1417,7 +1415,7 @@ namespace deren::vulkan {
                             totals.total.statistics.blockCount,
                             static_cast<double>(totals.total.statistics.allocationBytes) / (1024.0 * 1024.0),
                             static_cast<double>(totals.total.statistics.blockBytes) / (1024.0 * 1024.0));
-        for (uint32_t type = 0; type < VK_MAX_MEMORY_TYPES; ++type) {
+        for (std::uint32_t type = 0; type < VK_MAX_MEMORY_TYPES; ++type) {
             if (totals.memoryType[type].statistics.blockCount == 0) {
                 continue;
             }
@@ -1427,7 +1425,7 @@ namespace deren::vulkan {
                                 static_cast<double>(totals.memoryType[type].statistics.allocationBytes) / (1024.0 * 1024.0),
                                 static_cast<double>(totals.memoryType[type].statistics.blockBytes) / (1024.0 * 1024.0));
         }
-        for (uint32_t heap = 0; heap < VK_MAX_MEMORY_HEAPS; ++heap) {
+        for (std::uint32_t heap = 0; heap < VK_MAX_MEMORY_HEAPS; ++heap) {
             if (budgets[heap].budget == 0) {
                 continue;
             }
@@ -1439,7 +1437,7 @@ namespace deren::vulkan {
         }
     }
 
-    image_detail const* vma_allocator::get_image_detail(uint64_t const handle) {
+    image_detail const* vma_allocator::get_image_detail(std::uint64_t const handle) {
         std::lock_guard guard(this->access_mutex);
         if (this->images.contains(handle)) {
             return &this->images[handle];
@@ -1447,7 +1445,7 @@ namespace deren::vulkan {
         return nullptr;
     }
 
-    void vma_allocator::free_buffer(uint64_t const handle) {
+    void vma_allocator::free_buffer(std::uint64_t const handle) {
         std::lock_guard guard(this->access_mutex);
         auto const it = this->buffers.find(handle);
         if (it == this->buffers.end()) {
@@ -1461,7 +1459,7 @@ namespace deren::vulkan {
         this->buffers.erase(it);
     }
 
-    void vma_allocator::free_image(uint64_t const handle) {
+    void vma_allocator::free_image(std::uint64_t const handle) {
         std::lock_guard guard(this->access_mutex);
         auto const it = this->images.find(handle);
         if (it == this->images.end()) {
@@ -1475,7 +1473,7 @@ namespace deren::vulkan {
         this->images.erase(it);
     }
 
-    void vma_allocator::add_use_buffer(uint64_t const handle) {
+    void vma_allocator::add_use_buffer(std::uint64_t const handle) {
         std::lock_guard guard(this->access_mutex);
         auto const it = this->buffers.find(handle);
         if (it != this->buffers.end()) {
@@ -1483,7 +1481,7 @@ namespace deren::vulkan {
         }
     }
 
-    void vma_allocator::add_use_image(uint64_t const handle) {
+    void vma_allocator::add_use_image(std::uint64_t const handle) {
         std::lock_guard guard(this->access_mutex);
         auto const it = this->images.find(handle);
         if (it != this->images.end()) {

@@ -1,8 +1,5 @@
 module;
 
-#include <cstddef>
-#include <cstdint>
-
 export module deren.engine.visibility.progressive_texture;
 export import deren.vstd;
 
@@ -78,7 +75,7 @@ export namespace deren::engine::progressive_texture {
         mip_slice result{std::max(1u, width >> first), std::max(1u, height >> first), levels - first, 0, 0};
         for (std::uint32_t mip = 0; mip < levels; ++mip) {
             std::uint64_t pixels = static_cast<std::uint64_t>(std::max(1u, width >> mip)) * std::max(1u, height >> mip);
-            if (pixels > (UINT64_MAX - result.offset - result.bytes) / 4) {
+            if (pixels > (std::numeric_limits<std::uint64_t>::max() - result.offset - result.bytes) / 4) {
                 return {};
             }
             if (mip < first) {

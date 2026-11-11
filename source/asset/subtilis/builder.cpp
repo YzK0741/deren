@@ -1,7 +1,7 @@
 module;
-#include <cstddef>
-#include <cstdint>
-#include <cstring>
+
+
+
 #include <yyjson.h>
 module deren.asset.subtilis.builder;
 import deren.vstd;
@@ -16,14 +16,14 @@ namespace deren::asset::subtilis {
         auto fail(error_code code, char const* message) {
             return std::unexpected(error{code, message, {}, {}});
         }
-        uint64_t storage(payload const& p) {
-            return static_cast<uint64_t>(p.indices.size()) * 4 + static_cast<uint64_t>(p.clusters.size()) * 32 + static_cast<uint64_t>(p.groups.size()) * 48 + static_cast<uint64_t>(p.references.size() + p.leaves.size() + p.roots.size()) * 4 + static_cast<uint64_t>(p.pages.size()) * 32 + static_cast<uint64_t>(p.page_dependencies.size()) * 4 + 8192;
+        std::uint64_t storage(payload const& p) {
+            return static_cast<std::uint64_t>(p.indices.size()) * 4 + static_cast<std::uint64_t>(p.clusters.size()) * 32 + static_cast<std::uint64_t>(p.groups.size()) * 48 + static_cast<std::uint64_t>(p.references.size() + p.leaves.size() + p.roots.size()) * 4 + static_cast<std::uint64_t>(p.pages.size()) * 32 + static_cast<std::uint64_t>(p.page_dependencies.size()) * 4 + 8192;
         }
-        result<sphere> lod_sphere(source_geometry const& source, payload const& p, std::span<uint32_t const> fine, bd::frontier const& coarse) {
+        result<sphere> lod_sphere(source_geometry const& source, payload const& p, std::span<std::uint32_t const> fine, bd::frontier const& coarse) {
             array<double, 3> lo{}, hi{};
             bool first = true;
             auto extent = [&](array<double, 3> center, double radius) {for(unsigned k=0;k<3;++k){double a=center[k]-radius,b=center[k]+radius;lo[k]=first?a:std::min(lo[k],a);hi[k]=first?b:std::max(hi[k],b);}first=false; };
-            auto point = [&](uint32_t id) {auto v=source.positions[id];extent({v[0],v[1],v[2]},0); };
+            auto point = [&](std::uint32_t id) {auto v=source.positions[id];extent({v[0],v[1],v[2]},0); };
             for (auto id : fine) {
                 auto const& c = p.clusters[id];
                 for (auto vertex : std::span(p.indices).subspan(c.first_index, c.index_count)) {
@@ -43,7 +43,7 @@ namespace deren::asset::subtilis {
             }
             double radius = 0;
             auto include = [&](array<double, 3> v, double r) { radius = std::max(radius, std::hypot(v[0] - center[0], v[1] - center[1], v[2] - center[2]) + r); };
-            auto vertex = [&](uint32_t id) {auto v=source.positions[id];include({v[0],v[1],v[2]},0); };
+            auto vertex = [&](std::uint32_t id) {auto v=source.positions[id];include({v[0],v[1],v[2]},0); };
             for (auto id : fine) {
                 auto const& c = p.clusters[id];
                 for (auto v : std::span(p.indices).subspan(c.first_index, c.index_count)) {
@@ -68,8 +68,8 @@ namespace deren::asset::subtilis {
         }
         string metadata(build_options const& o, build_report const& report) {
             yyjson_alc allocator{
-                [](void*, size_t n) -> void* { return utility::memory::allocate(n); },
-                [](void*, void* p, size_t old, size_t n) -> void* {auto* next=utility::memory::allocate(n);if(p){std::memcpy(next,p,std::min(old,n));
+                [](void*, std::size_t n) -> void* { return utility::memory::allocate(n); },
+                [](void*, void* p, std::size_t old, std::size_t n) -> void* {auto* next=utility::memory::allocate(n);if(p){std::memcpy(next,p,std::min(old,n));
 }utility::memory::deallocate(p);return next; },
                 [](void*, void* p) { utility::memory::deallocate(p); }, nullptr};
             auto* d = yyjson_mut_doc_new(&allocator);
@@ -108,10 +108,10 @@ namespace deren::asset::subtilis {
             auto* rejected = yyjson_mut_obj(d);
             yyjson_mut_obj_add_val(d, root, "rejected", rejected);
             char const* names[]{"none", "noProgress", "unsafeTopology", "zeroScale", "numericError", "boundaryChanged"};
-            for (size_t i = 1; i < report.rejected.size(); ++i) {
+            for (std::size_t i = 1; i < report.rejected.size(); ++i) {
                 yyjson_mut_obj_add_uint(d, rejected, names[i], report.rejected[i]);
             }
-            size_t length = 0;
+            std::size_t length = 0;
             auto* bytes = yyjson_mut_write_opts(d, 0, &allocator, &length, nullptr);
             if (!bytes) {
                 utility::fast_panic("subtilis metadata serialization failed");
@@ -122,7 +122,7 @@ namespace deren::asset::subtilis {
             return out;
         }
         // ---------------------------------------------------------------- structural stage profiling
-        enum class stage_kind : size_t { source_fingerprint,
+        enum class stage_kind : std::size_t { source_fingerprint,
                                          leaf_cluster,
                                          topology,
                                          partition,
@@ -134,7 +134,7 @@ namespace deren::asset::subtilis {
                                          validate,
                                          encode,
                                          count };
-        constexpr size_t stage_kinds = static_cast<size_t>(stage_kind::count);
+        constexpr std::size_t stage_kinds = static_cast<std::size_t>(stage_kind::count);
         struct stage_definition {
             char const* name;
             bool inclusive;
@@ -158,9 +158,9 @@ namespace deren::asset::subtilis {
         }};
         struct stage_accumulator {
             array<double, stage_kinds> cpu{};
-            array<uint64_t, stage_kinds> count{};
-            void add(stage_kind kind, double milliseconds, uint64_t tasks = 1) noexcept {
-                auto at = static_cast<size_t>(kind);
+            array<std::uint64_t, stage_kinds> count{};
+            void add(stage_kind kind, double milliseconds, std::uint64_t tasks = 1) noexcept {
+                auto at = static_cast<std::size_t>(kind);
                 cpu[at] += milliseconds;
                 count[at] += tasks;
             }
@@ -168,14 +168,14 @@ namespace deren::asset::subtilis {
         vector<stage_profile> profile_rows(stage_accumulator const& stages) {
             vector<stage_profile> rows;
             rows.reserve(stage_kinds);
-            for (size_t at = 0; at < stage_kinds; ++at) {
+            for (std::size_t at = 0; at < stage_kinds; ++at) {
                 rows.push_back({string(stage_definitions[at].name), stages.cpu[at], stage_definitions[at].inclusive, stages.count[at]});
             }
             return rows;
         }
         double accumulated_milliseconds(stage_accumulator const& stages) {
             double total = 0;
-            for (size_t at = 0; at < stage_kinds; ++at) {
+            for (std::size_t at = 0; at < stage_kinds; ++at) {
                 if (!stage_definitions[at].inclusive) {
                     total += stages.cpu[at];
                 }
@@ -185,8 +185,8 @@ namespace deren::asset::subtilis {
         // Conservative per-task known-work estimate: input windows copied by the candidate plus the
         // simplified/recluster scratch and the bounded output refs. Used only for admission and
         // concurrency, never for identity.
-        size_t reduction_task_estimate(std::span<bd::cluster_input const> inputs) {
-            size_t indices = 0;
+        std::size_t reduction_task_estimate(std::span<bd::cluster_input const> inputs) {
+            std::size_t indices = 0;
             for (auto input : inputs) {
                 indices += input.indices.size();
             }
@@ -199,18 +199,18 @@ namespace deren::asset::subtilis {
             bd::rejection_reason reason = bd::rejection_reason::no_progress;
             sphere lod{};
             float error = 0;
-            uint64_t additional = 0;
+            std::uint64_t additional = 0;
         };
         struct round_workspace {
-            vector<vector<uint32_t>> fine;
+            vector<vector<std::uint32_t>> fine;
             vector<vector<bd::cluster_input>> inputs;
             vector<prepared_group> prepared;
-            vector<uint32_t> next;
+            vector<std::uint32_t> next;
             bool progressed = false;
         };
         // Phase 1 of a reduction round: only immutable inputs and the caller's slot are touched,
         // so this runs concurrently and its completion order cannot matter.
-        result<void> prepare_group(round_workspace& workspace, size_t group, source_geometry const& source, payload const& data, bd::topology const& topology, bd::primitive_scale const& scale, build_options const& options) {
+        result<void> prepare_group(round_workspace& workspace, std::size_t group, source_geometry const& source, payload const& data, bd::topology const& topology, bd::primitive_scale const& scale, build_options const& options) {
             double const started = stage_now();
             auto& slot = workspace.prepared[group];
             auto candidate = bd::reduce_group(source, workspace.inputs[group], options, scale, &topology, &slot.timing);
@@ -239,7 +239,7 @@ namespace deren::asset::subtilis {
                     slot.lod = *lod;
                     slot.error = error;
                     auto const& coarse = slot.candidate.coarse;
-                    slot.additional = uint64_t(coarse.indices.size()) * 4 + uint64_t(coarse.clusters.size()) * 36 + 48 + uint64_t(workspace.fine[group].size() + coarse.clusters.size()) * 4;
+                    slot.additional = std::uint64_t(coarse.indices.size()) * 4 + std::uint64_t(coarse.clusters.size()) * 36 + 48 + std::uint64_t(workspace.fine[group].size() + coarse.clusters.size()) * 4;
                 }
             }
             slot.candidate_ms = stage_now() - started;
@@ -247,7 +247,7 @@ namespace deren::asset::subtilis {
         }
         // Phase 2 of a reduction round: only the scheduling thread appends to the payload, in the
         // fixed partition order, so global IDs do not depend on task completion order.
-        result<void> commit_group(round_workspace& workspace, size_t group, payload& data, build_limits const& budget, build_report& report, stage_accumulator& stages, uint64_t base_work) {
+        result<void> commit_group(round_workspace& workspace, std::size_t group, payload& data, build_limits const& budget, build_report& report, stage_accumulator& stages, std::uint64_t base_work) {
             double const started = stage_now();
             auto& slot = workspace.prepared[group];
             stages.add(stage_kind::boundary, slot.timing.boundary_ms);
@@ -255,18 +255,18 @@ namespace deren::asset::subtilis {
             stages.add(stage_kind::recluster, slot.timing.recluster_ms);
             stages.add(stage_kind::candidate, slot.candidate_ms);
             if (slot.reason != bd::rejection_reason::none) {
-                ++report.rejected[static_cast<size_t>(slot.reason)];
+                ++report.rejected[static_cast<std::size_t>(slot.reason)];
                 workspace.next.insert(workspace.next.end(), workspace.fine[group].begin(), workspace.fine[group].end());
                 stages.add(stage_kind::commit, stage_now() - started);
                 return {};
             }
             auto const& coarse = slot.candidate.coarse;
             auto used = storage(data);
-            if (used > budget.max_output_bytes || slot.additional > budget.max_output_bytes - used || used > budget.max_known_work_bytes - base_work || slot.additional > budget.max_known_work_bytes - base_work - used || static_cast<uint64_t>(data.indices.size()) + coarse.indices.size() > UINT32_MAX || static_cast<uint64_t>(data.clusters.size()) + coarse.clusters.size() >= none || static_cast<uint64_t>(data.references.size()) + workspace.fine[group].size() + coarse.clusters.size() > UINT32_MAX || data.groups.size() + 1 >= none) {
+            if (used > budget.max_output_bytes || slot.additional > budget.max_output_bytes - used || used > budget.max_known_work_bytes - base_work || slot.additional > budget.max_known_work_bytes - base_work - used || static_cast<std::uint64_t>(data.indices.size()) + coarse.indices.size() > std::numeric_limits<std::uint32_t>::max() || static_cast<std::uint64_t>(data.clusters.size()) + coarse.clusters.size() >= none || static_cast<std::uint64_t>(data.references.size()) + workspace.fine[group].size() + coarse.clusters.size() > std::numeric_limits<std::uint32_t>::max() || data.groups.size() + 1 >= none) {
                 stages.add(stage_kind::commit, stage_now() - started);
                 return fail(error_code::capacity, "DAG append exceeds build budget");
             }
-            auto group_id = static_cast<uint32_t>(data.groups.size()), first_cluster = static_cast<uint32_t>(data.clusters.size()), first_index = static_cast<uint32_t>(data.indices.size()), first_ref = static_cast<uint32_t>(data.references.size());
+            auto group_id = static_cast<std::uint32_t>(data.groups.size()), first_cluster = static_cast<std::uint32_t>(data.clusters.size()), first_index = static_cast<std::uint32_t>(data.indices.size()), first_ref = static_cast<std::uint32_t>(data.references.size());
             data.indices.insert(data.indices.end(), coarse.indices.begin(), coarse.indices.end());
             for (auto c : coarse.clusters) {
                 c.first_index += first_index;
@@ -277,11 +277,11 @@ namespace deren::asset::subtilis {
             for (auto id : workspace.fine[group]) {
                 data.clusters[id].consumer = group_id;
             }
-            for (uint32_t i = 0; i < coarse.clusters.size(); ++i) {
+            for (std::uint32_t i = 0; i < coarse.clusters.size(); ++i) {
                 data.references.push_back(first_cluster + i);
                 workspace.next.push_back(first_cluster + i);
             }
-            data.groups.push_back({first_ref, static_cast<uint32_t>(workspace.fine[group].size()), first_ref + static_cast<uint32_t>(workspace.fine[group].size()), static_cast<uint32_t>(coarse.clusters.size()), slot.lod, slot.error});
+            data.groups.push_back({first_ref, static_cast<std::uint32_t>(workspace.fine[group].size()), first_ref + static_cast<std::uint32_t>(workspace.fine[group].size()), static_cast<std::uint32_t>(coarse.clusters.size()), slot.lod, slot.error});
             workspace.progressed = true;
             report.known_work_peak_bytes = std::max(report.known_work_peak_bytes, base_work + storage(data));
             stages.add(stage_kind::commit, stage_now() - started);
@@ -294,12 +294,12 @@ namespace deren::asset::subtilis {
             build_limits const& budget;
             bd::topology const& topology;
             bd::primitive_scale const& scale;
-            uint64_t base_work = 0;
-            uint32_t threads = 1;
+            std::uint64_t base_work = 0;
+            std::uint32_t threads = 1;
             build_report& report;
             stage_accumulator& stages;
-            uint32_t& planned_concurrency;
-            vector<uint32_t>& active;
+            std::uint32_t& planned_concurrency;
+            vector<std::uint32_t>& active;
         };
         // One frontier partition -> candidates -> stable commit round. threads<=1 (or a single
         // group) is the serial reference interleaving; threads>1 uses the bounded scheduler where
@@ -323,7 +323,7 @@ namespace deren::asset::subtilis {
             workspace.fine.resize(groups);
             workspace.inputs.resize(groups);
             workspace.prepared.resize(groups);
-            for (size_t group = 0; group < groups; ++group) {
+            for (std::size_t group = 0; group < groups; ++group) {
                 auto const& partition = (*partitions)[group];
                 workspace.fine[group].reserve(partition.size());
                 for (auto index : partition) {
@@ -334,7 +334,7 @@ namespace deren::asset::subtilis {
             // may relocate). Serial commits are interleaved with prepares, so they rebuild their
             // spans just-in-time; the parallel path prepares everything before any commit and can
             // share one stable set of spans.
-            auto fill_inputs = [&](size_t group) {
+            auto fill_inputs = [&](std::size_t group) {
                 auto& inputs = workspace.inputs[group];
                 inputs.clear();
                 inputs.reserve(workspace.fine[group].size());
@@ -343,11 +343,11 @@ namespace deren::asset::subtilis {
                     inputs.push_back({std::span(context.data.indices).subspan(c.first_index, c.index_count)});
                 }
             };
-            auto commit_task = [&](size_t group) -> result<void> {
+            auto commit_task = [&](std::size_t group) -> result<void> {
                 return commit_group(workspace, group, context.data, context.budget, context.report, context.stages, context.base_work);
             };
             if (context.threads <= 1 || groups <= 1) {
-                for (size_t group = 0; group < groups; ++group) {
+                for (std::size_t group = 0; group < groups; ++group) {
                     fill_inputs(group);
                     auto prepared = prepare_group(workspace, group, context.source, context.data, context.topology, context.scale, context.options);
                     if (!prepared) {
@@ -359,16 +359,16 @@ namespace deren::asset::subtilis {
                     }
                 }
             } else {
-                vector<size_t> estimates(groups);
-                size_t max_estimate = 1;
-                for (size_t group = 0; group < groups; ++group) {
+                vector<std::size_t> estimates(groups);
+                std::size_t max_estimate = 1;
+                for (std::size_t group = 0; group < groups; ++group) {
                     fill_inputs(group);
                     estimates[group] = reduction_task_estimate(workspace.inputs[group]);
                     max_estimate = std::max(max_estimate, estimates[group]);
                 }
-                size_t const available = context.budget.max_known_work_bytes - context.base_work;
-                size_t const admitted = std::min({static_cast<size_t>(context.threads), groups, available / max_estimate});
-                auto prepare_task = [&](size_t group) -> result<void> {
+                std::size_t const available = context.budget.max_known_work_bytes - context.base_work;
+                std::size_t const admitted = std::min({static_cast<std::size_t>(context.threads), groups, available / max_estimate});
+                auto prepare_task = [&](std::size_t group) -> result<void> {
                     return prepare_group(workspace, group, context.source, context.data, context.topology, context.scale, context.options);
                 };
                 auto ordered = bd::run_ordered(groups, context.threads, estimates, available, prepare_task, commit_task);
@@ -376,21 +376,21 @@ namespace deren::asset::subtilis {
                     return std::unexpected(ordered.error());
                 }
                 // Deterministic planned concurrency: a pure function of the estimates and budget.
-                context.planned_concurrency = std::max(context.planned_concurrency, static_cast<uint32_t>(std::max<size_t>(admitted, 1)));
+                context.planned_concurrency = std::max(context.planned_concurrency, static_cast<std::uint32_t>(std::max<std::size_t>(admitted, 1)));
             }
             std::sort(workspace.next.begin(), workspace.next.end());
             context.active = std::move(workspace.next);
             if (!workspace.progressed) {
                 return false;
             }
-            uint64_t triangles = 0;
+            std::uint64_t triangles = 0;
             for (auto id : context.active) {
                 triangles += context.data.clusters[id].index_count / 3;
             }
             context.report.levels.push_back({triangles, context.active.size(), context.data.groups.size(), context.active.size()});
             return true;
         }
-        result<build_result> build_impl(source_geometry source, build_options const& options, build_limits const& budget, uint32_t threads) {
+        result<build_result> build_impl(source_geometry source, build_options const& options, build_limits const& budget, std::uint32_t threads) {
             double const started = stage_now();
             stage_accumulator stages;
             auto identity = build_digest(options);
@@ -402,7 +402,7 @@ namespace deren::asset::subtilis {
             if (source.positions.size() > validation_limits.max_records || source.indices.size() > validation_limits.max_records) {
                 return fail(error_code::capacity, "source record limit");
             }
-            uint64_t base_work = static_cast<uint64_t>(source.positions.size()) * 64 + static_cast<uint64_t>(source.indices.size()) * 96 + 65536;
+            std::uint64_t base_work = static_cast<std::uint64_t>(source.positions.size()) * 64 + static_cast<std::uint64_t>(source.indices.size()) * 96 + 65536;
             if (base_work > budget.max_known_work_bytes) {
                 return fail(error_code::capacity, "known work budget too small");
             }
@@ -441,8 +441,8 @@ namespace deren::asset::subtilis {
             if (storage(data) > budget.max_output_bytes || storage(data) > budget.max_known_work_bytes - base_work) {
                 return fail(error_code::capacity, "initial payload exceeds build budget");
             }
-            uint32_t planned_concurrency = 1;
-            for (uint32_t round = 0; round < options.max_rounds; ++round) {
+            std::uint32_t planned_concurrency = 1;
+            for (std::uint32_t round = 0; round < options.max_rounds; ++round) {
                 report.rounds = round + 1;
                 round_context context{source, data, options, budget, topology, scale, base_work, threads, report, stages, planned_concurrency, active};
                 auto progressed = run_round(context);
@@ -456,7 +456,7 @@ namespace deren::asset::subtilis {
             data.roots = active;
             report.lod0_only = data.groups.empty();
             for (auto const& g : data.groups) {
-                uint32_t first = none;
+                std::uint32_t first = none;
                 bool cross = false;
                 for (auto id : std::span(data.references).subspan(g.coarse_first, g.coarse_count)) {
                     auto consumer = data.clusters[id].consumer;

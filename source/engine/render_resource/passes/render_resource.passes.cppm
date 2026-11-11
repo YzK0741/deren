@@ -10,8 +10,6 @@
 
 module;
 
-#include <cstdint>
-
 export module deren.engine.render_resource:passes;
 export import deren.vstd;
 
@@ -378,7 +376,7 @@ export namespace deren::engine::render_resource {
     ///       float of the FXAA lanes' row. The shader's `PostPush` declares the same field in the same place - the note
     ///       there is explicit that the layout up to the three heap indices has to match the CPU struct, because a
     ///       block that stopped short reads its lanes out of the wrong members.
-    inline constexpr uint32_t post_push_bytes = 36;
+    inline constexpr std::uint32_t post_push_bytes = 36;
 
     /**
      * @brief the bloom chain's four levels, as ONE declaration per level
@@ -510,7 +508,7 @@ export namespace deren::engine::render_resource {
     ///       this wrong in the other direction - declare the lanes as part of the pass's size - and they
     ///       land past the fields the shader reads them from, which is a silent wrong-image rather than a
     ///       validation error.
-    inline constexpr uint32_t upscale_push_bytes = 72;
+    inline constexpr std::uint32_t upscale_push_bytes = 72;
 
     /// @brief what the UPSCALE pass RENDERS INTO by declaration: the swapchain, i.e. the OUTPUT image whose
     ///        extent is the one thing this pass asks for that is not the frame's

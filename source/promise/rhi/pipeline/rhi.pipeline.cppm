@@ -2,9 +2,6 @@
 // module: deren.promise.rhi:pipeline
 module;
 
-#include <cstddef>
-#include <cstdint>
-
 export module deren.promise.rhi:pipeline;
 export import deren.vstd;
 export import deren.utility.shared;

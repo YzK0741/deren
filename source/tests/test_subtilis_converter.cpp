@@ -19,6 +19,8 @@
 namespace tool = deren::tools::subtilis;
 namespace sub = deren::asset::subtilis;
 #include "subtilis_document_fixtures.hpp"
+
+#include <limits>
 using namespace subtilis_document_fixture;
 
 namespace {
@@ -346,7 +348,7 @@ namespace {
             auto* extensions = yyjson_mut_obj(d);
             auto* metadata = yyjson_mut_obj(d);
             auto* nested = yyjson_mut_obj(d);
-            yyjson_mut_obj_add_uint(d, nested, "u", UINT64_MAX);
+            yyjson_mut_obj_add_uint(d, nested, "u", std::numeric_limits<std::uint64_t>::max());
             yyjson_mut_obj_add_str(d, nested, "text", "keep me");
             yyjson_mut_obj_add_val(d, metadata, "nested", nested);
             yyjson_mut_obj_add_val(d, extensions, "VENDOR_metadata", metadata);
@@ -1205,11 +1207,11 @@ namespace {
     }
 } // namespace
 int main() {
-    CHECK(!tool::package_detail::glb_length(UINT64_MAX, 0, {}));
+    CHECK(!tool::package_detail::glb_length(std::numeric_limits<std::uint64_t>::max(), 0, {}));
     CHECK(!tool::package_detail::glb_length(20, (uint64_t(1) << 32) + 1, {}));
-    CHECK(!tool::package_detail::glb_length(UINT32_MAX - 22u, 0, {}));
-    auto boundary = tool::package_detail::glb_length(UINT32_MAX - 23u, 0, {});
-    CHECK(boundary && *boundary == UINT32_MAX - 3u);
+    CHECK(!tool::package_detail::glb_length(std::numeric_limits<std::uint32_t>::max() - 22u, 0, {}));
+    auto boundary = tool::package_detail::glb_length(std::numeric_limits<std::uint32_t>::max() - 23u, 0, {});
+    CHECK(boundary && *boundary == std::numeric_limits<std::uint32_t>::max() - 3u);
     sub::limits tiny_limit;
     tiny_limit.max_input_bytes = 32;
     CHECK(!tool::package_detail::glb_length(20, 0, tiny_limit));
@@ -1660,7 +1662,7 @@ int main() {
     CHECK(!std::filesystem::exists(dir / "alias-output.glb"));
     auto excessive_json = edit_json(external_json, [](auto*, auto* root) {
         auto* b = yyjson_mut_arr_get_first(yyjson_mut_obj_get(root, "buffers"));
-        yyjson_mut_set_uint(yyjson_mut_obj_get(b, "byteLength"), UINT64_MAX);
+        yyjson_mut_set_uint(yyjson_mut_obj_get(b, "byteLength"), std::numeric_limits<std::uint64_t>::max());
     });
     {
         std::ofstream out(dir / "excessive.gltf");

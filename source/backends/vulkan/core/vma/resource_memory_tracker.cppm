@@ -1,9 +1,7 @@
 module;
-#include <algorithm>
-#include <cstdint>
-#include <mutex>
 
 export module deren.vulkan.core.vma.resource_memory_tracker;
+export import deren.vstd;
 
 export namespace deren::vulkan::detail {
     // No allocation or Vulkan call under this lock. One coherent counter snapshot covers both kinds.

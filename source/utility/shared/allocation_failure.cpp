@@ -1,10 +1,9 @@
 // Plain TU: keep platform headers out of the module's global fragment.
+import deren.vstd;
 #include "allocation_failure.hpp"
 
 #include "stacktrace_native.hpp"
 
-#include <atomic>
-#include <cstdlib>
 #ifdef DEREN_MEMORY_TESTING
 #include "memory_test_hooks.hpp"
 #endif

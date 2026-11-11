@@ -1,5 +1,9 @@
 #pragma once
 
+#include <cstdint>
+
+#include <limits>
+
 inline void check_texture_feedback(rhi::api_core& core) {
     namespace tr = deren::engine::texture_residency;
     namespace layout = deren::engine::render_layout;
@@ -36,7 +40,7 @@ inline void check_texture_feedback(rhi::api_core& core) {
     auto hw = image(deren::engine::visibility::pack_id(0, 0, 0)->value, rhi::image_format::r32_uint);
     auto sw = image(deren::engine::visibility::pack_id(1, 0, 0)->value, rhi::image_format::r32_uint);
     auto empty = image(0, rhi::image_format::r32_uint);
-    auto depth = image(UINT32_MAX, rhi::image_format::rgba8_unorm);
+    auto depth = image(std::numeric_limits<std::uint32_t>::max(), rhi::image_format::rgba8_unorm);
     auto sw_depth = image(std::bit_cast<std::uint32_t>(0.25f), rhi::image_format::r32_uint);
     CHECK(hw && sw && depth && sw_depth && empty);
     if (!hw || !sw || !depth || !sw_depth || !empty) {
@@ -67,7 +71,7 @@ inline void check_texture_feedback(rhi::api_core& core) {
         auto token = submission->submit(*commands);
         CHECK(token);
         if (token) {
-            CHECK(submission->wait(*token, UINT64_MAX) == rhi::error::ok);
+            CHECK(submission->wait(*token, std::numeric_limits<std::uint64_t>::max()) == rhi::error::ok);
         }
         tr::feedback feedback;
         std::memcpy(&feedback, result->mapped().data(), sizeof(feedback));

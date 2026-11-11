@@ -1,6 +1,5 @@
 module;
-#include <cstddef>
-#include <cstdint>
+
 module deren.utility;
 import deren.vstd;
 import deren.utility.shared;
@@ -88,9 +87,9 @@ namespace deren::utility {
         }
     } // namespace
 
-    std::expected<vessel::vector<uint8_t>, file_error> read_binary_to_vector(std::filesystem::path const& path,
-                                                                             std::uintmax_t const max_bytes) {
-        return read_bounded_file<vessel::vector<uint8_t>>(path, max_bytes);
+    std::expected<vessel::vector<std::uint8_t>, file_error> read_binary_to_vector(std::filesystem::path const& path,
+                                                                                  std::uintmax_t const max_bytes) {
+        return read_bounded_file<vessel::vector<std::uint8_t>>(path, max_bytes);
     }
     std::expected<vessel::string, file_error> read_binary_to_string(std::filesystem::path const& path,
                                                                     std::uintmax_t const max_bytes) {

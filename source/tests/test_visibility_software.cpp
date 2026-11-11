@@ -1291,7 +1291,7 @@ namespace {
         auto const far = sw::atomic_candidate(0x3F000000u, 0x80000000u);
         CHECK(near < far);
         CHECK(sw::atomic_candidate(0x3E800000u, 0x80000000u) < near);
-        CHECK(far < UINT64_MAX);
+        CHECK(far < std::numeric_limits<std::uint64_t>::max());
     }
 
     void serialized_tile_lists() {

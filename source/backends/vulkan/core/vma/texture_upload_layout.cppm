@@ -1,17 +1,14 @@
 module;
 
-#include <algorithm>
-#include <bit>
-#include <limits>
-#include <optional>
 #include <vulkan/vulkan.h>
 
 // Backend-private CPU layout calculation, shared by payload validation and mip offsets.
 export module deren.vulkan.core.vma.texture_upload_layout;
+export import deren.vstd;
 
 export namespace deren::vulkan::detail {
     struct format_block {
-        uint32_t width, height, bytes;
+        std::uint32_t width, height, bytes;
     };
     constexpr std::optional<format_block> vk_format_block(VkFormat const format) noexcept {
         switch (format) {
@@ -224,7 +221,7 @@ export namespace deren::vulkan::detail {
     }
 
     // 先向上取整为块数，再检查乘法溢出；小于一个块的 mip 仍占完整块。
-    constexpr std::optional<VkDeviceSize> packed_mip_size(VkFormat format, uint32_t width, uint32_t height, uint32_t layers) noexcept {
+    constexpr std::optional<VkDeviceSize> packed_mip_size(VkFormat format, std::uint32_t width, std::uint32_t height, std::uint32_t layers) noexcept {
         auto const block = vk_format_block(format);
         if (!block || width == 0 || height == 0 || layers == 0) {
             return std::nullopt;
@@ -240,12 +237,12 @@ export namespace deren::vulkan::detail {
         return size;
     }
 
-    constexpr std::optional<VkDeviceSize> packed_image_size(VkFormat format, uint32_t width, uint32_t height, uint32_t layers, uint32_t mips) noexcept {
-        if (width == 0 || height == 0 || layers == 0 || mips == 0 || mips > static_cast<uint32_t>(std::bit_width(std::max(width, height)))) {
+    constexpr std::optional<VkDeviceSize> packed_image_size(VkFormat format, std::uint32_t width, std::uint32_t height, std::uint32_t layers, std::uint32_t mips) noexcept {
+        if (width == 0 || height == 0 || layers == 0 || mips == 0 || mips > static_cast<std::uint32_t>(std::bit_width(std::max(width, height)))) {
             return std::nullopt;
         }
         VkDeviceSize total = 0;
-        for (uint32_t mip = 0; mip < mips; ++mip) {
+        for (std::uint32_t mip = 0; mip < mips; ++mip) {
             auto const size = packed_mip_size(format, std::max(1u, width >> mip), std::max(1u, height >> mip), layers);
             if (!size || total > std::numeric_limits<VkDeviceSize>::max() - *size) {
                 return std::nullopt;

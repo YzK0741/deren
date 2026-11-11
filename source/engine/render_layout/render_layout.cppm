@@ -1,7 +1,6 @@
 module;
 
 // Portable renderer formats, offsets and slot constants shared by the engine and backends.
-#include <cstdint>
 
 /// THE RENDERER'S SLOT LAYOUT, COMPILED BY BOTH HALVES (③-D/E batch, ruling D).
 ///
@@ -44,7 +43,7 @@ export namespace deren::engine::render_layout {
     /**
      * @brief how many color targets the G-buffer pass writes (see @ref gbuffer_formats)
      */
-    inline constexpr uint32_t gbuffer_target_count = 3;
+    inline constexpr std::uint32_t gbuffer_target_count = 3;
 
     /**
      * @brief formats of the G-buffer targets, in attachment order (= the fragment output locations
@@ -94,7 +93,7 @@ export namespace deren::engine::render_layout {
      *       cannot drift. `core` keeps an alias plus a `static_assert`, so the backend's bloom arrays
      *       and this number cannot disagree either.
      */
-    inline constexpr uint32_t bloom_level_count = 4;
+    inline constexpr std::uint32_t bloom_level_count = 4;
 
     /**
      * @brief the size (in bytes) of the shared scene layout's FIRST push-constant range: the per-primitive
@@ -109,7 +108,7 @@ export namespace deren::engine::render_layout {
      *       (`scene_cascade_push_offset` / `scene_cascade_push_size`) stays in `core`: nothing outside the
      *       backend names it.
      */
-    inline constexpr uint32_t scene_push_constant_size = 96;
+    inline constexpr std::uint32_t scene_push_constant_size = 96;
 
     /**
      * @brief THE SLOT GRID: where every descriptor this renderer uses lives, in SLOTS of @ref heap_slot_stride
@@ -149,7 +148,7 @@ export namespace deren::engine::render_layout {
     /// @note `constexpr` IMPLIES `inline` FOR A FUNCTION, so the explicit keyword here was redundant (the
     ///       VARIABLES above need theirs - a constexpr variable is not implicitly inline, and without it the
     ///       namespace-scope constant would have module/internal linkage and could not be exported).
-    [[nodiscard]] constexpr std::uint64_t heap_slot_offset(uint32_t const slot) noexcept {
+    [[nodiscard]] constexpr std::uint64_t heap_slot_offset(std::uint32_t const slot) noexcept {
         return static_cast<std::uint64_t>(slot) * heap_slot_stride;
     }
 
@@ -159,23 +158,23 @@ export namespace deren::engine::render_layout {
     // (source/tests/test_goo_toon_math.cpp greps this line by that name too). The C4458 that a lambda parameter of
     // this name caused in core.constructor.cppm is fixed THERE instead, by renaming the parameter - a local,
     // so the contract stays intact.
-    inline constexpr uint32_t heap_slot_base = 16384; // 1 MiB / 64 B: the grid's slot 0
+    inline constexpr std::uint32_t heap_slot_base = 16384; // 1 MiB / 64 B: the grid's slot 0
     // 1324 slots are in use: the last is `software_tiles`' second frame lane (base + 1323), so the grid has 724
     // free slots after the used region - and the texture run at the front is what grew to 1024.
-    inline constexpr uint32_t heap_slot_count = 3072; // second 1024-texture bank starts at offset 2048
+    inline constexpr std::uint32_t heap_slot_count = 3072; // second 1024-texture bank starts at offset 2048
     /// Environment slot 0 is the scene-wide IBL; slots 1..3 are per-object custom HDRs. The slot index is the
     /// value `material_record::flags` bits 10..11 carry, so the shader and this cap must agree.
-    inline constexpr uint32_t heap_environment_capacity = 4;
-    inline constexpr uint32_t heap_texture_bank_stride = 2048;
-    inline constexpr uint32_t heap_image_capacity = 8; // per-swapchain-image arrays (3-4 images in practice)
+    inline constexpr std::uint32_t heap_environment_capacity = 4;
+    inline constexpr std::uint32_t heap_texture_bank_stride = 2048;
+    inline constexpr std::uint32_t heap_image_capacity = 8; // per-swapchain-image arrays (3-4 images in practice)
     /// The SAMPLER heap is a second grid with its base, and it cannot share the resource one: the API caps
     /// the sampler heap at 128 KiB, so 64 KiB - the reserved window the embedded-sampler path requires - is the
     /// largest base it can have. Its stride is the device's sampler descriptor size (32 B here).
-    inline constexpr uint32_t heap_sampler_base = 2048; // 64 KiB / 32 B
+    inline constexpr std::uint32_t heap_sampler_base = 2048; // 64 KiB / 32 B
     inline constexpr std::uint64_t heap_sampler_stride = 32;
     struct heap_slots {
-        static constexpr uint32_t textures = heap_slot_base + 0u;     // binding 1, the bindless array: scene_texture_capacity slots
-        static constexpr uint32_t materials = heap_slot_base + 1024u; // binding 5, one slot past the texture run
+        static constexpr std::uint32_t textures = heap_slot_base + 0u;     // binding 1, the bindless array: scene_texture_capacity slots
+        static constexpr std::uint32_t materials = heap_slot_base + 1024u; // binding 5, one slot past the texture run
         /**
          * @brief the top level structure, binding 16, as a TWO-SLOT array - and the reason it is not beside the
          *        per-frame buffers above
@@ -188,7 +187,7 @@ export namespace deren::engine::render_layout {
          *       a silent wrong image later. It lives at the END of the used region because growing it in place
          *       would renumber every array after it.
          */
-        static constexpr uint32_t tlas = heap_slot_base + 1215u;
+        static constexpr std::uint32_t tlas = heap_slot_base + 1215u;
         /**
          * @brief the MESHLET TABLE (docs/mesh_shaders.md step 3): one 48-byte record per meshlet
          *
@@ -199,7 +198,7 @@ export namespace deren::engine::render_layout {
          * @note it lives at the END of the used region for the reason stated there: the arrays above are
          *       numbered by their position, so growing one in place would renumber everything after it.
          */
-        static constexpr uint32_t meshlets = heap_slot_base + 1257u;
+        static constexpr std::uint32_t meshlets = heap_slot_base + 1257u;
         /**
          * @brief the MESH CULLING COUNTERS (docs/mesh_shaders.md step 3, "what the culling buys"): one per-frame
          *        lane of 16 uints, added to by the mesh entries (and by the visibility raster lane's ids 8..11,
@@ -209,7 +208,7 @@ export namespace deren::engine::render_layout {
          *       is a heap descriptor - there is no binding model left to hang a counter off. The read-back is a
          *       plain mapped read after `wait_idle`, which is why the buffer is host-visible and coherent.
          */
-        static constexpr uint32_t meshlet_stats = heap_slot_base + 1258u;
+        static constexpr std::uint32_t meshlet_stats = heap_slot_base + 1258u;
         /**
          * @brief THE HOST-CULLED MESHLET TABLE (docs/mesh_shaders.md step 3, the culling's cheapest stage): a
          *        per-frame lane of `meshlet_capacity` records, written by the host while it records a CULLED
@@ -221,7 +220,7 @@ export namespace deren::engine::render_layout {
          * @note the compaction is the whole point: the host writes SURVIVORS contiguously, so the dispatch's
          *       group count is the survivor count and no workgroup is launched for a culled meshlet.
          */
-        static constexpr uint32_t meshlet_culled = heap_slot_base + 1259u;
+        static constexpr std::uint32_t meshlet_culled = heap_slot_base + 1259u;
         /**
          * @brief THE VISIBILITY ITEM TABLE (visibility-buffer v0.2b): a per-frame lane of
          *        `engine::visibility::id_item_capacity` draw_item records (112 B each), written by the host
@@ -232,17 +231,17 @@ export namespace deren::engine::render_layout {
          *       COMPUTE stage, so its only route to the records is a heap descriptor, exactly as the mesh
          *       stages reach the meshlet table.
          */
-        static constexpr uint32_t visibility_items = heap_slot_base + 1267u;
+        static constexpr std::uint32_t visibility_items = heap_slot_base + 1267u;
         // THE TOON LANES THAT DO NOT FIT THE MATERIAL RECORD: one `uvec4` per material, written once at
         // import. x is the face SDF map's texture-array index (`_SDFLightmap`), y the metallic/gloss map's
         // (`_MetallicGlossMap`), and z and w are reserved for the lanes the rest of the character work
         // adds. See heap_slot_constants.glsl for why they are A separate buffer rather than components
         // of the material record, and why it is one descriptor rather than a per-frame pair.
-        static constexpr uint32_t toon_lanes = heap_slot_base + 1260u;
+        static constexpr std::uint32_t toon_lanes = heap_slot_base + 1260u;
         // THE HEAD FRAME the face SDF shades against, one block per frame slot because on a model whose
         // head turns it changes every frame. It is its block rather than a field of the camera's: the
         // head frame belongs to the CHARACTER, not to the eye looking at it.
-        static constexpr uint32_t scene_head = heap_slot_base + 1261u;
+        static constexpr std::uint32_t scene_head = heap_slot_base + 1261u;
         // THE TOON LIGHT RIG (`deren::engine::toon_rig`): the character stage's global numbers - the sun/head-light
         // split, their shadow-side colours and the chain's scalars - written once from the application's
         // config. ONE descriptor and not a per-frame pair, because the values are fixed for a run exactly as
@@ -255,7 +254,7 @@ export namespace deren::engine::render_layout {
         // head frame's numbers - `_DayStrength` came out of the head basis' first lane, i.e. zero - so
         // the two-state lighting silently sat in its NIGHT state for every frame of both captures. The
         // captures differed by 0 pixels before this line moved.
-        static constexpr uint32_t toon_rig = heap_slot_base + 1263u;
+        static constexpr std::uint32_t toon_rig = heap_slot_base + 1263u;
         // THE MATERIAL COLOURS (see `deren::engine::toon_colour_lane`): one `vec4` per lane per material, written once
         // at import from the same sidecar the texture lanes come from. A separate buffer because the value is
         // FOUR FLOATS and the material record has nowhere to put it here: the record is INLINE in the per-draw
@@ -269,10 +268,10 @@ export namespace deren::engine::render_layout {
         // lane blocks AND these six lanes' bytes, because `register_material` writes this table only AFTER its
         // early return - six lanes left out of the key are six lanes the second of two record-identical
         // materials reads from the first one. See the "材质去重键补上 colour lanes" section of `remaining_port_spec.md` for the probe.
-        static constexpr uint32_t toon_colours = heap_slot_base + 1264u;
+        static constexpr std::uint32_t toon_colours = heap_slot_base + 1264u;
         /// THE ARTICLE'S POST LUT: see `runtime::set_post_lut` and `heap_slots_post_lut` in the shader's slot
         /// file, which `test_render_resources` checks against this spelling.
-        static constexpr uint32_t post_lut = heap_slot_base + 1265u;
+        static constexpr std::uint32_t post_lut = heap_slot_base + 1265u;
         /**
          * THE GOO REFERENCE'S PRE-INTEGRATED FGD LOOKUP TABLE (see `runtime::set_goo_fgd_lut` and
          * `heap_slots_goo_fgd_lut` in the shader's slot file, which `test_render_resources` checks against this
@@ -288,22 +287,22 @@ export namespace deren::engine::render_layout {
          * `sqrt(NoV)` / `perceptualRoughness` / `fresnel0` - never from a material's uv. Routing it through
          * `toon_slot` would need eleven sidecar rows pointing at one file, and zero new information.
          */
-        static constexpr uint32_t goo_fgd_lut = heap_slot_base + 1266u;
-        static constexpr uint32_t scene_camera = heap_slot_base + 1026u;        // binding 0, per frame slot
-        static constexpr uint32_t scene_light = heap_slot_base + 1028u;         // binding 7, per frame slot
-        static constexpr uint32_t cluster_counts = heap_slot_base + 1030u;      // binding 11, per frame slot
-        static constexpr uint32_t cluster_indices = heap_slot_base + 1032u;     // binding 12, per frame slot
-        static constexpr uint32_t instance_transforms = heap_slot_base + 1034u; // binding 6, per frame slot
+        static constexpr std::uint32_t goo_fgd_lut = heap_slot_base + 1266u;
+        static constexpr std::uint32_t scene_camera = heap_slot_base + 1026u;        // binding 0, per frame slot
+        static constexpr std::uint32_t scene_light = heap_slot_base + 1028u;         // binding 7, per frame slot
+        static constexpr std::uint32_t cluster_counts = heap_slot_base + 1030u;      // binding 11, per frame slot
+        static constexpr std::uint32_t cluster_indices = heap_slot_base + 1032u;     // binding 12, per frame slot
+        static constexpr std::uint32_t instance_transforms = heap_slot_base + 1034u; // binding 6, per frame slot
         /** @brief the transforms of the previous frame, kept for motion vectors and TAA reprojection */
-        static constexpr uint32_t previous_transforms = heap_slot_base + 1036u; // binding 13, per frame slot
+        static constexpr std::uint32_t previous_transforms = heap_slot_base + 1036u; // binding 13, per frame slot
         /** @brief the skinned joint matrices for this frame, written by the skinning pass */
-        static constexpr uint32_t skin_matrices = heap_slot_base + 1038u;  // binding 9, per frame slot
-        static constexpr uint32_t morph_data = heap_slot_base + 1040u;     // binding 10, per frame slot
-        static constexpr uint32_t mask_instances = heap_slot_base + 1042u; // binding 17, per frame slot
-        static constexpr uint32_t local_probe = heap_slot_base + 1364u;
-        static constexpr uint32_t env_cube = heap_slot_base + 1044u;        // binding 2, environment slot 0
-        static constexpr uint32_t irradiance_cube = heap_slot_base + 1045u; // binding 3, environment slot 0
-        static constexpr uint32_t brdf_lut = heap_slot_base + 1046u;        // binding 4, shared by every slot
+        static constexpr std::uint32_t skin_matrices = heap_slot_base + 1038u;  // binding 9, per frame slot
+        static constexpr std::uint32_t morph_data = heap_slot_base + 1040u;     // binding 10, per frame slot
+        static constexpr std::uint32_t mask_instances = heap_slot_base + 1042u; // binding 17, per frame slot
+        static constexpr std::uint32_t local_probe = heap_slot_base + 1364u;
+        static constexpr std::uint32_t env_cube = heap_slot_base + 1044u;        // binding 2, environment slot 0
+        static constexpr std::uint32_t irradiance_cube = heap_slot_base + 1045u; // binding 3, environment slot 0
+        static constexpr std::uint32_t brdf_lut = heap_slot_base + 1046u;        // binding 4, shared by every slot
         /**
          * @brief the CUSTOM environment slots (1..3), each a prefiltered cube + irradiance pair
          *
@@ -317,12 +316,12 @@ export namespace deren::engine::render_layout {
          * every existing descriptor number, including the global environment the deferred stage reads when a
          * material names slot 0.
          */
-        static constexpr uint32_t custom_env_cube = heap_slot_base + 1365u;        // slots 1..3 are +0..+2
-        static constexpr uint32_t custom_irradiance_cube = heap_slot_base + 1369u; // slots 1..3 are +0..+2
+        static constexpr std::uint32_t custom_env_cube = heap_slot_base + 1365u;        // slots 1..3 are +0..+2
+        static constexpr std::uint32_t custom_irradiance_cube = heap_slot_base + 1369u; // slots 1..3 are +0..+2
         /// @brief the ray-traced reflection image (RGB radiance, A = hit distance), written by the reflection pass
-        static constexpr uint32_t rt_reflection = heap_slot_base + 1372u; // per frame slot, sampled by deferred
+        static constexpr std::uint32_t rt_reflection = heap_slot_base + 1372u; // per frame slot, sampled by deferred
         /// @brief the same image as a STORAGE descriptor; the tracing pass writes it, deferred samples it
-        static constexpr uint32_t rt_reflection_storage = heap_slot_base + 1380u;
+        static constexpr std::uint32_t rt_reflection_storage = heap_slot_base + 1380u;
         /**
          * @brief the denoiser's per-frame-slot images, each with a sampled and a storage run
          *
@@ -330,40 +329,40 @@ export namespace deren::engine::render_layout {
          * SAMPLED ones, the same two-descriptor rule the reflection target and the ray-traced visibility image
          * follow. The pairs are appended after @ref rt_reflection_storage rather than moving any existing slot.
          */
-        static constexpr uint32_t rt_reflection_denoised = heap_slot_base + 1388u;
-        static constexpr uint32_t rt_reflection_denoised_storage = heap_slot_base + 1396u;
-        static constexpr uint32_t rt_reflection_reprojected = heap_slot_base + 1404u;
-        static constexpr uint32_t rt_reflection_reprojected_storage = heap_slot_base + 1412u;
-        static constexpr uint32_t rt_reflection_average = heap_slot_base + 1420u;
-        static constexpr uint32_t rt_reflection_average_storage = heap_slot_base + 1428u;
-        static constexpr uint32_t rt_reflection_average_history = heap_slot_base + 1516u;
-        static constexpr uint32_t rt_reflection_average_history_storage = heap_slot_base + 1524u;
-        static constexpr uint32_t rt_reflection_moments = heap_slot_base + 1436u;
-        static constexpr uint32_t rt_reflection_moments_storage = heap_slot_base + 1444u;
-        static constexpr uint32_t rt_reflection_moments_prefiltered = heap_slot_base + 1452u;
-        static constexpr uint32_t rt_reflection_moments_prefiltered_storage = heap_slot_base + 1460u;
-        static constexpr uint32_t rt_reflection_moments_history = heap_slot_base + 1468u;
-        static constexpr uint32_t rt_reflection_moments_history_storage = heap_slot_base + 1476u;
-        static constexpr uint32_t rt_reflection_surface_history = heap_slot_base + 1484u;
-        static constexpr uint32_t rt_reflection_surface_history_storage = heap_slot_base + 1492u;
-        static constexpr uint32_t rt_reflection_depth_history = heap_slot_base + 1500u;
-        static constexpr uint32_t rt_reflection_depth_history_storage = heap_slot_base + 1508u;
-        static constexpr uint32_t rt_reflection_prefiltered = heap_slot_base + 1532u;
-        static constexpr uint32_t rt_reflection_prefiltered_storage = heap_slot_base + 1540u;
-        static constexpr uint32_t rt_reflection_denoised_history = heap_slot_base + 1548u;
-        static constexpr uint32_t rt_reflection_denoised_history_storage = heap_slot_base + 1556u;
-        static constexpr uint32_t rt_reflection_surface_current = heap_slot_base + 1564u;
-        static constexpr uint32_t rt_reflection_surface_current_storage = heap_slot_base + 1572u;
-        static constexpr uint32_t rt_reflection_depth_current = heap_slot_base + 1580u;
-        static constexpr uint32_t rt_reflection_depth_current_storage = heap_slot_base + 1588u;
+        static constexpr std::uint32_t rt_reflection_denoised = heap_slot_base + 1388u;
+        static constexpr std::uint32_t rt_reflection_denoised_storage = heap_slot_base + 1396u;
+        static constexpr std::uint32_t rt_reflection_reprojected = heap_slot_base + 1404u;
+        static constexpr std::uint32_t rt_reflection_reprojected_storage = heap_slot_base + 1412u;
+        static constexpr std::uint32_t rt_reflection_average = heap_slot_base + 1420u;
+        static constexpr std::uint32_t rt_reflection_average_storage = heap_slot_base + 1428u;
+        static constexpr std::uint32_t rt_reflection_average_history = heap_slot_base + 1516u;
+        static constexpr std::uint32_t rt_reflection_average_history_storage = heap_slot_base + 1524u;
+        static constexpr std::uint32_t rt_reflection_moments = heap_slot_base + 1436u;
+        static constexpr std::uint32_t rt_reflection_moments_storage = heap_slot_base + 1444u;
+        static constexpr std::uint32_t rt_reflection_moments_prefiltered = heap_slot_base + 1452u;
+        static constexpr std::uint32_t rt_reflection_moments_prefiltered_storage = heap_slot_base + 1460u;
+        static constexpr std::uint32_t rt_reflection_moments_history = heap_slot_base + 1468u;
+        static constexpr std::uint32_t rt_reflection_moments_history_storage = heap_slot_base + 1476u;
+        static constexpr std::uint32_t rt_reflection_surface_history = heap_slot_base + 1484u;
+        static constexpr std::uint32_t rt_reflection_surface_history_storage = heap_slot_base + 1492u;
+        static constexpr std::uint32_t rt_reflection_depth_history = heap_slot_base + 1500u;
+        static constexpr std::uint32_t rt_reflection_depth_history_storage = heap_slot_base + 1508u;
+        static constexpr std::uint32_t rt_reflection_prefiltered = heap_slot_base + 1532u;
+        static constexpr std::uint32_t rt_reflection_prefiltered_storage = heap_slot_base + 1540u;
+        static constexpr std::uint32_t rt_reflection_denoised_history = heap_slot_base + 1548u;
+        static constexpr std::uint32_t rt_reflection_denoised_history_storage = heap_slot_base + 1556u;
+        static constexpr std::uint32_t rt_reflection_surface_current = heap_slot_base + 1564u;
+        static constexpr std::uint32_t rt_reflection_surface_current_storage = heap_slot_base + 1572u;
+        static constexpr std::uint32_t rt_reflection_depth_current = heap_slot_base + 1580u;
+        static constexpr std::uint32_t rt_reflection_depth_current_storage = heap_slot_base + 1588u;
         /**
          * @brief reserved legacy page slots. Visibility now reads per-draw page addresses.
          */
-        static constexpr uint32_t subtilis_page_table = heap_slot_base + 1596u;
-        static constexpr uint32_t subtilis_page_arena = heap_slot_base + 1597u;
-        static constexpr uint32_t shadow_map = heap_slot_base + 1047u; // binding 8, per image
+        static constexpr std::uint32_t subtilis_page_table = heap_slot_base + 1596u;
+        static constexpr std::uint32_t subtilis_page_arena = heap_slot_base + 1597u;
+        static constexpr std::uint32_t shadow_map = heap_slot_base + 1047u; // binding 8, per image
         /** @brief the ray-traced visibility image, sampled by the lighting stage */
-        static constexpr uint32_t rt_visibility = heap_slot_base + 1055u; // binding 15, per image
+        static constexpr std::uint32_t rt_visibility = heap_slot_base + 1055u; // binding 15, per image
         /**
          * @brief the SAME image as @ref rt_visibility, as a STORAGE descriptor instead of a sampled one
          *
@@ -373,12 +372,12 @@ export namespace deren::engine::render_layout {
          *       region for the same reason the TLAS does - growing an array in place would renumber every array
          *       after it.
          */
-        static constexpr uint32_t rt_visibility_storage = heap_slot_base + 1223u;
-        static constexpr uint32_t gbuffer_albedo = heap_slot_base + 1063u; // per image, then five in a row
-        static constexpr uint32_t gbuffer_normal = heap_slot_base + 1071u;
-        static constexpr uint32_t gbuffer_material = heap_slot_base + 1079u;
-        static constexpr uint32_t gbuffer_depth = heap_slot_base + 1087u;
-        static constexpr uint32_t gbuffer_velocity = heap_slot_base + 1095u;
+        static constexpr std::uint32_t rt_visibility_storage = heap_slot_base + 1223u;
+        static constexpr std::uint32_t gbuffer_albedo = heap_slot_base + 1063u; // per image, then five in a row
+        static constexpr std::uint32_t gbuffer_normal = heap_slot_base + 1071u;
+        static constexpr std::uint32_t gbuffer_material = heap_slot_base + 1079u;
+        static constexpr std::uint32_t gbuffer_depth = heap_slot_base + 1087u;
+        static constexpr std::uint32_t gbuffer_velocity = heap_slot_base + 1095u;
         /**
          * @brief the joint blocks as they were ONE FRAME AGO, per frame slot: the deformation half of a
          *        motion vector
@@ -393,15 +392,15 @@ export namespace deren::engine::render_layout {
          *       world matrices. It lives at the END of the used region for the same reason the TLAS and
          *       the two storage twins do: growing an array in place would renumber every array after it.
          */
-        static constexpr uint32_t skin_matrices_previous = heap_slot_base + 1255u;
-        static constexpr uint32_t taa_current = heap_slot_base + 1135u; // per image: TAA's pair
-        static constexpr uint32_t taa_history = heap_slot_base + 1143u;
-        static constexpr uint32_t post_color = heap_slot_base + 1151u; // per image: the post chain
-        static constexpr uint32_t bloom_l0 = heap_slot_base + 1159u;
-        static constexpr uint32_t bloom_l1 = heap_slot_base + 1167u;
-        static constexpr uint32_t bloom_l2 = heap_slot_base + 1175u;
-        static constexpr uint32_t bloom_l3 = heap_slot_base + 1183u;
-        static constexpr uint32_t display_color = heap_slot_base + 1207u;
+        static constexpr std::uint32_t skin_matrices_previous = heap_slot_base + 1255u;
+        static constexpr std::uint32_t taa_current = heap_slot_base + 1135u; // per image: TAA's pair
+        static constexpr std::uint32_t taa_history = heap_slot_base + 1143u;
+        static constexpr std::uint32_t post_color = heap_slot_base + 1151u; // per image: the post chain
+        static constexpr std::uint32_t bloom_l0 = heap_slot_base + 1159u;
+        static constexpr std::uint32_t bloom_l1 = heap_slot_base + 1167u;
+        static constexpr std::uint32_t bloom_l2 = heap_slot_base + 1175u;
+        static constexpr std::uint32_t bloom_l3 = heap_slot_base + 1183u;
+        static constexpr std::uint32_t display_color = heap_slot_base + 1207u;
         /**
          * @brief the visibility buffer, per swapchain image: the resolve pass samples the id the raster wrote
          *
@@ -411,7 +410,7 @@ export namespace deren::engine::render_layout {
          *       same rule the TLAS, the storage twins and `skin_matrices_previous` state: growing an array in
          *       place would renumber every array after it.
          */
-        static constexpr uint32_t visibility = heap_slot_base + 1231u;
+        static constexpr std::uint32_t visibility = heap_slot_base + 1231u;
         /// 1239..1246 stay RESERVED: the capture-only depth the visibility work retired from the frame in v0.5 (the
         /// raster lane writes the shared gbuffer_depth). The constant went with the family's producer in the
         /// non-extension cleanup; the slots stay reserved for the v1 software raster's private depth.
@@ -430,11 +429,11 @@ export namespace deren::engine::render_layout {
          * @note the sampled twins are `gbuffer_albedo` .. `gbuffer_velocity` and `taa_current` (the scene colour
          *       target's sampled slot), because the scene colour image is the TAA working image (family 5).
          */
-        static constexpr uint32_t gbuffer_albedo_storage = heap_slot_base + 1268u;
-        static constexpr uint32_t gbuffer_normal_storage = heap_slot_base + 1276u;
-        static constexpr uint32_t gbuffer_material_storage = heap_slot_base + 1284u;
-        static constexpr uint32_t gbuffer_velocity_storage = heap_slot_base + 1292u;
-        static constexpr uint32_t scene_color_storage = heap_slot_base + 1300u;
+        static constexpr std::uint32_t gbuffer_albedo_storage = heap_slot_base + 1268u;
+        static constexpr std::uint32_t gbuffer_normal_storage = heap_slot_base + 1276u;
+        static constexpr std::uint32_t gbuffer_material_storage = heap_slot_base + 1284u;
+        static constexpr std::uint32_t gbuffer_velocity_storage = heap_slot_base + 1292u;
+        static constexpr std::uint32_t scene_color_storage = heap_slot_base + 1300u;
         // ================================================================================================
         // THE HZB OCCLUSION CULLING'S SIX TABLES (M3 phase A1, docs/superpowers/specs/2026-10-20-hzb-
         // occlusion-design.md §5.1). They are APPENDED after the used region's last slot (base + 1307) rather than
@@ -452,30 +451,30 @@ export namespace deren::engine::render_layout {
         /// `pyramid_words(extent)` floats, level 0 (the depth image) first, then one 2x2-max level per step until
         /// 1x1 (§4.1). It is the one EXTENT-DEPENDENT table here: a resize rebuilds it and invalidates both lanes
         /// (§5.2, §9.3).
-        static constexpr uint32_t hzb_levels = heap_slot_base + 1308u;
+        static constexpr std::uint32_t hzb_levels = heap_slot_base + 1308u;
         /// HZB'S HEADER, GPU-written by the build pass in the same dispatch as the pyramid: one `HzbHeader` per
         /// frame slot - magic, extent, level count, and the view/proj/camera position that BUILT that pyramid
         /// (§4.1). The CPU camera snapshot the phase-B gate compares is captured beside it (§9.2).
-        static constexpr uint32_t hzb_header = heap_slot_base + 1309u;
+        static constexpr std::uint32_t hzb_header = heap_slot_base + 1309u;
         /// HZB'S PER-ITEM CANDIDATE DESCRIPTIONS, HOST-written before the frame records: per item
         /// `{meshlet_base, candidate_count, source, pad}` (§4.3), so the cull pass walks an item's candidates
         /// itself rather than the host enumerating them into a second table.
-        static constexpr uint32_t hzb_items = heap_slot_base + 1310u;
+        static constexpr std::uint32_t hzb_items = heap_slot_base + 1310u;
         /// HZB'S CULL RESULTS, GPU-written by the cull pass: `flags[65536]` (one u32 per candidate: 0 = survivor,
         /// 1 = culled), `pass1_count[4096]`, `pass2_count[4096]` and the 16-word stats block the host reads once at
         /// shutdown (§4.3, §4.6, §10.3). One write per candidate, so no clear and no atomics are needed.
-        static constexpr uint32_t hzb_results = heap_slot_base + 1311u;
+        static constexpr std::uint32_t hzb_results = heap_slot_base + 1311u;
         /// HZB'S COMPACTED SURVIVOR TABLE, GPU-written by the cull pass: a per-frame lane of `meshlet_capacity`
         /// meshlet records, the survivors packed in ascending candidate order (§4.3). The mesh stage reads a record
         /// from it exactly as it reads the host-culled table, so consuming HZB is a table swap rather than a second
         /// index (§4.5).
-        static constexpr uint32_t hzb_survivors = heap_slot_base + 1312u;
+        static constexpr std::uint32_t hzb_survivors = heap_slot_base + 1312u;
         /// HZB'S INDIRECT-COMMAND ALIAS: the heap STORAGE descriptor written AT THIS SLOT (by the scene-table
         /// publication path, HOST-side) aliases @ref mesh_indirect_buffer - the same memory, NOT a new allocation.
         /// The cull compute stage has to write each item's surviving group count into the per-item command word for
         /// `draw_mesh_tasks_indirect` to launch fewer workgroups (§4.4), and that word only exists on the buffer the
         /// draw reads; the buffer gains `buffer_flag::device_address` and this slot is only the descriptor's number.
-        static constexpr uint32_t hzb_commands = heap_slot_base + 1313u;
+        static constexpr std::uint32_t hzb_commands = heap_slot_base + 1313u;
 
         // ---- THE SOFTWARE RASTER'S SURFACE (M4 Task 2; docs/superpowers/specs/2026-10-22-software-raster-
         //      design.md §3.2/§4.2). TWO R32_UINT images per swapchain image plus ONE host-written CSR tile-list
@@ -494,18 +493,18 @@ export namespace deren::engine::render_layout {
         //      and test_render_resources.cpp compares the two files). Sampled and storage image views are each
         //      per-swapchain-image arrays; software_tiles is a per-FRAME array indexed with `heap_frame_slot`.
         /// the software raster's depth image (R32_UINT = the float depth's bit pattern), per swapchain image
-        static constexpr uint32_t software_depth = heap_slot_base + 1239u;
+        static constexpr std::uint32_t software_depth = heap_slot_base + 1239u;
         /// the software raster's packed-id image (R32_UINT, the same packing as @ref visibility), per swapchain image
-        static constexpr uint32_t software_id = heap_slot_base + 1314u;
+        static constexpr std::uint32_t software_id = heap_slot_base + 1314u;
         /// the CSR tile list buffer (host-written per frame lane; layout in deren.engine.visibility.software)
-        static constexpr uint32_t software_tiles = heap_slot_base + 1322u;
+        static constexpr std::uint32_t software_tiles = heap_slot_base + 1322u;
         /// storage view of software_depth; sampled/storage image descriptors occupy separate heap slots
-        static constexpr uint32_t software_depth_storage = heap_slot_base + 1324u;
+        static constexpr std::uint32_t software_depth_storage = heap_slot_base + 1324u;
         /// storage view of software_id; one per-image run after software_depth's storage-view run
-        static constexpr uint32_t software_id_storage = heap_slot_base + 1332u;
-        static constexpr uint32_t software_route_metadata = heap_slot_base + 1348u;
-        static constexpr uint32_t software_route_arguments = heap_slot_base + 1356u;
-        static constexpr uint32_t software_atomic = heap_slot_base + 1340u; // two private per-frame scratch buffers
+        static constexpr std::uint32_t software_id_storage = heap_slot_base + 1332u;
+        static constexpr std::uint32_t software_route_metadata = heap_slot_base + 1348u;
+        static constexpr std::uint32_t software_route_arguments = heap_slot_base + 1356u;
+        static constexpr std::uint32_t software_atomic = heap_slot_base + 1340u; // two private per-frame scratch buffers
     };
 
     /**
@@ -525,7 +524,7 @@ export namespace deren::engine::render_layout {
      * (base + 1313) inside the grid's 2048 slots. The grid grew with it: 1024 slots could not fit both the
      * 1024-slot texture run and the 512-slot region that used to follow it.
      */
-    inline constexpr uint32_t scene_texture_capacity = 1024;
+    inline constexpr std::uint32_t scene_texture_capacity = 1024;
     static_assert(heap_slots::materials - heap_slots::textures == scene_texture_capacity,
                   "the texture run between the bindless array and the material table IS the array's capacity");
     static_assert(heap_slots::scene_color_storage + heap_image_capacity <= heap_slot_base + heap_slot_count,

@@ -1,6 +1,5 @@
 module;
-#include <cstddef>
-#include <cstdint>
+
 #include <glm/glm.hpp>
 module deren.engine.gaussian_splatting.raster;
 import deren.vstd;

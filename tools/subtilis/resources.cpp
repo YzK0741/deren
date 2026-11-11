@@ -2,6 +2,10 @@
 
 #include <fastgltf/base64.hpp>
 
+#include <limits>
+
+#include <cstdint>
+
 namespace deren::tools::subtilis {
     namespace {
         // Extensions whose binary/external-reference semantics the tool models well enough to
@@ -139,7 +143,7 @@ namespace deren::tools::subtilis {
         if (ec) {
             return fail("cannot open local resource", asset::error_code::io);
         }
-        if (size > max_bytes || size > SIZE_MAX || size > uint64_t(std::numeric_limits<std::streamsize>::max())) {
+        if (size > max_bytes || size > std::numeric_limits<std::size_t>::max() || size > uint64_t(std::numeric_limits<std::streamsize>::max())) {
             return fail("resource byte limit", asset::error_code::capacity);
         }
         vector<byte> bytes(static_cast<size_t>(size));
@@ -174,7 +178,7 @@ namespace deren::tools::subtilis {
             return {};
         }
         auto* buffers = member(root(d), "buffers");
-        if (!yyjson_mut_is_arr(buffers) || yyjson_mut_arr_size(buffers) >= d.state->limits.max_records || yyjson_mut_arr_size(buffers) >= UINT32_MAX) {
+        if (!yyjson_mut_is_arr(buffers) || yyjson_mut_arr_size(buffers) >= d.state->limits.max_records || yyjson_mut_arr_size(buffers) >= std::numeric_limits<std::uint32_t>::max()) {
             return fail("append buffer record limit", asset::error_code::capacity);
         }
         d.state->append_buffer = static_cast<uint32_t>(yyjson_mut_arr_size(buffers));
@@ -214,7 +218,7 @@ namespace deren::tools::subtilis {
                 merged.push_back(byte{0});
             }
             offsets.push_back(merged.size());
-            if (merged.size() > d.state->limits.max_input_bytes || data.size() > d.state->limits.max_input_bytes - merged.size() || uint64_t(data.size()) + merged.size() > UINT32_MAX) {
+            if (merged.size() > d.state->limits.max_input_bytes || data.size() > d.state->limits.max_input_bytes - merged.size() || uint64_t(data.size()) + merged.size() > std::numeric_limits<std::uint32_t>::max()) {
                 return fail("merged GLB byte limit", asset::error_code::capacity);
             }
             merged.insert(merged.end(), data.begin(), data.end());
@@ -229,7 +233,7 @@ namespace deren::tools::subtilis {
             }
             uint64_t start = offset ? yyjson_mut_get_uint(offset) : 0;
             auto base = offsets[yyjson_mut_get_uint(buffer)];
-            if (start > UINT32_MAX - base) {
+            if (start > std::numeric_limits<std::uint32_t>::max() - base) {
                 return fail("GLB offset overflow", asset::error_code::capacity);
             }
             yyjson_mut_set_uint(buffer, 0);
@@ -266,7 +270,7 @@ namespace deren::tools::subtilis {
             while (merged.size() % 4) {
                 merged.push_back(byte{0});
             }
-            if (merged.size() > d.state->limits.max_input_bytes || data.size() > d.state->limits.max_input_bytes - merged.size() || uint64_t(merged.size()) + data.size() > UINT32_MAX) {
+            if (merged.size() > d.state->limits.max_input_bytes || data.size() > d.state->limits.max_input_bytes - merged.size() || uint64_t(merged.size()) + data.size() > std::numeric_limits<std::uint32_t>::max()) {
                 return fail("image embedding byte limit", asset::error_code::capacity);
             }
             auto* view = yyjson_mut_obj(copied);

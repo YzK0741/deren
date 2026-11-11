@@ -13,11 +13,10 @@
 // ============================================================================
 module;
 
-#include <cstddef>
-#include <cstdint>
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.constant_init;
+export import deren.vstd;
 
 /**
  * @defgroup vulkan_constant_init Vulkan Info-Struct Builders (fixed conventions)
@@ -71,7 +70,7 @@ export namespace deren::vulkan {
     /**
      * @brief command pool that allows per-buffer reset (the engine resets/re-records buffers)
      */
-    constexpr VkCommandPoolCreateInfo make_command_pool_info(uint32_t const queue_family) noexcept {
+    constexpr VkCommandPoolCreateInfo make_command_pool_info(std::uint32_t const queue_family) noexcept {
         return {
             .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
             .pNext = nullptr,
@@ -163,7 +162,7 @@ export namespace deren::vulkan {
      * @param count number of queries in the pool (a timestamp pool also fixes how many marks a
      *        frame may write: see core::gpu_timing_mark_capacity)
      */
-    constexpr VkQueryPoolCreateInfo make_query_pool_info(VkQueryType const query_type, uint32_t const count) noexcept {
+    constexpr VkQueryPoolCreateInfo make_query_pool_info(VkQueryType const query_type, std::uint32_t const count) noexcept {
         return {
             .sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
             .pNext = nullptr,
@@ -191,7 +190,7 @@ export namespace deren::vulkan {
      * @param queue_family
      * @param queue_priorities caller-provided array of @p queue_family's queue priorities
      */
-    constexpr VkDeviceQueueCreateInfo make_device_queue_info(uint32_t const queue_family, float const* queue_priorities) noexcept {
+    constexpr VkDeviceQueueCreateInfo make_device_queue_info(std::uint32_t const queue_family, float const* queue_priorities) noexcept {
         return {
             .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
             .pNext = nullptr,
@@ -212,7 +211,7 @@ export namespace deren::vulkan {
      * @param base_mip_level first mip level the view addresses
      * @param base_array_layer first array layer the view addresses
      */
-    constexpr VkImageViewCreateInfo make_image_view_info(VkImage const image, VkFormat const format, VkImageViewType const view_type, VkImageAspectFlags const aspect_mask, uint32_t const level_count, uint32_t const layer_count, uint32_t const base_mip_level = 0, uint32_t const base_array_layer = 0) noexcept {
+    constexpr VkImageViewCreateInfo make_image_view_info(VkImage const image, VkFormat const format, VkImageViewType const view_type, VkImageAspectFlags const aspect_mask, std::uint32_t const level_count, std::uint32_t const layer_count, std::uint32_t const base_mip_level = 0, std::uint32_t const base_array_layer = 0) noexcept {
         return {
             .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
             .pNext = nullptr,
@@ -250,8 +249,8 @@ export namespace deren::vulkan {
         VkPipelineStageFlags2 const dst_stage, VkAccessFlags2 const dst_access,
         VkImageLayout const old_layout, VkImageLayout const new_layout,
         VkImage const image, VkImageSubresourceRange const& subresource_range,
-        uint32_t const src_queue_family = VK_QUEUE_FAMILY_IGNORED,
-        uint32_t const dst_queue_family = VK_QUEUE_FAMILY_IGNORED) noexcept {
+        std::uint32_t const src_queue_family = VK_QUEUE_FAMILY_IGNORED,
+        std::uint32_t const dst_queue_family = VK_QUEUE_FAMILY_IGNORED) noexcept {
         return {
             .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
             .pNext = nullptr,
@@ -272,8 +271,8 @@ export namespace deren::vulkan {
         VkPipelineStageFlags2 const src_stage, VkAccessFlags2 const src_access,
         VkPipelineStageFlags2 const dst_stage, VkAccessFlags2 const dst_access,
         VkBuffer const buffer, VkDeviceSize const offset, VkDeviceSize const size,
-        uint32_t const src_queue_family = VK_QUEUE_FAMILY_IGNORED,
-        uint32_t const dst_queue_family = VK_QUEUE_FAMILY_IGNORED) noexcept {
+        std::uint32_t const src_queue_family = VK_QUEUE_FAMILY_IGNORED,
+        std::uint32_t const dst_queue_family = VK_QUEUE_FAMILY_IGNORED) noexcept {
         return {
             .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
             .pNext = nullptr,
@@ -290,7 +289,7 @@ export namespace deren::vulkan {
     }
     /** @brief buffer/image copy region with explicitly packed row and image strides */
     constexpr VkBufferImageCopy make_buffer_image_copy(
-        VkDeviceSize const buffer_offset, uint32_t const buffer_row_length, uint32_t const buffer_image_height,
+        VkDeviceSize const buffer_offset, std::uint32_t const buffer_row_length, std::uint32_t const buffer_image_height,
         VkImageSubresourceLayers const image_subresource, VkOffset3D const image_offset,
         VkExtent3D const image_extent) noexcept {
         return {
@@ -335,7 +334,7 @@ export namespace deren::vulkan {
     /** @brief the head of one vkCopyImageToMemoryEXT call */
     constexpr VkCopyImageToMemoryInfo make_copy_image_to_memory_info(
         VkImage const src_image, VkImageLayout const src_layout,
-        uint32_t const region_count, VkImageToMemoryCopy const* const regions) noexcept {
+        std::uint32_t const region_count, VkImageToMemoryCopy const* const regions) noexcept {
         return {
             .sType = VK_STRUCTURE_TYPE_COPY_IMAGE_TO_MEMORY_INFO_EXT,
             .pNext = nullptr,
@@ -349,7 +348,7 @@ export namespace deren::vulkan {
     /** @brief the head of one vkCopyMemoryToImageEXT call */
     constexpr VkCopyMemoryToImageInfoEXT make_copy_memory_to_image_info(
         VkImage const dst_image, VkImageLayout const dst_layout,
-        uint32_t const region_count, VkMemoryToImageCopyEXT const* const regions) noexcept {
+        std::uint32_t const region_count, VkMemoryToImageCopyEXT const* const regions) noexcept {
         return {
             .sType = VK_STRUCTURE_TYPE_COPY_MEMORY_TO_IMAGE_INFO_EXT,
             .pNext = nullptr,
@@ -375,9 +374,9 @@ export namespace deren::vulkan {
     /** @brief one micromap build info; @p dst_micromap and @p scratch_address are null/0 for a size query */
     constexpr VkMicromapBuildInfoEXT make_micromap_build_info(
         VkMicromapTypeEXT const type, VkBuildMicromapFlagsEXT const flags, VkBuildMicromapModeEXT const mode,
-        VkMicromapEXT const dst_micromap, uint32_t const usage_count,
+        VkMicromapEXT const dst_micromap, std::uint32_t const usage_count,
         VkMicromapUsageEXT const* const usage, VkDeviceAddress const data_address,
-        VkDeviceAddress const triangle_array_address, uint32_t const triangle_array_stride,
+        VkDeviceAddress const triangle_array_address, std::uint32_t const triangle_array_stride,
         VkDeviceAddress const scratch_address = 0) noexcept {
         return {
             .sType = VK_STRUCTURE_TYPE_MICROMAP_BUILD_INFO_EXT,
@@ -409,7 +408,7 @@ export namespace deren::vulkan {
     constexpr VkAccelerationStructureBuildGeometryInfoKHR make_acceleration_structure_build_info(
         VkAccelerationStructureTypeKHR const type, VkBuildAccelerationStructureFlagsKHR const flags,
         VkBuildAccelerationStructureModeKHR const mode, VkAccelerationStructureKHR const src,
-        VkAccelerationStructureKHR const dst, uint32_t const geometry_count,
+        VkAccelerationStructureKHR const dst, std::uint32_t const geometry_count,
         VkAccelerationStructureGeometryKHR const* const geometries,
         VkDeviceAddress const scratch_address,
         VkAccelerationStructureGeometryKHR const* const* const pp_geometries = nullptr) noexcept {
@@ -439,9 +438,9 @@ export namespace deren::vulkan {
     }
     /** @brief one acceleration-structure binding at a constant heap offset */
     constexpr VkDescriptorSetAndBindingMappingEXT make_descriptor_set_and_binding_mapping(
-        uint32_t const descriptor_set, uint32_t const first_binding, uint32_t const binding_count,
+        std::uint32_t const descriptor_set, std::uint32_t const first_binding, std::uint32_t const binding_count,
         VkSpirvResourceTypeFlagsEXT const resource_mask, VkDescriptorMappingSourceEXT const source,
-        uint32_t const heap_offset, uint32_t const heap_array_stride) noexcept {
+        std::uint32_t const heap_offset, std::uint32_t const heap_array_stride) noexcept {
         return {
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT,
             .pNext = nullptr,
@@ -463,8 +462,8 @@ export namespace deren::vulkan {
     }
     /** @brief host wait on a semaphore value array */
     constexpr VkSemaphoreWaitInfo make_semaphore_wait_info(
-        uint32_t const semaphore_count, VkSemaphore const* const semaphores,
-        uint64_t const* const values, VkSemaphoreWaitFlags const flags = 0) noexcept {
+        std::uint32_t const semaphore_count, VkSemaphore const* const semaphores,
+        std::uint64_t const* const values, VkSemaphoreWaitFlags const flags = 0) noexcept {
         return {
             .sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
             .pNext = nullptr,
@@ -476,9 +475,9 @@ export namespace deren::vulkan {
     }
     /** @brief one swapchain present call */
     constexpr VkPresentInfoKHR make_present_info(
-        uint32_t const wait_count, VkSemaphore const* const waits,
-        uint32_t const swapchain_count, VkSwapchainKHR const* const swapchains,
-        uint32_t const* const image_indices, VkResult* const results = nullptr) noexcept {
+        std::uint32_t const wait_count, VkSemaphore const* const waits,
+        std::uint32_t const swapchain_count, VkSwapchainKHR const* const swapchains,
+        std::uint32_t const* const image_indices, VkResult* const results = nullptr) noexcept {
         return {
             .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
             .pNext = nullptr,
@@ -492,8 +491,8 @@ export namespace deren::vulkan {
     }
     /** @brief the timeline value arrays attached to a submit */
     constexpr VkTimelineSemaphoreSubmitInfo make_timeline_semaphore_info(
-        uint32_t const wait_count, uint64_t const* const wait_values,
-        uint32_t const signal_count, uint64_t const* const signal_values) noexcept {
+        std::uint32_t const wait_count, std::uint64_t const* const wait_values,
+        std::uint32_t const signal_count, std::uint64_t const* const signal_values) noexcept {
         return {
             .sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
             .pNext = nullptr,
@@ -505,7 +504,7 @@ export namespace deren::vulkan {
     }
     /** @brief one shader module create info over caller-provided SPIR-V words */
     constexpr VkShaderModuleCreateInfo make_shader_module_info(
-        std::size_t const code_size, uint32_t const* const code,
+        std::size_t const code_size, std::uint32_t const* const code,
         VkShaderModuleCreateFlags const flags = 0) noexcept {
         return {
             .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
@@ -615,7 +614,7 @@ export namespace deren::vulkan {
      * @param command_buffers pointer to the caller's VkCommandBuffer (may be null when count is 0)
      * @param command_buffer_count number of command buffers to submit (0 for a semaphore-only drain)
      */
-    constexpr VkSubmitInfo make_submit_info(VkCommandBuffer const* command_buffers, uint32_t const command_buffer_count = 1) noexcept {
+    constexpr VkSubmitInfo make_submit_info(VkCommandBuffer const* command_buffers, std::uint32_t const command_buffer_count = 1) noexcept {
         return {
             .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
             .pNext = nullptr,
@@ -638,7 +637,7 @@ export namespace deren::vulkan {
      * @param base_array_layer first array layer
      * @param layer_count array layers copied (VK_REMAINING_ARRAY_LAYERS for the rest)
      */
-    constexpr VkImageSubresourceLayers make_image_subresource_layers(VkImageAspectFlags const aspect_mask, uint32_t const mip_level, uint32_t const base_array_layer, uint32_t const layer_count) noexcept {
+    constexpr VkImageSubresourceLayers make_image_subresource_layers(VkImageAspectFlags const aspect_mask, std::uint32_t const mip_level, std::uint32_t const base_array_layer, std::uint32_t const layer_count) noexcept {
         return {.aspectMask = aspect_mask, .mipLevel = mip_level, .baseArrayLayer = base_array_layer, .layerCount = layer_count};
     }
     /**
@@ -675,7 +674,7 @@ export namespace deren::vulkan {
      * @param region_count number of regions
      * @param regions caller-provided image-copy array
      */
-    constexpr VkCopyImageInfo2 make_copy_image_info_2(VkImage const src_image, VkImageLayout const src_layout, VkImage const dst_image, VkImageLayout const dst_layout, uint32_t const region_count, VkImageCopy2 const* regions) noexcept {
+    constexpr VkCopyImageInfo2 make_copy_image_info_2(VkImage const src_image, VkImageLayout const src_layout, VkImage const dst_image, VkImageLayout const dst_layout, std::uint32_t const region_count, VkImageCopy2 const* regions) noexcept {
         return {
             .sType = VK_STRUCTURE_TYPE_COPY_IMAGE_INFO_2,
             .pNext = nullptr,
@@ -703,7 +702,7 @@ export namespace deren::vulkan {
      * @param region_count number of regions
      * @param regions caller-provided buffer-copy array
      */
-    constexpr VkCopyBufferInfo2 make_copy_buffer_info_2(VkBuffer const src_buffer, VkBuffer const dst_buffer, uint32_t const region_count, VkBufferCopy2 const* regions) noexcept {
+    constexpr VkCopyBufferInfo2 make_copy_buffer_info_2(VkBuffer const src_buffer, VkBuffer const dst_buffer, std::uint32_t const region_count, VkBufferCopy2 const* regions) noexcept {
         return {
             .sType = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2,
             .pNext = nullptr,
@@ -762,7 +761,7 @@ export namespace deren::vulkan {
      * @param depth_format the depth attachment's format (VK_FORMAT_UNDEFINED if none)
      * @param rasterization_samples the instance's sample count (always 1 in this engine)
      */
-    constexpr VkCommandBufferInheritanceRenderingInfo make_inheritance_rendering_info(VkFormat const* color_formats, uint32_t const color_count, VkFormat const depth_format, VkSampleCountFlagBits const rasterization_samples) noexcept {
+    constexpr VkCommandBufferInheritanceRenderingInfo make_inheritance_rendering_info(VkFormat const* color_formats, std::uint32_t const color_count, VkFormat const depth_format, VkSampleCountFlagBits const rasterization_samples) noexcept {
         return {
             .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_RENDERING_INFO,
             .pNext = nullptr,
@@ -784,7 +783,7 @@ export namespace deren::vulkan {
      * @param memory_count number of global memory barriers
      * @param memories caller-provided memory barrier array
      */
-    constexpr VkDependencyInfo make_dependency_info(uint32_t const image_count, VkImageMemoryBarrier2 const* images, uint32_t const buffer_count, VkBufferMemoryBarrier2 const* buffers, uint32_t const memory_count = 0, VkMemoryBarrier2 const* memories = nullptr) noexcept {
+    constexpr VkDependencyInfo make_dependency_info(std::uint32_t const image_count, VkImageMemoryBarrier2 const* images, std::uint32_t const buffer_count, VkBufferMemoryBarrier2 const* buffers, std::uint32_t const memory_count = 0, VkMemoryBarrier2 const* memories = nullptr) noexcept {
         return {
             .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
             .pNext = nullptr,
@@ -802,7 +801,7 @@ export namespace deren::vulkan {
      * @param image_barrier_count number of barriers
      * @param barriers caller-provided barrier array
      */
-    constexpr VkDependencyInfo make_image_dependency_info(uint32_t const image_barrier_count, VkImageMemoryBarrier2 const* barriers) noexcept {
+    constexpr VkDependencyInfo make_image_dependency_info(std::uint32_t const image_barrier_count, VkImageMemoryBarrier2 const* barriers) noexcept {
         return make_dependency_info(image_barrier_count, barriers, 0, nullptr);
     }
 
@@ -961,7 +960,7 @@ export namespace deren::vulkan {
      * @param depth_attachment the depth attachment, or nullptr
      * @param layer_count number of layers rendered to (1 unless a multiview pass)
      */
-    constexpr VkRenderingInfo make_rendering_info(VkRenderingFlags const flags, VkRect2D const render_area, VkRenderingAttachmentInfo const* color_attachments, uint32_t const color_count, VkRenderingAttachmentInfo const* depth_attachment, uint32_t const layer_count = 1) noexcept {
+    constexpr VkRenderingInfo make_rendering_info(VkRenderingFlags const flags, VkRect2D const render_area, VkRenderingAttachmentInfo const* color_attachments, std::uint32_t const color_count, VkRenderingAttachmentInfo const* depth_attachment, std::uint32_t const layer_count = 1) noexcept {
         return {
             .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
             .pNext = nullptr,
@@ -1013,7 +1012,7 @@ export namespace deren::vulkan {
         };
     }
     /** @brief dynamic state list (caller-provided array) */
-    constexpr VkPipelineDynamicStateCreateInfo make_dynamic_state(VkDynamicState const* states, uint32_t const count) noexcept {
+    constexpr VkPipelineDynamicStateCreateInfo make_dynamic_state(VkDynamicState const* states, std::uint32_t const count) noexcept {
         return {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
             .pNext = nullptr,
@@ -1206,7 +1205,7 @@ export namespace deren::vulkan {
      * @param attachments caller-provided array of @p count blend attachments, in attachment order
      * @param count number of attachments (0 for a depth-only pipeline)
      */
-    constexpr VkPipelineColorBlendStateCreateInfo make_color_blend_state(VkPipelineColorBlendAttachmentState const* attachments, uint32_t const count) noexcept {
+    constexpr VkPipelineColorBlendStateCreateInfo make_color_blend_state(VkPipelineColorBlendAttachmentState const* attachments, std::uint32_t const count) noexcept {
         return {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
             .pNext = nullptr,
@@ -1258,7 +1257,7 @@ export namespace deren::vulkan {
      * @param color_count number of color attachment formats declared
      * @param depth_format the depth attachment format (VK_FORMAT_UNDEFINED if none)
      */
-    constexpr VkPipelineRenderingCreateInfo make_rendering_create_info(VkFormat const* color_formats, uint32_t const color_count, VkFormat const depth_format) noexcept {
+    constexpr VkPipelineRenderingCreateInfo make_rendering_create_info(VkFormat const* color_formats, std::uint32_t const color_count, VkFormat const depth_format) noexcept {
         return {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
             .pNext = nullptr,

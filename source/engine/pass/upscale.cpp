@@ -7,7 +7,6 @@
 
 module;
 
-#include <cstdint>
 module deren.engine.pass.upscale;
 import deren.vstd;
 import deren.utility.shared;
@@ -60,8 +59,8 @@ namespace deren::engine::pass {
         if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
-        std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.parent, vertex_shader_name) : std::span<uint8_t const>{};
-        std::span<uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.parent, fragment_shader_name) : std::span<uint8_t const>{};
+        std::span<std::uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.parent, vertex_shader_name) : std::span<std::uint8_t const>{};
+        std::span<std::uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.parent, fragment_shader_name) : std::span<std::uint8_t const>{};
         if (vertex_spirv.empty() || fragment_spirv.empty()) {
             deren::utility::log("upscale disabled: the parent has no {} or {}", vertex_shader_name, fragment_shader_name);
             return;
@@ -104,7 +103,7 @@ namespace deren::engine::pass {
         return this->filter_kind;
     }
 
-    easu_constants make_easu_constants(uint32_t const render_width, uint32_t const render_height, uint32_t const output_width, uint32_t const output_height) noexcept {
+    easu_constants make_easu_constants(std::uint32_t const render_width, std::uint32_t const render_height, std::uint32_t const output_width, std::uint32_t const output_height) noexcept {
         // `FsrEasuCon` TRANSCRIBED (AMD's ffx_fsr1.h v1.20210629, see source/shaders/post/upscale.slang for the license
         // and the kernel that consumes these): the input viewport and the input size are the same two numbers
         // here, because this renderer has no dynamic-resolution offset region inside a larger input resource.

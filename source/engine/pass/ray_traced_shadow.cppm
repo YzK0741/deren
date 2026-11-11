@@ -100,7 +100,6 @@
 
 module;
 
-#include <cstdint>
 #include <glm/glm.hpp>
 
 export module deren.engine.pass.ray_traced_shadow;
@@ -171,9 +170,9 @@ export namespace deren::engine::pass {
         static constexpr std::string_view closest_hit_name = "rt_shadow.rchit.spv";
         static constexpr std::string_view miss_name = "rt_shadow.rmiss.spv";
         static constexpr std::string_view any_hit_name = "rt_shadow.rahit.spv";
-        static constexpr uint32_t group_size = 8; // unused by a traceRays launch (the launch dims ARE the extent)
+        static constexpr std::uint32_t group_size = 8; // unused by a traceRays launch (the launch dims ARE the extent)
         /// the one declared barrier image, by the position the declaration gives it
-        static constexpr uint32_t barrier_visibility = 0;
+        static constexpr std::uint32_t barrier_visibility = 0;
         static_assert(barrier_visibility + 1 == render_resource::rt_shadow_barriers.size(),
                       "the shadow pass's barrier slots must match the declaration it indexes");
 

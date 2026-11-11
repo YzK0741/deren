@@ -11,6 +11,8 @@ import deren.utility.shared;
 import deren.vulkan.constant_init;
 #include "texture_regions_fixture.h"
 
+#include <cstdint>
+
 int main() {
     for (int failure = -1; failure <= 5; ++failure) {
         std::array<unsigned, 6> calls{};
@@ -78,12 +80,12 @@ int main() {
     CHECK(!packed_image_size(VK_FORMAT_R8_UNORM, 1, 1, 0, 1));
     CHECK(!packed_image_size(VK_FORMAT_R8_UNORM, 1, 1, 1, 0));
     CHECK(!packed_image_size(VK_FORMAT_R8_UNORM, 1, 1, 1, 2));
-    CHECK(!packed_image_size(VK_FORMAT_R64G64_UINT, UINT32_MAX, UINT32_MAX, UINT32_MAX, 1));
+    CHECK(!packed_image_size(VK_FORMAT_R64G64_UINT, std::numeric_limits<std::uint32_t>::max(), std::numeric_limits<std::uint32_t>::max(), std::numeric_limits<std::uint32_t>::max(), 1));
     CHECK(!packed_image_size(VK_FORMAT_UNDEFINED, 4, 4, 1, 1));
-    CHECK(!packed_image_size(VK_FORMAT_R8_UNORM, UINT32_MAX, 1, 1, 33));
-    CHECK(packed_image_size(VK_FORMAT_R8_UNORM, UINT32_MAX, 1, 1, 32) == 8589934558ull);
+    CHECK(!packed_image_size(VK_FORMAT_R8_UNORM, std::numeric_limits<std::uint32_t>::max(), 1, 1, 33));
+    CHECK(packed_image_size(VK_FORMAT_R8_UNORM, std::numeric_limits<std::uint32_t>::max(), 1, 1, 32) == 8589934558ull);
     // Each mip fits in uint64, but adding the second mip would overflow it.
-    CHECK(!packed_image_size(VK_FORMAT_R8_UNORM, UINT32_MAX, UINT32_MAX, 1, 2));
+    CHECK(!packed_image_size(VK_FORMAT_R8_UNORM, std::numeric_limits<std::uint32_t>::max(), std::numeric_limits<std::uint32_t>::max(), 1, 2));
 
     deren::utility::vessel::array<uint8_t, 96> payload{};
     auto const regions = deren::vulkan::host_copy_regions(payload.data(), {5, 7, 2, 3, VK_FORMAT_BC1_RGBA_UNORM_BLOCK});

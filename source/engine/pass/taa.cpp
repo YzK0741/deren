@@ -4,7 +4,7 @@
 // can decide the move on `deferred_taa_fxaa`, the scenario that runs with TAA on.
 
 module;
-#include <cstdint>
+
 module deren.engine.pass.taa;
 import deren.vstd;
 import deren.utility.shared;
@@ -100,8 +100,8 @@ namespace deren::engine::pass {
         if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
-        std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.parent, vertex_shader_name) : std::span<uint8_t const>{};
-        std::span<uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.parent, fragment_shader_name) : std::span<uint8_t const>{};
+        std::span<std::uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.parent, vertex_shader_name) : std::span<std::uint8_t const>{};
+        std::span<std::uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.parent, fragment_shader_name) : std::span<std::uint8_t const>{};
         if (vertex_spirv.empty() || fragment_spirv.empty()) {
             deren::utility::log("taa disabled: the parent has no {} or {}", vertex_shader_name, fragment_shader_name);
             return;
@@ -127,7 +127,7 @@ namespace deren::engine::pass {
                 io.targets[0].image_handle == nullptr || io.targets[0].view_handle == nullptr) {
                 return false;
             }
-            uint32_t const index = io.frame.image_index;
+            std::uint32_t const index = io.frame.image_index;
             if (valid_history.size() != io.frame.image_count) {
                 valid_history.assign(io.frame.image_count, false);
             }
@@ -198,7 +198,7 @@ namespace deren::engine::pass {
             // (VUID-VkImageMemoryBarrier2-oldLayout-01197). The host now publishes it through
             // `ensure_velocity_sampled`, which transitions only while the G-buffer's flag is still armed and
             // consumes it, so the first sampler in the frame publishes and the rest are no-ops.
-            uint32_t barrier_count = 1;
+            std::uint32_t barrier_count = 1;
             if (!history_valid) {
                 barriers[barrier_count] = rhi::image_barrier{
                     .resource = io.local[1].image_handle,

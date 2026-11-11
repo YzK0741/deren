@@ -1,8 +1,5 @@
 module;
 
-#include <cstddef> // std::byte: the push block is bytes now (see push_block below)
-#include <cstdint>
-
 export module deren.engine.render_environment;
 
 export import deren.vstd;
@@ -156,7 +153,7 @@ namespace deren::engine {
          * would put that conversion in `primitive.cpp`, which is exactly where the contract does not belong.
          */
         void* push_source = nullptr;
-        bool (*push_block)(void* parent, recording_target const& target, std::span<std::byte const> bytes, uint32_t extra_lane) = nullptr;
+        bool (*push_block)(void* parent, recording_target const& target, std::span<std::byte const> bytes, std::uint32_t extra_lane) = nullptr;
         /**
          * THE ONE LANE A PASS MAY ADD TO ITS PUSH BLOCK (see `surface.slang`'s `PushConstants::spare_lane`).
          *
@@ -164,7 +161,7 @@ namespace deren::engine {
          * session field rather than a per-draw one because the value is per pass, and the default 0 keeps every
          * other pass's block exactly as it was.
          */
-        uint32_t extra_push_lane = 0;
+        std::uint32_t extra_push_lane = 0;
         /**
          * MESH RECORDING, in the three pieces a draw without an input assembler needs (docs/mesh_shaders.md
          * step 1). A mesh pipeline replaces the vertex stage AND the input assembler, so `vkCmdDrawIndexed`
@@ -214,7 +211,7 @@ namespace deren::engine {
         /// write this frame's compacted run of a primitive's meshlets: @p records are the survivors, @p base is where
         /// the run starts in the table (the primitive's `meshlet_base`), and they go into the frame's lane of the
         /// culled table. Answers false when the run does not fit, which the caller answers by not culling.
-        bool (*meshlet_culled_write)(void* parent, uint32_t base, std::span<std::byte const> records) = nullptr;
+        bool (*meshlet_culled_write)(void* parent, std::uint32_t base, std::span<std::byte const> records) = nullptr;
         /**
          * WHERE THIS SESSION'S STAGE BLOCK STARTS RECEIVING THE GEOMETRY LANES, in bytes - i.e. the end of the last
          * member the block's earlier pushes covered (see deren::engine::primitive's `mesh_geometry_push_offset_*` and
@@ -228,7 +225,7 @@ namespace deren::engine {
          * a descriptor-heap pipeline requires every declared byte to be written before the draw. Zero means "this
          * session's stages declare no lanes" (a fullscreen pass's block, a compute push).
          */
-        uint32_t mesh_geometry_push_offset = 0;
+        std::uint32_t mesh_geometry_push_offset = 0;
         /// The device address of a contract buffer, asked for by the runtime, which is the side that has the
         /// escape and the `device_address` ability.
         ///
@@ -239,8 +236,8 @@ namespace deren::engine {
         /// `parent` void* is the runtime's state, and the address comes back through
         /// `device_address::buffer_address()` on that side (no native buffer handle is involved).
         std::uintptr_t (*buffer_address)(void* parent, deren::promise::rhi::buffer const& buffer) = nullptr;
-        bool (*push_at)(void* parent, recording_target const& target, uint32_t offset, std::span<std::byte const> bytes) = nullptr;
-        bool (*draw_mesh_tasks)(void* parent, recording_target const& target, uint32_t groups_x, uint32_t groups_y, uint32_t groups_z) = nullptr;
+        bool (*push_at)(void* parent, recording_target const& target, std::uint32_t offset, std::span<std::byte const> bytes) = nullptr;
+        bool (*draw_mesh_tasks)(void* parent, recording_target const& target, std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) = nullptr;
         /**
          * THE SAME DISPATCH, WITH ITS COUNTS IN A BUFFER (docs/mesh_shaders.md step 3, second mechanism). `slot` is
          * the primitive's command record - its `meshlet_base` - so a COMPUTE culling pass can rewrite that
@@ -248,7 +245,7 @@ namespace deren::engine {
          * `draw_mesh_tasks` wherever a mesh session is built; null means the device has no indirect entry point, and
          * the dispatch then goes through the direct call (which the runtime logs once rather than hiding).
          */
-        bool (*draw_mesh_tasks_indirect)(void* parent, recording_target const& target, uint32_t slot, uint32_t groups_x, uint32_t groups_y, uint32_t groups_z) = nullptr;
+        bool (*draw_mesh_tasks_indirect)(void* parent, recording_target const& target, std::uint32_t slot, std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) = nullptr;
         std::string_view bound = {}; // currently bound name
         // injected cull-mode setter (core dynamic state since Vulkan 1.3, so one pipeline serves
         // single- and double-sided materials)

@@ -1,6 +1,5 @@
 module;
-#include <cstddef>
-#include <cstdint>
+
 module deren.engine.subtilis.builder;
 import deren.vstd;
 
@@ -32,7 +31,7 @@ namespace deren::engine::subtilis::builder_detail {
             for (std::uint32_t i = 0; i < count; ++i) {
                 auto first = static_cast<std::size_t>(i) * 3;
                 std::array<std::uint32_t, 3> corners{t.class_of[indices[first]], t.class_of[indices[first + 1]], t.class_of[indices[first + 2]]};
-                for (uint32_t k = 0; k < 3; ++k) {
+                for (std::uint32_t k = 0; k < 3; ++k) {
                     auto a = corners[k];
                     auto b = corners[(k + 1) % 3];
                     if (a == b) {
@@ -45,7 +44,7 @@ namespace deren::engine::subtilis::builder_detail {
                 auto const& c = data.positions[indices[first + 2]];
                 std::array<double, 3> ab{};
                 std::array<double, 3> ac{};
-                for (uint32_t k = 0; k < 3; ++k) {
+                for (std::uint32_t k = 0; k < 3; ++k) {
                     ab[k] = static_cast<double>(b[k]) - a[k];
                     ac[k] = static_cast<double>(c[k]) - a[k];
                 }
@@ -171,7 +170,7 @@ namespace deren::engine::subtilis::builder_detail {
         vector<std::uint32_t> components;
         for (std::size_t triangle = 0; triangle < indices.size(); triangle += 3) {
             std::array<std::uint32_t, 3> vertex_origins{};
-            for (uint32_t k = 0; k < 3; ++k) {
+            for (std::uint32_t k = 0; k < 3; ++k) {
                 auto id = t.class_of[indices[triangle + k]];
                 auto found = std::lower_bound(original.class_components.begin(), original.class_components.end(), id, [](pair const& entry, auto key) { return entry[0] < key; });
                 if (found == original.class_components.end() || (*found)[0] != id) {

@@ -8,9 +8,7 @@
 // that size. If the leaf count ever argues for it, this is the file that changes.
 
 module;
-#include <algorithm> // std::clamp: the reflection-strength lane
-#include <cmath>     // std::lround: the packed lane
-#include <cstdint>   // uint32_t: the push block's spare lane is a uint
+
 // NO VULKAN HEADER: every barrier, scope and handle in this file is the contract's now (the boundary
 // sweep names the remaining files that still need one, and why).
 
@@ -115,7 +113,7 @@ namespace deren::engine::pass {
         // Quantized into the push block's spare lane. 0 == no reflection composite, which is the default
         // frame and the whole `rt_reflections = false` path.
         float const reflection_strength = std::clamp(this->pass_frame.rt_reflection_strength, 0.0f, 1.0f);
-        env.extra_push_lane = static_cast<uint32_t>(std::lround(reflection_strength * 255.0f));
+        env.extra_push_lane = static_cast<std::uint32_t>(std::lround(reflection_strength * 255.0f));
 
         for (primitive const* const leaf : this->pass_frame.leaves) {
             leaf->draw(env);

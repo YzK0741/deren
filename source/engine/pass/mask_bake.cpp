@@ -6,7 +6,6 @@
 
 module;
 
-#include <cstdint>
 #include <glm/glm.hpp>
 module deren.engine.pass.mask_bake;
 import deren.vstd;
@@ -37,7 +36,7 @@ namespace deren::engine::pass {
             this->release_contract();
         }
         this->built_against = context.face;
-        std::span<uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.parent, shader_name) : std::span<uint8_t const>{};
+        std::span<std::uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.parent, shader_name) : std::span<std::uint8_t const>{};
         if (spirv.empty()) {
             return std::unexpected(deren::utility::vessel::string("mask bake: the parent has no ") + deren::utility::vessel::string(shader_name));
         }
@@ -58,7 +57,7 @@ namespace deren::engine::pass {
             return;
         }
         auto const halves = [](std::uint64_t const address) {
-            return glm::uvec2(static_cast<uint32_t>(address & 0xFFFFFFFFu), static_cast<uint32_t>(address >> 32u));
+            return glm::uvec2(static_cast<std::uint32_t>(address & 0xFFFFFFFFu), static_cast<std::uint32_t>(address >> 32u));
         };
         mask_bake_push_constants bake;
         bake.source_vertices = halves(request.source_vertices);

@@ -41,8 +41,6 @@
 // ============================================================================
 module;
 
-#include <cstdint>
-
 export module deren.promise.rhi:api_core;
 export import deren.vstd;
 export import deren.utility.shared;

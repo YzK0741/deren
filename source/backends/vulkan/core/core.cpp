@@ -1,7 +1,5 @@
 module;
 
-#include <cstddef>
-#include <cstdint>
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include <vulkan/vulkan.h>
@@ -31,7 +29,7 @@ namespace deren::vulkan {
     // global scope). Without it every `rhi::` in this file is "did you mean promise::rhi?".
     namespace rhi = deren::promise::rhi;
 
-    void core::begin_gpu_timing(VkCommandBuffer const command_buffer, uint32_t const slot) noexcept {
+    void core::begin_gpu_timing(VkCommandBuffer const command_buffer, std::uint32_t const slot) noexcept {
         this->frame.gpu_timing_marks[slot] = 0;
         if (!this->frame.gpu_timing_supported) {
             return;
@@ -43,7 +41,7 @@ namespace deren::vulkan {
         vkCmdResetQueryPool(command_buffer, this->frame.timestamp_query_pool, slot * gpu_timing_mark_capacity, gpu_timing_mark_capacity);
     }
 
-    void core::mark_gpu_timing(VkCommandBuffer const command_buffer, uint32_t const slot, VkPipelineStageFlagBits const stage,
+    void core::mark_gpu_timing(VkCommandBuffer const command_buffer, std::uint32_t const slot, VkPipelineStageFlagBits const stage,
                                std::string_view const stage_name) noexcept {
         if (!this->frame.gpu_timing_supported || this->frame.gpu_timing_marks[slot] >= gpu_timing_mark_capacity) {
             return;
@@ -56,7 +54,7 @@ namespace deren::vulkan {
         ++this->frame.gpu_timing_marks[slot];
     }
 
-    gpu_timing_result core::read_gpu_timings(uint32_t const slot) {
+    gpu_timing_result core::read_gpu_timings(std::uint32_t const slot) {
         gpu_timing_result result = {};
         if (!this->frame.gpu_timing_supported) {
             return result;
@@ -64,24 +62,24 @@ namespace deren::vulkan {
         // Only read a submitted slot, and only once per submission: the caller paced the slot, so
         // the queries of its last submission are complete, while a slot whose frame failed before
         // recording has nothing new to report.
-        uint64_t const submitted = this->frame.frame_done_values[slot];
+        std::uint64_t const submitted = this->frame.frame_done_values[slot];
         if (submitted == 0 || submitted <= this->frame.gpu_timing_read_value[slot]) {
             return result;
         }
         this->frame.gpu_timing_read_value[slot] = submitted; // this submission is now accounted for
-        uint32_t const marks = this->frame.gpu_timing_marks[slot];
+        std::uint32_t const marks = this->frame.gpu_timing_marks[slot];
         if (marks < 2) {
             return result; // a single mark has no interval to report
         }
 
-        deren::utility::vessel::array<uint64_t, gpu_timing_mark_capacity> ticks = {};
+        deren::utility::vessel::array<std::uint64_t, gpu_timing_mark_capacity> ticks = {};
         VkResult const status = vkGetQueryPoolResults(this->device.logical_device,
                                                       this->frame.timestamp_query_pool,
                                                       slot * gpu_timing_mark_capacity,
                                                       marks,
-                                                      sizeof(uint64_t) * marks,
+                                                      sizeof(std::uint64_t) * marks,
                                                       ticks.data(),
-                                                      sizeof(uint64_t),
+                                                      sizeof(std::uint64_t),
                                                       VK_QUERY_RESULT_64_BIT);
         if (status != VK_SUCCESS) {
             // VK_NOT_READY (or a lost pool): report "no measurement" rather than waiting - a frame
@@ -90,7 +88,7 @@ namespace deren::vulkan {
         }
 
         result.mark_count = marks;
-        for (uint32_t mark = 0; mark + 1 < marks; ++mark) {
+        for (std::uint32_t mark = 0; mark + 1 < marks; ++mark) {
             result.milliseconds[mark] = deren::utility::timestamp_delta_milliseconds(ticks[mark], ticks[mark + 1], this->frame.timestamp_valid_bits, this->frame.timestamp_period_ns);
         }
         return result;
@@ -125,7 +123,7 @@ namespace deren::vulkan {
             // has no range to open - the frame-scoped verbs' `not_ready` window.
             return rhi::error::not_ready;
         }
-        parent.begin_gpu_timing(this->native(), static_cast<uint32_t>(parent.frame.current_frame));
+        parent.begin_gpu_timing(this->native(), static_cast<std::uint32_t>(parent.frame.current_frame));
         return rhi::error::ok;
     }
 
@@ -144,7 +142,7 @@ namespace deren::vulkan {
         if (this->target != VK_NULL_HANDLE) {
             return rhi::error::not_ready; // the frame slot's range again (see begin_gpu_timing)
         }
-        uint32_t const slot = static_cast<uint32_t>(parent.frame.current_frame);
+        std::uint32_t const slot = static_cast<std::uint32_t>(parent.frame.current_frame);
         // THE MARKS ARE POSITIONAL: an out-of-order index would mislabel every later interval, so it
         // is refused by name instead of being accepted silently (the check gpu_mark used to make by
         // reading this class's count field - the field read leaves the engine with the check).
@@ -185,26 +183,26 @@ namespace deren::vulkan {
         return vk_sampler(sampler, this->device.logical_device);
     }
 
-    std::optional<vk_shader_module> core::make_shader_module(std::span<uint8_t> const shader) const noexcept {
+    std::optional<vk_shader_module> core::make_shader_module(std::span<std::uint8_t> const shader) const noexcept {
         return ::deren::vulkan::make_shader_module(shader, this->device.logical_device);
     }
 
-    void core::wait_frame_slot(uint32_t const slot) const {
+    void core::wait_frame_slot(std::uint32_t const slot) const {
         // The transitional spelling: the engine's engine-side pacing call. The result it drops is
         // exactly what `wait_frame_slot_result` reports - see the frame walker's wait_and_acquire.
         static_cast<void>(this->wait_frame_slot_result(slot));
     }
 
-    VkResult core::wait_frame_slot_result(uint32_t const slot) const noexcept {
+    VkResult core::wait_frame_slot_result(std::uint32_t const slot) const noexcept {
         // Host pacing: wait until this slot's last submission (its timeline value) completed.
         // Value 0 means the slot was never submitted — nothing to wait for, SUCCESS by definition.
-        uint64_t const value = this->frame.frame_done_values[slot];
+        std::uint64_t const value = this->frame.frame_done_values[slot];
         if (value == 0) {
             return VK_SUCCESS;
         }
         VkSemaphoreWaitInfo const wait_info = make_semaphore_wait_info(
             1, &this->frame.frame_done_semaphores[slot], &value);
-        auto const result = vkWaitSemaphores(this->device.logical_device, &wait_info, UINT64_MAX);
+        auto const result = vkWaitSemaphores(this->device.logical_device, &wait_info, std::numeric_limits<std::uint64_t>::max());
         if (result == VK_SUCCESS) {
             poll_submissions();
         }
@@ -221,7 +219,7 @@ namespace deren::vulkan {
         frame.current_frame = (frame.current_frame + 1) % frame.frames_in_flight;
     }
 
-    VkResult core::submit_frame(VkCommandBuffer const command_buffer, uint32_t const image_index) {
+    VkResult core::submit_frame(VkCommandBuffer const command_buffer, std::uint32_t const image_index) {
         // Signal this frame slot's TIMELINE to the next value (GPU completion + host pacing,
         // see wait_frame_slot) and the image's binary present-ready semaphore (vkQueuePresentKHR
         // requires a binary wait; per-image so a separate present queue cannot race a re-signal).
@@ -230,18 +228,18 @@ namespace deren::vulkan {
         // semaphore being waited on is binary and its value is ignored. The count is what validation
         // checks, so a zero waitSemaphoreValueCount next to waitSemaphoreCount = 1 is an error on
         // every frame; only the signal side was handled before.
-        uint32_t const slot = static_cast<uint32_t>(this->frame.current_frame);
+        std::uint32_t const slot = static_cast<std::uint32_t>(this->frame.current_frame);
         // The value this submission asks the slot's timeline to take. It is recorded only once
         // vkQueueSubmit has accepted the submission (below): wait_frame_slot() waits on the RECORDED
         // value, so recording one that no submission will ever signal would block this slot forever.
-        uint64_t const signal_value = this->frame.frame_done_values[slot] + 1;
+        std::uint64_t const signal_value = this->frame.frame_done_values[slot] + 1;
 
         constexpr VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
         VkSemaphore signal_semaphores[2] = {this->frame.frame_done_semaphores[slot], this->frame.present_ready_semaphores[image_index]};
-        uint64_t signal_values[2] = {signal_value, 0};
+        std::uint64_t signal_values[2] = {signal_value, 0};
         // The wait side's value array, for the count rule above: the element is ignored (the semaphore
         // is binary) but the count has to be there.
-        constexpr uint64_t wait_value = 0;
+        constexpr std::uint64_t wait_value = 0;
         VkTimelineSemaphoreSubmitInfo timeline_info = make_timeline_semaphore_info(
             1, &wait_value, 2, signal_values);
 
@@ -310,14 +308,14 @@ namespace deren::vulkan {
         }
         VkQueue const queue = parent->device.present_queue_handle;
         VkSwapchainKHR const swapchain = parent->frame.swap_chain;
-        uint32_t const image = parent->frame.acquired_image_index;
+        std::uint32_t const image = parent->frame.acquired_image_index;
         VkSemaphore const ready = parent->frame.present_ready_semaphores[image];
-        uint32_t const next_slot = (static_cast<uint32_t>(parent->frame.current_frame) + 1u) % static_cast<uint32_t>(parent->frame.image_available_semaphores.size());
-        uint64_t completed = 0;
+        std::uint32_t const next_slot = (static_cast<std::uint32_t>(parent->frame.current_frame) + 1u) % static_cast<std::uint32_t>(parent->frame.image_available_semaphores.size());
+        std::uint64_t completed = 0;
         bool const slot_idle = parent->frame.frame_done_values[next_slot] == 0 ||
                                (vkGetSemaphoreCounterValue(parent->device.logical_device, parent->frame.frame_done_semaphores[next_slot], &completed) == VK_SUCCESS && completed >= parent->frame.frame_done_values[next_slot]);
-        if (slot_idle && parent->frame.prefetched_slot == UINT32_MAX) {
-            uint32_t next_image = 0;
+        if (slot_idle && parent->frame.prefetched_slot == std::numeric_limits<std::uint32_t>::max()) {
+            std::uint32_t next_image = 0;
             VkResult const acquired = vkAcquireNextImageKHR(parent->device.logical_device, swapchain, 0,
                                                             parent->frame.image_available_semaphores[next_slot], VK_NULL_HANDLE, &next_image);
             if (acquired == VK_SUCCESS || acquired == VK_SUBOPTIMAL_KHR) {
@@ -339,7 +337,7 @@ namespace deren::vulkan {
         return result;
     }
 
-    deren::promise::rhi::error core::present(uint32_t const image_index) const {
+    deren::promise::rhi::error core::present(std::uint32_t const image_index) const {
         if (this->create_options.native_window == nullptr) {
             return rhi::error::unsupported;
         }
@@ -508,7 +506,7 @@ namespace deren::vulkan {
         return vk_image_view(view, this->device.logical_device);
     }
 
-    vk_image_view core::make_depth_layer_view(VkImage const image, VkFormat const format, uint32_t const layer) const {
+    vk_image_view core::make_depth_layer_view(VkImage const image, VkFormat const format, std::uint32_t const layer) const {
         // one layer, as a plain 2D depth view: a dynamic rendering instance renders into exactly one
         // cascade, and a 2D view keeps that pass identical to the single-shadow-map one
         VkImageViewCreateInfo view_info = make_image_view_info(image, format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT, VK_REMAINING_MIP_LEVELS, 1);
@@ -591,8 +589,8 @@ namespace deren::vulkan {
         this->resource.shared_sampler_infos[5] = make_shadow_sampler_info();
     }
     std::expected<vk_pipeline, std::string_view> core::make_gbuffer_pipeline(
-        std::span<uint8_t const> const vertex_shader_code,
-        std::span<uint8_t const> const fragment_shader_code,
+        std::span<std::uint8_t const> const vertex_shader_code,
+        std::span<std::uint8_t const> const fragment_shader_code,
         VkShaderStageFlagBits const first_stage) const {
         // Five color targets: the three surface targets, the motion vectors, and the scene color the
         // pass stores the nearest surface's emissive term in (lighting-independent, and it needs the emissive texture and
@@ -646,8 +644,8 @@ namespace deren::vulkan {
     }
 
     std::expected<vk_pipeline, std::string_view> core::make_character_forward_pipeline(
-        std::span<uint8_t const> const vertex_shader_code,
-        std::span<uint8_t const> const fragment_shader_code,
+        std::span<std::uint8_t const> const vertex_shader_code,
+        std::span<std::uint8_t const> const fragment_shader_code,
         VkShaderStageFlagBits const first_stage) const {
         // ONE colour target, and it is the HDR one: this pass runs inside the HDR chain (after the lighting
         // stage, before the resolve), so the tonemap stays the post chain's - see the declaration's note.
@@ -696,8 +694,8 @@ namespace deren::vulkan {
     }
 
     std::expected<vk_pipeline, std::string_view> core::make_overlay_pipeline(
-        std::span<uint8_t const> const vertex_shader_code,
-        std::span<uint8_t const> const fragment_shader_code,
+        std::span<std::uint8_t const> const vertex_shader_code,
+        std::span<std::uint8_t const> const fragment_shader_code,
         VkShaderStageFlagBits const first_stage) const {
         // ONE colour target, and it is the HDR one - the same target the character-forward stage just wrote, so
         // that the multiply lands on the TOON result rather than on a resolved copy of it. The grade and the
@@ -742,8 +740,8 @@ namespace deren::vulkan {
     }
 
     std::expected<vk_pipeline, std::string_view> core::make_outline_pipeline(
-        std::span<uint8_t const> const vertex_shader_code,
-        std::span<uint8_t const> const fragment_shader_code,
+        std::span<std::uint8_t const> const vertex_shader_code,
+        std::span<std::uint8_t const> const fragment_shader_code,
         VkShaderStageFlagBits const first_stage) const {
         // ONE colour target, and it is the HDR one - the same target the character-forward stage has just
         // written, so the hull lands in the TOON result rather than on a resolved copy of it. The grade and the
@@ -794,8 +792,8 @@ namespace deren::vulkan {
     }
 
     std::expected<vk_pipeline, std::string_view> core::make_depth_pipeline(
-        std::span<uint8_t const> vertex_shader_code,
-        std::span<uint8_t const> const fragment_shader_code,
+        std::span<std::uint8_t const> vertex_shader_code,
+        std::span<std::uint8_t const> const fragment_shader_code,
         VkFormat const depth_format,
         float const depth_bias_constant_factor,
         float const depth_bias_slope_factor,
@@ -823,7 +821,7 @@ namespace deren::vulkan {
         }
         {
             std::lock_guard queue_lock(this->device.vma.queue_access());
-            if (this->frame.prefetched_slot != UINT32_MAX) {
+            if (this->frame.prefetched_slot != std::numeric_limits<std::uint32_t>::max()) {
                 // A rebuild or shutdown may discard the prefetched frame. Consume its binary
                 // acquire signal before the same slot semaphore can be reused after a rebuild.
                 constexpr VkPipelineStageFlags stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
@@ -832,7 +830,7 @@ namespace deren::vulkan {
                 drain.pWaitSemaphores = &this->frame.image_available_semaphores[this->frame.prefetched_slot];
                 drain.pWaitDstStageMask = &stage;
                 (void)vkQueueSubmit(this->device.graphics_queue_handle, 1, &drain, VK_NULL_HANDLE);
-                this->frame.prefetched_slot = UINT32_MAX;
+                this->frame.prefetched_slot = std::numeric_limits<std::uint32_t>::max();
             }
             vkDeviceWaitIdle(this->device.logical_device);
         }

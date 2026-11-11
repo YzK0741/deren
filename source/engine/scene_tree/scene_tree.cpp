@@ -1,7 +1,5 @@
 module;
 
-#include <cstddef>
-#include <cstdint>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -156,7 +154,7 @@ namespace deren::engine::scene_tree {
         }
         return nullptr;
     }
-    bool find_world(scene const& parent, uint64_t const import_instance, std::size_t const source_index, glm::mat4& output) {
+    bool find_world(scene const& parent, std::uint64_t const import_instance, std::size_t const source_index, glm::mat4& output) {
         auto const visit = [&](auto&& self, scene_node const& node, glm::mat4 const& parent_world) -> bool {
             glm::mat4 const world = parent_world * node.local;
             if (node.import_instance == import_instance && node.source_index == source_index) {

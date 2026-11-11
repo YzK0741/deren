@@ -1,5 +1,5 @@
 module;
-#include <cstdint>
+
 #include <vulkan/vulkan.h>
 module deren.vulkan.core;
 import deren.vstd;
@@ -13,8 +13,8 @@ namespace deren::vulkan {
     namespace scopes = rhi::synchronization;
     namespace native_sync = deren::vulkan::synchronization;
     namespace {
-        constexpr uint32_t bit(scopes::usage value) noexcept {
-            return static_cast<uint32_t>(value);
+        constexpr std::uint32_t bit(scopes::usage value) noexcept {
+            return static_cast<std::uint32_t>(value);
         }
         constexpr scopes::aspect format_aspects(VkFormat const format) noexcept {
             switch (format) {
@@ -32,7 +32,7 @@ namespace deren::vulkan {
                 return scopes::aspect::color;
             }
         }
-        constexpr bool state_usage(scopes::image_state const state, uint32_t const usage) noexcept {
+        constexpr bool state_usage(scopes::image_state const state, std::uint32_t const usage) noexcept {
             switch (state.layout) {
             case scopes::image_layout::undefined:
                 [[fallthrough]];
@@ -66,7 +66,7 @@ namespace deren::vulkan {
             return scopes::stage::none;
         }
         auto const flags = parent->command.synchronization_queue_flags;
-        uint32_t result = 0;
+        std::uint32_t result = 0;
         if (flags & VK_QUEUE_GRAPHICS_BIT) {
             result |= 1U | 2U | 8U | 16U | 64U;
         }
@@ -104,7 +104,7 @@ namespace deren::vulkan {
             if (image.parent != parent || !image.current()) {
                 return rhi::error::invalid_argument;
             }
-            uint32_t usage = bit(scopes::usage::color_attachment);
+            std::uint32_t usage = bit(scopes::usage::color_attachment);
             if (parent->frame.swapchain_transfer_src_supported) {
                 usage |= bit(scopes::usage::transfer_source);
             }
@@ -119,7 +119,7 @@ namespace deren::vulkan {
         if (image.parent != parent || (!image.source && image.native_handle == VK_NULL_HANDLE)) {
             return rhi::error::invalid_argument;
         }
-        uint32_t usage = 0;
+        std::uint32_t usage = 0;
         auto add = [&](rhi::image_flag const flag, scopes::usage const target) noexcept { if (rhi::has_flag(image.declared_flags, flag)) { usage |= bit(target);
 } };
         add(rhi::image_flag::sampled, scopes::usage::sampled);
@@ -153,7 +153,7 @@ namespace deren::vulkan {
         if (buffer.parent != parent || (!buffer.source && buffer.native == VK_NULL_HANDLE)) {
             return rhi::error::invalid_argument;
         }
-        uint32_t usage = 0;
+        std::uint32_t usage = 0;
         switch (buffer.declared_usage) {
         case rhi::buffer_usage::vertex:
             usage = bit(scopes::usage::vertex_buffer) | bit(scopes::usage::transfer_destination);
@@ -204,10 +204,10 @@ namespace deren::vulkan {
         if (!parent) {
             return rhi::error::not_ready;
         }
-        if (images.size() > UINT32_MAX || buffers.size() > UINT32_MAX) {
+        if (images.size() > std::numeric_limits<std::uint32_t>::max() || buffers.size() > std::numeric_limits<std::uint32_t>::max()) {
             return rhi::error::invalid_argument;
         }
-        auto supported = static_cast<uint32_t>(supported_stages());
+        auto supported = static_cast<std::uint32_t>(supported_stages());
         for (auto const& [resource, transition] : images) {
             if (!resource) {
                 return rhi::error::invalid_argument;
@@ -222,14 +222,14 @@ namespace deren::vulkan {
                 return mapped_error(mapped.error());
             }
             auto const& range = transition.range;
-            if (range.base_mip >= info.mip_levels || range.mip_count > info.mip_levels - range.base_mip || range.base_layer >= info.array_layers || range.layer_count > info.array_layers - range.base_layer || (static_cast<uint32_t>(range.aspects) & ~static_cast<uint32_t>(info.aspects))) {
+            if (range.base_mip >= info.mip_levels || range.mip_count > info.mip_levels - range.base_mip || range.base_layer >= info.array_layers || range.layer_count > info.array_layers - range.base_layer || (static_cast<std::uint32_t>(range.aspects) & ~static_cast<std::uint32_t>(info.aspects))) {
                 return rhi::error::invalid_argument;
             }
             // Separate depth/stencil layouts are not enabled by this backend. Never widen the requested range.
-            if (static_cast<uint32_t>(info.aspects) == 6U && range.aspects != info.aspects) {
+            if (static_cast<std::uint32_t>(info.aspects) == 6U && range.aspects != info.aspects) {
                 return rhi::error::unsupported;
             }
-            auto stages = static_cast<uint32_t>(transition.before.scope.stages) | static_cast<uint32_t>(transition.after.scope.stages);
+            auto stages = static_cast<std::uint32_t>(transition.before.scope.stages) | static_cast<std::uint32_t>(transition.after.scope.stages);
             if (stages & ~supported) {
                 return rhi::error::unsupported;
             }
@@ -252,7 +252,7 @@ namespace deren::vulkan {
             if (transition.offset >= info.byte_size || transition.size > info.byte_size - transition.offset) {
                 return rhi::error::invalid_argument;
             }
-            auto stages = static_cast<uint32_t>(transition.before.stages) | static_cast<uint32_t>(transition.after.stages);
+            auto stages = static_cast<std::uint32_t>(transition.before.stages) | static_cast<std::uint32_t>(transition.after.stages);
             if (stages & ~supported) {
                 return rhi::error::unsupported;
             }
@@ -341,7 +341,7 @@ namespace deren::vulkan {
             barrier.buffer = static_cast<core::buffer const*>(one.resource)->native;
             native_buffers.push_back(barrier);
         }
-        VkDependencyInfo const info = make_dependency_info(static_cast<uint32_t>(native_images.size()), native_images.data(), static_cast<uint32_t>(native_buffers.size()), native_buffers.data());
+        VkDependencyInfo const info = make_dependency_info(static_cast<std::uint32_t>(native_images.size()), native_images.data(), static_cast<std::uint32_t>(native_buffers.size()), native_buffers.data());
         if (auto applied = list->apply_operations(); applied != rhi::error::ok) {
             return applied;
         }

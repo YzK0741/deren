@@ -9,9 +9,8 @@
  * plain TU contains them to this file, and the module side only sees the C entry point below.
  */
 
+import deren.vstd;
 #include "platform_functions.hpp" // the one declaration of utility_platform_sleep_ns; the definition below is checked against it
-
-#include <cstdint>
 
 #ifdef _WIN32
 // THE `#ifndef` IS LOAD-BEARING, not decoration: libstdc++'s `c++config.h`, reached through <cstdint> above,
@@ -26,7 +25,7 @@
 #endif
 #include <windows.h>
 #else
-#include <cerrno>
+
 #include <time.h>
 #endif
 

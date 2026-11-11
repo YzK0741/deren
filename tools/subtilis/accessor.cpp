@@ -1,5 +1,9 @@
 #include "document_internal.hpp"
 
+#include <limits>
+
+#include <cstdint>
+
 namespace deren::tools::subtilis {
     namespace {
         std::span<byte const> buffer_data(fastgltf::Buffer const& b) {
@@ -278,7 +282,7 @@ namespace deren::tools::subtilis {
             out.indices.reserve(acc.count);
             fastgltf::iterateAccessor<uint32_t>(a, acc, [&](uint32_t id) { out.indices.push_back(id); });
         } else {
-            if (count > UINT32_MAX) {
+            if (count > std::numeric_limits<std::uint32_t>::max()) {
                 return fail("vertex index limit");
             }
             out.indices.resize(count);

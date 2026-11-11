@@ -1,17 +1,13 @@
 module;
-#include <algorithm>
-#include <array>
-#include <cmath>
-#include <cstdint>
-#include <span>
 
 export module deren.engine.lighting.environment_controls;
+export import deren.vstd;
 
 export namespace deren::engine::environment_detail {
     inline bool valid_half_radiance(std::span<float const> values) noexcept {
         return std::ranges::all_of(values, [](float v) { return std::isfinite(v) && v >= 0.0f && v <= 65504.0f; });
     }
-    inline std::array<float, 4> pack_environment(float degrees, float strength, int32_t mode) noexcept {
+    inline std::array<float, 4> pack_environment(float degrees, float strength, std::int32_t mode) noexcept {
         degrees = std::isfinite(degrees) ? std::remainder(degrees, 360.0f) : 0.0f;
         strength = std::isfinite(strength) ? std::clamp(strength, 0.0f, 64.0f) : 1.0f;
         float const radians = degrees * 0.017453292519943295f;

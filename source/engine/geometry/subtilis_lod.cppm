@@ -1,5 +1,5 @@
 module;
-#include <cstdint>
+
 export module deren.engine.subtilis.lod;
 export import deren.vstd;
 import deren.engine.subtilis;
@@ -30,16 +30,16 @@ export namespace deren::engine::subtilis {
         using matrix = std::array<double, 16>;
         inline matrix widen(std::array<float, 16> const& in) noexcept {
             matrix out{};
-            for (uint32_t i = 0; i < 16; ++i) {
+            for (std::uint32_t i = 0; i < 16; ++i) {
                 out[i] = in[i];
             }
             return out;
         }
         inline matrix multiply(matrix const& a, matrix const& b) noexcept {
             matrix out{};
-            for (uint32_t c = 0; c < 4; ++c) {
-                for (uint32_t r = 0; r < 4; ++r) {
-                    for (uint32_t k = 0; k < 4; ++k) {
+            for (std::uint32_t c = 0; c < 4; ++c) {
+                for (std::uint32_t r = 0; r < 4; ++r) {
+                    for (std::uint32_t k = 0; k < 4; ++k) {
                         out[c * 4 + r] += a[k * 4 + r] * b[c * 4 + k];
                     }
                 }
@@ -82,8 +82,8 @@ export namespace deren::engine::subtilis {
         auto view_model = lod_detail::multiply(lod_detail::widen(view.view), lod_detail::widen(view.model));
         auto clip = lod_detail::multiply(lod_detail::widen(view.projection), view_model);
         double norm_squared = 0;
-        for (uint32_t c = 0; c < 3; ++c) {
-            for (uint32_t r = 0; r < 3; ++r) {
+        for (std::uint32_t c = 0; c < 3; ++c) {
+            for (std::uint32_t r = 0; r < 3; ++r) {
                 double v = view_model[c * 4 + r];
                 norm_squared += v * v;
             }

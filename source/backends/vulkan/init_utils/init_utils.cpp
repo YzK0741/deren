@@ -1,8 +1,5 @@
 module;
 
-#include <algorithm> // std::max/min in the buffer-creation helpers
-#include <cstddef>
-#include <cstdint>
 #include <vulkan/vulkan.h>
 
 module deren.vulkan.init_utils;
@@ -23,7 +20,7 @@ namespace deren::vulkan::init_utils {
                             VkBufferUsageFlags const extra_usage) {
         // The raw pointer overload, not the span template: the template wants a non-const span (it
         // reinterpret_casts the data to `uint8_t*`), and every caller here has const bytes.
-        buffer = device.device.vma.create_buffer(reinterpret_cast<uint8_t const*>(initial.data()), initial.size_bytes(), type, extra_usage);
+        buffer = device.device.vma.create_buffer(reinterpret_cast<std::uint8_t const*>(initial.data()), initial.size_bytes(), type, extra_usage);
         if (!buffer.valid()) {
             deren::utility::panic(std::source_location::current(), "failed to create {}", what);
         }
@@ -35,7 +32,7 @@ namespace deren::vulkan::init_utils {
     }
 
     void create_host_buffers(core& device,
-                             uint32_t const slots,
+                             std::uint32_t const slots,
                              std::span<std::byte const> const initial,
                              buffer_type const type,
                              std::string_view const what,
@@ -46,7 +43,7 @@ namespace deren::vulkan::init_utils {
         if (mapped != nullptr) {
             mapped->reserve(mapped->size() + slots);
         }
-        for (uint32_t slot = 0; slot < slots; ++slot) {
+        for (std::uint32_t slot = 0; slot < slots; ++slot) {
             vk_buffer buffer = {};
             void* mapped_pointer = nullptr;
             create_host_buffer(device, initial, type, what, buffer, mapped_pointer, extra_usage);

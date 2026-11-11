@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cfenv>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <limits>
 #include <map>
@@ -364,7 +365,7 @@ int main() {
                 heights[id] = std::max(heights[id], heights[children.first + i] + 1);
             }
         }
-        unsigned minimum = UINT32_MAX;
+        unsigned minimum = std::numeric_limits<std::uint32_t>::max();
         unsigned maximum = 0;
         for (auto root : degenerate->hierarchy().roots()) {
             minimum = std::min(minimum, heights[root]);

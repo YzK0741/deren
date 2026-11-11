@@ -3,6 +3,7 @@ module;
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <stdio.h>
 
 // THE GUI PLUGIN'S BOUNDARY (plan X2): `create_info`, `api_type` and `overlay` live in a header the plugin
 // and the host share. In the GLOBAL MODULE FRAGMENT because the header declares `GLFWwindow` itself and pulls

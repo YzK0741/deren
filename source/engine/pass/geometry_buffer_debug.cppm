@@ -25,8 +25,6 @@
 
 module;
 
-#include <cstdint>
-
 export module deren.engine.pass.geometry_buffer_debug;
 export import deren.vstd;
 export import deren.utility.shared;
@@ -59,7 +57,7 @@ export namespace deren::engine::pass {
     public:
         /// @brief how many stored channels the view can show: the SHADER's switch (`gbuffer_debug.frag`), which
         ///        is why the count lives with the pass rather than with the renderer that offers a slider for it
-        static constexpr int32_t channel_count = 9;
+        static constexpr std::int32_t channel_count = 9;
         /// @brief the push block, which is also `gbuffer_debug.frag`'s
         struct push_constants {
             float channel = 1.0f; // 0 albedo, 1 normal, 2 roughness, 3 metallic, 4 ao, 5 id, 6 depth, 7 flags, 8 motion
@@ -105,9 +103,9 @@ export namespace deren::engine::pass {
          * push block moved here the pass needs nothing per-frame except the frame's facts.
          * @param channel 0 albedo, 1 normal, 2 roughness, 3 metallic, 4 ao, 5 id, 6 depth, 7 flags, 8 motion
          */
-        void set_channel(int32_t channel) noexcept;
+        void set_channel(std::int32_t channel) noexcept;
         /// @brief the channel the view shows (0..gbuffer_channel_count-1)
-        [[nodiscard]] int32_t channel() const noexcept;
+        [[nodiscard]] std::int32_t channel() const noexcept;
 
     private:
         static constexpr std::string_view vertex_shader_name = "post.vert.spv"; // the synthetic fullscreen triangle
@@ -131,7 +129,7 @@ export namespace deren::engine::pass {
         // called debug_channel, not channel: channel() and set_channel()'s channel parameter would hide it,
         // and MSVC /W4 reports C4458 (an error under /WX).
         /// the channel the view shows (see set_channel); the default is the renderer's historical normal channel
-        int32_t debug_channel = 1;
+        std::int32_t debug_channel = 1;
     }; // namespace deren::engine::pass
 
     static_assert(sizeof(gbuffer_debug_pass::push_constants) == render_resource::gbuffer_debug_io.push->size,

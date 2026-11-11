@@ -6,13 +6,11 @@
  *
  * The cull publishes stable survivors, counts and per-item mesh-task commands. Runtime declares compute writes
  * and mesh/resolve/indirect reads in the render graph; its scoped barriers carry all cross-pass synchronization.
- * Rejected runs publish UINT32_MAX and preserve the host command: raster and resolve both fetch the original
+ * Rejected runs publish std::numeric_limits<std::uint32_t>::max() and preserve the host command: raster and resolve both fetch the original
  * host-culled run. Unsupported items stay on their original path. The runtime's byte-exact static gate controls
  * admission (design sections 8/9); no valid history means the original visibility lane.
  */
 module;
-
-#include <cstdint>
 
 export module deren.engine.pass.hzb_cull;
 export import deren.vstd;

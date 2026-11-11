@@ -10,8 +10,6 @@
  */
 module;
 
-#include <cstddef>
-#include <cstdint>
 export module deren.engine.pass.output_targets;
 export import deren.vstd;
 export import deren.utility.shared;
@@ -23,16 +21,16 @@ import deren.promise.rhi;
 export namespace deren::engine::pass {
     class output_targets_pass final : public frame_pass {
     public:
-        static constexpr size_t resource_count = 31;
+        static constexpr std::size_t resource_count = 31;
 
     private:
         deren::utility::vessel::array<bool, resource_count> required = [] {
             deren::utility::vessel::array<bool, resource_count> values{};
-            for (size_t i = 0; i < 15; ++i) {
+            for (std::size_t i = 0; i < 15; ++i) {
                 values[i] = true;
             }
             // the reflection target and its denoiser images are always allocated; the feature only gates their writers
-            for (size_t i = 17; i < resource_count; ++i) {
+            for (std::size_t i = 17; i < resource_count; ++i) {
                 values[i] = true;
             }
             return values;
@@ -107,8 +105,8 @@ export namespace deren::engine::pass {
             render_layout::heap_slots::rt_reflection_surface_current,
             render_layout::heap_slots::rt_reflection_depth_current,
         };
-        static constexpr deren::utility::vessel::array<uint32_t, resource_count> storage_slots = [] {
-            deren::utility::vessel::array<uint32_t, resource_count> slots{};
+        static constexpr deren::utility::vessel::array<std::uint32_t, resource_count> storage_slots = [] {
+            deren::utility::vessel::array<std::uint32_t, resource_count> slots{};
             slots[13] = render_layout::heap_slots::rt_visibility_storage;
             slots[15] = render_layout::heap_slots::software_depth_storage;
             slots[16] = render_layout::heap_slots::software_id_storage;
@@ -165,7 +163,7 @@ export namespace deren::engine::pass {
                 render_layout::hdr_format,
                 rhi::image_format::r32_uint,
             };
-            for (size_t i = 0; i < values.size(); ++i) {
+            for (std::size_t i = 0; i < values.size(); ++i) {
                 auto& value = values[i];
                 value.id = ids[i];
                 value.life = i == 7 ? managed::lifetime::history : managed::lifetime::output_size;
@@ -325,7 +323,7 @@ export namespace deren::engine::pass {
         }
         void select_resources(deren::utility::vessel::array<bool, resource_count> const& selection) noexcept {
             required = selection;
-            for (size_t i = 17; i < resource_count; ++i) {
+            for (std::size_t i = 17; i < resource_count; ++i) {
                 required[i] = true; // the reflection lane and its denoiser images are always allocated
             }
             software_resources_selected = selection[15] || selection[16];
@@ -338,7 +336,7 @@ export namespace deren::engine::pass {
         void describe_resources(render_resource::instances::resource_context const& context,
                                 deren::utility::vessel::vector<render_resource::instances::request>& requests) const override {
             auto const values = descriptions(context);
-            for (size_t i = 0; i < values.size(); ++i) {
+            for (std::size_t i = 0; i < values.size(); ++i) {
                 if (required[i]) {
                     requests.push_back(values[i]);
                 }

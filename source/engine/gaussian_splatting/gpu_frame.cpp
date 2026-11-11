@@ -1,7 +1,5 @@
 module;
-#include <cstddef>
-#include <cstdint>
-#include <cstring>
+
 #include <glm/glm.hpp>
 module deren.engine.gaussian_splatting.gpu_frame;
 import deren.vstd;
@@ -27,7 +25,7 @@ namespace deren::engine::gaussian_splatting {
         if (reuse && device_root && !reuse->device_root && reuse->storage_view.size()) {
             return failure(error_code::invalid_argument, "Legacy GPU storage cannot gain a shared device handle; prepare a new frame");
         }
-        if (inputs.size() > UINT32_MAX || inputs.size() > limits.max_packed_bytes / (sizeof(instance_record) + sizeof(gpu_instance_range))) {
+        if (inputs.size() > std::numeric_limits<std::uint32_t>::max() || inputs.size() > limits.max_packed_bytes / (sizeof(instance_record) + sizeof(gpu_instance_range))) {
             return failure(error_code::limit_exceeded, "GPU instance tables exceed budget");
         }
         deren::utility::vessel::vector<std::uint32_t> order(inputs.size());

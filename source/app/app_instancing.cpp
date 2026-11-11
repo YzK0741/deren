@@ -1,7 +1,5 @@
 module;
 
-#include <cstddef>
-#include <cstdint>
 // Textual glm includes: the definition below names glm types AND instantiates
 // deren::utility::vessel::vector<glm::mat4>. Including glm in the global module fragment (the
 // same pattern source/engine/animation/controller.cpp uses) keeps clang's merged libc++ allocator

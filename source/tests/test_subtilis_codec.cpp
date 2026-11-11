@@ -87,9 +87,9 @@ int main() {
     rejects(128, 8, 4);
     rejects(160, 1, 4);
     rejects(132, 8, 4);
-    rejects(136, UINT64_MAX, 8);
-    rejects(144, UINT64_MAX - 7, 8);
-    rejects(152, UINT64_MAX, 8);
+    rejects(136, std::numeric_limits<std::uint64_t>::max(), 8);
+    rejects(144, std::numeric_limits<std::uint64_t>::max() - 7, 8);
+    rejects(152, std::numeric_limits<std::uint64_t>::max(), 8);
     rejects(176, 352, 8); // overlapping sections
     rejects(144, 128, 8);
     rejects(144, 353, 8);

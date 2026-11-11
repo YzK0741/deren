@@ -1,7 +1,5 @@
 module;
 
-#include <cstdint>
-
 module deren.engine.runtime;
 import deren.vstd;
 import deren.engine.texture_residency;
@@ -49,13 +47,13 @@ namespace deren::engine {
                     return rhi::error::operation_failed;
                 }
             }
-            for (uint32_t slot = 0; slot < 2; ++slot) {
+            for (std::uint32_t slot = 0; slot < 2; ++slot) {
                 if (!feedback_pipeline || !make_feedback(sizeof(texture_residency::feedback), texture_feedback_slots[slot], texture_feedback_readback_slots[slot])) {
                     return rhi::error::operation_failed;
                 }
             }
             auto* descriptors = rhi::query_extension<rhi::descriptor_space>(rhi_face());
-            for (uint32_t slot = 0; slot < 2; ++slot) {
+            for (std::uint32_t slot = 0; slot < 2; ++slot) {
                 auto result = descriptors ? descriptors->write_buffer({.slot = feedback_slot + slot, .resource = texture_feedback_slots[slot].get(), .size = sizeof(texture_residency::feedback)}) : rhi::error::unsupported;
                 if (result != rhi::error::ok) {
                     return result;
@@ -322,7 +320,7 @@ namespace deren::engine {
                 ++failures;
             }
         }
-        auto budget = texture_streaming.restore_pending ? UINT64_MAX : progressive_budget;
+        auto budget = texture_streaming.restore_pending ? std::numeric_limits<std::uint64_t>::max() : progressive_budget;
         auto selected = progressive_texture::select(candidates, texture_residency_updates, budget, 30);
         std::vector<std::uint32_t> selected_mips(streamed_textures.size());
         if (progressive_mips) {
@@ -427,7 +425,7 @@ namespace deren::engine {
                 }
             }
             rhi::image const* previous = nullptr;
-            for (uint32_t slot = 0; slot < 2; ++slot) {
+            for (std::uint32_t slot = 0; slot < 2; ++slot) {
                 auto const& bank = texture_bank_images[slot];
                 auto* image = i < bank.size() ? bank[i].get() : nullptr;
                 if (image && image != entry.fallback.get() && image != entry.high.get() && image != previous) {

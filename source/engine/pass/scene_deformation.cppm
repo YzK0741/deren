@@ -4,8 +4,6 @@
  */
 module;
 
-#include <cstddef>
-#include <cstdint>
 #include <glm/glm.hpp>
 export module deren.engine.pass.scene_deformation;
 export import deren.vstd;
@@ -28,11 +26,11 @@ export namespace deren::engine::pass {
             render_resource::resource_id::skin_matrices_previous,
             render_resource::resource_id::morph_targets,
         };
-        static constexpr deren::utility::vessel::array<uint64_t, 4> sizes{
-            static_cast<uint64_t>(scene_motion_capacity) * sizeof(glm::mat4),
-            static_cast<uint64_t>(scene_skin_capacity) * sizeof(glm::mat4),
-            static_cast<uint64_t>(scene_skin_capacity) * sizeof(glm::mat4),
-            static_cast<uint64_t>(scene_morph_capacity) * sizeof(float),
+        static constexpr deren::utility::vessel::array<std::uint64_t, 4> sizes{
+            static_cast<std::uint64_t>(scene_motion_capacity) * sizeof(glm::mat4),
+            static_cast<std::uint64_t>(scene_skin_capacity) * sizeof(glm::mat4),
+            static_cast<std::uint64_t>(scene_skin_capacity) * sizeof(glm::mat4),
+            static_cast<std::uint64_t>(scene_morph_capacity) * sizeof(float),
         };
         static constexpr deren::utility::vessel::array heap_slots{
             render_layout::heap_slots::previous_transforms,
@@ -47,7 +45,7 @@ export namespace deren::engine::pass {
                                 deren::utility::vessel::vector<render_resource::instances::request>& requests) const override {
             namespace managed = render_resource::instances;
             namespace rhi = deren::promise::rhi;
-            for (size_t i = 0; i < ids.size(); ++i) {
+            for (std::size_t i = 0; i < ids.size(); ++i) {
                 if (!required[i]) {
                     continue;
                 }

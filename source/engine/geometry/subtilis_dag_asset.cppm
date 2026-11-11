@@ -1,14 +1,13 @@
 module;
-#include <cstddef>
-#include <cstdint>
+
 export module deren.engine.subtilis.dag_asset;
 export import deren.vstd;
 export import deren.engine.meshlet;
 
 export namespace deren::engine::subtilis {
-    inline constexpr uint32_t dag_none = UINT32_MAX;
+    inline constexpr std::uint32_t dag_none = std::numeric_limits<std::uint32_t>::max();
     struct dag_range {
-        uint32_t first = 0, count = 0;
+        std::uint32_t first = 0, count = 0;
         bool operator==(dag_range const&) const = default;
     };
     struct dag_sphere {
@@ -17,7 +16,7 @@ export namespace deren::engine::subtilis {
     };
     struct dag_cluster {
         meshlet record;
-        uint32_t producer = dag_none, consumer = dag_none;
+        std::uint32_t producer = dag_none, consumer = dag_none;
         bool operator==(dag_cluster const& b) const {
             auto key = [](dag_cluster const& c) {auto const& r=c.record;return std::tuple(r.first_index,r.index_count,r.base_vertex,r.page_id,r.center_x,r.center_y,r.center_z,r.radius,r.axis_x,r.axis_y,r.axis_z,r.cone_cos,c.producer,c.consumer); };
             return key(*this) == key(b);
@@ -39,9 +38,9 @@ export namespace deren::engine::subtilis {
     class dag_asset {
         utility::vessel::vector<dag_cluster> clusters_;
         utility::vessel::vector<dag_group> groups_;
-        utility::vessel::vector<uint32_t> references_, leaves_, roots_;
+        utility::vessel::vector<std::uint32_t> references_, leaves_, roots_;
         utility::vessel::vector<meshlet> lod0_;
-        uint32_t lod0_indices_ = 0, selected_bound_ = 0;
+        std::uint32_t lod0_indices_ = 0, selected_bound_ = 0;
         dag_asset() = default;
 
     public:
@@ -55,29 +54,29 @@ export namespace deren::engine::subtilis {
         std::span<dag_group const> groups() const noexcept {
             return groups_;
         }
-        std::span<uint32_t const> references() const noexcept {
+        std::span<std::uint32_t const> references() const noexcept {
             return references_;
         }
-        std::span<uint32_t const> leaves() const noexcept {
+        std::span<std::uint32_t const> leaves() const noexcept {
             return leaves_;
         }
-        std::span<uint32_t const> roots() const noexcept {
+        std::span<std::uint32_t const> roots() const noexcept {
             return roots_;
         }
         std::span<meshlet const> lod0_clusters() const noexcept {
             return lod0_;
         }
-        uint32_t lod0_index_count() const noexcept {
+        std::uint32_t lod0_index_count() const noexcept {
             return lod0_indices_;
         }
-        uint32_t cluster_count() const noexcept {
-            return static_cast<uint32_t>(clusters_.size());
+        std::uint32_t cluster_count() const noexcept {
+            return static_cast<std::uint32_t>(clusters_.size());
         }
-        uint32_t maximum_selected_bound() const noexcept {
+        std::uint32_t maximum_selected_bound() const noexcept {
             return selected_bound_;
         }
-        static std::expected<dag_asset, dag_error> make(std::span<dag_cluster const> clusters, std::span<dag_group const> groups, std::span<uint32_t const> references, std::span<uint32_t const> leaves, std::span<uint32_t const> roots, uint32_t lod0_index_count, uint32_t total_index_count = dag_none) {
-            if (clusters.size() >= dag_none || groups.size() >= dag_none || references.size() > UINT32_MAX || leaves.size() > UINT32_MAX || roots.size() > UINT32_MAX) {
+        static std::expected<dag_asset, dag_error> make(std::span<dag_cluster const> clusters, std::span<dag_group const> groups, std::span<std::uint32_t const> references, std::span<std::uint32_t const> leaves, std::span<std::uint32_t const> roots, std::uint32_t lod0_index_count, std::uint32_t total_index_count = dag_none) {
+            if (clusters.size() >= dag_none || groups.size() >= dag_none || references.size() > std::numeric_limits<std::uint32_t>::max() || leaves.size() > std::numeric_limits<std::uint32_t>::max() || roots.size() > std::numeric_limits<std::uint32_t>::max()) {
                 return std::unexpected(dag_error::capacity);
             }
             if (clusters.empty() || leaves.empty() || roots.empty()) {
@@ -89,11 +88,11 @@ export namespace deren::engine::subtilis {
             auto valid_sphere = [](dag_sphere s) { return std::isfinite(s.x) && std::isfinite(s.y) && std::isfinite(s.z) && std::isfinite(s.radius) && s.radius >= 0; };
             auto distance = [](dag_sphere a, dag_sphere b) { return std::hypot(double(a.x) - b.x, double(a.y) - b.y, double(a.z) - b.z); };
             auto geometry = [](dag_cluster const& c) {auto const& r=c.record;return dag_sphere{r.center_x,r.center_y,r.center_z,r.radius}; };
-            uint64_t end = 0;
+            std::uint64_t end = 0;
             for (auto const& c : clusters) {
                 auto const& r = c.record;
-                auto finish = uint64_t(r.first_index) + r.index_count;
-                if (finish > UINT32_MAX) {
+                auto finish = std::uint64_t(r.first_index) + r.index_count;
+                if (finish > std::numeric_limits<std::uint32_t>::max()) {
                     return std::unexpected(dag_error::capacity);
                 }
                 if (!r.index_count || r.index_count % 3 || r.index_count > meshlet_max_indices || r.base_vertex || r.page_id || !valid_sphere(geometry(c)) || !std::isfinite(r.axis_x) || !std::isfinite(r.axis_y) || !std::isfinite(r.axis_z) || !std::isfinite(r.cone_cos) || r.cone_cos < -1 || r.cone_cos > 1 || (total_index_count != dag_none && finish > total_index_count)) {
@@ -115,9 +114,9 @@ export namespace deren::engine::subtilis {
                     return std::unexpected(dag_error::invalid_range);
                 }
             }
-            utility::vessel::vector<uint32_t> producer(clusters.size(), dag_none), consumer(clusters.size(), dag_none);
+            utility::vessel::vector<std::uint32_t> producer(clusters.size(), dag_none), consumer(clusters.size(), dag_none);
             auto in_range = [&](dag_range r) { return r.first <= references.size() && r.count <= references.size() - r.first; };
-            for (uint32_t id = 0; id < groups.size(); ++id) {
+            for (std::uint32_t id = 0; id < groups.size(); ++id) {
                 auto const& g = groups[id];
                 if (!g.fine.count || !g.coarse.count || !in_range(g.fine) || !in_range(g.coarse)) {
                     return std::unexpected(dag_error::invalid_range);
@@ -128,7 +127,7 @@ export namespace deren::engine::subtilis {
                 if (!std::isfinite(g.error) || g.error < 0) {
                     return std::unexpected(dag_error::invalid_error);
                 }
-                uint64_t fine_indices = 0, coarse_indices = 0;
+                std::uint64_t fine_indices = 0, coarse_indices = 0;
                 for (auto c : references.subspan(g.fine.first, g.fine.count)) {
                     if (consumer[c] != dag_none || clusters[c].consumer != id) {
                         return std::unexpected(dag_error::invalid_hierarchy);
@@ -163,12 +162,12 @@ export namespace deren::engine::subtilis {
                     return std::unexpected(dag_error::invalid_hierarchy);
                 }
             }
-            for (size_t i = 0; i < clusters.size(); ++i) {
+            for (std::size_t i = 0; i < clusters.size(); ++i) {
                 if (producer[i] != clusters[i].producer || consumer[i] != clusters[i].consumer) {
                     return std::unexpected(dag_error::invalid_hierarchy);
                 }
             }
-            auto exact_set = [&](std::span<uint32_t const> ids, bool leaf) {
+            auto exact_set = [&](std::span<std::uint32_t const> ids, bool leaf) {
                 utility::vessel::vector<bool> seen(clusters.size(), false);
                 for (auto id : ids) {
                     if (id >= clusters.size() || seen[id] || (leaf ? producer[id] : consumer[id]) != dag_none) {
@@ -176,7 +175,7 @@ export namespace deren::engine::subtilis {
                     }
                     seen[id] = true;
                 }
-                for (size_t i = 0; i < seen.size(); ++i) {
+                for (std::size_t i = 0; i < seen.size(); ++i) {
                     if (seen[i] != ((leaf ? producer[i] : consumer[i]) == dag_none)) {
                         return false;
                     }
@@ -192,7 +191,7 @@ export namespace deren::engine::subtilis {
                 lod0.push_back(clusters[id].record);
             }
             std::sort(lod0.begin(), lod0.end(), [](auto const& a, auto const& b) { return a.first_index < b.first_index; });
-            uint64_t cursor = 0;
+            std::uint64_t cursor = 0;
             for (auto const& c : lod0) {
                 if (c.first_index != cursor) {
                     return std::unexpected(dag_error::invalid_lod0_coverage);
@@ -219,22 +218,22 @@ export namespace deren::engine::subtilis {
             // bound, which is already final because producers have lower group IDs. Sharing one
             // producer between several parents counts its subtree once per parent: that over-estimate
             // stays a valid upper bound and is clamped to the cluster table size.
-            utility::vessel::vector<uint64_t> bound(groups.size(), 0);
-            for (uint32_t id = 0; id < groups.size(); ++id) {
+            utility::vessel::vector<std::uint64_t> bound(groups.size(), 0);
+            for (std::uint32_t id = 0; id < groups.size(); ++id) {
                 auto const& g = groups[id];
-                uint64_t refined = 0;
+                std::uint64_t refined = 0;
                 for (auto c : references.subspan(g.fine.first, g.fine.count)) {
                     auto dependency = clusters[c].producer;
-                    refined = std::min<uint64_t>(clusters.size(), refined + (dependency == dag_none ? 1 : bound[dependency]));
+                    refined = std::min<std::uint64_t>(clusters.size(), refined + (dependency == dag_none ? 1 : bound[dependency]));
                 }
-                bound[id] = std::min<uint64_t>(clusters.size(), std::max<uint64_t>(g.coarse.count, refined));
+                bound[id] = std::min<std::uint64_t>(clusters.size(), std::max<std::uint64_t>(g.coarse.count, refined));
             }
-            uint64_t selected = 0;
+            std::uint64_t selected = 0;
             for (auto id : roots) {
                 auto dependency = clusters[id].producer;
-                selected = std::min<uint64_t>(clusters.size(), selected + (dependency == dag_none ? 1 : bound[dependency]));
+                selected = std::min<std::uint64_t>(clusters.size(), selected + (dependency == dag_none ? 1 : bound[dependency]));
             }
-            result.selected_bound_ = static_cast<uint32_t>(selected);
+            result.selected_bound_ = static_cast<std::uint32_t>(selected);
             return result;
         }
     };

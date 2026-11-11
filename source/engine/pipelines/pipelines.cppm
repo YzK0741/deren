@@ -26,8 +26,6 @@
 
 module;
 
-#include <cstdint>
-
 export module deren.engine.pipelines;
 export import deren.vstd;
 export import deren.utility.shared;
@@ -100,8 +98,8 @@ namespace deren::engine::pipelines {
     export [[nodiscard]] std::expected<pipeline_handle, deren::utility::vessel::string> make_graphics_pipeline(rhi::api_core const& face,
                                                                                                                std::span<rhi::image_format const> const color_formats,
                                                                                                                rhi::image_format const depth_format,
-                                                                                                               std::span<uint8_t const> const vertex_code,
-                                                                                                               std::span<uint8_t const> const fragment_code,
+                                                                                                               std::span<std::uint8_t const> const vertex_code,
+                                                                                                               std::span<std::uint8_t const> const fragment_code,
                                                                                                                std::uint32_t const sample_count,
                                                                                                                bool const depth_test,
                                                                                                                float const depth_bias_constant_factor,
@@ -154,46 +152,46 @@ namespace deren::engine::pipelines {
     };
 
     export std::expected<post_resources, deren::utility::vessel::string> build_post(rhi::api_core const& face, rhi::image_format swap_chain_format,
-                                                                                    std::span<uint8_t const> vertex_shader_code, std::span<uint8_t const> fragment_shader_code);
-    export std::expected<gbuffer_resources, deren::utility::vessel::string> build_gbuffer_debug(rhi::api_core const& face, rhi::image_format color_format, std::span<uint8_t const> vertex_shader_code, std::span<uint8_t const> fragment_shader_code);
-    export std::expected<taa_resources, deren::utility::vessel::string> build_taa(rhi::api_core const& face, rhi::image_format color_format, std::span<uint8_t const> vertex_shader_code,
-                                                                                  std::span<uint8_t const> fragment_shader_code);
+                                                                                    std::span<std::uint8_t const> vertex_shader_code, std::span<std::uint8_t const> fragment_shader_code);
+    export std::expected<gbuffer_resources, deren::utility::vessel::string> build_gbuffer_debug(rhi::api_core const& face, rhi::image_format color_format, std::span<std::uint8_t const> vertex_shader_code, std::span<std::uint8_t const> fragment_shader_code);
+    export std::expected<taa_resources, deren::utility::vessel::string> build_taa(rhi::api_core const& face, rhi::image_format color_format, std::span<std::uint8_t const> vertex_shader_code,
+                                                                                  std::span<std::uint8_t const> fragment_shader_code);
 
     /// the ray-traced sun shadow: a compute pipeline over the descriptors the frame's heap carries
-    export std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_two_set_compute(rhi::api_core const& face, std::span<uint8_t const> compute_shader_code);
+    export std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_two_set_compute(rhi::api_core const& face, std::span<std::uint8_t const> compute_shader_code);
     /// the mask bake: a compute pass over the material table and the texture array
     /// array), which collapses the triangles a material's alphaMode MASK cuts out and writes the expanded
     /// vertices a bottom level structure is then built from - see source/shaders/geometry/mask_bake.slang
-    export std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_mask_bake(rhi::api_core const& face, std::span<uint8_t const> compute_shader_code);
+    export std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_mask_bake(rhi::api_core const& face, std::span<std::uint8_t const> compute_shader_code);
     /// the compute skinning pass: the scene block's per-joint matrices - see
     /// source/shaders/geometry/compute_skin.slang
-    export std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_compute_skin(rhi::api_core const& face, std::span<uint8_t const> compute_shader_code);
+    export std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_compute_skin(rhi::api_core const& face, std::span<std::uint8_t const> compute_shader_code);
     /// the GPU subtilis cut (source/shaders/geometry/subtilis_cut.slang): heap-native compute, all input and
     /// output buffers addressed through the item record.
-    export std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_subtilis_cut(rhi::api_core const& face, std::span<uint8_t const> compute_shader_code);
+    export std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_subtilis_cut(rhi::api_core const& face, std::span<std::uint8_t const> compute_shader_code);
     /// the clustered-light sort (source/shaders/lighting/light_cluster.slang): heap-native, and NO push constants
     /// at all - the shader reads the light UBO and writes the two cluster buffers through heap slots, which is
     /// why this builder takes no push size. It is the first compute pipeline in this module
     /// that came out of `deren.vulkan.core`.
-    export std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_cluster(rhi::api_core const& face, std::span<uint8_t const> compute_shader_code);
+    export std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_cluster(rhi::api_core const& face, std::span<std::uint8_t const> compute_shader_code);
     /// the VISIBILITY RESOLVE (source/shaders/scene/visibility_resolve.slang): the same heap-native compute shape as
     /// the cluster sort - no layout, no set, no push size - over the id/depth/capture descriptors the frame's heap
     /// carries. It is the consumer the visibility raster lane was recorded for.
-    export std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_visibility_resolve(rhi::api_core const& face, std::span<uint8_t const> compute_shader_code);
+    export std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_visibility_resolve(rhi::api_core const& face, std::span<std::uint8_t const> compute_shader_code);
     /// the HZB BUILD stage (source/shaders/scene/hzb_build.slang): the same heap-native compute shape again - no
     /// layout, no set, and its parameters (the pyramid level being dispatched, plus the two heap index lanes the
     /// pass framework appends) arrive through vkCmdPushDataEXT. It is what makes the max pyramid exist on the GPU
     /// (M3 phase A2: build + readback validation only; nothing culls against it yet).
-    export std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_hzb_build(rhi::api_core const& face, std::span<uint8_t const> compute_shader_code);
+    export std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_hzb_build(rhi::api_core const& face, std::span<std::uint8_t const> compute_shader_code);
     /// the AMD FidelityFX reflection denoiser stages (source/shaders/lighting/reflection_{reproject,prefilter,resolve}.slang):
     /// the same heap-native compute shape as the HZB stages - no layout, no set, all images through the frame's heap,
     /// and the pass's constants through vkCmdPushDataEXT. `debug_name` distinguishes the three pipelines in a capture.
-    export std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_reflection_denoise(rhi::api_core const& face, std::span<uint8_t const> compute_shader_code, char const* debug_name);
+    export std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_reflection_denoise(rhi::api_core const& face, std::span<std::uint8_t const> compute_shader_code, char const* debug_name);
     /// the HZB CULL stage (source/shaders/scene/hzb_cull.slang): the same heap-native compute shape as the build
     /// stage - no layout, no set, and its parameters (the item count, the extent the history header must describe,
     /// plus the two heap index lanes the pass framework appends) through vkCmdPushDataEXT. It is the M3 phase-B1
     /// consumer of the pyramid: it writes flags/survivors/counts and changes no picture (nothing consumes them yet).
-    export std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_hzb_cull(rhi::api_core const& face, std::span<uint8_t const> compute_shader_code);
+    export std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_hzb_cull(rhi::api_core const& face, std::span<std::uint8_t const> compute_shader_code);
     /**
      * @brief THE SOFTWARE RASTER's compute pipeline (source/shaders/scene/software_visibility.slang; M4 Task 2)
      *
@@ -202,7 +200,7 @@ namespace deren::engine::pipelines {
      * pass so their declarations can be validated; the tiled raster math is Task 3's, so this is deliberately the
      * same builder shape as `build_visibility_resolve` rather than a second kind of pipeline.
      */
-    export std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_software_visibility(rhi::api_core const& face, std::span<uint8_t const> compute_shader_code);
+    export std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_software_visibility(rhi::api_core const& face, std::span<std::uint8_t const> compute_shader_code);
     /**
      * @brief THE SOFTWARE MERGE's depth-only graphics pipeline (source/shaders/scene/software_merge.slang; M4 Task 2)
      *
@@ -212,8 +210,8 @@ namespace deren::engine::pipelines {
      * so the fragment stage writes no colour and the vertex stage is the fullscreen triangle.
      */
     export std::expected<pipeline_handle, deren::utility::vessel::string> build_software_merge(rhi::api_core const& face, rhi::image_format depth_format,
-                                                                                               std::span<uint8_t const> vertex_shader_code,
-                                                                                               std::span<uint8_t const> fragment_shader_code);
+                                                                                               std::span<std::uint8_t const> vertex_shader_code,
+                                                                                               std::span<std::uint8_t const> fragment_shader_code);
 
     /**
      * @brief the HEAP-NATIVE probe's pipeline: the first one in this renderer created the heap way
@@ -225,11 +223,11 @@ namespace deren::engine::pipelines {
      *       probe's parameters therefore reach the shader through command_recorder::push_constants (implemented by Vulkan with vkCmdPushDataEXT)
      *       and not through vkCmdPushConstants, which needs a layout to push to.
      */
-    export std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_heap_probe(rhi::api_core const& face, std::span<uint8_t const> compute_shader_code);
+    export std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_heap_probe(rhi::api_core const& face, std::span<std::uint8_t const> compute_shader_code);
 
     /// the probe's target: one size for the image, the viewport, the scissor and the readback, so a mismatch
     /// between them is impossible rather than merely unlikely
-    export inline constexpr uint32_t heap_probe_extent = 4u;
+    export inline constexpr std::uint32_t heap_probe_extent = 4u;
 
     /**
      * @brief the GRAPHICS half of the heap-native probe: a heap-flagged, layout-less pipeline over two stages
@@ -244,7 +242,7 @@ namespace deren::engine::pipelines {
     /// @param first_stage the stage that emits the geometry: VERTEX for the original probe, MESH for the
     ///        mesh-shader mechanism proof (docs/mesh_shaders.md step 0). Everything else - the empty vertex
     ///        input, the heap flag, the NULL layout, the fragment stage - is identical between the two.
-    export std::expected<pipeline_handle, deren::utility::vessel::string> build_heap_probe_graphics(rhi::api_core const& face, rhi::image_format colour_format, std::span<uint8_t const> vertex_code, std::span<uint8_t const> fragment_code, rhi::shader_stage first_stage = rhi::shader_stage::vertex);
+    export std::expected<pipeline_handle, deren::utility::vessel::string> build_heap_probe_graphics(rhi::api_core const& face, rhi::image_format colour_format, std::span<std::uint8_t const> vertex_code, std::span<std::uint8_t const> fragment_code, rhi::shader_stage first_stage = rhi::shader_stage::vertex);
 
     /// what build_resolve_pipeline() creates: the resolve pipeline
     export struct resolve_pipeline_resources {
@@ -252,9 +250,9 @@ namespace deren::engine::pipelines {
     };
 
     export std::expected<resolve_pipeline_resources, deren::utility::vessel::string> build_resolve_pipeline(rhi::api_core const& face,
-                                                                                                            std::span<uint8_t const> compute_shader_code);
+                                                                                                            std::span<std::uint8_t const> compute_shader_code);
 
-    export std::expected<pipeline_handle, deren::utility::vessel::string> build_fxaa(rhi::api_core const& face, rhi::image_format swap_chain_format, std::span<uint8_t const> vertex_shader_code, std::span<uint8_t const> fragment_shader_code);
+    export std::expected<pipeline_handle, deren::utility::vessel::string> build_fxaa(rhi::api_core const& face, rhi::image_format swap_chain_format, std::span<std::uint8_t const> vertex_shader_code, std::span<std::uint8_t const> fragment_shader_code);
     /**
      * @brief the SHADOW pass's depth-only pipeline
      *
@@ -276,14 +274,14 @@ namespace deren::engine::pipelines {
      *        what makes the two paths comparable (see docs/mesh_shaders.md step 1)
      */
     export std::expected<pipeline_handle, deren::utility::vessel::string> build_shadow(rhi::api_core const& face, rhi::image_format depth_format, float depth_bias_constant_factor, float depth_bias_slope_factor,
-                                                                                       float depth_bias_clamp, std::span<uint8_t const> vertex_shader_code, std::span<uint8_t const> fragment_shader_code,
+                                                                                       float depth_bias_clamp, std::span<std::uint8_t const> vertex_shader_code, std::span<std::uint8_t const> fragment_shader_code,
                                                                                        rhi::shader_stage first_stage = rhi::shader_stage::vertex);
     /// @brief what the FXAA pass's create step needs: the anti-aliasing pipeline
     export struct fxaa_resources {
         std::optional<pipeline_handle> antialias;
     };
     export std::expected<fxaa_resources, deren::utility::vessel::string> build_fxaa_resources(rhi::api_core const& face, rhi::image_format swap_chain_format,
-                                                                                              std::span<uint8_t const> vertex_shader_code, std::span<uint8_t const> fragment_shader_code);
+                                                                                              std::span<std::uint8_t const> vertex_shader_code, std::span<std::uint8_t const> fragment_shader_code);
     /**
      * @brief what the UPSCALE pass's create step needs: the resolve pipeline
      *
@@ -296,19 +294,19 @@ namespace deren::engine::pipelines {
         std::optional<pipeline_handle> resolve;
     };
     export std::expected<upscale_resources, deren::utility::vessel::string> build_upscale(rhi::api_core const& face, rhi::image_format swap_chain_format,
-                                                                                          std::span<uint8_t const> vertex_shader_code, std::span<uint8_t const> fragment_shader_code);
+                                                                                          std::span<std::uint8_t const> vertex_shader_code, std::span<std::uint8_t const> fragment_shader_code);
     export struct deferred_resources {
         std::optional<pipeline_handle> lighting;
     };
 
     /// the additive blend state comes in as a parameter: the helper that builds it is a local of the
     /// runtime, next to the passes whose blend modes it describes
-    export std::expected<deferred_resources, deren::utility::vessel::string> build_deferred(rhi::api_core const& face, std::span<rhi::blend_mode const> color_blend, std::span<uint8_t const> vertex_shader_code, std::span<uint8_t const> fragment_shader_code);
+    export std::expected<deferred_resources, deren::utility::vessel::string> build_deferred(rhi::api_core const& face, std::span<rhi::blend_mode const> color_blend, std::span<std::uint8_t const> vertex_shader_code, std::span<std::uint8_t const> fragment_shader_code);
     // post: the module that builds the composite chain's pipelines. The two fullscreen pipelines (one per color format the chain renders
     // into) are created here.
     std::expected<post_resources, deren::utility::vessel::string> build_post(rhi::api_core const& face, rhi::image_format const swap_chain_format,
-                                                                             std::span<uint8_t const> const vertex_shader_code,
-                                                                             std::span<uint8_t const> const fragment_shader_code) {
+                                                                             std::span<std::uint8_t const> const vertex_shader_code,
+                                                                             std::span<std::uint8_t const> const fragment_shader_code) {
         using fail = std::unexpected<deren::utility::vessel::string>;
         post_resources out;
 
@@ -339,8 +337,8 @@ namespace deren::engine::pipelines {
     }
 
     std::expected<gbuffer_resources, deren::utility::vessel::string> build_gbuffer_debug(rhi::api_core const& face, rhi::image_format const color_format,
-                                                                                         std::span<uint8_t const> const vertex_shader_code,
-                                                                                         std::span<uint8_t const> const fragment_shader_code) {
+                                                                                         std::span<std::uint8_t const> const vertex_shader_code,
+                                                                                         std::span<std::uint8_t const> const fragment_shader_code) {
         using fail = std::unexpected<deren::utility::vessel::string>;
         gbuffer_resources out;
 
@@ -358,7 +356,7 @@ namespace deren::engine::pipelines {
     // taa: the module that builds the resolve pass' pipeline. It writes the HDR target, so its rendering color format is hdr_format
     // (a span of one), and its sampler is the odd one out - linear magnification, nearest minification,
     // because the resolve upsamples the scene color but must not average neighbouring history texels.
-    std::expected<taa_resources, deren::utility::vessel::string> build_taa(rhi::api_core const& face, rhi::image_format const color_format, std::span<uint8_t const> const vertex_shader_code, std::span<uint8_t const> const fragment_shader_code) {
+    std::expected<taa_resources, deren::utility::vessel::string> build_taa(rhi::api_core const& face, rhi::image_format const color_format, std::span<std::uint8_t const> const vertex_shader_code, std::span<std::uint8_t const> const fragment_shader_code) {
         using fail = std::unexpected<deren::utility::vessel::string>;
         taa_resources out;
 
@@ -379,7 +377,7 @@ namespace deren::engine::pipelines {
     // bindless texture array to sample it. It declares no set layout, like every traced compute pass, and it is the only compute
     // pass here whose output is not an image: it writes vertices into a buffer the acceleration structure is
     // then built from.
-    std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_mask_bake(rhi::api_core const& face, std::span<uint8_t const> const compute_shader_code) {
+    std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_mask_bake(rhi::api_core const& face, std::span<std::uint8_t const> const compute_shader_code) {
         using fail = std::unexpected<deren::utility::vessel::string>;
         compute_pipeline_resources out;
         // THE PIPELINE IS A CONTRACT OBJECT NOW (abi 21): the heap-native compute rules live in the backend
@@ -398,7 +396,7 @@ namespace deren::engine::pipelines {
 
     // The compute skinning pass (see source/shaders/geometry/compute_skin.slang): the same shape as the mask bake above and
     // for the same reason - it reads only the per-joint matrices heap slot.
-    std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_compute_skin(rhi::api_core const& face, std::span<uint8_t const> const compute_shader_code) {
+    std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_compute_skin(rhi::api_core const& face, std::span<std::uint8_t const> const compute_shader_code) {
         using fail = std::unexpected<deren::utility::vessel::string>;
         compute_pipeline_resources out;
         // THE PIPELINE IS A CONTRACT OBJECT NOW (abi 21): the heap-native compute rules live in the backend
@@ -417,7 +415,7 @@ namespace deren::engine::pipelines {
 
     // The GPU subtilis cut: the same heap-native compute shape as the compute-skinning pass above. Its inputs
     // and outputs are device addresses in the item record, so the builder creates only the pipeline.
-    std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_subtilis_cut(rhi::api_core const& face, std::span<uint8_t const> const compute_shader_code) {
+    std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_subtilis_cut(rhi::api_core const& face, std::span<std::uint8_t const> const compute_shader_code) {
         using fail = std::unexpected<deren::utility::vessel::string>;
         compute_pipeline_resources out;
         rhi::pipeline_desc desc{};
@@ -436,7 +434,7 @@ namespace deren::engine::pipelines {
     // (see docs/descriptor_heap_handover.md), so this pipeline is created with VK_NULL_HANDLE and the heap flag;
     // the shader reads the light UBO and the cluster buffers out of the scene block by slot, and the slot itself
     // travels in the stage push block (source/shaders/heap_slots.glsl). The pipeline is all that is left to build.
-    std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_cluster(rhi::api_core const& face, std::span<uint8_t const> const compute_shader_code) {
+    std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_cluster(rhi::api_core const& face, std::span<std::uint8_t const> const compute_shader_code) {
         using fail = std::unexpected<deren::utility::vessel::string>;
         compute_pipeline_resources out;
         // THE PIPELINE IS A CONTRACT OBJECT NOW (abi 21): the heap-native compute rules live in the backend
@@ -456,7 +454,7 @@ namespace deren::engine::pipelines {
     // The VISIBILITY RESOLVE (source/shaders/scene/visibility_resolve.slang): the same heap-native compute shape as
     // the cluster sort above and for the same reason - every input and output is a heap descriptor, the shader's only
     // constants are the two index lanes it receives through vkCmdPushDataEXT, and there is no set or layout to declare.
-    std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_visibility_resolve(rhi::api_core const& face, std::span<uint8_t const> const compute_shader_code) {
+    std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_visibility_resolve(rhi::api_core const& face, std::span<std::uint8_t const> const compute_shader_code) {
         using fail = std::unexpected<deren::utility::vessel::string>;
         compute_pipeline_resources out;
         // THE PIPELINE IS A CONTRACT OBJECT (abi 21): the heap-native compute rules live in the backend
@@ -477,7 +475,7 @@ namespace deren::engine::pipelines {
     // compute shape one more time - no layout, no set, no push size, every input and output a heap descriptor. M4
     // Task 2 builds it so the software pass's declaration, pipeline gating and tests can land; Task 3 fills the
     // tiled walk inside the shader, which is why nothing here is aware of tiles.
-    std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_software_visibility(rhi::api_core const& face, std::span<uint8_t const> const compute_shader_code) {
+    std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_software_visibility(rhi::api_core const& face, std::span<std::uint8_t const> const compute_shader_code) {
         using fail = std::unexpected<deren::utility::vessel::string>;
         compute_pipeline_resources out;
         // THE PIPELINE IS A CONTRACT OBJECT (abi 21): the heap-native compute rules live in the backend
@@ -499,8 +497,8 @@ namespace deren::engine::pipelines {
     // recipe with the bias removed and the compare pinned to LESS_OR_EQUAL. The fragment stage samples both software
     // images through the heap; the vertex stage emits one triangle over the frame.
     std::expected<pipeline_handle, deren::utility::vessel::string> build_software_merge(rhi::api_core const& face, rhi::image_format const depth_format,
-                                                                                        std::span<uint8_t const> const vertex_shader_code,
-                                                                                        std::span<uint8_t const> const fragment_shader_code) {
+                                                                                        std::span<std::uint8_t const> const vertex_shader_code,
+                                                                                        std::span<std::uint8_t const> const fragment_shader_code) {
         using fail = std::unexpected<deren::utility::vessel::string>;
         auto result = make_graphics_pipeline(face,
                                              {}, // no colour attachment: the merge changes depth only
@@ -526,7 +524,7 @@ namespace deren::engine::pipelines {
     // input and output is a heap descriptor (the per-image depth, the two HZB tables, the camera), the shader's
     // only constants are the pyramid level plus the two index lanes the framework appends, and no set or layout
     // exists to declare. M3 phase A2 builds it so the pyramid can be validated by readback; nothing reads it yet.
-    std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_hzb_build(rhi::api_core const& face, std::span<uint8_t const> const compute_shader_code) {
+    std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_hzb_build(rhi::api_core const& face, std::span<std::uint8_t const> const compute_shader_code) {
         using fail = std::unexpected<deren::utility::vessel::string>;
         compute_pipeline_resources out;
         // THE PIPELINE IS A CONTRACT OBJECT (abi 21): the heap-native compute rules live in the backend
@@ -547,7 +545,7 @@ namespace deren::engine::pipelines {
     // build's shape again - every image and the camera are heap descriptors, the only constants are the five dedicated
     // push lanes plus the framework's two index lanes, and no set or layout exists to declare. Three calls with
     // different SPIR-V modules share this builder; `debug_name` keeps them apart in a capture.
-    std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_reflection_denoise(rhi::api_core const& face, std::span<uint8_t const> const compute_shader_code, char const* debug_name) {
+    std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_reflection_denoise(rhi::api_core const& face, std::span<std::uint8_t const> const compute_shader_code, char const* debug_name) {
         using fail = std::unexpected<deren::utility::vessel::string>;
         compute_pipeline_resources out;
         rhi::pipeline_desc desc{};
@@ -566,7 +564,7 @@ namespace deren::engine::pipelines {
     // every input and output is a heap descriptor (the history pyramid/header, the item/candidate tables, the flags/
     // survivors/counts tables and the draw-item model), its only constants are the three dedicated push lanes plus the
     // framework's index lanes, and no set or layout exists to declare. M3 phase B1: it writes its tables only.
-    std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_hzb_cull(rhi::api_core const& face, std::span<uint8_t const> const compute_shader_code) {
+    std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_hzb_cull(rhi::api_core const& face, std::span<std::uint8_t const> const compute_shader_code) {
         using fail = std::unexpected<deren::utility::vessel::string>;
         compute_pipeline_resources out;
         // THE PIPELINE IS A CONTRACT OBJECT (abi 21): the heap-native compute rules live in the backend
@@ -583,7 +581,7 @@ namespace deren::engine::pipelines {
         return out;
     }
 
-    std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_heap_probe(rhi::api_core const& face, std::span<uint8_t const> const compute_shader_code) {
+    std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_heap_probe(rhi::api_core const& face, std::span<std::uint8_t const> const compute_shader_code) {
         using fail = std::unexpected<deren::utility::vessel::string>;
         compute_pipeline_resources out;
         // THE PIPELINE IS A CONTRACT OBJECT NOW (abi 21): the heap-native compute rules live in the backend
@@ -606,7 +604,7 @@ namespace deren::engine::pipelines {
     // the G-buffer images - so the caller's only variable is the push block size.
     // (Its old name, build_rt_shadow, is gone with the ray-query shadow pass: the shadow traces through a real
     // ray-tracing PIPELINE now, which is a different builder below.)
-    std::expected<pipeline_handle, deren::utility::vessel::string> build_heap_probe_graphics(rhi::api_core const& face, rhi::image_format const colour_format, std::span<uint8_t const> const vertex_code, std::span<uint8_t const> const fragment_code, rhi::shader_stage const first_stage) {
+    std::expected<pipeline_handle, deren::utility::vessel::string> build_heap_probe_graphics(rhi::api_core const& face, rhi::image_format const colour_format, std::span<std::uint8_t const> const vertex_code, std::span<std::uint8_t const> const fragment_code, rhi::shader_stage const first_stage) {
         // THE PROBE IS A GRAPHICS RECIPE LIKE EVERY OTHER ONE IN THIS FILE (see make_graphics_pipeline): one
         // colour target in the format the caller names, NO depth, no blend, single-sampled - and the FIRST STAGE
         // is the parameter that makes the vertex probe and the MESH probe (docs/mesh_shaders.md step 0) the same
@@ -636,7 +634,7 @@ namespace deren::engine::pipelines {
                                       "heap probe (graphics) pipeline");
     }
 
-    std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_two_set_compute(rhi::api_core const& face, std::span<uint8_t const> const compute_shader_code) {
+    std::expected<compute_pipeline_resources, deren::utility::vessel::string> build_two_set_compute(rhi::api_core const& face, std::span<std::uint8_t const> const compute_shader_code) {
         using fail = std::unexpected<deren::utility::vessel::string>;
         compute_pipeline_resources out;
         // THE PIPELINE IS A CONTRACT OBJECT NOW (abi 21): the heap-native compute rules live in the backend
@@ -661,7 +659,7 @@ namespace deren::engine::pipelines {
      */
     export struct ray_tracing_pipeline_resources {
         std::optional<pipeline_handle> pipeline;
-        uint32_t group_count = 0;
+        std::uint32_t group_count = 0;
     };
 
     /**
@@ -677,9 +675,9 @@ namespace deren::engine::pipelines {
      * hit (`gl_RayFlagsTerminateOnFirstHitEXT` in the raygen), so there is nothing for a second level to do.
      */
     export std::expected<ray_tracing_pipeline_resources, deren::utility::vessel::string> build_rt_shadow_ray_tracing(rhi::api_core const& face,
-                                                                                                                     std::span<uint8_t const> raygen_code,
-                                                                                                                     std::span<uint8_t const> closest_hit_code, std::span<uint8_t const> miss_code,
-                                                                                                                     std::span<uint8_t const> any_hit_code) {
+                                                                                                                     std::span<std::uint8_t const> raygen_code,
+                                                                                                                     std::span<std::uint8_t const> closest_hit_code, std::span<std::uint8_t const> miss_code,
+                                                                                                                     std::span<std::uint8_t const> any_hit_code) {
         using fail = std::unexpected<deren::utility::vessel::string>;
         ray_tracing_pipeline_resources out;
 
@@ -715,8 +713,8 @@ namespace deren::engine::pipelines {
                 .stage = rhi::shader_stage::ray_generation,
                 .descriptor_set = 0,
                 .binding = 16,
-                .byte_offset = static_cast<uint32_t>(render_layout::heap_slots::tlas * render_layout::heap_slot_stride),
-                .array_stride = static_cast<uint32_t>(render_layout::heap_slot_stride),
+                .byte_offset = static_cast<std::uint32_t>(render_layout::heap_slots::tlas * render_layout::heap_slot_stride),
+                .array_stride = static_cast<std::uint32_t>(render_layout::heap_slot_stride),
                 .array_count = rhi::max_frames_in_flight,
             },
         };
@@ -726,7 +724,7 @@ namespace deren::engine::pipelines {
             return fail("rt shadow: the contract's ray-tracing pipeline factory refused the descriptor");
         }
         out.pipeline = pipeline_handle(built.release());
-        out.group_count = static_cast<uint32_t>(groups.size());
+        out.group_count = static_cast<std::uint32_t>(groups.size());
         return out;
     }
 
@@ -738,10 +736,10 @@ namespace deren::engine::pipelines {
      * raygen (0), miss (1), hit group (2), so the pass needs no fourth region.
      */
     export std::expected<ray_tracing_pipeline_resources, deren::utility::vessel::string> build_rt_reflection_ray_tracing(rhi::api_core const& face,
-                                                                                                                         std::span<uint8_t const> raygen_code,
-                                                                                                                         std::span<uint8_t const> closest_hit_code,
-                                                                                                                         std::span<uint8_t const> any_hit_code,
-                                                                                                                         std::span<uint8_t const> miss_code) {
+                                                                                                                         std::span<std::uint8_t const> raygen_code,
+                                                                                                                         std::span<std::uint8_t const> closest_hit_code,
+                                                                                                                         std::span<std::uint8_t const> any_hit_code,
+                                                                                                                         std::span<std::uint8_t const> miss_code) {
         using fail = std::unexpected<deren::utility::vessel::string>;
         ray_tracing_pipeline_resources out;
 
@@ -766,8 +764,8 @@ namespace deren::engine::pipelines {
                 .stage = rhi::shader_stage::ray_generation,
                 .descriptor_set = 0,
                 .binding = 16,
-                .byte_offset = static_cast<uint32_t>(render_layout::heap_slots::tlas * render_layout::heap_slot_stride),
-                .array_stride = static_cast<uint32_t>(render_layout::heap_slot_stride),
+                .byte_offset = static_cast<std::uint32_t>(render_layout::heap_slots::tlas * render_layout::heap_slot_stride),
+                .array_stride = static_cast<std::uint32_t>(render_layout::heap_slot_stride),
                 .array_count = rhi::max_frames_in_flight,
             },
         };
@@ -777,13 +775,13 @@ namespace deren::engine::pipelines {
             return fail("rt reflection: the contract's ray-tracing pipeline factory refused the descriptor");
         }
         out.pipeline = pipeline_handle(built.release());
-        out.group_count = static_cast<uint32_t>(groups.size());
+        out.group_count = static_cast<std::uint32_t>(groups.size());
         return out;
     }
 
     // The temporal resolve: its pipeline, over the images the frame's heap carries. It reads no scene
     // buffer: the push block carries the two projection terms its depth guard needs.
-    std::expected<resolve_pipeline_resources, deren::utility::vessel::string> build_resolve_pipeline(rhi::api_core const& face, std::span<uint8_t const> const compute_shader_code) {
+    std::expected<resolve_pipeline_resources, deren::utility::vessel::string> build_resolve_pipeline(rhi::api_core const& face, std::span<std::uint8_t const> const compute_shader_code) {
         using fail = std::unexpected<deren::utility::vessel::string>;
         resolve_pipeline_resources out;
         // THE PIPELINE IS A CONTRACT OBJECT NOW (abi 21): the heap-native compute rules live in the backend
@@ -800,7 +798,7 @@ namespace deren::engine::pipelines {
         return out;
     }
 
-    std::expected<deferred_resources, deren::utility::vessel::string> build_deferred(rhi::api_core const& face, std::span<rhi::blend_mode const> const color_blend, std::span<uint8_t const> const vertex_shader_code, std::span<uint8_t const> const fragment_shader_code) {
+    std::expected<deferred_resources, deren::utility::vessel::string> build_deferred(rhi::api_core const& face, std::span<rhi::blend_mode const> const color_blend, std::span<std::uint8_t const> const vertex_shader_code, std::span<std::uint8_t const> const fragment_shader_code) {
         using fail = std::unexpected<deren::utility::vessel::string>;
         deferred_resources out;
         constexpr rhi::image_format color_formats = rhi::image_format::r16g16b16a16_sfloat;
@@ -816,7 +814,7 @@ namespace deren::engine::pipelines {
         return out;
     }
 
-    std::expected<pipeline_handle, deren::utility::vessel::string> build_fxaa(rhi::api_core const& face, rhi::image_format const swap_chain_format, std::span<uint8_t const> const vertex_shader_code, std::span<uint8_t const> const fragment_code) {
+    std::expected<pipeline_handle, deren::utility::vessel::string> build_fxaa(rhi::api_core const& face, rhi::image_format const swap_chain_format, std::span<std::uint8_t const> const vertex_shader_code, std::span<std::uint8_t const> const fragment_code) {
         using fail = std::unexpected<deren::utility::vessel::string>;
         auto pipeline_result = make_graphics_pipeline(face,
                                                       std::span<rhi::image_format const>(&swap_chain_format, 1), rhi::image_format::unknown,
@@ -830,8 +828,8 @@ namespace deren::engine::pipelines {
     }
 
     std::expected<pipeline_handle, deren::utility::vessel::string> build_shadow(rhi::api_core const& face, rhi::image_format const depth_format, float const depth_bias_constant_factor,
-                                                                                float const depth_bias_slope_factor, float const depth_bias_clamp, std::span<uint8_t const> const vertex_shader_code,
-                                                                                std::span<uint8_t const> const fragment_shader_code,
+                                                                                float const depth_bias_slope_factor, float const depth_bias_clamp, std::span<std::uint8_t const> const vertex_shader_code,
+                                                                                std::span<std::uint8_t const> const fragment_shader_code,
                                                                                 // THE STAGE THAT EMITS THE GEOMETRY: VERTEX for the input-assembler path, MESH
                                                                                 // for the one that fetches its vertices (docs/mesh_shaders.md step 1 - the
                                                                                 // fragment stage is the SAME shader either way, which is what makes the two
@@ -861,7 +859,7 @@ namespace deren::engine::pipelines {
         return std::move(result).value();
     }
     std::expected<fxaa_resources, deren::utility::vessel::string> build_fxaa_resources(rhi::api_core const& face, rhi::image_format const swap_chain_format,
-                                                                                       std::span<uint8_t const> const vertex_shader_code, std::span<uint8_t const> const fragment_shader_code) {
+                                                                                       std::span<std::uint8_t const> const vertex_shader_code, std::span<std::uint8_t const> const fragment_shader_code) {
         using fail = std::unexpected<deren::utility::vessel::string>;
         fxaa_resources out;
 
@@ -879,7 +877,7 @@ namespace deren::engine::pipelines {
     }
 
     std::expected<upscale_resources, deren::utility::vessel::string> build_upscale(rhi::api_core const& face, rhi::image_format const swap_chain_format,
-                                                                                   std::span<uint8_t const> const vertex_shader_code, std::span<uint8_t const> const fragment_shader_code) {
+                                                                                   std::span<std::uint8_t const> const vertex_shader_code, std::span<std::uint8_t const> const fragment_shader_code) {
         using fail = std::unexpected<deren::utility::vessel::string>;
         upscale_resources out;
 

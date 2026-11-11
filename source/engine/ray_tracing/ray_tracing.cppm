@@ -23,7 +23,6 @@
 // themselves stay the renderer's for now and are driven through `bake_hooks`.
 // ============================================================================
 module;
-#include <cstdint>
 
 export module deren.engine.ray_tracing;
 export import deren.utility.shared;
@@ -80,18 +79,18 @@ export namespace deren::engine::ray_tracing {
      */
     struct caster_level {
         primitive const* caster = nullptr;
-        uint32_t blas_index = 0;
-        uint32_t mask_stride = 0;
+        std::uint32_t blas_index = 0;
+        std::uint32_t mask_stride = 0;
         std::uintptr_t mask_vertex_address = 0;
         std::uintptr_t skin_source_address = 0;
         std::uintptr_t skin_destination_address = 0;
-        uint32_t skin_source_stride = 0;
-        uint32_t skin_destination_stride = 0; // 32 (position, normal, uv)
-        uint32_t skin_vertex_count = 0;
-        uint32_t skin_base = 0;
+        std::uint32_t skin_source_stride = 0;
+        std::uint32_t skin_destination_stride = 0; // 32 (position, normal, uv)
+        std::uint32_t skin_vertex_count = 0;
+        std::uint32_t skin_base = 0;
         /// index into `micromaps()`, or `micromap_none`: which opacity micromap this caster's geometry consults
-        static constexpr uint32_t micromap_none = 0xFFFFFFFFu;
-        uint32_t micromap_index = micromap_none;
+        static constexpr std::uint32_t micromap_none = 0xFFFFFFFFu;
+        std::uint32_t micromap_index = micromap_none;
     };
 
     /**
@@ -185,28 +184,28 @@ export namespace deren::engine::ray_tracing {
          * would be rewritten by the frame being recorded while the previous one still reads it), and the caller
          * is what paces frames.
          */
-        [[nodiscard]] std::expected<void, failure> update(rhi::command_buffer& commands, uint32_t frame_slot, build_inputs const& inputs);
+        [[nodiscard]] std::expected<void, failure> update(rhi::command_buffer& commands, std::uint32_t frame_slot, build_inputs const& inputs);
 
         /// @brief whether a build was attempted, success or failure (there is no retry - see build)
         [[nodiscard]] bool attempted() const noexcept;
         /// @brief whether both structures exist, i.e. whether anything can be traversed
         [[nodiscard]] bool ready() const noexcept;
         /// @brief this slot's top level structure, or `VK_NULL_HANDLE` (the scene block's binding 16)
-        [[nodiscard]] deren::promise::rhi::acceleration_structure* handle(uint32_t frame_slot) const noexcept;
+        [[nodiscard]] deren::promise::rhi::acceleration_structure* handle(std::uint32_t frame_slot) const noexcept;
         /**
          * @brief the size this slot's top level structure was created with (see top_level_structure::structure_size)
          * @note forwarded rather than re-derived: the structure is `top_level`'s, and the descriptor heap writes
          *       it as an address RANGE whose size has to be real (docs/descriptor_heap_migration.md).
          */
-        [[nodiscard]] std::uint64_t structure_size(uint32_t frame_slot) const noexcept;
+        [[nodiscard]] std::uint64_t structure_size(std::uint32_t frame_slot) const noexcept;
         /// @brief the size of this slot's instance table, for the heap's address-range descriptor (binding 17)
-        [[nodiscard]] std::uint64_t instance_table_size(uint32_t frame_slot) const noexcept;
+        [[nodiscard]] std::uint64_t instance_table_size(std::uint32_t frame_slot) const noexcept;
         /**
          * @brief this slot's instance table as the CONTRACT buffer it is, or nullptr when there is no top
          *        level structure for that slot yet
          * @note The device address is queried through the contract's device_address ability.
          */
-        [[nodiscard]] deren::promise::rhi::buffer const* instance_table_buffer(uint32_t frame_slot) const noexcept;
+        [[nodiscard]] deren::promise::rhi::buffer const* instance_table_buffer(std::uint32_t frame_slot) const noexcept;
         /// @brief the casters that were built, in the order they were added (see caster_level)
         [[nodiscard]] std::span<caster_level const> casters() const noexcept;
         /**
@@ -235,9 +234,9 @@ export namespace deren::engine::ray_tracing {
                                                                                      std::uintptr_t source_vertex_address,
                                                                                      std::uintptr_t source_index_address,
                                                                                      std::uintptr_t mask_address,
-                                                                                     uint32_t mask_stride,
+                                                                                     std::uint32_t mask_stride,
                                                                                      std::uintptr_t skin_address,
-                                                                                     uint32_t skin_stride,
+                                                                                     std::uint32_t skin_stride,
                                                                                      micromap_resource const* micromap) noexcept;
 
         /// The injected backend-independent device root.
@@ -256,7 +255,7 @@ export namespace deren::engine::ray_tracing {
         deren::utility::vessel::vector<std::shared_ptr<pass::pass_chain>> mask_buffers = {};
         deren::utility::vessel::vector<std::shared_ptr<pass::pass_chain>> skin_buffers = {};
         /// the bottom levels a per-frame refit touches, by index
-        deren::utility::vessel::vector<uint32_t> skin_levels = {};
+        deren::utility::vessel::vector<std::uint32_t> skin_levels = {};
         /// named `build_attempted` rather than `attempted`: the query below is `attempted()`, and dropping
         /// the underscore would declare the same name twice
         bool build_attempted = false;
@@ -264,7 +263,7 @@ export namespace deren::engine::ray_tracing {
         bool top_logged = false;
 
     public:
-        [[nodiscard]] render_resource::instances::resource_snapshot bake_resources(bool skin, uint32_t index) const {
+        [[nodiscard]] render_resource::instances::resource_snapshot bake_resources(bool skin, std::uint32_t index) const {
             auto const& buffers = skin ? skin_buffers : mask_buffers;
             return index < buffers.size() ? buffers[index]->resources().snapshot() : render_resource::instances::resource_snapshot{};
         }
@@ -287,7 +286,7 @@ export namespace deren::engine::ray_tracing {
             /// four addresses - which is what the migration bought.
             std::shared_ptr<pass::pass_chain> resources;
             render_resource::instances::view<deren::promise::rhi::micromap> handle = {};
-            uint32_t triangle_count = 0; ///< for the report line (the attachment no longer repeats the usage)
+            std::uint32_t triangle_count = 0; ///< for the report line (the attachment no longer repeats the usage)
         };
         /// @brief the micromaps this set builds, one per alphaMode MASK caster (see build())
         [[nodiscard]] std::span<micromap_resource const> micromaps() const noexcept {

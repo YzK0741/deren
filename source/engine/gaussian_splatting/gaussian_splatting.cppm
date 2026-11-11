@@ -1,5 +1,6 @@
 module;
 
+#include <cstddef>
 #include <glm/glm.hpp>
 
 export module deren.engine.gaussian_splatting;

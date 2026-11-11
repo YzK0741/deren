@@ -18,7 +18,7 @@
  * @ref deren::engine::animation::escape_mmd_name renders them for logs without assuming a codepage.
  */
 module;
-#include <cstdint>
+
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
@@ -60,7 +60,7 @@ namespace deren::engine::animation {
             // bisection converges; 32 steps put the parameter far below float precision.
             float lo = 0.0f;
             float hi = 1.0f;
-            for (int32_t i = 0; i < 32; ++i) {
+            for (std::int32_t i = 0; i < 32; ++i) {
                 float const s = 0.5f * (lo + hi);
                 if (x_at(s) < t) {
                     lo = s;

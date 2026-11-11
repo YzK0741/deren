@@ -18,12 +18,8 @@
  * so a build running unattended still starts.
  */
 
+import deren.vstd;
 #include "platform_functions.hpp" // the one declaration of utility_platform_ask_open_file; checked against the definition below
-
-#include <cstddef>
-#include <cstdint> // int32_t below, for the same measured reason as platform_path.cpp's include
-#include <cstdio>
-#include <iterator> // std::size on the stack buffers below (same reason as platform_path.cpp)
 
 #ifdef _WIN32
 // THE `#ifndef` IS LOAD-BEARING, not decoration: libstdc++'s `c++config.h` - reached through <cstddef> and
@@ -59,7 +55,7 @@ namespace {
         if (text == nullptr || text[0] == '\0') {
             return;
         }
-        int32_t const written = MultiByteToWideChar(CP_UTF8, 0, text, -1, out, static_cast<int32_t>(capacity));
+        std::int32_t const written = MultiByteToWideChar(CP_UTF8, 0, text, -1, out, static_cast<std::int32_t>(capacity));
         if (written <= 0) {
             out[0] = L'\0';
         }
@@ -101,7 +97,7 @@ namespace {
  * @note no allocation on purpose, like platform_path.cpp: the module side declares this as a plain C
  *       entry point, so this TU needs nothing from the module's world
  */
-extern "C" int32_t utility_platform_ask_open_file(char const* title, char const* filter_patterns, char* out, std::size_t const capacity) {
+extern "C" std::int32_t utility_platform_ask_open_file(char const* title, char const* filter_patterns, char* out, std::size_t const capacity) {
     if (out == nullptr || capacity == 0) {
         return -1;
     }
@@ -160,7 +156,7 @@ extern "C" int32_t utility_platform_ask_open_file(char const* title, char const*
         // a cancel leaves the extended error at zero; anything else is a failure to show the dialog
         return CommDlgExtendedError() == 0 ? 0 : -1;
     }
-    int32_t const written = WideCharToMultiByte(CP_UTF8, 0, file, -1, out, static_cast<int32_t>(capacity), nullptr, nullptr);
+    std::int32_t const written = WideCharToMultiByte(CP_UTF8, 0, file, -1, out, static_cast<std::int32_t>(capacity), nullptr, nullptr);
     if (written <= 0) {
         out[0] = '\0';
         return -1;
@@ -204,11 +200,11 @@ extern "C" int32_t utility_platform_ask_open_file(char const* title, char const*
         }
         char line[32768] = {};
         char* const got = std::fgets(line, sizeof(line), pipe);
-        int32_t const status = pclose(pipe);
+        std::int32_t const status = pclose(pipe);
         if (got == nullptr) {
             // no output: either the command does not exist (try the next backend) or the user cancelled,
             // and the encoded status is what tells them apart
-            int32_t const code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+            std::int32_t const code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
             if (code == 1) {
                 return 0; // 1 is zenity's and kdialog's "cancelled": do not ask a second time
             }

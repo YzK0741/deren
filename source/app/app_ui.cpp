@@ -1,7 +1,5 @@
 module;
 
-#include <cstddef>
-#include <cstdint>
 // Textual glm include: the definitions below name glm types, and including glm in the global
 // module fragment (the same pattern source/engine/animation/controller.cpp uses) keeps clang's
 // merged libc++ allocator declarations from clashing with the vendored std module under

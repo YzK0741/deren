@@ -15,16 +15,13 @@
  * without depending on where the process happens to have been started.
  */
 
-#include <cstddef>
-#include <cstdint>                // int32_t below: stated HERE rather than referenced transitively - libc++'s <cstddef> happens to
-                                  // provide it and libstdc++'s does not, which is a build that fails on one toolchain only
+import deren.vstd;
+
 #include "platform_functions.hpp" // the one declaration of utility_platform_executable_directory; checked against the definition below
 
-#include <iterator>
-
 #ifdef _WIN32
-// THE `#ifndef` IS LOAD-BEARING, not decoration: libstdc++'s `c++config.h`, reached through <cstddef> above,
-// already defines NOMINMAX when it pulls in a Windows header - so an unguarded `#define` here is a REdefinition,
+// THE `#ifndef` IS LOAD-BEARING, not decoration: a toolchain header can already define NOMINMAX
+// before windows.h is pulled in - so an unguarded `#define` here is a REdefinition,
 // which the project's `-Werror` turns into a build failure (measured with GCC 16.2 on MinGW; libc++'s
 // configuration does not define it, which is why the clang64 build never saw this).
 #ifndef NOMINMAX
@@ -46,7 +43,7 @@
  * @note no allocation on purpose: the module side declares this as a plain C entry point, so this TU
  *       needs nothing from the module's world
  */
-extern "C" int32_t utility_platform_executable_directory(char* out, std::size_t const capacity) {
+extern "C" std::int32_t utility_platform_executable_directory(char* out, std::size_t const capacity) {
     if (out == nullptr || capacity == 0) {
         return -1;
     }
@@ -60,7 +57,7 @@ extern "C" int32_t utility_platform_executable_directory(char* out, std::size_t 
     // strip the file name, keeping the directory (including its trailing separator)
     for (DWORD i = written; i > 0; --i) {
         if (wide[i - 1] == L'\\' || wide[i - 1] == L'/') {
-            return WideCharToMultiByte(CP_UTF8, 0, wide, static_cast<int32_t>(i), out, static_cast<int32_t>(capacity), nullptr, nullptr);
+            return WideCharToMultiByte(CP_UTF8, 0, wide, static_cast<std::int32_t>(i), out, static_cast<std::int32_t>(capacity), nullptr, nullptr);
         }
     }
     return -1; // no separator: not a filesystem path we can use
@@ -74,7 +71,7 @@ extern "C" int32_t utility_platform_executable_directory(char* out, std::size_t 
     for (ssize_t i = written; i > 0; --i) {
         if (out[i - 1] == '/') {
             out[i] = '\0'; // keep the trailing separator
-            return static_cast<int32_t>(i);
+            return static_cast<std::int32_t>(i);
         }
     }
     return -1;

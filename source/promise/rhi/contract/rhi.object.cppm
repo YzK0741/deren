@@ -3,8 +3,6 @@
 // module: deren.promise.rhi:object
 // ============================================================================
 module;
-#include <cstddef>
-#include <cstdint>
 
 export module deren.promise.rhi:object;
 export import deren.vstd;

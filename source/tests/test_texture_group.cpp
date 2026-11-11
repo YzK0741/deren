@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstring>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <span>
 #include <string_view>
@@ -178,7 +179,7 @@ void test_heap_sampling(rhi::api_core& core, deren::vulkan::main_context_view co
         CHECK(space->write_buffer(write) == rhi::error::ok);
         write.offset = 1;
         CHECK(space->write_buffer(write) == rhi::error::invalid_argument);
-        write.offset = UINT64_MAX;
+        write.offset = std::numeric_limits<std::uint64_t>::max();
         CHECK(space->write_buffer(write) == rhi::error::invalid_argument);
         write.offset = 0;
         rhi::structure_header extra{};

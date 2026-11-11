@@ -1,5 +1,5 @@
 module;
-#include <cstdint>
+
 #define VRDX_IMPLEMENTATION
 #include <vrdx/include/vk_radix_sort.h>
 module deren.vulkan.core;
@@ -29,7 +29,7 @@ namespace deren::vulkan {
             rhi::radix_sort_requirements requirements(std::uint32_t count) const noexcept override {
                 // Upstream RoundUp adds PARTITION_SIZE - 1 in uint32. Validate before entering it.
                 std::uint64_t const partitions = (static_cast<std::uint64_t>(count) + 4095u) / 4096u;
-                if (count > UINT32_MAX - 4095u || partitions > core_->device.device_properties.limits.maxComputeWorkGroupCount[0]) {
+                if (count > std::numeric_limits<std::uint32_t>::max() - 4095u || partitions > core_->device.device_properties.limits.maxComputeWorkGroupCount[0]) {
                     return {};
                 }
                 VrdxSorterStorageRequirements req{};

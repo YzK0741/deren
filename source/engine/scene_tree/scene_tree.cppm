@@ -21,8 +21,6 @@
 // ============================================================================
 module;
 
-#include <cstddef>
-#include <cstdint>
 #include <glm/glm.hpp>
 
 export module deren.engine.scene_tree;
@@ -55,7 +53,7 @@ namespace deren::engine::scene_tree {
      * @brief first motion slot of a leaf in the runtime's previous-transform buffer, or
      *        @c no_motion_slot when the leaf is not tracked frame to frame
      */
-    export constexpr uint32_t no_motion_slot = 0xFFFFFFFFu;
+    export constexpr std::uint32_t no_motion_slot = 0xFFFFFFFFu;
     export constexpr std::size_t no_source_index = std::numeric_limits<std::size_t>::max();
 
     /**
@@ -86,7 +84,7 @@ namespace deren::engine::scene_tree {
          *       it while walking the tree, and the walker only knows the interface: RTTI is off, so
          *       there is no downcast to reach a concrete leaf.
          */
-        [[nodiscard]] virtual uint32_t motion_slot() const noexcept {
+        [[nodiscard]] virtual std::uint32_t motion_slot() const noexcept {
             return no_motion_slot;
         }
     };
@@ -107,7 +105,7 @@ namespace deren::engine::scene_tree {
         // node index), so callers can map e.g. animation channel targets onto the live tree
         std::size_t source_index = no_source_index;
         // Zero is reserved for manually assembled scenes; each import has a distinct identity.
-        uint64_t import_instance = 0;
+        std::uint64_t import_instance = 0;
         // runtime draw filter: a hidden node's primitive leaf and its whole subtree are skipped by
         // visit_primitives(), so it disappears from both the visible pass and shadow-caster collection.
         bool visible = true;
@@ -174,7 +172,7 @@ namespace deren::engine::scene_tree {
         // member - MSVC /W4 reports C4458, which /WX turns into an error (clang's -Wshadow is off).
         deren::utility::vessel::string scene_name = {};
         deren::utility::vessel::vector<scene_node> roots = {};
-        uint64_t next_import_instance = 1;
+        std::uint64_t next_import_instance = 1;
 
         /**
          * @ingroup engine_scene_tree
@@ -210,7 +208,7 @@ namespace deren::engine::scene_tree {
     export void update_world(scene_node& node, glm::mat4 const& parent_world);
 
     /** @brief find an imported node's accumulated world transform; leave output unchanged when absent. */
-    export [[nodiscard]] bool find_world(scene const& parent, uint64_t import_instance, std::size_t source_index, glm::mat4& output);
+    export [[nodiscard]] bool find_world(scene const& parent, std::uint64_t import_instance, std::size_t source_index, glm::mat4& output);
 
     /**
      * @ingroup engine_scene_tree

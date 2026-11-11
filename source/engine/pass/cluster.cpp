@@ -11,7 +11,6 @@
 
 module;
 
-#include <cstdint>
 module deren.engine.pass.cluster;
 import deren.vstd;
 import deren.utility.shared;
@@ -77,7 +76,7 @@ namespace deren::engine::pass {
         if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
-        std::span<uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.parent, shader_name) : std::span<uint8_t const>{};
+        std::span<std::uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.parent, shader_name) : std::span<std::uint8_t const>{};
         if (spirv.empty()) {
             deren::utility::log("clustered lights disabled: the parent has no {}", shader_name);
             return;
@@ -102,7 +101,7 @@ namespace deren::engine::pass {
         counts.type = managed::kind::buffer;
         counts.life = managed::lifetime::frame_scratch;
         counts.scope = render_resource::resource_scope::per_frame_slot;
-        counts.buffer.size = static_cast<uint64_t>(deren::engine::max_cluster_count) * sizeof(uint32_t);
+        counts.buffer.size = static_cast<std::uint64_t>(deren::engine::max_cluster_count) * sizeof(std::uint32_t);
         counts.buffer.usage = rhi::buffer_usage::storage_coherent;
         counts.buffer.flags = rhi::to_bits(rhi::buffer_flag::device_address);
         counts.zero_on_create = true;

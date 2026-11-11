@@ -105,7 +105,7 @@ int main(int argc, char** argv) {
     }
     auto batch = service.make_batch();
     CHECK(batch.upload(target, 0, {}, {}, transfer_read) == rhi::error::invalid_argument);
-    CHECK(batch.upload(target, UINT64_MAX, bytes, {}, transfer_read) == rhi::error::invalid_argument);
+    CHECK(batch.upload(target, std::numeric_limits<std::uint64_t>::max(), bytes, {}, transfer_read) == rhi::error::invalid_argument);
     CHECK(batch.upload(target, 60, bytes, {}, transfer_read) == rhi::error::invalid_argument);
     CHECK(batch.upload(target, 0, bytes, {}, {}) == rhi::error::invalid_argument);
     CHECK(batch.upload(target, 8, bytes, {}, transfer_read) == rhi::error::ok);

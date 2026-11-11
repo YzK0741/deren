@@ -2,8 +2,6 @@
 // module: deren.promise.rhi:core
 module;
 
-#include <cstdint>
-
 export module deren.promise.rhi:core;
 export import deren.vstd;
 export import deren.utility.shared;
