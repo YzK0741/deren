@@ -1,7 +1,6 @@
 module;
 
-
-
+#include <fenv.h>
 #include <meshoptimizer.h>
 module deren.asset.subtilis.builder;
 import deren.vstd;
@@ -258,16 +257,16 @@ namespace deren::asset::subtilis::builder_detail {
         float step_error = 0;
         initialize_meshoptimizer();
         double const simplify_started = stage_now();
-        std::fenv_t environment;
-        if (std::feholdexcept(&environment) != 0) {
+        fenv_t environment;
+        if (::feholdexcept(&environment) != 0) {
             return reduction_candidate{{}, 0, rejection_reason::numeric_error};
         }
         auto count = meshopt_simplifyWithAttributes(simplified.data(), local->indices.data(), local->indices.size(), local->positions[0].data(), local->positions.size(), sizeof(array<float, 3>), attributes[0].data(), sizeof(array<float, 5>), weights.data(), weights.size(), locks.data(), target, options.relative_error, meshopt_SimplifyLockBorder | meshopt_SimplifyErrorAbsolute, &step_error);
         if (timing) {
             timing->simplify_ms += stage_now() - simplify_started;
         }
-        auto arithmetic = std::fetestexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW);
-        auto restored = std::fesetenv(&environment);
+        auto arithmetic = ::fetestexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW);
+        auto restored = ::fesetenv(&environment);
         if (arithmetic || restored || !std::isfinite(step_error) || step_error < 0) {
             return reduction_candidate{{}, 0, rejection_reason::numeric_error};
         }

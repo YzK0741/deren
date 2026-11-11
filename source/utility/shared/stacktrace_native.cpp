@@ -1,6 +1,12 @@
 // Keep OS headers in a plain TU. The fatal path holds no C++ heap objects.
-import deren.vstd;
+// This file is also compiled by the standalone POSIX probe without module support.
 #include "stacktrace_native.hpp"
+
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cstdlib>
+#include <cstring>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN

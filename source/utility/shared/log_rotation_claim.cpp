@@ -4,10 +4,10 @@
  * @ingroup utility
  */
 
-#include <wchar.h>
-
-import deren.vstd;
 #include "log_rotation_claim.hpp"
+
+#include <cstdint>
+#include <wchar.h>
 
 #ifdef _WIN32
 
@@ -47,6 +47,8 @@ extern "C" std::int32_t utility_shared_claim_log_rotation() {
 }
 
 #else
+
+#include <atomic>
 
 // POSIX (written, NOT measured - CI is windows-latest for both jobs, like dynamic_link's POSIX
 // branch): there is no leak-free OS-named object that is per PROCESS rather than per session or per

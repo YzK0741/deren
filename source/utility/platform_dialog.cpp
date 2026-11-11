@@ -18,8 +18,12 @@
  * so a build running unattended still starts.
  */
 
-import deren.vstd;
 #include "platform_functions.hpp" // the one declaration of utility_platform_ask_open_file; checked against the definition below
+
+#include <cstddef>
+#include <cstdint>
+#include <cstdio>
+#include <iterator>
 
 #ifdef _WIN32
 // THE `#ifndef` IS LOAD-BEARING, not decoration: libstdc++'s `c++config.h` - reached through <cstddef> and

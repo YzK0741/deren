@@ -1,5 +1,7 @@
-import deren.vstd;
 #include "log_test_hooks.hpp"
+
+#include <atomic>
+#include <thread>
 
 namespace {
     std::atomic<int> remaining{-1};

@@ -15,9 +15,11 @@
  * without depending on where the process happens to have been started.
  */
 
-import deren.vstd;
-
 #include "platform_functions.hpp" // the one declaration of utility_platform_executable_directory; checked against the definition below
+
+#include <cstddef>
+#include <cstdint>
+#include <iterator>
 
 #ifdef _WIN32
 // THE `#ifndef` IS LOAD-BEARING, not decoration: a toolchain header can already define NOMINMAX
