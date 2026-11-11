@@ -4,15 +4,7 @@
 // build injects rather than relative to the working directory.
 #include "vk_test.h"
 
-#include <array>
-#include <cmath>
-#include <cstdint>
-#include <filesystem>
-#include <fstream>
-#include <string>
-#include <string_view>
-#include <utility>
-
+import deren.vstd;
 import deren.utility.shared;
 import deren.application_configuration;
 
@@ -142,6 +134,8 @@ namespace {
         // default: the GEOMETRY lane is the opaque path - the frame every recorded reference was made from
         CHECK(!settings.render.subtilis);
         CHECK(settings.render.subtilis_error_px == 1.f && !settings.render.subtilis_hysteresis);
+        CHECK(settings.render.subtilis_page_upload_bytes == 8ull << 20);
+        CHECK(settings.render.subtilis_resident_page_bytes == 64ull << 20);
         CHECK(!settings.render.visibility_buffer);
         CHECK(!settings.render.visibility_texture_streaming);
         CHECK(!settings.render.software_raster);
@@ -182,6 +176,8 @@ namespace {
         CHECK(settings.render.ssao_samples == 8);
         CHECK(!settings.render.taa);
         CHECK(!settings.render.subtilis);
+        CHECK(settings.render.subtilis_page_upload_bytes == 8ull << 20);
+        CHECK(settings.render.subtilis_resident_page_bytes == 64ull << 20);
         CHECK(!settings.render.visibility_buffer); // the example ships the switch OFF (the historic frame)
         CHECK(!settings.render.software_raster);
         CHECK(settings.lighting.demo_lights == 0);
@@ -777,7 +773,7 @@ namespace {
         std::filesystem::remove("vec3-full.toml");
     }
 
-    // INTEGER OPTIONS ARE VALIDATED IN 64-BIT SPACE, BEFORE THE NARROWING: `static_cast<int32_t>` is a
+    // INTEGER OPTIONS ARE VALIDATED IN 64-BIT SPACE, BEFORE THE NARROWING: `static_cast<std::int32_t>` is a
     // modulo conversion, so 2^32 + 2 used to arrive at a 1..4 check looking like a valid 2, and 2^32 + 5000
     // used to become a plausible 5000-pixel window. Out-of-range values now saturate (and are then clamped
     // or rejected by the rule that holds the range) or keep the default - but they never wrap.
@@ -813,7 +809,7 @@ namespace {
     }
 } // namespace
 
-int32_t main() {
+std::int32_t main() {
     std::ofstream("probe-invalid.toml") << "[reflection_probe]\nenabled=true\nposition=\"bad\"\nfade=\"bad\"\n";
     auto invalid_probe = deren::app_config::load_settings("probe-invalid.toml").reflection_probe;
     CHECK(!std::isfinite(invalid_probe.position[0]));
@@ -848,6 +844,32 @@ int32_t main() {
             out << "[render]\nsubtilis_error_px = " << value << '\n';
         }
         CHECK(deren::app_config::load_settings(file.string()).render.subtilis_error_px == 1.f);
+        std::filesystem::remove(file);
+    }
+    {
+        auto file = std::filesystem::path("subtilis-page-budget-range.toml");
+        {
+            std::ofstream out(file);
+            out << "[render]\n"
+                   "subtilis_page_upload_bytes = 4294967297\n"
+                   "subtilis_resident_page_bytes = 1234\n";
+        }
+        auto const settings = deren::app_config::load_settings(file.string());
+        CHECK(settings.render.subtilis_page_upload_bytes == 4294967296ull);
+        CHECK(settings.render.subtilis_resident_page_bytes == 65536ull);
+        std::filesystem::remove(file);
+    }
+    {
+        auto file = std::filesystem::path("subtilis-page-budget-valid.toml");
+        {
+            std::ofstream out(file);
+            out << "[render]\n"
+                   "subtilis_page_upload_bytes = 131072\n"
+                   "subtilis_resident_page_bytes = 262144\n";
+        }
+        auto const settings = deren::app_config::load_settings(file.string());
+        CHECK(settings.render.subtilis_page_upload_bytes == 131072ull);
+        CHECK(settings.render.subtilis_resident_page_bytes == 262144ull);
         std::filesystem::remove(file);
     }
     test_load_settings_applies_toml();

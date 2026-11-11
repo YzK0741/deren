@@ -1,6 +1,5 @@
 module;
-#include <cstddef>
-#include <cstdint>
+
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 module deren.engine.shadow_fit;
@@ -26,7 +25,7 @@ namespace deren::engine::shadow_fit {
         for (auto const& [world_min, world_max] : world_boxes) {
             glm::vec3 caster_min(std::numeric_limits<float>::max());
             glm::vec3 caster_max(std::numeric_limits<float>::lowest());
-            for (int32_t corner = 0; corner < 8; ++corner) {
+            for (std::int32_t corner = 0; corner < 8; ++corner) {
                 glm::vec3 const p((corner & 1) != 0 ? world_max.x : world_min.x,
                                   (corner & 2) != 0 ? world_max.y : world_min.y,
                                   (corner & 4) != 0 ? world_max.z : world_min.z);
@@ -73,7 +72,7 @@ namespace deren::engine::shadow_fit {
         float const scene_far = glm::distance(params.camera_pos, params.scene_center) + params.scene_radius;
         float const split_near = camera_near;
         float const split_far = std::max(std::min(camera_far, scene_far), camera_near * 2.0f);
-        uint32_t const cascades = std::clamp(params.cascades, 1u, max_shadow_cascades);
+        std::uint32_t const cascades = std::clamp(params.cascades, 1u, max_shadow_cascades);
         // Practical split scheme (Zhang et al.): a logarithmic and a uniform split blended by lambda.
         // Pure logarithmic puts almost all the resolution in the first few metres (the camera near
         // plane is 0.1), pure uniform wastes the near range - the blend is what real-time shadows use.
@@ -87,7 +86,7 @@ namespace deren::engine::shadow_fit {
 
         // the scene sphere's light-space box, for the unbounded-caster fallback (used by every cascade)
         std::pair<glm::vec3, glm::vec3> scene_sphere_ls = {glm::vec3(std::numeric_limits<float>::max()), glm::vec3(std::numeric_limits<float>::lowest())};
-        for (int32_t corner = 0; corner < 8; ++corner) {
+        for (std::int32_t corner = 0; corner < 8; ++corner) {
             glm::vec3 const p = params.scene_center +
                                 glm::vec3((corner & 1) != 0 ? params.scene_radius : -params.scene_radius,
                                           (corner & 2) != 0 ? params.scene_radius : -params.scene_radius,
@@ -99,7 +98,7 @@ namespace deren::engine::shadow_fit {
 
         // ---- one fit per cascade ----
         float last_texel_world = 0.0f;
-        for (uint32_t cascade = 0; cascade < cascades; ++cascade) {
+        for (std::uint32_t cascade = 0; cascade < cascades; ++cascade) {
             float const boundary = cascade == 0 ? split_near : split_distance(static_cast<float>(cascade) / static_cast<float>(cascades));
             float const blend = std::clamp(params.cascade_blend, 0.0f, 0.5f);
             float const cascade_near = cascade == 0 ? split_near : std::max(split_near, boundary - std::max(boundary * blend, 1e-4f));
@@ -118,13 +117,13 @@ namespace deren::engine::shadow_fit {
             // up-sun can still throw its shadow into this cascade
             deren::utility::vessel::array<glm::vec3, 16> points = {};
             std::size_t count = 0;
-            for (int32_t zi = 0; zi < 2; ++zi) {
-                for (int32_t yi = 0; yi < 2; ++yi) {
-                    for (int32_t xi = 0; xi < 2; ++xi) {
+            for (std::int32_t zi = 0; zi < 2; ++zi) {
+                for (std::int32_t yi = 0; yi < 2; ++yi) {
+                    for (std::int32_t xi = 0; xi < 2; ++xi) {
                         glm::vec4 const clip(xi == 0 ? -1.0f : 1.0f, yi == 0 ? -1.0f : 1.0f, zi == 0 ? 0.0f : 1.0f, 1.0f);
                         glm::vec4 const view_corner = inverse_fit_proj * clip;
-                        view_corners[static_cast<int32_t>(count / 2)] = glm::vec3(view_corner) / view_corner.w;
-                        center_view += view_corners[static_cast<int32_t>(count / 2)];
+                        view_corners[static_cast<std::int32_t>(count / 2)] = glm::vec3(view_corner) / view_corner.w;
+                        center_view += view_corners[static_cast<std::int32_t>(count / 2)];
                         glm::vec4 const world = inverse_view_proj * clip;
                         glm::vec3 const corner = glm::vec3(world) / world.w;
                         points[count++] = corner;
@@ -237,7 +236,7 @@ namespace deren::engine::shadow_fit {
         // Unused cascade lanes must not hold garbage: a shader that samples a lane beyond the active
         // count (it does not - every path checks cascade_count first) would otherwise read whatever the
         // previous frame's fit left there. Repeating the last fitted matrix is the honest value.
-        for (uint32_t cascade = cascades; cascade < max_shadow_cascades; ++cascade) {
+        for (std::uint32_t cascade = cascades; cascade < max_shadow_cascades; ++cascade) {
             result.light_view_proj[cascade] = result.light_view_proj[cascades - 1];
             result.cascade_texel_world[cascade] = last_texel_world;
             result.cascade_splits[cascade] = result.cascade_splits[cascades - 1];

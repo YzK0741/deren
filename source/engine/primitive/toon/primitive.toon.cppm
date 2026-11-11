@@ -10,7 +10,6 @@
 
 module;
 
-#include <cstdint>
 #include <glm/glm.hpp>
 
 export module deren.engine.primitive:toon;
@@ -21,7 +20,7 @@ import deren.vstd;
 import :records;
 
 namespace deren::engine {
-    export enum class toon_slot : uint32_t {
+    export enum class toon_slot : std::uint32_t {
         diffuse_ramp = 0,   // `_DiffRampMap`: what the lit/shadow ramp is looked up in
         shadow_lut = 1,     // `_ShadowLutTex`: the colour the shadow side is tinted toward
         specular_ramp = 2,  // `_SpecRampMap`: the highlight's shape and strength
@@ -217,8 +216,8 @@ namespace deren::engine {
     // and a word added to it moves every offset in `surface.glsl` and `shadow.slang` (see that slot's note).
     // A lane added at or after `sdf_lightmap` therefore costs a component of that buffer and NOTHING here but
     // an entry in the enum, the format table in `register_material`, and the application's vocabulary table.
-    inline constexpr uint32_t toon_record_lanes = 4;
-    static_assert(static_cast<uint32_t>(toon_slot::sdf_lightmap) == toon_record_lanes,
+    inline constexpr std::uint32_t toon_record_lanes = 4;
+    static_assert(static_cast<std::uint32_t>(toon_slot::sdf_lightmap) == toon_record_lanes,
                   "the first lane beside the record is the one the split is named for");
     // AND THE LANES BESIDE THE RECORD COME IN BLOCKS OF FOUR, because they are carried as `uvec4`s: lanes 4..7 in
     // the first block, 8..11 in the second and 12..15 in the third. The shader addresses the buffer by block, so
@@ -257,8 +256,8 @@ namespace deren::engine {
     // `uvec4`s per material, the dedup key follows the constant, and `heap_access.slang` gains the block-3 accessor
     // (`toon_lanes4_at`) beside `toon_lanes_at` / `toon_lanes2_at` / `toon_lanes3_at`. The Goo spec's rejected `Rb`
     // was a lane for a SECOND `_RS` SHEET, which is a host-side name choice and still needs no lane; it is not this.
-    export inline constexpr uint32_t toon_lane_blocks = 4;
-    static_assert(static_cast<uint32_t>(toon_slot::split_normal) == toon_record_lanes + 4u,
+    export inline constexpr std::uint32_t toon_lane_blocks = 4;
+    static_assert(static_cast<std::uint32_t>(toon_slot::split_normal) == toon_record_lanes + 4u,
                   "split_normal is the first lane of the SECOND block, which is the one after the record's");
     // AND A LANE PAST THE LAST BLOCK IS THE FAILURE THIS CATCHES, which is a real one rather than a formality: the
     // shader addresses the table by BLOCK (`toon_lanes_at` block 0, `toon_lanes2_at` block 1, `toon_lanes3_at`
@@ -266,7 +265,7 @@ namespace deren::engine {
     // host into a block no accessor names - a lane that silently reads nothing rather than a compile error. Raising
     // `toon_lane_blocks` needs its accessor widened in the same move (see the note above), so the assertion is
     // where that decision is forced; the ceiling is now 4 + 4*4 = 20.
-    static_assert(static_cast<uint32_t>(toon_slot::count) <= toon_record_lanes + toon_lane_blocks * 4u,
+    static_assert(static_cast<std::uint32_t>(toon_slot::count) <= toon_record_lanes + toon_lane_blocks * 4u,
                   "a toon lane past the last block needs toon_lane_blocks raised AND its accessors widened");
 
     /**
@@ -296,7 +295,7 @@ namespace deren::engine {
      * first - a wrong value rather than a missing one, and invisible in the frame unless some other scene happens
      * to contain such a pair (see the "材质去重键补上 colour lanes" section of `remaining_port_spec.md`).
      */
-    export enum class toon_colour_lane : uint32_t {
+    export enum class toon_colour_lane : std::uint32_t {
         sdf_rim = 0,        // `_SDFRimColor`: the FACE's rim colour, read where the SDF drives the rim
         eye_highlight = 1,  // `_EyeHighLightColor`: the iris' highlight tint
         eye_scattering = 2, // `_EyeScatteringColor`: the iris' scattering tint

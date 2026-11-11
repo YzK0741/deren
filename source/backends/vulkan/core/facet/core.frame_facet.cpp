@@ -7,8 +7,7 @@
 // keeps thin forwarders for its callers.
 // ============================================================================
 module;
-#include <cstddef>
-#include <cstdint>
+
 #include <vulkan/vulkan.h>
 module deren.vulkan.core;
 import deren.vstd;
@@ -92,7 +91,7 @@ namespace deren::vulkan {
     }
 
     rhi::submit_info core::frame_facet::frame_begin() {
-        uint32_t image_index = 0;
+        std::uint32_t image_index = 0;
         VkResult const acquired = this->full_core.acquire_next_image(image_index);
         if (acquired != VK_SUCCESS && acquired != VK_SUBOPTIMAL_KHR) {
             // tier-1's frame_begin() has no error channel (plan §3.3): a zeroed answer is the contract's

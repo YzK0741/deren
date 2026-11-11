@@ -1,7 +1,5 @@
 module;
-#include <cstddef>
-#include <cstdint>
-#include <cstring>
+
 export module deren.engine.render_resource.instances;
 export import deren.vstd;
 export import deren.utility.shared;
@@ -26,13 +24,13 @@ export namespace deren::engine::render_resource::instances {
     struct micromap_upload {
         deren::utility::vessel::vector<std::byte> data;
         deren::utility::vessel::vector<rhi::micromap_triangle> triangles;
-        deren::utility::vessel::vector<uint32_t> indices;
+        deren::utility::vessel::vector<std::uint32_t> indices;
     };
     struct resource_context {
-        uint32_t frame_slots = rhi::max_frames_in_flight;
-        uint32_t output_images = 1;
-        uint32_t shadow_map_size = 2048;
-        uint32_t shadow_layers = 1;
+        std::uint32_t frame_slots = rhi::max_frames_in_flight;
+        std::uint32_t output_images = 1;
+        std::uint32_t shadow_map_size = 2048;
+        std::uint32_t shadow_layers = 1;
         rhi::image_extent render_extent{.width = 1, .height = 1, .depth = 1};
     };
     struct request {
@@ -53,7 +51,7 @@ export namespace deren::engine::render_resource::instances {
         // The immutable bytes are used only during synchronous creation. A small, unique
         // content key stays in generations after the upload bytes have been released by the producer.
         std::shared_ptr<std::byte const> initial_data;
-        size_t initial_data_size = 0;
+        std::size_t initial_data_size = 0;
         std::shared_ptr<void const> initialization_key;
         bool zero_on_create = false; // mapped buffer only; initialize each new generation once
         bool zero_on_frame = false;  // mapped frame-slot buffer only; history is preserved
@@ -85,7 +83,7 @@ export namespace deren::engine::render_resource::instances {
     };
     struct generation {
         rhi::shared_object<rhi::api_core> device; // destroyed last, after the objects created through it
-        uint64_t version = 0;
+        std::uint64_t version = 0;
         request description{};
         deren::utility::vessel::vector<resource_instance> objects;
     };
@@ -118,14 +116,14 @@ export namespace deren::engine::render_resource::instances {
         bool same(resource_snapshot const& other) const noexcept {
             return state == other.state;
         }
-        size_t size() const noexcept {
+        std::size_t size() const noexcept {
             return state ? state->entries.size() : 0;
         }
     };
     class resource_registry {
         rhi::shared_object<rhi::api_core> device_handle;
         std::shared_ptr<resource_set const> active;
-        uint64_t next_version = 1;
+        std::uint64_t next_version = 1;
 
     public:
         void drain() const {
@@ -177,7 +175,7 @@ export namespace deren::engine::render_resource::instances {
             }
             auto next = std::make_shared<resource_set>();
             for (auto const& [id, value] : desired) {
-                uint32_t count = 1u;
+                std::uint32_t count = 1u;
                 if (value.scope == resource_scope::per_frame_slot) {
                     count = context.frame_slots;
                 } else if (value.scope == resource_scope::per_swapchain_image) {
@@ -205,7 +203,7 @@ export namespace deren::engine::render_resource::instances {
                     created->description.micromap_data.reset();
                     created->description.image.debug_name = nullptr;
                     created->objects.reserve(count);
-                    for (uint32_t index = 0; index < count; ++index) {
+                    for (std::uint32_t index = 0; index < count; ++index) {
                         resource_instance object;
                         if (value.type == kind::image) {
                             if (value.initialization_key && !value.initial_data) {
@@ -227,7 +225,7 @@ export namespace deren::engine::render_resource::instances {
                                 return rhi::error::initialization_failed;
                             }
                             object.layers.reserve(value.layer_views ? value.image.array_layers : 0);
-                            for (uint32_t layer = 0; value.layer_views && layer < value.image.array_layers; ++layer) {
+                            for (std::uint32_t layer = 0; value.layer_views && layer < value.image.array_layers; ++layer) {
                                 rhi::image_view_desc desc{};
                                 desc.base_layer = layer;
                                 desc.layer_count = 1;
@@ -256,7 +254,7 @@ export namespace deren::engine::render_resource::instances {
                         } else if (value.type == kind::acceleration_structure) {
                             auto desc = value.structure;
                             desc.geometries = value.geometries.empty() ? nullptr : value.geometries.data();
-                            desc.geometry_count = static_cast<uint32_t>(value.geometries.size());
+                            desc.geometry_count = static_cast<std::uint32_t>(value.geometries.size());
                             object.structure = rhi::unique_object<rhi::acceleration_structure>{device->resources->create_acceleration_structure(desc)};
                             if (!object.structure) {
                                 return rhi::error::initialization_failed;
@@ -305,7 +303,7 @@ export namespace deren::engine::render_resource::instances {
         }
         // Upload only to a completed slot (or a newly allocated, unused instance). No flush API exists,
         // so cached and GPU-only allocations cannot serve this direct host-write operation.
-        rhi::error write_frame_buffer(uint32_t slot, resource_id id, std::span<std::byte const> bytes) {
+        rhi::error write_frame_buffer(std::uint32_t slot, resource_id id, std::span<std::byte const> bytes) {
             if (!active) {
                 return rhi::error::invalid_argument;
             }
@@ -333,7 +331,7 @@ export namespace deren::engine::render_resource::instances {
             return rhi::error::ok;
         }
         // The caller must have completed the GPU wait for this slot before calling this method.
-        rhi::error initialize_frame(uint32_t completed_slot, std::span<resource_id const> preserved = {}) {
+        rhi::error initialize_frame(std::uint32_t completed_slot, std::span<resource_id const> preserved = {}) {
             if (completed_slot >= frame_slots) {
                 return rhi::error::invalid_argument;
             }
@@ -350,7 +348,7 @@ export namespace deren::engine::render_resource::instances {
         }
 
     private:
-        uint32_t frame_slots = rhi::max_frames_in_flight;
+        std::uint32_t frame_slots = rhi::max_frames_in_flight;
         static bool valid(request const& value) {
             if (value.micromap_data && value.type != kind::micromap) {
                 return false;
@@ -406,7 +404,7 @@ export namespace deren::engine::render_resource::instances {
                     return false;
                 }
                 auto const& data = value.micromap_data;
-                return !data || (data->data.size() == uint64_t(desc.triangle_count) * desc.data_stride &&
+                return !data || (data->data.size() == std::uint64_t(desc.triangle_count) * desc.data_stride &&
                                  data->triangles.size() == desc.triangle_count && data->indices.size() == desc.triangle_count);
             }
             if (value.type == kind::acceleration_structure) {
@@ -418,7 +416,7 @@ export namespace deren::engine::render_resource::instances {
                     return value.structure.instance_capacity && value.geometries.empty();
                 }
                 return value.structure.type == rhi::acceleration_structure_type::bottom_level &&
-                       !value.structure.instance_capacity && !value.geometries.empty() && value.geometries.size() <= UINT32_MAX;
+                       !value.structure.instance_capacity && !value.geometries.empty() && value.geometries.size() <= std::numeric_limits<std::uint32_t>::max();
             }
             return false;
         }
@@ -448,7 +446,7 @@ export namespace deren::engine::render_resource::instances {
                 if (a.structure.type != b.structure.type || a.structure.flags != b.structure.flags || a.geometries.size() != b.geometries.size()) {
                     return false;
                 }
-                for (size_t i = 0; i < a.geometries.size(); ++i) {
+                for (std::size_t i = 0; i < a.geometries.size(); ++i) {
                     auto const& x = a.geometries[i];
                     auto const& y = b.geometries[i];
                     if (x.vertex_address != y.vertex_address || x.vertex_stride != y.vertex_stride || x.vertex_count != y.vertex_count ||

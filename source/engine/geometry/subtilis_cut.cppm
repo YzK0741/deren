@@ -9,7 +9,6 @@
 module;
 
 #include <cstddef>
-#include <cstdint>
 
 export module deren.engine.subtilis.cut;
 

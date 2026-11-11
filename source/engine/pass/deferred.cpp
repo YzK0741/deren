@@ -6,8 +6,6 @@
 
 module;
 
-#include <algorithm> // std::clamp / std::max in set_ssao's clamps
-#include <cstdint>
 #include <glm/glm.hpp> // the push block's ssao lane and the frame's inverse view-projection
 module deren.engine.pass.deferred;
 import deren.vstd;
@@ -70,8 +68,8 @@ namespace deren::engine::pass {
         if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
-        std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.parent, vertex_shader_name) : std::span<uint8_t const>{};
-        std::span<uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.parent, fragment_shader_name) : std::span<uint8_t const>{};
+        std::span<std::uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.parent, vertex_shader_name) : std::span<std::uint8_t const>{};
+        std::span<std::uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.parent, fragment_shader_name) : std::span<std::uint8_t const>{};
         if (vertex_spirv.empty() || fragment_spirv.empty()) {
             deren::utility::log("deferred lighting disabled: the parent has no {} or {}", vertex_shader_name, fragment_shader_name);
             return;
@@ -95,7 +93,7 @@ namespace deren::engine::pass {
         // the target arrives per frame (the host picks it - see the header).
     }
 
-    void deferred_pass::set_ssao(bool const enabled, float const radius, float const intensity, uint32_t const samples) noexcept {
+    void deferred_pass::set_ssao(bool const enabled, float const radius, float const intensity, std::uint32_t const samples) noexcept {
         // The clamps came with the parameters, because they are the same fact: an intensity above 1 darkens past
         // black, a negative radius is meaningless, and the sample count is bounded by the SHADER's array (16).
         this->ssao_active = enabled;

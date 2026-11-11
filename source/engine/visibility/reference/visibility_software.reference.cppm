@@ -7,7 +7,7 @@
 // ============================================================================
 
 module;
-#include <cstdint>
+
 export module deren.engine.visibility.software:reference;
 export import deren.vstd;
 

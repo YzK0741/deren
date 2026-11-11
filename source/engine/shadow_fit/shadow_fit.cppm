@@ -20,7 +20,6 @@
 // ============================================================================
 module;
 
-#include <cstdint>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -76,12 +75,12 @@ namespace deren::engine::shadow_fit {
         /// corner is extended by this so those casters are inside the fitted box
         float caster_extent = 1.0f;
         /// active cascades, 1..max_shadow_cascades (clamped here)
-        uint32_t cascades = 1;
+        std::uint32_t cascades = 1;
         /// blend fraction before a split; the next cascade must cover this receiver band
         float cascade_blend = 0.1f;
         /// shadow map edge length in texels; drives the texel-size quantization and the per-texel
         /// world size reported back
-        uint32_t map_size = 2048;
+        std::uint32_t map_size = 2048;
         /// whether an unbounded caster was found (see fit_casters): its shadow can land anywhere, so
         /// the whole scene sphere's DEPTH range enters every cascade's fit
         bool unbounded_caster = false;
@@ -107,7 +106,7 @@ namespace deren::engine::shadow_fit {
         /// the normalized light direction the fit used; the caller stores it (its `w` lane also
         /// carries 1 / map_size for the shader)
         glm::vec3 light_dir = {};
-        uint32_t cascade_count = 0;
+        std::uint32_t cascade_count = 0;
         /// false when the camera was degenerate: the caller must NOT treat this as a fit (the
         /// previous matrices stand) and must not advance its cache
         bool valid = false;

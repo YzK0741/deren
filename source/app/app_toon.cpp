@@ -1,7 +1,5 @@
 module;
 
-#include <cstddef>
-#include <cstdint>
 #include <glm/glm.hpp>
 
 module deren.app.toon;
@@ -546,8 +544,8 @@ namespace deren::app::detail {
     // what makes the texture branch and the procedural branch produce the same tint for the same family rather
     // than merely similar ones. `source/tests/test_toon_material_sidecar.cpp` reads both files and fails on drift -
     // and it is there rather than in A separate test because the contract is a sidecar-lane contract.
-    constexpr uint32_t baked_ramp_width = 256;
-    constexpr uint32_t baked_ramp_height = 8;
+    constexpr std::uint32_t baked_ramp_width = 256;
+    constexpr std::uint32_t baked_ramp_height = 8;
     constexpr float baked_ramp_half_width = 0.035f;
     static auto const bake_unit_ramp = []() {
         // `smoothstep(0.5 - w, 0.5 + w, x)`: the same Hermite step the shader's procedural branch builds, with
@@ -559,12 +557,12 @@ namespace deren::app::detail {
             float const t = std::clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
             return t * t * (3.0f - 2.0f * t);
         };
-        deren::utility::vessel::vector<uint8_t> pixels(static_cast<std::size_t>(baked_ramp_width) * baked_ramp_height * 4u, 255u);
-        for (uint32_t v = 0; v < baked_ramp_height; ++v) {
-            for (uint32_t u = 0; u < baked_ramp_width; ++u) {
+        deren::utility::vessel::vector<std::uint8_t> pixels(static_cast<std::size_t>(baked_ramp_width) * baked_ramp_height * 4u, 255u);
+        for (std::uint32_t v = 0; v < baked_ramp_height; ++v) {
+            for (std::uint32_t u = 0; u < baked_ramp_width; ++u) {
                 float const x = static_cast<float>(u) / static_cast<float>(baked_ramp_width - 1u);
                 float const step = smoothstep(0.5f - baked_ramp_half_width, 0.5f + baked_ramp_half_width, x);
-                uint8_t* const texel = pixels.data() + (static_cast<std::size_t>(v) * baked_ramp_width + u) * 4u;
+                std::uint8_t* const texel = pixels.data() + (static_cast<std::size_t>(v) * baked_ramp_width + u) * 4u;
                 // GREY, and the SHADER READS `.r`: the ramp carries the step and nothing else, so the family's
                 // the `shadow_tint` is what colours the dark side rather than a bake that could only ever hold
                 // one family's tint. Writing the same value into R, G and B keeps the asset readable as a ramp
@@ -574,7 +572,7 @@ namespace deren::app::detail {
                 // what the sampler hands the shader is then the LINEAR step, which is the number the procedural
                 // branch's `smoothstep` produced. Encoding is what makes the two branches agree on the VALUE and
                 // not just on the shape.
-                uint8_t const encoded = static_cast<uint8_t>(std::clamp(srgb_encode(step), 0.0f, 1.0f) * 255.0f + 0.5f);
+                std::uint8_t const encoded = static_cast<std::uint8_t>(std::clamp(srgb_encode(step), 0.0f, 1.0f) * 255.0f + 0.5f);
                 texel[0] = encoded;
                 texel[1] = encoded;
                 texel[2] = encoded;
@@ -597,22 +595,22 @@ namespace deren::app::detail {
     // term rather than by an invented band, which is the same neutrality the other bakes keep - and the real map
     // takes precedence whenever the model has one (`_DiffRampMap` is on every character material in this
     // repository, so the fallback is for fixtures and for models exported without it).
-    constexpr uint32_t baked_neutral_ramp_width = 256;
-    constexpr uint32_t baked_neutral_ramp_height = 8;
+    constexpr std::uint32_t baked_neutral_ramp_width = 256;
+    constexpr std::uint32_t baked_neutral_ramp_height = 8;
     static auto const bake_neutral_ramp = []() {
         auto const srgb_encode = [](float const linear) {
             return linear <= 0.0031308f ? linear * 12.92f : 1.055f * std::pow(linear, 1.0f / 2.4f) - 0.055f;
         };
         // WHITE RGB, filled in here and never overwritten: the lane is uploaded as sRGB, so 255 is the encoded
         // form of the linear 1.0 the shading stage needs back - a colour mapping that changes nothing.
-        deren::utility::vessel::vector<uint8_t> pixels(static_cast<std::size_t>(baked_neutral_ramp_width) * baked_neutral_ramp_height * 4u, 255u);
-        for (uint32_t v = 0; v < baked_neutral_ramp_height; ++v) {
-            for (uint32_t u = 0; u < baked_neutral_ramp_width; ++u) {
+        deren::utility::vessel::vector<std::uint8_t> pixels(static_cast<std::size_t>(baked_neutral_ramp_width) * baked_neutral_ramp_height * 4u, 255u);
+        for (std::uint32_t v = 0; v < baked_neutral_ramp_height; ++v) {
+            for (std::uint32_t u = 0; u < baked_neutral_ramp_width; ++u) {
                 float const x = static_cast<float>(u) / static_cast<float>(baked_neutral_ramp_width - 1u);
-                uint8_t* const texel = pixels.data() + (static_cast<std::size_t>(v) * baked_neutral_ramp_width + u) * 4u;
+                std::uint8_t* const texel = pixels.data() + (static_cast<std::size_t>(v) * baked_neutral_ramp_width + u) * 4u;
                 // ENCODED for the same reason the unit step is: the lane is an sRGB texture, so the shader must
                 // get the LINEAR lightness back, and writing `x` raw would hand it the encoded one.
-                texel[3] = static_cast<uint8_t>(std::clamp(srgb_encode(x), 0.0f, 1.0f) * 255.0f + 0.5f);
+                texel[3] = static_cast<std::uint8_t>(std::clamp(srgb_encode(x), 0.0f, 1.0f) * 255.0f + 0.5f);
             }
         }
         return pixels;
@@ -641,13 +639,13 @@ namespace deren::app::detail {
     // the in-tile Y is the BLUE channel FLIPPED, and each channel's stored value is `index / (tiles - 1)`. The
     // half-texel offsets are in the SHADER rather than here - the bake writes texel centres, and a reader that
     // sampled corners would be off by half a texel in every direction.
-    constexpr uint32_t baked_lut_tiles = 32;
-    constexpr uint32_t baked_lut_width = baked_lut_tiles * baked_lut_tiles;
-    constexpr uint32_t baked_lut_height = baked_lut_tiles;
+    constexpr std::uint32_t baked_lut_tiles = 32;
+    constexpr std::uint32_t baked_lut_width = baked_lut_tiles * baked_lut_tiles;
+    constexpr std::uint32_t baked_lut_height = baked_lut_tiles;
     static auto const bake_shadow_lut = []() {
-        deren::utility::vessel::vector<uint8_t> pixels(static_cast<std::size_t>(baked_lut_width) * baked_lut_height * 4u, 255u);
-        for (uint32_t row = 0; row < baked_lut_height; ++row) {
-            for (uint32_t column = 0; column < baked_lut_width; ++column) {
+        deren::utility::vessel::vector<std::uint8_t> pixels(static_cast<std::size_t>(baked_lut_width) * baked_lut_height * 4u, 255u);
+        for (std::uint32_t row = 0; row < baked_lut_height; ++row) {
+            for (std::uint32_t column = 0; column < baked_lut_width; ++column) {
                 // The identity cube at this texel's coordinate: the X channel from which tile it is in, the Y
                 // channel from where it sits inside that tile, the Z channel from the row - flipped, because the
                 // shader reads the cube's Z from the BOTTOM of the strip upward.
@@ -655,8 +653,8 @@ namespace deren::app::detail {
                 float const y = static_cast<float>(column % baked_lut_tiles) / static_cast<float>(baked_lut_tiles - 1u);
                 float const z = static_cast<float>(baked_lut_tiles - 1u - row) / static_cast<float>(baked_lut_tiles - 1u);
                 float const cube[3] = {x, y, z};
-                uint8_t* const texel = pixels.data() + (static_cast<std::size_t>(row) * baked_lut_width + column) * 4u;
-                for (int32_t c = 0; c < 3; ++c) {
+                std::uint8_t* const texel = pixels.data() + (static_cast<std::size_t>(row) * baked_lut_width + column) * 4u;
+                for (std::int32_t c = 0; c < 3; ++c) {
                     // STORED AS THE DISPLAY-SPACE COORDINATE, which is what keeps the identity true now that the
                     // shader indexes this lane by the DISPLAY-SPACE albedo (the game's domain - see
                     // character_forward.slang's toon_shadow_lut). The lane is uploaded as an sRGB texture, so the
@@ -664,7 +662,7 @@ namespace deren::app::detail {
                     // the LINEAR value that coordinate means, which is exactly the albedo it looked up. Encoding the
                     // linear coordinate instead - what this bake did before the domain changed - would hand back
                     // `srgb(albedo)` decoded, i.e. a brighter albedo, on every material with no LUT.
-                    texel[c] = static_cast<uint8_t>(std::clamp(cube[c], 0.0f, 1.0f) * 255.0f + 0.5f);
+                    texel[c] = static_cast<std::uint8_t>(std::clamp(cube[c], 0.0f, 1.0f) * 255.0f + 0.5f);
                 }
                 texel[3] = 255u;
             }
@@ -685,12 +683,12 @@ namespace deren::app::detail {
     // artist's matcap" is the reference's expression with the lookup at zero - `1 + 0 * strength` - and any
     // other content would be this repository inventing art direction and calling it a substitute. The lane is
     // real, it is read, and what it is FOR is honouring an authored ball.
-    constexpr uint32_t baked_matcap_size = 256;
+    constexpr std::uint32_t baked_matcap_size = 256;
     static auto const bake_matcap = []() {
         // A matcap is an sRGB reference image (the reference's `EfClothSampleMatcap` says so explicitly), so the
         // lane's upload format applies here as it does to the ramps: zero is zero in both encodings, which is the
         // one value where the encode step cannot disagree with itstate.
-        return deren::utility::vessel::vector<uint8_t>(static_cast<std::size_t>(baked_matcap_size) * baked_matcap_size * 4u, 0u);
+        return deren::utility::vessel::vector<std::uint8_t>(static_cast<std::size_t>(baked_matcap_size) * baked_matcap_size * 4u, 0u);
     };
 
     // ---- THE METALLIC/GLOSS NEUTRAL IS GONE, AND ITS ABSENCE IS THE CONTRACT ----
@@ -913,7 +911,7 @@ namespace deren::app::detail {
         std::string_view const texture_name = material->slot(slot_name);
         deren::gltf::texture_data const* model_tex = nullptr;
         if (!texture_name.empty()) {
-            if (std::optional<uint16_t> const index = state.scenes->texture_index_by_name(texture_name); index.has_value()) {
+            if (std::optional<std::uint16_t> const index = state.scenes->texture_index_by_name(texture_name); index.has_value()) {
                 deren::gltf::texture_data const& candidate = state.scenes->textures[*index];
                 if (!candidate.data.empty() && candidate.width != 0 && candidate.height != 0) {
                     model_tex = &candidate; // present and usable; whether it is READ is the lane's decision
@@ -929,7 +927,7 @@ namespace deren::app::detail {
         // family", and handing it a baked texel instead would override that with one invented surface.
         if (lane == deren::engine::toon_slot::metallic_gloss) {
             if (model_tex != nullptr) {
-                out.data = std::span<uint8_t const>(model_tex->data.data(), model_tex->data.size());
+                out.data = std::span<std::uint8_t const>(model_tex->data.data(), model_tex->data.size());
                 out.width = model_tex->width;
                 out.height = model_tex->height;
                 out.mip_levels = 1;
@@ -946,7 +944,7 @@ namespace deren::app::detail {
         // lane reads it and `bake_neutral_ramp` covers the rest.
         if (lane == deren::engine::toon_slot::diffuse_ramp) {
             if (model_tex != nullptr) {
-                out.data = std::span<uint8_t const>(model_tex->data.data(), model_tex->data.size());
+                out.data = std::span<std::uint8_t const>(model_tex->data.data(), model_tex->data.size());
                 out.width = model_tex->width;
                 out.height = model_tex->height;
                 out.mip_levels = 1;
@@ -954,7 +952,7 @@ namespace deren::app::detail {
                 return out;
             }
             if (!state.baked_neutral_ramp.empty()) {
-                out.data = std::span<uint8_t const>(state.baked_neutral_ramp.data(), state.baked_neutral_ramp.size());
+                out.data = std::span<std::uint8_t const>(state.baked_neutral_ramp.data(), state.baked_neutral_ramp.size());
                 out.width = state.neutral_ramp_width;
                 out.height = state.neutral_ramp_height;
                 out.mip_levels = 1;
@@ -966,7 +964,7 @@ namespace deren::app::detail {
         // Keep the legacy threshold bake for materials outside that explicit profile.
         if (lane == deren::engine::toon_slot::specular_ramp && model_tex != nullptr &&
             toon_colour_callback(parent, material_name, deren::engine::toon_colour_lane::game_toon_0).x > 0.5f) {
-            out.data = std::span<uint8_t const>(model_tex->data.data(), model_tex->data.size());
+            out.data = std::span<std::uint8_t const>(model_tex->data.data(), model_tex->data.size());
             out.width = model_tex->width;
             out.height = model_tex->height;
             out.mip_levels = 1;
@@ -974,7 +972,7 @@ namespace deren::app::detail {
             return out;
         }
         if (lane == deren::engine::toon_slot::specular_ramp && !state.baked_unit_ramp.empty()) {
-            out.data = std::span<uint8_t const>(state.baked_unit_ramp.data(), state.baked_unit_ramp.size());
+            out.data = std::span<std::uint8_t const>(state.baked_unit_ramp.data(), state.baked_unit_ramp.size());
             out.width = state.ramp_width;
             out.height = state.ramp_height;
             out.mip_levels = 1;
@@ -992,7 +990,7 @@ namespace deren::app::detail {
         // `_UseShadowLutTex` is off - is unaffected by any of this.
         if (lane == deren::engine::toon_slot::shadow_lut) {
             if (model_tex != nullptr) {
-                out.data = std::span<uint8_t const>(model_tex->data.data(), model_tex->data.size());
+                out.data = std::span<std::uint8_t const>(model_tex->data.data(), model_tex->data.size());
                 out.width = model_tex->width;
                 out.height = model_tex->height;
                 out.mip_levels = 1;
@@ -1000,7 +998,7 @@ namespace deren::app::detail {
                 return out;
             }
             if (!state.baked_shadow_lut.empty()) {
-                out.data = std::span<uint8_t const>(state.baked_shadow_lut.data(), state.baked_shadow_lut.size());
+                out.data = std::span<std::uint8_t const>(state.baked_shadow_lut.data(), state.baked_shadow_lut.size());
                 out.width = state.lut_width;
                 out.height = state.lut_height;
                 out.mip_levels = 1;
@@ -1021,7 +1019,7 @@ namespace deren::app::detail {
         // was neither read nor replaced - the lane was simply absent, the quietest possible version of wrong.
         if (lane == deren::engine::toon_slot::matcap) {
             if (model_tex != nullptr) {
-                out.data = std::span<uint8_t const>(model_tex->data.data(), model_tex->data.size());
+                out.data = std::span<std::uint8_t const>(model_tex->data.data(), model_tex->data.size());
                 out.width = model_tex->width;
                 out.height = model_tex->height;
                 out.mip_levels = 1;
@@ -1029,7 +1027,7 @@ namespace deren::app::detail {
                 return out;
             }
             if (!state.baked_matcap.empty()) {
-                out.data = std::span<uint8_t const>(state.baked_matcap.data(), state.baked_matcap.size());
+                out.data = std::span<std::uint8_t const>(state.baked_matcap.data(), state.baked_matcap.size());
                 out.width = state.matcap_size;
                 out.height = state.matcap_size;
                 out.mip_levels = 1;
@@ -1068,7 +1066,7 @@ namespace deren::app::detail {
             std::string_view const ramp_name = !texture_name.empty() ? texture_name : toon_base_ramp_name(*material);
             deren::gltf::texture_data const* ramp_tex = nullptr;
             if (!ramp_name.empty()) {
-                if (std::optional<uint16_t> const index = state.scenes->texture_index_by_name(ramp_name); index.has_value()) {
+                if (std::optional<std::uint16_t> const index = state.scenes->texture_index_by_name(ramp_name); index.has_value()) {
                     deren::gltf::texture_data const& candidate = state.scenes->textures[*index];
                     if (!candidate.data.empty() && candidate.width != 0 && candidate.height != 0) {
                         ramp_tex = &candidate;
@@ -1076,7 +1074,7 @@ namespace deren::app::detail {
                 }
             }
             if (ramp_tex != nullptr) {
-                out.data = std::span<uint8_t const>(ramp_tex->data.data(), ramp_tex->data.size());
+                out.data = std::span<std::uint8_t const>(ramp_tex->data.data(), ramp_tex->data.size());
                 out.width = ramp_tex->width;
                 out.height = ramp_tex->height;
                 out.mip_levels = 1;
@@ -1106,7 +1104,7 @@ namespace deren::app::detail {
             toon_rs_sheet_choice const choice = toon_rs_sheet_of(*material, texture_name);
             deren::gltf::texture_data const* sheet_tex = nullptr;
             if (!choice.name.empty()) {
-                if (std::optional<uint16_t> const index = state.scenes->texture_index_by_name(choice.name); index.has_value()) {
+                if (std::optional<std::uint16_t> const index = state.scenes->texture_index_by_name(choice.name); index.has_value()) {
                     deren::gltf::texture_data const& candidate = state.scenes->textures[*index];
                     if (!candidate.data.empty() && candidate.width != 0 && candidate.height != 0) {
                         sheet_tex = &candidate;
@@ -1119,7 +1117,7 @@ namespace deren::app::detail {
             // alternative (an invalid lane) would silently punch a hole in the shading rather than degrade to the
             // sheet the material would have read without `RS_Index` at all.
             if (sheet_tex == nullptr && choice.second) {
-                if (std::optional<uint16_t> const index = state.scenes->texture_index_by_name(texture_name); index.has_value()) {
+                if (std::optional<std::uint16_t> const index = state.scenes->texture_index_by_name(texture_name); index.has_value()) {
                     deren::gltf::texture_data const& candidate = state.scenes->textures[*index];
                     if (!candidate.data.empty() && candidate.width != 0 && candidate.height != 0) {
                         sheet_tex = &candidate;
@@ -1127,7 +1125,7 @@ namespace deren::app::detail {
                 }
             }
             if (sheet_tex != nullptr) {
-                out.data = std::span<uint8_t const>(sheet_tex->data.data(), sheet_tex->data.size());
+                out.data = std::span<std::uint8_t const>(sheet_tex->data.data(), sheet_tex->data.size());
                 out.width = sheet_tex->width;
                 out.height = sheet_tex->height;
                 out.mip_levels = 1;
@@ -1139,7 +1137,7 @@ namespace deren::app::detail {
         if (model_tex == nullptr) {
             return out; // the sidecar names a map this model does not have, or one that is present but unusable
         }
-        out.data = std::span<uint8_t const>(model_tex->data.data(), model_tex->data.size());
+        out.data = std::span<std::uint8_t const>(model_tex->data.data(), model_tex->data.size());
         out.width = model_tex->width;
         out.height = model_tex->height;
         out.mip_levels = 1;
@@ -1245,7 +1243,7 @@ namespace deren::app::detail {
             glm::vec4 outline = toon_colour_neutral[lane_index]; // white tint, width 0 until a row says otherwise
             if (auto const tint = material->others.find(deren::utility::vessel::string(toon_colour_row[lane_index])); tint != material->others.end()) {
                 std::string_view rest = tint->second;
-                for (int32_t component = 0; component < 4 && !rest.empty(); ++component) {
+                for (std::int32_t component = 0; component < 4 && !rest.empty(); ++component) {
                     std::size_t const comma = rest.find(',');
                     std::string_view const field = rest.substr(0, comma);
                     float value = 0.0f;
@@ -1293,7 +1291,7 @@ namespace deren::app::detail {
         }
         glm::vec4 parsed = toon_colour_neutral[lane_index];
         std::string_view rest = row->second;
-        for (int32_t component = 0; component < 4 && !rest.empty(); ++component) {
+        for (std::int32_t component = 0; component < 4 && !rest.empty(); ++component) {
             std::size_t const comma = rest.find(',');
             std::string_view const field = rest.substr(0, comma);
             float value = 0.0f;
@@ -1337,7 +1335,7 @@ namespace deren::app::detail {
             // THE FAMILY COMES FROM THE LOADER'S CLASSIFIER over the SAME name, so the sidecar (which
             // supplies the parameters) and the renderer (which selects them) cannot disagree about which
             // family a material is: there is one classifier and both sides ask it.
-            deren::utility::log("  '{}' -> family {} | {} slot(s), {} scalar(s)", material.name, static_cast<uint32_t>(deren::gltf::toon_family_of(material.name)), material.slots.size(), material.scalars.size());
+            deren::utility::log("  '{}' -> family {} | {} slot(s), {} scalar(s)", material.name, static_cast<std::uint32_t>(deren::gltf::toon_family_of(material.name)), material.slots.size(), material.scalars.size());
             // STEP 8'S `float` ROW IS PRINTED BY NAME, because the loop below walks `material.slots` ONLY: a
             // `float` property is counted in the `{} scalar(s)` above and never named, so a human reading this
             // log could not tell "the file states nothing" from "the reader dropped the row" - the two look
@@ -1359,7 +1357,7 @@ namespace deren::app::detail {
                 deren::utility::log("      _GooSpecularFGD = ABSENT | lane 16 answers the reference's group default 1.0");
             }
             for (auto const& [slot_name, texture_name] : material.slots) {
-                std::optional<uint16_t> const index = scenes.texture_index_by_name(texture_name);
+                std::optional<std::uint16_t> const index = scenes.texture_index_by_name(texture_name);
                 deren::utility::log("      {} = '{}' -> {} | {}", slot_name, texture_name, index.has_value() ? deren::utility::vessel::format("texture #{}", *index) : deren::utility::vessel::string("ABSENT from this model"), material.enabled_by_flag(toon_flag_for(slot_name)) ? "ON" : "off");
             }
         }

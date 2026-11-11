@@ -1,7 +1,5 @@
 module;
-#include <cstddef>
-#include <cstdint>
-#include <cstdlib>
+
 #include <vulkan/vulkan.h>
 module deren.vulkan.core;
 import deren.vulkan.core_support;

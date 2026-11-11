@@ -4,7 +4,6 @@
  */
 module;
 
-#include <cstdint>
 module deren.engine.pass.reflection_denoise;
 import deren.vstd;
 

@@ -1,7 +1,5 @@
 module;
 
-#include <cstdint>
-
 export module deren.utility:thread_pool;
 export import deren.utility.shared;
 export import deren.vstd;
@@ -40,7 +38,7 @@ namespace deren::utility {
         /// constructor below takes one: a private type in a public signature compiles through the
         /// default argument, but callers cannot name a non-default policy - which silently made
         /// `discard` unreachable from outside the class.
-        enum class shutdown_policy : uint8_t {
+        enum class shutdown_policy : std::uint8_t {
             discard,
             wait,
         };
@@ -61,7 +59,7 @@ namespace deren::utility {
             return action_pointer(storage);
         }
         struct task {
-            int32_t priority = 0;
+            std::int32_t priority = 0;
             // The heap key is priority only. Transfer only a pointer under the mutex:
             // moving std::function itself may leave a small-buffer callable in the source.
             mutable action_pointer action;
@@ -80,7 +78,7 @@ namespace deren::utility {
         // task finishes (or is discarded at shutdown), and wait_until_priority_done() blocks on
         // it reaching zero - so a caller can wait for "its" priority group without waiting for
         // unrelated tasks posted by other users of a shared pool.
-        deren::utility::vessel::unordered_map<int32_t, std::size_t> pending_by_priority;
+        deren::utility::vessel::unordered_map<std::int32_t, std::size_t> pending_by_priority;
         shutdown_policy policy = shutdown_policy::wait;
         bool accepting = true; // protected by access_mutex, shared by submission and shutdown
         // Declared last so the jthreads are destroyed (auto-joined) FIRST, before the mutex /
@@ -90,8 +88,8 @@ namespace deren::utility {
 
         void worker_loop(std::stop_token const& token);
         // Bookkeeping helpers (caller holds access_mutex): bookkeeping for one posted/finished task
-        void note_task_posted(int32_t priority);
-        void note_task_finished(int32_t priority);
+        void note_task_posted(std::int32_t priority);
+        void note_task_finished(std::int32_t priority);
 
     public:
         /**
@@ -100,7 +98,7 @@ namespace deren::utility {
          * @param policy behavior when tasks remain at destruction
          * @note threads must be positive (otherwise panic); hardware_concurrency is only a sizing hint.
          */
-        explicit thread_pool(int32_t threads, shutdown_policy policy = shutdown_policy::wait);
+        explicit thread_pool(std::int32_t threads, shutdown_policy policy = shutdown_policy::wait);
         ~thread_pool();
         /**
          * @brief post a task to thread_pool, signature must be void()
@@ -108,7 +106,7 @@ namespace deren::utility {
          * @param priority larger values are claimed first; equal-priority order is unspecified
          * @return false for an empty callable or a shut-down pool; nothing is queued
          */
-        bool post(std::function<void()> task, int32_t priority = 0);
+        bool post(std::function<void()> task, std::int32_t priority = 0);
         /**
          * @brief post a batch of tasks at one priority in a single lock acquisition
          * @param tasks callable objects, all posted with @p priority (any order)
@@ -119,7 +117,7 @@ namespace deren::utility {
          *       this drains the priority, including work from other callers at the same priority.
          *       The caller keeps its copies of batch callables and their captures.
          */
-        bool post_batch(std::span<std::function<void()>> tasks, int32_t priority = 0);
+        bool post_batch(std::span<std::function<void()>> tasks, std::int32_t priority = 0);
         /**
          * @brief stop accepting work and request worker shutdown; does not join
          * @note idempotent. wait policy executes queued tasks; discard skips queued tasks.
@@ -147,17 +145,17 @@ namespace deren::utility {
          *       copies are unaffected. Discarded tasks count as complete without being executed.
          * @note returns immediately when no task at @p priority is pending.
          */
-        void wait_until_priority_done(int32_t priority);
+        void wait_until_priority_done(std::int32_t priority);
         /**
          * @brief get count of worker threads
          * @return number of threads this pool runs
          */
-        [[nodiscard]] int32_t thread_count() const noexcept;
+        [[nodiscard]] std::int32_t thread_count() const noexcept;
         /**
          * @brief get count of active thread
          * @return count of active thread
          */
-        int32_t get_active_thread() const;
+        std::int32_t get_active_thread() const;
     };
 } // namespace deren::utility
 
@@ -167,11 +165,11 @@ namespace deren::utility {
     }
 
     // Bookkeeping helpers: the caller holds access_mutex
-    void thread_pool::note_task_posted(int32_t const priority) {
+    void thread_pool::note_task_posted(std::int32_t const priority) {
         ++this->pending_by_priority[priority];
     }
 
-    void thread_pool::note_task_finished(int32_t const priority) {
+    void thread_pool::note_task_finished(std::int32_t const priority) {
         auto const it = this->pending_by_priority.find(priority);
         if (it != this->pending_by_priority.end() && --it->second == 0) {
             this->pending_by_priority.erase(it); // a zero entry is indistinguishable from "never posted"
@@ -183,7 +181,7 @@ namespace deren::utility {
         this->active_thread.fetch_add(1);
         action_pointer current_task;
         while (true) {
-            int32_t current_priority;
+            std::int32_t current_priority;
             bool execute;
             {
                 std::unique_lock lock(this->access_mutex);
@@ -230,7 +228,7 @@ namespace deren::utility {
         }
     }
 
-    thread_pool::thread_pool(int32_t const threads, shutdown_policy const policy) {
+    thread_pool::thread_pool(std::int32_t const threads, shutdown_policy const policy) {
         if (threads <= 0) {
             deren::utility::panic("thread_pool: worker count must be positive");
         }
@@ -244,7 +242,7 @@ namespace deren::utility {
         }
     }
 
-    bool thread_pool::post(std::function<void()> task, int32_t priority) {
+    bool thread_pool::post(std::function<void()> task, std::int32_t priority) {
         if (!task) {
             return false;
         }
@@ -260,7 +258,7 @@ namespace deren::utility {
         return true;
     }
 
-    bool thread_pool::post_batch(std::span<std::function<void()>> const tasks, int32_t const priority) {
+    bool thread_pool::post_batch(std::span<std::function<void()>> const tasks, std::int32_t const priority) {
         if (tasks.empty()) {
             return true;
         }
@@ -312,18 +310,18 @@ namespace deren::utility {
         this->idle.wait(lock, [this] { return this->task_queue.empty() && this->active_thread.load() == 0; });
     }
 
-    void thread_pool::wait_until_priority_done(int32_t const priority) {
+    void thread_pool::wait_until_priority_done(std::int32_t const priority) {
         std::unique_lock lock(this->access_mutex);
         this->idle.wait(lock, [this, priority] {
             return !this->pending_by_priority.contains(priority);
         });
     }
 
-    int32_t thread_pool::thread_count() const noexcept {
-        return static_cast<int32_t>(this->threads.size());
+    std::int32_t thread_pool::thread_count() const noexcept {
+        return static_cast<std::int32_t>(this->threads.size());
     }
 
-    int32_t thread_pool::get_active_thread() const {
+    std::int32_t thread_pool::get_active_thread() const {
         return this->active_thread.load();
     }
 } // namespace deren::utility

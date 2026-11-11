@@ -1,7 +1,5 @@
 module;
 
-#include <cstdint>
-
 module deren.engine.gaussian_splatting.probe;
 import deren.vstd;
 import deren.utility.shared;
@@ -18,7 +16,7 @@ namespace deren::engine::gaussian_splatting {
         if (!sorter) {
             return fail("GPU sorter creation failed");
         }
-        if (sorter->requirements(UINT32_MAX).scratch_bytes != 0u) {
+        if (sorter->requirements(std::numeric_limits<std::uint32_t>::max()).scratch_bytes != 0u) {
             return fail("GPU sorter did not reject an unrepresentable maximum count");
         }
         std::uint32_t cases = 0;
@@ -35,7 +33,7 @@ namespace deren::engine::gaussian_splatting {
                         keys[i] = (i * 1664525u + 1013904223u) % 37u;
                         break;
                     case 1u:
-                        keys[i] = UINT32_MAX;
+                        keys[i] = std::numeric_limits<std::uint32_t>::max();
                         break;
                     case 2u:
                         keys[i] = count - i;
@@ -91,7 +89,7 @@ namespace deren::engine::gaussian_splatting {
                 }
                 if (auto* completion = rhi::query_extension<rhi::command_submission>(core)) {
                     auto submitted = completion->submit(*commands);
-                    if (!submitted || completion->wait(*submitted, UINT64_MAX) != rhi::error::ok) {
+                    if (!submitted || completion->wait(*submitted, std::numeric_limits<std::uint64_t>::max()) != rhi::error::ok) {
                         return fail("GPU sort probe submission/completion failed");
                     }
                 } else {

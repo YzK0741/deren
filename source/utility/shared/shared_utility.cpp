@@ -2,13 +2,12 @@ module;
 
 #include "stacktrace_native.hpp"
 
-#include <cstdint>
-#include <cstdio> // std::snprintf: format the log prefix without allocating on the worker
-#include <ctime>  // std::tm, localtime_s / localtime_r
+#include <time.h>
+
 #ifdef DEREN_LOG_TESTING
 #include "log_test_hooks.hpp"
 #endif
-#include <cstdlib> // std::atexit, for the sink's drain at exit (see instance())
+
 // The process-wide rotation claim is declared in a header rather than here: a global module fragment
 // may only carry preprocessing directives, and MSVC enforces that (C5202 at /W4, fatal under /WX).
 #include "log_rotation_claim.hpp"
@@ -29,7 +28,7 @@ namespace deren::utility {
     std::uint64_t allocate_identity() noexcept {
         static std::atomic<std::uint64_t> next{1};
         auto value = next.fetch_add(1, std::memory_order_relaxed);
-        if (value == 0 || value == UINT64_MAX) {
+        if (value == 0 || value == std::numeric_limits<std::uint64_t>::max()) {
             fast_panic("process identity space exhausted");
         }
         return value;
@@ -71,8 +70,8 @@ namespace deren::utility {
             auto const whole = std::chrono::floor<std::chrono::seconds>(timestamp);
             auto const millis =
                 std::chrono::duration_cast<std::chrono::milliseconds>(timestamp - whole).count();
-            std::time_t const raw = std::chrono::system_clock::to_time_t(whole);
-            std::tm tm = {};
+            time_t const raw = std::chrono::system_clock::to_time_t(whole);
+            tm tm = {};
             bool have_time = false;
 #if defined(_WIN32)
             have_time = ::localtime_s(&tm, &raw) == 0;
@@ -402,7 +401,7 @@ namespace deren::utility {
                 // error - static destructors ordered after this singleton still call log()/error().
                 return;
             }
-            if (this->submitted.load(std::memory_order_relaxed) == UINT64_MAX) {
+            if (this->submitted.load(std::memory_order_relaxed) == std::numeric_limits<std::uint64_t>::max()) {
                 fast_panic("log sequence space exhausted");
             }
             this->messages.push(std::move(message));

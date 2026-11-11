@@ -5,7 +5,6 @@
 
 module;
 
-#include <cstdint>
 module deren.engine.filters;
 import deren.vstd;
 
@@ -31,11 +30,11 @@ namespace deren::engine {
     // per-generation handle
     // =============================================================================================
 
-    void pass_filter::register_resource(render_resource::resource_id const id, uint32_t const element, resource_handles const& handles) noexcept {
+    void pass_filter::register_resource(render_resource::resource_id const id, std::uint32_t const element, resource_handles const& handles) noexcept {
         // The key packs the declaration's identity: which resource, and which element of its family. A SECOND
         // registration of the same key REPLACES the first, because the runtime re-publishing a resource after a
         // rebuild is the same statement as publishing it.
-        uint32_t const key = (static_cast<uint32_t>(id) << 8u) | (element & 0xFFu);
+        std::uint32_t const key = (static_cast<std::uint32_t>(id) << 8u) | (element & 0xFFu);
         for (auto& [existing, existing_handles] : this->registered) {
             if (existing == key) {
                 existing_handles = handles;
@@ -45,8 +44,8 @@ namespace deren::engine {
         this->registered.emplace_back(key, handles);
     }
 
-    resource_handles pass_filter::resource(render_resource::resource_id const id, uint32_t const element) const noexcept {
-        uint32_t const key = (static_cast<uint32_t>(id) << 8u) | (element & 0xFFu);
+    resource_handles pass_filter::resource(render_resource::resource_id const id, std::uint32_t const element) const noexcept {
+        std::uint32_t const key = (static_cast<std::uint32_t>(id) << 8u) | (element & 0xFFu);
         for (auto const& [existing, handles] : this->registered) {
             if (existing == key) {
                 return handles;

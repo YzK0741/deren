@@ -8,10 +8,7 @@
 // facets, exactly as before the move.
 // ============================================================================
 module;
-#include <cstdint>
-#include <cstdlib>
-#include <memory>
-#include <string_view>
+
 #include <vulkan/vulkan.h>
 
 module deren.vulkan.core;
@@ -27,10 +24,10 @@ namespace deren::vulkan {
 
     namespace rhi = deren::promise::rhi;
 
-    VkResult core::acquire_next_image(uint32_t& image_index) {
+    VkResult core::acquire_next_image(std::uint32_t& image_index) {
         frame.frame_acquire_consumed = false;
         if (this->create_options.native_window == nullptr) {
-            image_index = static_cast<uint32_t>(frame.current_frame);
+            image_index = static_cast<std::uint32_t>(frame.current_frame);
             frame.acquired_image_index = image_index;
             frame.frame_in_flight = frame.frame_acquired = true;
             ++frame.frame_acquire_epoch;
@@ -41,18 +38,18 @@ namespace deren::vulkan {
         // to_next_frame() advances it, so the acquire semaphore below is the one that slot's submission
         // will wait on (VUID-vkAcquireNextImageKHR-semaphore-01779 needs the slot to be idle - the
         // caller's wait_frame_slot() is what guarantees that).
-        uint32_t const slot = static_cast<uint32_t>(this->frame.current_frame);
+        std::uint32_t const slot = static_cast<std::uint32_t>(this->frame.current_frame);
         VkResult result = VK_SUCCESS;
         if (this->frame.prefetched_slot == slot) {
             image_index = this->frame.prefetched_image;
-            this->frame.prefetched_slot = UINT32_MAX;
+            this->frame.prefetched_slot = std::numeric_limits<std::uint32_t>::max();
         } else {
             // acquire requires exclusive host access to this swapchain. If prefetch could not
             // acquire an image, wait for the worker before accessing the WSI object again.
             if (this->frame.present_pending.valid()) {
                 this->frame.present_pending.wait();
             }
-            result = vkAcquireNextImageKHR(this->device.logical_device, this->frame.swap_chain, UINT64_MAX,
+            result = vkAcquireNextImageKHR(this->device.logical_device, this->frame.swap_chain, std::numeric_limits<std::uint64_t>::max(),
                                            this->frame.image_available_semaphores[slot], VK_NULL_HANDLE, &image_index);
         }
         if (result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR) {
@@ -132,7 +129,7 @@ namespace deren::vulkan {
                 if (command.completion_failure != rhi::error::ok) {
                     return command.completion_failure;
                 }
-                if (command.completion_sequence == UINT64_MAX) {
+                if (command.completion_sequence == std::numeric_limits<std::uint64_t>::max()) {
                     return rhi::error::unsupported;
                 }
                 if (command.completion_timeline == VK_NULL_HANDLE) {
@@ -219,7 +216,7 @@ namespace deren::vulkan {
 
     rhi::frame_open_info core::frame_walker_view::wait_and_acquire() {
         // THE FIVE STEPS in the order the contract's note spells out - each position is load-bearing.
-        uint32_t const slot = static_cast<uint32_t>(this->parent->frame.current_frame);
+        std::uint32_t const slot = static_cast<std::uint32_t>(this->parent->frame.current_frame);
 
         // 1 + 2. the cursor (read, not advanced) and its timeline. A never-submitted slot (value 0)
         // has nothing to wait for - VK_SUCCESS by definition, the same early return as today.
@@ -240,7 +237,7 @@ namespace deren::vulkan {
         // 4. the acquire - the same primitive `frame_begin()` goes through (one mechanism, two
         // spellings), translated AT THIS CALL SITE: SUBOPTIMAL is ok here (the acquired image
         // renders), OUT_OF_DATE is the rebuild signal the caller's classifier acts on.
-        uint32_t image_index = 0;
+        std::uint32_t image_index = 0;
         VkResult const acquired = this->parent->acquire_next_image(image_index);
         rhi::error const opened = deren::vulkan::acquire_error(acquired);
         if (opened != rhi::error::ok) {
@@ -260,7 +257,7 @@ namespace deren::vulkan {
         this->parent->to_next_frame();
     }
 
-    void core::gpu_profiler_view::latch(uint32_t const slot) noexcept {
+    void core::gpu_profiler_view::latch(std::uint32_t const slot) noexcept {
         // Non-const on purpose: the latch writes the read-once guard (a slot's timings are fetched
         // at most once per submission), the same bookkeeping read_gpu_timings keeps.
         core& self = *this->parent;
@@ -269,19 +266,19 @@ namespace deren::vulkan {
             this->latched_mark_count = 0; // the device cannot timestamp: the report is honestly empty
             return;
         }
-        uint64_t const submitted = self.frame.frame_done_values[slot];
+        std::uint64_t const submitted = self.frame.frame_done_values[slot];
         if (submitted == 0 || submitted <= self.frame.gpu_timing_read_value[slot]) {
             return; // nothing new since the previous latch: the snapshot stays as it was
         }
         self.frame.gpu_timing_read_value[slot] = submitted; // this submission is now accounted for (once)
-        uint32_t const marks = self.frame.gpu_timing_marks[slot];
+        std::uint32_t const marks = self.frame.gpu_timing_marks[slot];
         this->latched_mark_count = marks;
         if (marks == 0) {
             return; // a submission with no marks has nothing to fetch
         }
-        deren::utility::vessel::array<uint64_t, gpu_timing_mark_capacity> ticks = {};
+        deren::utility::vessel::array<std::uint64_t, gpu_timing_mark_capacity> ticks = {};
         VkResult const status = vkGetQueryPoolResults(self.device.logical_device, self.frame.timestamp_query_pool, slot * gpu_timing_mark_capacity, marks,
-                                                      sizeof(uint64_t) * marks, ticks.data(), sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
+                                                      sizeof(std::uint64_t) * marks, ticks.data(), sizeof(std::uint64_t), VK_QUERY_RESULT_64_BIT);
         if (status == VK_NOT_READY) {
             // The timeline wait already said the submission completed, so this is the same defensive
             // reading read_gpu_timings has: report no measurement rather than waiting or stalling.
@@ -295,7 +292,7 @@ namespace deren::vulkan {
             return;
         }
         this->latched_ticks = ticks;
-        for (uint32_t mark = 0; mark < marks; ++mark) {
+        for (std::uint32_t mark = 0; mark < marks; ++mark) {
             // The names are by-value string_views of the engine's static text (the `window_title`
             // rule), copied out at latch time - the array below may be overwritten by the next
             // recording, the snapshot must not move with it.
@@ -310,8 +307,8 @@ namespace deren::vulkan {
         return this->latched_mark_count;
     }
 
-    rhi::error core::gpu_profiler_view::get_stage_info(uint32_t const index, std::string_view* const name,
-                                                       uint64_t* const duration_ns) const noexcept {
+    rhi::error core::gpu_profiler_view::get_stage_info(std::uint32_t const index, std::string_view* const name,
+                                                       std::uint64_t* const duration_ns) const noexcept {
         if (!this->parent->frame.gpu_timing_supported) {
             return rhi::error::unsupported; // the device or configuration has no timing to report
         }
@@ -332,9 +329,9 @@ namespace deren::vulkan {
             // ring, so the delta is taken inside the width (a wrap inside the span comes out right),
             // and the device's timestampPeriod converts ticks to nanoseconds (1 ns/tick with 64
             // valid bits on the device this backend ships on - the integer is lossless there).
-            uint64_t const mask = this->parent->frame.timestamp_valid_bits >= 64 ? ~uint64_t{0} : ((uint64_t{1} << this->parent->frame.timestamp_valid_bits) - 1);
-            uint64_t const delta = (this->latched_ticks[index + 1] - this->latched_ticks[index]) & mask;
-            *duration_ns = static_cast<uint64_t>(static_cast<double>(delta) * static_cast<double>(this->parent->frame.timestamp_period_ns));
+            std::uint64_t const mask = this->parent->frame.timestamp_valid_bits >= 64 ? ~std::uint64_t{0} : ((std::uint64_t{1} << this->parent->frame.timestamp_valid_bits) - 1);
+            std::uint64_t const delta = (this->latched_ticks[index + 1] - this->latched_ticks[index]) & mask;
+            *duration_ns = static_cast<std::uint64_t>(static_cast<double>(delta) * static_cast<double>(this->parent->frame.timestamp_period_ns));
         }
         return rhi::error::ok;
     }

@@ -9,9 +9,6 @@
 
 module;
 
-#include <cstddef>
-#include <cstdint>
-
 export module deren.engine.render_resource:schema;
 export import deren.vstd;
 
@@ -19,7 +16,7 @@ import deren.utility.shared;
 import deren.engine.visibility.software;
 
 export namespace deren::engine::render_resource {
-    enum class resource_id : uint32_t {
+    enum class resource_id : std::uint32_t {
         none = 0,
         // ---- the swapchain image itself, created outside this renderer ----
         swapchain_image,
@@ -163,7 +160,7 @@ export namespace deren::engine::render_resource {
     };
 
     /** @brief what a resource IS, which decides the descriptor types it can be bound as */
-    enum class resource_kind : uint8_t {
+    enum class resource_kind : std::uint8_t {
         image2d,
         image3d,
         image_cube,
@@ -182,14 +179,14 @@ export namespace deren::engine::render_resource {
      * after the first never received its first-use transition). A pass that uses a `per_frame_slot` resource
      * is handed the frame slot; one that uses a `per_swapchain_image` resource is handed the image index.
      */
-    enum class resource_scope : uint8_t {
+    enum class resource_scope : std::uint8_t {
         per_frame_slot,      // shadow maps, the light/camera/material/instance buffers, the cluster buffers
         per_swapchain_image, // every GI image, the TAA history, the G-buffer, the HDR chain
         device_wide,         // the probe grid and its geometry, the furnace cube, the IBL cubes
     };
 
     /** @brief how long a resource lives: what decides whether a first-use transition or a clear exists */
-    enum class resource_lifetime : uint8_t {
+    enum class resource_lifetime : std::uint8_t {
         per_frame,  // rewritten every frame by its parent
         persistent, // carries state ACROSS frames (histories, the accumulated grid) - see the reset sites
         imported,   // created outside this renderer (the swapchain image)
@@ -205,7 +202,7 @@ export namespace deren::engine::render_resource {
         resource_lifetime lifetime = resource_lifetime::per_frame;
         /// how many images the family covers: 3 G-buffer targets, 8 probe coefficients (side*4+coefficient,
         /// exactly how `core` indexes them), 1 for an ordinary image. A binding names one ELEMENT of this.
-        uint16_t count = 1;
+        std::uint16_t count = 1;
     };
 
     /**
@@ -226,7 +223,7 @@ export namespace deren::engine::render_resource {
      * `core.cpp` would be a second copy of a fact - the thing this file's header warns about.
      * @ingroup engine_render_resource
      */
-    inline constexpr deren::utility::vessel::array<resource_info, static_cast<size_t>(resource_id::count) - 1> resource_schema = {
+    inline constexpr deren::utility::vessel::array<resource_info, static_cast<std::size_t>(resource_id::count) - 1> resource_schema = {
         {
             {.id = resource_id::swapchain_image, .name = "swapchain_image", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::imported},
             {.id = resource_id::hdr, .name = "hdr", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::per_frame},
@@ -375,7 +372,7 @@ export namespace deren::engine::render_resource {
     // =============================================================================================
 
     /// @brief how a binding is declared, which is what fixes its `VkDescriptorType`
-    enum class binding_kind : uint8_t {
+    enum class binding_kind : std::uint8_t {
         sampled_image,
         storage_image,
         sampler,
@@ -391,14 +388,14 @@ export namespace deren::engine::render_resource {
      * A filter only READS its input storage image while writing its output; another pass writes
      * `gi_trace` and reads it back in the same dispatch. A barrier stage keys on this, not on the kind.
      */
-    enum class binding_access : uint8_t {
+    enum class binding_access : std::uint8_t {
         read,
         write,
         read_write,
     };
 
     /// @brief which of this renderer's samplers a binding wants (five exist; the choice is a field, not a ternary)
-    enum class sampler_hint : uint8_t {
+    enum class sampler_hint : std::uint8_t {
         none,
         gbuffer,
         taa,
@@ -424,13 +421,13 @@ export namespace deren::engine::render_resource {
      * surface, the post chain's images - whose descriptors some other stage publishes; a pass declares only
      * that it USES such a binding, and cannot change it.
      */
-    enum class binding_scope : uint8_t {
+    enum class binding_scope : std::uint8_t {
         local,
         shared,
     };
 
     /// @brief shader stages as bits, so a binding can list more than one (the shared resources serve two)
-    enum class stage_flag : uint8_t {
+    enum class stage_flag : std::uint8_t {
         none = 0u,
         vertex = 1u << 0u,
         fragment = 1u << 1u,
@@ -438,11 +435,11 @@ export namespace deren::engine::render_resource {
     };
 
     [[nodiscard]] constexpr stage_flag operator|(stage_flag const a, stage_flag const b) noexcept {
-        return static_cast<stage_flag>(static_cast<uint8_t>(a) | static_cast<uint8_t>(b));
+        return static_cast<stage_flag>(static_cast<std::uint8_t>(a) | static_cast<std::uint8_t>(b));
     }
 
     [[nodiscard]] constexpr bool has_stage(stage_flag const set, stage_flag const one) noexcept {
-        return (static_cast<uint8_t>(set) & static_cast<uint8_t>(one)) != 0u;
+        return (static_cast<std::uint8_t>(set) & static_cast<std::uint8_t>(one)) != 0u;
     }
 
     /// @brief a name for each enum, so a validator message says "storage_image is not a buffer" not "1 is not 3"
@@ -501,15 +498,15 @@ export namespace deren::engine::render_resource {
     /// @brief one binding: one use. Everything the descriptor and the heap write need is here.
     /// @ingroup engine_render_resource
     struct pass_binding {
-        uint32_t binding = 0;
+        std::uint32_t binding = 0;
         binding_scope parent = binding_scope::local;
         binding_kind kind = binding_kind::sampled_image;
         resource_id resource = resource_id::none;
         /// which image of the resource FAMILY this binding names (0 for a single-image resource)
-        uint16_t element = 0;
+        std::uint16_t element = 0;
         /// how many descriptors this binding declares: 1, or the capacity of a bindless array. The validator
         /// refuses zero, so a binding that claims no descriptor cannot pass silently.
-        uint16_t descriptor_count = 1;
+        std::uint16_t descriptor_count = 1;
         binding_access access = binding_access::read;
         sampler_hint sampler = sampler_hint::none;
         stage_flag stages = stage_flag::compute;
@@ -517,13 +514,13 @@ export namespace deren::engine::render_resource {
 
     /// @brief a push-constant range: declared and pinned by `static_assert`, never computed from a declaration
     struct push_block {
-        uint32_t offset = 0;
-        uint32_t size = 0;
+        std::uint32_t offset = 0;
+        std::uint32_t size = 0;
         stage_flag stages = stage_flag::compute;
     };
 
     /// @brief which slot of a rendering instance a declared target fills
-    enum class target_kind : uint8_t {
+    enum class target_kind : std::uint8_t {
         color, // a colour attachment (one of the G-buffer's targets, the HDR image a resolve writes)
         depth, // THE depth attachment, of which a rendering instance has exactly one
     };
@@ -544,7 +541,7 @@ export namespace deren::engine::render_resource {
      */
     struct render_target {
         resource_id resource = resource_id::none;
-        uint16_t element = 0; // which image of the resource's family (per-swapchain-image resources: the index)
+        std::uint16_t element = 0; // which image of the resource's family (per-swapchain-image resources: the index)
         target_kind kind = target_kind::color;
         /**
          * HOW MANY CONSECUTIVE ELEMENTS of the family this ONE entry claims, rendered ONE INSTANCE PER ELEMENT.
@@ -562,7 +559,7 @@ export namespace deren::engine::render_resource {
          * declaration error the validator refuses, so this field is a claim about the SCHEMA, and the frame's
          * answer is only ever a shorter run.
          */
-        uint16_t count = 1;
+        std::uint16_t count = 1;
     };
 
     /**
@@ -581,7 +578,7 @@ export namespace deren::engine::render_resource {
         /// which image of the resource's family: the FRAME's image index for a per-swapchain-image resource
         /// (resolved by the host from the frame, exactly as `render_target` does), or the element for a family
         /// a pass reaches by position (the probe grid's eight)
-        uint16_t element = 0;
+        std::uint16_t element = 0;
     };
 
     /**
@@ -604,7 +601,7 @@ export namespace deren::engine::render_resource {
         resource_id resource = resource_id::none;
         /// which buffer of the resource's family - the frame's slot for a per-frame-slot resource (resolved by
         /// the host from the frame, exactly as `barrier_image` does for images)
-        uint16_t element = 0;
+        std::uint16_t element = 0;
     };
 
     /**
@@ -677,7 +674,7 @@ export namespace deren::engine::render_resource {
             if (info.id == resource_id::none) {
                 return std::unexpected("a schema entry has no id");
             }
-            if (static_cast<uint32_t>(info.id) >= static_cast<uint32_t>(resource_id::count)) {
+            if (static_cast<std::uint32_t>(info.id) >= static_cast<std::uint32_t>(resource_id::count)) {
                 return std::unexpected("a schema entry uses an id outside the enumeration");
             }
             if (info.name.empty()) {
@@ -692,10 +689,10 @@ export namespace deren::engine::render_resource {
         }
         // Completeness: every enumerator the renderer can name has exactly one entry. A forgotten entry is
         // the failure this catches, and it catches it without a second hand-kept list of ids.
-        for (uint32_t raw = 1; raw < static_cast<uint32_t>(resource_id::count); ++raw) {
+        for (std::uint32_t raw = 1; raw < static_cast<std::uint32_t>(resource_id::count); ++raw) {
             std::size_t seen = 0;
             for (resource_info const& info : resource_schema) {
-                if (static_cast<uint32_t>(info.id) == raw) {
+                if (static_cast<std::uint32_t>(info.id) == raw) {
                     ++seen;
                 }
             }
@@ -746,10 +743,10 @@ export namespace deren::engine::render_resource {
             if (t.count == 0u) {
                 return std::unexpected(where + " claims no element of " + deren::utility::vessel::string(info->name) + ", so it renders nothing");
             }
-            if (static_cast<uint32_t>(t.element) + t.count > info->count) {
+            if (static_cast<std::uint32_t>(t.element) + t.count > info->count) {
                 // A RUN that reaches past the family: `count` is a claim about the SCHEMA, and the frame can only
                 // ever answer with a SHORTER run (see render_target::count).
-                return std::unexpected(where + " claims elements " + deren::utility::vessel::to_string(t.element) + ".." + deren::utility::vessel::to_string(static_cast<uint32_t>(t.element) + t.count - 1u) + " of " +
+                return std::unexpected(where + " claims elements " + deren::utility::vessel::to_string(t.element) + ".." + deren::utility::vessel::to_string(static_cast<std::uint32_t>(t.element) + t.count - 1u) + " of " +
                                        deren::utility::vessel::string(info->name) + ", which has " + deren::utility::vessel::to_string(info->count));
             }
             if (t.kind == target_kind::depth && ++depth_targets > 1u) {
@@ -760,8 +757,8 @@ export namespace deren::engine::render_resource {
             for (render_target const& other : io.targets) {
                 // Two entries whose element RUNS INTERSECT would have the pass render into one image twice - the
                 // same defect the exact-match check below reports, one resource class over.
-                if (&other != &t && other.resource == t.resource && t.element < static_cast<uint32_t>(other.element) + other.count && other.element < static_cast<uint32_t>(t.element) + t.count) {
-                    return std::unexpected(where + " overlaps the entries " + deren::utility::vessel::to_string(other.element) + ".." + deren::utility::vessel::to_string(static_cast<uint32_t>(other.element) + other.count - 1u) + " of the same resource");
+                if (&other != &t && other.resource == t.resource && t.element < static_cast<std::uint32_t>(other.element) + other.count && other.element < static_cast<std::uint32_t>(t.element) + t.count) {
+                    return std::unexpected(where + " overlaps the entries " + deren::utility::vessel::to_string(other.element) + ".." + deren::utility::vessel::to_string(static_cast<std::uint32_t>(other.element) + other.count - 1u) + " of the same resource");
                 }
             }
         }

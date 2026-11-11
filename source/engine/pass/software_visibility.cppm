@@ -26,8 +26,6 @@
  */
 module;
 
-#include <cstdint>
-
 export module deren.engine.pass.software_visibility;
 export import deren.vstd;
 export import deren.utility.shared;

@@ -1,7 +1,5 @@
 module;
-#include <cstddef>
-#include <cstdint>
-#include <cstring>
+
 export module deren.engine.subtilis.dag_import;
 export import deren.vstd;
 export import deren.engine.subtilis.dag_asset;
@@ -22,16 +20,16 @@ export namespace deren::engine::subtilis {
     /// crafted payload can reach before the leaf admission budget rejects it. Every legal hierarchy's
     /// cluster, group and reference tables stay proportional to its leaves, so import caps them at
     /// eight times `visible_meshlet_capacity` and refuses anything larger as `capacity_item`.
-    inline constexpr uint64_t import_record_limit = 8 * uint64_t(visible_meshlet_capacity);
+    inline constexpr std::uint64_t import_record_limit = 8 * std::uint64_t(visible_meshlet_capacity);
     struct import_input {
-        std::span<uint8_t const> payload_bytes;
-        uint32_t version = 1;
+        std::span<std::uint8_t const> payload_bytes;
+        std::uint32_t version = 1;
         std::string_view profile = "shared-vertices";
         bool profile_attributes = true, material_opaque = true;
-        std::span<uint8_t const> vertex_bytes;
-        uint32_t vertex_stride = 80, vertex_count = 0;
-        std::span<uint8_t const> index_bytes;
-        uint32_t index_width = 4, index_count = 0;
+        std::span<std::uint8_t const> vertex_bytes;
+        std::uint32_t vertex_stride = 80, vertex_count = 0;
+        std::span<std::uint8_t const> index_bytes;
+        std::uint32_t index_width = 4, index_count = 0;
     };
     using import_digest = std::array<std::byte, 32>;
     struct import_key {
@@ -42,20 +40,20 @@ export namespace deren::engine::subtilis {
     std::expected<imported_asset, import_failure> import_payload(import_input const&);
     class imported_asset {
         dag_asset hierarchy_;
-        utility::vessel::vector<uint8_t> vertices_;
-        utility::vessel::vector<uint32_t> indices_;
+        utility::vessel::vector<std::uint8_t> vertices_;
+        utility::vessel::vector<std::uint32_t> indices_;
         // The version-1.1 page table is kept with the immutable hierarchy so a residency manager can
         // address the same element ranges the payload validated. Empty for a version-1.0 payload.
         utility::vessel::vector<deren::asset::subtilis::page_entry> pages_;
-        utility::vessel::vector<uint32_t> page_dependencies_;
-        uint32_t vertex_count_ = 0;
+        utility::vessel::vector<std::uint32_t> page_dependencies_;
+        std::uint32_t vertex_count_ = 0;
         /// the source record's byte stride: 80 after the TANGENT was appended to the engine's interleaved
         /// vertex (`gltf_loader.cpp`), carried rather than assumed so the payload's bytes and the mesh fetch's
         /// stride cannot disagree (the vertices below are the SOURCE bytes, not a re-pack).
-        uint32_t vertex_stride_ = 0;
+        std::uint32_t vertex_stride_ = 0;
         import_key key_;
         import_digest build_hash_;
-        imported_asset(dag_asset hierarchy, utility::vessel::vector<uint8_t> vertices, utility::vessel::vector<uint32_t> indices, utility::vessel::vector<deren::asset::subtilis::page_entry> pages, utility::vessel::vector<uint32_t> page_dependencies, uint32_t count, uint32_t stride, import_key key, import_digest build_hash)
+        imported_asset(dag_asset hierarchy, utility::vessel::vector<std::uint8_t> vertices, utility::vessel::vector<std::uint32_t> indices, utility::vessel::vector<deren::asset::subtilis::page_entry> pages, utility::vessel::vector<std::uint32_t> page_dependencies, std::uint32_t count, std::uint32_t stride, import_key key, import_digest build_hash)
             : hierarchy_(std::move(hierarchy))
             , vertices_(std::move(vertices))
             , indices_(std::move(indices))
@@ -76,28 +74,28 @@ export namespace deren::engine::subtilis {
         dag_asset const& hierarchy() const noexcept {
             return hierarchy_;
         }
-        std::span<uint8_t const> vertices() const noexcept {
+        std::span<std::uint8_t const> vertices() const noexcept {
             return vertices_;
         }
-        std::span<uint32_t const> indices() const noexcept {
+        std::span<std::uint32_t const> indices() const noexcept {
             return indices_;
         }
         std::span<deren::asset::subtilis::page_entry const> pages() const noexcept {
             return {pages_.data(), pages_.size()};
         }
-        std::span<uint32_t const> page_dependencies() const noexcept {
+        std::span<std::uint32_t const> page_dependencies() const noexcept {
             return {page_dependencies_.data(), page_dependencies_.size()};
         }
         std::span<meshlet const> lod0_clusters() const noexcept {
             return hierarchy_.lod0_clusters();
         }
-        uint32_t vertex_stride() const noexcept {
+        std::uint32_t vertex_stride() const noexcept {
             return vertex_stride_;
         }
-        uint32_t vertex_count() const noexcept {
+        std::uint32_t vertex_count() const noexcept {
             return vertex_count_;
         }
-        uint32_t lod0_index_count() const noexcept {
+        std::uint32_t lod0_index_count() const noexcept {
             return hierarchy_.lod0_index_count();
         }
         import_key const& cache_key() const noexcept {
@@ -140,7 +138,7 @@ export namespace deren::engine::subtilis {
         if (decoded->groups.empty()) {
             return std::unexpected(import_failure::lod0_only);
         }
-        uint64_t vertex_bytes = uint64_t(input.vertex_count) * input.vertex_stride, index_bytes = uint64_t(input.index_count) * input.index_width;
+        std::uint64_t vertex_bytes = std::uint64_t(input.vertex_count) * input.vertex_stride, index_bytes = std::uint64_t(input.index_count) * input.index_width;
         if (input.vertex_count > limits.max_records || input.index_count > limits.max_records || vertex_bytes > limits.max_input_bytes || index_bytes > limits.max_input_bytes - vertex_bytes) {
             return std::unexpected(import_failure::capacity_item);
         }
@@ -152,16 +150,16 @@ export namespace deren::engine::subtilis {
         source.normals.resize(input.vertex_count);
         source.uv0.resize(input.vertex_count);
         source.indices.resize(input.index_count);
-        for (uint32_t id = 0; id < input.vertex_count; ++id) {
-            auto* vertex = input.vertex_bytes.data() + size_t(id) * input.vertex_stride;
+        for (std::uint32_t id = 0; id < input.vertex_count; ++id) {
+            auto* vertex = input.vertex_bytes.data() + std::size_t(id) * input.vertex_stride;
             std::memcpy(source.positions[id].data(), vertex, 12);
             std::memcpy(source.normals[id].data(), vertex + 12, 12);
             std::memcpy(source.uv0[id].data(), vertex + 24, 8);
         }
-        for (uint32_t id = 0; id < input.index_count; ++id) {
-            auto* index = input.index_bytes.data() + size_t(id) * input.index_width;
+        for (std::uint32_t id = 0; id < input.index_count; ++id) {
+            auto* index = input.index_bytes.data() + std::size_t(id) * input.index_width;
             if (input.index_width == 2) {
-                uint16_t value = 0;
+                std::uint16_t value = 0;
                 std::memcpy(&value, index, 2);
                 source.indices[id] = value;
             } else {
@@ -177,7 +175,7 @@ export namespace deren::engine::subtilis {
                 return std::unexpected(import_failure::source_mismatch);
             }
         }
-        uint64_t finest_indices = 0;
+        std::uint64_t finest_indices = 0;
         for (auto id : decoded->leaves) {
             finest_indices += decoded->clusters[id].index_count;
         }
@@ -202,14 +200,14 @@ export namespace deren::engine::subtilis {
         for (auto const& g : decoded->groups) {
             groups.push_back({{g.fine_first, g.fine_count}, {g.coarse_first, g.coarse_count}, {g.lod.x, g.lod.y, g.lod.z, g.lod.radius}, g.error});
         }
-        auto hierarchy = dag_asset::make(clusters, groups, decoded->references, decoded->leaves, decoded->roots, input.index_count, static_cast<uint32_t>(decoded->indices.size()));
+        auto hierarchy = dag_asset::make(clusters, groups, decoded->references, decoded->leaves, decoded->roots, input.index_count, static_cast<std::uint32_t>(decoded->indices.size()));
         if (!hierarchy) {
             return std::unexpected(hierarchy.error() == dag_error::capacity ? import_failure::capacity_item : import_failure::invalid_dag);
         }
         import_key key{*source_hash, wire::sha256(bytes)};
-        return imported_asset(std::move(*hierarchy), utility::vessel::vector<uint8_t>(input.vertex_bytes.begin(), input.vertex_bytes.begin() + static_cast<size_t>(vertex_bytes)), std::move(decoded->indices), std::move(decoded->pages), std::move(decoded->page_dependencies), input.vertex_count, input.vertex_stride, key, decoded->build_hash);
+        return imported_asset(std::move(*hierarchy), utility::vessel::vector<std::uint8_t>(input.vertex_bytes.begin(), input.vertex_bytes.begin() + static_cast<std::size_t>(vertex_bytes)), std::move(decoded->indices), std::move(decoded->pages), std::move(decoded->page_dependencies), input.vertex_count, input.vertex_stride, key, decoded->build_hash);
     }
-    [[nodiscard]] inline std::expected<void, import_failure> admit_table(imported_asset const& asset, uint64_t used, uint32_t capacity) noexcept {
+    [[nodiscard]] inline std::expected<void, import_failure> admit_table(imported_asset const& asset, std::uint64_t used, std::uint32_t capacity) noexcept {
         if (used > capacity || asset.lod0_clusters().size() > capacity - used) {
             return std::unexpected(import_failure::capacity_table);
         }

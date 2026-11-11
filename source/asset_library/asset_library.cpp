@@ -1,7 +1,7 @@
 module;
 
-#include <cstddef>
-#include <cstdint>
+
+
 #include <toml++/toml.hpp>
 
 module deren.asset_library;
@@ -32,19 +32,19 @@ namespace deren::asset_library {
             return node->value<bool>();
         }
 
-        std::optional<int64_t> integer_value(toml::table const& table, std::string_view const key) {
+        std::optional<std::int64_t> integer_value(toml::table const& table, std::string_view const key) {
             toml::node const* node = table.get(key);
             if (node == nullptr) {
                 return std::nullopt;
             }
-            return node->value<int64_t>();
+            return node->value<std::int64_t>();
         }
 
         std::optional<double> number_value(toml::node const& node) {
             if (std::optional<double> const value = node.value<double>()) {
                 return value;
             }
-            if (std::optional<int64_t> const value = node.value<int64_t>()) {
+            if (std::optional<std::int64_t> const value = node.value<std::int64_t>()) {
                 return static_cast<double>(*value);
             }
             return std::nullopt;
@@ -240,9 +240,9 @@ namespace deren::asset_library {
                     if (std::optional<std::string_view> const profile = string_value(*toon, "profile")) {
                         entry.toon_profile = *profile;
                     }
-                    if (std::optional<int64_t> const tone_mapping = integer_value(*toon, "tone_mapping")) {
+                    if (std::optional<std::int64_t> const tone_mapping = integer_value(*toon, "tone_mapping")) {
                         if (*tone_mapping >= 0 && *tone_mapping <= 2) {
-                            entry.tone_mapping = static_cast<int32_t>(*tone_mapping);
+                            entry.tone_mapping = static_cast<std::int32_t>(*tone_mapping);
                         } else {
                             warn(warnings, manifest, "toon.tone_mapping must be 0, 1 or 2; ignored");
                         }
@@ -326,7 +326,7 @@ namespace deren::asset_library {
             library.root_ = absolute.lexically_normal();
         }
 
-        int32_t scan_depth = 1;
+        std::int32_t scan_depth = 1;
         std::vector<std::string> ignore;
         fs::path const config_path = library.root_ / "library.toml";
         if (fs::is_regular_file(config_path, error)) {
@@ -335,7 +335,7 @@ namespace deren::asset_library {
                 warn(library.warnings_, config_path, parsed.error().description());
             } else {
                 toml::table const& table = parsed.table();
-                if (std::optional<int64_t> const version = integer_value(table, "version")) {
+                if (std::optional<std::int64_t> const version = integer_value(table, "version")) {
                     if (*version != 1) {
                         warn(library.warnings_, config_path, "unsupported version " + std::to_string(*version) + "; expected 1");
                     }
@@ -343,8 +343,8 @@ namespace deren::asset_library {
                 if (std::optional<std::string_view> const requested_default = string_value(table, "default")) {
                     library.default_id_ = *requested_default;
                 }
-                if (std::optional<int64_t> const depth = integer_value(table, "scan_depth")) {
-                    scan_depth = static_cast<int32_t>(std::clamp<int64_t>(*depth, 0, 4));
+                if (std::optional<std::int64_t> const depth = integer_value(table, "scan_depth")) {
+                    scan_depth = static_cast<std::int32_t>(std::clamp<std::int64_t>(*depth, 0, 4));
                 }
                 if (toml::node const* ignore_node = table.get("ignore")) {
                     toml::array const* patterns = ignore_node->as_array();
@@ -365,7 +365,7 @@ namespace deren::asset_library {
         }
 
         std::set<std::string> ids;
-        auto scan_directory = [&](auto&& self, fs::path const& directory, int32_t const depth_left) -> void {
+        auto scan_directory = [&](auto&& self, fs::path const& directory, std::int32_t const depth_left) -> void {
             if (depth_left <= 0) {
                 return;
             }

@@ -1,8 +1,6 @@
 module;
 #include "stacktrace_native.hpp"
 
-#include <cstddef>
-#include <cstdint>
 module deren.utility.shared;
 import deren.vstd;
 

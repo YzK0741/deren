@@ -1,6 +1,7 @@
 module;
-#include <cstdint>
+
 export module deren.engine.subtilis.builder;
+export import deren.vstd;
 import deren.engine.meshlet;
 import deren.engine.subtilis.asset;
 import deren.engine.subtilis.dag_import;
@@ -119,8 +120,8 @@ export namespace deren::engine::subtilis {
                 return std::unexpected(build_error::invalid_geometry);
             }
             build_statistics stats;
-            stats.nodes = static_cast<uint32_t>(source->hierarchy().groups().size());
-            stats.roots = static_cast<uint32_t>(source->hierarchy().roots().size());
+            stats.nodes = static_cast<std::uint32_t>(source->hierarchy().groups().size());
+            stats.roots = static_cast<std::uint32_t>(source->hierarchy().roots().size());
             stats.clusters = source->hierarchy().cluster_count();
             stats.lod0_triangles = source->lod0_index_count() / 3;
             for (auto id : source->hierarchy().roots()) {

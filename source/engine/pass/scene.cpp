@@ -6,9 +6,7 @@
 // depth this pass writes. Clearing is unconditional for a valid frame, including when no mesh is visible.
 
 module;
-#include <cstddef>
-#include <cstdint>
-#include <memory> // std::shared_ptr: the session's target is the contract buffer the frame referenced
+
 module deren.engine.pass.scene;
 import deren.vstd;
 import deren.utility.shared;
@@ -63,7 +61,7 @@ namespace deren::engine::pass {
         // heaps it has bound (so the heap info is deliberately NOT chained here - the chain takes one entry,
         // and a second truth is what it refuses).
         deren::utility::vessel::array<rhi::image_format, max_render_targets> color_formats = {};
-        uint32_t color_count = 0;
+        std::uint32_t color_count = 0;
         for (::deren::promise::rhi::image_format const format : this->pass_frame.color_formats) {
             if (color_count >= color_formats.size()) {
                 break;
@@ -122,7 +120,7 @@ namespace deren::engine::pass {
         // store op are the roles the raw helpers spelled (CLEAR + STORE for both kinds), and the flags word is
         // the one bit the raw call passed (`secondary_contents`).
         deren::utility::vessel::array<rhi::color_attachment, max_render_targets> color_attachments = {};
-        uint32_t color_count = 0;
+        std::uint32_t color_count = 0;
         rhi::depth_attachment depth_attachment = {};
         bool has_depth = false;
         render_resource::pass_io const& declared = this->io();

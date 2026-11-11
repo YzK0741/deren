@@ -1,7 +1,9 @@
 module;
+
 #include "graph_backend_headers.hpp"
 
 module deren.engine.render_graph;
+import deren.vstd;
 import :range_operations;
 import :synchronization;
 namespace mem = deren::utility::memory;
@@ -12,10 +14,10 @@ namespace vessel = deren::utility::vessel;
 namespace deren::engine::render_graph {
     namespace {
         std::atomic_uint64_t next_incarnation{1};
-        uint64_t allocate_incarnation() {
+        std::uint64_t allocate_incarnation() {
             auto current = next_incarnation.load(std::memory_order_relaxed);
             for (;;) {
-                if (current == std::numeric_limits<uint64_t>::max()) {
+                if (current == std::numeric_limits<std::uint64_t>::max()) {
                     deren::utility::fast_panic("internal invariant: render graph incarnation exhausted");
                 }
                 if (next_incarnation.compare_exchange_weak(current, current + 1, std::memory_order_relaxed)) {
@@ -30,10 +32,10 @@ namespace deren::engine::render_graph {
     builder::builder()
         : incarnation(allocate_incarnation()) {
     }
-    graph_error builder::error(error_code code, uint32_t pass, uint32_t resource) const {
+    graph_error builder::error(error_code code, std::uint32_t pass, std::uint32_t resource) const {
         return {code, pass, resource, pass < passes.size() ? passes[pass].name : vessel::string{}, resource < resources.size() ? resources[resource].name : vessel::string{}, std::nullopt};
     }
-    std::expected<uint32_t, graph_error> builder::import(resource_identity id, initial_contents contents, std::string_view name, resource_kind kind, resource_shape shape, std::optional<resource_state> state) {
+    std::expected<std::uint32_t, graph_error> builder::import(resource_identity id, initial_contents contents, std::string_view name, resource_kind kind, resource_shape shape, std::optional<resource_state> state) {
         if (frozen) {
             return std::unexpected(error(error_code::frozen_builder));
         }
@@ -60,7 +62,7 @@ namespace deren::engine::render_graph {
         if (resources.size() >= invalid_index) {
             return invalid(error_code::capacity_exceeded);
         }
-        auto index = static_cast<uint32_t>(resources.size());
+        auto index = static_cast<std::uint32_t>(resources.size());
         resource_record record{};
         record.identity = id;
         record.kind = kind;
@@ -150,11 +152,11 @@ namespace deren::engine::render_graph {
                 candidate.accesses.push_back({access.resource_, access.mode_, std::move(range), access.scope_});
             }
         }
-        auto index = static_cast<uint32_t>(passes.size());
+        auto index = static_cast<std::uint32_t>(passes.size());
         passes.push_back(std::move(candidate));
         return pass_ref{incarnation, index};
     }
-    std::expected<void, graph_error> builder::export_index(uint64_t parent, uint32_t index, resource_kind kind, resource_range range) {
+    std::expected<void, graph_error> builder::export_index(std::uint64_t parent, std::uint32_t index, resource_kind kind, resource_range range) {
         if (frozen) {
             return std::unexpected(error(error_code::frozen_builder));
         }
@@ -217,14 +219,14 @@ namespace deren::engine::render_graph {
         vessel::vector<boost::default_color_type> all_live(passes.size(), boost::black_color);
         ::vertex blocked = invalid_index;
         if (!::stable_order(explicit_graph, {all_live.data()}, &blocked)) {
-            return std::unexpected(error(error_code::cycle, static_cast<uint32_t>(blocked)));
+            return std::unexpected(error(error_code::cycle, static_cast<std::uint32_t>(blocked)));
         }
         ::graph values(passes.size());
         for (auto& resource : result.resources) {
             resource.final_ranges.push_back({detail::full_range(resource.shape), invalid_index, 0, resource.initial == initial_contents::defined});
         }
-        vessel::vector<uint32_t> last_write_pass(resources.size(), invalid_index);
-        for (uint32_t p = 0; p < passes.size(); ++p) {
+        vessel::vector<std::uint32_t> last_write_pass(resources.size(), invalid_index);
+        for (std::uint32_t p = 0; p < passes.size(); ++p) {
             for (auto const& access : passes[p].accesses) {
                 auto& resource = result.resources[access.resource];
                 if (consumes(access.mode)) {
@@ -266,7 +268,7 @@ namespace deren::engine::render_graph {
             }
         }
         vessel::vector<::vertex> roots;
-        for (uint32_t p = 0; p < passes.size(); ++p) {
+        for (std::uint32_t p = 0; p < passes.size(); ++p) {
             if (passes[p].side_effect) {
                 roots.push_back(p);
             }
@@ -288,7 +290,7 @@ namespace deren::engine::render_graph {
             }
         }
         auto live = ::reachable(values, roots);
-        for (uint32_t p = 0; p < passes.size(); ++p) {
+        for (std::uint32_t p = 0; p < passes.size(); ++p) {
             result.passes[p].live = live[p] != boost::white_color;
         }
         for (auto const& read : result.reads) {
@@ -303,7 +305,7 @@ namespace deren::engine::render_graph {
         for (auto const& edge : result.dependencies) {
             boost::add_edge(edge.from, edge.to, scheduled);
         }
-        auto dependency = [&](uint32_t from, uint32_t to, uint32_t resource, dependency_reason reason, resource_range const& range) {
+        auto dependency = [&](std::uint32_t from, std::uint32_t to, std::uint32_t resource, dependency_reason reason, resource_range const& range) {
             if (from == invalid_index || from == to) {
                 return;
             }
@@ -312,15 +314,15 @@ namespace deren::engine::render_graph {
         };
         struct hazard_state {
             resource_range range;
-            uint32_t writer = invalid_index;
-            vessel::vector<uint32_t> readers;
+            std::uint32_t writer = invalid_index;
+            vessel::vector<std::uint32_t> readers;
             std::optional<resource_layout> layout = std::nullopt;
         };
         vessel::vector<vessel::vector<hazard_state>> hazards(resources.size());
         for (std::size_t r = 0; r < resources.size(); ++r) {
             hazards[r].push_back({detail::full_range(resources[r].shape), invalid_index, {}});
         }
-        for (uint32_t p = 0; p < passes.size(); ++p) {
+        for (std::uint32_t p = 0; p < passes.size(); ++p) {
             if (!result.passes[p].live) {
                 continue;
             }
@@ -365,10 +367,10 @@ namespace deren::engine::render_graph {
         }
         auto sorted = ::stable_order(scheduled, {live.data()}, &blocked);
         if (!sorted) {
-            return std::unexpected(error(error_code::cycle, static_cast<uint32_t>(blocked)));
+            return std::unexpected(error(error_code::cycle, static_cast<std::uint32_t>(blocked)));
         }
         for (auto pass : *sorted) {
-            result.execution_order.push_back(static_cast<uint32_t>(pass));
+            result.execution_order.push_back(static_cast<std::uint32_t>(pass));
         }
         if (options.synchronization) {
             auto planned = detail::plan_synchronization(result);

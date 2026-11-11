@@ -45,8 +45,6 @@
 
 module;
 
-#include <cstddef>
-
 export module deren.toon_material_sidecar;
 export import deren.utility.shared;
 

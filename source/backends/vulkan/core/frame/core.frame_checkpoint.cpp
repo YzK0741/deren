@@ -1,5 +1,5 @@
 module;
-#include <cstdint>
+
 #include <vulkan/vulkan.h>
 module deren.vulkan.core;
 import deren.vstd;
@@ -72,7 +72,7 @@ namespace deren::vulkan {
             return commands.recording_error;
         }
         // Do not take the queue lock during the host wait. A failed final wait cannot safely free/reset.
-        status = vkWaitForFences(parent->device.logical_device, 1, &submission->fence, VK_TRUE, UINT64_MAX);
+        status = vkWaitForFences(parent->device.logical_device, 1, &submission->fence, VK_TRUE, std::numeric_limits<std::uint64_t>::max());
         if (status != VK_SUCCESS) {
             deren::utility::fast_panic("frame checkpoint completion wait failed");
         }

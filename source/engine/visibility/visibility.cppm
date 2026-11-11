@@ -28,7 +28,6 @@
 module;
 
 #include <cstddef>
-#include <cstdint>
 
 export module deren.engine.visibility;
 export import deren.vstd;

@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <limits>
 import deren.asset.subtilis.builder;
 namespace sub = deren::asset::subtilis;
 namespace bd = sub::builder_detail;
@@ -213,7 +214,7 @@ int main() {
     nan.positions[0][0] = std::numeric_limits<float>::quiet_NaN();
     CHECK(!bd::cluster_lod0(nan, options));
     auto out_of_range = source;
-    out_of_range.indices[0] = UINT32_MAX;
+    out_of_range.indices[0] = std::numeric_limits<std::uint32_t>::max();
     CHECK(!bd::cluster_lod0(out_of_range, options));
     auto built = sub::build_serial(source, options, {});
     CHECK(built);

@@ -22,6 +22,9 @@ namespace rhi = deren::promise::rhi;
 #include "frame_checkpoint_window_contract.hpp"
 #include "resource_memory_contract.hpp"
 #include "texture_feedback_contract.hpp"
+
+#include <cstdint>
+#include <limits>
 int main(int argc, char** argv) {
     check_resource_memory_tracker();
     if (argc > 1 && std::string_view(argv[1]) == "--with-device") {
@@ -135,7 +138,7 @@ int main(int argc, char** argv) {
         CHECK(calls == 1);
         CHECK(suffix.record(*core->frames->begin_commands(), callback) == rhi::error::ok);
         CHECK(calls == 2);
-        CHECK(ready->partition_before(UINT32_MAX, prefix, suffix) == rhi::error::invalid_argument);
+        CHECK(ready->partition_before(std::numeric_limits<std::uint32_t>::max(), prefix, suffix) == rhi::error::invalid_argument);
     }
     CHECK(core->commands->submit(*core->frames->begin_commands()) == rhi::error::invalid_argument);
     CHECK(core->frames->submit() == rhi::error::ok);

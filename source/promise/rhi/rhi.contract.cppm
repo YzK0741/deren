@@ -4,9 +4,6 @@
 // ============================================================================
 module;
 
-#include <cstddef>
-#include <cstdint>
-
 export module deren.promise.rhi:contract;
 export import deren.vstd;
 

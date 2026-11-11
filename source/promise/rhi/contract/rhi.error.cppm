@@ -4,7 +4,6 @@
 // ============================================================================
 module;
 #include <cstddef>
-#include <cstdint>
 
 export module deren.promise.rhi:error;
 export import deren.vstd;
@@ -50,7 +49,7 @@ export namespace deren::promise::rhi {
     };
 
     /// Shader parameter writes use four-byte units. Subtract only after comparing offset to avoid
-    /// overflow even for a UINT64_MAX byte count. Empty writes are invalid, not silent no-ops.
+    /// overflow even for a std::numeric_limits<std::uint64_t>::max() byte count. Empty writes are invalid, not silent no-ops.
     [[nodiscard]] constexpr error validate_push_constants_range(std::uint32_t offset, std::uint64_t size,
                                                                 std::uint32_t limit) noexcept {
         return size == 0 || (offset & 3u) != 0 || (size & 3u) != 0 || offset > limit || size > limit - offset

@@ -7,6 +7,7 @@
 // the creation logic here; the root keeps thin forwarders for its callers.
 // ============================================================================
 module;
+#include <cstddef>
 #include <vulkan/vulkan.h>
 module deren.vulkan.core;
 import deren.vulkan.core.vma.texture_upload_layout;
@@ -28,8 +29,8 @@ namespace deren::vulkan {
         deren::promise::rhi::buffer_desc sanitize_buffer_desc(deren::promise::rhi::buffer_desc const& desc) {
             using rhi_buffer_desc = deren::promise::rhi::buffer_desc;
 
-            uint32_t const declared = desc.struct_size;
-            constexpr uint32_t known = static_cast<uint32_t>(sizeof(rhi_buffer_desc));
+            std::uint32_t const declared = desc.struct_size;
+            constexpr std::uint32_t known = static_cast<std::uint32_t>(sizeof(rhi_buffer_desc));
             if (declared != known) {
                 deren::utility::log("core: the RHI buffer_desc is {} B here and {} B in the caller -> the caller's structure is treated as TOO SHORT: "
                                     "a field whose whole extent is not inside those {} B keeps this build's default",
@@ -125,8 +126,8 @@ namespace deren::vulkan {
         [[nodiscard]] deren::promise::rhi::image_desc sanitize_image_desc(deren::promise::rhi::image_desc const& desc) {
             using rhi_image_desc = deren::promise::rhi::image_desc;
 
-            uint32_t const declared = desc.struct_size;
-            constexpr uint32_t known = sizeof(rhi_image_desc);
+            std::uint32_t const declared = desc.struct_size;
+            constexpr std::uint32_t known = sizeof(rhi_image_desc);
             if (declared != known) {
                 deren::utility::log("core: the RHI image_desc is {} B here and {} B in the caller -> only the caller's declared prefix is read",
                                     known, declared);
@@ -161,8 +162,8 @@ namespace deren::vulkan {
         [[nodiscard]] deren::promise::rhi::shader_desc sanitize_shader_desc(deren::promise::rhi::shader_desc const& desc) {
             using rhi_shader_desc = deren::promise::rhi::shader_desc;
 
-            uint32_t const declared = desc.struct_size;
-            constexpr uint32_t known = sizeof(rhi_shader_desc);
+            std::uint32_t const declared = desc.struct_size;
+            constexpr std::uint32_t known = sizeof(rhi_shader_desc);
             if (declared != known) {
                 deren::utility::log("core: the RHI shader_desc is {} B here and {} B in the caller -> only the caller's declared prefix is read",
                                     known, declared);
@@ -185,8 +186,8 @@ namespace deren::vulkan {
         [[nodiscard]] deren::promise::rhi::pipeline_desc sanitize_pipeline_desc(deren::promise::rhi::pipeline_desc const& desc) {
             using rhi_pipeline_desc = deren::promise::rhi::pipeline_desc;
 
-            uint32_t const declared = desc.struct_size;
-            constexpr uint32_t known = sizeof(rhi_pipeline_desc);
+            std::uint32_t const declared = desc.struct_size;
+            constexpr std::uint32_t known = sizeof(rhi_pipeline_desc);
             if (declared != known) {
                 deren::utility::log("core: the RHI pipeline_desc is {} B here and {} B in the caller -> only the caller's declared prefix is read",
                                     known, declared);
@@ -265,8 +266,8 @@ namespace deren::vulkan {
         [[nodiscard]] deren::promise::rhi::sampler_desc sanitize_sampler_desc(deren::promise::rhi::sampler_desc const& desc) {
             using rhi_sampler_desc = deren::promise::rhi::sampler_desc;
 
-            uint32_t const declared = desc.struct_size;
-            constexpr uint32_t known = sizeof(rhi_sampler_desc);
+            std::uint32_t const declared = desc.struct_size;
+            constexpr std::uint32_t known = sizeof(rhi_sampler_desc);
             if (declared != known) {
                 deren::utility::log("core: the RHI sampler_desc is {} B here and {} B in the caller -> only the caller's declared prefix is read",
                                     known, declared);
@@ -376,11 +377,11 @@ namespace deren::vulkan {
         // micromap storage) and for nothing else.
         // Slang heap ConstantBuffer lowers through a StorageBuffer pointer. Keep the logical
         // uniform role while making its native allocation usable by the general binding path.
-        uint32_t extra_usage = (desc.usage == rhi::buffer_usage::uniform_gpu_only ||
-                                desc.usage == rhi::buffer_usage::uniform_coherent ||
-                                desc.usage == rhi::buffer_usage::uniform_cached)
-                                   ? VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
-                                   : 0u;
+        std::uint32_t extra_usage = (desc.usage == rhi::buffer_usage::uniform_gpu_only ||
+                                     desc.usage == rhi::buffer_usage::uniform_coherent ||
+                                     desc.usage == rhi::buffer_usage::uniform_cached)
+                                        ? VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+                                        : 0u;
         if (rhi::has_flag(desc.flags, rhi::buffer_flag::device_address)) {
             extra_usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
         }
@@ -426,7 +427,7 @@ namespace deren::vulkan {
         // the cast is the boundary between the contract's byte type and VMA's, spelled here so neither
         // side has to know the other's.
         answer->allocation = this->full_core.device.vma.create_buffer(
-            desc.initial_bytes.empty() ? nullptr : reinterpret_cast<uint8_t const*>(desc.initial_bytes.data()), desc.size, type, extra_usage);
+            desc.initial_bytes.empty() ? nullptr : reinterpret_cast<std::uint8_t const*>(desc.initial_bytes.data()), desc.size, type, extra_usage);
         if (!answer->allocation.valid()) {
             deren::utility::log("rhi: create_buffer could not allocate {} B (usage {}, flags {:#x})", desc.size,
                                 static_cast<std::uint32_t>(desc.usage), desc.flags);
@@ -506,7 +507,7 @@ namespace deren::vulkan {
             .width = desc.extent.width,
             .height = desc.extent.height,
             .mip_levels = desc.mip_levels == 0
-                              ? static_cast<uint32_t>(std::bit_width(std::max(desc.extent.width, desc.extent.height)))
+                              ? static_cast<std::uint32_t>(std::bit_width(std::max(desc.extent.width, desc.extent.height)))
                               : desc.mip_levels, // 0 means "the full chain", the contract's spelling
             .array_layers = desc.array_layers,
             .format = native_format,
@@ -517,7 +518,7 @@ namespace deren::vulkan {
         // create_image uploads the staging copy itself for data-carrying types and answers an RAII
         // wrapper (vma.cppm's type table); empty bytes mean allocate-only.
         vk_image const allocation = this->full_core.device.vma.create_image(
-            reinterpret_cast<uint8_t const*>(desc.initial_bytes.data()), desc.initial_bytes.size(), create_info, type);
+            reinterpret_cast<std::uint8_t const*>(desc.initial_bytes.data()), desc.initial_bytes.size(), create_info, type);
         if (allocation.handle() == 0) {
             deren::utility::log("rhi: create_image {} refused: the allocator could not serve {}x{}, {} layer(s), {} mip(s)",
                                 what, create_info.width, create_info.height, create_info.array_layers, create_info.mip_levels);
@@ -645,7 +646,7 @@ namespace deren::vulkan {
         (void)stage; // the module itself is stage-less; the stage rides the pipeline's stage info
 
         std::optional<vk_shader_module> module = ::deren::vulkan::make_shader_module(
-            std::span<uint8_t const>(reinterpret_cast<uint8_t const*>(desc.code.data()), desc.code.size()),
+            std::span<std::uint8_t const>(reinterpret_cast<std::uint8_t const*>(desc.code.data()), desc.code.size()),
             this->full_core.device.logical_device);
         if (!module.has_value()) {
             deren::utility::log("rhi: create_shader {} refused: vkCreateShaderModule failed", what);
@@ -749,8 +750,8 @@ namespace deren::vulkan {
             this->full_core.device.logical_device,
             std::span<VkFormat const>(color_formats.data(), color_formats.size()),
             depth_format,
-            std::span<uint8_t const>(reinterpret_cast<uint8_t const*>(desc.vertex_code.data()), desc.vertex_code.size()),
-            std::span<uint8_t const>(reinterpret_cast<uint8_t const*>(desc.fragment_code.data()), desc.fragment_code.size()),
+            std::span<std::uint8_t const>(reinterpret_cast<std::uint8_t const*>(desc.vertex_code.data()), desc.vertex_code.size()),
+            std::span<std::uint8_t const>(reinterpret_cast<std::uint8_t const*>(desc.fragment_code.data()), desc.fragment_code.size()),
             samples,
             desc.depth_test,
             desc.depth_bias_constant_factor,
@@ -1402,7 +1403,7 @@ namespace deren::vulkan {
                 address = this->full_core.internal_address(concrete, entry.offset);
                 // Uniforms lower to native storage descriptors; satisfy both sets of constraints.
                 if ((!group->deferred && !address) || (address && address % properties.limits.minStorageBufferOffsetAlignment) ||
-                    size > properties.limits.maxStorageBufferRange || (address && size > UINT64_MAX - address)) {
+                    size > properties.limits.maxStorageBufferRange || (address && size > std::numeric_limits<std::uint64_t>::max() - address)) {
                     return fail(rhi::error::invalid_argument);
                 }
                 // Heap ConstantBuffer is an OpBufferPointerEXT StorageBuffer in the current shader ABI.

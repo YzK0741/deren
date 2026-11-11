@@ -13,9 +13,6 @@
 
 module;
 
-#include <cstddef>
-#include <cstdint>
-#include <cstring>
 module deren.engine.pass.ray_traced_shadow;
 import deren.vstd;
 import deren.utility.shared;
@@ -86,12 +83,12 @@ namespace deren::engine::pass {
             return; // already built for this device
         }
         auto const fetch = [&context](std::string_view const name) {
-            return context.shader != nullptr ? context.shader(context.parent, name) : std::span<uint8_t const>{};
+            return context.shader != nullptr ? context.shader(context.parent, name) : std::span<std::uint8_t const>{};
         };
-        std::span<uint8_t const> const raygen = fetch(raygen_name);
-        std::span<uint8_t const> const closest_hit = fetch(closest_hit_name);
-        std::span<uint8_t const> const miss = fetch(miss_name);
-        std::span<uint8_t const> const any_hit = fetch(any_hit_name);
+        std::span<std::uint8_t const> const raygen = fetch(raygen_name);
+        std::span<std::uint8_t const> const closest_hit = fetch(closest_hit_name);
+        std::span<std::uint8_t const> const miss = fetch(miss_name);
+        std::span<std::uint8_t const> const any_hit = fetch(any_hit_name);
         if (raygen.empty() || closest_hit.empty() || miss.empty() || any_hit.empty()) {
             deren::utility::log("ray-traced shadows unavailable: the parent has not registered all of {}, {}, {} and {}", raygen_name, closest_hit_name, miss_name, any_hit_name);
             return;
@@ -111,17 +108,17 @@ namespace deren::engine::pass {
         //      constant. Here a handle is 32 bytes while a region's address must be 64-byte aligned, so using the
         //      handle size as the stride is exactly the first-attempt VUID this pass would otherwise hit.
         //      Group bytes use the RHI pipeline; launch uses command_buffer::trace_rays.
-        uint32_t const handle_size = context.ray_tracing_properties.handle_size;
-        uint32_t const handle_alignment = context.ray_tracing_properties.handle_alignment;
-        uint32_t const base_alignment = context.ray_tracing_properties.base_alignment;
+        std::uint32_t const handle_size = context.ray_tracing_properties.handle_size;
+        std::uint32_t const handle_alignment = context.ray_tracing_properties.handle_alignment;
+        std::uint32_t const base_alignment = context.ray_tracing_properties.base_alignment;
         if (handle_size == 0 || handle_alignment == 0 || base_alignment == 0 || context.create_upload_buffer == nullptr) {
             deren::utility::log("ray-traced shadows unavailable: this device published no shader binding table numbers to build one against");
             this->release_contract();
             return;
         }
-        uint32_t const region_size = ((handle_size + base_alignment - 1u) / base_alignment) * base_alignment;
-        uint32_t const group_count = built->group_count;
-        deren::utility::vessel::vector<uint8_t> handles(static_cast<size_t>(group_count) * handle_size);
+        std::uint32_t const region_size = ((handle_size + base_alignment - 1u) / base_alignment) * base_alignment;
+        std::uint32_t const group_count = built->group_count;
+        deren::utility::vessel::vector<std::uint8_t> handles(static_cast<std::size_t>(group_count) * handle_size);
         // THE SBT QUERY, through the basis (abi 22): `out.size()` is the query's dataSize, and the pipeline is
         // the CONTRACT object the backend turns into its native handle - so this file names neither.
         if (!pass::shader_group_handles(context.face, *this->pass_pipeline->contract, 0, group_count, std::span<std::uint8_t>(handles))) {
@@ -133,16 +130,16 @@ namespace deren::engine::pass {
         // separate address first record, the bytes it spans, and the stride between records. One region per group,
         // each starting on a base-aligned offset and carrying exactly one record: the order is the builder's
         // (raygen, miss, hit), so `handles[group]` lands in region `group`.
-        deren::utility::vessel::vector<uint8_t> table(static_cast<size_t>(group_count) * region_size, 0);
-        for (uint32_t group = 0; group < group_count; ++group) {
-            std::memcpy(table.data() + static_cast<size_t>(group) * region_size, handles.data() + static_cast<size_t>(group) * handle_size, handle_size);
+        deren::utility::vessel::vector<std::uint8_t> table(static_cast<std::size_t>(group_count) * region_size, 0);
+        for (std::uint32_t group = 0; group < group_count; ++group) {
+            std::memcpy(table.data() + static_cast<std::size_t>(group) * region_size, handles.data() + static_cast<std::size_t>(group) * handle_size, handle_size);
         }
-        uint64_t address = 0;
+        std::uint64_t address = 0;
         // THE TABLE IS BUILT THROUGH THE CONTRACT NOW (abi 24): the hook takes the contract's `buffer_flags`
         // (a shader binding table asks for `shader_binding_table`), answers the contract handle the RENDERER keeps
         // valid, and writes the device address through the out-parameter - so this file names no Vulkan type for
         // any of it, which is why it no longer includes a Vulkan header at all.
-        deren::promise::rhi::buffer* const table_buffer = context.create_upload_buffer(context.parent, table.data(), static_cast<uint64_t>(table.size()),
+        deren::promise::rhi::buffer* const table_buffer = context.create_upload_buffer(context.parent, table.data(), static_cast<std::uint64_t>(table.size()),
                                                                                        deren::promise::rhi::buffer_flags{
                                                                                            deren::promise::rhi::to_bits(
                                                                                                deren::promise::rhi::buffer_flag::shader_binding_table),
@@ -153,7 +150,7 @@ namespace deren::engine::pass {
             this->release_contract();
             return;
         }
-        auto const region = [region_size](uint64_t const at) { return rhi::shader_binding_table_region{.address = at, .size = region_size, .stride = region_size}; };
+        auto const region = [region_size](std::uint64_t const at) { return rhi::shader_binding_table_region{.address = at, .size = region_size, .stride = region_size}; };
         this->raygen_region = region(address);
         this->miss_region = region(address + region_size);
         this->hit_region = region(address + static_cast<std::uint64_t>(2u) * region_size);

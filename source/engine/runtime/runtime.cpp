@@ -3,6 +3,7 @@ module;
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <stdio.h>
 
 // THE GUI PLUGIN'S BOUNDARY (plan X2): `create_info`, `api_type` and `overlay` live in a header the plugin
 // and the host share. In the GLOBAL MODULE FRAGMENT because the header declares `GLFWwindow` itself and pulls
@@ -1498,10 +1499,12 @@ namespace deren::engine {
         this->subtilis_gpu_cut = enabled;
     }
     void runtime::set_subtilis_page_upload_bytes(std::uint64_t const value) noexcept {
-        this->subtilis_page_upload_budget = std::max<std::uint64_t>(value, 1u);
+        constexpr auto minimum = static_cast<std::uint64_t>(subtilis::page_arena_pool::slot_bytes);
+        this->subtilis_page_upload_budget = std::clamp(value, minimum, subtilis::page_arena_pool::max_bytes);
     }
     void runtime::set_subtilis_resident_page_bytes(std::uint64_t const value) noexcept {
-        this->subtilis_resident_page_budget = std::max<std::uint64_t>(value, 1u);
+        constexpr auto minimum = static_cast<std::uint64_t>(subtilis::page_arena_pool::slot_bytes);
+        this->subtilis_resident_page_budget = std::clamp(value, minimum, subtilis::page_arena_pool::max_bytes);
     }
 
     void runtime::set_software_raster(bool const enabled) noexcept {
@@ -3366,6 +3369,10 @@ namespace deren::engine {
                     std::max<std::uint64_t>(fair_bytes / fair_page_floor, 1u), 1024u));
                 auto const page_stats = source.install_requested_pages(install_budget, static_cast<std::uint32_t>(this->subtilis_page_sequence),
                                                                        frame_slot, max_pages);
+                if (page_stats.abandoned != 0) {
+                    deren::utility::log("subtilis pages: abandoned {} failed page upload(s) at frame {}; returning them to absent for a new request",
+                                        page_stats.abandoned, frame_slot);
+                }
                 if (source.has_pending_page_upload() && std::ranges::none_of(this->subtilis_page_uploads,
                                                                              [&](auto const& value) { return value.get() == &source; })) {
                     this->subtilis_page_uploads.push_back(plan.cut_source);
@@ -3379,7 +3386,7 @@ namespace deren::engine {
                     deren::utility::log("subtilis pages: snapshot publication failed ({})", static_cast<std::uint32_t>(published));
                     return false;
                 }
-                remaining_budget -= page_stats.bytes;
+                remaining_budget -= std::min(remaining_budget, page_stats.bytes);
                 this->subtilis_page_budget_left = remaining_budget;
                 this->subtilis_page_upload_bytes += page_stats.bytes;
                 this->subtilis_page_frames[frame_slot].push_back(plan.cut_source);
@@ -3935,6 +3942,8 @@ namespace deren::engine {
                 if (!geometry_source->pages().empty() && !this->subtilis_page_arena_pool) {
                     auto pool = subtilis::page_arena_pool::create(this->core_lifetime, this->subtilis_resident_page_budget);
                     if (!pool) {
+                        deren::utility::log("subtilis pages: shared page arena creation failed ({} bytes, error {}); paged geometry will not be uploaded",
+                                            this->subtilis_resident_page_budget, static_cast<std::uint32_t>(pool.error()));
                         return nullptr;
                     }
                     this->subtilis_page_arena_pool = std::move(*pool);

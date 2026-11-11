@@ -52,8 +52,6 @@
 // ============================================================================
 module;
 
-#include <cstdint>
-
 export module deren.utility.shared;
 export import deren.vstd;
 

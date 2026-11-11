@@ -37,9 +37,6 @@
 // ============================================================================
 module;
 
-#include <cstddef>
-#include <cstdint>
-
 export module deren.promise.rhi:extension;
 export import deren.vstd;
 export import deren.utility.shared;
@@ -271,15 +268,15 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual shared_object<image> snapshot_image() noexcept = 0;
     };
     struct scoped_image_info {
-        uint32_t mip_levels = 0, array_layers = 0;
+        std::uint32_t mip_levels = 0, array_layers = 0;
         synchronization::aspect aspects = static_cast<synchronization::aspect>(0);
-        uint32_t usage_mask = 0;
-        uint64_t canonical_object = 0; // Stable allocation identity across wrappers, shared by image/buffer domain.
+        std::uint32_t usage_mask = 0;
+        std::uint64_t canonical_object = 0; // Stable allocation identity across wrappers, shared by image/buffer domain.
     };
     struct scoped_buffer_info {
-        uint64_t byte_size = 0;
-        uint32_t usage_mask = 0;
-        uint64_t canonical_object = 0; // Stable allocation identity across wrappers, shared by image/buffer domain.
+        std::uint64_t byte_size = 0;
+        std::uint32_t usage_mask = 0;
+        std::uint64_t canonical_object = 0; // Stable allocation identity across wrappers, shared by image/buffer domain.
     };
     struct scoped_image_barrier {
         image const* resource = nullptr;
@@ -367,7 +364,7 @@ export namespace deren::promise::rhi {
         /// Device errors stay errors; native completion storage may be reclaimed without invalidating tokens.
         /// Completion permits reuse only for work covered by this token, not unrelated later submissions.
         [[nodiscard]] virtual error poll(submission_token token) noexcept = 0;
-        /// timeout_ns=0 checks without waiting (pending returns timeout). UINT64_MAX waits indefinitely.
+        /// timeout_ns=0 checks without waiting (pending returns timeout). std::numeric_limits<std::uint64_t>::max() waits indefinitely.
         /// Waits only for this submission; does not hold queue locks while waiting.
         [[nodiscard]] virtual error wait(submission_token token, std::uint64_t timeout_ns) noexcept = 0;
     };

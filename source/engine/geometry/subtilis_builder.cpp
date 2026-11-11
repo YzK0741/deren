@@ -1,7 +1,5 @@
 module;
-#include <cstddef>
-#include <cstdint>
-#include <cstring>
+
 #define XXH_STATIC_LINKING_ONLY
 #include <xxhash.h>
 module deren.engine.subtilis.builder;
@@ -87,7 +85,7 @@ namespace deren::engine::subtilis {
             XXH3_64bits_reset(&state);
             auto word = [&](std::uint64_t value) {
                 std::array<std::uint8_t, 8> bytes{};
-                for (uint32_t i = 0; i < 8; ++i) {
+                for (std::uint32_t i = 0; i < 8; ++i) {
                     bytes[i] = static_cast<std::uint8_t>(value >> (i * 8));
                 }
                 XXH3_64bits_update(&state, bytes.data(), bytes.size());
@@ -176,7 +174,7 @@ namespace deren::engine::subtilis {
             }
             for (std::size_t i = 0; i < result.indices.size(); ++i) {
                 auto const& p = result.positions[result.indices[i]];
-                for (uint32_t axis = 0; axis < 3; ++axis) {
+                for (std::uint32_t axis = 0; axis < 3; ++axis) {
                     low[axis] = i ? std::min(low[axis], static_cast<double>(p[axis])) : p[axis];
                     high[axis] = i ? std::max(high[axis], static_cast<double>(p[axis])) : p[axis];
                 }
@@ -194,14 +192,14 @@ namespace deren::engine::subtilis {
         std::array<double, 3> hi{};
         for (std::size_t i = 0; i < indices.size(); ++i) {
             auto const& position = data.positions[indices[i]];
-            for (uint32_t axis = 0; axis < 3; ++axis) {
+            for (std::uint32_t axis = 0; axis < 3; ++axis) {
                 double v = position[axis];
                 lo[axis] = i ? std::min(lo[axis], v) : v;
                 hi[axis] = i ? std::max(hi[axis], v) : v;
             }
         }
         std::array<float, 3> center{};
-        for (uint32_t axis = 0; axis < 3; ++axis) {
+        for (std::uint32_t axis = 0; axis < 3; ++axis) {
             center[axis] = static_cast<float>(lo[axis] / 2 + hi[axis] / 2);
         }
         double radius = 0;
@@ -292,7 +290,7 @@ namespace deren::engine::subtilis {
                 auto const& node = nodes[id];
                 std::uint64_t addition = sizeof(validated_group) + static_cast<std::uint64_t>(node.records.size()) * sizeof(meshlet) + (node.children.empty() ? 0 : static_cast<std::uint64_t>(node.indices.size()) * 4);
                 if (bytes > options.max_output_bytes || addition > options.max_output_bytes - bytes ||
-                    payload.size() > UINT32_MAX || node.indices.size() > UINT32_MAX - payload.size()) {
+                    payload.size() > std::numeric_limits<std::uint32_t>::max() || node.indices.size() > std::numeric_limits<std::uint32_t>::max() - payload.size()) {
                     return std::unexpected(build_error::capacity);
                 }
                 bytes += addition;

@@ -11,8 +11,6 @@
 // ============================================================================
 module;
 
-#include <cstddef>
-#include <cstdint>
 // `std::optional`: `scenes::texture_index_by_name` returns one, because a name that matches nothing is a
 // state the caller handles rather than an error (see the method's note).
 #include <glm/glm.hpp>
@@ -41,7 +39,7 @@ namespace deren::gltf {
      * @ingroup gltf_loader
      * @brief component type of an accessor element, values are the glTF OpenGL constants
      */
-    export enum class component_type : int32_t {
+    export enum class component_type : std::int32_t {
         byte_t = 5120,
         unsigned_byte_t = 5121,
         short_t = 5122,
@@ -59,7 +57,7 @@ namespace deren::gltf {
      * @param gltf_constant the OpenGL constant (5120..5130)
      * @return the mapped component_type, unknown for unrecognized values
      */
-    export constexpr component_type to_component_type(int32_t const gltf_constant) {
+    export constexpr component_type to_component_type(std::int32_t const gltf_constant) {
         switch (gltf_constant) {
         case 5120:
             return component_type::byte_t;
@@ -88,7 +86,7 @@ namespace deren::gltf {
      * @param type the component type
      * @return byte size, 0 for unknown
      */
-    export constexpr uint8_t get_component_size(component_type const type) {
+    export constexpr std::uint8_t get_component_size(component_type const type) {
         switch (type) {
         case component_type::byte_t:
             [[fallthrough]];
@@ -118,11 +116,11 @@ namespace deren::gltf {
      * @param type the component type
      * @return the glTF OpenGL constant, -1 for unknown
      */
-    export constexpr int32_t to_gltf_macro_type(component_type const type) {
+    export constexpr std::int32_t to_gltf_macro_type(component_type const type) {
         if (type == component_type::unknown) {
             return -1;
         }
-        return static_cast<int32_t>(type);
+        return static_cast<std::int32_t>(type);
     }
 
     /**
@@ -146,7 +144,7 @@ namespace deren::gltf {
      * @param type the glTF type constant (0..6)
      * @return the mapped element_type
      */
-    export constexpr element_type to_element_type(int32_t const type) {
+    export constexpr element_type to_element_type(std::int32_t const type) {
         switch (type) {
         case 0:
             return element_type::scale;
@@ -174,7 +172,7 @@ namespace deren::gltf {
      * @param type the element type
      * @return element count, 0 for unknown
      */
-    export constexpr uint8_t get_element_size(element_type const type) {
+    export constexpr std::uint8_t get_element_size(element_type const type) {
         switch (type) {
         case element_type::scale:
             return 1;
@@ -211,10 +209,10 @@ namespace deren::gltf {
      * @brief decoded image data of a texture
      */
     export struct texture_data {
-        deren::utility::vessel::vector<uint8_t> data;
-        uint32_t width = 0;
-        uint32_t height = 0;
-        uint8_t component = 0; // aka. channels
+        deren::utility::vessel::vector<std::uint8_t> data;
+        std::uint32_t width = 0;
+        std::uint32_t height = 0;
+        std::uint8_t component = 0; // aka. channels
         /**
          * THE glTF IMAGE'S NAME, which the loader used to discard.
          *
@@ -234,7 +232,7 @@ namespace deren::gltf {
      * @brief raw vertex data portion together with its component type
      */
     export struct vertex_portion {
-        deren::utility::vessel::vector<uint8_t> data;
+        deren::utility::vessel::vector<std::uint8_t> data;
         component_type component;
     };
 
@@ -267,7 +265,7 @@ namespace deren::gltf {
      */
     export struct material {
         material_factors factors = {};
-        deren::utility::vessel::map<deren::utility::vessel::string, uint16_t> texture_indices = {};
+        deren::utility::vessel::map<deren::utility::vessel::string, std::uint16_t> texture_indices = {};
         bool double_sided = false; // glTF doubleSided: back faces are rendered, normals flipped
         /**
          * THE glTF MATERIAL NAME, which the loader used to discard.
@@ -348,26 +346,26 @@ namespace deren::gltf {
      */
     export struct subtilis_payload_view {
         bool present = false;
-        std::span<uint8_t const> bytes;
-        uint32_t version = 0;
+        std::span<std::uint8_t const> bytes;
+        std::uint32_t version = 0;
         std::string_view profile;
-        uint32_t buffer_view = UINT32_MAX;
+        std::uint32_t buffer_view = std::numeric_limits<std::uint32_t>::max();
         bool profile_attributes = false;
     };
     export struct subtilis_payload {
-        deren::utility::vessel::vector<uint8_t> bytes;
-        uint32_t version = 0, buffer_view = UINT32_MAX;
+        deren::utility::vessel::vector<std::uint8_t> bytes;
+        std::uint32_t version = 0, buffer_view = std::numeric_limits<std::uint32_t>::max();
         deren::utility::vessel::string profile;
         bool profile_attributes = false;
     };
     export struct primitive {
         deren::utility::vessel::map<deren::utility::vessel::string, vertex_portion> vertex;
         deren::utility::vessel::vector<morph_target> targets = {};
-        deren::utility::vessel::vector<uint8_t> index;
+        deren::utility::vessel::vector<std::uint8_t> index;
         component_type index_component_type;
         // index into scenes::materials; std::numeric_limits<uint32_t>::max() when the primitive
         // has no material (render with default factors and no textures)
-        uint32_t material_index = std::numeric_limits<uint32_t>::max();
+        std::uint32_t material_index = std::numeric_limits<std::uint32_t>::max();
         std::shared_ptr<subtilis_payload const> subtilis = {};
     };
 
@@ -389,7 +387,7 @@ namespace deren::gltf {
      * @ingroup gltf_loader
      * @brief interpolation mode of one animation sampler (glTF "interpolation")
      */
-    export enum class animation_interpolation : int32_t {
+    export enum class animation_interpolation : std::int32_t {
         linear = 0,       // glTF LINEAR: blend between consecutive keyframes (slerp for rotations)
         step = 1,         // glTF STEP: hold the previous keyframe's value until the next keyframe
         cubic_spline = 2, // glTF CUBICSPLINE: Hermite spline with per-key in/out tangents
@@ -399,7 +397,7 @@ namespace deren::gltf {
      * @ingroup gltf_loader
      * @brief animated node property of one animation channel (glTF "path")
      */
-    export enum class animation_path : int32_t {
+    export enum class animation_path : std::int32_t {
         translation = 1, // values are xyz triplets (one per keyframe)
         rotation = 2,    // values are xyzw quaternions (w scalar, one per keyframe)
         scale = 3,       // values are xyz triplets (one per keyframe)
@@ -476,7 +474,7 @@ namespace deren::gltf {
      * @ingroup gltf_loader
      * @brief kind of a glTF camera (deren::gltf::node::camera_index -> scenes::cameras)
      */
-    export enum class camera_type : int32_t {
+    export enum class camera_type : std::int32_t {
         perspective = 0,  // yfov / znear / aspect_ratio? / zfar? (absent zfar = infinite)
         orthographic = 1, // xmag / ymag / ortho_znear / ortho_zfar
     };
@@ -507,7 +505,7 @@ namespace deren::gltf {
      * @ingroup gltf_loader
      * @brief kind of a punctual light (KHR_lights_punctual, deren::gltf::node::light_index)
      */
-    export enum class light_type : int32_t {
+    export enum class light_type : std::int32_t {
         directional = 0, // infinitely far, direction = -node +Z axis (world)
         point = 1,       // position = node origin (world)
         spot = 2,        // position + direction from the node, cone angles below
@@ -687,7 +685,7 @@ namespace deren::gltf {
         reference operator*() const noexcept;
         pointer operator->() const noexcept;
         scene_iterator& operator++();
-        void operator++(int32_t);
+        void operator++(std::int32_t);
 
         friend bool operator==(scene_iterator const& a, scene_iterator const& b) noexcept {
             if (a.exhausted || b.exhausted) {
@@ -700,10 +698,10 @@ namespace deren::gltf {
         void advance(); // move to the next primitive, or set exhausted
 
         scenes const* iterating_scene = nullptr;
-        size_t scene_i = 0;
-        size_t node_i = 0;
-        size_t mesh_i = 0;
-        size_t prim_i = 0;
+        std::size_t scene_i = 0;
+        std::size_t node_i = 0;
+        std::size_t mesh_i = 0;
+        std::size_t prim_i = 0;
         mutable drawable_ref current = {}; // operator* result cache (valid until ++)
         bool exhausted = true;             // default = end(); begin() clears it before advancing
     };
@@ -735,7 +733,7 @@ namespace deren::gltf {
         reference operator*() const noexcept;
         pointer operator->() const noexcept;
         scene_node_iterator& operator++();
-        void operator++(int32_t);
+        void operator++(std::int32_t);
 
         // ---- structural getters (satisfy the runtime's scene_node_iterator concept) ----
         [[nodiscard]] std::string_view get_name() const noexcept;
@@ -820,7 +818,7 @@ namespace deren::gltf {
          * have exported. The caller decides what a miss means - the safe answer, and the one the sidecar's
          * `_Use` rule already implies, is to leave that feature off.
          */
-        [[nodiscard]] std::optional<uint16_t> texture_index_by_name(std::string_view name) const noexcept;
+        [[nodiscard]] std::optional<std::uint16_t> texture_index_by_name(std::string_view name) const noexcept;
 
         /**
          * @brief the material NAMED @p name, or nullptr when no material has that name
@@ -877,16 +875,16 @@ namespace deren::gltf {
 
     /** @brief interleaved vertex bytes of one drawable (spans into storage inside the loader) */
     export struct vertex_view {
-        std::span<uint8_t const> data = {};
-        uint32_t stride = 0;
-        uint32_t count = 0;
+        std::span<std::uint8_t const> data = {};
+        std::uint32_t stride = 0;
+        std::uint32_t count = 0;
     };
 
     /** @brief index bytes of one drawable; width is bytes per index (2 or 4) */
     export struct index_view {
-        std::span<uint8_t const> data = {};
-        uint8_t width = 2;
-        uint32_t count = 0;
+        std::span<std::uint8_t const> data = {};
+        std::uint8_t width = 2;
+        std::uint32_t count = 0;
     };
 
     /**
@@ -896,12 +894,12 @@ namespace deren::gltf {
      *       into *parent. valid == false means the slot is missing.
      */
     export struct image_view {
-        std::span<uint8_t const> data = {};
-        uint32_t width = 0;
-        uint32_t height = 0;
-        uint32_t mip_levels = 1;
+        std::span<std::uint8_t const> data = {};
+        std::uint32_t width = 0;
+        std::uint32_t height = 0;
+        std::uint32_t mip_levels = 1;
         bool valid = false;
-        std::shared_ptr<deren::utility::vessel::vector<uint8_t> const> parent = {};
+        std::shared_ptr<deren::utility::vessel::vector<std::uint8_t> const> parent = {};
     };
 
     /** @brief PBR factors of one resolved material (mirrors the runtime's material_factors) */
@@ -939,7 +937,7 @@ namespace deren::gltf {
      * treated every material before this existed, so the family test cannot change a frame that has no
      * character in it.
      */
-    export enum class toon_family : uint32_t {
+    export enum class toon_family : std::uint32_t {
         none = 0,  // no family claimed it: the family-independent path
         base = 1,  // generic body/prop geometry
         skin = 2,  // skin: the softest shadow edge and the strongest tint
@@ -995,7 +993,7 @@ namespace deren::gltf {
      * colour and no day strength at all - it drives these masks procedurally from the light angle - so the two
      * shaders being ported are the article's simplification of that mechanism, and these are its two shaders.
      */
-    export enum class overlay_kind : uint32_t {
+    export enum class overlay_kind : std::uint32_t {
         none = 0,        // not an overlay: every material whose name claims nothing
         eye_dark = 1,    // `MyZmdEyeDarkShader`: multiply by the mask, scaled by `_Alpha`
         hair_shadow = 2, // `MyZmdHairShadowShader`: multiply by `_Color` as far as `_DayStrength` says
@@ -1182,11 +1180,11 @@ namespace deren::gltf {
         deren::utility::vessel::string name = {};
         /// the TOON FAMILY this material's name classified into (see toon_family_of), resolved ONCE here so
         /// no later stage re-derives it from a string
-        uint32_t toon_family = 0;
+        std::uint32_t toon_family = 0;
         /// the OVERLAY CHANNEL this material's name classified into (see overlay_kind_of), resolved at the
         /// same moment as the family and for the same reason. 0 == `overlay_kind::none`, i.e. an ordinary
         /// surface; a non-zero value means this material is drawn by the overlay pass rather than shaded.
-        uint32_t overlay_kind = 0;
+        std::uint32_t overlay_kind = 0;
     };
 
     /**
@@ -1255,27 +1253,27 @@ namespace deren::gltf {
         resolved_factors get_factors() const;
         bool get_double_sided() const;
         /// the current drawable's TOON FAMILY (see toon_family_of), already resolved with the material
-        uint32_t get_toon_family() const;
+        std::uint32_t get_toon_family() const;
         /// the current drawable's OVERLAY CHANNEL (see overlay_kind_of); 0 == `overlay_kind::none`, i.e. the
         /// material is an ordinary shaded surface and not one of the article's two framebuffer multiplies
-        uint32_t get_overlay_kind() const;
+        std::uint32_t get_overlay_kind() const;
         /// the current drawable's MATERIAL NAME, which is what the toon material sidecar is keyed by
         [[nodiscard]] std::string_view get_material_name() const;
 
     private:
         void ensure_built() const; // build the current drawable's interleaved geometry lazily
         resolved_material const* current_material() const;
-        image_view slot(int32_t i) const;
+        image_view slot(std::int32_t i) const;
 
         deren::gltf::scene_iterator inner;
         std::span<resolved_material const> materials = {};
         // scratch geometry of the current drawable (built lazily, valid until ++)
-        mutable deren::utility::vessel::vector<uint8_t> vertex_bytes = {};
-        mutable deren::utility::vessel::vector<uint8_t> index_bytes = {};
-        mutable uint32_t vertex_stride = 0;
-        mutable uint32_t vertex_count = 0;
-        mutable uint8_t index_width = 2; // 2 or 4 bytes per index
-        mutable uint32_t index_count = 0;
+        mutable deren::utility::vessel::vector<std::uint8_t> vertex_bytes = {};
+        mutable deren::utility::vessel::vector<std::uint8_t> index_bytes = {};
+        mutable std::uint32_t vertex_stride = 0;
+        mutable std::uint32_t vertex_count = 0;
+        mutable std::uint8_t index_width = 2; // 2 or 4 bytes per index
+        mutable std::uint32_t index_count = 0;
         mutable bool built = false;
     };
 

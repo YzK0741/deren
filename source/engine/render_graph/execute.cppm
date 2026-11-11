@@ -1,7 +1,7 @@
 module;
-#include <cstdint>
-#include <cstdio>
-#include <cstdlib>
+
+#include <stdio.h>
+
 export module deren.engine.render_graph.execute;
 export import deren.vstd;
 export import deren.engine.render_graph.rhi;
@@ -27,11 +27,11 @@ export namespace deren::engine::render_graph::execution {
         if (extension->describe(*value.get(), info) != rhi::error::ok || !info.canonical_object) {
             return {};
         }
-        return {reinterpret_cast<uintptr_t>(value.device()), info.canonical_object};
+        return {reinterpret_cast<std::uintptr_t>(value.device()), info.canonical_object};
     }
     struct execution_error {
         rhi::error code;
-        uint32_t pass = invalid_index, resource = invalid_index;
+        std::uint32_t pass = invalid_index, resource = invalid_index;
     };
     namespace detail {
         struct composition_access;
@@ -54,16 +54,16 @@ export namespace deren::engine::render_graph::execution {
             deren::utility::vessel::vector<std::shared_ptr<recorder const>> recorders;
             deren::utility::vessel::vector<std::shared_ptr<void const>> attached;
         };
-        constexpr uint32_t usage_bit(resource_usage usage) noexcept {
-            auto value = static_cast<uint32_t>(usage);
+        constexpr std::uint32_t usage_bit(resource_usage usage) noexcept {
+            auto value = static_cast<std::uint32_t>(usage);
             return value >= 1 && value <= 12 ? 1U << (value - 1) : 0;
         }
     } // namespace detail
     /// Referenced only for the callback invocation; copying does not keep the resources valid.
     class record_context {
         detail::state const& state_;
-        uint32_t pass_;
-        bool declared(uint32_t index) const noexcept {
+        std::uint32_t pass_;
+        bool declared(std::uint32_t index) const noexcept {
             for (auto const& access : pass().accesses) {
                 if (access.resource == index) {
                     return true;
@@ -73,24 +73,24 @@ export namespace deren::engine::render_graph::execution {
         }
 
     public:
-        record_context(detail::state const& state, uint32_t pass) noexcept
+        record_context(detail::state const& state, std::uint32_t pass) noexcept
             : state_(state)
             , pass_(pass) {
         }
-        uint32_t pass_index() const noexcept {
+        std::uint32_t pass_index() const noexcept {
             return pass_;
         }
         pass_record const& pass() const noexcept {
             return state_.graph.passes[pass_];
         }
-        rhi::image* image(uint32_t index) const noexcept {
+        rhi::image* image(std::uint32_t index) const noexcept {
             if (index >= state_.bindings.size() || !declared(index)) {
                 return nullptr;
             }
             auto access = std::get_if<resource_handle<rhi::image>>(&state_.bindings[index]);
             return access ? access->get() : nullptr;
         }
-        rhi::buffer* buffer(uint32_t index) const noexcept {
+        rhi::buffer* buffer(std::uint32_t index) const noexcept {
             if (index >= state_.bindings.size() || !declared(index)) {
                 return nullptr;
             }
@@ -107,7 +107,7 @@ export namespace deren::engine::render_graph::execution {
         prepared_graph() noexcept = default;
         static std::expected<prepared_graph, execution_error> prepare(
             rhi::shared_object<rhi::api_core> core, compiled_graph graph, std::span<resource_binding const> bindings) {
-            auto fail = [](rhi::error code, uint32_t pass = invalid_index, uint32_t resource = invalid_index) {
+            auto fail = [](rhi::error code, std::uint32_t pass = invalid_index, std::uint32_t resource = invalid_index) {
                 return std::unexpected(execution_error{code, pass, resource});
             };
             if (!core || core->api_version() != rhi::abi_version) {
@@ -152,11 +152,11 @@ export namespace deren::engine::render_graph::execution {
             }
             for (auto const& binding : bindings) {
                 auto identity = std::visit([](auto const& access) { return identify(access); }, binding);
-                if (!identity.object || identity.device != reinterpret_cast<uintptr_t>(state->core.get())) {
+                if (!identity.object || identity.device != reinterpret_cast<std::uintptr_t>(state->core.get())) {
                     return fail(rhi::error::invalid_argument);
                 }
                 bool matched = false;
-                for (uint32_t i = 0; i < plan.resources.size(); ++i) {
+                for (std::uint32_t i = 0; i < plan.resources.size(); ++i) {
                     if (plan.resources[i].identity != identity) {
                         continue;
                     }
@@ -173,8 +173,8 @@ export namespace deren::engine::render_graph::execution {
                     return fail(rhi::error::invalid_argument);
                 }
             }
-            deren::utility::vessel::vector<uint32_t> usages(plan.resources.size());
-            for (uint32_t i = 0; i < plan.resources.size(); ++i) {
+            deren::utility::vessel::vector<std::uint32_t> usages(plan.resources.size());
+            for (std::uint32_t i = 0; i < plan.resources.size(); ++i) {
                 if (!needed[i]) {
                     continue;
                 }
@@ -189,7 +189,7 @@ export namespace deren::engine::render_graph::execution {
                         return fail(error, invalid_index, i);
                     }
                     auto shape = std::get_if<texture_shape>(&resource.shape);
-                    if (!shape || shape->mip_levels != info.mip_levels || shape->array_layers != info.array_layers || static_cast<uint32_t>(shape->aspects) != static_cast<uint32_t>(info.aspects)) {
+                    if (!shape || shape->mip_levels != info.mip_levels || shape->array_layers != info.array_layers || static_cast<std::uint32_t>(shape->aspects) != static_cast<std::uint32_t>(info.aspects)) {
                         return fail(rhi::error::invalid_argument, invalid_index, i);
                     }
                     usages[i] = info.usage_mask;
@@ -206,11 +206,11 @@ export namespace deren::engine::render_graph::execution {
                     usages[i] = info.usage_mask;
                 }
             }
-            auto stages = static_cast<uint32_t>(extension->supported_stages());
+            auto stages = static_cast<std::uint32_t>(extension->supported_stages());
             for (auto pass : plan.execution_order) {
                 for (auto const& access : plan.passes[pass].accesses) {
                     auto usage = detail::usage_bit(access.scope.usage);
-                    if (!usage || !(usages[access.resource] & usage) || (static_cast<uint32_t>(access.scope.stages) & ~stages)) {
+                    if (!usage || !(usages[access.resource] & usage) || (static_cast<std::uint32_t>(access.scope.stages) & ~stages)) {
                         return fail(rhi::error::unsupported, pass, access.resource);
                     }
                 }
@@ -299,8 +299,8 @@ export namespace deren::engine::render_graph::execution {
                     auto const barrier_us = std::chrono::duration<double, std::micro>(barrier_done - pass_started).count();
                     auto const callback_us = std::chrono::duration<double, std::micro>(callback_done - barrier_done).count();
                     auto const& name = state->graph.passes[pass].name;
-                    std::fprintf(stderr, "record graph: pass '%.*s' barrier %.1f us | callback %.1f us\n",
-                                 static_cast<int32_t>(name.size()), name.data(), barrier_us, callback_us);
+                    ::fprintf(stderr, "record graph: pass '%.*s' barrier %.1f us | callback %.1f us\n",
+                              static_cast<std::int32_t>(name.size()), name.data(), barrier_us, callback_us);
                 }
                 if (error != rhi::error::ok) {
                     return error;

@@ -21,7 +21,6 @@
 
 module;
 
-#include <cstdint>
 #include <glm/glm.hpp>
 
 export module deren.engine.pass.compute_skin;
@@ -43,10 +42,10 @@ export namespace deren::engine::pass {
     struct compute_skin_push_constants {
         glm::uvec2 source_vertices = glm::uvec2(0u); // the primitive's bind-pose vertices, low and high
         glm::uvec2 destination = glm::uvec2(0u);     // the skinned buffer this job fills
-        uint32_t source_stride = 0;                  // 80: the engine's interleaved vertex
-        uint32_t destination_stride = 0;             // 32: position, normal, uv
-        uint32_t vertex_count = 0;
-        uint32_t skin_base = 0; // this primitive's joint block in skins.matrices
+        std::uint32_t source_stride = 0;             // 80: the engine's interleaved vertex
+        std::uint32_t destination_stride = 0;        // 32: position, normal, uv
+        std::uint32_t vertex_count = 0;
+        std::uint32_t skin_base = 0; // this primitive's joint block in skins.matrices
     };
 
     static_assert(sizeof(compute_skin_push_constants) == 32, "the job's push block must stay the size the shader declares");
@@ -54,12 +53,12 @@ export namespace deren::engine::pass {
     /// @brief one skinned caster's dispatch: the two buffers it works between, and where its joints start
     struct compute_skin_request {
         // `uint64_t`, the contract's spelling for a device address (see `mask_bake_request`'s note)
-        std::uint64_t source_vertices = 0; // the primitive's bind-pose vertices
-        std::uint64_t destination = 0;     // the skinned buffer this job fills (0 = not a skinned caster)
-        uint32_t source_stride = 0;        // 80
-        uint32_t destination_stride = 0;   // 32
-        uint32_t vertex_count = 0;
-        uint32_t skin_base = 0;
+        std::uint64_t source_vertices = 0;    // the primitive's bind-pose vertices
+        std::uint64_t destination = 0;        // the skinned buffer this job fills (0 = not a skinned caster)
+        std::uint32_t source_stride = 0;      // 80
+        std::uint32_t destination_stride = 0; // 32
+        std::uint32_t vertex_count = 0;
+        std::uint32_t skin_base = 0;
     };
 
     /**
@@ -98,13 +97,13 @@ export namespace deren::engine::pass {
          *        is why the frame slot is no longer a parameter here - the endpoint carries it.
          */
         [[nodiscard]] bool record(deren::promise::rhi::command_buffer& commands, std::span<compute_skin_request const> requests, void* push_source,
-                                  bool (*push_indices)(void* parent, deren::promise::rhi::command_buffer& commands, std::span<std::byte const> bytes, uint32_t extra_lane)) const noexcept;
+                                  bool (*push_indices)(void* parent, deren::promise::rhi::command_buffer& commands, std::span<std::byte const> bytes, std::uint32_t extra_lane)) const noexcept;
         /// @brief whether the job built what it records with (the renderer's gate for skinning at all)
         [[nodiscard]] bool ready() const noexcept;
 
     private:
         static constexpr std::string_view shader_name = "compute_skin.comp.spv";
-        static constexpr uint32_t group_size = 64; // `compute_skin.comp`'s local_size_x
+        static constexpr std::uint32_t group_size = 64; // `compute_skin.comp`'s local_size_x
         void release_contract() noexcept;
         deren::promise::rhi::api_core* built_against = nullptr;
         // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name

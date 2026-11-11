@@ -33,7 +33,6 @@
  */
 
 module;
-#include <cstdint>
 
 export module deren.engine.pass.scene;
 export import deren.vstd;

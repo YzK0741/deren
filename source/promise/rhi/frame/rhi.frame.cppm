@@ -2,8 +2,6 @@
 // module: deren.promise.rhi:frame
 module;
 
-#include <cstdint>
-
 export module deren.promise.rhi:frame;
 export import deren.vstd;
 export import deren.utility.shared;

@@ -1,15 +1,11 @@
 module;
-#include <array>
-#include <cstddef>
-#include <cstdint>
-#include <optional>
-#include <utility>
-#include <variant>
+
 export module deren.engine.render_graph:range_operations;
+import deren.vstd;
 import :types;
 export namespace deren::engine::render_graph::detail {
-    inline uint32_t bits(texture_aspect aspect) noexcept {
-        return static_cast<uint32_t>(aspect);
+    inline std::uint32_t bits(texture_aspect aspect) noexcept {
+        return static_cast<std::uint32_t>(aspect);
     }
     inline bool valid_shape(resource_shape const& shape) noexcept {
         if (auto t = std::get_if<texture_shape>(&shape)) {
@@ -113,7 +109,7 @@ export namespace deren::engine::render_graph::detail {
         if (auto remaining = bits(x.aspects) & ~bits(in.aspects)) {
             result.outside[result.count++] = texture_range{x.base_mip, x.mip_count, x.base_layer, x.layer_count, static_cast<texture_aspect>(remaining)};
         }
-        auto emit = [&](uint32_t mip, uint32_t mip_count, uint32_t layer, uint32_t layer_count) {
+        auto emit = [&](std::uint32_t mip, std::uint32_t mip_count, std::uint32_t layer, std::uint32_t layer_count) {
             if (mip_count && layer_count) {
                 result.outside[result.count++] = texture_range{mip, mip_count, layer, layer_count, in.aspects};
             }

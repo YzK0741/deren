@@ -20,6 +20,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <semaphore>
 #include <span>

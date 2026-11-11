@@ -12,7 +12,6 @@
 // ============================================================================
 module;
 
-#include <cstdint>
 #include <vulkan/vulkan.h>
 
 // GLFWwindow is used as an opaque pointer in gui_create_info. Include glfw3.h instead of
@@ -62,14 +61,14 @@ namespace deren::vulkan::gui {
         VkInstance instance = VK_NULL_HANDLE;
         VkPhysicalDevice physical_device = VK_NULL_HANDLE;
         VkDevice device = VK_NULL_HANDLE;
-        uint32_t graphics_queue_family = 0; // queue family of @p graphics_queue
+        std::uint32_t graphics_queue_family = 0; // queue family of @p graphics_queue
         VkQueue graphics_queue = VK_NULL_HANDLE;
         // the overlay's segment records under the OPEN main rendering instance's inheritance, so its
         // pipeline must match the frame's attachments: swapchain color format + the scene's depth format
         VkFormat color_format = VK_FORMAT_UNDEFINED;
         VkFormat depth_format = VK_FORMAT_UNDEFINED; // must match the main pass' depth attachment
         // frames in flight (the backend sizes its per-frame render-buffer ring to this)
-        uint32_t frames_in_flight = 2;
+        std::uint32_t frames_in_flight = 2;
     };
 
     /**
@@ -182,14 +181,14 @@ namespace deren::vulkan::gui {
      */
     export class combo_widget final : public widget {
     public:
-        combo_widget(deren::utility::vessel::string label, deren::utility::vessel::vector<deren::utility::vessel::string> items, int32_t* current_item, std::function<void(int32_t)> on_change = {});
+        combo_widget(deren::utility::vessel::string label, deren::utility::vessel::vector<deren::utility::vessel::string> items, std::int32_t* current_item, std::function<void(std::int32_t)> on_change = {});
         void draw() override;
 
     private:
         deren::utility::vessel::string label;
         deren::utility::vessel::vector<deren::utility::vessel::string> items;
-        int32_t* current_item = nullptr;
-        std::function<void(int32_t)> on_change;
+        std::int32_t* current_item = nullptr;
+        std::function<void(std::int32_t)> on_change;
     };
 
     /**
@@ -350,9 +349,9 @@ namespace deren::vulkan::gui {
         // themselves live in ImGui's global storage, not here.
         bool active = false;
         // frames in flight captured at init() (the backend's min-image hint on recreation)
-        uint32_t frames_in_flight = 2;
+        std::uint32_t frames_in_flight = 2;
         // registration count: new panels start one column to the right (no .ini exists to remember
         // where a panel was, and stacking every panel on the same corner hides all but the top)
-        uint32_t panel_registrations = 0;
+        std::uint32_t panel_registrations = 0;
     };
 } // namespace deren::vulkan::gui

@@ -18,8 +18,8 @@
  * file's contract is only that the separate union output is the input.
  */
 module;
-#include <cstdint>
-#include <cstring>
+
+#include <cstddef>
 
 export module deren.engine.meshlet;
 export import deren.utility.shared;
@@ -36,9 +36,9 @@ namespace deren::engine {
      * separately (which is what a stage without meshlet-local index sharing does) spends three output vertices
      * per triangle, and 85 * 3 = 255 is the largest count that fits both. See docs/mesh_shaders.md section 2.
      */
-    export constexpr uint32_t meshlet_max_triangles = 85;
+    export constexpr std::uint32_t meshlet_max_triangles = 85;
     /// the index count that bound implies (three per triangle)
-    export constexpr uint32_t meshlet_max_indices = meshlet_max_triangles * 3u;
+    export constexpr std::uint32_t meshlet_max_indices = meshlet_max_triangles * 3u;
     /**
      * @ingroup engine_meshlet
      * @brief how many meshlets the GPU table holds, i.e. the renderer's whole-scene meshlet budget
@@ -50,7 +50,7 @@ namespace deren::engine {
      *       so, in the same spirit as the material table's overflow path - a renderer that drops geometry when a
      *       budget runs out turns a budget into a hole.
      */
-    export constexpr uint32_t meshlet_capacity = 65536u;
+    export constexpr std::uint32_t meshlet_capacity = 65536u;
 
     /**
      * @ingroup engine_meshlet
@@ -62,9 +62,9 @@ namespace deren::engine {
      *       a vertex outside the plane that culled it.
      */
     export struct meshlet {
-        uint32_t first_index = 0; ///< first index of this meshlet inside the draw's index window
-        uint32_t index_count = 0; ///< indices it covers (always a multiple of three, never zero)
-        int32_t base_vertex = 0;  ///< the draw's base vertex, repeated per meshlet: it is added to every index
+        std::uint32_t first_index = 0; ///< first index of this meshlet inside the draw's index window
+        std::uint32_t index_count = 0; ///< indices it covers (always a multiple of three, never zero)
+        std::int32_t base_vertex = 0;  ///< the draw's base vertex, repeated per meshlet: it is added to every index
         /**
          * @brief the streamed index page this record reads through, plus one; zero means the draw's index buffer
          *
@@ -77,7 +77,7 @@ namespace deren::engine {
          *       (LOD0 and every non-streamed draw), where the record's `first_index` is an offset into the draw's
          *       index buffer.
          */
-        uint32_t page_id = 0;
+        std::uint32_t page_id = 0;
         float center_x = 0.0f; ///< object-space centre of the bounding sphere
         float center_y = 0.0f;
         float center_z = 0.0f;
@@ -126,7 +126,7 @@ namespace deren::engine {
      * @param record the meshlet record, as the splitter produced it or as the GPU table would return it
      * @param index_count how many indices the draw it belongs to covers
      */
-    export bool meshlet_record_sound(meshlet const& record, uint32_t index_count) noexcept {
+    export bool meshlet_record_sound(meshlet const& record, std::uint32_t index_count) noexcept {
         return record.index_count != 0u && record.index_count % 3u == 0u && record.index_count <= meshlet_max_indices &&
                record.first_index + record.index_count <= index_count && std::isfinite(record.radius) && record.radius >= 0.0f;
     }
@@ -138,14 +138,14 @@ namespace deren::engine {
      *       the split sees the same bytes the mesh stage will fetch - no second interpretation of the layout.
      */
     export struct meshlet_build_input {
-        std::span<uint8_t const> vertex_data = {}; ///< the interleaved vertices, position first
-        uint32_t vertex_stride = 0;                ///< bytes per vertex (64 for this renderer's layout)
-        uint32_t vertex_count = 0;                 ///< vertices the data holds
-        std::span<uint8_t const> index_data = {};  ///< the index buffer the window indexes into
-        uint32_t index_width = 4;                  ///< bytes per index: 2 (uint16) or 4 (uint32)
-        uint32_t first_index = 0;                  ///< the draw's first index inside `index_data`
-        uint32_t index_count = 0;                  ///< how many indices the draw covers
-        int32_t base_vertex = 0;                   ///< the draw's base vertex (static-draw chunks; else 0)
+        std::span<std::uint8_t const> vertex_data = {}; ///< the interleaved vertices, position first
+        std::uint32_t vertex_stride = 0;                ///< bytes per vertex (64 for this renderer's layout)
+        std::uint32_t vertex_count = 0;                 ///< vertices the data holds
+        std::span<std::uint8_t const> index_data = {};  ///< the index buffer the window indexes into
+        std::uint32_t index_width = 4;                  ///< bytes per index: 2 (uint16) or 4 (uint32)
+        std::uint32_t first_index = 0;                  ///< the draw's first index inside `index_data`
+        std::uint32_t index_count = 0;                  ///< how many indices the draw covers
+        std::int32_t base_vertex = 0;                   ///< the draw's base vertex (static-draw chunks; else 0)
     };
 
     /**
@@ -165,7 +165,7 @@ namespace deren::engine {
      */
     export deren::utility::vessel::vector<meshlet> build_meshlets(meshlet_build_input const& input) {
         deren::utility::vessel::vector<meshlet> meshlets;
-        uint32_t const triangles = input.index_count / 3u;
+        std::uint32_t const triangles = input.index_count / 3u;
         if (triangles == 0u || input.vertex_count == 0u || input.index_width < 2u || input.vertex_stride < 3u * sizeof(float) ||
             input.vertex_data.size() < static_cast<std::size_t>(input.vertex_count) * input.vertex_stride) {
             return meshlets;
@@ -178,19 +178,19 @@ namespace deren::engine {
         }
 
         /// one index of the window, as an uint32_t value (the same two cases the mesh stage's fetch has)
-        auto const index_at = [&input](uint32_t const i) -> uint32_t {
-            uint8_t const* const at = input.index_data.data() + static_cast<std::size_t>(input.first_index + i) * input.index_width;
+        auto const index_at = [&input](std::uint32_t const i) -> std::uint32_t {
+            std::uint8_t const* const at = input.index_data.data() + static_cast<std::size_t>(input.first_index + i) * input.index_width;
             if (input.index_width == 2u) {
-                uint16_t value = 0;
+                std::uint16_t value = 0;
                 std::memcpy(&value, at, sizeof(value));
                 return value;
             }
-            uint32_t value = 0;
+            std::uint32_t value = 0;
             std::memcpy(&value, at, sizeof(value));
             return value;
         };
         /// the position of vertex @p v, or false when it is outside the buffer (see the note above)
-        auto const position_at = [&input](uint32_t const v, float (&out)[3]) -> bool {
+        auto const position_at = [&input](std::uint32_t const v, float (&out)[3]) -> bool {
             if (v >= input.vertex_count) {
                 return false;
             }
@@ -198,17 +198,17 @@ namespace deren::engine {
             return true;
         };
 
-        for (uint32_t first_triangle = 0; first_triangle < triangles; first_triangle += meshlet_max_triangles) {
-            uint32_t const meshlet_triangles = std::min(meshlet_max_triangles, triangles - first_triangle);
+        for (std::uint32_t first_triangle = 0; first_triangle < triangles; first_triangle += meshlet_max_triangles) {
+            std::uint32_t const meshlet_triangles = std::min(meshlet_max_triangles, triangles - first_triangle);
             float low[3] = {std::numeric_limits<float>::infinity(), std::numeric_limits<float>::infinity(), std::numeric_limits<float>::infinity()};
             float high[3] = {-std::numeric_limits<float>::infinity(), -std::numeric_limits<float>::infinity(), -std::numeric_limits<float>::infinity()};
-            uint32_t positions = 0;
-            for (uint32_t corner = 0; corner < meshlet_triangles * 3u; ++corner) {
+            std::uint32_t positions = 0;
+            for (std::uint32_t corner = 0; corner < meshlet_triangles * 3u; ++corner) {
                 float position[3] = {};
                 if (!position_at(index_at(first_triangle * 3u + corner), position)) {
                     continue;
                 }
-                for (int32_t axis = 0; axis < 3; ++axis) {
+                for (std::int32_t axis = 0; axis < 3; ++axis) {
                     low[axis] = std::min(low[axis], position[axis]);
                     high[axis] = std::max(high[axis], position[axis]);
                 }
@@ -235,12 +235,12 @@ namespace deren::engine {
             // "no statement" and therefore never culls (see the shader's test).
             float axis[3] = {0.0f, 0.0f, 0.0f};
             float normals[meshlet_max_triangles][3] = {};
-            uint32_t normal_count = 0;
-            for (uint32_t triangle = 0; triangle < meshlet_triangles; ++triangle) {
+            std::uint32_t normal_count = 0;
+            for (std::uint32_t triangle = 0; triangle < meshlet_triangles; ++triangle) {
                 float a[3] = {};
                 float b[3] = {};
                 float c[3] = {};
-                uint32_t const base = (first_triangle + triangle) * 3u;
+                std::uint32_t const base = (first_triangle + triangle) * 3u;
                 if (!position_at(index_at(base), a) || !position_at(index_at(base + 1u), b) || !position_at(index_at(base + 2u), c)) {
                     continue;
                 }
@@ -254,7 +254,7 @@ namespace deren::engine {
                 normals[normal_count][0] = n[0] / length;
                 normals[normal_count][1] = n[1] / length;
                 normals[normal_count][2] = n[2] / length;
-                for (int32_t axis_index = 0; axis_index < 3; ++axis_index) {
+                for (std::int32_t axis_index = 0; axis_index < 3; ++axis_index) {
                     axis[axis_index] += normals[normal_count][axis_index];
                 }
                 ++normal_count;
@@ -266,7 +266,7 @@ namespace deren::engine {
                     out.axis_y = axis[1] / length;
                     out.axis_z = axis[2] / length;
                     float worst = 1.0f;
-                    for (uint32_t normal = 0; normal < normal_count; ++normal) {
+                    for (std::uint32_t normal = 0; normal < normal_count; ++normal) {
                         worst = std::min(worst, normals[normal][0] * out.axis_x + normals[normal][1] * out.axis_y + normals[normal][2] * out.axis_z);
                     }
                     out.cone_cos = std::max(-1.0f, worst); // clamped: a dot product can only round below -1

@@ -1,6 +1,10 @@
 #include "document_internal.hpp"
 #include "package_limits.hpp"
 
+#include <limits>
+
+#include <cstdint>
+
 namespace deren::tools::subtilis {
     document::document() = default;
     document::~document() = default;
@@ -86,7 +90,7 @@ namespace deren::tools::subtilis {
         if (ec) {
             return fail("cannot open input file", asset::error_code::io);
         }
-        if (length > lim.max_input_bytes || length > SIZE_MAX || length > uint64_t(std::numeric_limits<std::streamsize>::max())) {
+        if (length > lim.max_input_bytes || length > std::numeric_limits<std::size_t>::max() || length > uint64_t(std::numeric_limits<std::streamsize>::max())) {
             return fail("input byte limit", asset::error_code::capacity);
         }
         vector<byte> bytes(static_cast<size_t>(length));
@@ -325,7 +329,7 @@ namespace deren::tools::subtilis {
         auto* buffer = member(bv, "buffer");
         auto* offset = member(bv, "byteOffset");
         auto* length = member(bv, "byteLength");
-        if (!yyjson_mut_is_uint(buffer) || yyjson_mut_get_uint(buffer) > UINT32_MAX || !yyjson_mut_is_uint(length) || member(bv, "target") || (offset && !yyjson_mut_is_uint(offset))) {
+        if (!yyjson_mut_is_uint(buffer) || yyjson_mut_get_uint(buffer) > std::numeric_limits<std::uint32_t>::max() || !yyjson_mut_is_uint(length) || member(bv, "target") || (offset && !yyjson_mut_is_uint(offset))) {
             return fail("invalid payload bufferView");
         }
         uint64_t at = offset ? yyjson_mut_get_uint(offset) : 0, n = yyjson_mut_get_uint(length);

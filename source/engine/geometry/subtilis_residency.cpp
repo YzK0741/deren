@@ -1,7 +1,5 @@
 module;
-#include <cstdint>
-#include <span>
-#include <utility>
+
 module deren.engine.subtilis.residency;
 import deren.vstd;
 
@@ -163,7 +161,7 @@ namespace deren::engine::subtilis {
         while (projected > limits_.max_resident_bytes ||
                (limits_.max_resident_pages != 0u && projected_pages > limits_.max_resident_pages)) {
             auto victim = no_page;
-            auto victim_use = UINT64_MAX;
+            auto victim_use = std::numeric_limits<std::uint64_t>::max();
             for (std::uint32_t candidate = 0; candidate < pages_.size(); ++candidate) {
                 if (!resident_[candidate] || required[candidate] || pinned(candidate) || evicted[candidate]) {
                     continue;

@@ -1,7 +1,5 @@
 module;
-#include <cstddef>
-#include <cstdint>
-#include <cstring>
+
 export module deren.engine.buffer_transfer;
 export import deren.vstd;
 export import deren.engine.resource_cluster;
@@ -176,7 +174,7 @@ export namespace deren::engine {
         buffer_transfer_service(buffer_transfer_service const&) = delete ("buffer_transfer_service is non-copyable: pass it by reference or construct a new instance");
         buffer_transfer_service& operator=(buffer_transfer_service const&) = delete ("buffer_transfer_service is non-copyable: modify the existing instance instead");
         ~buffer_transfer_service() noexcept {
-            if (drain(UINT64_MAX) != transfer_rhi::error::ok) {
+            if (drain(std::numeric_limits<std::uint64_t>::max()) != transfer_rhi::error::ok) {
                 deren::utility::fast_panic("environment: buffer transfer final drain failed");
             }
         }
@@ -256,7 +254,7 @@ export namespace deren::engine {
             return transfer_rhi::error::ok;
         }
         /// timeout_ns applies to each pending token; an error or timeout leaves uncompleted records pending.
-        [[nodiscard]] transfer_rhi::error drain(std::uint64_t timeout_ns = UINT64_MAX) {
+        [[nodiscard]] transfer_rhi::error drain(std::uint64_t timeout_ns = std::numeric_limits<std::uint64_t>::max()) {
             for (auto const& state : pending) {
                 auto result = state->observe(true, timeout_ns);
                 if (result != transfer_rhi::error::ok) {

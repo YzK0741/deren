@@ -28,8 +28,6 @@
  */
 module;
 
-#include <cstdint>
-
 export module deren.engine.pass.hzb_build;
 export import deren.vstd;
 

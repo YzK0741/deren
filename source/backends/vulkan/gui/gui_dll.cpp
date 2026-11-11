@@ -21,13 +21,12 @@ module;
 
 #include <GLFW/glfw3.h>
 #include <cstdint>
-#include <functional>
 #include <list>
 #include <memory>
-#include <utility>
 #include <vulkan/vulkan.h>
 
 module deren.vulkan.graphical_user_interface;
+import deren.vstd;
 import deren.utility.shared;
 
 import deren.promise.gui;

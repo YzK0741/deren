@@ -17,6 +17,9 @@ import deren.engine.subtilis.dag_lod;
 import deren.promise.rhi;
 #include "probe_backend.hpp"
 #include "subtilis_dag_fixtures.hpp"
+
+#include <cstdint>
+#include <limits>
 namespace sub = deren::engine::subtilis;
 namespace wire = deren::asset::subtilis;
 template <class T>
@@ -306,7 +309,7 @@ int main() {
         CHECK(sub::admit_table(*a, 65536 - count, 65536));
         auto no_room = sub::admit_table(*a, 65537 - count, 65536);
         CHECK(!no_room && no_room.error() == sub::import_failure::capacity_table);
-        CHECK(!sub::admit_table(*a, UINT64_MAX, 65536));
+        CHECK(!sub::admit_table(*a, std::numeric_limits<std::uint64_t>::max(), 65536));
         auto p = wire::decode(std::as_bytes(std::span(f.payload)), {});
         CHECK(p);
         CHECK(a->lod0_index_count() == f.index_count && a->indices().size() > f.index_count);
@@ -359,10 +362,10 @@ int main() {
     bad.vertex_stride = 32;
     reject(bad, sub::import_failure::source_mismatch);
     bad = f.input();
-    bad.vertex_count = UINT32_MAX;
+    bad.vertex_count = std::numeric_limits<std::uint32_t>::max();
     reject(bad, sub::import_failure::capacity_item);
     bad = f.input();
-    bad.index_count = UINT32_MAX;
+    bad.index_count = std::numeric_limits<std::uint32_t>::max();
     reject(bad, sub::import_failure::capacity_item);
     vector<uint8_t> narrow(size_t(f.index_count) * 2);
     for (uint32_t i = 0; i < f.index_count; ++i) {
@@ -400,7 +403,7 @@ int main() {
         f = load("cross_dag");
         p = wire::decode(std::as_bytes(std::span(f.payload)), {});
         if (p) {
-            p->indices[0] = UINT32_MAX;
+            p->indices[0] = std::numeric_limits<std::uint32_t>::max();
             replace_payload(f, *p);
             reject(f.input(), sub::import_failure::source_mismatch);
         }

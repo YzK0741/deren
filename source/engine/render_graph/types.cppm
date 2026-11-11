@@ -1,27 +1,27 @@
 module;
-#include <cstdint>
+
 export module deren.engine.render_graph:types;
 export import deren.vstd;
 export import deren.utility.shared;
 export namespace deren::engine::render_graph {
-    inline constexpr uint32_t invalid_index = std::numeric_limits<uint32_t>::max();
+    inline constexpr std::uint32_t invalid_index = std::numeric_limits<std::uint32_t>::max();
     class builder;
     template <typename Tag>
     class basic_ref {
         friend class builder;
-        uint64_t incarnation_ = 0;
-        uint32_t index_ = invalid_index;
-        basic_ref(uint64_t incarnation, uint32_t index) noexcept
+        std::uint64_t incarnation_ = 0;
+        std::uint32_t index_ = invalid_index;
+        basic_ref(std::uint64_t incarnation, std::uint32_t index) noexcept
             : incarnation_(incarnation)
             , index_(index) {
         }
 
     public:
         basic_ref() noexcept = default;
-        uint32_t index() const noexcept {
+        std::uint32_t index() const noexcept {
             return index_;
         }
-        uint64_t incarnation() const noexcept {
+        std::uint64_t incarnation() const noexcept {
             return incarnation_;
         }
         bool operator==(basic_ref const&) const noexcept = default;
@@ -33,7 +33,7 @@ export namespace deren::engine::render_graph {
     using buffer_ref = basic_ref<buffer_tag>;
     using pass_ref = basic_ref<pass_tag>;
     struct resource_identity {
-        uint64_t device = 0, object = 0;
+        std::uint64_t device = 0, object = 0;
         bool operator==(resource_identity const&) const noexcept = default;
     };
     enum class resource_kind { texture,
@@ -45,64 +45,64 @@ export namespace deren::engine::render_graph {
                                 preserve_write,
                                 read_write,
                                 invalidate };
-    enum class texture_aspect : uint32_t { none = 0,
-                                           color = 1,
-                                           depth = 2,
-                                           stencil = 4,
-                                           all = 0xffffffffU };
+    enum class texture_aspect : std::uint32_t { none = 0,
+                                                color = 1,
+                                                depth = 2,
+                                                stencil = 4,
+                                                all = 0xffffffffU };
     constexpr texture_aspect operator|(texture_aspect a, texture_aspect b) noexcept {
-        return static_cast<texture_aspect>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
+        return static_cast<texture_aspect>(static_cast<std::uint32_t>(a) | static_cast<std::uint32_t>(b));
     }
-    inline constexpr uint32_t remaining_subresources = std::numeric_limits<uint32_t>::max();
-    inline constexpr uint64_t remaining_bytes = std::numeric_limits<uint64_t>::max();
+    inline constexpr std::uint32_t remaining_subresources = std::numeric_limits<std::uint32_t>::max();
+    inline constexpr std::uint64_t remaining_bytes = std::numeric_limits<std::uint64_t>::max();
     struct texture_shape {
-        uint32_t mip_levels = 1, array_layers = 1;
+        std::uint32_t mip_levels = 1, array_layers = 1;
         texture_aspect aspects = texture_aspect::color;
         bool operator==(texture_shape const&) const noexcept = default;
     };
     struct buffer_shape {
-        uint64_t byte_size = 1;
+        std::uint64_t byte_size = 1;
         bool operator==(buffer_shape const&) const noexcept = default;
     };
     using resource_shape = std::variant<texture_shape, buffer_shape>;
     struct texture_range {
-        uint32_t base_mip = 0, mip_count = remaining_subresources;
-        uint32_t base_layer = 0, layer_count = remaining_subresources;
+        std::uint32_t base_mip = 0, mip_count = remaining_subresources;
+        std::uint32_t base_layer = 0, layer_count = remaining_subresources;
         texture_aspect aspects = texture_aspect::all;
         bool operator==(texture_range const&) const noexcept = default;
     };
     struct buffer_range {
-        uint64_t offset = 0, size = remaining_bytes;
+        std::uint64_t offset = 0, size = remaining_bytes;
         bool operator==(buffer_range const&) const noexcept = default;
     };
     using resource_range = std::variant<texture_range, buffer_range>;
-    enum class pipeline_stage : uint32_t { none = 0,
-                                           vertex_shader = 1,
-                                           fragment_shader = 2,
-                                           compute_shader = 4,
-                                           color_output = 8,
-                                           depth_stencil = 16,
-                                           transfer = 32,
-                                           vertex_input = 64,
-                                           draw_indirect = 128,
-                                           task_shader = 256,
-                                           mesh_shader = 512,
-                                           /// RT stage 1: a traceRays LAUNCH's stages. A ray query inside a compute
-                                           /// shader names `compute_shader`; this value names the ray-tracing
-                                           /// pipeline stages, which is what the RT shadow pass writes its
-                                           /// visibility image from.
-                                           ray_tracing = 1024 };
+    enum class pipeline_stage : std::uint32_t { none = 0,
+                                                vertex_shader = 1,
+                                                fragment_shader = 2,
+                                                compute_shader = 4,
+                                                color_output = 8,
+                                                depth_stencil = 16,
+                                                transfer = 32,
+                                                vertex_input = 64,
+                                                draw_indirect = 128,
+                                                task_shader = 256,
+                                                mesh_shader = 512,
+                                                /// RT stage 1: a traceRays LAUNCH's stages. A ray query inside a compute
+                                                /// shader names `compute_shader`; this value names the ray-tracing
+                                                /// pipeline stages, which is what the RT shadow pass writes its
+                                                /// visibility image from.
+                                                ray_tracing = 1024 };
     constexpr pipeline_stage operator|(pipeline_stage a, pipeline_stage b) noexcept {
-        return static_cast<pipeline_stage>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
+        return static_cast<pipeline_stage>(static_cast<std::uint32_t>(a) | static_cast<std::uint32_t>(b));
     }
     constexpr pipeline_stage operator&(pipeline_stage a, pipeline_stage b) noexcept {
-        return static_cast<pipeline_stage>(static_cast<uint32_t>(a) & static_cast<uint32_t>(b));
+        return static_cast<pipeline_stage>(static_cast<std::uint32_t>(a) & static_cast<std::uint32_t>(b));
     }
-    enum class memory_access : uint32_t { none = 0,
-                                          read = 1,
-                                          write = 2 };
+    enum class memory_access : std::uint32_t { none = 0,
+                                               read = 1,
+                                               write = 2 };
     constexpr memory_access operator|(memory_access a, memory_access b) noexcept {
-        return static_cast<memory_access>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
+        return static_cast<memory_access>(static_cast<std::uint32_t>(a) | static_cast<std::uint32_t>(b));
     }
     enum class resource_usage { unspecified,
                                 sampled,
@@ -143,8 +143,8 @@ export namespace deren::engine::render_graph {
         friend class builder;
 
     private:
-        uint64_t incarnation_;
-        uint32_t resource_;
+        std::uint64_t incarnation_;
+        std::uint32_t resource_;
         resource_kind kind_;
         content_access mode_;
         resource_range range_;
@@ -192,20 +192,20 @@ export namespace deren::engine::render_graph {
                             unsupported_access };
     struct graph_error {
         error_code code;
-        uint32_t pass = invalid_index, resource = invalid_index;
+        std::uint32_t pass = invalid_index, resource = invalid_index;
         deren::utility::vessel::string pass_name, resource_name;
         std::optional<resource_range> range = std::nullopt;
     };
     struct resolved_access {
-        uint32_t resource;
+        std::uint32_t resource;
         content_access mode;
         resource_range range = texture_range{};
         access_scope scope = {};
     };
     struct range_contents {
         resource_range range;
-        uint32_t producer = invalid_index;
-        uint64_t version = 0;
+        std::uint32_t producer = invalid_index;
+        std::uint64_t version = 0;
         bool defined = false;
     };
     struct resource_record {
@@ -213,8 +213,8 @@ export namespace deren::engine::render_graph {
         resource_kind kind;
         initial_contents initial;
         deren::utility::vessel::string name;
-        uint32_t last_producer = invalid_index;
-        uint64_t last_version = 0;
+        std::uint32_t last_producer = invalid_index;
+        std::uint64_t last_version = 0;
         bool defined = false;
         resource_shape shape = texture_shape{};
         deren::utility::vessel::vector<range_contents> final_ranges = {};
@@ -226,7 +226,7 @@ export namespace deren::engine::render_graph {
         std::shared_ptr<void const> value_;
         void const* type_ = nullptr;
         template <typename T>
-        inline static uint8_t type_key = 0;
+        inline static std::uint8_t type_key = 0;
         template <typename T>
         static parameter_snapshot make(T value) {
             parameter_snapshot result;
@@ -259,29 +259,29 @@ export namespace deren::engine::render_graph {
                                    explicit_order,
                                    state_transition };
     struct dependency {
-        uint32_t from, to, resource;
+        std::uint32_t from, to, resource;
         dependency_reason reason;
         std::optional<resource_range> range = std::nullopt;
     };
     struct content_read {
-        uint32_t pass, resource, producer;
-        uint64_t version;
+        std::uint32_t pass, resource, producer;
+        std::uint64_t version;
         bool defined;
         resource_range range = texture_range{};
     };
     struct resource_export {
-        uint32_t resource;
+        std::uint32_t resource;
         resource_range range;
         bool operator==(resource_export const&) const noexcept = default;
     };
     struct resource_barrier {
-        uint32_t resource, before_pass;
+        std::uint32_t resource, before_pass;
         resource_range range;
         resource_state before, after;
         bool layout_transition = false, memory_dependency = false;
     };
     struct final_resource_state {
-        uint32_t resource;
+        std::uint32_t resource;
         resource_range range;
         resource_state state;
     };
@@ -290,7 +290,7 @@ export namespace deren::engine::render_graph {
         deren::utility::vessel::vector<pass_record> passes;
         deren::utility::vessel::vector<dependency> dependencies;
         deren::utility::vessel::vector<content_read> reads;
-        deren::utility::vessel::vector<uint32_t> execution_order;
+        deren::utility::vessel::vector<std::uint32_t> execution_order;
         deren::utility::vessel::vector<resource_export> outputs = {};
         bool synchronization_planned = false;
         deren::utility::vessel::vector<resource_barrier> barriers = {};

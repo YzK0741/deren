@@ -1,7 +1,5 @@
 module;
 
-#include <cstddef>
-#include <cstdint>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -167,7 +165,7 @@ namespace deren::engine::animation {
         return this->skin_readers.size();
     }
 
-    uint32_t controller::skin_block_count() const noexcept {
+    std::uint32_t controller::skin_block_count() const noexcept {
         return this->skin_blocks_used;
     }
 
@@ -360,7 +358,7 @@ namespace deren::engine::animation {
                 // sampling_tasks is MEMBER scratch, reused every frame (no per-frame allocation
                 // on this hot path; only touched from this frame thread).
                 std::size_t const total = this->sample_keys.size();
-                uint32_t const workers = std::max(1, this->host.task_worker_count());
+                std::uint32_t const workers = std::max(1, this->host.task_worker_count());
                 // a single monotonic flag replaces per-slice flags: the main thread resets it
                 // before spawning, workers only ever set it, and run_tasks is synchronous, so it
                 // is only read back after every task finished
@@ -368,7 +366,7 @@ namespace deren::engine::animation {
                 deren::utility::vessel::vector<std::function<void()>>& tasks = this->sampling_tasks;
                 tasks.clear();
                 tasks.reserve(workers);
-                for (uint32_t w = 0; w < workers; ++w) {
+                for (std::uint32_t w = 0; w < workers; ++w) {
                     std::size_t const begin = total * w / workers;
                     std::size_t const end = total * (w + 1) / workers;
                     if (begin >= end) {

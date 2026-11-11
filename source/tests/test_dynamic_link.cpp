@@ -51,6 +51,8 @@ import deren.utility.dynamic_link;
 
 #include "../promise/rhi/backend_entry.hpp"
 
+#include <limits>
+
 namespace {
 
     namespace fs = std::filesystem;
@@ -72,7 +74,7 @@ namespace {
     static_assert(rhi::validate_dispatch_indirect_range(12u, 4u) == rhi::error::invalid_argument);
     static_assert(rhi::validate_dispatch_indirect_range(16u, 1u) == rhi::error::invalid_argument);
     static_assert(rhi::validate_dispatch_indirect_range(11u, 0u) == rhi::error::invalid_argument);
-    static_assert(rhi::validate_dispatch_indirect_range(UINT64_MAX, UINT64_MAX - 3u) == rhi::error::invalid_argument);
+    static_assert(rhi::validate_dispatch_indirect_range(std::numeric_limits<std::uint64_t>::max(), std::numeric_limits<std::uint64_t>::max() - 3u) == rhi::error::invalid_argument);
     static_assert(rhi::validate_draw_indirect_range(16u, 0u, 1u, 16u) == rhi::error::ok);
 
     static_assert(rhi::validate_draw_indirect_range(36u, 4u, 2u, 16u) == rhi::error::ok);
@@ -99,7 +101,7 @@ namespace {
     static_assert(rhi::validate_indirect_range(24u, 0u, 2u, 12u, 12u) == rhi::error::ok);
     static_assert(rhi::validate_indirect_range(23u, 0u, 2u, 12u, 12u) == rhi::error::invalid_argument);
 
-    static_assert(rhi::validate_draw_indirect_range(UINT64_MAX, UINT64_MAX - 3u, 1u, 16u) == rhi::error::invalid_argument);
+    static_assert(rhi::validate_draw_indirect_range(std::numeric_limits<std::uint64_t>::max(), std::numeric_limits<std::uint64_t>::max() - 3u, 1u, 16u) == rhi::error::invalid_argument);
 
     static_assert(rhi::has_ability(rhi::all_abilities(), rhi::extension_kind::gpu_sorting));
 
@@ -121,7 +123,7 @@ namespace {
 
     static_assert(rhi::validate_push_constants_range(12u, 4u, 8u) == rhi::error::invalid_argument);
 
-    static_assert(rhi::validate_push_constants_range(4u, UINT64_MAX - 3u, 8u) == rhi::error::invalid_argument);
+    static_assert(rhi::validate_push_constants_range(4u, std::numeric_limits<std::uint64_t>::max() - 3u, 8u) == rhi::error::invalid_argument);
 
     // ABI 参数误标、截断及未知扩展必须被拒绝；这些用例在编译时执行，不需要GPU。
 

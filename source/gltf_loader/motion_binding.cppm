@@ -10,25 +10,13 @@
 // ============================================================================
 module;
 
-#include <algorithm>
-#include <cmath>
-#include <cstddef>
-#include <cstdint>
-#include <expected>
-#include <filesystem>
-#include <fstream>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
-#include <iterator>
-#include <memory>
-#include <span>
-#include <string>
-#include <string_view>
-#include <utility>
 #include <yyjson.h>
 
 module deren.gltf_loader:motion_binding;
+import deren.vstd;
 
 import deren.gltf_loader;
 import deren.utility;
@@ -127,8 +115,8 @@ namespace deren::gltf {
             bytes += ':';
             bytes += e.path;
             bytes += e.joint ? ":1" : ":0";
-            for (int32_t c = 0; c < 4; ++c) {
-                for (int32_t r = 0; r < 4; ++r) {
+            for (std::int32_t c = 0; c < 4; ++c) {
+                for (std::int32_t r = 0; r < 4; ++r) {
                     double const v = e.value->local_transform[c][r];
                     if (!std::isfinite(v) || std::abs(v) > 1e9) {
                         return std::unexpected("invalid skeleton rest matrix");
@@ -140,7 +128,7 @@ namespace deren::gltf {
             bytes += '\n';
         }
         auto const digest = deren::utility::xxh3_128bits(
-            std::span(reinterpret_cast<uint8_t const*>(bytes.data()), bytes.size()));
+            std::span(reinterpret_cast<std::uint8_t const*>(bytes.data()), bytes.size()));
         return digest.to_hex_string();
     }
 
@@ -171,19 +159,19 @@ namespace deren::gltf {
             if (clip.channels.empty()) {
                 return std::unexpected("motion contains an empty clip");
             }
-            deren::utility::vessel::set<std::pair<std::size_t, int32_t>> targets;
+            deren::utility::vessel::set<std::pair<std::size_t, std::int32_t>> targets;
             for (auto const& c : clip.channels) {
                 if (!remap.contains(c.target_node) || c.sampler >= clip.samplers.size() ||
                     c.path == animation_path::weights ||
-                    !targets.emplace(c.target_node, static_cast<int32_t>(c.path)).second) {
+                    !targets.emplace(c.target_node, static_cast<std::int32_t>(c.path)).second) {
                     return std::unexpected("invalid or duplicate motion channel");
                 }
                 auto const& s = clip.samplers[c.sampler];
                 auto const* target = model.node_by_source.at(remap.at(c.target_node));
                 auto const trs = glm::translate(glm::mat4(1.0f), target->translation) *
                                  glm::mat4_cast(target->rotation) * glm::scale(glm::mat4(1.0f), target->scale);
-                for (int32_t col = 0; col < 4; ++col) {
-                    for (int32_t row = 0; row < 4; ++row) {
+                for (std::int32_t col = 0; col < 4; ++col) {
+                    for (std::int32_t row = 0; row < 4; ++row) {
                         if (std::abs(trs[col][row] - target->local_transform[col][row]) > 1e-5f) {
                             return std::unexpected("animated target requires a decoded TRS rest pose");
                         }

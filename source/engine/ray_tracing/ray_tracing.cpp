@@ -4,9 +4,7 @@
 // two jobs arrive as `build_inputs` and that the failures are RETURNED rather than logged and swallowed, because
 // what a failure means for a knob is the renderer's decision.
 module;
-#include <cstddef>
-#include <cstdint>
-#include <cstring>
+
 module deren.engine.ray_tracing;
 import deren.vstd;
 import deren.utility.shared;
@@ -37,7 +35,7 @@ namespace deren::engine::ray_tracing {
         /// The pair every buffer this module builds a structure FROM carries: an address, and the
         /// acceleration-structure build-input capability (the renderer's `build_input_usage`).
         constexpr rhi::buffer_flags build_input_flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::acceleration_structure_input);
-        std::shared_ptr<pass::pass_chain> make_bake_storage(rhi::api_core& core, rhi::shared_object<rhi::api_core> const& access, render_resource::resource_id id, uint64_t bytes) {
+        std::shared_ptr<pass::pass_chain> make_bake_storage(rhi::api_core& core, rhi::shared_object<rhi::api_core> const& access, render_resource::resource_id id, std::uint64_t bytes) {
             namespace managed = render_resource::instances;
             auto chain = std::make_shared<pass::pass_chain>();
             auto& provider = chain->emplace<pass::resource_storage_pass>();
@@ -77,27 +75,27 @@ namespace deren::engine::ray_tracing {
         return this->build_ready && this->bottom.has_value() && this->top_level.has_value();
     }
 
-    std::uint64_t structure_set::structure_size(uint32_t const frame_slot) const noexcept {
+    std::uint64_t structure_set::structure_size(std::uint32_t const frame_slot) const noexcept {
         // The top level is `top_level`'s object (see the member block in the header): this is the forwarding half,
         // for the descriptor heap, whose acceleration-structure descriptor is an address range that must carry a
         // REAL size (see docs/descriptor_heap_migration.md - the heap's payload union has no AS member).
         return this->top_level.has_value() ? this->top_level->structure_size(frame_slot) : 0;
     }
 
-    std::uint64_t structure_set::instance_table_size(uint32_t const frame_slot) const noexcept {
+    std::uint64_t structure_set::instance_table_size(std::uint32_t const frame_slot) const noexcept {
         // ... and the same for the instance table at binding 17, which the set path may write with VK_WHOLE_SIZE
         // and a heap range may not.
         return this->top_level.has_value() ? this->top_level->instance_table_size(frame_slot) : 0;
     }
 
-    deren::promise::rhi::acceleration_structure* structure_set::handle(uint32_t const frame_slot) const noexcept {
+    deren::promise::rhi::acceleration_structure* structure_set::handle(std::uint32_t const frame_slot) const noexcept {
         // TIER-1 SINCE ABI 26: the handle IS the object now, so a caller that needs its address or its size asks
         // `device_address()` / `size_bytes()` instead of narrowing a `VkAccelerationStructureKHR` and resolving
         // an entry point to read an address out of it - which is exactly what runtime.cpp used to do.
         return this->top_level.has_value() ? this->top_level->structure(frame_slot) : nullptr;
     }
 
-    rhi::buffer const* structure_set::instance_table_buffer(uint32_t const frame_slot) const noexcept {
+    rhi::buffer const* structure_set::instance_table_buffer(std::uint32_t const frame_slot) const noexcept {
         // Forwarded, not re-derived (the table is `top_level`'s), and nullable for the same reason the
         // accessor it forwards is: "this slot has no top level structure yet" is a state the caller has to
         // be able to see through the nullable contract buffer.
@@ -165,18 +163,18 @@ namespace deren::engine::ray_tracing {
     // alignment, the three setup buffers and their mappings, the size queries, the storage and the scratch.
     // The backend creates and destroys all of it, so a caller cannot get the alignment wrong and a second backend can lay the
     // whole thing out differently.
-    static std::optional<structure_set::micromap_resource> make_micromap(rhi::shared_object<rhi::api_core> const& access, uint32_t const triangle_count) {
-        if (triangle_count == 0 || triangle_count > UINT32_MAX / 4u) {
+    static std::optional<structure_set::micromap_resource> make_micromap(rhi::shared_object<rhi::api_core> const& access, std::uint32_t const triangle_count) {
+        if (triangle_count == 0 || triangle_count > std::numeric_limits<std::uint32_t>::max() / 4u) {
             return std::nullopt;
         }
         // The two attribute records, both 4-byte-per-triangle so the dataOffsets are aligned: 0x03 is the 4-state
         // "unknown" pair (see the spec's Ray Opacity Micromap table), one micro-triangle per triangle.
-        constexpr uint32_t data_stride = 4u;
-        constexpr uint8_t unknown_state = 0x03u;
+        constexpr std::uint32_t data_stride = 4u;
+        constexpr std::uint8_t unknown_state = 0x03u;
         deren::utility::vessel::vector<std::byte> data(static_cast<std::size_t>(triangle_count) * data_stride, static_cast<std::byte>(unknown_state));
         deren::utility::vessel::vector<deren::promise::rhi::micromap_triangle> triangles = [triangle_count] {
             deren::utility::vessel::vector<deren::promise::rhi::micromap_triangle> records(static_cast<std::size_t>(triangle_count));
-            for (uint32_t i = 0; i < triangle_count; ++i) {
+            for (std::uint32_t i = 0; i < triangle_count; ++i) {
                 records[i] = deren::promise::rhi::micromap_triangle{
                     .data_offset = i * data_stride,
                     .subdivision_level = 0u,
@@ -185,7 +183,7 @@ namespace deren::engine::ray_tracing {
             }
             return records;
         }();
-        deren::utility::vessel::vector<uint32_t> indices(static_cast<std::size_t>(triangle_count), 0u); // identity is not needed: one micromap triangle each
+        deren::utility::vessel::vector<std::uint32_t> indices(static_cast<std::size_t>(triangle_count), 0u); // identity is not needed: one micromap triangle each
 
         namespace managed = render_resource::instances;
         auto upload = std::make_shared<managed::micromap_upload>();
@@ -198,7 +196,7 @@ namespace deren::engine::ray_tracing {
         request.life = managed::lifetime::scene;
         request.micromap = {.triangle_count = triangle_count, .data_stride = data_stride, .format = rhi::micromap_format::four_state};
         request.micromap_data = upload;
-        request.initialization_key = std::make_shared<int32_t const>(0);
+        request.initialization_key = std::make_shared<std::int32_t const>(0);
         structure_set::micromap_resource out;
         out.resources = std::make_shared<pass::pass_chain>();
         auto& provider = out.resources->emplace<pass::resource_storage_pass>();
@@ -221,9 +219,9 @@ namespace deren::engine::ray_tracing {
                                                                            std::uintptr_t const source_vertex_address,
                                                                            std::uintptr_t const source_index_address,
                                                                            std::uintptr_t const mask_address,
-                                                                           uint32_t const mask_stride,
+                                                                           std::uint32_t const mask_stride,
                                                                            std::uintptr_t const skin_address,
-                                                                           uint32_t const skin_stride,
+                                                                           std::uint32_t const skin_stride,
                                                                            micromap_resource const* const micromap) noexcept {
         // The three cases, in the order they take precedence: a MASK bake replaces the geometry entirely (an
         // expanded, NON-INDEXED triangle list), a skinned caster keeps the primitive's index buffer because its
@@ -292,22 +290,22 @@ namespace deren::engine::ray_tracing {
         this->top_level.emplace(vk, deren::promise::rhi::max_frames_in_flight, this->device_root);
         auto& structures = *this->bottom;
 
-        uint32_t skipped_no_address = 0;
-        uint32_t skipped_no_stride = 0;
+        std::uint32_t skipped_no_address = 0;
+        std::uint32_t skipped_no_stride = 0;
         // The mask bake: how many casters had an alphaMode MASK baked into their geometry, and how many could not
         // be (an allocation failure falls back to the documented solid behaviour rather than failing the build).
-        uint32_t mask_baked = 0;
-        uint32_t skipped_mask_buffers = 0;
+        std::uint32_t mask_baked = 0;
+        std::uint32_t skipped_mask_buffers = 0;
         bool mask_bakes_recorded = false;
         deren::utility::vessel::vector<pass::mask_bake_request> pending_mask_bakes;
         // ... and the same two counters for the skinned casters (see the SKINNED branch below).
-        uint32_t skinned_baked = 0;
-        uint32_t skipped_skin_buffers = 0;
+        std::uint32_t skinned_baked = 0;
+        std::uint32_t skipped_skin_buffers = 0;
         // ... and the micromaps: how many were created and built, how many triangles they describe, and how many
         // casters could not have one (an allocation or a missing entry point, which is again a log line rather
         // than a failed build).
-        uint32_t micromap_triangles = 0;
-        uint32_t skipped_micromaps = 0;
+        std::uint32_t micromap_triangles = 0;
+        std::uint32_t skipped_micromaps = 0;
         for (primitive const* caster : inputs.casters) {
             deren::utility::vessel::vector<std::shared_ptr<void const>> dependencies;
             if (caster == nullptr) {
@@ -373,15 +371,15 @@ namespace deren::engine::ray_tracing {
             // stage's cut (source/shaders/rt_shadow.rahit, 3.0/255 from the raster shadow over the pixels it changes
             // against 136.6/255 without it), and this micromap is architecture that is in place and verified to be
             // LEGAL rather than a working feature. It costs one build per MASK caster at load and is inert after.
-            uint32_t micromap_index = caster_level::micromap_none;
+            std::uint32_t micromap_index = caster_level::micromap_none;
             if (caster->draw_index_count >= 3u) {
-                uint32_t const material_index = caster->push.material_index.value;
+                std::uint32_t const material_index = caster->push.material_index.value;
                 material_record const* const material = material_index < inputs.materials.size() ? &inputs.materials[material_index] : nullptr;
                 if (material != nullptr && (material->flags & 16u) != 0u) {
                     if (auto resource = make_micromap(this->device_root, caster->draw_index_count / 3u); resource.has_value()) {
                         dependencies.push_back(resource->resources->resources().snapshot().find(render_resource::resource_id::rt_opacity_micromap));
                         micromap_triangles += resource->triangle_count;
-                        micromap_index = static_cast<uint32_t>(this->micromap_resources.size());
+                        micromap_index = static_cast<std::uint32_t>(this->micromap_resources.size());
                         this->micromap_resources.push_back(std::move(*resource));
                     } else {
                         ++skipped_micromaps;
@@ -390,18 +388,18 @@ namespace deren::engine::ray_tracing {
             }
 
             std::uintptr_t mask_address = 0;
-            uint32_t mask_stride = 0;
+            std::uint32_t mask_stride = 0;
             if (inputs.mask_bake && inputs.hooks.mask_ready != nullptr && inputs.hooks.mask_ready(inputs.hooks.parent)) {
                 // material_record::flags bit 4 is alphaMode MASK (see source/backends/vulkan/primitive.cppm; the bits are literals
                 // in register_material, so they are literals here too).
-                uint32_t const material_index = caster->push.material_index.value;
+                std::uint32_t const material_index = caster->push.material_index.value;
                 material_record const* const material = material_index < inputs.materials.size() ? &inputs.materials[material_index] : nullptr;
                 if (material != nullptr && (material->flags & 16u) != 0u && caster->draw_index_count >= 3u) {
                     // Three vertices per triangle, 32 bytes each: position(3) + normal(3) + uv(2), which is what
                     // the hit shading reads (offsets 0, 3 and 6). GPU-only and never mapped - the bake fills it and
                     // the build reads it.
-                    constexpr uint32_t mask_vertex_stride = 32u;
-                    uint64_t const expanded_bytes = static_cast<uint64_t>(caster->draw_index_count) * mask_vertex_stride;
+                    constexpr std::uint32_t mask_vertex_stride = 32u;
+                    std::uint64_t const expanded_bytes = static_cast<std::uint64_t>(caster->draw_index_count) * mask_vertex_stride;
                     auto expanded = make_bake_storage(vk, this->device_root, render_resource::resource_id::rt_mask_vertices, expanded_bytes);
                     // The factory answering non-null IS the old "the allocator has a detail record" test:
                     // `create_buffer()` only returns an object after the allocation succeeded, and it is the
@@ -417,7 +415,7 @@ namespace deren::engine::ray_tracing {
                             .destination = mask_address,
                             .source_stride = caster->vertex_stride,
                             .destination_stride = mask_vertex_stride,
-                            .index_type = static_cast<uint32_t>(caster->index_type),
+                            .index_type = static_cast<std::uint32_t>(caster->index_type),
                             .triangle_count = caster->draw_index_count / 3u,
                             .material_index = material_index,
                         });
@@ -440,16 +438,16 @@ namespace deren::engine::ray_tracing {
             // 80-byte interleaved vertex (position/normal/uv, joints, weights, then the appended TANGENT), so a
             // caster whose vertices are packed differently is REFUSED (it keeps its bind pose and is counted in
             // the log) rather than skinned with the wrong words.
-            constexpr uint32_t skin_source_stride_expected = 80u;
+            constexpr std::uint32_t skin_source_stride_expected = 80u;
             std::uintptr_t skin_address = 0;
-            uint32_t skin_stride = 0;
-            uint32_t skin_source_stride = 0;
-            uint32_t skin_vertex_count = 0;
-            uint32_t skin_base = 0;
+            std::uint32_t skin_stride = 0;
+            std::uint32_t skin_source_stride = 0;
+            std::uint32_t skin_vertex_count = 0;
+            std::uint32_t skin_base = 0;
             if (mask_address == 0 && inputs.skin_bake && inputs.hooks.skin_ready != nullptr && inputs.hooks.skin_ready(inputs.hooks.parent) &&
                 caster->push.skin_base != 0 && caster->vertex_count != 0 && caster->vertex_stride == skin_source_stride_expected) {
-                constexpr uint32_t skin_vertex_stride = 32u; // position, normal, uv - what hit shading reads
-                uint64_t const skinned_bytes = static_cast<uint64_t>(caster->vertex_count) * skin_vertex_stride;
+                constexpr std::uint32_t skin_vertex_stride = 32u; // position, normal, uv - what hit shading reads
+                std::uint64_t const skinned_bytes = static_cast<std::uint64_t>(caster->vertex_count) * skin_vertex_stride;
                 auto skinned_vertices = make_bake_storage(vk, this->device_root, render_resource::resource_id::rt_skin_vertices, skinned_bytes);
                 if (skinned_vertices) {
                     auto generation = skinned_vertices->resources().snapshot().find(render_resource::resource_id::rt_skin_vertices);
@@ -629,7 +627,7 @@ namespace deren::engine::ray_tracing {
         return {};
     }
 
-    std::expected<void, failure> structure_set::update(rhi::command_buffer& commands, uint32_t const frame_slot, build_inputs const& inputs) {
+    std::expected<void, failure> structure_set::update(rhi::command_buffer& commands, std::uint32_t const frame_slot, build_inputs const& inputs) {
         if (!this->ready()) {
             return {}; // nothing was built (or the build failed): there is nothing to refit or to instance
         }
@@ -666,8 +664,8 @@ namespace deren::engine::ray_tracing {
         for (auto const& built : this->caster_list) {
             primitive const* const caster = built.caster;
             // Bit0 is traced by rt_shadow.slang, bit1 by rt_reflection.slang. Both false = absent from the TLAS.
-            uint32_t const instance_mask = (caster->ray_tracing_shadow ? 0x1u : 0x0u) |
-                                           (caster->ray_tracing_reflection ? 0x2u : 0x0u);
+            std::uint32_t const instance_mask = (caster->ray_tracing_shadow ? 0x1u : 0x0u) |
+                                                (caster->ray_tracing_reflection ? 0x2u : 0x0u);
             if (instance_mask == 0u) {
                 continue;
             }
@@ -682,7 +680,7 @@ namespace deren::engine::ray_tracing {
             // the primitive's index buffer because its vertex ORDER is unchanged.
             std::uintptr_t vertex_address = built.mask_vertex_address != 0 ? built.mask_vertex_address : built.skin_destination_address;
             std::uintptr_t index_address = 0;
-            uint32_t vertex_stride = built.mask_vertex_address != 0 ? built.mask_stride : built.skin_destination_stride;
+            std::uint32_t vertex_stride = built.mask_vertex_address != 0 ? built.mask_stride : built.skin_destination_stride;
             if (vertex_address == 0) {
                 vertex_address = buffer_address_of(vk, *caster->vertex_buffer);
                 index_address = buffer_address_of(vk, *caster->index_buffer);
@@ -698,7 +696,7 @@ namespace deren::engine::ray_tracing {
                     .index_address = index_address,
                     .model = caster->push.model,
                     .vertex_stride = vertex_stride,
-                    .index_type = static_cast<uint32_t>(caster->index_type),
+                    .index_type = static_cast<std::uint32_t>(caster->index_type),
                     .material_index = caster->push.material_index.value,
                     .primitive_index = built.blas_index,
                 },

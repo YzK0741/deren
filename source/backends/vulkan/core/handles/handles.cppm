@@ -1,6 +1,5 @@
 module;
 
-#include <cstdint>
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.core.handles;
@@ -59,7 +58,7 @@ namespace deren::vulkan {
      * @return raii VkCommandBuffer wrapper that CREATES AND DESTROYS its command pool: it creates the pool, allocates
      *         the buffer from it, and `release()`/destruction destroys the pool (freeing the buffer)
      */
-    export vk_command_buffer make_command_buffer(VkDevice device, uint32_t queue_family, VkCommandBufferLevel level) noexcept;
+    export vk_command_buffer make_command_buffer(VkDevice device, std::uint32_t queue_family, VkCommandBufferLevel level) noexcept;
 
     /**
      * @ingroup vulkan_handles
@@ -92,7 +91,7 @@ namespace deren::vulkan {
      * @return success: raii wrapper of VkShaderModule
      *     fail: std::nullopt
      */
-    export std::optional<vk_shader_module> make_shader_module(std::span<uint8_t const> shader,
+    export std::optional<vk_shader_module> make_shader_module(std::span<std::uint8_t const> shader,
                                                               VkDevice device) noexcept;
 
     /**

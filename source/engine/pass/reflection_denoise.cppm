@@ -10,8 +10,6 @@
  */
 module;
 
-#include <cstdint>
-
 export module deren.engine.pass.reflection_denoise;
 export import deren.vstd;
 

@@ -1,5 +1,4 @@
 module;
-#include <cstdint>
 
 export module deren.engine.render_graph;
 export import deren.vstd;
@@ -14,16 +13,16 @@ export namespace deren::engine::render_graph {
                 return static_cast<std::size_t>(a ^ (id.object + 0x9e3779b97f4a7c15ULL + (a << 6) + (a >> 2)));
             }
         };
-        uint64_t incarnation;
+        std::uint64_t incarnation;
         bool frozen = false;
         deren::utility::vessel::vector<resource_record> resources;
         deren::utility::vessel::vector<pass_record> passes;
-        deren::utility::vessel::unordered_map<resource_identity, uint32_t, identity_hash> identities;
+        deren::utility::vessel::unordered_map<resource_identity, std::uint32_t, identity_hash> identities;
         deren::utility::vessel::vector<resource_export> exports;
-        deren::utility::vessel::vector<std::pair<uint32_t, uint32_t>> orders;
-        graph_error error(error_code, uint32_t pass = invalid_index, uint32_t resource = invalid_index) const;
-        std::expected<uint32_t, graph_error> import(resource_identity, initial_contents, std::string_view, resource_kind, resource_shape, std::optional<resource_state>);
-        std::expected<void, graph_error> export_index(uint64_t parent, uint32_t index, resource_kind, resource_range);
+        deren::utility::vessel::vector<std::pair<std::uint32_t, std::uint32_t>> orders;
+        graph_error error(error_code, std::uint32_t pass = invalid_index, std::uint32_t resource = invalid_index) const;
+        std::expected<std::uint32_t, graph_error> import(resource_identity, initial_contents, std::string_view, resource_kind, resource_shape, std::optional<resource_state>);
+        std::expected<void, graph_error> export_index(std::uint64_t parent, std::uint32_t index, resource_kind, resource_range);
 
     public:
         builder();

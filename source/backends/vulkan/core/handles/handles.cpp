@@ -1,6 +1,5 @@
 module;
 
-#include <cstdint>
 #include <vulkan/vulkan.h>
 
 module deren.vulkan.core.handles;
@@ -77,7 +76,7 @@ namespace deren::vulkan {
         return *this;
     }
 
-    vk_command_buffer make_command_buffer(VkDevice const device, uint32_t const queue_family, VkCommandBufferLevel const level) noexcept {
+    vk_command_buffer make_command_buffer(VkDevice const device, std::uint32_t const queue_family, VkCommandBufferLevel const level) noexcept {
         // THE POOL IS CREATED HERE AND DESTROYED BY THE RESULT: one pool per command buffer, which is what
         // makes the wrapper a self-contained device resource - and what lets every recording thread create
         // a pool without a shared, unsynchronised VkCommandPool (the rule the callers used to spell by
@@ -146,11 +145,11 @@ namespace deren::vulkan {
         this->device = VK_NULL_HANDLE;
     }
 
-    std::optional<vk_shader_module> make_shader_module(std::span<uint8_t const> const shader, VkDevice const device) noexcept {
+    std::optional<vk_shader_module> make_shader_module(std::span<std::uint8_t const> const shader, VkDevice const device) noexcept {
         VkShaderModule shader_module = {};
 
         VkShaderModuleCreateInfo const create_info = make_shader_module_info(
-            shader.size_bytes(), reinterpret_cast<uint32_t const*>(shader.data()));
+            shader.size_bytes(), reinterpret_cast<std::uint32_t const*>(shader.data()));
 
         if (vkCreateShaderModule(device, &create_info, nullptr, &shader_module) != VK_SUCCESS) {
             return std::nullopt;

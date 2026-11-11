@@ -1,11 +1,7 @@
 module;
-#include <bit>
-#include <cmath>
-#include <cstddef>
-#include <cstdint>
-#include <span>
 
 export module deren.engine.lighting.radiance_capture;
+export import deren.vstd;
 
 export namespace deren::engine::radiance_detail {
     inline float decode_binary16(std::uint16_t value) noexcept {
@@ -20,14 +16,14 @@ export namespace deren::engine::radiance_detail {
     }
     // RH cameras keep normal culling. Mirroring X converts readback to canonical cubemap UVs.
     // Source/output must be disjoint; alpha is a storage lane, not captured coverage.
-    inline bool canonicalize_face(std::span<float const> source, int32_t size, std::span<float> output) noexcept {
+    inline bool canonicalize_face(std::span<float const> source, std::int32_t size, std::span<float> output) noexcept {
         if (size < 1 || size > 512 || source.size() != static_cast<std::size_t>(size) * size * 4 || output.size() != source.size() || source.data() == output.data()) {
             return false;
         }
-        for (int32_t y = 0; y < size; ++y) {
-            for (int32_t x = 0; x < size; ++x) {
+        for (std::int32_t y = 0; y < size; ++y) {
+            for (std::int32_t x = 0; x < size; ++x) {
                 auto in = (static_cast<std::size_t>(y) * size + size - 1 - x) * 4, out = (static_cast<std::size_t>(y) * size + x) * 4;
-                for (uint32_t c = 0; c < 3; ++c) {
+                for (std::uint32_t c = 0; c < 3; ++c) {
                     float value = source[in + c];
                     if (!std::isfinite(value) || value < 0 || value > 65504) {
                         return false;

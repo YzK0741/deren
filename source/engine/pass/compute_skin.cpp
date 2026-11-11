@@ -6,7 +6,6 @@
 
 module;
 
-#include <cstdint>
 #include <glm/glm.hpp>
 module deren.engine.pass.compute_skin;
 import deren.vstd;
@@ -37,7 +36,7 @@ namespace deren::engine::pass {
             this->release_contract();
         }
         this->built_against = context.face;
-        std::span<uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.parent, shader_name) : std::span<uint8_t const>{};
+        std::span<std::uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.parent, shader_name) : std::span<std::uint8_t const>{};
         if (spirv.empty()) {
             return std::unexpected(deren::utility::vessel::string("compute skin: the parent has no ") + deren::utility::vessel::string(shader_name));
         }
@@ -53,7 +52,7 @@ namespace deren::engine::pass {
     }
 
     bool compute_skin_job::record(deren::promise::rhi::command_buffer& commands, std::span<compute_skin_request const> const requests, void* const push_source,
-                                  bool (*push_indices)(void* parent, deren::promise::rhi::command_buffer& commands, std::span<std::byte const> bytes, uint32_t extra_lane)) const noexcept {
+                                  bool (*push_indices)(void* parent, deren::promise::rhi::command_buffer& commands, std::span<std::byte const> bytes, std::uint32_t extra_lane)) const noexcept {
         if (!this->ready() || requests.empty() || push_indices == nullptr) {
             return false;
         }
@@ -79,8 +78,8 @@ namespace deren::engine::pass {
                 continue; // not a skinned caster: its geometry is what the build read, unchanged
             }
             compute_skin_push_constants const push = {
-                .source_vertices = glm::uvec2(static_cast<uint32_t>(request.source_vertices & 0xFFFFFFFFu), static_cast<uint32_t>(request.source_vertices >> 32u)),
-                .destination = glm::uvec2(static_cast<uint32_t>(request.destination & 0xFFFFFFFFu), static_cast<uint32_t>(request.destination >> 32u)),
+                .source_vertices = glm::uvec2(static_cast<std::uint32_t>(request.source_vertices & 0xFFFFFFFFu), static_cast<std::uint32_t>(request.source_vertices >> 32u)),
+                .destination = glm::uvec2(static_cast<std::uint32_t>(request.destination & 0xFFFFFFFFu), static_cast<std::uint32_t>(request.destination >> 32u)),
                 .source_stride = request.source_stride,
                 .destination_stride = request.destination_stride,
                 .vertex_count = request.vertex_count,

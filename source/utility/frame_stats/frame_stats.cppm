@@ -1,7 +1,5 @@
 module;
 
-#include <cstdint>
-
 export module deren.utility:frame_stats;
 
 import deren.vstd;
@@ -118,7 +116,7 @@ namespace deren::utility {
         double window_length = 1.0;                         // rolling-window length
         std::chrono::steady_clock::time_point last_frame{}; // zero = no frame ticked yet
         double window_elapsed = 0.0;                        // summed frame gaps in this window
-        uint32_t window_frames = 0;                         // frames counted in this window
+        std::uint32_t window_frames = 0;                    // frames counted in this window
         bool rolled = false;                                // set when the last tick() filled a window
         double last_window_fps = 0.0;                       // fps of the last completed window; called last_window_fps, not window_fps: the window_fps() method of this class would collide with a member of that name
         double last_window_frame_ms = 0.0;                  // ms/frame of the last completed window; called last_window_frame_ms, not window_frame_ms: the window_frame_ms() method of this class would collide with a member of that name

@@ -24,8 +24,6 @@
 //         PATCH on internal fixes - independently of the rest of the project.
 // ============================================================================
 module;
-#include <cstddef>
-#include <cstdint>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -288,7 +286,7 @@ namespace deren::engine {
      * of passing magic ints at call sites (slot new stages in by execution order; renumbering
      * is free, these values are compile-time only).
      */
-    export enum class task_priority : int32_t {
+    export enum class task_priority : std::int32_t {
         animation = 1, // runs first: per-source animation sampling fan-out (animation::controller::update)
         recording = 0, // runs after the data is ready: pass/secondary command-buffer recording (record_main_drawcalls)
         // future frame-time stages (culling, skin upload, ...) slot in between by execution order
@@ -447,7 +445,7 @@ namespace deren::engine {
         /// TEST with per-draw write, the caller's blend mode and compare - formerly three near-equal
         /// core members (character-forward / overlay / outline), now one contract-face builder here.
         [[nodiscard]] std::expected<pipelines::pipeline_handle, deren::utility::vessel::string> build_toon_family_pipeline(
-            std::span<uint8_t const> first_stage_code, std::span<uint8_t const> fragment_code,
+            std::span<std::uint8_t const> first_stage_code, std::span<std::uint8_t const> fragment_code,
             rhi::blend_mode mode, rhi::depth_compare compare, char const* what) const;
 
         /**
@@ -540,8 +538,8 @@ namespace deren::engine {
 
         rhi::shared_object<rhi::image> probe_image;
         rhi::shared_object<rhi::image_view> probe_view;
-        uint32_t white_texture_index = 0;
-        deren::utility::vessel::map<std::tuple<deren::utility::xxh3_digest, rhi::image_format, std::uint32_t, std::uint32_t, std::uint32_t>, uint32_t> texture_slot_cache = {}; // digest (data_block<16>), format, width, height, mip_levels
+        std::uint32_t white_texture_index = 0;
+        deren::utility::vessel::map<std::tuple<deren::utility::xxh3_digest, rhi::image_format, std::uint32_t, std::uint32_t, std::uint32_t>, std::uint32_t> texture_slot_cache = {}; // digest (data_block<16>), format, width, height, mip_levels
         // scene-wide IBL (bindings 2-4): prefiltered env / irradiance / BRDF LUT, uploaded once
         deren::utility::vessel::vector<rhi::shared_object<rhi::image_view>> ibl_views = {};
         deren::utility::vessel::vector<rhi::shared_object<rhi::image>> ibl_images = {};
@@ -612,7 +610,7 @@ namespace deren::engine {
         // tables above follow.
         render_resource::instances::view<rhi::buffer> toon_colour_buffer = {};
         void* toon_colour_mapped = nullptr;
-        uint32_t material_count = 0;
+        std::uint32_t material_count = 0;
         // content-addressed material dedup + overflow fallback (see register_material):
         // material_slot_cache keys the full material_record bytes (texture indices + factors +
         // flags) as a byte-exact data_block<sizeof(material_record)>, so N primitives sharing
@@ -660,7 +658,7 @@ namespace deren::engine {
         /// and a device address, not an allocation it could free.
         deren::utility::vessel::vector<rhi::shared_object<rhi::buffer>> pass_upload_buffers = {};
         void* instance_mapped = nullptr;
-        uint32_t instance_cursor = 0;
+        std::uint32_t instance_cursor = 0;
         // previous-frame world matrices (scene block slot 13): ONE buffer per frame slot, host
         // visible, scene_motion_capacity mat4s each - the same per-slot rule as the skin and morph
         // buffers, so the frame being rendered never shares the buffer the next frame rewrites.
@@ -671,7 +669,7 @@ namespace deren::engine {
         deren::utility::vessel::array<render_resource::instances::resource_snapshot, 4> deformation_resource_views;
         deren::utility::vessel::vector<void*> motion_mapped = {};
         deren::utility::vessel::vector<glm::mat4> motion_previous = {};
-        uint32_t motion_cursor = 0;
+        std::uint32_t motion_cursor = 0;
         // per-joint skin matrices (scene block slot 9): ONE buffer per frame slot, like the
         // camera UBO — each slot's scene set always points at its buffer, so a frame being
         // rendered never shares the buffer the next frame rewrites. scene_skin_capacity mat4s
@@ -706,7 +704,7 @@ namespace deren::engine {
         // them through the descriptor heap's per-slot grid slots (see core::heap_slots).
         // the frame slot paced by the last successful pace_and_acquire();
         // per-frame host writes (set_skin_matrices / morph_scratch) target this slot's buffers
-        uint32_t active_slot = 0;
+        std::uint32_t active_slot = 0;
         bool ibl_ready = false;
         bool shared_heap_ready = true;
         deren::utility::vessel::vector<deren::promise::rhi::shared_object<deren::promise::rhi::image>> failed_shared_publication;
@@ -717,7 +715,7 @@ namespace deren::engine {
         // after the previous one, so the measured interval is 0 and the label-to-interval mapping
         // never shifts. Mark i is written at the END of the pass named by gpu_timing_labels[i],
         // which is why the label table is one entry shorter than the mark list.
-        enum class gpu_mark_id : uint32_t {
+        enum class gpu_mark_id : std::uint32_t {
             frame_begin = 0,       // first command of the frame (TOP_OF_PIPE)
             rt_build_end,          // after the acceleration-structure builds (the bottom levels on the frame
                                    // that creates them, the top level every frame after it)
@@ -771,7 +769,7 @@ namespace deren::engine {
             frame_end,     // last command of the frame (the screenshot copy + present barrier)
             count,         // not a mark: the number of marks a frame writes
         };
-        static constexpr uint32_t gpu_mark_count = static_cast<uint32_t>(gpu_mark_id::count);
+        static constexpr std::uint32_t gpu_mark_count = static_cast<std::uint32_t>(gpu_mark_id::count);
         static_assert(gpu_mark_count <= runtime_detail::gpu_timing_mark_capacity, "the core's timestamp pool must have room for one frame's marks");
         // labels of the intervals between consecutive marks (interval i = mark i -> mark i + 1).
         // new_line starts a new line in the overlay's report, which has to fit one narrow panel
@@ -826,7 +824,7 @@ namespace deren::engine {
         // second at 60 fps but four lines per second on an uncapped frame loop.
         static constexpr double GPU_TIMING_WINDOW_SECONDS = 1.0;
         deren::utility::vessel::array<double, gpu_mark_count - 1> gpu_timing_sum = {}; // current window's summed ms
-        uint32_t gpu_timing_window_frames = 0;                                         // frames sampled in the current window
+        std::uint32_t gpu_timing_window_frames = 0;                                    // frames sampled in the current window
         std::chrono::steady_clock::time_point gpu_timing_window_start{};               // first sample of the current window
         // the WHOLE session, for the one average the runtime logs when it shuts down
         deren::utility::vessel::array<double, gpu_mark_count - 1> gpu_timing_total = {};
@@ -835,7 +833,7 @@ namespace deren::engine {
         // text changes width every frame re-wraps against the panel edge and makes the whole overlay
         // twitch, so this is refreshed once per window and every number is a fixed-width field.
         deren::utility::vessel::string gpu_timing_report_label = {};
-        uint32_t gpu_timing_marks_measured = 0; // intervals the last measured frame had
+        std::uint32_t gpu_timing_marks_measured = 0; // intervals the last measured frame had
         /// Write ONE mark of this frame's timing range, named for the stage it opens.
         ///
         /// THE ENGINE NO LONGER DRIVES THE MARK'S MACHINERY (abi 14). It used to read the backend's
@@ -1099,7 +1097,7 @@ namespace deren::engine {
         // The shaders the app has loaded, by file name, for the passes that build their pipelines. The APP
         // is the loader (it knows the shader directory); the runtime is only the place a pass asks. A copy
         // rather than a view, because the caller's buffer is a local in a startup scope.
-        deren::utility::vessel::vector<std::pair<deren::utility::vessel::string, deren::utility::vessel::vector<uint8_t>>> registered_shaders = {};
+        deren::utility::vessel::vector<std::pair<deren::utility::vessel::string, deren::utility::vessel::vector<std::uint8_t>>> registered_shaders = {};
         // pass when the generation changed or when the chain was switched on (see on_swapchain_recreated and
         // The alphaMode MASK bake's push block is NOT here any more: its shape is the JOB's
         // (pass::mask_bake_push_constants in deren.engine.pass.mask_bake), because only that job composes it.
@@ -1423,7 +1421,7 @@ namespace deren::engine {
         // here is the SWITCH and the jitter phase, because both are frame-loop state: the switch decides whether
         // the projection is jittered at all and which target the scene side writes, and the jitter index is the
         // Halton position the frame loop advances.
-        uint32_t taa_jitter_index = 0; // position in the Halton sequence
+        std::uint32_t taa_jitter_index = 0; // position in the Halton sequence
         // The view-projection each swapchain image's history was rendered with. Remembered PER IMAGE on
         // purpose: with several swapchain images in rotation, "the previous frame's camera" is not what that
         // image's history was rendered with, and reprojecting against the wrong matrix is exactly what makes a
@@ -1444,7 +1442,7 @@ namespace deren::engine {
          */
         [[nodiscard]] pass::frame_identity pass_frame() const noexcept;
         /// the bytes of a shader the app registered, by file name (empty when it did not)
-        [[nodiscard]] std::span<uint8_t const> registered_shader(std::string_view name) const noexcept;
+        [[nodiscard]] std::span<std::uint8_t const> registered_shader(std::string_view name) const noexcept;
         /**
          * @brief run the HEAP-NATIVE probe once (see source/shaders/debug/heap_probe_comp.slang): the first pipeline in this renderer
          *        with NO layout at all, its parameters through vkCmdPushDataEXT, reading a texture from the resource
@@ -1456,7 +1454,7 @@ namespace deren::engine {
          *       to answer ("does the native path work here?") cannot be answered by a picture until the whole frame
          *       is converted.
          */
-        void run_heap_probe(uint32_t texture_slot) const;
+        void run_heap_probe(std::uint32_t texture_slot) const;
         /**
          * @brief ONE probe's recording session, as a CONTRACT command buffer that is already recording
          *
@@ -1503,7 +1501,7 @@ namespace deren::engine {
         /// @param material_slot @param mesh_shader when true the SAME probe runs through a MESH pipeline instead of a vertex one
         ///        (docs/mesh_shaders.md step 0): the same triangle, the same fragment stage, the same readback,
         ///        which is what makes the mechanism comparable in the log rather than through a screenshot
-        void run_heap_graphics_probe(uint32_t material_slot, bool mesh_shader = false) const;
+        void run_heap_graphics_probe(std::uint32_t material_slot, bool mesh_shader = false) const;
         /**
          * @brief the ONE create-time context every pass is built with
          *
@@ -1591,7 +1589,7 @@ namespace deren::engine {
         [[nodiscard]] bool taa_active() const noexcept;
         /** @brief the image the scene-side passes write into (the TAA input, or the HDR target) */
         /** @brief the sub-pixel jitter for a position in the Halton(2,3) sequence, in PIXELS */
-        [[nodiscard]] static glm::vec2 taa_jitter_offset(uint32_t index) noexcept;
+        [[nodiscard]] static glm::vec2 taa_jitter_offset(std::uint32_t index) noexcept;
         /** @brief whether the opaque pass writes the G-buffer this frame (pipelines present + enabled) */
         // The opaque pass writes the G-buffer and the lighting stage shades it - the engine's only
         // scene path, so there is no flag for it. gbuffer_pass_active() reports whether the G-buffer
@@ -1795,11 +1793,11 @@ namespace deren::engine {
         // reads this value at creation time. Startup-only: set_shadow_map_size() before the scene
         // import (like set_shadow_cascades, the resources are created when the first scene set binds
         // them); changing it afterwards would need the image, the views and the descriptor rewritten.
-        uint32_t shadow_map_size = 2048;
+        std::uint32_t shadow_map_size = 2048;
         // Layers currently in shadow_images: one per ACTIVE cascade (see create_shadow_resources).
         // Tracked separately from shadow_cascades because shrinking the count keeps the layers that are
         // already allocated - only growing it costs a rebuild.
-        uint32_t shadow_allocated_layers = 0;
+        std::uint32_t shadow_allocated_layers = 0;
         // Frame limiter (see set_max_fps): the instant the next frame may start, advanced by exactly one
         // period per frame so a slow frame resyncs instead of banking debt (which would show up as a
         // burst of catch-up frames) and a fast one does not drift.
@@ -1860,13 +1858,13 @@ namespace deren::engine {
         deren::utility::vessel::map<weak_bloom_generation, deren::utility::vessel::array<bool, rhi::max_swapchain_images>, std::owner_less<weak_bloom_generation>> bloom_graph_states;
         deren::utility::vessel::array<std::shared_ptr<bloom_generation const>, 5> bloom_graph_pending_generations{};
         deren::utility::vessel::array<deren::utility::vessel::vector<std::shared_ptr<void const>>, rhi::max_frames_in_flight> frame_graph_attachments;
-        uint32_t cluster_attachment_slot = 0;
+        std::uint32_t cluster_attachment_slot = 0;
         // Slots keep even failed recordings/submissions conservatively until paced again.
         deren::utility::vessel::array<deren::utility::vessel::vector<std::shared_ptr<resource_cluster const>>, rhi::max_frames_in_flight> frame_resource_clusters;
 
         deren::utility::vessel::array<render_resource::instances::resource_snapshot, rhi::max_frames_in_flight> submitted_resource_views{};
         deren::utility::vessel::array<render_resource::instances::resource_snapshot, rhi::max_frames_in_flight> submitted_fallback_views{};
-        uint32_t shadow_cascades = 1;
+        std::uint32_t shadow_cascades = 1;
         float shadow_cascade_blend = 0.1f;
         bool shadow_cascade_logged = false; // one-time per-cascade texel-density log
         // one-time log for the shadow-caster switch (see begin_recording): scenes over
@@ -1980,16 +1978,16 @@ namespace deren::engine {
         // toggles; the geometry half is a hash of the casters' world matrices, computed per frame -
         // an animated/deformed/programmatic scene changes it (the fit cache does NOT, which is exactly
         // the trap the animated-Fox test caught), while a static scene repeats it.
-        uint32_t shadow_content_version = 1;
-        deren::utility::vessel::array<uint32_t, rhi::max_frames_in_flight> shadow_rendered_version = {};
-        deren::utility::vessel::array<uint64_t, rhi::max_frames_in_flight> shadow_rendered_models = {};
+        std::uint32_t shadow_content_version = 1;
+        deren::utility::vessel::array<std::uint32_t, rhi::max_frames_in_flight> shadow_rendered_version = {};
+        deren::utility::vessel::array<std::uint64_t, rhi::max_frames_in_flight> shadow_rendered_models = {};
         // The other half of geometry changed: a SKINNED caster keeps a constant push.model, its
         // pose lives entirely in the joint matrices the vertex shader reads, so those are hashed at
         // upload instead (set_skin_matrices). Morph targets have no upload hook at all - the caller
         // writes into morph_scratch() directly - so handing that scratch out bumps a revision and
         // conservatively blocks reuse. The animated Fox is the regression test for the first half:
         // hashing push.model alone left it with a frozen shadow map.
-        uint64_t skin_matrix_hash = 1469598103934665603ull;
+        std::uint64_t skin_matrix_hash = 1469598103934665603ull;
         // ATOMIC because morph_scratch() is reached from the animation controller's sampling
         // fan-out, i.e. from several task-pool workers at once (animation::controller::update ->
         // backend::morph_scratch_active -> runtime::morph_scratch). A plain counter there is an
@@ -1997,14 +1995,14 @@ namespace deren::engine {
         // shadow_geometry_signature() - so a lost bump keeps a stale shadow map for a frame, which
         // is exactly the failure the revision exists to prevent. Relaxed is enough: it is only ever
         // compared for inequality, never used to publish other data.
-        std::atomic<uint32_t> morph_revision = 0;
+        std::atomic<std::uint32_t> morph_revision = 0;
         deren::utility::vessel::vector<render_resource::instances::view<rhi::buffer>> cluster_count_buffers = {}; // per slot: one uint per cluster
         render_resource::instances::resource_snapshot cluster_resource_view;
         bool scene_heap_buffers_published = false;
         deren::utility::vessel::vector<render_resource::instances::view<rhi::buffer>> cluster_index_buffers = {}; // per slot: cluster_light_capacity uints per cluster
         bool clustered_lights = true;                                                                             // set_clustered_lights()
-        uint32_t cluster_tiles_x = 0;                                                                             // active grid this frame (from the extent)
-        uint32_t cluster_tiles_y = 0;
+        std::uint32_t cluster_tiles_x = 0;                                                                        // active grid this frame (from the extent)
+        std::uint32_t cluster_tiles_y = 0;
 
         // shared CPU worker pool for frame-time parallel stages (run_tasks). Sized to the
         // machine (hardware_concurrency()/4, floor 1) instead of per-consumer pools; tasks
@@ -2019,7 +2017,7 @@ namespace deren::engine {
         /// shadow sub-phase (0.61 -> 0.65 ms) - the recording stages are not worker-starved at hw/4,
         /// and more workers only add wake/join, cache and driver-side recording contention. Kept as a
         /// documented negative result so the experiment is not repeated.
-        [[nodiscard]] static int32_t default_task_pool_width() noexcept;
+        [[nodiscard]] static std::int32_t default_task_pool_width() noexcept;
 
         deren::utility::thread_pool task_pool = deren::utility::thread_pool{runtime::default_task_pool_width()};
 
@@ -2096,7 +2094,7 @@ namespace deren::engine {
         std::optional<deren::utility::bvh<primitive>> cull_bvh = std::nullopt;
         bool bvh_dirty = true;                                              // scene structure/transforms changed -> rebuild
         deren::utility::vessel::vector<primitive const*> cull_visible = {}; // last culled result (main-pass set)
-        uint64_t cull_skin_hash = 0;                                        // skin pose cull_visible was built against
+        std::uint64_t cull_skin_hash = 0;                                   // skin pose cull_visible was built against
         // camera identity for result reuse: yaw, pitch, distance, target.xyz (7 floats)
         deren::utility::vessel::array<float, 7> camera_key = {};
         bool camera_moved = true; // camera key differs from the last cull frame
@@ -2160,9 +2158,9 @@ namespace deren::engine {
         [[nodiscard]] rhi::command_buffer* frame_command_buffer() const noexcept;
         // per-frame state shared by the split frame steps (the frame steps call them in order,
         // so an external caller can interleave its work between the same steps)
-        uint32_t current_image_index = 0; // swapchain image acquired by pace_and_acquire()
-        float current_aspect = 1.0f;      // swapchain aspect for the frame's UBO + culling
-        camera_ubo current_ubo = {};      // camera UBO snapshot written in pace_and_acquire()
+        std::uint32_t current_image_index = 0; // swapchain image acquired by pace_and_acquire()
+        float current_aspect = 1.0f;           // swapchain aspect for the frame's UBO + culling
+        camera_ubo current_ubo = {};           // camera UBO snapshot written in pace_and_acquire()
         // called frame_leaves_buffer, not frame_leaves: the local view of that name in
         // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
         deren::utility::vessel::vector<primitive const*> frame_leaves_buffer = {}; // every scene leaf this frame (shadow + cull input)
@@ -2260,7 +2258,7 @@ namespace deren::engine {
         // so changing it after a scene is loaded affects the next import rather than the live materials.
         bool rt_reflection_cloth = true;
         float rt_reflection_strength = 0.35f;
-        uint32_t rt_reflection_samples = 1;
+        std::uint32_t rt_reflection_samples = 1;
         deren::utility::vessel::string rt_reflection_materials = {};
 
         // ---- mesh shaders (see docs/mesh_shaders.md) ----
@@ -2350,12 +2348,12 @@ namespace deren::engine {
         bool mesh_indirect_conflict_logged = false;
         /// how many dispatches went each way, for the one line the first frame prints (and for the acceptance:
         /// "0 direct" is what says the seam is the one in use rather than a silent fall-back)
-        std::atomic<uint64_t> mesh_indirect_dispatches = 0;
-        std::atomic<uint64_t> mesh_indirect_direct_fallbacks = 0;
+        std::atomic<std::uint64_t> mesh_indirect_dispatches = 0;
+        std::atomic<std::uint64_t> mesh_indirect_direct_fallbacks = 0;
         /// HOW MANY COMMANDS one frame's lane records (docs/mesh_shaders.md step 3): FOUR runs of `meshlet_capacity`, one
         /// per COMMAND CLASS, because a HOST-CULLED run and an unculled one (the shadow pass) dispatch the same
         /// primitive with DIFFERENT counts - and a shared slot would hand both passes whichever wrote last.
-        static constexpr uint32_t mesh_command_capacity = 4u * deren::engine::meshlet_capacity;
+        static constexpr std::uint32_t mesh_command_capacity = 4u * deren::engine::meshlet_capacity;
         /**
          * @brief THE MESH CULLING COUNTERS (docs/mesh_shaders.md step 3, "what the culling buys"): a mesh entry adds
          *        to one per workgroup, the host reads the buffer back once at shutdown and logs the totals
@@ -2394,13 +2392,13 @@ namespace deren::engine {
         void* meshlet_culled_mapped = nullptr;
         /// the two endpoints the recording path calls (see render_environment::meshlet_view_proj / _write)
         static bool meshlet_view_proj(void* parent, float* out16);
-        static bool meshlet_culled_write(void* parent, uint32_t base, std::span<std::byte const> records);
+        static bool meshlet_culled_write(void* parent, std::uint32_t base, std::span<std::byte const> records);
         /**
          * THE VISIBILITY ITEM TABLE (visibility-buffer v0.2b, `deren.engine.visibility::draw_item`): a per-frame
          * lane of id_item_capacity 112-byte records, host-visible because the recording path writes it while it
          * builds the main view's draws and heap-bound because the resolve compute pass is its only reader.
          */
-        static constexpr uint32_t visibility_item_capacity = deren::engine::visibility::id_item_capacity;
+        static constexpr std::uint32_t visibility_item_capacity = deren::engine::visibility::id_item_capacity;
         render_resource::instances::view<rhi::buffer> visibility_items_buffer = {};
         void* visibility_items_mapped = nullptr;
         std::uint32_t visibility_recorded_item_count = 0;
@@ -2425,11 +2423,11 @@ namespace deren::engine {
         void* software_tiles_mapped = nullptr;
         render_resource::instances::resource_snapshot software_tiles_resource_view;
         bool software_raster_resources_ready = false;
-        static bool visibility_items_write(void* parent, uint32_t base, std::span<std::byte const> records);
+        static bool visibility_items_write(void* parent, std::uint32_t base, std::span<std::byte const> records);
         /// the last command run of a frame's mesh table: the RUN THE VISIBILITY RASTER WRITES (the first two are
         /// the scene's culled/unculled classes and the shadow pass reuses them, so the visibility lane must not)
-        static constexpr uint32_t visibility_command_run = 2u * deren::engine::meshlet_capacity;
-        static constexpr uint32_t hzb_recovery_command_run = 3u * deren::engine::meshlet_capacity;
+        static constexpr std::uint32_t visibility_command_run = 2u * deren::engine::meshlet_capacity;
+        static constexpr std::uint32_t hzb_recovery_command_run = 3u * deren::engine::meshlet_capacity;
         /**
          * THE SWITCH ([render] visibility_buffer, v0.5) and the FRAME's frozen verdicts beside it. The verdicts are
          * computed ONCE per frame, in `record_main_drawcalls`, before the first recording decision that depends on
@@ -2446,19 +2444,19 @@ namespace deren::engine {
         bool software_gpu_route_active_frame = false;
         std::uint32_t software_active_tile_count = 0u;
         struct subtilis_history_entry {
-            uint64_t lifetime_id = 0;
+            std::uint64_t lifetime_id = 0;
             std::weak_ptr<subtilis::uploaded_geometry const> generation;
             subtilis::dag_cut_history cut;
             visibility::hzb::hzb_matrix_bits model{};
         };
         deren::utility::vessel::map<primitive const*, subtilis_history_entry> subtilis_histories;
         visibility::hzb::hzb_matrix_bits subtilis_previous_view{}, subtilis_previous_proj{};
-        uint64_t subtilis_view_epoch = 0;
-        uint32_t subtilis_previous_width = 0, subtilis_previous_height = 0;
-        uint32_t subtilis_peak_items = 0, subtilis_max_run = 0;
-        uint64_t subtilis_capacity_frames = 0;
+        std::uint64_t subtilis_view_epoch = 0;
+        std::uint32_t subtilis_previous_width = 0, subtilis_previous_height = 0;
+        std::uint32_t subtilis_peak_items = 0, subtilis_max_run = 0;
+        std::uint64_t subtilis_capacity_frames = 0;
         double subtilis_cut_work_us = 0, subtilis_cut_wall_us = 0;
-        uint64_t subtilis_cut_frames = 0, subtilis_cut_items = 0;
+        std::uint64_t subtilis_cut_frames = 0, subtilis_cut_items = 0;
         std::mutex subtilis_upload_mutex;
         deren::utility::vessel::map<subtilis::import_key, std::weak_ptr<subtilis::uploaded_geometry const>> subtilis_upload_cache;
         std::shared_ptr<subtilis::page_arena_pool> subtilis_page_arena_pool;
@@ -2585,7 +2583,7 @@ namespace deren::engine {
          *       two callers that are NOT passes - the mesh sessions `render_environment` builds - speak it too
          *       and the native handle is derived HERE, once, through the escape.
          */
-        static bool push_stage_block(void* parent, ::deren::engine::recording_target const& target, std::span<std::byte const> bytes, uint32_t extra_lane);
+        static bool push_stage_block(void* parent, ::deren::engine::recording_target const& target, std::span<std::byte const> bytes, std::uint32_t extra_lane);
         /**
          * @brief the host's push endpoint for a scene stage, whose third lane is a VALUE the pass supplies
          * @note unlike push_stage_block, this does NOT read the third lane as a post-chain source index: a mesh
@@ -2593,16 +2591,16 @@ namespace deren::engine {
          *       and no scene shader declares `post_source_texture`. Splitting the endpoints keeps the post chain's
          *       slot resolution out of every scene draw.
          */
-        static bool push_scene_stage_block(void* parent, ::deren::engine::recording_target const& target, std::span<std::byte const> bytes, uint32_t extra_lane);
+        static bool push_scene_stage_block(void* parent, ::deren::engine::recording_target const& target, std::span<std::byte const> bytes, std::uint32_t extra_lane);
         /// the pass-layer endpoint spelling: the resolved_io publisher still hands a contract command buffer.
-        static bool push_pass_stage_block(void* parent, rhi::command_buffer& commands, std::span<std::byte const> bytes, uint32_t extra_lane);
-        static bool push_software_block(void* parent, rhi::command_buffer& commands, std::span<std::byte const> bytes, uint32_t mode);
+        static bool push_pass_stage_block(void* parent, rhi::command_buffer& commands, std::span<std::byte const> bytes, std::uint32_t extra_lane);
+        static bool push_software_block(void* parent, rhi::command_buffer& commands, std::span<std::byte const> bytes, std::uint32_t mode);
         /**
          * @brief the same append, WITHOUT the post chain's third lane
          * @note the compute skin stage declares the two heap indices and nothing else, and pushing lanes a shader
          *       has not declared is not something to guess at - so each stage's endpoint appends what it declares.
          */
-        static bool push_index_block(void* parent, rhi::command_buffer& command_buffer, std::span<std::byte const> bytes, uint32_t extra_lane);
+        static bool push_index_block(void* parent, rhi::command_buffer& command_buffer, std::span<std::byte const> bytes, std::uint32_t extra_lane);
         /// @brief a block pushed VERBATIM, with no index lanes: the mask bake declares none (it addresses its
         ///        sources and its destination through device addresses and reads one material table)
         static bool push_raw_block(void* parent, rhi::command_buffer& command_buffer, std::span<std::byte const> bytes);
@@ -2623,12 +2621,12 @@ namespace deren::engine {
          * its entry points - no engine-side native handle is involved.
          */
         static std::uintptr_t mesh_buffer_address(void* parent, rhi::buffer const& buffer);
-        static bool push_geometry_block(void* parent, ::deren::engine::recording_target const& target, uint32_t offset, std::span<std::byte const> bytes);
-        static bool draw_mesh_tasks(void* parent, ::deren::engine::recording_target const& target, uint32_t groups_x, uint32_t groups_y, uint32_t groups_z);
+        static bool push_geometry_block(void* parent, ::deren::engine::recording_target const& target, std::uint32_t offset, std::span<std::byte const> bytes);
+        static bool draw_mesh_tasks(void* parent, ::deren::engine::recording_target const& target, std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z);
         /// the same dispatch through the INDIRECT entry point: `command_slot` names the primitive's record (its
         /// `meshlet_base`), and the counts are written there before the call - so a compute pass can later rewrite
         /// that record with the counts culling left, without the recording path changing at all
-        static bool draw_mesh_tasks_indirect(void* parent, ::deren::engine::recording_target const& target, uint32_t command_slot, uint32_t groups_x, uint32_t groups_y, uint32_t groups_z);
+        static bool draw_mesh_tasks_indirect(void* parent, ::deren::engine::recording_target const& target, std::uint32_t command_slot, std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z);
         // (THE HEAP-BIND HOOK IS GONE - plan X5 B3.5: `fill_heap_bind`/`contract_heap_bind_infos` existed to
         //  chain the two inherited heap bind infos. The pass layer stopped calling it at abi 20, when a secondary
         //  began going through the contract - whose chain carries the ATTACHMENT inheritance, while the BACKEND
@@ -2638,7 +2636,7 @@ namespace deren::engine {
         static bool structure_skin_ready(void* parent) noexcept;
         static bool structure_record_skin(void* parent, rhi::command_buffer const& command_buffer, std::span<ray_tracing::caster_level const> casters);
         /** @brief write the structure's and its instance table's heap slots for @p frame_slot */
-        void write_rt_structure_binding(rhi::acceleration_structure const* tlas, uint32_t frame_slot) const;
+        void write_rt_structure_binding(rhi::acceleration_structure const* tlas, std::uint32_t frame_slot) const;
         /**
          * @brief the DEVICE ADDRESS of a contract buffer, through the `device_address` ability.
          * @return 0 when the backend did not announce the ability, or when the buffer was created without
@@ -2650,7 +2648,7 @@ namespace deren::engine {
          * @brief Publish a buffer object/range at the logical shader slot @p slot.
          * @return Whether descriptor_space accepted the write; physical layout belongs to the backend.
          */
-        [[nodiscard]] bool write_heap_buffer(rhi::buffer const& buffer, uint32_t slot, std::uint64_t size, rhi::descriptor_type type) const;
+        [[nodiscard]] bool write_heap_buffer(rhi::buffer const& buffer, std::uint32_t slot, std::uint64_t size, rhi::descriptor_type type) const;
         // scene center handed to enable_shadows. The fit falls back to center +- scene_radius when a
         // shadow caster has no separate world AABB AND is not an instanced draw whose instance
         // matrices we can read (see instanced_world_aabb).
@@ -2714,9 +2712,9 @@ namespace deren::engine {
          * only watched the first frame would silently report "not covered" for exactly those. The pass list is
          * what keeps the coverage lines to one per pass rather than one per pass per frame.
          */
-        uint32_t resource_check_checked = 0;
-        uint32_t resource_check_mismatched = 0;
-        uint32_t resource_check_frames = 0;
+        std::uint32_t resource_check_checked = 0;
+        std::uint32_t resource_check_mismatched = 0;
+        std::uint32_t resource_check_frames = 0;
         bool resource_check_reported = false;
         deren::utility::vessel::vector<pass::frame_pass const*> resource_check_passes = {};
 
@@ -2814,7 +2812,7 @@ namespace deren::engine {
          * @note material registration is only valid before the first frame or while the runtime is idle, like
          *       create_primitive(); the object editor applies an edit before the frame's acquire.
          */
-        [[nodiscard]] material_id clone_material(material_id source, glm::vec3 tint, float metallic_scale, float roughness_scale, float emissive_scale, bool unlit = false, uint32_t environment_slot = 0u);
+        [[nodiscard]] material_id clone_material(material_id source, glm::vec3 tint, float metallic_scale, float roughness_scale, float emissive_scale, bool unlit = false, std::uint32_t environment_slot = 0u);
 
         /**
          * @ingroup runtime
@@ -2823,7 +2821,7 @@ namespace deren::engine {
          *        appending a table row per frame.
          * @note @p target and @p source are both validated; an out-of-range pair is ignored.
          */
-        void update_material_override(material_id target, material_id source, glm::vec3 tint, float metallic_scale, float roughness_scale, float emissive_scale, bool unlit = false, uint32_t environment_slot = 0u) const;
+        void update_material_override(material_id target, material_id source, glm::vec3 tint, float metallic_scale, float roughness_scale, float emissive_scale, bool unlit = false, std::uint32_t environment_slot = 0u) const;
 
     private:
         /**
@@ -2955,7 +2953,7 @@ namespace deren::engine {
         ///       slot is reused), so this reads them once more to make the session totals exact.
         void log_hzb_cull_stats();
         void create_shadow_resources(); // collect managed scene resources
-        rhi::error upload_scene_constant(uint32_t completed_slot, render_resource::resource_id id, std::span<std::byte const> bytes);
+        rhi::error upload_scene_constant(std::uint32_t completed_slot, render_resource::resource_id id, std::span<std::byte const> bytes);
         void publish_cluster_bindings() const;
         void publish_camera_bindings() const;
         void publish_deformation_bindings() const;
@@ -3229,7 +3227,7 @@ namespace deren::engine {
          *        that need to slice their work across workers (e.g. the animation controller's
          *        per-source sampling) size their slices to this
          */
-        [[nodiscard]] int32_t task_pool_threads() const noexcept {
+        [[nodiscard]] std::int32_t task_pool_threads() const noexcept {
             return this->task_pool.thread_count();
         }
 
@@ -3397,7 +3395,7 @@ namespace deren::engine {
         /// @param mesh_stage
         /// @param meshlets
         /// @return whether the secondary was recorded (a failed begin must not be executed)
-        static bool record_shadow_cascade(void* parent, rhi::mergeable_command_buffer_ref const& secondary, uint32_t cascade_index, rhi::pipeline* pipeline, bool mesh_stage, bool meshlets);
+        static bool record_shadow_cascade(void* parent, rhi::mergeable_command_buffer_ref const& secondary, std::uint32_t cascade_index, rhi::pipeline* pipeline, bool mesh_stage, bool meshlets);
         /// @brief the frame loop's scheduler, handed to the pass so one task per cascade records a secondary
         static void run_shadow_tasks(void* parent, std::span<std::function<void()>> tasks);
         /// @brief record the casters of one cascade, with either pipeline: @p mesh_stage says whether they are
@@ -3418,7 +3416,7 @@ namespace deren::engine {
          * morph_scratch(), which has no upload hook, so it bumps a revision instead. XXH3 per matrix,
          * not a byte loop over the concatenation: this runs on every frame, the reused ones included.
          */
-        [[nodiscard]] uint64_t shadow_geometry_signature() const;
+        [[nodiscard]] std::uint64_t shadow_geometry_signature() const;
 
         /**
          * @brief whether there is a scene for the composed graph to record
@@ -3535,15 +3533,15 @@ namespace deren::engine {
          */
         std::expected<void, deren::utility::vessel::string> make_pipeline(
             std::string_view pipeline_name,
-            std::span<uint8_t const> fragment_shader_code,
+            std::span<std::uint8_t const> fragment_shader_code,
             // THE MESH FORM, which is the pipeline itself since step 4 (docs/mesh_shaders.md): the vertex stage is
             // gone, so a name without a mesh module is an ERROR rather than a fallback. Stored under @p pipeline_name
             // in `mesh_pipelines`, which is what a session that binds by name looks in first.
-            std::span<uint8_t const> mesh_vertex_shader_code,
+            std::span<std::uint8_t const> mesh_vertex_shader_code,
             // ... AND THE MESHLET FORM OF IT (docs/mesh_shaders.md step 3), the same shape again one level in: one
             // workgroup per meshlet, culled against the camera, stored in `meshlet_pipelines` under the same name
             // and preferred by the named sessions over the mesh form.
-            std::span<uint8_t const> meshlet_shader_code = {});
+            std::span<std::uint8_t const> meshlet_shader_code = {});
 
         /**
          * @brief build the VISIBILITY RASTER PIPELINE (visibility-buffer v0.3b scaffolding): a mesh stage + the
@@ -3579,9 +3577,9 @@ namespace deren::engine {
          */
         std::expected<void, deren::utility::vessel::string> make_character_forward_pipeline(
             std::string_view pipeline_name,
-            std::span<uint8_t const> fragment_shader_code,
-            std::span<uint8_t const> mesh_vertex_shader_code,
-            std::span<uint8_t const> meshlet_shader_code = {});
+            std::span<std::uint8_t const> fragment_shader_code,
+            std::span<std::uint8_t const> mesh_vertex_shader_code,
+            std::span<std::uint8_t const> meshlet_shader_code = {});
 
         /**
          * @ingroup runtime
@@ -3601,9 +3599,9 @@ namespace deren::engine {
          */
         std::expected<void, deren::utility::vessel::string> make_overlay_pipeline(
             std::string_view pipeline_name,
-            std::span<uint8_t const> fragment_shader_code,
-            std::span<uint8_t const> mesh_vertex_shader_code,
-            std::span<uint8_t const> meshlet_shader_code = {});
+            std::span<std::uint8_t const> fragment_shader_code,
+            std::span<std::uint8_t const> mesh_vertex_shader_code,
+            std::span<std::uint8_t const> meshlet_shader_code = {});
 
         /**
          * @ingroup runtime
@@ -3632,9 +3630,9 @@ namespace deren::engine {
          */
         std::expected<void, deren::utility::vessel::string> make_outline_pipeline(
             std::string_view pipeline_name,
-            std::span<uint8_t const> fragment_shader_code,
-            std::span<uint8_t const> mesh_vertex_shader_code,
-            std::span<uint8_t const> meshlet_shader_code = {});
+            std::span<std::uint8_t const> fragment_shader_code,
+            std::span<std::uint8_t const> mesh_vertex_shader_code,
+            std::span<std::uint8_t const> meshlet_shader_code = {});
 
         /**
          * @ingroup runtime
@@ -3852,7 +3850,7 @@ namespace deren::engine {
          * @param samples 1 = mirror trace with the roughness fallback; 2-4 = GGX-distributed samples
          * @note clamped to [1, 4]. Ignored without ray-traced reflections.
          */
-        void set_rt_reflection_samples(uint32_t samples) noexcept;
+        void set_rt_reflection_samples(std::uint32_t samples) noexcept;
 
         /**
          * @ingroup runtime
@@ -3901,7 +3899,7 @@ namespace deren::engine {
         void set_subtilis_gpu_cut(bool enabled) noexcept;
         /// Per-frame page upload budget, shared by every source. Takes effect next frame.
         void set_subtilis_page_upload_bytes(std::uint64_t value) noexcept;
-        /// Per-source page-slot arena budget, used when a source is uploaded.
+        /// Resident page-slot arena budget, shared by every uploaded source.
         void set_subtilis_resident_page_bytes(std::uint64_t value) noexcept;
         void set_software_raster(bool enabled) noexcept;
         void set_software_raster_threshold_px(float value) noexcept;
@@ -3933,7 +3931,7 @@ namespace deren::engine {
          * @param material_name the glTF material name (the last place it exists)
          * @param toon_family the loader's classification of that name (6 == cloth)
          */
-        [[nodiscard]] bool rt_reflection_material_matches(std::string_view material_name, uint32_t toon_family) const noexcept;
+        [[nodiscard]] bool rt_reflection_material_matches(std::string_view material_name, std::uint32_t toon_family) const noexcept;
 
         /**
          * @ingroup runtime
@@ -3944,7 +3942,7 @@ namespace deren::engine {
          * @note CPU-side only: the value rides the light UBO's std140 padding and is copied into
          *       the paced slot's buffer every frame, so this is safe at any time (GUI included)
          */
-        void set_brdf_model(int32_t model) const noexcept;
+        void set_brdf_model(std::int32_t model) const noexcept;
         /**
          * @ingroup runtime
          * @brief select the diffuse BRDF model (pbr.frag, gui "diffuse model" combo):
@@ -3952,7 +3950,7 @@ namespace deren::engine {
          * @param model model id (clamped)
          * @note same timing rule as set_brdf_model
          */
-        void set_diffuse_model(int32_t model) const noexcept;
+        void set_diffuse_model(std::int32_t model) const noexcept;
         /**
          * @ingroup runtime
          * @brief linear exposure scale applied to the rendered image before tonemapping
@@ -3962,8 +3960,8 @@ namespace deren::engine {
          *       every frame, so this is safe at any time (GUI slider included)
          */
         void set_exposure(float exposure) noexcept;
-        void set_tone_mapping(int32_t mode) noexcept;
-        void set_environment(float rotation_degrees, float strength, int32_t background, glm::vec3 color, float blur) const noexcept;
+        void set_tone_mapping(std::int32_t mode) noexcept;
+        void set_environment(float rotation_degrees, float strength, std::int32_t background, glm::vec3 color, float blur) const noexcept;
         /**
          * @ingroup runtime
          * @brief publish the FACE SDF's head frame (scene block slot 749) for the next frame
@@ -3991,7 +3989,7 @@ namespace deren::engine {
         void set_head_basis(head_ubo const& basis) noexcept;
         /// publish one character's head frame; `index` must be < `max_game_toon_characters`. The one-argument
         /// overload above is the index-0 shorthand that keeps every single-character caller unchanged.
-        void set_head_basis(uint32_t index, head_ubo const& basis) noexcept;
+        void set_head_basis(std::uint32_t index, head_ubo const& basis) noexcept;
         /**
          * @ingroup runtime
          * @brief the current exposure scale (see set_exposure)
@@ -4166,7 +4164,7 @@ namespace deren::engine {
          *       and a file format nowhere, and a pass knows neither - it asks for its by name. Register
          *       before calling create_passes(); a pass whose shader is missing says so and does not run.
          */
-        void register_shader(std::string_view name, std::span<uint8_t const> bytecode);
+        void register_shader(std::string_view name, std::span<std::uint8_t const> bytecode);
 
         /**
          * @ingroup runtime
@@ -4287,8 +4285,8 @@ namespace deren::engine {
          *       one set_gbuffer_debug() builds. Register it like any other pipeline (it is NOT the
          *       default: the G-buffer pass binds it explicitly).
          */
-        std::expected<void, deren::utility::vessel::string> make_gbuffer_pipeline(std::span<uint8_t const> fragment_shader_code,
-                                                                                  std::span<uint8_t const> mesh_vertex_shader_code = {}, std::span<uint8_t const> meshlet_vertex_shader_code = {});
+        std::expected<void, deren::utility::vessel::string> make_gbuffer_pipeline(std::span<std::uint8_t const> fragment_shader_code,
+                                                                                  std::span<std::uint8_t const> mesh_vertex_shader_code = {}, std::span<std::uint8_t const> meshlet_vertex_shader_code = {});
 
         /**
          * @ingroup runtime
@@ -4299,7 +4297,7 @@ namespace deren::engine {
          *       declaration may pick, and the sampler heap is where a shader finds them.
          */
         /** @brief how many jitter positions the Halton(2,3) TAA sequence cycles through */
-        static constexpr uint32_t taa_jitter_count = 8;
+        static constexpr std::uint32_t taa_jitter_count = 8;
 
         /**
          * @brief this frame's SCENE, as the scene pass needs it (see vulkan.pass.scene::scene_frame)
@@ -4322,7 +4320,7 @@ namespace deren::engine {
         [[nodiscard]] pass::resolve_context make_resolve_context() noexcept;
         /** @brief the extent of a declared resource element (the bloom levels, the probe grid) - the rule that
          *         used to live in `pass_extent`, now shared with the framework's resolver */
-        [[nodiscard]] rhi::image_extent resolve_resource_extent(render_resource::resource_id id, uint32_t element) const noexcept;
+        [[nodiscard]] rhi::image_extent resolve_resource_extent(render_resource::resource_id id, std::uint32_t element) const noexcept;
         /**
          * @brief THE CREATED IMAGE ANSWERS its EXTENT (③-D/E A1.7)
          *
@@ -4480,7 +4478,7 @@ namespace deren::engine {
          *       are created lazily by the first primitive that asks for the scene). A later call is ignored with a log line
          *       rather than silently taking effect on the next resize.
          */
-        void set_shadow_map_size(uint32_t size) noexcept;
+        void set_shadow_map_size(std::uint32_t size) noexcept;
 
         /**
          * @ingroup runtime
@@ -4492,7 +4490,7 @@ namespace deren::engine {
          *       logarithmic/uniform blend, so cascade 0 gets a fraction of the far cascade's texel
          *       size - the whole reason a single map cannot serve near and far at once.
          */
-        void set_shadow_cascades(uint32_t cascades) noexcept;
+        void set_shadow_cascades(std::uint32_t cascades) noexcept;
 
         /** @brief set the cascade blend band (0 disables blending; 0.1 = the last 10% of a cascade) */
         void set_shadow_cascade_blend(float blend) noexcept;
@@ -4607,12 +4605,12 @@ namespace deren::engine {
          * @brief one captured frame image: tightly packed 8-bit RGBA (top-left origin, row-major)
          */
         struct frame_image {
-            uint32_t width = 0;
-            uint32_t height = 0;
-            deren::utility::vessel::vector<uint8_t> rgba = {}; // width * height * 4, R G B A
+            std::uint32_t width = 0;
+            std::uint32_t height = 0;
+            deren::utility::vessel::vector<std::uint8_t> rgba = {}; // width * height * 4, R G B A
         };
         struct radiance_image {
-            uint32_t width = 0, height = 0;
+            std::uint32_t width = 0, height = 0;
             deren::utility::vessel::vector<float> rgba = {};
         };
         /// Override the orbit camera for offscreen views; nullopt restores the ordinary camera.
@@ -4801,8 +4799,8 @@ namespace deren::engine {
          * @return false when the slot is out of range, the input is incomplete, or the upload failed; the
          *         previous contents of that slot stay valid on failure.
          */
-        bool set_ibl(uint32_t environment_slot, ibl_input const& info);
-        bool set_local_probe(std::span<uint8_t const> half, uint32_t size, uint32_t mips, glm::vec3 position, glm::vec3 minimum, glm::vec3 maximum, float fade, float gain) const;
+        bool set_ibl(std::uint32_t environment_slot, ibl_input const& info);
+        bool set_local_probe(std::span<std::uint8_t const> half, std::uint32_t size, std::uint32_t mips, glm::vec3 position, glm::vec3 minimum, glm::vec3 maximum, float fade, float gain) const;
         void disable_local_probe() const noexcept {
             light_state->probe_max_enabled.w = 0;
         }
@@ -4820,7 +4818,7 @@ namespace deren::engine {
          * back as the colour it was looked up with - a frame with the weight at 1 and no artist's cube is the frame
          * without any LUT at all, which is a measurement the capture gate can check.
          */
-        void set_post_lut(std::span<uint8_t const> pixels, uint32_t width, uint32_t height);
+        void set_post_lut(std::span<std::uint8_t const> pixels, std::uint32_t width, std::uint32_t height);
 
         /**
          * @ingroup runtime
@@ -4838,7 +4836,7 @@ namespace deren::engine {
          * `_RD`/`_D` image in this project is `'sRGB'`), so Blender hands the node graph the texel's RAW bytes and
          * an sRGB upload would decode all three of `specularFGD` / `diffuseFGD` / `reflectivity` once (spec §3.1).
          */
-        void set_goo_fgd_lut(std::span<uint8_t const> pixels, uint32_t width, uint32_t height);
+        void set_goo_fgd_lut(std::span<std::uint8_t const> pixels, std::uint32_t width, std::uint32_t height);
 
         /**
          * @ingroup runtime
@@ -4860,10 +4858,10 @@ namespace deren::engine {
          *        render loop starts), optionally at a block offset so several animation
          *        controllers can hold disjoint regions of the same skin buffer
          */
-        void set_skin_matrices(std::span<glm::mat4 const> matrices, uint32_t slot, uint32_t base = 0);
+        void set_skin_matrices(std::span<glm::mat4 const> matrices, std::uint32_t slot, std::uint32_t base = 0);
 
         /** @brief set_skin_matrices() into the paced slot at a block offset (animation regions) */
-        void set_skin_matrices_at(std::span<glm::mat4 const> matrices, uint32_t base);
+        void set_skin_matrices_at(std::span<glm::mat4 const> matrices, std::uint32_t base);
 
         /**
          * @ingroup runtime
@@ -4891,7 +4889,7 @@ namespace deren::engine {
          * @brief like morph_scratch() but for an explicit slot buffer (used for setup-time bakes
          *        that must be duplicated into every slot's buffer before the render loop starts)
          */
-        [[nodiscard]] void* morph_scratch(uint32_t slot) noexcept;
+        [[nodiscard]] void* morph_scratch(std::uint32_t slot) noexcept;
 
         /**
          * @ingroup runtime
@@ -4966,13 +4964,13 @@ namespace deren::engine {
         template <class NI, class DI>
             requires scene_node_iterator<NI> && scene_drawable_iterator<DI>
         scene_import_result import_scene(NI nfirst, NI nlast, DI dfirst, DI dlast, glm::vec3 const& offset, bool const environment = false,
-                                         uint32_t const character_index = 0u) {
+                                         std::uint32_t const character_index = 0u) {
             if (this->bound_scene == nullptr) {
                 deren::utility::panic("contract violation: runtime::import_scene() called before set_scene() bound a scene");
             }
             scene_import_result result = {};
             result.import_instance = this->bound_scene->next_import_instance++;
-            uint32_t const materials_before = this->material_count;
+            std::uint32_t const materials_before = this->material_count;
             deren::utility::vessel::map<subtilis::import_key, std::shared_ptr<subtilis::imported_asset const>> subtilis_import_cache;
             // converts a pure image_source (e.g. the glTF loader's image_view) into the
             // internal texture_input with the slot's upload format; invalid images -> white
@@ -5023,13 +5021,13 @@ namespace deren::engine {
                                 if (!subtilis::admit_table(*info.subtilis_import, this->meshlet_total, meshlet_capacity)) {
                                     info.subtilis_import.reset();
                                     ++result.subtilis_fallback_lod0;
-                                    ++result.subtilis_failures[static_cast<size_t>(subtilis::import_failure::capacity_table)];
+                                    ++result.subtilis_failures[static_cast<std::size_t>(subtilis::import_failure::capacity_table)];
                                 } else {
                                     ++result.subtilis_imported;
                                 }
                             } else {
                                 ++result.subtilis_fallback_lod0;
-                                ++result.subtilis_failures[static_cast<size_t>(imported.error())];
+                                ++result.subtilis_failures[static_cast<std::size_t>(imported.error())];
                             }
                         }
                     }
@@ -5051,7 +5049,7 @@ namespace deren::engine {
                 // block rather than a block of white, so a shader finds nothing switched on.
                 if (this->toon_lookup_source.texture != nullptr || this->toon_lookup_source.colour != nullptr || this->toon_lookup_source.scalar != nullptr) {
                     std::string_view const material_name = drawable.get_material_name();
-                    for (uint32_t lane = 0; lane < static_cast<uint32_t>(toon_slot::count); ++lane) {
+                    for (std::uint32_t lane = 0; lane < static_cast<std::uint32_t>(toon_slot::count); ++lane) {
                         if (this->toon_lookup_source.texture != nullptr) {
                             info.toon.slots[lane] = this->toon_lookup_source.texture(this->toon_lookup_source.parent, material_name, static_cast<toon_slot>(lane));
                         }
@@ -5059,7 +5057,7 @@ namespace deren::engine {
                     // THE COLOURS, from the same name and the same sidecar: a material with no such row keeps the
                     // neutral white `toon_inputs` gave it, which is what "the game states no colour here" has to
                     // look like for a multiply-tint.
-                    for (uint32_t lane = 0; this->toon_lookup_source.colour != nullptr && lane < static_cast<uint32_t>(toon_colour_lane::count); ++lane) {
+                    for (std::uint32_t lane = 0; this->toon_lookup_source.colour != nullptr && lane < static_cast<std::uint32_t>(toon_colour_lane::count); ++lane) {
                         info.toon.colours[lane] = this->toon_lookup_source.colour(this->toon_lookup_source.parent, material_name, static_cast<toon_colour_lane>(lane));
                     }
                     // THE ARTICLE'S TRANSPARENT VARIANT, from the sidecar's blend pair - see
@@ -5153,7 +5151,7 @@ namespace deren::engine {
             this->bvh_dirty = true; // new leaves attached -> culling BVH must be rebuilt
             result.material_count = this->material_count - materials_before;
             if (this->subtilis_on && (result.subtilis_imported || result.subtilis_fallback_lod0)) {
-                auto failures = [&](subtilis::import_failure reason) { return result.subtilis_failures[static_cast<size_t>(reason)]; };
+                auto failures = [&](subtilis::import_failure reason) { return result.subtilis_failures[static_cast<std::size_t>(reason)]; };
                 deren::utility::log("subtilis import: {} adopted ({} shared), {} LOD0 fallback [wire {}, profile {}, material {}, source {}, DAG {}, LOD0-only {}, item {}, table {}]", result.subtilis_imported, result.subtilis_cache_hits, result.subtilis_fallback_lod0, failures(subtilis::import_failure::invalid_payload), failures(subtilis::import_failure::profile_mismatch), failures(subtilis::import_failure::material_not_opaque), failures(subtilis::import_failure::source_mismatch), failures(subtilis::import_failure::invalid_dag), failures(subtilis::import_failure::lod0_only), failures(subtilis::import_failure::capacity_item), failures(subtilis::import_failure::capacity_table));
             }
             // WHAT THE SCENE CUT INTO (docs/mesh_shaders.md step 3): the meshlets a task stage would cull, and how

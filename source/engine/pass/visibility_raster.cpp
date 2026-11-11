@@ -3,7 +3,7 @@
  * @brief the visibility raster pass's pipeline and recording (see the header's WHY THIS PASS EXISTS).
  */
 module;
-#include <cstdint>
+
 module deren.engine.pass.visibility_raster;
 import deren.vstd;
 

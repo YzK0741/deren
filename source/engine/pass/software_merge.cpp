@@ -4,7 +4,6 @@
  */
 module;
 
-#include <cstdint>
 module deren.engine.pass.software_merge;
 import deren.vstd;
 

@@ -1,6 +1,7 @@
 #include "vk_test.h"
 
 #include <array>
+#include <cstdint>
 #include <limits>
 #include <span>
 #include <string_view>
@@ -17,7 +18,7 @@ namespace {
     auto sample() {
         rg::builder graph;
         char const name[] = "HDR \"line\"\n\t\\\0\xe6\xb5\x8b\xe8\xaf\x95\xff";
-        auto image = *graph.import_texture({UINT64_MAX, UINT64_MAX - 1}, rg::initial_contents::defined,
+        auto image = *graph.import_texture({std::numeric_limits<std::uint64_t>::max(), std::numeric_limits<std::uint64_t>::max() - 1}, rg::initial_contents::defined,
                                            std::string_view(name, sizeof(name) - 1), {2, 1}, rg::resource_state{rg::resource_layout::shader_read_only, rg::pipeline_stage::fragment_shader, rg::memory_access::read});
         auto bytes = *graph.import_buffer({1, 2}, rg::initial_contents::defined, "bytes", {32}, rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::compute_shader, rg::memory_access::read});
         rg::resource_access dead[] = {{image, rg::content_access::read, {1, 1}}};
@@ -30,7 +31,7 @@ namespace {
         return *graph.compile({true});
     }
     rg::graph_error sample_error() {
-        return {rg::error_code::invalid_range, rg::invalid_index, 3, "bad\npass", "buffer", rg::buffer_range{UINT64_MAX, UINT64_MAX}};
+        return {rg::error_code::invalid_range, rg::invalid_index, 3, "bad\npass", "buffer", rg::buffer_range{std::numeric_limits<std::uint64_t>::max(), std::numeric_limits<std::uint64_t>::max()}};
     }
     void tests() {
         auto graph = sample();

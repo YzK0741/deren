@@ -31,8 +31,6 @@
 // ============================================================================
 module;
 
-#include <cstdint>
-
 export module deren.utility;
 export import deren.vstd;
 // The process-wide half (sink + rotation + panic + allocator hook) is re-exported, so a consumer
@@ -81,14 +79,14 @@ namespace deren::utility {
      */
     export class enable_handle_distribute {
 
-        deren::utility::vessel::set<uint64_t> recycled_handles = {};
+        deren::utility::vessel::set<std::uint64_t> recycled_handles = {};
         std::mutex access_mutex = {};
-        uint64_t handle_upper_bound = 1;
+        std::uint64_t handle_upper_bound = 1;
 
     public:
-        std::optional<uint64_t> distribute() noexcept;
+        std::optional<std::uint64_t> distribute() noexcept;
 
-        void recycle(uint64_t handle) noexcept;
+        void recycle(std::uint64_t handle) noexcept;
     };
 
     /**
@@ -374,10 +372,10 @@ namespace deren::utility {
          *       reversed when the host and the requested order disagree
          */
         template <typename T, endian Order>
-        [[nodiscard]] deren::utility::vessel::array<uint8_t, sizeof(T)> scalar_bytes(T const value) noexcept {
-            deren::utility::vessel::array<uint8_t, sizeof(T)> bytes = {};
+        [[nodiscard]] deren::utility::vessel::array<std::uint8_t, sizeof(T)> scalar_bytes(T const value) noexcept {
+            deren::utility::vessel::array<std::uint8_t, sizeof(T)> bytes = {};
             if constexpr (std::is_floating_point_v<T>) {
-                bytes = std::bit_cast<deren::utility::vessel::array<uint8_t, sizeof(T)>>(value);
+                bytes = std::bit_cast<deren::utility::vessel::array<std::uint8_t, sizeof(T)>>(value);
                 constexpr bool host_is_big = std::endian::native == std::endian::big;
                 if constexpr ((Order == endian::big) != host_is_big) {
                     std::ranges::reverse(bytes);
@@ -387,7 +385,7 @@ namespace deren::utility {
                 unsigned_type const bits = static_cast<unsigned_type>(value);
                 for (std::size_t i = 0; i < bytes.size(); ++i) {
                     std::size_t const index = Order == endian::little ? i : bytes.size() - 1u - i;
-                    bytes[index] = static_cast<uint8_t>((bits >> (8u * i)) & 0xFFu);
+                    bytes[index] = static_cast<std::uint8_t>((bits >> (8u * i)) & 0xFFu);
                 }
             }
             return bytes;
@@ -528,7 +526,7 @@ namespace deren::utility {
      * @note no external dependency: a minimal PNG writer (CRC32 + zlib stream of uncompressed
      *       deflate blocks + adler32), so captures work without pulling in an image library
      */
-    export std::expected<void, deren::utility::vessel::string> write_png(std::filesystem::path const& path, uint32_t width, uint32_t height, std::span<uint8_t const> rgba);
+    export std::expected<void, deren::utility::vessel::string> write_png(std::filesystem::path const& path, std::uint32_t width, std::uint32_t height, std::span<std::uint8_t const> rgba);
 
     /**
      * @ingroup utility
@@ -548,10 +546,10 @@ namespace deren::utility {
      *       A span longer than one full wrap (2^32 ticks = 4.3 s at 1 ns/tick) is indistinguishable
      *       from a short one and would alias; no single pass comes close.
      */
-    export double timestamp_delta_milliseconds(uint64_t begin_ticks, uint64_t end_ticks, uint32_t valid_bits, float nanoseconds_per_tick) noexcept;
+    export double timestamp_delta_milliseconds(std::uint64_t begin_ticks, std::uint64_t end_ticks, std::uint32_t valid_bits, float nanoseconds_per_tick) noexcept;
 
     /// The failing stage of a bounded binary read; independent of renderer contracts.
-    export enum class file_error_code : uint8_t {
+    export enum class file_error_code : std::uint8_t {
         status_failed,
         not_regular_file,
         open_failed,
@@ -578,7 +576,7 @@ namespace deren::utility {
      *       This does not lock the file or detect same-size edits; concurrent path replacement is
      *       outside the contract. Ordinary I/O errors are values; allocation failure remains fatal.
      */
-    export [[nodiscard]] std::expected<deren::utility::vessel::vector<uint8_t>, file_error>
+    export [[nodiscard]] std::expected<deren::utility::vessel::vector<std::uint8_t>, file_error>
     read_binary_to_vector(std::filesystem::path const& path, std::uintmax_t max_bytes);
 
     /**
@@ -715,7 +713,7 @@ namespace deren::utility {
      * xxh3_128bits() when a collision would be wrong without anyone noticing, as it would be for
      * content-addressed dedup. It is also the faster of the two on small inputs.
      */
-    export uint64_t xxh3_64bits(std::span<uint8_t const> data_view);
+    export std::uint64_t xxh3_64bits(std::span<std::uint8_t const> data_view);
 
     /**
      * @brief sleep for a relative number of nanoseconds, with sub-millisecond precision
@@ -732,7 +730,7 @@ namespace deren::utility {
      * sleeps to a safe margin early and spins the remainder (the frame limiter in deren.engine.runtime sleeps
      * to one millisecond before its deadline, then yields until the deadline arrives).
      */
-    export void sleep_for_nanoseconds(int64_t nanoseconds);
+    export void sleep_for_nanoseconds(std::int64_t nanoseconds);
 
     /**
      * @brief directory of the running executable, or an empty path when the platform cannot report it
@@ -771,5 +769,5 @@ namespace deren::utility {
      * @return 16-byte digest of @p data_view (the raw 128-bit fingerprint)
      * @ingroup hash
      */
-    export xxh3_digest xxh3_128bits(std::span<uint8_t const> data_view);
+    export xxh3_digest xxh3_128bits(std::span<std::uint8_t const> data_view);
 } // namespace deren::utility

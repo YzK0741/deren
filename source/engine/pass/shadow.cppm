@@ -27,8 +27,6 @@
 
 module;
 
-#include <cstdint>
-
 export module deren.engine.pass.shadow;
 export import deren.vstd;
 export import deren.utility.shared;
@@ -74,7 +72,7 @@ export namespace deren::engine::pass {
         ///        dispatches (vkCmdDrawMeshTasksEXT) instead of indexed draws - the pipeline and the way to feed
         ///        it are one fact, so they travel together (see docs/mesh_shaders.md step 1)
         /// @param meshlets
-        bool (*record_cascade)(void* parent, deren::promise::rhi::mergeable_command_buffer_ref const& secondary, uint32_t cascade_index, deren::promise::rhi::pipeline* pipeline, bool mesh_stage, bool meshlets) = nullptr;
+        bool (*record_cascade)(void* parent, deren::promise::rhi::mergeable_command_buffer_ref const& secondary, std::uint32_t cascade_index, deren::promise::rhi::pipeline* pipeline, bool mesh_stage, bool meshlets) = nullptr;
         /// the frame loop's scheduler: one task per cascade, each recording into its secondary
         void (*run_tasks)(void* parent, std::span<std::function<void()>> tasks) = nullptr;
         void* parent = nullptr;
@@ -84,7 +82,7 @@ export namespace deren::engine::pass {
         /// pass must not release one.
         std::span<deren::promise::rhi::mergeable_command_buffer_ref const> cascades = {};
         /// the shadow map's edge: this pass's rendering-instance size (it does NOT follow the surface)
-        uint32_t map_size = 0;
+        std::uint32_t map_size = 0;
         bool allow_meshlets = true; // false when any caster lacks a complete table run
     };
 
@@ -184,12 +182,12 @@ export namespace deren::engine::pass {
 
     /// THE DECLARATION'S PUSH BLOCK is the four-byte cascade index at the scene block's end, and the renderer's
     /// content callback is what pushes it - so the two facts are asserted together here, where both are visible.
-    static_assert(render_resource::shadow_io.push->size == sizeof(uint32_t), "the shadow pass pushes one cascade index");
+    static_assert(render_resource::shadow_io.push->size == sizeof(std::uint32_t), "the shadow pass pushes one cascade index");
     static_assert(render_resource::shadow_io.push->stages == (render_resource::stage_flag::vertex | render_resource::stage_flag::fragment),
                   "the cascade index is read by both stages of the depth-only draw");
     /// ... and so is the RUN of layers, because it is the same two-copies-one-fact rule: the declaration claims
     /// every cascade the map can hold, and `deren.engine.primitive` is where that count lives (the light UBO's matrix
     /// array is the same number).
-    static_assert(static_cast<uint32_t>(render_resource::shadow_io.targets[0].count) == deren::engine::max_shadow_cascades, "the shadow pass claims every cascade layer the map can have");
+    static_assert(static_cast<std::uint32_t>(render_resource::shadow_io.targets[0].count) == deren::engine::max_shadow_cascades, "the shadow pass claims every cascade layer the map can have");
 
 } // namespace deren::engine::pass

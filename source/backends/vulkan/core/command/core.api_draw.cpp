@@ -8,7 +8,7 @@
 // core.api_core.cpp; no state or helper changes.
 // ============================================================================
 module;
-#include <cstdint>
+
 #include <vulkan/vulkan.h>
 
 module deren.vulkan.core;

@@ -33,6 +33,9 @@ import deren.engine.pass.hzb_build;
 import deren.engine.pass.hzb_cull;
 #include "probe_backend.hpp"
 #include "subtilis_dag_fixtures.hpp"
+
+#include <cstdint>
+#include <limits>
 namespace sub = deren::engine::subtilis;
 namespace rhi = deren::promise::rhi;
 namespace pass = deren::engine::pass;
@@ -268,7 +271,7 @@ int exercise(bool adopted) {
     auto const software_lane = (1u - masked.frame_slot) * deren::engine::visibility::software::software_tiles_bytes(32u, 32u);
     CHECK(tiles.size() >= software_lane + 24u);
     if (tiles.size() >= software_lane + 24u) {
-        std::uint32_t clusters = UINT32_MAX;
+        std::uint32_t clusters = std::numeric_limits<std::uint32_t>::max();
         std::memcpy(&clusters, tiles.data() + software_lane + 16u, 4u);
         CHECK(clusters == 0u);
         std::array<std::uint32_t, 2> grid{};

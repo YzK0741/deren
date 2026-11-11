@@ -2,9 +2,6 @@
 // module: deren.promise.rhi:recording
 module;
 
-#include <cstddef>
-#include <cstdint>
-
 export module deren.promise.rhi:recording;
 export import deren.vstd;
 export import deren.utility.shared;

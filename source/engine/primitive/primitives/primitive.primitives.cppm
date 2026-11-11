@@ -10,7 +10,6 @@
 
 module;
 #include <cstddef>
-#include <cstdint>
 #include <glm/glm.hpp>
 
 export module deren.engine.primitive:primitives;
@@ -39,12 +38,12 @@ namespace deren::engine {
         /// material/model still come from this descriptor. No per-frame LOD is enabled.
         std::shared_ptr<subtilis::built_geometry const> subtilis_geometry;
         std::shared_ptr<subtilis::imported_asset const> subtilis_import;
-        std::span<uint8_t const> vertex_data = {};
-        uint32_t vertex_stride = 0;
-        uint32_t vertex_count = 0;
-        std::span<uint8_t const> index_data = {};
+        std::span<std::uint8_t const> vertex_data = {};
+        std::uint32_t vertex_stride = 0;
+        std::uint32_t vertex_count = 0;
+        std::span<std::uint8_t const> index_data = {};
         deren::promise::rhi::index_type index_type = deren::promise::rhi::index_type::uint32;
-        uint32_t index_count = 0;
+        std::uint32_t index_count = 0;
 
         texture_input albedo = {};
         texture_input metallic_roughness = {};
@@ -62,7 +61,7 @@ namespace deren::engine {
          * the name still exists (see gltf_loader's `toon_family_of`) and nothing downstream should be
          * matching strings. 0 == `toon_family::none`.
          */
-        uint32_t toon_family = 0;
+        std::uint32_t toon_family = 0;
 
         /**
          * WHETHER THIS MATERIAL MAY RECEIVE A RAY-TRACED REFLECTION (material-record flag bit12).
@@ -86,7 +85,7 @@ namespace deren::engine {
          *
          * 0 == `overlay_kind::none`: an ordinary surface, shaded and drawn by the passes that always drew it.
          */
-        uint32_t overlay_kind = 0;
+        std::uint32_t overlay_kind = 0;
 
         /**
          * THE ENVIRONMENT FLAG (the `[render] background_glb` import): whether this leaf is the frame's
@@ -119,7 +118,7 @@ namespace deren::engine {
          * into the high bits of `push.flags`, and the shader selects `head_frame_at(...)[character_index]`. Zero is
          * the single-character path and produces exactly the old flag word.
          */
-        uint32_t character_index = 0u;
+        std::uint32_t character_index = 0u;
 
         /**
          * THE TOON TEXTURE INPUTS, filled by whoever installs a `toon_lookup` - the application, which is the
@@ -147,10 +146,10 @@ namespace deren::engine {
      * @note layout matches the Material struct in pbr.frag (std430, 80 bytes)
      */
     export struct material_record {
-        glm::uvec4 tex_indices = {};     // albedo, metallic-roughness, normal, occlusion (indices into the texture array)
-        uint32_t emissive_index = 0;     // emissive texture index
-        float alpha_cutoff = 0.5f;       // alphaMode MASK threshold (fragment discard below it)
-        float occlusion_strength = 1.0f; // occlusion map influence: mix(1, sampled AO, strength)
+        glm::uvec4 tex_indices = {};      // albedo, metallic-roughness, normal, occlusion (indices into the texture array)
+        std::uint32_t emissive_index = 0; // emissive texture index
+        float alpha_cutoff = 0.5f;        // alphaMode MASK threshold (fragment discard below it)
+        float occlusion_strength = 1.0f;  // occlusion map influence: mix(1, sampled AO, strength)
         /**
          * THE TOON MATERIAL FAMILY (`deren::gltf::toon_family`, resolved at import from the material's name).
          *
@@ -164,16 +163,16 @@ namespace deren::engine {
          * 0 means `toon_family::none`: the toon stage's family-independent path, which is every material
          * whose name claimed no family - so a frame with no character in it is unchanged by the family test.
          */
-        uint32_t toon_family = 0;
+        std::uint32_t toon_family = 0;
         glm::vec4 base_color_factor = glm::vec4(1.0f);
         glm::vec4 emissive_factor = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
         float metallic_factor = 1.0f;
         float roughness_factor = 1.0f;
         float normal_scale = 1.0f;
-        uint32_t flags = 0; // bit0: normal map, bit1: occlusion map, bit2: emissive map, bit3: double-sided, bit4: alphaMode MASK, bit5: alphaMode BLEND, bit6: the EYE-DARK overlay, bit7: the HAIR-SHADOW overlay, bit8: the author's toon TRANSPARENT variant (see toon_inputs::alpha_blend), bit9: unlit shading for this material, bits10..11: the IBL environment slot (0 = scene-wide, 1..3 = per-object custom; the deferred stage reads them back through the G-buffer's material id)
-                            // (bits 6 and 7 are the article's two overlay channels - see `overlay_kind` in
-                            // gltf_loader and the note in register_material: the overlay fragment stage branches
-                            // on them because the two masks compute different multipliers from the same inputs)
+        std::uint32_t flags = 0; // bit0: normal map, bit1: occlusion map, bit2: emissive map, bit3: double-sided, bit4: alphaMode MASK, bit5: alphaMode BLEND, bit6: the EYE-DARK overlay, bit7: the HAIR-SHADOW overlay, bit8: the author's toon TRANSPARENT variant (see toon_inputs::alpha_blend), bit9: unlit shading for this material, bits10..11: the IBL environment slot (0 = scene-wide, 1..3 = per-object custom; the deferred stage reads them back through the G-buffer's material id)
+                                 // (bits 6 and 7 are the article's two overlay channels - see `overlay_kind` in
+                                 // gltf_loader and the note in register_material: the overlay fragment stage branches
+                                 // on them because the two masks compute different multipliers from the same inputs)
         /**
          * THE TOON TEXTURE SLOTS, which are the ones glTF's five cannot reach.
          *
@@ -209,13 +208,13 @@ namespace deren::engine {
      *       default material; registrations past the capacity degrade to it with a logged
      *       warning instead of failing the whole scene.
      */
-    export constexpr uint32_t material_capacity = 16384;
+    export constexpr std::uint32_t material_capacity = 16384;
 
     /**
      * @ingroup engine_primitive
      * @brief max per-instance transforms of an instanced draw (set 0 binding 6 storage buffer)
      */
-    export constexpr uint32_t instance_capacity = 8192;
+    export constexpr std::uint32_t instance_capacity = 8192;
 
     /**
      * @ingroup engine_primitive
@@ -224,7 +223,7 @@ namespace deren::engine {
      *       slots are why the same capacity as the instance buffer is plenty: a scene of N leaves
      *       uses N, and only an instanced stress draw uses thousands.
      */
-    export constexpr uint32_t scene_motion_capacity = instance_capacity;
+    export constexpr std::uint32_t scene_motion_capacity = instance_capacity;
 
     /**
      * @ingroup engine_primitive
@@ -235,7 +234,7 @@ namespace deren::engine {
      *       joints = 840 joint matrices + identity); the buffer is 2048 x 64 B = 128 KiB per
      *       frame slot, negligible against the 8 MiB morph buffer
      */
-    export constexpr uint32_t scene_skin_capacity = 2048;
+    export constexpr std::uint32_t scene_skin_capacity = 2048;
 
     /**
      * @ingroup engine_primitive
@@ -265,37 +264,37 @@ namespace deren::engine {
      *        material-record byte layout is unchanged (memcpy/push use the raw bytes).
      */
     export struct material_id {
-        uint32_t value = 0;
+        std::uint32_t value = 0;
     };
 
     export struct material_push_constants {
         material_id material_index = {}; // index into the scene's material table
-        uint32_t flags = 0;              // bit0: instanced draw -> model matrix comes from the
+        std::uint32_t flags = 0;         // bit0: instanced draw -> model matrix comes from the
                                          //       instance transform buffer (set 0 binding 6)
         // index into the scene skin-matrix buffer (binding 9) where this primitive's joint
         // matrices start; 0 = the identity block (unskinned). The vertex shader reads
         // matrices[skin_base + in_joints.x] etc. — set once per primitive after import
-        uint32_t skin_base = 0;
+        std::uint32_t skin_base = 0;
         // morph blend (binding 10): float index of this primitive's morph block (deltas first:
         // per vertex per target pos-delta/nrm-delta, then the per-target weights, then the per-target
         // PREVIOUS weights); morph_targets / morph_vertices describe the block stride. All three stay 0
         // for non-morphable draws. The vertex stage reads the FIRST weight region as this frame's weights
         // and the SECOND as the weights one frame ago, which is the morph half of a deforming mesh's
         // motion vector - see runtime::morph_scratch()'s note for the writer's side of that contract.
-        uint32_t morph_base = 0;
-        uint32_t morph_targets = 0;  // number of morph targets (0 = no morph)
-        uint32_t morph_vertices = 0; // vertex count of this primitive (block stride)
+        std::uint32_t morph_base = 0;
+        std::uint32_t morph_targets = 0;  // number of morph targets (0 = no morph)
+        std::uint32_t morph_vertices = 0; // vertex count of this primitive (block stride)
         // mat4 start of THIS instanced primitive's transforms in the shared instance buffer
         // (set 0 binding 6): the vertex shader reads instances.transforms[instance_base +
         // gl_InstanceIndex]. Only meaningful when flag bit0 is set; other draw strategies keep 0.
-        uint32_t instance_base = 0;
+        std::uint32_t instance_base = 0;
         // Start of THIS draw's previous-frame world matrices in the scene block's motion buffer
         // (binding 13), where the vertex shader reads the matrix that turns into TAA's motion
         // vector. Every draw uses at least one slot (an instanced draw uses one per instance), and
         // the runtime advances them once per frame from the scene tree's world matrices - see
         // runtime::advance_motion_transforms(). The field sits in the 4 bytes std430 leaves between
         // instance_base and model, so the block stays 96 bytes and the pipeline layout is unchanged.
-        uint32_t motion_base = 0;
+        std::uint32_t motion_base = 0;
         // glm::mat4 is only 4-byte aligned by default, but GLSL std430 aligns mat4 to 16 bytes
         // (offset 32 in the block): align explicitly so the CPU layout matches the shader
         alignas(16) glm::mat4 model = glm::mat4(1.0f);
@@ -324,10 +323,10 @@ namespace deren::engine {
      * and then for the block's trailing std140 padding), so the fill has to start at the earlier member's end and
      * run to the BLOCK's end rather than to the lanes' end.
      */
-    export constexpr uint32_t mesh_geometry_lanes_offset = 112;
-    export constexpr uint32_t mesh_geometry_push_offset_scene = deren::engine::render_layout::scene_push_constant_size + 3u * sizeof(uint32_t);
+    export constexpr std::uint32_t mesh_geometry_lanes_offset = 112;
+    export constexpr std::uint32_t mesh_geometry_push_offset_scene = deren::engine::render_layout::scene_push_constant_size + 3u * sizeof(std::uint32_t);
     /// ... and the shadow pass's end: the same offset plus the cascade lane its block declares
-    export constexpr uint32_t mesh_geometry_push_offset_shadow = mesh_geometry_push_offset_scene + sizeof(uint32_t);
+    export constexpr std::uint32_t mesh_geometry_push_offset_shadow = mesh_geometry_push_offset_scene + sizeof(std::uint32_t);
     /**
      * @ingroup engine_primitive
      * @brief what a mesh stage needs to know about the geometry a draw covers, pushed at the session's
@@ -340,12 +339,12 @@ namespace deren::engine {
      *       so a lane left out is a draw that cannot be ported rather than a draw that is slightly wrong.
      */
     export struct mesh_geometry_lanes {
-        uint64_t vertex_address = 0; // the vertex buffer's device address (base, vertex 0)
-        uint64_t index_address = 0;  // the index buffer's device address (base, index 0)
-        uint32_t first_index = 0;    // the draw's first index inside the index buffer
-        uint32_t index_count = 0;    // indices this draw covers (triangles)
-        int32_t base_vertex = 0;     // added to every fetched index (static-draw chunks; 0 otherwise)
-        uint32_t index_width = 4;    // bytes per index: 2 (uint16) or 4 (uint32)
+        std::uint64_t vertex_address = 0; // the vertex buffer's device address (base, vertex 0)
+        std::uint64_t index_address = 0;  // the index buffer's device address (base, index 0)
+        std::uint32_t first_index = 0;    // the draw's first index inside the index buffer
+        std::uint32_t index_count = 0;    // indices this draw covers (triangles)
+        std::int32_t base_vertex = 0;     // added to every fetched index (static-draw chunks; 0 otherwise)
+        std::uint32_t index_width = 4;    // bytes per index: 2 (uint16) or 4 (uint32)
     };
     static_assert(offsetof(mesh_geometry_lanes, vertex_address) == 0);
     static_assert(offsetof(mesh_geometry_lanes, index_address) == 8);
@@ -358,7 +357,7 @@ namespace deren::engine {
     /// for a reason worth stating: the shadow block's lanes end exactly there (112 + 32), and the scene block's
     /// members end at 140 with std140 rounding the block's SIZE up to the same 144. It is what the device's push
     /// limits have to cover for the path to be available at all (see the runtime's capability gate).
-    export constexpr uint32_t mesh_stage_block_size = mesh_geometry_lanes_offset + sizeof(mesh_geometry_lanes);
+    export constexpr std::uint32_t mesh_stage_block_size = mesh_geometry_lanes_offset + sizeof(mesh_geometry_lanes);
 
     /**
      * @ingroup engine_primitive
@@ -378,11 +377,11 @@ namespace deren::engine {
      *        shared, so draw() keeps working unchanged)
      */
     export class primitive : public deren::engine::scene_tree::primitive {
-        inline static std::atomic<uint64_t> next_lifetime{1};
+        inline static std::atomic<std::uint64_t> next_lifetime{1};
 
     public:
         // Address reuse must not reuse optional per-instance LOD decisions.
-        uint64_t const lifetime_id = next_lifetime.fetch_add(1, std::memory_order_relaxed);
+        std::uint64_t const lifetime_id = next_lifetime.fetch_add(1, std::memory_order_relaxed);
         ~primitive() override = default;
 
         // Geometry views carry allocation handles. Production generations carry a device handle alongside
@@ -396,13 +395,13 @@ namespace deren::engine {
         // called draw_index_count, not index_count: push_geometry_lanes_impl, push_meshlet_lanes and
         // mesh_dispatch keep a parameter named index_count, which would hide the member of that name and
         // MSVC /W4 reports C4458 (an error under /WX).
-        uint32_t draw_index_count = 0;
-        uint32_t vertex_count = 0;
+        std::uint32_t draw_index_count = 0;
+        std::uint32_t vertex_count = 0;
         // Bytes per vertex of the interleaved layout (position first; 80 since the TANGENT was appended). The
         // mesh stages fetch through the shader's fixed 80-byte layout; this field is what the
         // acceleration-structure build reads and what the stride gates (visibility/subtilis admission,
         // compute_skin's expected source) compare against.
-        uint32_t vertex_stride = 0;
+        std::uint32_t vertex_stride = 0;
         /**
          * THE PRIMITIVE'S MESHLETS, in the order `build_meshlets` produced them (docs/mesh_shaders.md step 3):
          * runs of at most `meshlet_max_triangles` triangles of this primitive's index window, each with an
@@ -416,9 +415,9 @@ namespace deren::engine {
         deren::utility::vessel::vector<deren::engine::meshlet> meshlets = {};
         /// where this primitive's run of meshlets starts in the GPU TABLE (docs/mesh_shaders.md step 3): the value
         /// the geometry lanes carry, so a task stage can turn "my meshlet workgroup" into a record index
-        uint32_t meshlet_base = 0;
+        std::uint32_t meshlet_base = 0;
         /// how many records the complete run covers; zero when the table cannot fit the entire run
-        uint32_t meshlet_count = 0;
+        std::uint32_t meshlet_count = 0;
         // Pipeline the primitive draws with. Empty = DEFAULT semantics: the primitive does not
         // care which pipeline records it, it asks the draw-time render_environment to bind that
         // session's default (normal / instanced / static draws all work this way - they draw
@@ -435,10 +434,10 @@ namespace deren::engine {
         // push.motion_base and the fragment stage turns the difference into TAA's motion vector.
         // no_motion_slot = not tracked frame to frame (an instanced draw, whose slots are filled
         // once at setup with its instance transforms, so its object motion reads as zero).
-        uint32_t motion_slot_index = deren::engine::scene_tree::no_motion_slot;
+        std::uint32_t motion_slot_index = deren::engine::scene_tree::no_motion_slot;
 
         /** @brief where this leaf's previous world matrix lives (see the member) */
-        [[nodiscard]] uint32_t motion_slot() const noexcept override {
+        [[nodiscard]] std::uint32_t motion_slot() const noexcept override {
             return this->motion_slot_index;
         }
         bool double_sided = false; // glTF doubleSided: disable back-face culling (per draw)
@@ -460,12 +459,12 @@ namespace deren::engine {
          * readback is involved in a decision about which list a leaf goes into. See `overlay_kind_of` in
          * gltf_loader for what the number means and `runtime::frame_overlay` for the list it selects.
          */
-        uint32_t overlay_kind = 0;
+        std::uint32_t overlay_kind = 0;
 
         /// this leaf's material family (`deren::gltf::toon_family`; 0 == none), mirrored from
         /// `primitive_create_info::toon_family` so CPU-side stage rules can select a family without a GPU
         /// readback.
-        uint32_t toon_family = 0;
+        std::uint32_t toon_family = 0;
 
         /**
          * THE MATERIAL'S OUTLINE WIDTH (`toon_colour_lane::outline_edge`'s `.w`, i.e. the game's
@@ -527,7 +526,7 @@ namespace deren::engine {
 
         /// which GameToon character this leaf is part of; copied into the high bits of `push.flags` at creation. See
         /// `primitive_create_info::character_index`.
-        uint32_t character_index = 0u;
+        std::uint32_t character_index = 0u;
 
         // local-space AABB of this primitive's geometry (model space, i.e. before push.model);
         // filled by the runtime when the geometry is uploaded. has_bounds == false means "no
@@ -540,7 +539,7 @@ namespace deren::engine {
         /// number of joint matrices in this primitive's skin block; 0 = unskinned. Set by the
         /// animation controller together with `push.skin_base`, so the cull can union the bind
         /// box through every joint and get a conservative bound for the posed geometry.
-        uint32_t skin_joint_count = 0u;
+        std::uint32_t skin_joint_count = 0u;
 
         /**
          * @brief whether this primitive's vertices can move without its node matrix changing
@@ -566,7 +565,7 @@ namespace deren::engine {
             }
             glm::vec3 wmin = glm::vec3(std::numeric_limits<float>::infinity());
             glm::vec3 wmax = glm::vec3(-std::numeric_limits<float>::infinity());
-            for (int32_t i = 0; i < 8; ++i) {
+            for (std::int32_t i = 0; i < 8; ++i) {
                 glm::vec3 const corner{
                     (i & 1) ? this->local_aabb_max.x : this->local_aabb_min.x,
                     (i & 2) ? this->local_aabb_max.y : this->local_aabb_min.y,
@@ -592,9 +591,9 @@ namespace deren::engine {
         [[nodiscard]] std::pair<glm::vec3, glm::vec3> skinned_world_aabb(std::span<glm::mat4 const> const matrices) const noexcept {
             glm::vec3 wmin = glm::vec3(std::numeric_limits<float>::infinity());
             glm::vec3 wmax = glm::vec3(-std::numeric_limits<float>::infinity());
-            for (uint32_t joint = 0; joint < this->skin_joint_count; ++joint) {
+            for (std::uint32_t joint = 0; joint < this->skin_joint_count; ++joint) {
                 glm::mat4 const skin_world = this->push.model * matrices[static_cast<std::size_t>(this->push.skin_base) + joint];
-                for (int32_t i = 0; i < 8; ++i) {
+                for (std::int32_t i = 0; i < 8; ++i) {
                     glm::vec3 const corner{
                         (i & 1) ? this->local_aabb_max.x : this->local_aabb_min.x,
                         (i & 2) ? this->local_aabb_max.y : this->local_aabb_min.y,
@@ -636,7 +635,7 @@ namespace deren::engine {
         /// the lane push itself: @p host_culled and @p backface_legal are the flags the lanes carry (both false for
         /// a session that does not cull, which is why this is the body `push_meshlet_lanes` calls rather than a
         /// wrapper the vertex path used to share)
-        void push_geometry_lanes_impl(render_environment const& env, primitive const& geometry, uint32_t first_index, uint32_t index_count, int32_t base_vertex, bool host_culled, bool backface_legal) const;
+        void push_geometry_lanes_impl(render_environment const& env, primitive const& geometry, std::uint32_t first_index, std::uint32_t index_count, std::int32_t base_vertex, bool host_culled, bool backface_legal) const;
         /**
          * @brief CULL a meshlet session's run against the camera and push the geometry lanes for it
          *
@@ -653,10 +652,10 @@ namespace deren::engine {
          * @note the flag travels in the lanes' `base_vertex`, which a meshlet session never uses for anything else:
          *       it is what tells the entry point to read this frame's CULLED table instead of the shared one.
          */
-        uint32_t push_meshlet_lanes(render_environment const& env, primitive const& geometry, uint32_t first_index, uint32_t index_count, int32_t base_vertex, bool material_two_sided) const;
+        std::uint32_t push_meshlet_lanes(render_environment const& env, primitive const& geometry, std::uint32_t first_index, std::uint32_t index_count, std::int32_t base_vertex, bool material_two_sided) const;
         /// the `push_meshlet_lanes` answer that means "not culled" (a real run cannot be this long: the table's
         /// capacity is far below it, so no dispatch can collide with the sentinel)
-        static constexpr uint32_t not_culled = 0xFFFFFFFFu;
+        static constexpr std::uint32_t not_culled = 0xFFFFFFFFu;
         /**
          * @brief record ONE MESH DISPATCH over a geometry window already pushed into the stage block
          * @param env the session; it must have `mesh_stage` set and its mesh endpoints filled
@@ -670,7 +669,7 @@ namespace deren::engine {
          *       would be a command with no effect - the stage reaches them through the pushed lanes instead,
          *       which is the whole difference between this and bind_geometry_and_push.
          */
-        static void mesh_dispatch(render_environment const& env, primitive const& geometry, uint32_t index_count, uint32_t instance_count, uint32_t survivors = not_culled);
+        static void mesh_dispatch(render_environment const& env, primitive const& geometry, std::uint32_t index_count, std::uint32_t instance_count, std::uint32_t survivors = not_culled);
     };
 
     /**
@@ -712,7 +711,7 @@ namespace deren::engine {
     export class instanced_draw_primitive final : public primitive {
     public:
         primitive const* source = nullptr;
-        uint32_t instance_count = 0;
+        std::uint32_t instance_count = 0;
 
         void draw(render_environment& env) const override;
         void destroy() noexcept override;
@@ -726,10 +725,10 @@ namespace deren::engine {
      *        merged buffer can cover many sub-meshes with distinct materials)
      */
     export struct static_draw_chunk {
-        uint32_t first_index = 0;   // first index of this chunk in the merged index buffer
-        uint32_t index_count = 0;   // number of indices this chunk draws
-        uint32_t vertex_offset = 0; // base vertex into the merged vertex buffer (chunks past the
-                                    // first when the packer did not remap indices; 0 otherwise)
+        std::uint32_t first_index = 0;   // first index of this chunk in the merged index buffer
+        std::uint32_t index_count = 0;   // number of indices this chunk draws
+        std::uint32_t vertex_offset = 0; // base vertex into the merged vertex buffer (chunks past the
+                                         // first when the packer did not remap indices; 0 otherwise)
         // per-chunk material (same shape as primitive_create_info's material fields)
         texture_input albedo = {};
         texture_input metallic_roughness = {};
@@ -751,12 +750,12 @@ namespace deren::engine {
      *       static-draw build time - out-of-range chunks are logged and skipped.
      */
     export struct static_draw_create_info {
-        std::span<uint8_t const> vertex_data = {};
-        uint32_t vertex_stride = 0;
-        uint32_t vertex_count = 0;
-        std::span<uint8_t const> index_data = {};
+        std::span<std::uint8_t const> vertex_data = {};
+        std::uint32_t vertex_stride = 0;
+        std::uint32_t vertex_count = 0;
+        std::span<std::uint8_t const> index_data = {};
         deren::promise::rhi::index_type index_type = deren::promise::rhi::index_type::uint32;
-        uint32_t index_count = 0; // whole merged index count (the chunk table covers a subset)
+        std::uint32_t index_count = 0; // whole merged index count (the chunk table covers a subset)
         deren::utility::vessel::vector<static_draw_chunk> chunks = {};
         glm::mat4 model_matrix = glm::mat4(1.0f);
     };
@@ -782,15 +781,15 @@ namespace deren::engine {
         deren::promise::rhi::unique_object<deren::promise::rhi::buffer> vertex_buffer = {};
         deren::promise::rhi::unique_object<deren::promise::rhi::buffer> index_buffer = {};
         deren::promise::rhi::index_type index_type = deren::promise::rhi::index_type::uint32;
-        uint32_t index_count = 0; // whole merged index count (upper bound for chunk validation)
-        uint32_t vertex_count = 0;
+        std::uint32_t index_count = 0; // whole merged index count (upper bound for chunk validation)
+        std::uint32_t vertex_count = 0;
         // chunk table over the merged buffer; each entry draws once after the single bind.
         // Material identity lives in material_index; double_sided is per chunk (cull mode).
         // Always non-empty after a static draw is built (chunks are validated there).
         struct chunk_record {
-            uint32_t first_index = 0;
-            uint32_t index_count = 0;
-            uint32_t vertex_offset = 0;
+            std::uint32_t first_index = 0;
+            std::uint32_t index_count = 0;
+            std::uint32_t vertex_offset = 0;
             material_id material_index = {};
             bool double_sided = false;
         };
@@ -826,7 +825,7 @@ namespace deren::engine {
 
     /// Six RH 90-degree views (+X,-X,+Y,-Y,+Z,-Z), keeping the Vulkan Y flip and normal winding.
     /// Readback X must be mirrored for canonical cubemap pixels. Requires face<6, 0<near<far.
-    export camera_ubo make_cube_capture_camera(glm::vec3 const& position, uint32_t face,
+    export camera_ubo make_cube_capture_camera(glm::vec3 const& position, std::uint32_t face,
                                                float near_plane, float far_plane);
 
     /**

@@ -1,6 +1,7 @@
 #include "vk_test.h"
 
 #include <array>
+#include <cstdint>
 #include <limits>
 import deren.engine.subtilis.dag_asset;
 namespace sub = deren::engine::subtilis;
@@ -52,7 +53,7 @@ int main() {
     references[1] = 0;
     rejects();
     references[1] = 1;
-    references[13] = UINT32_MAX;
+    references[13] = std::numeric_limits<std::uint32_t>::max();
     rejects();
     references[13] = 9;
     groups[3].coarse = {14, 1};
@@ -103,7 +104,7 @@ int main() {
     clusters[0].record.center_x = std::numeric_limits<float>::infinity();
     rejects();
     clusters[0].record.center_x = 1;
-    clusters[0].record.first_index = UINT32_MAX - 1;
+    clusters[0].record.first_index = std::numeric_limits<std::uint32_t>::max() - 1;
     rejects();
     auto overflow = make();
     CHECK(!overflow && overflow.error() == sub::dag_error::capacity);

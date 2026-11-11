@@ -1,6 +1,6 @@
 module;
-#include <cstddef>
-#include <cstdint>
+
+
 module deren.asset.subtilis.builder;
 import deren.vstd;
 namespace deren::asset::subtilis::builder_detail {
@@ -107,7 +107,7 @@ namespace deren::asset::subtilis::builder_detail {
         if (!source_digest(data)) {
             return t;
         }
-        vector<uint32_t> order(data.positions.size());
+        vector<std::uint32_t> order(data.positions.size());
         std::iota(order.begin(), order.end(), 0u);
         std::sort(order.begin(), order.end(), [&](auto a, auto b) { return data.positions[a] != data.positions[b] ? data.positions[a] < data.positions[b] : a < b; });
         t.position_class.resize(order.size());
@@ -118,9 +118,9 @@ namespace deren::asset::subtilis::builder_detail {
         for (auto id : data.indices) {
             used[id] = true;
         }
-        auto attrs = [&](uint32_t id) {auto n=data.normals[id];auto uv=data.uv0[id];return array<float,5>{n[0],n[1],n[2],uv[0],uv[1]}; };
-        uint32_t representative = 0, first_used = none;
-        for (size_t i = 0; i < order.size(); ++i) {
+        auto attrs = [&](std::uint32_t id) {auto n=data.normals[id];auto uv=data.uv0[id];return array<float,5>{n[0],n[1],n[2],uv[0],uv[1]}; };
+        std::uint32_t representative = 0, first_used = none;
+        for (std::size_t i = 0; i < order.size(); ++i) {
             auto id = order[i];
             if (!i || data.positions[id] != data.positions[order[i - 1]]) {
                 representative = id;
@@ -137,7 +137,7 @@ namespace deren::asset::subtilis::builder_detail {
         }
         std::sort(order.begin(), order.end(), [&](auto a, auto b) {if(data.positions[a]!=data.positions[b]){return data.positions[a]<data.positions[b];
 }auto aa=attrs(a),bb=attrs(b);return aa!=bb?aa<bb:a<b; });
-        for (size_t i = 0; i < order.size(); ++i) {
+        for (std::size_t i = 0; i < order.size(); ++i) {
             auto id = order[i];
             if (!i || data.positions[id] != data.positions[order[i - 1]] || attrs(id) != attrs(order[i - 1])) {
                 representative = id;
@@ -145,7 +145,7 @@ namespace deren::asset::subtilis::builder_detail {
             t.attribute_class[id] = representative;
         }
         auto original = graph(data, t, data.indices);
-        for (size_t triangle = 0; triangle < original.unsafe.size(); ++triangle) {
+        for (std::size_t triangle = 0; triangle < original.unsafe.size(); ++triangle) {
             if (original.unsafe[triangle]) {
                 for (unsigned k = 0; k < 3; ++k) {
                     t.unsafe_vertices[t.position_class[data.indices[triangle * 3 + k]]] = 1;
@@ -154,18 +154,18 @@ namespace deren::asset::subtilis::builder_detail {
         }
         vector<pair> vertex_origins;
         vertex_origins.reserve(data.indices.size());
-        for (size_t i = 0; i < data.indices.size(); ++i) {
+        for (std::size_t i = 0; i < data.indices.size(); ++i) {
             vertex_origins.push_back({t.position_class[data.indices[i]], original.parent[i / 3]});
         }
         std::sort(vertex_origins.begin(), vertex_origins.end());
-        for (size_t i = 1; i < vertex_origins.size(); ++i) {
+        for (std::size_t i = 1; i < vertex_origins.size(); ++i) {
             if (vertex_origins[i][0] == vertex_origins[i - 1][0] && vertex_origins[i][1] != vertex_origins[i - 1][1]) {
                 t.unsafe_vertices[vertex_origins[i][0]] = 1;
             }
         }
         return t;
     }
-    boundary_signature boundary_of(source_geometry const& data, std::span<uint32_t const> indices, topology const& t) {
+    boundary_signature boundary_of(source_geometry const& data, std::span<std::uint32_t const> indices, topology const& t) {
         boundary_signature out;
         if (indices.empty() || indices.size() % 3 || t.position_class.size() != data.positions.size()) {
             return out;
@@ -191,12 +191,12 @@ namespace deren::asset::subtilis::builder_detail {
         }
         std::sort(out.boundary_classes.begin(), out.boundary_classes.end());
         out.boundary_classes.erase(std::unique(out.boundary_classes.begin(), out.boundary_classes.end()), out.boundary_classes.end());
-        for (size_t i = 0; i < indices.size(); ++i) {
+        for (std::size_t i = 0; i < indices.size(); ++i) {
             out.class_components.push_back({t.position_class[indices[i]], g.parent[i / 3]});
         }
         std::sort(out.class_components.begin(), out.class_components.end());
         out.class_components.erase(std::unique(out.class_components.begin(), out.class_components.end()), out.class_components.end());
-        for (size_t i = 1; i < out.class_components.size(); ++i) {
+        for (std::size_t i = 1; i < out.class_components.size(); ++i) {
             if (out.class_components[i][0] == out.class_components[i - 1][0]) {
                 return {};
             }
@@ -207,17 +207,17 @@ namespace deren::asset::subtilis::builder_detail {
         out.valid = true;
         return out;
     }
-    boundary_signature boundary_of(source_geometry const& data, std::span<uint32_t const> indices) {
+    boundary_signature boundary_of(source_geometry const& data, std::span<std::uint32_t const> indices) {
         return boundary_of(data, indices, analyze_topology(data));
     }
-    bool preserves_region(source_geometry const& data, topology const& t, boundary_signature const& original, std::span<uint32_t const> indices) {
+    bool preserves_region(source_geometry const& data, topology const& t, boundary_signature const& original, std::span<std::uint32_t const> indices) {
         auto candidate = boundary_of(data, indices, t);
         if (!original.valid || !candidate.valid || !(candidate == original)) {
             return false;
         }
-        vector<uint32_t> components;
-        for (size_t i = 0; i < indices.size(); i += 3) {
-            array<uint32_t, 3> vertex_origins{};
+        vector<std::uint32_t> components;
+        for (std::size_t i = 0; i < indices.size(); i += 3) {
+            array<std::uint32_t, 3> vertex_origins{};
             for (unsigned k = 0; k < 3; ++k) {
                 auto id = t.position_class[indices[i + k]];
                 auto found = std::lower_bound(original.class_components.begin(), original.class_components.end(), id, [](auto const& entry, auto key) { return entry[0] < key; });

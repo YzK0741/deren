@@ -3,8 +3,6 @@
 
 module;
 
-#include <array>
-#include <cstdint>
 #include <glm/glm.hpp>
 
 module deren.engine.pass.subtilis_cut;
@@ -35,7 +33,7 @@ namespace deren::engine::pass {
             this->release_contract();
         }
         this->built_against = context.face;
-        std::span<uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.parent, shader_name) : std::span<uint8_t const>{};
+        std::span<std::uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.parent, shader_name) : std::span<std::uint8_t const>{};
         if (spirv.empty()) {
             return std::unexpected(deren::utility::vessel::string("subtilis cut: the parent has no ") + deren::utility::vessel::string(shader_name));
         }

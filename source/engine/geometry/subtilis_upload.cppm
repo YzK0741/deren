@@ -1,6 +1,7 @@
 module;
+
 #include <cstddef>
-#include <cstdint>
+
 export module deren.engine.subtilis.upload;
 export import deren.vstd;
 import deren.engine.subtilis.builder;
@@ -84,6 +85,11 @@ export namespace deren::engine::subtilis {
 
     public:
         static constexpr std::uint32_t slot_bytes = 64u << 10;
+        /// A page-table entry stores a 32-bit byte offset, so an arena may not contain a slot whose
+        /// offset would wrap. The last addressable slot starts at std::numeric_limits<std::uint32_t>::max() / 64 KiB * 64 KiB,
+        /// making 65536 slots and exactly 4 GiB the architectural maximum.
+        static constexpr std::uint64_t max_slots = 0xFFFFFFFFull / slot_bytes + 1u;
+        static constexpr std::uint64_t max_bytes = max_slots * slot_bytes;
 
         [[nodiscard]] static std::expected<std::shared_ptr<page_arena_pool>, upload_rhi::error>
         create(upload_rhi::shared_object<upload_rhi::api_core> const& device, std::uint64_t bytes);
@@ -101,6 +107,8 @@ export namespace deren::engine::subtilis {
         [[nodiscard]] bool acquire(std::uint32_t count, deren::utility::vessel::vector<std::uint32_t>& out, void const* skip_owner = nullptr, std::uint32_t* evicted = nullptr);
         void set_owner(std::uint32_t slot, void* context, slot_evict_fn evict);
         void clear_owner(std::uint32_t slot);
+        /// Returns a slot to the pool. Releasing an already-free slot is a no-op: a page can be
+        /// returned by both its owner and a failed transaction without duplicating the free entry.
         void release(std::uint32_t slot);
         void release(std::span<std::uint32_t const> slots);
         void retain(std::uint32_t slot);

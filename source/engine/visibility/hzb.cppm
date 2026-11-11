@@ -42,10 +42,6 @@
  * `heap_at<...>(heap_slots_hzb_x)` and then indexes `frame_slot * stride + index`, never `+ heap_frame_slot` (§5.3).
  */
 module;
-#include <algorithm>
-#include <cmath>
-#include <cstddef>
-#include <cstdint>
 
 export module deren.engine.visibility.hzb;
 export import deren.vstd;
@@ -684,7 +680,7 @@ export namespace deren::engine::visibility::hzb {
             return false;
         }
         auto rigid = [](hzb_matrix_bits const& bits, hzb_matrix& matrix, std::array<double, 3>& position) noexcept {
-            for (uint32_t i = 0; i < 16; ++i) {
+            for (std::uint32_t i = 0; i < 16; ++i) {
                 matrix[i] = static_cast<double>(std::bit_cast<float>(bits[i]));
                 if (!std::isfinite(matrix[i])) {
                     return false;
@@ -693,10 +689,10 @@ export namespace deren::engine::visibility::hzb {
             if (std::abs(matrix[3]) > 1e-5 || std::abs(matrix[7]) > 1e-5 || std::abs(matrix[11]) > 1e-5 || std::abs(matrix[15] - 1.) > 1e-5) {
                 return false;
             }
-            for (uint32_t r = 0; r < 3; ++r) {
-                for (uint32_t c = 0; c < 3; ++c) {
+            for (std::uint32_t r = 0; r < 3; ++r) {
+                for (std::uint32_t c = 0; c < 3; ++c) {
                     double dot = 0.;
-                    for (uint32_t k = 0; k < 3; ++k) {
+                    for (std::uint32_t k = 0; k < 3; ++k) {
                         dot += matrix[k * 4 + r] * matrix[k * 4 + c];
                     }
                     if (std::abs(dot - (r == c ? 1. : 0.)) > 1e-4) {
@@ -708,9 +704,9 @@ export namespace deren::engine::visibility::hzb {
             if (det < .999) {
                 return false;
             }
-            for (uint32_t c = 0; c < 3; ++c) {
+            for (std::uint32_t c = 0; c < 3; ++c) {
                 position[c] = 0.;
-                for (uint32_t r = 0; r < 3; ++r) {
+                for (std::uint32_t r = 0; r < 3; ++r) {
                     position[c] -= matrix[c * 4 + r] * matrix[12 + r];
                 }
             }
@@ -725,12 +721,12 @@ export namespace deren::engine::visibility::hzb {
         }
         double distance2 = 0.;
         double trace = 0.;
-        for (uint32_t i = 0; i < 3; ++i) {
+        for (std::uint32_t i = 0; i < 3; ++i) {
             double const delta = pa[i] - pb[i];
             distance2 += delta * delta;
         }
-        for (uint32_t r = 0; r < 3; ++r) {
-            for (uint32_t c = 0; c < 3; ++c) {
+        for (std::uint32_t r = 0; r < 3; ++r) {
+            for (std::uint32_t c = 0; c < 3; ++c) {
                 trace += a[c * 4 + r] * b[c * 4 + r];
             }
         }
@@ -740,7 +736,7 @@ export namespace deren::engine::visibility::hzb {
         if (std::sqrt(distance2) > scene_radius * limits.translation_ratio || std::acos(cosine) * 57.29577951308232 > limits.rotation_degrees) {
             return false;
         }
-        for (uint32_t i = 0; i < 16; ++i) {
+        for (std::uint32_t i = 0; i < 16; ++i) {
             double const av = std::bit_cast<float>(previous.proj[i]);
             double const bv = std::bit_cast<float>(current.proj[i]);
             if (!std::isfinite(av) || !std::isfinite(bv) || std::abs(av - bv) > limits.projection_delta) {

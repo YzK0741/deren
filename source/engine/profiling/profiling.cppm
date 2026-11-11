@@ -14,7 +14,6 @@
  */
 
 module;
-#include <cstdint>
 
 export module deren.engine.profiling;
 export import deren.vstd;
@@ -30,7 +29,7 @@ namespace deren::engine::profiling {
      * A phase whose name ends in '*' is a SUB-phase: it is measured inside another phase, so it is
      * reported but deliberately left out of the reported total (adding it would count that time twice).
      */
-    export enum class cpu_phase : uint32_t {
+    export enum class cpu_phase : std::uint32_t {
         pace,
         begin,
         cull, // sub-phase of begin: scene-tree walk + frustum/BVH cull + visible split
@@ -69,7 +68,7 @@ namespace deren::engine::profiling {
      */
     export class cpu_phases {
     public:
-        static constexpr uint32_t window_length = 60;
+        static constexpr std::uint32_t window_length = 60;
 
         /// optional sink called with the phase name and elapsed milliseconds on every end(); the
         /// runtime forwards it into api_core::record_stage_time() so CPU stages share the backend's map.
@@ -169,7 +168,7 @@ namespace deren::engine::profiling {
         bool enabled = true;
         deren::utility::vessel::array<double, static_cast<std::size_t>(cpu_phase::count)> frame = {}; // the frame being measured
         deren::utility::vessel::array<double, static_cast<std::size_t>(cpu_phase::count)> sum = {};   // the window being accumulated
-        uint32_t window_frames = 0;
+        std::uint32_t window_frames = 0;
         deren::utility::vessel::string report_label = {};
         stage_callback stage_sink = nullptr;
         void* stage_context = nullptr;

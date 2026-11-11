@@ -1,18 +1,16 @@
 module;
-#include <cstdint>
-#include <optional>
-#include <utility>
-#include <variant>
+
 export module deren.engine.render_graph:synchronization;
+import deren.vstd;
 import :types;
 import :range_operations;
 // Internal single-queue CPU synchronization model; no native/RHI masks.
 export namespace deren::engine::render_graph::detail {
-    inline uint32_t bits(pipeline_stage value) noexcept {
-        return static_cast<uint32_t>(value);
+    inline std::uint32_t bits(pipeline_stage value) noexcept {
+        return static_cast<std::uint32_t>(value);
     }
-    inline uint32_t bits(memory_access value) noexcept {
-        return static_cast<uint32_t>(value);
+    inline std::uint32_t bits(memory_access value) noexcept {
+        return static_cast<std::uint32_t>(value);
     }
     inline bool writes(memory_access access) noexcept {
         return (bits(access) & bits(memory_access::write)) != 0;
@@ -146,13 +144,13 @@ export namespace deren::engine::render_graph::detail {
         return current;
     }
     inline std::expected<void, graph_error> plan_synchronization(compiled_graph& graph) {
-        auto fail = [&](error_code code, uint32_t resource, uint32_t pass = invalid_index, std::optional<resource_range> range = std::nullopt) {
+        auto fail = [&](error_code code, std::uint32_t resource, std::uint32_t pass = invalid_index, std::optional<resource_range> range = std::nullopt) {
             return std::unexpected(graph_error{code, pass, resource,
                                                pass == invalid_index ? deren::utility::vessel::string{} : graph.passes[pass].name,
                                                graph.resources[resource].name, std::move(range)});
         };
-        deren::utility::vessel::vector<uint8_t> needed(graph.resources.size(), 0);
-        deren::utility::vessel::vector<uint32_t> extra_image_stages(graph.resources.size(), 0);
+        deren::utility::vessel::vector<std::uint8_t> needed(graph.resources.size(), 0);
+        deren::utility::vessel::vector<std::uint32_t> extra_image_stages(graph.resources.size(), 0);
         for (auto p : graph.execution_order) {
             for (auto const& access : graph.passes[p].accesses) {
                 if (access.mode == content_access::invalidate) {
@@ -175,7 +173,7 @@ export namespace deren::engine::render_graph::detail {
             pipeline_stage visible = pipeline_stage::none;
         };
         deren::utility::vessel::vector<deren::utility::vessel::vector<state_cell>> states(graph.resources.size());
-        for (uint32_t r = 0; r < graph.resources.size(); ++r) {
+        for (std::uint32_t r = 0; r < graph.resources.size(); ++r) {
             if (!needed[r]) {
                 continue;
             }
@@ -228,7 +226,7 @@ export namespace deren::engine::render_graph::detail {
             }
         }
         // Keep the outstanding writer scope for a subsequent graph reading in a new stage.
-        for (uint32_t r = 0; r < states.size(); ++r) {
+        for (std::uint32_t r = 0; r < states.size(); ++r) {
             for (auto const& cell : states[r]) {
                 graph.final_states.push_back({r, cell.range, join_writer(cell.current, cell.writer)});
             }

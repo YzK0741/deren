@@ -42,8 +42,6 @@
 
 module;
 
-#include <cstdint>
-
 export module deren.engine.pass.upscale;
 export import deren.vstd;
 export import deren.utility.shared;
@@ -80,7 +78,7 @@ export namespace deren::engine::pass {
      * `render_scale = 1.0` capture of the same scene, and the mean absolute Laplacian of luma as sharpness).
      * A mode deleted after the fact would take its baseline with it.
      */
-    enum class upscale_filter : uint8_t {
+    enum class upscale_filter : std::uint8_t {
         linear, // one tap of the shared linear sampler per output pixel: a bilinear resample of the whole chain
         easu,   // FSR 1's edge-adaptive spatial upsampling (see source/shaders/post/upscale.slang's port and its license note)
     };
@@ -104,7 +102,7 @@ export namespace deren::engine::pass {
      * @param output_width
      * @param output_height
      */
-    [[nodiscard]] easu_constants make_easu_constants(uint32_t render_width, uint32_t render_height, uint32_t output_width, uint32_t output_height) noexcept;
+    [[nodiscard]] easu_constants make_easu_constants(std::uint32_t render_width, std::uint32_t render_height, std::uint32_t output_width, std::uint32_t output_height) noexcept;
 
     /**
      * @brief the resolve: the display-referred LDR image -> the swapchain, by the configured filter

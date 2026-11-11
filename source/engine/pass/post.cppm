@@ -35,8 +35,6 @@
 
 module;
 
-#include <cstdint>
-
 export module deren.engine.pass.post;
 export import deren.vstd;
 export import deren.utility.shared;
@@ -265,7 +263,7 @@ export namespace deren::engine::pass {
     public:
         /// @param level which level of the chain this instance is (0..3); a level outside the family is clamped
         ///        to 0 rather than left to index the declaration list out of range
-        explicit post_bloom_pass(uint32_t level) noexcept;
+        explicit post_bloom_pass(std::uint32_t level) noexcept;
         ~post_bloom_pass() override;
 
         [[nodiscard]] render_resource::pass_io const& io() const noexcept override;
@@ -275,7 +273,7 @@ export namespace deren::engine::pass {
         void on_swapchain_recreated(pass_host const& host) override;
 
         /// @brief which level of the bloom chain this instance is
-        [[nodiscard]] uint32_t level() const noexcept;
+        [[nodiscard]] std::uint32_t level() const noexcept;
 
         /// Draw only; the graph caller records all input/output barriers and the composite handoff.
         /// Pipeline, viewport, heap and target resolution are still the caller's pre-record duties.
@@ -290,7 +288,7 @@ export namespace deren::engine::pass {
 
         // called bloom_level, not level: level() and the constructor's level parameter in post.cpp would
         // hide it, and MSVC /W4 reports C4458 (an error under /WX).
-        uint32_t bloom_level = 0;
+        std::uint32_t bloom_level = 0;
         // called declared_io, not io: io() and record()'s io parameter in post.cpp would hide it, and
         // MSVC /W4 reports C4458 (an error under /WX).
         render_resource::pass_io const* declared_io = nullptr;

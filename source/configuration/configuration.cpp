@@ -1,12 +1,5 @@
 module;
-#include <algorithm>
-#include <cmath>
-#include <cstddef>
-#include <cstdint>
-#include <limits>
-#include <string_view>
 #include <toml++/toml.hpp>
-#include <utility>
 
 module deren.application_configuration;
 import deren.vstd;
@@ -16,17 +9,23 @@ import deren.utility;
 
 namespace deren::app_config {
     namespace {
-        /// A TOML INTEGER IS 64-BIT and several settings fields are 32. `static_cast<int32_t>` is a modulo
+        /// A TOML INTEGER IS 64-BIT and several settings fields are 32. `static_cast<std::int32_t>` is a modulo
         /// conversion, so 2^32 + 2 arrives at a later range check looking like a perfectly valid 2 - the value
         /// was out of range, but nothing downstream could see it. Saturating instead keeps an out-of-range
         /// integer out of range, where the rule that holds the range (the sanity clamp at the end of
         /// `load_settings` or its documented fallback) can reject it. Where no later rule holds a bound, validate
         /// the 64-bit value at the call site instead of saturating into a value nobody asked for (see
         /// `[render] window_width`).
-        constexpr int32_t saturating_int32(int64_t const value) noexcept {
-            return static_cast<int32_t>(
-                std::clamp<int64_t>(value, std::numeric_limits<int32_t>::min(), std::numeric_limits<int32_t>::max()));
+        constexpr std::int32_t saturating_int32(std::int64_t const value) noexcept {
+            return static_cast<std::int32_t>(
+                std::clamp<std::int64_t>(value, std::numeric_limits<std::int32_t>::min(), std::numeric_limits<std::int32_t>::max()));
         }
+
+        // The Subtilis page arena uses 64 KiB slots and 32-bit byte offsets in its page table.
+        // Keep parsed budgets inside the range the arena can actually address.
+        constexpr std::int64_t subtilis_page_slot_bytes = 64ll << 10;
+        constexpr std::int64_t subtilis_page_arena_max_bytes =
+            (std::int64_t{0xFFFFFFFF} / subtilis_page_slot_bytes + 1) * subtilis_page_slot_bytes;
 
         /// THREE NUMBERS OR NOTHING: parses a three-component vector or colour into a temporary and commits it
         /// only when every component is a finite number. Writing component by component would leave a
@@ -89,7 +88,7 @@ namespace deren::app_config {
             }
         }
         if (toml::node const* node = table.get("grid_side")) {
-            if (std::optional<int64_t> const value = node->value<int64_t>()) {
+            if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
                 // The documented range is 0..90 (the instancing stress test reserves side*side transforms) and
                 // the sanity clamp at the end of this function caps it; saturating here keeps 2^32 + 1 from
                 // narrowing to a plausible 1 before that cap runs.
@@ -126,16 +125,16 @@ namespace deren::app_config {
                 // A SIZE THAT DOES NOT FIT int32 IS "NOT STATED": the field keeps the compiled default, the same
                 // fallback the sanity clamp at the end of this function applies to a non-positive size. Checking
                 // the 64-bit value before the narrowing is what stops 2^32 + 5000 from becoming a plausible 5000.
-                if (std::optional<int64_t> const value = node->value<int64_t>();
-                    value && *value > 0 && *value <= std::numeric_limits<int32_t>::max()) {
-                    settings.render.window_width = static_cast<int32_t>(*value);
+                if (std::optional<std::int64_t> const value = node->value<std::int64_t>();
+                    value && *value > 0 && *value <= std::numeric_limits<std::int32_t>::max()) {
+                    settings.render.window_width = static_cast<std::int32_t>(*value);
                 }
             }
             if (toml::node const* node = render->get("window_height")) {
                 // See `window_width`: an oversized height keeps the default rather than panicking at creation.
-                if (std::optional<int64_t> const value = node->value<int64_t>();
-                    value && *value > 0 && *value <= std::numeric_limits<int32_t>::max()) {
-                    settings.render.window_height = static_cast<int32_t>(*value);
+                if (std::optional<std::int64_t> const value = node->value<std::int64_t>();
+                    value && *value > 0 && *value <= std::numeric_limits<std::int32_t>::max()) {
+                    settings.render.window_height = static_cast<std::int32_t>(*value);
                 }
             }
             if (toml::node const* node = render->get("window_title")) {
@@ -154,7 +153,7 @@ namespace deren::app_config {
                 // in the first condition and MSVC /W4 reports that as C4456, an error under /WX.
                 if (std::optional<double> const value = node->value<double>()) {
                     settings.render.max_fps = *value;
-                } else if (std::optional<int64_t> const integer_value = node->value<int64_t>()) {
+                } else if (std::optional<std::int64_t> const integer_value = node->value<std::int64_t>()) {
                     settings.render.max_fps = static_cast<double>(*integer_value);
                 }
             }
@@ -174,8 +173,8 @@ namespace deren::app_config {
             if (auto v = (*render)["exposure"].value<double>()) {
                 settings.render.exposure = std::isfinite(*v) ? static_cast<float>(std::clamp(*v, 0.05, 20.0)) : 1.0f;
             }
-            if (auto v = (*render)["tone_mapping"].value<int64_t>()) {
-                settings.render.tone_mapping = (*v >= 0 && *v <= 2) ? static_cast<int32_t>(*v) : 0;
+            if (auto v = (*render)["tone_mapping"].value<std::int64_t>()) {
+                settings.render.tone_mapping = (*v >= 0 && *v <= 2) ? static_cast<std::int32_t>(*v) : 0;
             }
             if (toml::node const* node = render->get("sun_intensity")) {
                 if (std::optional<double> const value = node->value<double>()) {
@@ -220,11 +219,11 @@ namespace deren::app_config {
                 if (node->is_floating_point()) {
                     if (std::optional<double> const value = node->value<double>(); value && std::isfinite(*value)) {
                         settings.render.rt_reflection_samples =
-                            static_cast<uint32_t>(std::lround(std::clamp(*value, 1.0, 4.0)));
+                            static_cast<std::uint32_t>(std::lround(std::clamp(*value, 1.0, 4.0)));
                     }
-                } else if (std::optional<int64_t> const value = node->value<int64_t>()) {
+                } else if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
                     settings.render.rt_reflection_samples =
-                        static_cast<uint32_t>(std::clamp<int64_t>(*value, 1, 4));
+                        static_cast<std::uint32_t>(std::clamp<std::int64_t>(*value, 1, 4));
                 }
             }
             if (toml::node const* node = render->get("rt_reflection_materials")) {
@@ -283,7 +282,7 @@ namespace deren::app_config {
                 }
             }
             if (toml::node const* node = render->get("shadow_cascades")) {
-                if (std::optional<int64_t> const value = node->value<int64_t>()) {
+                if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
                     // The 1..4 check (and its fallback log line) is at the end of this function; saturating
                     // keeps a 64-bit value out of range on the way there instead of wrapping it into a valid 2.
                     settings.render.shadow_cascades = saturating_int32(*value);
@@ -298,7 +297,7 @@ namespace deren::app_config {
                 // FLOAT OR INTEGER: the five levels are a small ladder and both spellings read naturally in a
                 // config file, while toml11 keeps integers and floats in separate types - so both are asked
                 // for. Rounding and clamping happen in `analyse_config`, with the log line.
-                if (std::optional<int64_t> const integral = node->value<int64_t>()) {
+                if (std::optional<std::int64_t> const integral = node->value<std::int64_t>()) {
                     settings.render.toon_shadow_softness = static_cast<float>(*integral);
                 } else if (std::optional<double> const real = node->value<double>()) {
                     settings.render.toon_shadow_softness = static_cast<float>(*real);
@@ -320,8 +319,8 @@ namespace deren::app_config {
                 }
             }
             if (toml::node const* node = render->get("shadow_map_size")) {
-                if (std::optional<int64_t> const value = node->value<int64_t>()) {
-                    settings.render.shadow_map_size = static_cast<int32_t>(*value);
+                if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
+                    settings.render.shadow_map_size = static_cast<std::int32_t>(*value);
                 }
             }
             if (toml::node const* node = render->get("ssao")) {
@@ -340,7 +339,7 @@ namespace deren::app_config {
                 }
             }
             if (toml::node const* node = render->get("ssao_samples")) {
-                if (std::optional<int64_t> const value = node->value<int64_t>()) {
+                if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
                     // The 1..16 check (and its fallback log line) is at the end of this function; see
                     // `shadow_cascades`.
                     settings.render.ssao_samples = saturating_int32(*value);
@@ -423,16 +422,24 @@ namespace deren::app_config {
                     settings.render.subtilis_gpu_cut = *value;
                 }
             }
-            if (auto const* node = render->get("subtilis_page_upload_bytes")) {
-                if (auto value = node->value<std::int64_t>(); value && *value > 0) {
-                    settings.render.subtilis_page_upload_bytes = static_cast<std::uint64_t>(*value);
+            auto const read_subtilis_page_budget = [&](char const* key, std::uint64_t& target) {
+                auto const* node = render->get(key);
+                if (node == nullptr) {
+                    return;
                 }
-            }
-            if (auto const* node = render->get("subtilis_resident_page_bytes")) {
-                if (auto value = node->value<std::int64_t>(); value && *value > 0) {
-                    settings.render.subtilis_resident_page_bytes = static_cast<std::uint64_t>(*value);
+                auto const value = node->value<std::int64_t>();
+                if (!value || *value <= 0) {
+                    return;
                 }
-            }
+                auto const clamped = std::clamp(*value, subtilis_page_slot_bytes, subtilis_page_arena_max_bytes);
+                if (clamped != *value) {
+                    deren::utility::log("app_config: {} {} is outside the Subtilis page arena range [{}, {}], clamping",
+                                        key, *value, subtilis_page_slot_bytes, subtilis_page_arena_max_bytes);
+                }
+                target = static_cast<std::uint64_t>(clamped);
+            };
+            read_subtilis_page_budget("subtilis_page_upload_bytes", settings.render.subtilis_page_upload_bytes);
+            read_subtilis_page_budget("subtilis_resident_page_bytes", settings.render.subtilis_resident_page_bytes);
             if (toml::node const* node = render->get("software_raster")) {
                 if (auto value = node->value<bool>()) {
                     settings.render.software_raster = *value;
@@ -458,8 +465,8 @@ namespace deren::app_config {
                 }
             }
             if (toml::node const* node = render->get("game_toon_copies")) {
-                if (std::optional<int64_t> const value = node->value<int64_t>()) {
-                    settings.render.game_toon_copies = static_cast<int32_t>(*value);
+                if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
+                    settings.render.game_toon_copies = static_cast<std::int32_t>(*value);
                 }
             }
             // THE STATIC SURROUND'S SECOND MODEL ([render] background_glb): an empty string is the default and
@@ -472,8 +479,8 @@ namespace deren::app_config {
                 }
             }
             if (toml::node const* node = render->get("gbuffer_channel")) {
-                if (std::optional<int64_t> const value = node->value<int64_t>()) {
-                    settings.render.gbuffer_channel = static_cast<int32_t>(*value);
+                if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
+                    settings.render.gbuffer_channel = static_cast<std::int32_t>(*value);
                 }
             }
             if (toml::node const* node = render->get("gpu_timings")) {
@@ -576,7 +583,7 @@ namespace deren::app_config {
                     target[0] = std::numeric_limits<float>::quiet_NaN();
                     return;
                 }
-                for (size_t i = 0; i < 3; ++i) {
+                for (std::size_t i = 0; i < 3; ++i) {
                     target[i] = static_cast<float>((*values)[i].value_or(std::numeric_limits<double>::quiet_NaN()));
                 }
             };
@@ -588,23 +595,23 @@ namespace deren::app_config {
         }
         if (toml::table const* lighting = table.get_as<toml::table>("lighting")) {
             if (toml::node const* node = lighting->get("env_size")) {
-                if (std::optional<int64_t> const value = node->value<int64_t>()) {
-                    settings.lighting.env_size = static_cast<int32_t>(*value);
+                if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
+                    settings.lighting.env_size = static_cast<std::int32_t>(*value);
                 }
             }
             if (toml::node const* node = lighting->get("env_mip_count")) {
-                if (std::optional<int64_t> const value = node->value<int64_t>()) {
-                    settings.lighting.env_mip_count = static_cast<int32_t>(*value);
+                if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
+                    settings.lighting.env_mip_count = static_cast<std::int32_t>(*value);
                 }
             }
             if (toml::node const* node = lighting->get("irr_size")) {
-                if (std::optional<int64_t> const value = node->value<int64_t>()) {
-                    settings.lighting.irr_size = static_cast<int32_t>(*value);
+                if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
+                    settings.lighting.irr_size = static_cast<std::int32_t>(*value);
                 }
             }
             if (toml::node const* node = lighting->get("lut_size")) {
-                if (std::optional<int64_t> const value = node->value<int64_t>()) {
-                    settings.lighting.lut_size = static_cast<int32_t>(*value);
+                if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
+                    settings.lighting.lut_size = static_cast<std::int32_t>(*value);
                 }
             }
             // Three numbers or nothing (see `read_finite_vec3`): a partly-specified direction would silently mix
@@ -632,12 +639,12 @@ namespace deren::app_config {
             if (auto v = (*lighting)["environment_blur"].value<double>()) {
                 settings.lighting.environment_blur = std::isfinite(*v) ? static_cast<float>(std::clamp(*v, 0.0, 1.0)) : 0.5f;
             }
-            if (auto v = (*lighting)["environment_background"].value<int64_t>()) {
-                settings.lighting.environment_background = *v >= 0 && *v <= 3 ? static_cast<int32_t>(*v) : 0;
+            if (auto v = (*lighting)["environment_background"].value<std::int64_t>()) {
+                settings.lighting.environment_background = *v >= 0 && *v <= 3 ? static_cast<std::int32_t>(*v) : 0;
             }
             if (toml::node const* node = lighting->get("demo_lights")) {
-                if (std::optional<int64_t> const value = node->value<int64_t>()) {
-                    settings.lighting.demo_lights = static_cast<int32_t>(*value);
+                if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
+                    settings.lighting.demo_lights = static_cast<std::int32_t>(*value);
                 }
             }
             // The generated lights' geometry (see the struct's note): a radius and a range, both as
@@ -704,12 +711,12 @@ namespace deren::app_config {
                 }
             }
             if (toml::node const* node = gui->get("panel_width")) {
-                if (std::optional<int64_t> const value = node->value<int64_t>()) {
+                if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
                     settings.gui.panel_width = static_cast<float>(*value);
                 }
             }
             if (toml::node const* node = gui->get("panel_height")) {
-                if (std::optional<int64_t> const value = node->value<int64_t>()) {
+                if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
                     settings.gui.panel_height = static_cast<float>(*value);
                 }
             }
@@ -834,8 +841,8 @@ namespace deren::app_config {
                         }
                     }
                     if (toml::node const* node = source->get("animation")) {
-                        if (std::optional<int64_t> const value = node->value<int64_t>()) {
-                            object.animation = static_cast<int32_t>(*value);
+                        if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
+                            object.animation = static_cast<std::int32_t>(*value);
                         }
                     }
                     if (toml::node const* node = source->get("animation_speed")) {
@@ -975,7 +982,7 @@ namespace deren::app_config {
         // (main.cpp bakes the cubemap right after analyse_config), so an out-of-range value is not a
         // quality knob but a crash: env_size = 0 indexes an empty source buffer inside
         // build_environment_pyramid (its source_size floors at 1, so every fetch runs off the end),
-        // a negative one turns "6 * size * size * 4" into a huge size_t (length_error -> terminate
+        // a negative one turns "6 * size * size * 4" into a huge std::size_t (length_error -> terminate
         // with exceptions disabled), and env_mip_count < 2 makes the sampler's
         // "pyramid.size() - 1" wrap around. Clamp to the range the precompute actually supports.
         if (settings.lighting.env_size < 16 || settings.lighting.env_size > 4096) {
@@ -1038,9 +1045,9 @@ namespace deren::app_config {
             // broken area light rather than a zero power.
             deren::utility::log("app_config: area_light_size {} with area_light_power {}: the main light contributes nothing", settings.lighting.area_light_size, settings.lighting.area_light_power);
         }
-        if (settings.lighting.demo_lights < 0 || settings.lighting.demo_lights > static_cast<int32_t>(max_demo_lights)) {
+        if (settings.lighting.demo_lights < 0 || settings.lighting.demo_lights > static_cast<std::int32_t>(max_demo_lights)) {
             deren::utility::log("app_config: invalid demo_lights {} (use 0..{}), clamping", settings.lighting.demo_lights, max_demo_lights);
-            settings.lighting.demo_lights = std::clamp(settings.lighting.demo_lights, 0, static_cast<int32_t>(max_demo_lights));
+            settings.lighting.demo_lights = std::clamp(settings.lighting.demo_lights, 0, static_cast<std::int32_t>(max_demo_lights));
         }
         if (settings.render.camera_fit != "exterior" && settings.render.camera_fit != "interior") {
             deren::utility::log("app_config: invalid camera_fit '{}' (use exterior/interior), falling back to exterior", settings.render.camera_fit);
@@ -1147,7 +1154,7 @@ namespace deren::app_config {
         return settings.model == model_ask;
     }
 
-    app_settings resolve_from_argv(int32_t const argc, char const* const* const argv, deren::utility::vessel::string const& default_config_path) {
+    app_settings resolve_from_argv(std::int32_t const argc, char const* const* const argv, deren::utility::vessel::string const& default_config_path) {
         // 1. Collect the non-option positional arguments (--config <path> / --config=<path>,
         //    --asset-library <dir> / --asset-library=<dir> and --asset <id> / --asset=<id> are
         //    consumed as options, not positionals), so model/grid positions stay stable regardless
@@ -1155,9 +1162,9 @@ namespace deren::app_config {
         deren::utility::vessel::string config_path = default_config_path;
         std::optional<std::string> asset_library_override;
         std::optional<std::string> asset_override;
-        std::optional<int64_t> game_toon_copies_override;
+        std::optional<std::int64_t> game_toon_copies_override;
         deren::utility::vessel::vector<std::string_view> positional;
-        for (int32_t i = 1; i < argc; ++i) {
+        for (std::int32_t i = 1; i < argc; ++i) {
             std::string_view const arg(argv[i]);
             if (arg == "--config") {
                 if (i + 1 < argc) {
@@ -1195,7 +1202,7 @@ namespace deren::app_config {
                     char* end = nullptr;
                     long const parsed = std::strtol(argv[++i], &end, 10);
                     if (end != argv[i] && *end == '\0') {
-                        game_toon_copies_override = static_cast<int64_t>(parsed);
+                        game_toon_copies_override = static_cast<std::int64_t>(parsed);
                     } else {
                         deren::utility::log("app_config: ignoring non-numeric --game-toon-copies value '{}'", argv[i]);
                     }
@@ -1207,7 +1214,7 @@ namespace deren::app_config {
                 char* end = nullptr;
                 long const parsed = std::strtol(text.c_str(), &end, 10);
                 if (end != text.c_str() && *end == '\0') {
-                    game_toon_copies_override = static_cast<int64_t>(parsed);
+                    game_toon_copies_override = static_cast<std::int64_t>(parsed);
                 } else {
                     deren::utility::log("app_config: ignoring non-numeric --game-toon-copies value '{}'", text);
                 }
@@ -1238,7 +1245,7 @@ namespace deren::app_config {
             // The engine's head-state array is 16 slots (`max_game_toon_characters`); clamp at the
             // command-line boundary too, so `--game-toon-copies 40` is not accepted as a value that
             // main then silently rewrites.
-            settings.render.game_toon_copies = static_cast<int32_t>(std::clamp<int64_t>(*game_toon_copies_override, 1, 16));
+            settings.render.game_toon_copies = static_cast<std::int32_t>(std::clamp<std::int64_t>(*game_toon_copies_override, 1, 16));
         }
 
         // 2. Positional argv overrides the file: [0] = model, [1] = grid side (numeric).
@@ -1256,12 +1263,12 @@ namespace deren::app_config {
             // `strtol` answers in `long`, whose width is the PLATFORM's (32 bits on Windows, 64 on Linux): the
             // conversion is explicit so the fixed-width type this file uses everywhere else is not narrowed by
             // whichever platform happened to compile it. The clamp below is what bounds the value anyway.
-            int32_t const side = static_cast<int32_t>(std::strtol(arg.c_str(), &end, 10));
+            std::int32_t const side = static_cast<std::int32_t>(std::strtol(arg.c_str(), &end, 10));
             if (end != arg.c_str() && *end == '\0') {
                 // grid side: clamp instead of trusting the raw value - a huge argv number would
                 // otherwise make the instancing stress reserve enormous buffers (and strtol
                 // overflow saturates to LONG_MAX, which the clamp also absorbs)
-                settings.grid_side = std::clamp(side, int32_t{0}, int32_t{90});
+                settings.grid_side = std::clamp(side, std::int32_t{0}, std::int32_t{90});
             } else {
                 deren::utility::log("app_config: ignoring unrecognized positional argument '{}' (expected a numeric grid side)", arg);
             }
@@ -1269,7 +1276,7 @@ namespace deren::app_config {
         return settings;
     }
 
-    app_settings resolve_from_argv(int32_t const argc, char const* const* const argv) {
+    app_settings resolve_from_argv(std::int32_t const argc, char const* const* const argv) {
         // no explicit default path: fall back to "config.toml" in the working directory
         return resolve_from_argv(argc, argv, "config.toml");
     }

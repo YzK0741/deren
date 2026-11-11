@@ -7,9 +7,11 @@
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <glm/glm.hpp>
+#include <limits>
 #include <optional>
 #include <string_view>
 #include <type_traits>
@@ -688,7 +690,7 @@ void test_subtilis_extraction() {
     auto check_view = [&](auto& scene, auto check) {CHECK(scene);if(scene){auto m=deren::gltf::resolve_materials(*scene);deren::gltf::drawable_iterator it(*scene,m);check(it.get_subtilis());} };
     auto external = variant([](auto*, auto*, auto*) {});
     check_view(external, [&](auto p) { CHECK(p.present && p.profile_attributes && !p.bytes.empty()); });
-    auto out_of_range = variant([](auto*, auto*, auto* primitive) {auto* ext=yyjson_mut_obj_get(yyjson_mut_obj_get(primitive,"extensions"),"DEREN_subtilis");yyjson_mut_set_uint(yyjson_mut_obj_get(ext,"bufferView"),UINT32_MAX); });
+    auto out_of_range = variant([](auto*, auto*, auto* primitive) {auto* ext=yyjson_mut_obj_get(yyjson_mut_obj_get(primitive,"extensions"),"DEREN_subtilis");yyjson_mut_set_uint(yyjson_mut_obj_get(ext,"bufferView"),std::numeric_limits<std::uint32_t>::max()); });
     check_view(out_of_range, [&](auto p) { CHECK(p.present && p.bytes.empty()); });
     auto malformed = variant([](auto* d, auto*, auto* primitive) {auto* ext=yyjson_mut_obj_get(primitive,"extensions");yyjson_mut_obj_remove_key(ext,"DEREN_subtilis");yyjson_mut_obj_add_str(d,ext,"DEREN_subtilis","malformed metadata"); });
     check_view(malformed, [&](auto p) { CHECK(p.present && p.version == 0 && p.bytes.empty()); });

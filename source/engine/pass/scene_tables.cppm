@@ -4,8 +4,6 @@
  */
 module;
 
-#include <cstddef>
-#include <cstdint>
 #include <glm/glm.hpp>
 export module deren.engine.pass.scene_tables;
 export import deren.vstd;
@@ -24,7 +22,7 @@ export namespace deren::engine::pass {
         render_resource::instances::resource_snapshot resource_view;
 
     public:
-        static constexpr size_t resource_count = 11;
+        static constexpr std::size_t resource_count = 11;
         static constexpr deren::utility::vessel::array ids{
             render_resource::resource_id::material_table,
             render_resource::resource_id::instance_table,
@@ -54,21 +52,21 @@ export namespace deren::engine::pass {
         static deren::utility::vessel::array<render_resource::instances::request, resource_count> descriptions(render_resource::instances::resource_context const& context) {
             namespace managed = render_resource::instances;
             namespace rhi = deren::promise::rhi;
-            deren::utility::vessel::array<uint64_t, resource_count> const sizes{
-                static_cast<uint64_t>(material_capacity) * sizeof(material_record),
-                static_cast<uint64_t>(instance_capacity) * sizeof(glm::mat4),
-                static_cast<uint64_t>(material_capacity) * static_cast<uint64_t>(toon_colour_lane::count) * sizeof(glm::vec4),
-                static_cast<uint64_t>(material_capacity) * toon_lane_blocks * sizeof(glm::uvec4),
+            deren::utility::vessel::array<std::uint64_t, resource_count> const sizes{
+                static_cast<std::uint64_t>(material_capacity) * sizeof(material_record),
+                static_cast<std::uint64_t>(instance_capacity) * sizeof(glm::mat4),
+                static_cast<std::uint64_t>(material_capacity) * static_cast<std::uint64_t>(toon_colour_lane::count) * sizeof(glm::vec4),
+                static_cast<std::uint64_t>(material_capacity) * toon_lane_blocks * sizeof(glm::uvec4),
                 sizeof(toon_rig),
-                static_cast<uint64_t>(meshlet_capacity) * sizeof(meshlet),
-                static_cast<uint64_t>(context.frame_slots) * 4u * meshlet_capacity * rhi::mesh_task_command_size,
-                static_cast<uint64_t>(context.frame_slots) * 16u * sizeof(uint32_t),
-                static_cast<uint64_t>(context.frame_slots) * meshlet_capacity * sizeof(meshlet),
-                static_cast<uint64_t>(context.frame_slots) * deren::engine::visibility::id_item_capacity * sizeof(deren::engine::visibility::draw_item),
-                static_cast<uint64_t>(context.frame_slots) * deren::engine::subtilis::cut_frame_bytes(),
+                static_cast<std::uint64_t>(meshlet_capacity) * sizeof(meshlet),
+                static_cast<std::uint64_t>(context.frame_slots) * 4u * meshlet_capacity * rhi::mesh_task_command_size,
+                static_cast<std::uint64_t>(context.frame_slots) * 16u * sizeof(std::uint32_t),
+                static_cast<std::uint64_t>(context.frame_slots) * meshlet_capacity * sizeof(meshlet),
+                static_cast<std::uint64_t>(context.frame_slots) * deren::engine::visibility::id_item_capacity * sizeof(deren::engine::visibility::draw_item),
+                static_cast<std::uint64_t>(context.frame_slots) * deren::engine::subtilis::cut_frame_bytes(),
             };
             deren::utility::vessel::array<managed::request, resource_count> values;
-            for (size_t i = 0; i < values.size(); ++i) {
+            for (std::size_t i = 0; i < values.size(); ++i) {
                 auto& value = values[i];
                 value.id = ids[i];
                 value.type = managed::kind::buffer;
@@ -88,7 +86,7 @@ export namespace deren::engine::pass {
         }
         void describe_resources(render_resource::instances::resource_context const& context, deren::utility::vessel::vector<render_resource::instances::request>& requests) const override {
             auto const values = descriptions(context);
-            for (size_t i = 0; i < values.size(); ++i) {
+            for (std::size_t i = 0; i < values.size(); ++i) {
                 if (required[i]) {
                     requests.push_back(values[i]);
                 }

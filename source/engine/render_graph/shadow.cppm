@@ -1,5 +1,5 @@
 module;
-#include <cstdint>
+
 export module deren.engine.render_graph.shadow;
 export import deren.vstd;
 export import deren.engine.render_graph;

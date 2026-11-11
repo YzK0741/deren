@@ -1,6 +1,5 @@
 module;
 
-#include <cstdint>
 export module deren.engine.render_graph.post;
 export import deren.vstd;
 export import deren.engine.render_graph.execute;
@@ -79,7 +78,7 @@ export namespace deren::engine::render_graph::post {
         outputs out{.color = in.frame, .bloom = {}, .composite = {}, .resolve = {}};
         constexpr access_scope sampled{resource_usage::sampled, pipeline_stage::fragment_shader};
         constexpr access_scope attachment{resource_usage::color_attachment, pipeline_stage::color_output};
-        for (uint32_t i = 0; i < 4; ++i) {
+        for (std::uint32_t i = 0; i < 4; ++i) {
             constexpr std::array names{"bloom prefilter", "bloom downsample 1", "bloom downsample 2", "bloom downsample 3"};
             auto added = settings.bloom_enabled
                              ? graph.add_pass(names[i], bloom_parameters{{i ? in.bloom[i - 1] : in.hdr, {}, sampled}, {in.bloom[i], {}, attachment}})
@@ -146,7 +145,7 @@ export namespace deren::engine::render_graph::post {
         inputs in{};
         in.hdr = *input;
         in.frame = *output;
-        for (uint32_t i = 0; i < 4; ++i) {
+        for (std::uint32_t i = 0; i < 4; ++i) {
             auto level = import(desc.levels[i], initial_contents::undefined, "bloom level", desc.level_states[i]);
             if (!level) {
                 return std::unexpected(level.error());

@@ -19,11 +19,6 @@
 // ============================================================================
 module;
 
-#include <cstddef>
-#include <cstdint>
-#include <cstdlib>
-#include <cstring> // std::memcpy of an RGBA frame
-
 module deren.engine.runtime:readback;
 import deren.vstd;
 import deren.utility.shared;
@@ -43,7 +38,7 @@ namespace deren::engine {
         this->rhi_face().wait_idle();
         auto const bytes = radiance_readback->mapped();
         std::uint64_t count = static_cast<std::uint64_t>(radiance_extent.width) * radiance_extent.height * 4;
-        if (count == 0 || count > SIZE_MAX / sizeof(float) || bytes.size() < count * 2) {
+        if (count == 0 || count > std::numeric_limits<std::size_t>::max() / sizeof(float) || bytes.size() < count * 2) {
             return std::unexpected(deren::utility::vessel::string("radiance capture: invalid readback extent"));
         }
         radiance_image image{.width = radiance_extent.width, .height = radiance_extent.height};

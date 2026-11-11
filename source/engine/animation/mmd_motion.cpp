@@ -9,9 +9,7 @@
  * (20,20,107,107) on all four channels, and the file parses to exactly its last byte.
  */
 module;
-#include <cstddef>
-#include <cstdint>
-#include <cstring>
+
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 module deren.engine.animation.mmd_motion;
@@ -166,13 +164,13 @@ namespace deren::engine::animation {
         // are separated by an empty literal, a no-op in C: "\x89""E".  Only printable ASCII can
         // collide, since every hex digit character is printable and every other byte renders as
         // "\x..", which begins with a backslash.
-        auto const is_hex_digit = [](uint8_t const c) {
+        auto const is_hex_digit = [](std::uint8_t const c) {
             return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
         };
         deren::utility::vessel::string out;
         out.reserve(raw.size());
         for (std::size_t i = 0; i < raw.size(); ++i) {
-            auto const byte = static_cast<uint8_t>(raw[i]);
+            auto const byte = static_cast<std::uint8_t>(raw[i]);
             if (byte >= 0x20u && byte < 0x7fu && byte != '\\' && byte != '"') {
                 out.push_back(static_cast<char>(byte));
                 continue;
@@ -181,7 +179,7 @@ namespace deren::engine::animation {
             out.push_back('x');
             out.push_back(digits[(byte >> 4u) & 0xfu]);
             out.push_back(digits[byte & 0xfu]);
-            if (i + 1 < raw.size() && is_hex_digit(static_cast<uint8_t>(raw[i + 1]))) {
+            if (i + 1 < raw.size() && is_hex_digit(static_cast<std::uint8_t>(raw[i + 1]))) {
                 out += "\"\"";
             }
         }

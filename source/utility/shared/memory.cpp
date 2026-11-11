@@ -1,8 +1,6 @@
 module;
 #include "allocation_failure.hpp"
 
-#include <cstddef>
-#include <cstdint>
 #ifdef DEREN_MEMORY_TESTING
 #include "memory_test_hooks.hpp"
 #endif

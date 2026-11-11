@@ -22,7 +22,6 @@
 
 module;
 
-#include <cstdint>
 #include <glm/glm.hpp>
 
 export module deren.engine.pass.mask_bake;
@@ -47,11 +46,11 @@ export namespace deren::engine::pass {
         glm::uvec2 source_vertices = glm::uvec2(0u); // the source vertex buffer, low and high halves
         glm::uvec2 source_indices = glm::uvec2(0u);  // ... its index buffer (zero = not indexed)
         glm::uvec2 destination = glm::uvec2(0u);     // ... the expanded buffer this job fills
-        uint32_t source_stride = 0;
-        uint32_t destination_stride = 0; // 32: position(3) + normal(3) + uv(2), what hit shading reads
-        uint32_t index_type = 1;         // RHI index type: 0 = uint16, 1 = uint32 (ignored when unindexed)
-        uint32_t triangle_count = 0;
-        uint32_t material_index = 0; // the material whose alpha texture and cutoff decide the mask
+        std::uint32_t source_stride = 0;
+        std::uint32_t destination_stride = 0; // 32: position(3) + normal(3) + uv(2), what hit shading reads
+        std::uint32_t index_type = 1;         // RHI index type: 0 = uint16, 1 = uint32 (ignored when unindexed)
+        std::uint32_t triangle_count = 0;
+        std::uint32_t material_index = 0; // the material whose alpha texture and cutoff decide the mask
     };
 
     /**
@@ -70,11 +69,11 @@ export namespace deren::engine::pass {
         std::uint64_t source_vertices = 0; // the caster's vertex buffer
         std::uint64_t source_indices = 0;  // ... its index buffer (0 = not indexed)
         std::uint64_t destination = 0;     // the expanded copy this bake writes
-        uint32_t source_stride = 0;
-        uint32_t destination_stride = 32; // the engine's traced vertex layout
-        uint32_t index_type = 1;          // RHI index type
-        uint32_t triangle_count = 0;
-        uint32_t material_index = 0;
+        std::uint32_t source_stride = 0;
+        std::uint32_t destination_stride = 32; // the engine's traced vertex layout
+        std::uint32_t index_type = 1;          // RHI index type
+        std::uint32_t triangle_count = 0;
+        std::uint32_t material_index = 0;
     };
 
     /**
@@ -118,7 +117,7 @@ export namespace deren::engine::pass {
 
     private:
         static constexpr std::string_view shader_name = "mask_bake.comp.spv";
-        static constexpr uint32_t group_size = 64; // `mask_bake.comp`'s local_size_x
+        static constexpr std::uint32_t group_size = 64; // `mask_bake.comp`'s local_size_x
         void release_contract() noexcept;
         deren::promise::rhi::api_core* built_against = nullptr;
         // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name

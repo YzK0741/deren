@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <thread>
+
 namespace {
     std::atomic<int> remaining{-1};
     std::atomic<std::uint64_t> pauses{0}, snapshots{0};

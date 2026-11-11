@@ -1,7 +1,5 @@
 module;
 
-#include <cstddef>
-#include <cstdint>
 #define GLFW_INCLUDE_NONE // glfw3.h must not pull <GL/gl.h>: we link no OpenGL, and this states it instead of relying on the environment
 #include "radiance_cube_capture.hpp"
 #include "startup_splash.hpp"
@@ -79,7 +77,7 @@ namespace {
     struct glfw_window_host {
         GLFWwindow* window = nullptr;
 
-        glfw_window_host(int32_t const width, int32_t const height, char const* const title, bool const visible, bool const offscreen = false) {
+        glfw_window_host(std::int32_t const width, std::int32_t const height, char const* const title, bool const visible, bool const offscreen = false) {
             if (offscreen) {
                 return;
             }
@@ -129,7 +127,7 @@ namespace {
     struct capture_options {
         deren::app::radiance_capture::options radiance;
         bool windowed = false;                                                        // explicit window-system regression captures
-        int32_t frames = 0;                                                           // 0 = normal interactive run
+        std::int32_t frames = 0;                                                      // 0 = normal interactive run
         std::optional<deren::utility::vessel::array<float, 3>> camera = std::nullopt; // yaw(deg), pitch(deg), distance
         std::optional<glm::vec3> target = std::nullopt;                               // orbit target override (optional)
         // Degrees of YAW added per presented frame (`--capture-sweep`). 0 - the default - is a fixed
@@ -196,11 +194,11 @@ namespace {
         return value < 1.0f ? std::pow((value + 0.055f) / 1.055f, 2.4f) : std::pow(value, 2.4f);
     }
 
-    capture_options parse_capture_options(int32_t const argc, char** argv, deren::utility::vessel::vector<char*>& filtered) {
+    capture_options parse_capture_options(std::int32_t const argc, char** argv, deren::utility::vessel::vector<char*>& filtered) {
         capture_options options = {};
         filtered.push_back(argv[0]);
         // "--flag value" or "--flag=value"; returns the value and advances i past it
-        auto const take_value = [&](int32_t& i, std::string_view const arg, std::string_view const name) -> std::optional<std::string_view> {
+        auto const take_value = [&](std::int32_t& i, std::string_view const arg, std::string_view const name) -> std::optional<std::string_view> {
             if (arg == name) {
                 return i + 1 < argc ? std::optional<std::string_view>(argv[++i]) : std::nullopt;
             }
@@ -209,7 +207,7 @@ namespace {
             }
             return std::nullopt;
         };
-        for (int32_t i = 1; i < argc; ++i) {
+        for (std::int32_t i = 1; i < argc; ++i) {
             std::string_view const arg(argv[i]);
             auto const key = arg.substr(0, arg.find('='));
             if (key == "--capture-radiance-cube" || key == "--probe-position" || key == "--probe-size" || key == "--probe-near" || key == "--probe-far") {
@@ -233,7 +231,7 @@ namespace {
             }
             if (std::optional<std::string_view> const value = take_value(i, arg, "--capture-frames")) {
                 if (std::optional<float> const frames = parse_number(*value)) {
-                    options.frames = static_cast<int32_t>(std::max(0.0f, *frames));
+                    options.frames = static_cast<std::int32_t>(std::max(0.0f, *frames));
                 } else {
                     deren::utility::log("capture: ignoring '--capture-frames {}' (expected a frame count)", *value);
                 }
@@ -361,7 +359,7 @@ namespace deren::app {
         }
         // --version: print the version (single source: project(VERSION) in CMakeLists.txt, injected
         // as DEREN_VERSION_*) and exit before any config / Vulkan init.
-        for (int32_t i = 1; i < argc; ++i) {
+        for (std::int32_t i = 1; i < argc; ++i) {
             if (std::string_view(argv[i]) == "--version") {
                 deren::utility::println("deren {}.{}.{}", DEREN_VERSION_MAJOR, DEREN_VERSION_MINOR, DEREN_VERSION_PATCH);
                 return 0;
@@ -380,7 +378,7 @@ namespace deren::app {
             deren::utility::error("invalid or conflicting radiance capture arguments");
             return 2;
         }
-        deren::app::startup_config config = deren::app::analyse_config(static_cast<int32_t>(filtered_argv.size()), filtered_argv.data());
+        deren::app::startup_config config = deren::app::analyse_config(static_cast<std::int32_t>(filtered_argv.size()), filtered_argv.data());
         auto& settings = config.settings;
         if (probe.enabled) {
             if (settings.render.character_forward || settings.render.game_toon || settings.render.subtilis || settings.render.software_raster || !settings.render.background_glb.empty() || std::getenv("DEREN_HZB_CULL") || std::getenv("DEREN_PROGRESSIVE_TEXTURES")) {
@@ -427,8 +425,8 @@ namespace deren::app {
         // The pixels are MOVED into the async task that bakes the cubemap, so no buffer here has to outlive the
         // statement that loaded it. An empty path means the analytic sky, untouched.
         deren::utility::vessel::vector<float> environment_pixels = {};
-        int32_t environment_width = 0;
-        int32_t environment_height = 0;
+        std::int32_t environment_width = 0;
+        std::int32_t environment_height = 0;
         if (!settings.lighting.environment_hdr.empty()) {
             std::filesystem::path environment_path = settings.lighting.environment_hdr;
             if (environment_path.is_relative()) {
@@ -440,7 +438,7 @@ namespace deren::app {
                                       "[lighting] environment_hdr '{}' does not exist (resolved to '{}').",
                                       settings.lighting.environment_hdr, environment_path.string());
             }
-            int32_t channels = 0;
+            std::int32_t channels = 0;
             float* const decoded = stbi_loadf(environment_path.string().c_str(), &environment_width, &environment_height, &channels, 4); // 4 = force RGBA, the layout the bake reads
             if (decoded == nullptr) {
                 deren::utility::panic(std::source_location::current(), "failed to load the environment HDRI '{}': {}", environment_path.string(), stbi_failure_reason());
@@ -530,7 +528,7 @@ namespace deren::app {
                     if (!cloud) {
                         deren::utility::panic(std::source_location::current(),
                                               "failed to load the gaussian splat cloud '{}': error code {} at byte {}",
-                                              path, static_cast<int32_t>(cloud.error().code), cloud.error().byte_offset);
+                                              path, static_cast<std::int32_t>(cloud.error().code), cloud.error().byte_offset);
                     }
                     load.cloud = std::move(*cloud);
                     additional_model_loads.push_back(std::move(load));
@@ -612,12 +610,12 @@ namespace deren::app {
         runtime.set_async_present(settings.render.async_present);
         // Shadow cascades: applied here (BEFORE the scene import) because the shadow map's layered image
         // is created when the first scene set binds it - see runtime::set_shadow_cascades.
-        runtime.set_shadow_cascades(static_cast<uint32_t>(settings.render.shadow_cascades));
+        runtime.set_shadow_cascades(static_cast<std::uint32_t>(settings.render.shadow_cascades));
         runtime.set_shadow_cascade_blend(settings.render.shadow_cascade_blend);
         runtime.set_shadow_depth_bias(settings.render.shadow_bias_constant, settings.render.shadow_bias_slope, 0.0f);
         // shadow map edge length: same startup-only rule as the cascade count (the layered image and its
         // views are created when the first scene set binds them, so this must precede the scene import)
-        runtime.set_shadow_map_size(static_cast<uint32_t>(settings.render.shadow_map_size));
+        runtime.set_shadow_map_size(static_cast<std::uint32_t>(settings.render.shadow_map_size));
         auto const runtime_ready = std::chrono::steady_clock::now();
         deren::utility::log("vulkan runtime initialized: {:.1f} ms (async model load + env generation running in background)", std::chrono::duration<double, std::milli>(runtime_ready - startup_start).count());
 
@@ -678,7 +676,7 @@ namespace deren::app {
         deren::gltf::scenes empty_object_scenes{};
         auto scenes = gaussian_only ? std::expected<deren::gltf::scenes, deren::gltf::error_code>{no_model} : load_future.get();
         if (!scenes) {
-            deren::utility::panic(std::source_location::current(), "failed to load model '{}': error code {}", model_path, static_cast<int32_t>(scenes.error()));
+            deren::utility::panic(std::source_location::current(), "failed to load model '{}': error code {}", model_path, static_cast<std::int32_t>(scenes.error()));
         }
         if (probe.enabled) {
             bool dynamic = gaussian_only || !scenes->animations.empty() || !scenes->skins.empty();
@@ -710,13 +708,13 @@ namespace deren::app {
             auto cloud = deren::gaussian::load_ply(model_path);
             if (!cloud) {
                 deren::utility::panic(std::source_location::current(), "failed to load the gaussian splat cloud '{}': error code {} at byte {}",
-                                      model_path, static_cast<int32_t>(cloud.error().code), cloud.error().byte_offset);
+                                      model_path, static_cast<std::int32_t>(cloud.error().code), cloud.error().byte_offset);
             }
             deren::utility::log("gaussian: read {} splats; uploading the static tables", cloud->particles.size());
             auto asset = runtime.create_gaussian_asset(std::move(*cloud));
             if (!asset) {
                 deren::utility::panic(std::source_location::current(), "failed to upload the gaussian splat cloud '{}': error code {}",
-                                      model_path, static_cast<int32_t>(asset.error().code));
+                                      model_path, static_cast<std::int32_t>(asset.error().code));
             }
             gaussian_asset = *asset;
             deren::gaussian::asset const& source = gaussian_asset->source();
@@ -812,7 +810,7 @@ namespace deren::app {
                 if (!uploaded) {
                     deren::utility::panic(std::source_location::current(),
                                           "failed to upload the gaussian splat cloud '{}': error code {}",
-                                          load.path, static_cast<int32_t>(uploaded.error().code));
+                                          load.path, static_cast<std::int32_t>(uploaded.error().code));
                 }
                 entry.cloud = *uploaded;
                 entry.bounds.valid = true;
@@ -839,7 +837,7 @@ namespace deren::app {
             auto loaded = load.future.get();
             if (!loaded) {
                 deren::utility::panic(std::source_location::current(), "failed to load scene asset '{}': error code {}",
-                                      load.path, static_cast<int32_t>(loaded.error()));
+                                      load.path, static_cast<std::int32_t>(loaded.error()));
             }
             extra_scene_storage.push_back(std::make_unique<deren::gltf::scenes>(std::move(*loaded)));
             entry.scenes = extra_scene_storage.back().get();
@@ -851,7 +849,7 @@ namespace deren::app {
         // stages N copies of the SAME loaded model, each imported with its character index and X offset, so the
         // per-character head frame is exercised on real geometry. Distinct models and scene composition are later
         // stages. The option is ignored unless the GameToon chain is on, and one copy is the shipping path.
-        uint32_t game_toon_copies = 1;
+        std::uint32_t game_toon_copies = 1;
         deren::utility::vessel::vector<float> game_toon_copy_offsets;
         // With scene objects every placement can name its asset; the default load then only exists to
         // satisfy the historic single-object path. Frame the first asset the placements actually reference
@@ -869,15 +867,15 @@ namespace deren::app {
         }
         float const character_radius = glm::length(reference_bounds.max - reference_bounds.min) * 0.5f;
         if (settings.render.game_toon && !gaussian_only && !use_scene_objects) {
-            int32_t requested = settings.render.game_toon_copies;
+            std::int32_t requested = settings.render.game_toon_copies;
             if (requested < 1) {
                 requested = 1;
             }
-            if (requested > static_cast<int32_t>(deren::engine::max_game_toon_characters)) {
+            if (requested > static_cast<std::int32_t>(deren::engine::max_game_toon_characters)) {
                 deren::utility::log("game_toon: {} copies requested, clamping to the engine's {} character slots", requested, deren::engine::max_game_toon_characters);
-                requested = static_cast<int32_t>(deren::engine::max_game_toon_characters);
+                requested = static_cast<std::int32_t>(deren::engine::max_game_toon_characters);
             }
-            game_toon_copies = static_cast<uint32_t>(requested);
+            game_toon_copies = static_cast<std::uint32_t>(requested);
             if (game_toon_copies > 1) {
                 float const width = bounds.max.x - bounds.min.x;
                 float const radius = character_radius;
@@ -888,7 +886,7 @@ namespace deren::app {
                 float const span = static_cast<float>(game_toon_copies - 1u) * spacing;
                 bounds.min.x -= span * 0.5f;
                 bounds.max.x += span * 0.5f;
-                for (uint32_t copy = 0; copy < game_toon_copies; ++copy) {
+                for (std::uint32_t copy = 0; copy < game_toon_copies; ++copy) {
                     game_toon_copy_offsets.push_back((static_cast<float>(copy) - 0.5f * static_cast<float>(game_toon_copies - 1u)) * spacing);
                 }
                 deren::utility::log("game_toon: staging {} copies of '{}' along X, spacing {:.3f} (scene radius now {:.3f})",
@@ -1034,7 +1032,7 @@ namespace deren::app {
             for (std::size_t index = 0; index < object_transforms.size(); ++index) {
                 glm::mat4 const& transform = object_transforms[index];
                 scene_asset_entry const& asset = scene_assets[object_asset_slot[index]];
-                for (int32_t corner = 0; corner < 8; ++corner) {
+                for (std::int32_t corner = 0; corner < 8; ++corner) {
                     glm::vec3 source = glm::vec3((corner & 1) != 0 ? asset.bounds.max.x : asset.bounds.min.x,
                                                  (corner & 2) != 0 ? asset.bounds.max.y : asset.bounds.min.y,
                                                  (corner & 4) != 0 ? asset.bounds.max.z : asset.bounds.min.z);
@@ -1222,12 +1220,12 @@ namespace deren::app {
         if (!deren::engine::environment_detail::valid_half_radiance(prefiltered) || !deren::engine::environment_detail::valid_half_radiance(irradiance)) {
             deren::utility::panic(std::source_location::current(), "IBL exceeds finite half-float radiance; reduce environment_intensity");
         }
-        deren::utility::vessel::vector<uint8_t> const env_bytes = deren::engine::to_half_rgba(prefiltered);
-        deren::utility::vessel::vector<uint8_t> const irr_bytes = deren::engine::to_half_rgba(irradiance);
-        deren::utility::vessel::vector<uint8_t> const lut_bytes = deren::engine::to_half_rg(brdf_lut);
+        deren::utility::vessel::vector<std::uint8_t> const env_bytes = deren::engine::to_half_rgba(prefiltered);
+        deren::utility::vessel::vector<std::uint8_t> const irr_bytes = deren::engine::to_half_rgba(irradiance);
+        deren::utility::vessel::vector<std::uint8_t> const lut_bytes = deren::engine::to_half_rg(brdf_lut);
 
         // 10. Upload the scene-wide IBL once: shared by every primitive (bindings 2-4 of the scene block)
-        runtime.set_ibl(deren::engine::ibl_input{.prefiltered_env = env_bytes, .irradiance = irr_bytes, .brdf_lut = lut_bytes, .env_size = static_cast<uint32_t>(env_size), .env_mip_count = static_cast<uint32_t>(env_mip_count), .irr_size = static_cast<uint32_t>(irr_size), .lut_size = static_cast<uint32_t>(lut_size)});
+        runtime.set_ibl(deren::engine::ibl_input{.prefiltered_env = env_bytes, .irradiance = irr_bytes, .brdf_lut = lut_bytes, .env_size = static_cast<std::uint32_t>(env_size), .env_mip_count = static_cast<std::uint32_t>(env_mip_count), .irr_size = static_cast<std::uint32_t>(irr_size), .lut_size = static_cast<std::uint32_t>(lut_size)});
 
         // ---- THE ARTICLE'S POST LUT (`ZmdLutPost.shader`'s `_LutTex`), BAKED NEUTRAL ----
         //
@@ -1247,15 +1245,15 @@ namespace deren::app {
         // reason - the lane then reads without changing the frame, so the shader's weight can default to the article's
         // 1.0 with no artist's cube present, and an artist's cube replaces the bake the day one exists.
         {
-            constexpr uint32_t post_lut_width = 1024u;
-            constexpr uint32_t post_lut_height = 32u;
-            constexpr uint32_t post_lut_tiles = 32u;
+            constexpr std::uint32_t post_lut_width = 1024u;
+            constexpr std::uint32_t post_lut_height = 32u;
+            constexpr std::uint32_t post_lut_tiles = 32u;
             auto const srgb_encode = [](float const linear) {
                 return linear <= 0.0031308f ? linear * 12.92f : 1.055f * std::pow(linear, 1.0f / 2.4f) - 0.055f;
             };
-            deren::utility::vessel::vector<uint8_t> post_lut(static_cast<std::size_t>(post_lut_width) * post_lut_height * 4u, 255u);
-            for (uint32_t row = 0; row < post_lut_height; ++row) {
-                for (uint32_t column = 0; column < post_lut_width; ++column) {
+            deren::utility::vessel::vector<std::uint8_t> post_lut(static_cast<std::size_t>(post_lut_width) * post_lut_height * 4u, 255u);
+            for (std::uint32_t row = 0; row < post_lut_height; ++row) {
+                for (std::uint32_t column = 0; column < post_lut_width; ++column) {
                     float const address[3] = {
                         // THE AXES ARE THE ARTICLE'S, AND THEY ARE NOT THE SHADOW LUT'S - the trap this bake walked into
                         // first: `xOffset = halfColX + lut_input.r * threshold / colors` puts RED in the tile's X,
@@ -1269,10 +1267,10 @@ namespace deren::app {
                         static_cast<float>(post_lut_tiles - 1u - row) / static_cast<float>(post_lut_tiles - 1u),
                         static_cast<float>(column / post_lut_tiles) / static_cast<float>(post_lut_tiles - 1u),
                     };
-                    uint8_t* const texel = post_lut.data() + (static_cast<std::size_t>(row) * post_lut_width + column) * 4u;
-                    for (int32_t c = 0; c < 3; ++c) {
+                    std::uint8_t* const texel = post_lut.data() + (static_cast<std::size_t>(row) * post_lut_width + column) * 4u;
+                    for (std::int32_t c = 0; c < 3; ++c) {
                         float const decoded = (std::exp2((address[c] - 0.386036009f) / 0.0734997839f) - 0.0479959995f) / 5.55555582f;
-                        texel[c] = static_cast<uint8_t>(std::clamp(srgb_encode(std::clamp(decoded, 0.0f, 1.0f)), 0.0f, 1.0f) * 255.0f + 0.5f);
+                        texel[c] = static_cast<std::uint8_t>(std::clamp(srgb_encode(std::clamp(decoded, 0.0f, 1.0f)), 0.0f, 1.0f) * 255.0f + 0.5f);
                     }
                     texel[3] = 255u;
                 }
@@ -1307,7 +1305,7 @@ namespace deren::app {
         // names, rather than a crash in a system whose other 40 features are fine. The three terms only exist inside
         // the `goo_arm` branch, so `goo_toon = false` is unaffected either way.
         {
-            deren::utility::vessel::vector<uint8_t> fgd_file = {};
+            deren::utility::vessel::vector<std::uint8_t> fgd_file = {};
             // `deren::utility::executable_directory()` AND NOT `current_path()`, which is the fix for a measured failure
             // rather than a preference: a capture runs with its working directory set to the harness's `-WorkDir`
             // (see `scripts/gates/capture.ps1`'s launch), so `current_path()` resolved to
@@ -1322,12 +1320,12 @@ namespace deren::app {
                     fgd_file.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
                 }
             }
-            int32_t fgd_width = 0;
-            int32_t fgd_height = 0;
-            int32_t fgd_channels = 0;
+            std::int32_t fgd_width = 0;
+            std::int32_t fgd_height = 0;
+            std::int32_t fgd_channels = 0;
             stbi_uc* const fgd_pixels = fgd_file.empty()
                                             ? nullptr
-                                            : stbi_load_from_memory(fgd_file.data(), static_cast<int32_t>(fgd_file.size()), &fgd_width, &fgd_height, &fgd_channels, 4); // 4 = force RGBA8
+                                            : stbi_load_from_memory(fgd_file.data(), static_cast<std::int32_t>(fgd_file.size()), &fgd_width, &fgd_height, &fgd_channels, 4); // 4 = force RGBA8
             if (fgd_pixels == nullptr) {
                 deren::utility::log("goo FGD LUT: NOT uploaded - '{}' is missing or not a readable PNG. The step-5 arm's FGD terms "
                                     "will read zero (see heap_slots_goo_fgd_lut); everything else is unaffected.",
@@ -1338,9 +1336,9 @@ namespace deren::app {
                 // node graph reads the raw texels. `set_goo_fgd_lut` therefore creates an `R8G8B8A8_UNORM` image, and
                 // NOT the `_SRGB` one `set_post_lut` next door creates - an sRGB upload would decode all three FGD
                 // outputs once and move the highlight and the ambient (spec §3.1 item 1).
-                runtime.set_goo_fgd_lut(std::span<uint8_t const>(fgd_pixels, static_cast<std::size_t>(fgd_width) * static_cast<std::size_t>(fgd_height) * 4u),
-                                        static_cast<uint32_t>(fgd_width),
-                                        static_cast<uint32_t>(fgd_height));
+                runtime.set_goo_fgd_lut(std::span<std::uint8_t const>(fgd_pixels, static_cast<std::size_t>(fgd_width) * static_cast<std::size_t>(fgd_height) * 4u),
+                                        static_cast<std::uint32_t>(fgd_width),
+                                        static_cast<std::uint32_t>(fgd_height));
                 // The decode is `STB_IMAGE_STATIC`'s allocation and is freed here rather than kept: the upload
                 // copies into a device-local image, so nothing downstream reads these bytes.
                 stbi_image_free(fgd_pixels);
@@ -1441,8 +1439,8 @@ namespace deren::app {
         // streams reference them, and the runtime registers material records during the import. The FIRST import's
         // result is what animation.init() below binds the first object's controller to.
         deren::engine::scene_import_result imported = {};
-        uint32_t total_primitive_count = 0;
-        uint32_t total_material_count = 0;
+        std::uint32_t total_primitive_count = 0;
+        std::uint32_t total_material_count = 0;
         // Indices into scene.roots, NOT pointers: every later import appends roots and can reallocate
         // the vector, while the index of an already-appended wrapper stays valid.
         deren::utility::vessel::vector<std::size_t> object_root_indices;
@@ -1454,7 +1452,7 @@ namespace deren::app {
         deren::utility::vessel::vector<deren::utility::vessel::vector<deren::engine::material_id>> object_override_materials;
         // One animation controller per placement (phase 2): each is bound to that import's
         // import_instance and uses a disjoint skin/morph region of the runtime's shared buffers.
-        deren::utility::vessel::vector<uint64_t> object_import_instances;
+        deren::utility::vessel::vector<std::uint64_t> object_import_instances;
         auto const wrap_imported_roots = [&scene](std::size_t const first_root, deren::utility::vessel::string const& name, glm::mat4 const& placement) {
             deren::engine::scene_tree::scene_node wrapper = {};
             wrapper.node_name = name;
@@ -1488,15 +1486,15 @@ namespace deren::app {
         for (std::size_t index = 0; index < import_count; ++index) {
             scene_asset_entry& asset = use_scene_objects ? scene_assets[object_asset_slot[index]] : scene_assets[0];
             glm::vec3 copy_shift = asset.import_shift;
-            uint32_t character_index = 0;
+            std::uint32_t character_index = 0;
             if (!use_scene_objects) {
                 copy_shift += glm::vec3(game_toon_copy_offsets[index], 0.0f, 0.0f);
-                character_index = static_cast<uint32_t>(index);
+                character_index = static_cast<std::uint32_t>(index);
             } else {
                 // Every placement gets a head slot, not only the GameToon ones: the object panel can switch
                 // `pipeline` at runtime, and a slot assigned only at import would otherwise leave a newly
                 // switched object reading another character's head frame.
-                character_index = static_cast<uint32_t>(index);
+                character_index = static_cast<std::uint32_t>(index);
                 character_head_offsets.push_back(glm::vec3(settings.scene.objects[index].position[0],
                                                            settings.scene.objects[index].position[1],
                                                            settings.scene.objects[index].position[2]));
@@ -1742,7 +1740,7 @@ namespace deren::app {
                                                                : glm::vec3(game_toon_copy_offsets[slot], 0.0f, 0.0f);
                     copy_basis.center += glm::vec4(offset, 0.0f);
                 }
-                runtime.set_head_basis(static_cast<uint32_t>(slot), copy_basis);
+                runtime.set_head_basis(static_cast<std::uint32_t>(slot), copy_basis);
             }
         };
 
@@ -1772,7 +1770,7 @@ namespace deren::app {
             auto background_load = deren::gltf::load_model_async(background_path.string(), {settings.render.subtilis});
             auto background_scenes = background_load.get();
             if (!background_scenes) {
-                deren::utility::panic(std::source_location::current(), "failed to load background model '{}': error code {}", background_path.string(), static_cast<int32_t>(background_scenes.error()));
+                deren::utility::panic(std::source_location::current(), "failed to load background model '{}': error code {}", background_path.string(), static_cast<std::int32_t>(background_scenes.error()));
             }
             deren::gltf::scene_bounds const background_bounds = deren::gltf::log_scene_diagnostics(*background_scenes);
             auto background_resolve = deren::gltf::resolve_materials_async(*background_scenes, true);
@@ -1822,9 +1820,9 @@ namespace deren::app {
         //      (and what the [render] clustered_lights A/B is compared against).
         deren::utility::vessel::vector<deren::engine::punctual_light> demo_lights;
         if (settings.lighting.demo_lights > 0) {
-            int32_t const total = std::min(settings.lighting.demo_lights, static_cast<int32_t>(deren::app_config::max_demo_lights));
+            std::int32_t const total = std::min(settings.lighting.demo_lights, static_cast<std::int32_t>(deren::app_config::max_demo_lights));
             demo_lights.reserve(static_cast<std::size_t>(total));
-            for (int32_t i = 0; i < total; ++i) {
+            for (std::int32_t i = 0; i < total; ++i) {
                 float const t = static_cast<float>(i) / static_cast<float>(total);
                 float const angle = t * 6.2831853f * 3.0f; // three turns around the scene
                 float const radius = scene_fit_radius * settings.lighting.demo_light_radius;
@@ -1872,8 +1870,8 @@ namespace deren::app {
                 // FogLight_1: captured `npr:"fog"`; the last active character-only light in the rig.
                 {{0.0134f, 1.0117f, -1.3375f}, {0.0f, 0.0f, 1.0f}, {0.2166f, 0.2166f, 0.2603f}, 0.4f, 1.5f, true, 86.6636f, 81.1457f, 4.0f, 0.7f, 1.0f, 0.0f, 0.0f},
             };
-            uint32_t pushed_lights = 0;
-            for (uint32_t copy = 0; copy < game_toon_copies; ++copy) {
+            std::uint32_t pushed_lights = 0;
+            for (std::uint32_t copy = 0; copy < game_toon_copies; ++copy) {
                 for (captured_light const& c : captured) {
                     deren::engine::punctual_light light = {};
                     // The captured positions are authored around the character; each copy moves its rig with it.
@@ -1929,7 +1927,7 @@ namespace deren::app {
         // different numbering.
         {
             deren::utility::vessel::string mmd_motion_path;
-            for (int32_t i = 1; i + 1 < argc; ++i) {
+            for (std::int32_t i = 1; i + 1 < argc; ++i) {
                 if (std::string_view(argv[i]) == "--mmd-motion") {
                     mmd_motion_path = argv[i + 1];
                 }
@@ -2033,7 +2031,7 @@ namespace deren::app {
                 scenes->animations.push_back(std::move(converted));
             }
         }
-        for (int32_t i = 1; i < argc; ++i) {
+        for (std::int32_t i = 1; i < argc; ++i) {
             auto const argument = std::string_view(argv[i]);
             bool const equals_form = argument.starts_with("--motion=");
             if (argument == "--motion" || equals_form) {
@@ -2057,7 +2055,7 @@ namespace deren::app {
         // stage's head basis and the diagnostic lines read it).
         std::vector<std::unique_ptr<deren::engine::animation::controller>> extra_animations;
         deren::utility::vessel::vector<deren::engine::animation::controller*> object_animations;
-        uint32_t next_skin_block = 4; // block 0-3 is the shared identity block
+        std::uint32_t next_skin_block = 4; // block 0-3 is the shared identity block
         std::size_t next_morph_float = 0;
         // Per-asset animation: a controller samples the loader scene the placement was imported from,
         // so two objects with different GLBs each see their clip list and node numbering.
@@ -2071,7 +2069,7 @@ namespace deren::app {
         auto const object_shift = [&](std::size_t index) -> glm::vec3 {
             return use_scene_objects ? scene_assets[object_asset_slot[index]].import_shift : scene_import_shift;
         };
-        uint64_t const first_import_instance =
+        std::uint64_t const first_import_instance =
             use_scene_objects ? object_import_instances.front() : imported.import_instance;
         animation.init(object_scenes(0), deren::app::make_animation_backend(runtime), object_shift(0), first_import_instance, next_skin_block, next_morph_float);
         next_skin_block += animation.skin_block_count();
@@ -2128,7 +2126,7 @@ namespace deren::app {
         if (use_scene_objects) {
             for (std::size_t index = 0; index < settings.scene.objects.size() && index < object_animation_names.size(); ++index) {
                 auto& wanted = settings.scene.objects[index].animation;
-                wanted = object_animation_names[index].empty() ? 0 : std::clamp(wanted, 0, static_cast<int32_t>(object_animation_names[index].size()) - 1);
+                wanted = object_animation_names[index].empty() ? 0 : std::clamp(wanted, 0, static_cast<std::int32_t>(object_animation_names[index].size()) - 1);
             }
         }
         auto const apply_object_animation_settings = [&settings, &object_animations] {
@@ -2186,11 +2184,11 @@ namespace deren::app {
         }
         // current selection: 0 = orbit, 1..N = authored_cameras[i - 1]; default = the first
         // authored camera when the scene has any (same initial view as before, but now movable)
-        int32_t current_camera = authored_cameras.empty() ? 0 : 1;
+        std::int32_t current_camera = authored_cameras.empty() ? 0 : 1;
         // point the orbit camera at the authored pose: target = scene center (frame like the
         // default view), yaw/pitch/distance solved from the camera node's world transform
-        auto const seed_orbit_from_camera = [&](int32_t const index) {
-            if (index <= 0 || index > static_cast<int32_t>(authored_cameras.size())) {
+        auto const seed_orbit_from_camera = [&](std::int32_t const index) {
+            if (index <= 0 || index > static_cast<std::int32_t>(authored_cameras.size())) {
                 return; // "orbit": keep the current free orbit
             }
             authored_camera const& ac = authored_cameras[static_cast<std::size_t>(index - 1)];
@@ -2429,8 +2427,8 @@ namespace deren::app {
             environment_paths.push_back(path);
             gui.environment_names.push_back(deren::utility::vessel::string(path.filename().string()));
         }
-        int32_t applied_environment = gui.environment_index;
-        int32_t requested_environment = applied_environment;
+        std::int32_t applied_environment = gui.environment_index;
+        std::int32_t requested_environment = applied_environment;
         std::future<prepared_environment> environment_job;
         gui.environment_status = "Environment ready";
         // PER-OBJECT ENVIRONMENT SELECTION: the combo's first row is the scene-wide IBL, so an object that names no
@@ -2513,10 +2511,10 @@ namespace deren::app {
             if (editable_objects.empty()) {
                 return -1;
             }
-            int32_t window_width = 0;
-            int32_t window_height = 0;
-            int32_t framebuffer_width = 0;
-            int32_t framebuffer_height = 0;
+            std::int32_t window_width = 0;
+            std::int32_t window_height = 0;
+            std::int32_t framebuffer_width = 0;
+            std::int32_t framebuffer_height = 0;
             glfwGetWindowSize(window.window, &window_width, &window_height);
             glfwGetFramebufferSize(window.window, &framebuffer_width, &framebuffer_height);
             if (window_width <= 0 || window_height <= 0 || framebuffer_width <= 0 || framebuffer_height <= 0) {
@@ -2541,7 +2539,7 @@ namespace deren::app {
             auto const intersect_box = [&](glm::vec3 const& origin, glm::vec3 const& direction, glm::vec3 const& box_min, glm::vec3 const& box_max, float& hit_t) {
                 float t_min = 0.0f;
                 float t_max = 1.0e30f;
-                for (int32_t axis = 0; axis < 3; ++axis) {
+                for (std::int32_t axis = 0; axis < 3; ++axis) {
                     if (glm::abs(direction[axis]) < 1.0e-8f) {
                         if (origin[axis] < box_min[axis] || origin[axis] > box_max[axis]) {
                             return false;
@@ -2669,7 +2667,7 @@ namespace deren::app {
                     glm::vec3 local_max = asset.bounds.max;
                     if (asset.is_gaussian()) {
                         bool first_corner = true;
-                        for (int32_t corner = 0; corner < 8; ++corner) {
+                        for (std::int32_t corner = 0; corner < 8; ++corner) {
                             glm::vec3 const source((corner & 1) != 0 ? asset.bounds.max.x : asset.bounds.min.x,
                                                    (corner & 2) != 0 ? asset.bounds.max.y : asset.bounds.min.y,
                                                    (corner & 4) != 0 ? asset.bounds.max.z : asset.bounds.min.z);
@@ -2715,7 +2713,7 @@ namespace deren::app {
         // Apply startup policy before the first frame freezes its feature set.
         // Waiting until the post-submit GUI mirror rendered an unwanted PBR/shadow
         // frame even when the config explicitly requested pure unlit.
-        int32_t last_render_mode = gui.render_mode;
+        std::int32_t last_render_mode = gui.render_mode;
         runtime.set_default_pipeline(gui.render_mode == 1 ? "unlit" : "pbr");
         app_renderer.set_unlit(gui.render_mode == 1);
 
@@ -2755,7 +2753,7 @@ namespace deren::app {
             std::error_code ec;
             auto length = std::filesystem::file_size(path, ec);
             std::optional<deren::engine::probe_detail::asset> asset;
-            if (!ec && length <= 32 + uint64_t(6) * 512 * 512 * 8 * 2) {
+            if (!ec && length <= 32 + std::uint64_t(6) * 512 * 512 * 8 * 2) {
                 std::vector<std::byte> bytes(length);
                 std::ifstream file(path, std::ios::binary);
                 if (file.read(reinterpret_cast<char*>(bytes.data()), bytes.size())) {
@@ -2768,7 +2766,7 @@ namespace deren::app {
                 deren::utility::log("local probe loaded: {} ({}px, {} mips), position ({},{},{})", path.string(), asset->size, asset->mips, r.position[0], r.position[1], r.position[2]);
             }
         }
-        int32_t captured_frames = 0; // presented frames so far (scripted capture; see --capture-frames)
+        std::int32_t captured_frames = 0; // presented frames so far (scripted capture; see --capture-frames)
         // Capture-only transition probe: exercise progressive restoration while uploads are in flight.
         auto* disable_streaming_text = std::getenv("DEREN_BENCH_DISABLE_STREAMING_FRAME");
         int const disable_streaming_frame = disable_streaming_text ? std::atoi(disable_streaming_text) : -1;
@@ -2819,7 +2817,7 @@ namespace deren::app {
             // Deterministic capture-only exercise of asynchronous preset publication and error reporting.
             if (capture.frames > 0 && std::getenv("DEREN_ENVIRONMENT_TEST_CYCLE") != nullptr &&
                 captured_frames > 0 && captured_frames % 60 == 0 && !environment_job.valid() && environment_paths.size() > 1) {
-                gui.environment_index = int32_t((captured_frames / 60) % environment_paths.size());
+                gui.environment_index = std::int32_t((captured_frames / 60) % environment_paths.size());
             }
             if (capture.frames > 0 && captured_frames == disable_streaming_frame) {
                 runtime.set_visibility_texture_streaming(false);
@@ -2854,9 +2852,9 @@ namespace deren::app {
                     bool const published = prepared.error.empty() && runtime.set_ibl(environment_slot, deren::engine::ibl_input{
                                                                                                            .prefiltered_env = prepared.environment,
                                                                                                            .irradiance = prepared.irradiance,
-                                                                                                           .env_size = uint32_t(env_size),
-                                                                                                           .env_mip_count = uint32_t(env_mip_count),
-                                                                                                           .irr_size = uint32_t(irr_size),
+                                                                                                           .env_size = std::uint32_t(env_size),
+                                                                                                           .env_mip_count = std::uint32_t(env_mip_count),
+                                                                                                           .irr_size = std::uint32_t(irr_size),
                                                                                                        });
                     if (!published) {
                         custom_environment_indices[slot] = -1;
@@ -2943,10 +2941,10 @@ namespace deren::app {
                                                                    .prefiltered_env = prepared.environment,
                                                                    .irradiance = prepared.irradiance,
                                                                    .brdf_lut = lut_bytes,
-                                                                   .env_size = uint32_t(env_size),
-                                                                   .env_mip_count = uint32_t(env_mip_count),
-                                                                   .irr_size = uint32_t(irr_size),
-                                                                   .lut_size = uint32_t(lut_size),
+                                                                   .env_size = std::uint32_t(env_size),
+                                                                   .env_mip_count = std::uint32_t(env_mip_count),
+                                                                   .irr_size = std::uint32_t(irr_size),
+                                                                   .lut_size = std::uint32_t(lut_size),
                                                                });
                     if (published) {
                         app_renderer.reset_temporal_history();
@@ -3088,12 +3086,12 @@ namespace deren::app {
                                 has_center = true;
                             }
                         }
-                        runtime.set_head_basis(static_cast<uint32_t>(slot), deren::engine::head_ubo{
-                                                                                .front = glm::vec4(world_forward, 1.0f),
-                                                                                .right = glm::vec4(world_right, 0.0f),
-                                                                                .up = glm::vec4(glm::normalize(glm::cross(world_right, world_forward)), 0.0f),
-                                                                                .center = glm::vec4(center, has_center ? 1.0f : 0.0f),
-                                                                            });
+                        runtime.set_head_basis(static_cast<std::uint32_t>(slot), deren::engine::head_ubo{
+                                                                                     .front = glm::vec4(world_forward, 1.0f),
+                                                                                     .right = glm::vec4(world_right, 0.0f),
+                                                                                     .up = glm::vec4(glm::normalize(glm::cross(world_right, world_forward)), 0.0f),
+                                                                                     .center = glm::vec4(center, has_center ? 1.0f : 0.0f),
+                                                                                 });
                     } else if (object_stage.head_joint.has_value()) {
                         if (std::optional<glm::mat4> const bone = controller.joint_world(object_stage.head_rig, *object_stage.head_joint); bone.has_value()) {
                             glm::mat4 const& joint = *bone;
@@ -3102,23 +3100,23 @@ namespace deren::app {
                             deren::gltf::head_basis const local = deren::gltf::head_basis_from_axes(forward_row, right_row);
                             glm::vec3 const world_forward = world_direction(local.front);
                             glm::vec3 const world_right = world_direction(local.right);
-                            runtime.set_head_basis(static_cast<uint32_t>(slot), deren::engine::head_ubo{
-                                                                                    .front = glm::vec4(world_forward, 0.0f),
-                                                                                    .right = glm::vec4(world_right, 0.0f),
-                                                                                    .up = glm::vec4(glm::normalize(glm::cross(world_right, world_forward)), 0.0f),
-                                                                                    .center = glm::vec4(world_point(glm::vec3(joint[3])), 1.0f),
-                                                                                });
+                            runtime.set_head_basis(static_cast<std::uint32_t>(slot), deren::engine::head_ubo{
+                                                                                         .front = glm::vec4(world_forward, 0.0f),
+                                                                                         .right = glm::vec4(world_right, 0.0f),
+                                                                                         .up = glm::vec4(glm::normalize(glm::cross(world_right, world_forward)), 0.0f),
+                                                                                         .center = glm::vec4(world_point(glm::vec3(joint[3])), 1.0f),
+                                                                                     });
                         }
                     } else {
                         deren::gltf::head_basis const local = deren::gltf::head_basis_fallback();
                         glm::vec3 const world_forward = world_direction(local.front);
                         glm::vec3 const world_right = world_direction(local.right);
-                        runtime.set_head_basis(static_cast<uint32_t>(slot), deren::engine::head_ubo{
-                                                                                .front = glm::vec4(world_forward, 0.0f),
-                                                                                .right = glm::vec4(world_right, 0.0f),
-                                                                                .up = glm::vec4(glm::normalize(glm::cross(world_right, world_forward)), 0.0f),
-                                                                                .center = glm::vec4(0.0f),
-                                                                            });
+                        runtime.set_head_basis(static_cast<std::uint32_t>(slot), deren::engine::head_ubo{
+                                                                                     .front = glm::vec4(world_forward, 0.0f),
+                                                                                     .right = glm::vec4(world_right, 0.0f),
+                                                                                     .up = glm::vec4(glm::normalize(glm::cross(world_right, world_forward)), 0.0f),
+                                                                                     .center = glm::vec4(0.0f),
+                                                                                 });
                     }
                 }
             } else if (stage.captured_face_frame.has_value()) {
@@ -3180,7 +3178,7 @@ namespace deren::app {
             }
             gui.anim_time = animation.current_time();  // keep the gui time slider in sync
             gui.anim_playing = animation.is_playing(); // reflect controller-side pauses (scrub / select)
-            gui.anim_index = static_cast<int32_t>(animation.current());
+            gui.anim_index = static_cast<std::int32_t>(animation.current());
 
             if (probe.enabled && probe_frames == 8 && !runtime.request_radiance_capture()) {
                 deren::utility::error("radiance request refused");
@@ -3210,7 +3208,7 @@ namespace deren::app {
             if (probe.enabled && ++probe_frames == 9) {
                 auto image = runtime.acquire_radiance_image();
                 auto const face_values = std::size_t(probe.size) * probe.size * 4;
-                if (!image || image->width != static_cast<uint32_t>(probe.size) || image->height != static_cast<uint32_t>(probe.size) ||
+                if (!image || image->width != static_cast<std::uint32_t>(probe.size) || image->height != static_cast<std::uint32_t>(probe.size) ||
                     !deren::engine::radiance_detail::canonicalize_face(image->rgba, probe.size, std::span<float>(probe_pixels).subspan(probe_face * face_values, face_values))) {
                     deren::utility::error("radiance readback failed");
                     return 3;
@@ -3304,11 +3302,11 @@ namespace deren::app {
             // ... and the THIRD model, mirrored on the same terms. The frame's three-way choice gives `game_toon`
             // precedence when both model switches are on, so this pair is never silently combined into a fourth state.
             runtime.set_game_toon(gui.game_toon);
-            app_renderer.set_ssao(gui.ssao_enabled, gui.ssao_radius, gui.ssao_intensity, static_cast<uint32_t>(std::max(gui.ssao_samples, 0.0f) + 0.5f));
+            app_renderer.set_ssao(gui.ssao_enabled, gui.ssao_radius, gui.ssao_intensity, static_cast<std::uint32_t>(std::max(gui.ssao_samples, 0.0f) + 0.5f));
             // cel shading: the combo picks a discrete band count (index 0 = off); every entry is a
             // visibly different look, unlike a continuous strength that had dead zones between bands
             constexpr deren::utility::vessel::array<float, 7> toon_band_counts = {0.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 8.0f};
-            auto const toon_index = static_cast<std::size_t>(std::clamp(gui.toon_bands_index, 0, static_cast<int32_t>(toon_band_counts.size()) - 1));
+            auto const toon_index = static_cast<std::size_t>(std::clamp(gui.toon_bands_index, 0, static_cast<std::int32_t>(toon_band_counts.size()) - 1));
             runtime.set_toon_shading(toon_band_counts[toon_index], gui.toon_softness);
             // The area light's radiance MULTIPLIES the sun, but ONLY while the emitter contributes energy
             // (`area_light_takes_over` = `area_light_size > 0 && area_light_irradiance`), so `area_light_scale` is

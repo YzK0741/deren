@@ -22,7 +22,6 @@
 module;
 
 #include <cstddef>
-#include <cstdint>
 #include <glm/glm.hpp>
 
 export module deren.engine.pass.deferred;
@@ -97,7 +96,7 @@ export namespace deren::engine::pass {
          * @param intensity how much occlusion is applied (1 = full)
          * @param samples samples per pixel, clamped to the shader's MAX_SSAO_SAMPLES (16)
          */
-        void set_ssao(bool enabled, float radius, float intensity, uint32_t samples) noexcept;
+        void set_ssao(bool enabled, float radius, float intensity, std::uint32_t samples) noexcept;
         /// @brief whether SSAO is switched on (what the renderer's feature registry reports)
         [[nodiscard]] bool ssao_enabled() const noexcept;
         /// @brief the flat render mode: 1 in the push block makes the shader write the stored albedo
@@ -147,7 +146,7 @@ export namespace deren::engine::pass {
         bool ssao_active = true;
         float ssao_radius = 0.5f;
         float ssao_intensity = 1.0f;
-        uint32_t ssao_samples = 8;
+        std::uint32_t ssao_samples = 8;
         /// view-depth bias that keeps a surface from occluding itself - a shader constant, never a knob
         float ssao_bias = 0.02f;
         // called unlit_shading, not unlit: unlit() and set_unlit()'s unlit parameter would hide it, and

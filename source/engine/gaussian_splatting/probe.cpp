@@ -1,7 +1,5 @@
 module;
-#include <cstddef>
-#include <cstdint>
-#include <cstring>
+
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/packing.hpp>
@@ -260,7 +258,7 @@ namespace deren::engine::gaussian_splatting {
                 return failure("GPU indirect parameters disagree with visibility");
             }
             for (std::uint32_t i = 0; i < count; ++i) {
-                if ((keys[i] != UINT32_MAX) != (i < stats.visible)) {
+                if ((keys[i] != std::numeric_limits<std::uint32_t>::max()) != (i < stats.visible)) {
                     return failure("GPU visible prefix is not contiguous");
                 }
                 if (i < stats.visible && (references[i].instance_index != candidates[values[i]].instance_index || references[i].local_gaussian_index != candidates[values[i]].local_gaussian_index)) {
@@ -436,7 +434,7 @@ namespace deren::engine::gaussian_splatting {
         auto p = particle({0, 0.05f, 0}, {0.3f, 1.5f, 0.7f}, {0.10f, 0.26f, 0.06f});
         p.rotation = {0.9238795f, 0, 0, 0.3826834f};
         for (std::size_t i = 3; i < p.sh.size(); ++i) {
-            p.sh[i] = static_cast<float>(static_cast<int32_t>(i % 7) - 3) * 0.025f;
+            p.sh[i] = static_cast<float>(static_cast<std::int32_t>(i % 7) - 3) * 0.025f;
         }
         transformed.particles = {particle({40, 0, 0}, {1, 0, 0}, {0.1f, 0.1f, 0.1f}), p};
         auto transformed_asset = make_raster_asset(core, std::move(transformed), default_limits, device_root);

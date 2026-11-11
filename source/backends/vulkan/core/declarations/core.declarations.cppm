@@ -28,10 +28,7 @@
 module;
 
 #include <GLFW/glfw3.h>
-#include <cmath>
 #include <cstddef>
-#include <cstdint>
-#include <memory>
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.core:declarations;
@@ -127,14 +124,14 @@ namespace deren::vulkan {
     // `scene_texture_capacity` is what makes "the texture run between the two slot names is the capacity" a
     // single derivation instead of two numbers. The `inline` above still matters for the reason it always
     // did: each image keeps its copy of the VALUE and no data symbol crosses the boundary.
-    export inline constexpr uint32_t scene_texture_capacity = deren::engine::render_layout::scene_texture_capacity;
+    export inline constexpr std::uint32_t scene_texture_capacity = deren::engine::render_layout::scene_texture_capacity;
     static_assert(scene_texture_capacity == deren::engine::render_layout::heap_slots::materials - deren::engine::render_layout::heap_slots::textures,
                   "the bindless texture array's capacity is the grid's texture run");
     // material_push_constants: 6 uints + aligned mat4 = 96 bytes, see source/engine/scene_tree/scene_tree.cppm
     // MOVED INTO `deren.engine.render_layout` by the import-cleanup batch, for the reason `hdr_format` moved
     // (A1.0): `deren.engine.primitive` needs it for its exported push-block offsets, and it may not import a
     // backend module to get it. The alias plus the assert below are this backend's half of the drift guard.
-    export inline constexpr uint32_t scene_push_constant_size = deren::engine::render_layout::scene_push_constant_size;
+    export inline constexpr std::uint32_t scene_push_constant_size = deren::engine::render_layout::scene_push_constant_size;
     static_assert(scene_push_constant_size == 96u, "the scene push block's size moved");
     /**
      * @ingroup vulkan_core
@@ -145,8 +142,8 @@ namespace deren::vulkan {
      *       bytes and the two together would exceed the 128 bytes the spec guarantees every
      *       implementation provides (the engine does not rely on a vendor's larger limit).
      */
-    export inline constexpr uint32_t scene_cascade_push_offset = scene_push_constant_size;
-    export inline constexpr uint32_t scene_cascade_push_size = sizeof(uint32_t);
+    export inline constexpr std::uint32_t scene_cascade_push_offset = scene_push_constant_size;
+    export inline constexpr std::uint32_t scene_cascade_push_size = sizeof(std::uint32_t);
 
     /**
      * @brief format of the HDR scene target the deferred lighting stage renders into and the post-process
@@ -180,7 +177,7 @@ namespace deren::vulkan {
      * @ingroup vulkan_core
      * @brief how many color targets the G-buffer pass writes (see gbuffer_formats)
      */
-    export inline constexpr uint32_t gbuffer_target_count = deren::engine::render_layout::gbuffer_target_count;
+    export inline constexpr std::uint32_t gbuffer_target_count = deren::engine::render_layout::gbuffer_target_count;
 
     /**
      * @ingroup vulkan_core
@@ -234,7 +231,7 @@ namespace deren::vulkan {
      *       It is CLEARed to zero by the instance, and the deferred lighting stage adds the lighting
      *       (and the sky, where no geometry wrote depth) on top.
      */
-    export inline constexpr uint32_t gbuffer_pass_attachment_count = gbuffer_target_count + 2; // + velocity + scene color
+    export inline constexpr std::uint32_t gbuffer_pass_attachment_count = gbuffer_target_count + 2; // + velocity + scene color
 
     /**
      * @ingroup vulkan_core
@@ -245,7 +242,7 @@ namespace deren::vulkan {
      *       that records more marks than this silently stops marking (the extra passes are simply
      *       not measured) instead of overflowing into the next slot's range.
      */
-    export inline constexpr uint32_t gpu_timing_mark_capacity = 32;
+    export inline constexpr std::uint32_t gpu_timing_mark_capacity = 32;
 
     /**
      * @ingroup vulkan_core
@@ -255,7 +252,7 @@ namespace deren::vulkan {
      */
     export struct gpu_timing_result {
         deren::utility::vessel::array<double, gpu_timing_mark_capacity> milliseconds = {}; // elapsed per consecutive mark pair
-        uint32_t mark_count = 0;                                                           // marks the frame wrote (0 = no measurement)
+        std::uint32_t mark_count = 0;                                                      // marks the frame wrote (0 = no measurement)
     };
 
     /**
@@ -268,8 +265,8 @@ namespace deren::vulkan {
      * APPENDING fields and every field carries a default, so a caller that compiled an older, shorter
      * shape is served the defaults it never declared instead of having this build read past its end.
      */
-    [[nodiscard]] constexpr bool covered_by(uint32_t const struct_size, size_t const offset, size_t const size) noexcept {
-        return static_cast<size_t>(struct_size) >= offset + size;
+    [[nodiscard]] constexpr bool covered_by(std::uint32_t const struct_size, std::size_t const offset, std::size_t const size) noexcept {
+        return static_cast<std::size_t>(struct_size) >= offset + size;
     }
 
     /// THE CONCRETE IMPLEMENTATION NAMES THIS BACKEND GIVES ITS HANDLES (the ABI 30 identity), in ONE
@@ -1647,8 +1644,8 @@ namespace deren::vulkan {
          * number, so there is one formula and it is this one.
          */
         [[nodiscard]] ::deren::promise::rhi::image_extent render_extent() const noexcept {
-            auto const scaled = [this](uint32_t const axis) {
-                uint32_t const value = static_cast<uint32_t>(
+            auto const scaled = [this](std::uint32_t const axis) {
+                std::uint32_t const value = static_cast<std::uint32_t>(
                     std::llround(static_cast<double>(axis) * static_cast<double>(this->render_scale)));
                 return value == 0u ? 1u : value; // a zero extent is not a small frame, it is an invalid one
             };
@@ -1724,12 +1721,12 @@ namespace deren::vulkan {
         // ==========================================================================================
         using heap_slots = deren::engine::render_layout::heap_slots;
         static constexpr VkDeviceSize heap_slot_stride = deren::engine::render_layout::heap_slot_stride;
-        static constexpr uint32_t heap_slot_base = deren::engine::render_layout::heap_slot_base;
-        static constexpr uint32_t heap_slot_count = deren::engine::render_layout::heap_slot_count;
-        static constexpr uint32_t heap_image_capacity = deren::engine::render_layout::heap_image_capacity;
-        static constexpr uint32_t heap_sampler_base = deren::engine::render_layout::heap_sampler_base;
+        static constexpr std::uint32_t heap_slot_base = deren::engine::render_layout::heap_slot_base;
+        static constexpr std::uint32_t heap_slot_count = deren::engine::render_layout::heap_slot_count;
+        static constexpr std::uint32_t heap_image_capacity = deren::engine::render_layout::heap_image_capacity;
+        static constexpr std::uint32_t heap_sampler_base = deren::engine::render_layout::heap_sampler_base;
         static constexpr VkDeviceSize heap_sampler_stride = deren::engine::render_layout::heap_sampler_stride;
-        [[nodiscard]] static constexpr VkDeviceSize heap_slot_offset(uint32_t const slot) noexcept {
+        [[nodiscard]] static constexpr VkDeviceSize heap_slot_offset(std::uint32_t const slot) noexcept {
             return deren::engine::render_layout::heap_slot_offset(slot);
         }
         // THE GUARD: the numbers this backend was built with, written out. They are what the shader's
@@ -1772,19 +1769,19 @@ namespace deren::vulkan {
         //     pacing wait that used to be vkWaitForFences
 
         void to_next_frame() noexcept;
-        void wait_frame_slot(uint32_t slot) const; // host wait until this slot's last submission completed
+        void wait_frame_slot(std::uint32_t slot) const; // host wait until this slot's last submission completed
         /// the RESULT-BEARING primitive the wait above is spelled from: `wait_frame_slot` drops the
         /// VkResult (its one remaining caller is the transitional engine path), while
         /// `frame_walker_view::wait_and_acquire()` reports it - the `vkWaitSemaphores` failure that
         /// used to vanish arrives in `frame_open_info::result`.
-        [[nodiscard]] VkResult wait_frame_slot_result(uint32_t slot) const noexcept;
+        [[nodiscard]] VkResult wait_frame_slot_result(std::uint32_t slot) const noexcept;
 
         /// THE PER-IMAGE ARRAY BOUND, PINNED FROM THE BACKEND'S SIDE (③-D/E item A1): this backend requests
         /// at most 4 swapchain images (3-4 in practice), and `rhi::max_swapchain_images` is the number the
         /// ENGINE sizes its per-image arrays by. `init_swap_chain()`'s refusal is the runtime half of the same
         /// promise; this is the compile-time half - a constant that grew past what this backend accounts for
         /// stops the build instead of quietly oversizing every caller's arrays.
-        static constexpr uint32_t max_swapchain_images_requested = 4;
+        static constexpr std::uint32_t max_swapchain_images_requested = 4;
         static_assert(deren::promise::rhi::max_swapchain_images <= max_swapchain_images_requested,
                       "rhi::max_swapchain_images must not promise more images than this backend accounts for");
 
@@ -1807,7 +1804,7 @@ namespace deren::vulkan {
          * @note call once per frame, before any mark and outside a dynamic rendering instance;
          *       a no-op when the device cannot timestamp
          */
-        void begin_gpu_timing(VkCommandBuffer command_buffer, uint32_t slot) noexcept;
+        void begin_gpu_timing(VkCommandBuffer command_buffer, std::uint32_t slot) noexcept;
 
         /**
          * @ingroup vulkan_core
@@ -1824,7 +1821,7 @@ namespace deren::vulkan {
          * @note a no-op when the device cannot timestamp or the frame already wrote
          *       gpu_timing_mark_capacity marks
          */
-        void mark_gpu_timing(VkCommandBuffer command_buffer, uint32_t slot, VkPipelineStageFlagBits stage,
+        void mark_gpu_timing(VkCommandBuffer command_buffer, std::uint32_t slot, VkPipelineStageFlagBits stage,
                              std::string_view stage_name = {}) noexcept;
 
         /**
@@ -1838,7 +1835,7 @@ namespace deren::vulkan {
          *       VK_QUERY_RESULT_WAIT_BIT, and an unavailable result reports "no measurement"
          *       instead of stalling
          */
-        gpu_timing_result read_gpu_timings(uint32_t slot);
+        gpu_timing_result read_gpu_timings(std::uint32_t slot);
 
         /** @brief whether this device can measure GPU pass timings (see begin_gpu_timing) */
         [[nodiscard]] bool gpu_timing_available() const noexcept {
@@ -1884,7 +1881,7 @@ namespace deren::vulkan {
          *         (recorded inside a dynamic rendering instance, executed there via vkCmdExecuteCommands) */
         vk_command_buffer make_secondary_command_buffer() const;
 
-        std::optional<vk_shader_module> make_shader_module(std::span<uint8_t> shader) const noexcept;
+        std::optional<vk_shader_module> make_shader_module(std::span<std::uint8_t> shader) const noexcept;
 
         /**
          * @ingroup vulkan_core
@@ -1927,7 +1924,7 @@ namespace deren::vulkan {
          * @param layer the array layer to view
          * @return raii vk_image_view wrapping the created view
          */
-        vk_image_view make_depth_layer_view(VkImage image, VkFormat format, uint32_t layer) const;
+        vk_image_view make_depth_layer_view(VkImage image, VkFormat format, std::uint32_t layer) const;
 
         /**
          * @ingroup vulkan_core
@@ -1961,8 +1958,8 @@ namespace deren::vulkan {
          * @return vk_pipeline on success, error message on failure
          */
         std::expected<vk_pipeline, std::string_view> make_depth_pipeline(
-            std::span<uint8_t const> vertex_shader_code,
-            std::span<uint8_t const> fragment_shader_code,
+            std::span<std::uint8_t const> vertex_shader_code,
+            std::span<std::uint8_t const> fragment_shader_code,
             VkFormat depth_format,
             float depth_bias_constant_factor = 0.0f,
             float depth_bias_slope_factor = 0.0f,
@@ -2013,13 +2010,13 @@ namespace deren::vulkan {
         /// The POLICY for the result stays with the caller: the runtime maps OUT_OF_DATE to a
         /// swapchain rebuild plus `skipped`, while the contract's `frame_begin()` collapses anything
         /// but success into a zeroed `submit_info` (tier-1 has no error channel, plan §3.3).
-        [[nodiscard]] VkResult acquire_next_image(uint32_t& image_index);
+        [[nodiscard]] VkResult acquire_next_image(std::uint32_t& image_index);
         /// the SUBMISSION PRIMITIVE behind the contract's `submit(command_buffer&)` (abi 14): signals
         /// this slot's completion timeline and the recorded image's present-ready semaphore. It
         /// changed its name from `submit` when the contract's one-argument verb arrived - the two
         /// coexisting would hide the virtual under -Woverloaded-virtual, and the primitive is an
         /// implementation detail the engine no longer names.
-        VkResult submit_frame(VkCommandBuffer command_buffer, uint32_t image_index);
+        VkResult submit_frame(VkCommandBuffer command_buffer, std::uint32_t image_index);
 
         /**
          * @ingroup vulkan_core
@@ -2031,7 +2028,7 @@ namespace deren::vulkan {
          *         rebuilds. The raw VkResult never leaves the backend: the engine classifies on the
          *         contract's error vocabulary, not on Vulkan's.
          */
-        [[nodiscard]] deren::promise::rhi::error present(uint32_t image_index) const;
+        [[nodiscard]] deren::promise::rhi::error present(std::uint32_t image_index) const;
 
         /**
          * @ingroup vulkan_core
@@ -2050,8 +2047,8 @@ namespace deren::vulkan {
          *       the HDR target: its attachments are the core::gbuffer_* targets and the pass that renders into them
          */
         std::expected<vk_pipeline, std::string_view> make_gbuffer_pipeline(
-            std::span<uint8_t const> vertex_shader_code,
-            std::span<uint8_t const> fragment_shader_code,
+            std::span<std::uint8_t const> vertex_shader_code,
+            std::span<std::uint8_t const> fragment_shader_code,
             VkShaderStageFlagBits first_stage = VK_SHADER_STAGE_VERTEX_BIT) const;
 
         /**
@@ -2082,8 +2079,8 @@ namespace deren::vulkan {
          * @return vk_pipeline on success, error message on failure
          */
         std::expected<vk_pipeline, std::string_view> make_character_forward_pipeline(
-            std::span<uint8_t const> vertex_shader_code,
-            std::span<uint8_t const> fragment_shader_code,
+            std::span<std::uint8_t const> vertex_shader_code,
+            std::span<std::uint8_t const> fragment_shader_code,
             VkShaderStageFlagBits first_stage = VK_SHADER_STAGE_MESH_BIT_EXT) const;
 
         /**
@@ -2116,8 +2113,8 @@ namespace deren::vulkan {
          * @return vk_pipeline on success, error message on failure
          */
         std::expected<vk_pipeline, std::string_view> make_overlay_pipeline(
-            std::span<uint8_t const> vertex_shader_code,
-            std::span<uint8_t const> fragment_shader_code,
+            std::span<std::uint8_t const> vertex_shader_code,
+            std::span<std::uint8_t const> fragment_shader_code,
             VkShaderStageFlagBits first_stage = VK_SHADER_STAGE_MESH_BIT_EXT) const;
         /**
          * @brief the ARTICLE'S ① 描边 pipeline: the inverted hull, drawn over the toon result
@@ -2133,8 +2130,8 @@ namespace deren::vulkan {
          * around the outline group only.
          */
         std::expected<vk_pipeline, std::string_view> make_outline_pipeline(
-            std::span<uint8_t const> vertex_shader_code,
-            std::span<uint8_t const> fragment_shader_code,
+            std::span<std::uint8_t const> vertex_shader_code,
+            std::span<std::uint8_t const> fragment_shader_code,
             VkShaderStageFlagBits first_stage = VK_SHADER_STAGE_MESH_BIT_EXT) const;
 
         // ---- THE COMMAND FACE'S STATE -----------------------------------------------------------
@@ -2257,8 +2254,8 @@ namespace deren::vulkan {
                 : full_core(parent) {
             }
 
-            static constexpr int32_t frames_in_flight = 2;
-            static_assert(frames_in_flight == static_cast<int32_t>(deren::promise::rhi::max_frames_in_flight),
+            static constexpr std::int32_t frames_in_flight = 2;
+            static_assert(frames_in_flight == static_cast<std::int32_t>(deren::promise::rhi::max_frames_in_flight),
                           "the frame facet's ring must be the depth rhi::max_frames_in_flight promises");
 
             // ---- SWAPCHAIN AND DEPTH RESOURCES ----
@@ -2272,15 +2269,15 @@ namespace deren::vulkan {
             deren::utility::vessel::vector<VkImage> depth_images = {};
             deren::utility::vessel::vector<VkDeviceMemory> depth_image_memories = {};
             deren::utility::vessel::vector<VkImageView> depth_image_views = {};
-            uint32_t acquired_image_index = 0;
+            std::uint32_t acquired_image_index = 0;
             bool swapchain_transfer_src_supported = false;
 
             // ---- FRAME RING AND SYNCHRONIZATION ----
-            size_t current_frame = 0;
+            std::size_t current_frame = 0;
             deren::utility::vessel::vector<VkSemaphore> image_available_semaphores = {};
             deren::utility::vessel::vector<VkSemaphore> present_ready_semaphores = {};
             deren::utility::vessel::vector<VkSemaphore> frame_done_semaphores = {};
-            deren::utility::vessel::vector<uint64_t> frame_done_values = {};
+            deren::utility::vessel::vector<std::uint64_t> frame_done_values = {};
             bool frame_in_flight = false;
             bool frame_acquired = false;
             bool frame_acquire_consumed = false;
@@ -2305,8 +2302,8 @@ namespace deren::vulkan {
             std::unique_ptr<deren::utility::thread_pool> present_worker;
             std::shared_future<deren::promise::rhi::error> present_pending;
             bool async_present_queued = false;
-            mutable uint32_t prefetched_slot = UINT32_MAX;
-            uint32_t prefetched_image = 0;
+            mutable std::uint32_t prefetched_slot = std::numeric_limits<std::uint32_t>::max();
+            std::uint32_t prefetched_image = 0;
             frame_resources_view frame_resources;
             deren::promise::rhi::shared_object<frame_snapshot>::weak frame_snapshot_cache;
             deren::utility::vessel::unordered_set<deren::promise::rhi::image const*> frame_snapshots;
@@ -2315,11 +2312,11 @@ namespace deren::vulkan {
             // ---- GPU PASS TIMING ----
             VkQueryPool timestamp_query_pool = VK_NULL_HANDLE;
             float timestamp_period_ns = 0.0f;
-            uint32_t timestamp_valid_bits = 0;
+            std::uint32_t timestamp_valid_bits = 0;
             bool gpu_timing_supported = false;
-            deren::utility::vessel::array<uint32_t, frames_in_flight> gpu_timing_marks = {};
+            deren::utility::vessel::array<std::uint32_t, frames_in_flight> gpu_timing_marks = {};
             deren::utility::vessel::array<deren::utility::vessel::array<std::string_view, gpu_timing_mark_capacity>, frames_in_flight> gpu_timing_names = {};
-            deren::utility::vessel::array<uint64_t, frames_in_flight> gpu_timing_read_value = {};
+            deren::utility::vessel::array<std::uint64_t, frames_in_flight> gpu_timing_read_value = {};
 
             [[nodiscard]] deren::promise::rhi::command_buffer* begin_commands() override;
             [[nodiscard]] deren::promise::rhi::image* frame_image() noexcept override;
@@ -2355,9 +2352,9 @@ namespace deren::vulkan {
             VkSurfaceKHR surface = VK_NULL_HANDLE;
             VkQueue graphics_queue_handle = VK_NULL_HANDLE;
             VkQueue present_queue_handle = VK_NULL_HANDLE;
-            uint32_t graphics_queue_family_index = 0;
-            uint32_t present_queue_family_index = 0;
-            uint32_t graphics_queue_family = VK_QUEUE_FAMILY_IGNORED;
+            std::uint32_t graphics_queue_family_index = 0;
+            std::uint32_t present_queue_family_index = 0;
+            std::uint32_t graphics_queue_family = VK_QUEUE_FAMILY_IGNORED;
             GLFWwindow* window = nullptr;
             VkDebugUtilsMessengerEXT debug_messenger = VK_NULL_HANDLE;
             vma_allocator vma = {};

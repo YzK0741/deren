@@ -1,7 +1,11 @@
 #include "document_internal.hpp"
+
+#include <limits>
+
+#include <cstdint>
 namespace deren::tools::subtilis {
     result<void> replace_indices(document& d, primitive_key key, std::span<std::uint32_t const> indices) {
-        if (!d.state || !primitive_value(d, key) || indices.empty() || indices.size() % 3 || indices.size() > UINT32_MAX) {
+        if (!d.state || !primitive_value(d, key) || indices.empty() || indices.size() % 3 || indices.size() > std::numeric_limits<std::uint32_t>::max()) {
             return fail("invalid cut index replacement");
         }
         auto source = extract_geometry(d, key);
@@ -25,7 +29,7 @@ namespace deren::tools::subtilis {
         auto* views = member(root(d), "bufferViews");
         auto* accessors = member(root(d), "accessors");
         auto view_id = yyjson_mut_arr_size(views), accessor_id = yyjson_mut_arr_size(accessors);
-        if (view_id >= UINT32_MAX || accessor_id >= UINT32_MAX) {
+        if (view_id >= std::numeric_limits<std::uint32_t>::max() || accessor_id >= std::numeric_limits<std::uint32_t>::max()) {
             return fail("cut accessor/view limit", asset::error_code::capacity);
         }
         auto* view = yyjson_mut_obj(json);

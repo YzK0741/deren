@@ -1,6 +1,7 @@
 #include "vk_test.h"
 
 #include <array>
+#include <cstdint>
 #include <limits>
 #include <variant>
 #include <vulkan/vulkan.h>
@@ -63,10 +64,10 @@ namespace {
         fresh.before.scope.stages = static_cast<rhi_sync::stage>(2048);
         CHECK(!native::map_image(fresh));
         fresh.before.scope = compute_write;
-        fresh.range.base_mip = UINT32_MAX;
+        fresh.range.base_mip = std::numeric_limits<std::uint32_t>::max();
         CHECK(!native::map_image(fresh));
         fresh.range.base_mip = 0;
-        fresh.range.mip_count = UINT32_MAX;
+        fresh.range.mip_count = std::numeric_limits<std::uint32_t>::max();
         CHECK(!native::map_image(fresh));
         fresh.range.mip_count = 1;
         fresh.range.aspects = rhi_sync::aspect::color | rhi_sync::aspect::depth;
@@ -85,13 +86,13 @@ namespace {
         CHECK(mapped->offset == 8 && mapped->size == 24 && mapped->buffer == VK_NULL_HANDLE);
         input.after = {rhi_sync::stage::fragment_shader, rhi_sync::access::read | rhi_sync::access::write};
         CHECK(native::map_buffer(input)->dstAccessMask == (VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT));
-        input.offset = UINT64_MAX;
+        input.offset = std::numeric_limits<std::uint64_t>::max();
         CHECK(!native::map_buffer(input));
         input.offset = 8;
         input.size = 0;
         CHECK(!native::map_buffer(input));
         input.offset = 0;
-        input.size = UINT64_MAX;
+        input.size = std::numeric_limits<std::uint64_t>::max();
         CHECK(!native::map_buffer(input));
         input.size = 16;
         input.before.stages = rhi_sync::stage::none;

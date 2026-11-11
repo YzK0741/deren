@@ -2,7 +2,6 @@
 
 module;
 
-#include <cstdint>
 #include <glm/glm.hpp>
 
 export module deren.app.toon;
@@ -26,17 +25,17 @@ export namespace deren::app::detail {
     struct toon_lookup_state {
         deren::toon::sidecar const* sidecar = nullptr;
         deren::gltf::scenes const* scenes = nullptr;
-        deren::utility::vessel::vector<uint8_t> baked_unit_ramp = {};
-        uint32_t ramp_width = 0;
-        uint32_t ramp_height = 0;
-        deren::utility::vessel::vector<uint8_t> baked_neutral_ramp = {};
-        uint32_t neutral_ramp_width = 0;
-        uint32_t neutral_ramp_height = 0;
-        deren::utility::vessel::vector<uint8_t> baked_shadow_lut = {};
-        uint32_t lut_width = 0;
-        uint32_t lut_height = 0;
-        deren::utility::vessel::vector<uint8_t> baked_matcap = {};
-        uint32_t matcap_size = 0;
+        deren::utility::vessel::vector<std::uint8_t> baked_unit_ramp = {};
+        std::uint32_t ramp_width = 0;
+        std::uint32_t ramp_height = 0;
+        deren::utility::vessel::vector<std::uint8_t> baked_neutral_ramp = {};
+        std::uint32_t neutral_ramp_width = 0;
+        std::uint32_t neutral_ramp_height = 0;
+        deren::utility::vessel::vector<std::uint8_t> baked_shadow_lut = {};
+        std::uint32_t lut_width = 0;
+        std::uint32_t lut_height = 0;
+        deren::utility::vessel::vector<std::uint8_t> baked_matcap = {};
+        std::uint32_t matcap_size = 0;
     };
 
     void bake_toon_textures(toon_lookup_state& state);

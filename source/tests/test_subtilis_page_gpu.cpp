@@ -4,16 +4,7 @@
 // padded DAG structs.
 #include "vk_test.h"
 
-#include <algorithm>
-#include <array>
-#include <cstddef>
-#include <cstdint>
-#include <cstring>
-#include <memory>
-#include <span>
-#include <string>
-#include <vector>
-
+import deren.vstd;
 import deren.engine.backend_loader;
 import deren.engine.subtilis;
 import deren.engine.subtilis.builder;
@@ -435,24 +426,150 @@ int main() {
                 });
             }
             std::uint32_t evicted = 0;
+            std::uint32_t skipped_evicted = 0;
+            CHECK(!(*pool)->acquire(1, replacement, pool->get(), &skipped_evicted));
+            CHECK(skipped_evicted == 0);
             CHECK((*pool)->acquire(1, replacement, nullptr, &evicted));
             CHECK(evicted == 1);
         }
     }
     {
-        auto pinned = make_paged_geometry(false, true);
-        auto pool = sub::page_arena_pool::create(core, sub::page_arena_pool::slot_bytes);
-        CHECK(pinned && pool);
-        if (pinned && pool) {
-            auto upload = [&] {
-                return sub::upload_geometry(core, pinned, rhi::to_bits(rhi::buffer_flag::device_address),
-                                            sub::geometry_upload_mode::synchronous, sub::page_arena_pool::slot_bytes, *pool);
-            };
-            auto first = upload();
-            CHECK(first && (*first)->page_table() != nullptr);
-            auto second = upload();
-            CHECK(second && (*second)->page_table() == nullptr && (*second)->cut_groups() != nullptr);
+        auto pool = sub::page_arena_pool::create(core, 2ull * sub::page_arena_pool::slot_bytes);
+        CHECK(pool);
+        if (pool) {
+            deren::utility::vessel::vector<std::uint32_t> occupied, reused, extra;
+            CHECK((*pool)->acquire(2, occupied));
+            (*pool)->release(occupied);
+            // Returning a slot twice must not append it twice. A duplicate free-list entry would
+            // later hand the same physical arena slot to two sources.
+            (*pool)->release(occupied.front());
+            CHECK((*pool)->acquire(2, reused));
+            CHECK(reused.size() == 2 && reused[0] != reused[1]);
+            CHECK(!(*pool)->acquire(1, extra));
+            (*pool)->release(reused);
         }
+    }
+    {
+        auto pool = sub::page_arena_pool::create(core, sub::page_arena_pool::slot_bytes);
+        CHECK(pool);
+        if (pool) {
+            deren::utility::vessel::vector<std::uint32_t> slot, reused, extra;
+            CHECK((*pool)->acquire(1, slot));
+            (*pool)->retain(slot.front());
+            (*pool)->release(slot.front()); // Deferred until the published frame drops it.
+            (*pool)->drop(slot.front());
+            (*pool)->release(slot.front()); // Must be a no-op: the slot is already free.
+            CHECK((*pool)->acquire(1, reused));
+            CHECK(reused.size() == 1 && reused.front() == slot.front());
+            CHECK(!(*pool)->acquire(1, extra));
+            (*pool)->release(reused);
+        }
+    }
+    {
+        auto manager = sub::make_page_manager(geometry->pages(), geometry->page_dependencies());
+        CHECK(manager);
+        if (manager) {
+            std::uint32_t single = std::numeric_limits<std::uint32_t>::max();
+            std::uint32_t pair = std::numeric_limits<std::uint32_t>::max();
+            for (std::uint32_t page = 0; page < geometry->pages().size(); ++page) {
+                auto plan = manager->plan_request(page);
+                if (plan && plan->installs.size() == 1) {
+                    single = page;
+                } else if (plan && plan->installs.size() == 2) {
+                    pair = page;
+                }
+            }
+            CHECK(single != std::numeric_limits<std::uint32_t>::max() && pair != std::numeric_limits<std::uint32_t>::max());
+            if (single != std::numeric_limits<std::uint32_t>::max() && pair != std::numeric_limits<std::uint32_t>::max()) {
+                auto pool = sub::page_arena_pool::create(core, 2u * sub::page_arena_pool::slot_bytes);
+                CHECK(pool);
+                if (pool) {
+                    auto upload = [&] {
+                        return sub::upload_geometry(core, geometry, rhi::to_bits(rhi::buffer_flag::device_address),
+                                                    sub::geometry_upload_mode::synchronous, 2u * sub::page_arena_pool::slot_bytes, *pool);
+                    };
+                    auto first = upload();
+                    auto second = upload();
+                    CHECK(first && second);
+                    if (first && second) {
+                        auto queue = [](sub::uploaded_geometry const& destination, std::uint32_t page) {
+                            auto bytes = destination.page_requests(0)->mapped();
+                            sub::gpu_page_request_header header{1, destination.page_request_capacity(), 0, 0};
+                            std::memcpy(bytes.data(), &header, sizeof(header));
+                            sub::gpu_page_request request{page, 0, 0, 0};
+                            std::memcpy(bytes.data() + sizeof(header), &request, sizeof(request));
+                        };
+                        CHECK((*first)->configure_page_frames(1) == rhi::error::ok);
+                        queue(**first, pair);
+                        auto installed_first = (*first)->install_requested_pages(1ull << 20, 1, 0);
+                        CHECK(installed_first.result == rhi::error::ok && installed_first.submitted == 2);
+                        core->wait_idle();
+                        CHECK((*first)->collect_page_uploads().installed == 2);
+                        CHECK((*second)->configure_page_frames(1) == rhi::error::ok);
+                        queue(**second, single);
+                        // The pool holds both slots of the first source. Admitting the second source
+                        // must reclaim an unreferenced page instead of failing or double-allocating.
+                        auto installed_second = (*second)->install_requested_pages(1ull << 20, 2, 0);
+                        CHECK(installed_second.result == rhi::error::ok && installed_second.submitted == 1);
+                        CHECK(installed_second.evicted >= 1);
+                        core->wait_idle();
+                        CHECK((*second)->collect_page_uploads().installed == 1);
+                        CHECK((*first)->publish_page_frame(0) == rhi::error::ok);
+                        CHECK((*second)->publish_page_frame(0) == rhi::error::ok);
+                        auto const* first_table = reinterpret_cast<sub::gpu_page_table_entry const*>((*first)->page_table(0)->mapped().data());
+                        auto const* second_table = reinterpret_cast<sub::gpu_page_table_entry const*>((*second)->page_table(0)->mapped().data());
+                        CHECK(first_table[pair].state == static_cast<std::uint32_t>(sub::gpu_page_state::absent));
+                        CHECK(second_table[single].state == static_cast<std::uint32_t>(sub::gpu_page_state::resident));
+                        CHECK((*first)->complete_page_frame(0) == rhi::error::ok);
+                        CHECK((*second)->complete_page_frame(0) == rhi::error::ok);
+                    }
+                }
+            }
+        }
+    }
+    {
+        auto pinned = make_paged_geometry(false, true);
+        CHECK(pinned);
+        if (pinned) {
+            auto pinned_manager = sub::make_page_manager(pinned->pages(), pinned->page_dependencies());
+            std::uint64_t pinned_bytes = 0;
+            for (auto const& page : pinned->pages()) {
+                if ((page.flags & static_cast<std::uint16_t>(wire::page_flags::always_resident)) != 0) {
+                    pinned_bytes += page.bytes;
+                }
+            }
+            CHECK(pinned_manager);
+            CHECK(pinned_bytes > 0);
+            if (pinned_manager) {
+                CHECK(pinned_manager->stats().resident_pages == 1);
+                CHECK(pinned_manager->stats().resident_bytes == pinned_bytes);
+            }
+            auto pool = sub::page_arena_pool::create(core, sub::page_arena_pool::slot_bytes);
+            CHECK(pool);
+            if (pool) {
+                auto upload = [&] {
+                    return sub::upload_geometry(core, pinned, rhi::to_bits(rhi::buffer_flag::device_address),
+                                                sub::geometry_upload_mode::synchronous, sub::page_arena_pool::slot_bytes, *pool);
+                };
+                auto first = upload();
+                CHECK(first && (*first)->page_table() != nullptr);
+                if (first && (*first)->page_table()) {
+                    auto const* table = reinterpret_cast<sub::gpu_page_table_entry const*>((*first)->page_table()->mapped().data());
+                    CHECK((*first)->page_arena()->size() == sub::page_arena_pool::slot_bytes);
+                    CHECK(table[0].state == static_cast<std::uint32_t>(sub::gpu_page_state::resident));
+                    CHECK(table[0].bytes == pinned->pages().front().bytes);
+                    CHECK(table[0].offset == 0);
+                }
+                auto second = upload();
+                CHECK(second && (*second)->page_table() == nullptr && (*second)->cut_groups() != nullptr);
+            }
+        }
+    }
+    {
+        auto oversized = sub::page_arena_pool::create(core, sub::page_arena_pool::max_bytes + sub::page_arena_pool::slot_bytes);
+        CHECK(!oversized);
+        auto empty = sub::page_arena_pool::create(core, 0);
+        CHECK(!empty);
     }
     {
         auto adapter = std::make_shared<controlled_core>(core);
@@ -502,20 +619,45 @@ int main() {
             CHECK(duplicate.in_flight_bytes == submitted.bytes);
             core->wait_idle(); // Test setup only: the pager must still observe pending until allowed.
             adapter->completion.fail_poll = true;
-            for (int i = 0; i < 3; ++i) {
-                auto const failed = pages.collect_page_uploads();
-                CHECK(failed.result == rhi::error::operation_failed);
-                CHECK(failed.in_flight_bytes == submitted.bytes);
-            }
+            auto const first_failure = pages.collect_page_uploads();
+            CHECK(first_failure.result == rhi::error::ok);
+            CHECK(first_failure.in_flight_bytes == submitted.bytes);
+            CHECK(first_failure.abandoned == 0);
             CHECK(pages.has_pending_page_upload());
+            auto const second_failure = pages.collect_page_uploads();
+            CHECK(second_failure.result == rhi::error::ok);
+            CHECK(second_failure.in_flight_bytes == submitted.bytes);
+            CHECK(second_failure.abandoned == 0);
+            CHECK(pages.has_pending_page_upload());
+            auto const abandoned = pages.collect_page_uploads();
+            CHECK(abandoned.result == rhi::error::ok);
+            CHECK(abandoned.abandoned == targets.size());
+            CHECK(abandoned.in_flight_bytes == 0);
+            CHECK(!pages.has_pending_page_upload());
             deren::utility::vessel::vector<std::uint32_t> competing;
             bool const reused = (*pool)->acquire(1, competing);
-            CHECK(!reused);
+            CHECK(reused);
             if (reused) {
                 (*pool)->release(competing);
             }
             CHECK(std::memcmp(before.data(), frozen.data(), frozen.size()) == 0);
+            // The abandoned pages are absent, not resident, and the same demand can be
+            // submitted again without a stale ticket or reservation blocking it.
+            auto const cleared = pages.install_requested_pages(0, 3, 1);
+            CHECK(cleared.result == rhi::error::ok && cleared.pending == 0);
+            {
+                auto const rows = reinterpret_cast<sub::gpu_page_table_entry const*>(pages.page_table(1)->mapped().data());
+                for (auto id : targets) {
+                    CHECK(rows[id].state == static_cast<std::uint32_t>(sub::gpu_page_state::absent));
+                }
+            }
             adapter->completion.fail_poll = false;
+            adapter->completion.ready = false;
+            queue(pages, 1);
+            auto const retried = pages.install_requested_pages(1ull << 20, 4, 1);
+            CHECK(retried.result == rhi::error::ok && retried.submitted == targets.size());
+            CHECK(pages.has_pending_page_upload());
+            core->wait_idle();
             adapter->completion.ready = true;
             auto completed = pages.collect_page_uploads();
             CHECK(completed.result == rhi::error::ok && completed.installed == targets.size() && completed.bytes == 0);
@@ -554,6 +696,16 @@ int main() {
                 CHECK(adapter->completion.waits == 0);
             }
         }
+        // Destroying a paged source after publishing snapshots must drop every retained
+        // slot reference, otherwise the shared arena leaks the whole source forever.
+        CHECK(async);
+        async->reset();
+        CHECK(!*async);
+        auto const capacity = (*pool)->capacity_slots();
+        deren::utility::vessel::vector<std::uint32_t> all_slots;
+        CHECK((*pool)->acquire(capacity, all_slots));
+        CHECK(all_slots.size() == capacity);
+        (*pool)->release(all_slots);
     }
     return deren::vk_test::finish("test_subtilis_page_gpu");
 }

@@ -15,7 +15,6 @@
 
 module;
 
-#include <cstdint>
 #include <glm/glm.hpp>
 
 export module deren.engine.pass.ray_traced_reflection;
@@ -48,7 +47,7 @@ export namespace deren::engine::pass {
         void describe_resources(render_resource::instances::resource_context const&, deren::utility::vessel::vector<render_resource::instances::request>&) const override;
         void bind_resources(render_resource::instances::resource_snapshot const&) override;
         void on_swapchain_recreated(pass_host const& host) override;
-        void set_rt_reflection_samples(uint32_t samples) noexcept override;
+        void set_rt_reflection_samples(std::uint32_t samples) noexcept override;
 
         deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
 
@@ -65,8 +64,8 @@ export namespace deren::engine::pass {
         static constexpr std::string_view closest_hit_name = "rt_reflection.rchit.spv";
         static constexpr std::string_view any_hit_name = "rt_reflection.rahit.spv";
         static constexpr std::string_view miss_name = "rt_reflection.rmiss.spv";
-        static constexpr uint32_t group_size = 8;
-        static constexpr uint32_t barrier_reflection = 0;
+        static constexpr std::uint32_t group_size = 8;
+        static constexpr std::uint32_t barrier_reflection = 0;
         static_assert(barrier_reflection + 1 == render_resource::rt_reflection_barriers.size(),
                       "the reflection pass's barrier slots must match the declaration it indexes");
 
@@ -88,7 +87,7 @@ export namespace deren::engine::pass {
         deren::promise::rhi::shader_binding_table_region miss_region = {};
         deren::promise::rhi::shader_binding_table_region hit_region = {};
         deren::promise::rhi::shader_binding_table_region callable_region = {};
-        uint32_t sample_count = 1;
+        std::uint32_t sample_count = 1;
         bool logged = false;
     };
 

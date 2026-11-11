@@ -1,10 +1,5 @@
 module;
 
-#include <algorithm> // std::clamp / std::max in orbit_camera_pan_delta
-#include <cmath>     // std::sin / std::cos in the orbit camera maths
-#include <cstddef>
-#include <cstdint>
-#include <cstring>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 module deren.engine.primitive;
@@ -53,7 +48,7 @@ namespace deren::engine {
     namespace {
         float host_matrix_max_axis_scale(glm::mat4 const& m) {
             float largest = 0.0f;
-            for (int32_t row = 0; row < 3; ++row) {
+            for (std::int32_t row = 0; row < 3; ++row) {
                 // glm's operator[] hands back a COLUMN, so the shader's `m[row][0..2]` reads as these three entries
                 float const sum = std::abs(m[0][row]) + std::abs(m[1][row]) + std::abs(m[2][row]);
                 largest = std::max(largest, sum);
@@ -67,7 +62,7 @@ namespace deren::engine {
         }
     } // namespace
 
-    uint32_t primitive::push_meshlet_lanes(render_environment const& env, primitive const& geometry, uint32_t const first_index, uint32_t const index_count, int32_t const base_vertex, bool const material_two_sided) const {
+    std::uint32_t primitive::push_meshlet_lanes(render_environment const& env, primitive const& geometry, std::uint32_t const first_index, std::uint32_t const index_count, std::int32_t const base_vertex, bool const material_two_sided) const {
         // WHETHER A BACK-FACE TEST MAY CULL ANYTHING FOR THIS DRAW (docs/mesh_shaders.md step 3): only when the pass
         // will cull back faces itself. A two-sided material - or a session that forces two-sided rasterization, which
         // is what the shadow pass does so a caster is never dropped for facing away from the light - KEEPS both sides
@@ -83,7 +78,7 @@ namespace deren::engine {
         //    about to emit - the same rule the entries state for their test.
         bool const cullable = env.meshlets && env.meshlet_culled && env.meshlet_view_proj != nullptr && env.meshlet_culled_write != nullptr &&
                               geometry.meshlet_count != 0u && (this->push.flags & 1u) == 0u && this->push.skin_base == 0u && this->push.morph_targets == 0u;
-        uint32_t survivors = not_culled;
+        std::uint32_t survivors = not_culled;
         deren::utility::vessel::vector<deren::engine::meshlet> kept;
         if (cullable) {
             deren::utility::vessel::array<float, 16> view_proj = {};
@@ -106,7 +101,7 @@ namespace deren::engine {
                 // the write has to succeed or the run stays unculled: a half-written culled table would make the
                 // entry read stale records, which is a wrong picture rather than a slow one
                 if (env.meshlet_culled_write(env.push_source, geometry.meshlet_base, std::as_bytes(std::span(kept)))) {
-                    survivors = static_cast<uint32_t>(kept.size());
+                    survivors = static_cast<std::uint32_t>(kept.size());
                 }
             }
         }
@@ -116,7 +111,7 @@ namespace deren::engine {
         return survivors;
     }
 
-    void primitive::push_geometry_lanes_impl(render_environment const& env, primitive const& geometry, uint32_t const first_index, uint32_t const index_count, int32_t const base_vertex, bool const host_culled, bool const backface_legal) const {
+    void primitive::push_geometry_lanes_impl(render_environment const& env, primitive const& geometry, std::uint32_t const first_index, std::uint32_t const index_count, std::int32_t const base_vertex, bool const host_culled, bool const backface_legal) const {
         if (env.push_at == nullptr || env.buffer_address == nullptr || env.mesh_geometry_push_offset == 0u || !static_cast<bool>(env.target)) {
             return; // a session that does not use the shared scene block (or a test one) has nothing to fill
         }
@@ -175,20 +170,20 @@ namespace deren::engine {
         [[maybe_unused]] bool const pushed = env.push_at(env.push_source, env.target, env.mesh_geometry_push_offset, std::span<std::byte const>(payload.data(), bytes));
     }
 
-    void primitive::mesh_dispatch(render_environment const& env, primitive const& geometry, uint32_t const index_count, uint32_t const instance_count, uint32_t const survivors) {
+    void primitive::mesh_dispatch(render_environment const& env, primitive const& geometry, std::uint32_t const index_count, std::uint32_t const instance_count, std::uint32_t const survivors) {
         // ---- the dispatch: one workgroup per `mesh_triangles_per_workgroup` triangles of THIS draw ----
         // The workgroup budget is the shader's (see source/shaders/geometry/mesh_geometry.slang: 85 triangles, 255 vertices,
         // because a triangle costs three of the device's 256 output vertices), and the group count has to cover
         // the window: the separate stage itself decides how many 85 triangles are real, which is what makes a
         // window that is not a multiple of 85 work without a second command.
-        uint32_t const triangles = index_count / 3u;
+        std::uint32_t const triangles = index_count / 3u;
         // A MESHLET SESSION DISPATCHES ONE WORKGROUP PER MESHLET: each one reads its window out of the table and
         // emits the whole meshlet, so the group count is the primitive's run - not a slice of a triangle count. A
         // HOST-CULLED run dispatches its SURVIVORS instead, which is the point of culling before the dispatch: a
         // meshlet the frustum rejected costs no workgroup at all (docs/mesh_shaders.md step 3).
-        uint32_t groups = survivors;
+        std::uint32_t groups = survivors;
         if (survivors == not_culled) {
-            constexpr uint32_t triangles_per_workgroup = 85u;
+            constexpr std::uint32_t triangles_per_workgroup = 85u;
             groups = env.meshlets ? geometry.meshlet_count : (triangles + triangles_per_workgroup - 1u) / triangles_per_workgroup;
         }
         if (groups != 0u && static_cast<bool>(env.target)) {
@@ -201,7 +196,7 @@ namespace deren::engine {
                 // THE COMMAND IS THE SLOT'S CLASS, one table capacity apart: a HOST-CULLED run and an unculled one
                 // (the shadow pass) dispatch the same primitive with DIFFERENT counts, so they cannot share a
                 // command - whichever wrote last would be the count both passes got.
-                uint32_t const slot = geometry.meshlet_base + (survivors != not_culled ? deren::engine::meshlet_capacity : 0u);
+                std::uint32_t const slot = geometry.meshlet_base + (survivors != not_culled ? deren::engine::meshlet_capacity : 0u);
                 [[maybe_unused]] bool const dispatched = env.draw_mesh_tasks_indirect(env.push_source, env.target, slot, groups, instance_count, 1u);
             } else {
                 [[maybe_unused]] bool const dispatched = env.draw_mesh_tasks(env.push_source, env.target, groups, instance_count, 1u);
@@ -242,7 +237,7 @@ namespace deren::engine {
         env.set_cull_mode(this->double_sided);
         // A MESH SESSION DOES NOT BIND GEOMETRY: the stage fetches it from the lanes pushed below.
         push_stage_block(env, this->push);
-        uint32_t const survivors = this->push_meshlet_lanes(env, *this, 0u, this->draw_index_count, 0, this->double_sided);
+        std::uint32_t const survivors = this->push_meshlet_lanes(env, *this, 0u, this->draw_index_count, 0, this->double_sided);
         this->mesh_dispatch(env, *this, this->draw_index_count, 1u, survivors);
     }
 
@@ -276,7 +271,7 @@ namespace deren::engine {
         // has no SV_InstanceID, so the stage reads its instance index from the workgroup grid's Y - which is exactly
         // what the vertex path's SV_InstanceID meant here (see shadow.slang's mesh entry).
         push_stage_block(env, this->push);
-        uint32_t const survivors = this->push_meshlet_lanes(env, geometry_source, 0u, geometry_source.draw_index_count, 0, this->double_sided);
+        std::uint32_t const survivors = this->push_meshlet_lanes(env, geometry_source, 0u, geometry_source.draw_index_count, 0, this->double_sided);
         this->mesh_dispatch(env, geometry_source, geometry_source.draw_index_count, this->instance_count, survivors);
     }
 
@@ -315,7 +310,7 @@ namespace deren::engine {
             // chunk - so the survivors come out identical and the culled table is rewritten with the same records.
             // (That the dispatch happens once per chunk at all is a known defect of the meshlet session, recorded in
             // docs/mesh_shaders.md: a chunk's material cannot reach a whole-run dispatch.)
-            uint32_t const survivors = this->push_meshlet_lanes(env, *this, chunk.first_index, chunk.index_count, static_cast<int32_t>(chunk.vertex_offset), chunk.double_sided);
+            std::uint32_t const survivors = this->push_meshlet_lanes(env, *this, chunk.first_index, chunk.index_count, static_cast<std::int32_t>(chunk.vertex_offset), chunk.double_sided);
             this->mesh_dispatch(env, *this, chunk.index_count, 1u, survivors);
         }
     }
@@ -371,7 +366,7 @@ namespace deren::engine {
         return ubo;
     }
 
-    camera_ubo make_cube_capture_camera(glm::vec3 const& position, uint32_t face, float near_plane, float far_plane) {
+    camera_ubo make_cube_capture_camera(glm::vec3 const& position, std::uint32_t face, float near_plane, float far_plane) {
         glm::vec3 const directions[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
         glm::vec3 const up[6] = {{0, 1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}, {0, 1, 0}, {0, 1, 0}};
         camera_ubo result{};

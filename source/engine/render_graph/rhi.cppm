@@ -1,5 +1,5 @@
 module;
-#include <cstdint>
+
 export module deren.engine.render_graph.rhi;
 export import deren.vstd;
 export import deren.engine.render_graph;
@@ -7,8 +7,8 @@ export import deren.promise.rhi.synchronization;
 namespace deren::engine::render_graph::rhi_bridge::detail {
     namespace sync = deren::promise::rhi::synchronization;
     std::expected<sync::scope, sync::error> scope(resource_state value) noexcept {
-        auto stages = static_cast<uint32_t>(value.stages);
-        auto access = static_cast<uint32_t>(value.access);
+        auto stages = static_cast<std::uint32_t>(value.stages);
+        auto access = static_cast<std::uint32_t>(value.access);
         if ((stages & ~2047U) || (access & ~3U)) {
             return std::unexpected(sync::error::unsupported);
         }
@@ -16,7 +16,7 @@ namespace deren::engine::render_graph::rhi_bridge::detail {
             return std::unexpected(sync::error::invalid_argument);
         }
         sync::scope result{};
-        auto include = [&](pipeline_stage from, sync::stage to) { if ((value.stages & from) == from) { result.stages = result.stages | to; 
+        auto include = [&](pipeline_stage from, sync::stage to) { if ((value.stages & from) == from) { result.stages = result.stages | to;
 } };
         include(pipeline_stage::vertex_shader, sync::stage::vertex_shader);
         include(pipeline_stage::fragment_shader, sync::stage::fragment_shader);
@@ -80,7 +80,7 @@ namespace deren::engine::render_graph::rhi_bridge::detail {
 export namespace deren::engine::render_graph::rhi_bridge {
     namespace sync = deren::promise::rhi::synchronization;
     struct scope_packet {
-        uint32_t resource, before_pass;
+        std::uint32_t resource, before_pass;
         std::variant<sync::image_transition, sync::buffer_transition> transition;
     };
     struct scope_plan {
@@ -88,7 +88,7 @@ export namespace deren::engine::render_graph::rhi_bridge {
     };
     struct lowering_error {
         sync::error code;
-        uint32_t barrier = invalid_index, resource = invalid_index;
+        std::uint32_t barrier = invalid_index, resource = invalid_index;
     };
     /// Converts scopes, not bindings. Frontend states remain abstract and unchanged.
     [[nodiscard]] std::expected<scope_plan, lowering_error> lower_scopes(compiled_graph const& graph) {
@@ -98,8 +98,8 @@ export namespace deren::engine::render_graph::rhi_bridge {
         if (graph.execution_order.size() >= invalid_index || graph.barriers.size() >= invalid_index) {
             return std::unexpected(lowering_error{sync::error::unsupported});
         }
-        deren::utility::vessel::vector<uint32_t> positions(graph.passes.size(), invalid_index);
-        for (uint32_t i = 0; i < graph.execution_order.size(); ++i) {
+        deren::utility::vessel::vector<std::uint32_t> positions(graph.passes.size(), invalid_index);
+        for (std::uint32_t i = 0; i < graph.execution_order.size(); ++i) {
             auto p = graph.execution_order[i];
             if (p >= positions.size() || !graph.passes[p].live || positions[p] != invalid_index) {
                 return std::unexpected(lowering_error{sync::error::invalid_argument});
@@ -108,10 +108,10 @@ export namespace deren::engine::render_graph::rhi_bridge {
         }
         scope_plan result;
         result.barriers.reserve(graph.barriers.size());
-        uint32_t previous = 0;
+        std::uint32_t previous = 0;
         for (std::size_t i = 0; i < graph.barriers.size(); ++i) {
             auto const& barrier = graph.barriers[i];
-            auto fail = [&](sync::error code) { return std::unexpected(lowering_error{code, static_cast<uint32_t>(i), barrier.resource}); };
+            auto fail = [&](sync::error code) { return std::unexpected(lowering_error{code, static_cast<std::uint32_t>(i), barrier.resource}); };
             if (barrier.resource >= graph.resources.size() || barrier.before_pass >= positions.size() || positions[barrier.before_pass] == invalid_index || positions[barrier.before_pass] < previous) {
                 return fail(sync::error::invalid_argument);
             }
@@ -120,10 +120,10 @@ export namespace deren::engine::render_graph::rhi_bridge {
             if (resource.kind == resource_kind::texture) {
                 auto range = std::get_if<texture_range>(&barrier.range);
                 auto shape = std::get_if<texture_shape>(&resource.shape);
-                if (range && (static_cast<uint32_t>(range->aspects) & ~7U)) {
+                if (range && (static_cast<std::uint32_t>(range->aspects) & ~7U)) {
                     return fail(sync::error::unsupported);
                 }
-                if (!range || !shape || range->base_mip >= shape->mip_levels || !range->mip_count || range->mip_count > shape->mip_levels - range->base_mip || range->base_layer >= shape->array_layers || !range->layer_count || range->layer_count > shape->array_layers - range->base_layer || !static_cast<uint32_t>(range->aspects) || (static_cast<uint32_t>(range->aspects) & ~static_cast<uint32_t>(shape->aspects))) {
+                if (!range || !shape || range->base_mip >= shape->mip_levels || !range->mip_count || range->mip_count > shape->mip_levels - range->base_mip || range->base_layer >= shape->array_layers || !range->layer_count || range->layer_count > shape->array_layers - range->base_layer || !static_cast<std::uint32_t>(range->aspects) || (static_cast<std::uint32_t>(range->aspects) & ~static_cast<std::uint32_t>(shape->aspects))) {
                     return fail(sync::error::invalid_argument);
                 }
                 auto before = detail::image_state(barrier.before);
@@ -132,7 +132,7 @@ export namespace deren::engine::render_graph::rhi_bridge {
                     return fail(!before ? before.error() : after.error());
                 }
                 sync::aspect aspects = static_cast<sync::aspect>(0);
-                auto include = [&](texture_aspect from, sync::aspect to) { if (static_cast<uint32_t>(range->aspects) & static_cast<uint32_t>(from)) { aspects = aspects | to; 
+                auto include = [&](texture_aspect from, sync::aspect to) { if (static_cast<std::uint32_t>(range->aspects) & static_cast<std::uint32_t>(from)) { aspects = aspects | to;
 } };
                 include(texture_aspect::color, sync::aspect::color);
                 include(texture_aspect::depth, sync::aspect::depth);

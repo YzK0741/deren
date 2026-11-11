@@ -1,5 +1,5 @@
 module;
-#include <cstdint>
+
 export module deren.engine.subtilis.asset;
 export import deren.vstd;
 import deren.engine.meshlet;
@@ -75,7 +75,7 @@ export namespace deren::engine::subtilis {
             return maximum_cut_;
         }
         [[nodiscard]] static std::expected<asset, asset_error> make(asset_description const& input) {
-            if (input.clusters.size() > UINT32_MAX || input.groups.size() > UINT32_MAX) {
+            if (input.clusters.size() > std::numeric_limits<std::uint32_t>::max() || input.groups.size() > std::numeric_limits<std::uint32_t>::max()) {
                 return std::unexpected(asset_error::capacity);
             }
             if (input.groups.empty()) {
@@ -99,9 +99,9 @@ export namespace deren::engine::subtilis {
             asset result;
             result.clusters_.assign(input.clusters.begin(), input.clusters.end());
             result.groups_.reserve(input.groups.size());
-            deren::utility::vessel::vector<uint8_t> cluster_handle(input.clusters.size(), 0);
-            deren::utility::vessel::vector<uint8_t> parent(input.groups.size(), 0);
-            deren::utility::vessel::vector<uint8_t> root_seen(input.groups.size(), 0);
+            deren::utility::vessel::vector<std::uint8_t> cluster_handle(input.clusters.size(), 0);
+            deren::utility::vessel::vector<std::uint8_t> parent(input.groups.size(), 0);
+            deren::utility::vessel::vector<std::uint8_t> root_seen(input.groups.size(), 0);
             deren::utility::vessel::vector<cluster_range> finest;
             for (std::size_t i = 0; i < input.groups.size(); ++i) {
                 auto const& g = input.groups[i];
@@ -118,7 +118,7 @@ export namespace deren::engine::subtilis {
                 std::array<double, 3> lo{infinity, infinity, infinity};
                 std::array<double, 3> hi{-infinity, -infinity, -infinity};
                 auto extend = [&](bounding_sphere const& b) {
-                    for (uint32_t axis = 0; axis < 3; ++axis) {
+                    for (std::uint32_t axis = 0; axis < 3; ++axis) {
                         double const min = b.center[axis] - b.radius;
                         double const max = b.center[axis] + b.radius;
                         lo[axis] = std::min(lo[axis], min);
@@ -149,13 +149,13 @@ export namespace deren::engine::subtilis {
                     children_budget += c.worst_cut;
                     extend(c.bounds);
                 }
-                if (children_budget > UINT32_MAX) {
+                if (children_budget > std::numeric_limits<std::uint32_t>::max()) {
                     return std::unexpected(asset_error::capacity);
                 }
                 validated_group node{};
                 node.record = g;
                 node.worst_cut = std::max(g.coarse.count, static_cast<std::uint32_t>(children_budget));
-                for (uint32_t axis = 0; axis < 3; ++axis) {
+                for (std::uint32_t axis = 0; axis < 3; ++axis) {
                     node.bounds.center[axis] = lo[axis] / 2 + hi[axis] / 2;
                 }
                 auto enclose = [&](bounding_sphere const& b) {

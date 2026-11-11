@@ -2,7 +2,6 @@ module;
 
 #include "morton_encoding.hpp"
 
-#include <cstdint>
 #include <glm/glm.hpp>
 
 export module deren.utility:bvh;
@@ -524,7 +523,7 @@ bool hit(glm::vec3 const& min, glm::vec3 const& max, glm::vec3 const& start, glm
     float near = t_min;
     float far = t_max;
 
-    for (int32_t axis = 0; axis < 3; axis++) {
+    for (std::int32_t axis = 0; axis < 3; axis++) {
         if (glm::abs(direction[axis]) < 1e-8) {
             if (start[axis] < min[axis] || start[axis] > max[axis]) {
                 return false;
@@ -552,7 +551,7 @@ bool hit(glm::vec3 const& min, glm::vec3 const& max, glm::vec3 const& start, glm
 namespace {
     // The private encoder uses Boost.Int128 only as an intermediate. Storage, quantization and
     // byte-lexicographic ordering remain unchanged; no Boost integer is exported by this module.
-    constexpr deren::utility::morton_code morton_encode(uint32_t const x, uint32_t const y, uint32_t const z) {
+    constexpr deren::utility::morton_code morton_encode(std::uint32_t const x, std::uint32_t const y, std::uint32_t const z) {
         deren::utility::morton_code code;
         code.data = deren::utility::bvh_detail::encode_morton_bytes(x, y, z);
         return code;
@@ -561,11 +560,11 @@ namespace {
     // Compile-time golden vectors (little-endian bytes). The axis vectors lock the interleave
     // offsets (x/y/z land on bits 0/1/2 of the 96-bit code); the mixed + saturated vectors
     // were cross-checked against the previous __uint128_t implementation.
-    constexpr uint8_t axis_x[] = {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-    constexpr uint8_t axis_y[] = {2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-    constexpr uint8_t axis_z[] = {4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-    constexpr uint8_t mix_golden[] = {67, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-    constexpr uint8_t sat_x_golden[] = {73, 146, 36, 73, 146, 36, 73, 146, 36, 73, 146, 36};
+    constexpr std::uint8_t axis_x[] = {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    constexpr std::uint8_t axis_y[] = {2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    constexpr std::uint8_t axis_z[] = {4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    constexpr std::uint8_t mix_golden[] = {67, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    constexpr std::uint8_t sat_x_golden[] = {73, 146, 36, 73, 146, 36, 73, 146, 36, 73, 146, 36};
     static_assert(morton_encode(1, 0, 0) == deren::utility::morton_code(axis_x));
     static_assert(morton_encode(0, 1, 0) == deren::utility::morton_code(axis_y));
     static_assert(morton_encode(0, 0, 1) == deren::utility::morton_code(axis_z));
@@ -594,9 +593,9 @@ namespace deren::utility {
             return fail("position must be in [0, 1]");
         }
 
-        auto const x = static_cast<uint32_t>(midpoint.x * scale);
-        auto const y = static_cast<uint32_t>(midpoint.y * scale);
-        auto const z = static_cast<uint32_t>(midpoint.z * scale);
+        auto const x = static_cast<std::uint32_t>(midpoint.x * scale);
+        auto const y = static_cast<std::uint32_t>(midpoint.y * scale);
+        auto const z = static_cast<std::uint32_t>(midpoint.z * scale);
 
         morton_code code = morton_encode(x, y, z);
 
