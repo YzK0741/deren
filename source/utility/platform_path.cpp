@@ -22,7 +22,7 @@
 
 #include <iterator>
 
-#if defined(_WIN32)
+#ifdef _WIN32
 // THE `#ifndef` IS LOAD-BEARING, not decoration: libstdc++'s `c++config.h`, reached through <cstddef> above,
 // already defines NOMINMAX when it pulls in a Windows header - so an unguarded `#define` here is a REdefinition,
 // which the project's `-Werror` turns into a build failure (measured with GCC 16.2 on MinGW; libc++'s
@@ -34,7 +34,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
-#elif defined(__linux__)
+#elifdef __linux__
 #include <unistd.h>
 #endif
 
@@ -51,7 +51,7 @@ extern "C" int32_t utility_platform_executable_directory(char* out, std::size_t 
         return -1;
     }
     out[0] = '\0';
-#if defined(_WIN32)
+#ifdef _WIN32
     wchar_t wide[32768] = {}; // long enough for a \\?\ path; the API reports truncation itself
     DWORD const written = GetModuleFileNameW(nullptr, wide, static_cast<DWORD>(std::size(wide)));
     if (written == 0 || written >= std::size(wide)) {
@@ -64,7 +64,7 @@ extern "C" int32_t utility_platform_executable_directory(char* out, std::size_t 
         }
     }
     return -1; // no separator: not a filesystem path we can use
-#elif defined(__linux__)
+#elifdef __linux__
     // /proc/self/exe is a symlink to the binary, and readlink does not append a terminator
     ssize_t const written = readlink("/proc/self/exe", out, capacity - 1);
     if (written <= 0 || static_cast<std::size_t>(written) >= capacity - 1) {

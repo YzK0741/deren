@@ -1,6 +1,5 @@
 module;
 #include <cstdint>
-#include <vulkan/vulkan.h>
 #define VRDX_IMPLEMENTATION
 #include <vrdx/include/vk_radix_sort.h>
 module deren.vulkan.core;
@@ -14,7 +13,7 @@ namespace deren::vulkan {
         class radix_sorter final : public rhi::radix_sorter {
         public:
             static constexpr std::string_view tag = concrete::radix_sorter;
-            [[nodiscard]] std::string_view get_tag() const noexcept override {
+            [[nodiscard]] std::string_view get_tag() const noexcept override { // NOLINT
                 return tag;
             }
             radix_sorter(core& full_core, VrdxSorter native) noexcept
@@ -74,7 +73,7 @@ namespace deren::vulkan {
                 if (!keys || !values || !scratch) {
                     return rhi::error::invalid_argument;
                 }
-                auto overlap = [](rhi::buffer* a, std::uint64_t ao, std::uint64_t as, rhi::buffer* b, std::uint64_t bo, std::uint64_t bs) {
+                auto overlap = [](rhi::buffer const* a, std::uint64_t ao, std::uint64_t as, rhi::buffer const* b, std::uint64_t bo, std::uint64_t bs) {
                     return a == b && ao < bo + bs && bo < ao + as;
                 };
                 if (overlap(keys, info.keys_offset, bytes, values, info.values_offset, bytes) ||

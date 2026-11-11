@@ -660,6 +660,7 @@ namespace deren::engine {
         /**
          * @brief record ONE MESH DISPATCH over a geometry window already pushed into the stage block
          * @param env the session; it must have `mesh_stage` set and its mesh endpoints filled
+         * @param geometry
          * @param index_count how many indices the draw covers (the dispatch's group count follows from it)
          * @param instance_count how many instances to dispatch: a mesh command has no instanceCount, so the
          *        INSTANCE becomes the workgroup grid's Y and the stage reads it as its instance index
@@ -669,7 +670,7 @@ namespace deren::engine {
          *       would be a command with no effect - the stage reaches them through the pushed lanes instead,
          *       which is the whole difference between this and bind_geometry_and_push.
          */
-        void mesh_dispatch(render_environment const& env, primitive const& geometry, uint32_t index_count, uint32_t instance_count, uint32_t survivors = not_culled) const;
+        static void mesh_dispatch(render_environment const& env, primitive const& geometry, uint32_t index_count, uint32_t instance_count, uint32_t survivors = not_culled);
     };
 
     /**

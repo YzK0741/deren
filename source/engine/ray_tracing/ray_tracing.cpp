@@ -165,7 +165,7 @@ namespace deren::engine::ray_tracing {
     // alignment, the three setup buffers and their mappings, the size queries, the storage and the scratch.
     // The backend creates and destroys all of it, so a caller cannot get the alignment wrong and a second backend can lay the
     // whole thing out differently.
-    std::optional<structure_set::micromap_resource> make_micromap(rhi::shared_object<rhi::api_core> const& access, uint32_t const triangle_count) {
+    static std::optional<structure_set::micromap_resource> make_micromap(rhi::shared_object<rhi::api_core> const& access, uint32_t const triangle_count) {
         if (triangle_count == 0 || triangle_count > UINT32_MAX / 4u) {
             return std::nullopt;
         }
@@ -224,32 +224,38 @@ namespace deren::engine::ray_tracing {
                                                                            uint32_t const mask_stride,
                                                                            std::uintptr_t const skin_address,
                                                                            uint32_t const skin_stride,
-                                                                           micromap_resource const* const micromap) const noexcept {
+                                                                           micromap_resource const* const micromap) noexcept {
         // The three cases, in the order they take precedence: a MASK bake replaces the geometry entirely (an
         // expanded, NON-INDEXED triangle list), a skinned caster keeps the primitive's index buffer because its
         // vertex ORDER is unchanged, and everything else is the primitive's memory.
-        acceleration_structure::geometry_source source = {};
+        acceleration_structure::geometry_source source;
         if (mask_address != 0) {
-            source = acceleration_structure::geometry_source{.vertex_address = mask_address,
-                                                             .vertex_stride = mask_stride,
-                                                             .vertex_count = caster.draw_index_count,
-                                                             .index_address = 0,
-                                                             .index_type = caster.index_type,
-                                                             .index_count = caster.draw_index_count};
+            source = acceleration_structure::geometry_source{
+                .vertex_address = mask_address,
+                .vertex_stride = mask_stride,
+                .vertex_count = caster.draw_index_count,
+                .index_address = 0,
+                .index_type = caster.index_type,
+                .index_count = caster.draw_index_count,
+            };
         } else if (skin_address != 0) {
-            source = acceleration_structure::geometry_source{.vertex_address = skin_address,
-                                                             .vertex_stride = skin_stride,
-                                                             .vertex_count = caster.vertex_count,
-                                                             .index_address = source_index_address,
-                                                             .index_type = caster.index_type,
-                                                             .index_count = caster.draw_index_count};
+            source = acceleration_structure::geometry_source{
+                .vertex_address = skin_address,
+                .vertex_stride = skin_stride,
+                .vertex_count = caster.vertex_count,
+                .index_address = source_index_address,
+                .index_type = caster.index_type,
+                .index_count = caster.draw_index_count,
+            };
         } else {
-            source = acceleration_structure::geometry_source{.vertex_address = source_vertex_address,
-                                                             .vertex_stride = caster.vertex_stride,
-                                                             .vertex_count = caster.vertex_count,
-                                                             .index_address = source_index_address,
-                                                             .index_type = caster.index_type,
-                                                             .index_count = caster.draw_index_count};
+            source = acceleration_structure::geometry_source{
+                .vertex_address = source_vertex_address,
+                .vertex_stride = caster.vertex_stride,
+                .vertex_count = caster.vertex_count,
+                .index_address = source_index_address,
+                .index_type = caster.index_type,
+                .index_count = caster.draw_index_count,
+            };
         }
         // THE MICROMAP RIDES ALONG WHATEVER GEOMETRY WAS CHOSEN, because it is indexed by the triangle rather than
         // by a vertex: the geometry's primitive `i` is the same triangle the micromap's element `i` describes, so
@@ -480,17 +486,19 @@ namespace deren::engine::ray_tracing {
             // skipped above is skipped there too and the two walks cannot disagree. The mask and skin addresses
             // ride along, because that list is what a hit's shading reads the geometry through - a baked or
             // skinned caster must be read from the copy it was built from.
-            this->caster_list.emplace_back(caster_level{.caster = caster,
-                                                        .blas_index = added.value(),
-                                                        .mask_stride = mask_stride,
-                                                        .mask_vertex_address = mask_address,
-                                                        .skin_source_address = source_vertex_address,
-                                                        .skin_destination_address = skin_address,
-                                                        .skin_source_stride = skin_source_stride,
-                                                        .skin_destination_stride = skin_stride,
-                                                        .skin_vertex_count = skin_vertex_count,
-                                                        .skin_base = skin_base,
-                                                        .micromap_index = micromap_index});
+            this->caster_list.emplace_back(caster_level{
+                .caster = caster,
+                .blas_index = added.value(),
+                .mask_stride = mask_stride,
+                .mask_vertex_address = mask_address,
+                .skin_source_address = source_vertex_address,
+                .skin_destination_address = skin_address,
+                .skin_source_stride = skin_source_stride,
+                .skin_destination_stride = skin_stride,
+                .skin_vertex_count = skin_vertex_count,
+                .skin_base = skin_base,
+                .micromap_index = micromap_index,
+            });
         }
 
         // Record only after all destinations and BLAS objects are prepared. Abandoning a failed
@@ -525,14 +533,16 @@ namespace deren::engine::ray_tracing {
             // is exactly the raw masks this replaced (COMPUTE_SHADER/SHADER_WRITE ->
             // ACCELERATION_STRUCTURE_BUILD/SHADER_READ). `command_buffer` is the contract buffer this build
             // records into, so the memory barrier is a `barrier_group` with `has_memory`.
-            deren::promise::rhi::barrier_group const bake_order{
+            constexpr deren::promise::rhi::barrier_group bake_order{
                 .struct_size = sizeof(deren::promise::rhi::barrier_group),
                 .images = {},
                 .buffers = {},
                 .stage = deren::promise::rhi::stage_hint::none,
                 .has_memory = true,
-                .memory = deren::promise::rhi::memory_barrier{.from = deren::promise::rhi::buffer_use::shader_write,
-                                                              .to = deren::promise::rhi::buffer_use::acceleration_structure_read},
+                .memory = deren::promise::rhi::memory_barrier{
+                    .from = deren::promise::rhi::buffer_use::shader_write,
+                    .to = deren::promise::rhi::buffer_use::acceleration_structure_read,
+                },
             };
             if (commands.barrier(bake_order) != deren::promise::rhi::error::ok) {
                 return std::unexpected(failure{.message = "Ray tracing: bake build-ordering barrier was refused"});
@@ -565,14 +575,16 @@ namespace deren::engine::ray_tracing {
             // (micromap_write, micromap_read) is exactly this barrier's mask pair
             // (MICROMAP_BUILD/MICROMAP_WRITE -> ACCELERATION_STRUCTURE_BUILD/MICROMAP_READ), and it is what makes
             // the attachment legal in the build that follows.
-            deren::promise::rhi::barrier_group const micromaps_ready{
+            constexpr deren::promise::rhi::barrier_group micromaps_ready{
                 .struct_size = sizeof(deren::promise::rhi::barrier_group),
                 .images = {},
                 .buffers = {},
                 .stage = deren::promise::rhi::stage_hint::none,
                 .has_memory = true,
-                .memory = deren::promise::rhi::memory_barrier{.from = deren::promise::rhi::buffer_use::micromap_write,
-                                                              .to = deren::promise::rhi::buffer_use::micromap_read},
+                .memory = deren::promise::rhi::memory_barrier{
+                    .from = deren::promise::rhi::buffer_use::micromap_write,
+                    .to = deren::promise::rhi::buffer_use::micromap_read,
+                },
             };
             if (commands.barrier(micromaps_ready) != deren::promise::rhi::error::ok) {
                 return std::unexpected(failure{.message = "Ray tracing: micromap build-ordering barrier was refused"});
@@ -589,7 +601,7 @@ namespace deren::engine::ray_tracing {
         }
 
         acceleration_structure::build_stats const& stats = structures.last_stats();
-        double const host_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+        double const host_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count(); // NOLINT
         deren::utility::log("ray-traced shadows: built {} bottom level structures ({} triangles, {:.1f} MiB + {:.1f} MiB scratch) in {:.1f} ms",
                             stats.geometry_count,
                             stats.triangle_count,
@@ -681,13 +693,15 @@ namespace deren::engine::ray_tracing {
             acceleration_structure::instance_source const instance = {
                 .transform = caster->push.model,
                 .blas_index = built.blas_index,
-                .record = {.vertex_address = vertex_address,
-                           .index_address = index_address,
-                           .model = caster->push.model,
-                           .vertex_stride = vertex_stride,
-                           .index_type = static_cast<uint32_t>(caster->index_type),
-                           .material_index = caster->push.material_index.value,
-                           .primitive_index = built.blas_index},
+                .record = {
+                    .vertex_address = vertex_address,
+                    .index_address = index_address,
+                    .model = caster->push.model,
+                    .vertex_stride = vertex_stride,
+                    .index_type = static_cast<uint32_t>(caster->index_type),
+                    .material_index = caster->push.material_index.value,
+                    .primitive_index = built.blas_index,
+                },
                 .mask = instance_mask,
             };
             if (auto const added = top.add(levels, instance); !added) {
@@ -704,14 +718,16 @@ namespace deren::engine::ray_tracing {
         // acceleration_structure_read) is the measured mask pair (ACCELERATION_STRUCTURE_BUILD with the
         // extension's WRITE access -> the same stage with the READ access). `acceleration_structure_read` named
         // the reader already; the WRITER is the value appended with this site.
-        deren::promise::rhi::barrier_group const build_order{
+        constexpr deren::promise::rhi::barrier_group build_order{
             .struct_size = sizeof(deren::promise::rhi::barrier_group),
             .images = {},
             .buffers = {},
             .stage = deren::promise::rhi::stage_hint::none,
             .has_memory = true,
-            .memory = deren::promise::rhi::memory_barrier{.from = deren::promise::rhi::buffer_use::acceleration_structure_write,
-                                                          .to = deren::promise::rhi::buffer_use::acceleration_structure_read},
+            .memory = deren::promise::rhi::memory_barrier{
+                .from = deren::promise::rhi::buffer_use::acceleration_structure_write,
+                .to = deren::promise::rhi::buffer_use::acceleration_structure_read,
+            },
         };
         if (commands.barrier(build_order) != deren::promise::rhi::error::ok) {
             deren::utility::log("ray tracing: the top-level build-ordering barrier was refused");

@@ -2,9 +2,6 @@ module;
 
 #include "../../../../third_party/spirv-reflect/spirv_reflect.h"
 
-#include <cstddef>
-#include <cstdint>
-#include <vulkan/vulkan.h>
 #include <vulkan/vulkan_core.h>
 
 export module deren.vulkan.core.pipeline:spirv_parser;
@@ -497,7 +494,6 @@ std::expected<deren::vulkan::pipeline::push_constant_layout, std::string_view> d
     using fail = std::unexpected<std::string_view>;
     push_constant_layout out_layout;
     out_layout.constants.clear();
-    out_layout.total_size = 0;
 
     SpvReflectShaderModule module = {};
     SpvReflectResult result = spvReflectCreateShaderModule(

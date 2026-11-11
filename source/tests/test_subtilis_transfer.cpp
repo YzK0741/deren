@@ -108,7 +108,8 @@ namespace {
                 .vertex_count = source->vertex_count(),
                 .index_address = addresses->buffer_address(*buffers[1], 0),
                 .index_format = rhi::index_type::uint32,
-                .index_count = source->lod0_index_count()};
+                .index_count = source->lod0_index_count(),
+            };
             auto structure = core->resources->create_acceleration_structure({.geometries = &input, .geometry_count = 1});
             auto commands = core->commands->make_command_buffer({});
             CHECK(structure && commands);

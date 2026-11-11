@@ -357,14 +357,7 @@ export namespace deren::engine::render_layout {
         static constexpr uint32_t rt_reflection_depth_current = heap_slot_base + 1580u;
         static constexpr uint32_t rt_reflection_depth_current_storage = heap_slot_base + 1588u;
         /**
-         * @brief the streamed index page table and its arena, read by the raster and mesh stages
-         *
-         * @note THEY ARE HEAP SLOTS RATHER THAN PUSH LANES because the 48-byte meshlet record only carries a
-         *       32-bit page id: the table and arena addresses are scene-wide and constant for the lifetime of
-         *       the uploaded geometry, so binding them once is cheaper than growing `MeshGeometryLanes` (and
-         *       every stage's push block) by two 64-bit addresses and a count. They sit after the reflection
-         *       block, which is the last used pair; the shader constants in `heap_slot_constants.slang` must
-         *       move with them or every page fetch reads an unrelated descriptor.
+         * @brief reserved legacy page slots. Visibility now reads per-draw page addresses.
          */
         static constexpr uint32_t subtilis_page_table = heap_slot_base + 1596u;
         static constexpr uint32_t subtilis_page_arena = heap_slot_base + 1597u;

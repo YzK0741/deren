@@ -11,7 +11,6 @@
 module;
 
 #include <array>
-#include <cstddef>
 #include <optional>
 
 export module deren.engine.render_graph.reflection_denoise;
@@ -127,9 +126,11 @@ export namespace deren::engine::render_graph::reflection_denoise {
             return std::unexpected(copy_pass.error());
         }
 
-        for (auto const& [later, earlier] : {std::pair{*prefilter_pass, *reproject_pass},
-                                             std::pair{*resolve_pass, *prefilter_pass},
-                                             std::pair{*copy_pass, *resolve_pass}}) {
+        for (auto const& [later, earlier] : {
+                 std::pair{*prefilter_pass, *reproject_pass},
+                 std::pair{*resolve_pass, *prefilter_pass},
+                 std::pair{*copy_pass, *resolve_pass},
+             }) {
             auto ordered = graph.order_after(later, earlier);
             if (!ordered) {
                 return std::unexpected(ordered.error());

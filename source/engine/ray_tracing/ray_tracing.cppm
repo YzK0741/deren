@@ -107,7 +107,7 @@ export namespace deren::engine::ray_tracing {
         /// whether the MASK bake can take a request (its pipeline exists)
         bool (*mask_ready)(void* parent) = nullptr;
         /// bake ONE caster's alphaMode MASK into an expanded vertex buffer (the job carries the pipeline and the set)
-        void (*record_mask_bake)(void* parent, rhi::command_buffer& command_buffer, pass::mask_bake_request const& request) = nullptr;
+        void (*record_mask_bake)(void* parent, rhi::command_buffer const& command_buffer, pass::mask_bake_request const& request) = nullptr;
         /// whether the skinning job can take a request (its pipeline and sets exist)
         bool (*skin_ready)(void* parent) = nullptr;
         /**
@@ -117,7 +117,7 @@ export namespace deren::engine::ray_tracing {
          * `skin_destination_address` is non-zero - the same walk, and the same "which casters are skinned"
          * answer, the build itself used.
          */
-        bool (*record_skin)(void* parent, rhi::command_buffer& command_buffer, std::span<caster_level const> casters) = nullptr;
+        bool (*record_skin)(void* parent, rhi::command_buffer const& command_buffer, std::span<caster_level const> casters) = nullptr;
     };
 
     /**
@@ -231,14 +231,14 @@ export namespace deren::engine::ray_tracing {
     private:
         /// drop everything: the structures, the map and the copies they were built from (all four are one fact)
         void abandon() noexcept;
-        [[nodiscard]] acceleration_structure::geometry_source caster_geometry(primitive const& caster,
-                                                                              std::uintptr_t source_vertex_address,
-                                                                              std::uintptr_t source_index_address,
-                                                                              std::uintptr_t mask_address,
-                                                                              uint32_t mask_stride,
-                                                                              std::uintptr_t skin_address,
-                                                                              uint32_t skin_stride,
-                                                                              micromap_resource const* micromap) const noexcept;
+        [[nodiscard]] static acceleration_structure::geometry_source caster_geometry(primitive const& caster,
+                                                                                     std::uintptr_t source_vertex_address,
+                                                                                     std::uintptr_t source_index_address,
+                                                                                     std::uintptr_t mask_address,
+                                                                                     uint32_t mask_stride,
+                                                                                     std::uintptr_t skin_address,
+                                                                                     uint32_t skin_stride,
+                                                                                     micromap_resource const* micromap) noexcept;
 
         /// The injected backend-independent device root.
         rhi::api_core* contract = nullptr;

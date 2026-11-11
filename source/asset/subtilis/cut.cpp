@@ -15,7 +15,7 @@ namespace deren::asset::subtilis {
             for (size_t col = 0; col < 4; ++col) {
                 for (size_t row = 0; row < 4; ++row) {
                     for (size_t k = 0; k < 4; ++k) {
-                        out[col * 4 + row] += double(a[k * 4 + row]) * b[col * 4 + k];
+                        out[col * 4 + row] += static_cast<double>(a[k * 4 + row]) * b[col * 4 + k];
                     }
                 }
             }
@@ -72,7 +72,7 @@ namespace deren::asset::subtilis {
             }
             camera = multiply(v.view, v.model);
             scale = scale_bound(camera);
-            pixels = std::max(std::abs(double(v.projection[0])) * v.extent[0], std::abs(double(v.projection[5])) * v.extent[1]) * .5;
+            pixels = std::max(std::abs(static_cast<double>(v.projection[0])) * v.extent[0], std::abs(static_cast<double>(v.projection[5])) * v.extent[1]) * .5;
             if (!std::isfinite(scale) || !std::isfinite(pixels)) {
                 return fallback();
             }
@@ -85,8 +85,8 @@ namespace deren::asset::subtilis {
             double metric = g.error;
             if (kind) {
                 double depth = -(camera[2] * g.lod.x + camera[6] * g.lod.y + camera[10] * g.lod.z + camera[14]);
-                double closest = depth - double(g.lod.radius) * scale;
-                if (closest <= double(v.near_plane)) {
+                double closest = depth - static_cast<double>(g.lod.radius) * scale;
+                if (closest <= static_cast<double>(v.near_plane)) {
                     continue;
                 }
                 metric *= scale * pixels;
@@ -94,7 +94,7 @@ namespace deren::asset::subtilis {
                     metric /= closest;
                 }
             }
-            coarsen[id] = std::isfinite(metric) && metric <= double(v.threshold);
+            coarsen[id] = std::isfinite(metric) && metric <= static_cast<double>(v.threshold);
         }
         detail::close_coarsening(p, coarsen);
         vector<uint32_t> selected;

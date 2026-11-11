@@ -42,41 +42,71 @@ export namespace deren::engine::pass {
 
     public:
         static constexpr deren::utility::vessel::array ids{
-            render_resource::resource_id::hdr, render_resource::resource_id::gbuffer_albedo,
-            render_resource::resource_id::gbuffer_normal, render_resource::resource_id::gbuffer_material,
-            render_resource::resource_id::velocity, render_resource::resource_id::scene_input,
-            render_resource::resource_id::gbuffer_depth, render_resource::resource_id::taa_history, render_resource::resource_id::ldr,
-            render_resource::resource_id::bloom_level0, render_resource::resource_id::bloom_level1,
-            render_resource::resource_id::bloom_level2, render_resource::resource_id::bloom_level3,
-            render_resource::resource_id::rt_shadow_visibility, render_resource::resource_id::visibility_buffer,
-            render_resource::resource_id::software_depth, render_resource::resource_id::software_id,
+            render_resource::resource_id::hdr,
+            render_resource::resource_id::gbuffer_albedo,
+            render_resource::resource_id::gbuffer_normal,
+            render_resource::resource_id::gbuffer_material,
+            render_resource::resource_id::velocity,
+            render_resource::resource_id::scene_input,
+            render_resource::resource_id::gbuffer_depth,
+            render_resource::resource_id::taa_history,
+            render_resource::resource_id::ldr,
+            render_resource::resource_id::bloom_level0,
+            render_resource::resource_id::bloom_level1,
+            render_resource::resource_id::bloom_level2,
+            render_resource::resource_id::bloom_level3,
+            render_resource::resource_id::rt_shadow_visibility,
+            render_resource::resource_id::visibility_buffer,
+            render_resource::resource_id::software_depth,
+            render_resource::resource_id::software_id,
             render_resource::resource_id::rt_reflection,
-            render_resource::resource_id::rt_reflection_denoised, render_resource::resource_id::rt_reflection_reprojected,
-            render_resource::resource_id::rt_reflection_average, render_resource::resource_id::rt_reflection_moments,
-            render_resource::resource_id::rt_reflection_moments_prefiltered, render_resource::resource_id::rt_reflection_moments_history,
-            render_resource::resource_id::rt_reflection_surface_history, render_resource::resource_id::rt_reflection_depth_history,
-            render_resource::resource_id::rt_reflection_average_history, render_resource::resource_id::rt_reflection_prefiltered,
-            render_resource::resource_id::rt_reflection_denoised_history, render_resource::resource_id::rt_reflection_surface_current,
-            render_resource::resource_id::rt_reflection_depth_current};
+            render_resource::resource_id::rt_reflection_denoised,
+            render_resource::resource_id::rt_reflection_reprojected,
+            render_resource::resource_id::rt_reflection_average,
+            render_resource::resource_id::rt_reflection_moments,
+            render_resource::resource_id::rt_reflection_moments_prefiltered,
+            render_resource::resource_id::rt_reflection_moments_history,
+            render_resource::resource_id::rt_reflection_surface_history,
+            render_resource::resource_id::rt_reflection_depth_history,
+            render_resource::resource_id::rt_reflection_average_history,
+            render_resource::resource_id::rt_reflection_prefiltered,
+            render_resource::resource_id::rt_reflection_denoised_history,
+            render_resource::resource_id::rt_reflection_surface_current,
+            render_resource::resource_id::rt_reflection_depth_current,
+        };
         static constexpr deren::utility::vessel::array heap_slots{
-            render_layout::heap_slots::post_color, render_layout::heap_slots::gbuffer_albedo,
-            render_layout::heap_slots::gbuffer_normal, render_layout::heap_slots::gbuffer_material,
-            render_layout::heap_slots::gbuffer_velocity, render_layout::heap_slots::taa_current,
-            render_layout::heap_slots::gbuffer_depth, render_layout::heap_slots::taa_history, render_layout::heap_slots::display_color,
+            render_layout::heap_slots::post_color,
+            render_layout::heap_slots::gbuffer_albedo,
+            render_layout::heap_slots::gbuffer_normal,
+            render_layout::heap_slots::gbuffer_material,
+            render_layout::heap_slots::gbuffer_velocity,
+            render_layout::heap_slots::taa_current,
+            render_layout::heap_slots::gbuffer_depth,
+            render_layout::heap_slots::taa_history,
+            render_layout::heap_slots::display_color,
             render_layout::heap_slots::bloom_l0,
             render_layout::heap_slots::bloom_l0 + render_layout::heap_image_capacity,
             render_layout::heap_slots::bloom_l0 + 2u * render_layout::heap_image_capacity,
             render_layout::heap_slots::bloom_l0 + 3u * render_layout::heap_image_capacity,
-            render_layout::heap_slots::rt_visibility, render_layout::heap_slots::visibility,
-            render_layout::heap_slots::software_depth, render_layout::heap_slots::software_id,
+            render_layout::heap_slots::rt_visibility,
+            render_layout::heap_slots::visibility,
+            render_layout::heap_slots::software_depth,
+            render_layout::heap_slots::software_id,
             render_layout::heap_slots::rt_reflection,
-            render_layout::heap_slots::rt_reflection_denoised, render_layout::heap_slots::rt_reflection_reprojected,
-            render_layout::heap_slots::rt_reflection_average, render_layout::heap_slots::rt_reflection_moments,
-            render_layout::heap_slots::rt_reflection_moments_prefiltered, render_layout::heap_slots::rt_reflection_moments_history,
-            render_layout::heap_slots::rt_reflection_surface_history, render_layout::heap_slots::rt_reflection_depth_history,
-            render_layout::heap_slots::rt_reflection_average_history, render_layout::heap_slots::rt_reflection_prefiltered,
-            render_layout::heap_slots::rt_reflection_denoised_history, render_layout::heap_slots::rt_reflection_surface_current,
-            render_layout::heap_slots::rt_reflection_depth_current};
+            render_layout::heap_slots::rt_reflection_denoised,
+            render_layout::heap_slots::rt_reflection_reprojected,
+            render_layout::heap_slots::rt_reflection_average,
+            render_layout::heap_slots::rt_reflection_moments,
+            render_layout::heap_slots::rt_reflection_moments_prefiltered,
+            render_layout::heap_slots::rt_reflection_moments_history,
+            render_layout::heap_slots::rt_reflection_surface_history,
+            render_layout::heap_slots::rt_reflection_depth_history,
+            render_layout::heap_slots::rt_reflection_average_history,
+            render_layout::heap_slots::rt_reflection_prefiltered,
+            render_layout::heap_slots::rt_reflection_denoised_history,
+            render_layout::heap_slots::rt_reflection_surface_current,
+            render_layout::heap_slots::rt_reflection_depth_current,
+        };
         static constexpr deren::utility::vessel::array<uint32_t, resource_count> storage_slots = [] {
             deren::utility::vessel::array<uint32_t, resource_count> slots{};
             slots[13] = render_layout::heap_slots::rt_visibility_storage;
@@ -102,20 +132,39 @@ export namespace deren::engine::pass {
             namespace managed = render_resource::instances;
             namespace rhi = deren::promise::rhi;
             deren::utility::vessel::array<managed::request, resource_count> values;
-            constexpr deren::utility::vessel::array formats{render_layout::hdr_format, render_layout::gbuffer_formats[0],
-                                                            render_layout::gbuffer_formats[1], render_layout::gbuffer_formats[2],
-                                                            render_layout::gbuffer_velocity_format, render_layout::hdr_format, rhi::image_format::depth,
-                                                            render_layout::hdr_format, render_layout::hdr_format, render_layout::hdr_format,
-                                                            render_layout::hdr_format, render_layout::hdr_format, render_layout::hdr_format,
-                                                            rhi::image_format::r16_sfloat, render_layout::visibility_format,
-                                                            rhi::image_format::r32_uint, rhi::image_format::r32_uint,
-                                                            render_layout::hdr_format,
-                                                            render_layout::hdr_format, render_layout::hdr_format, render_layout::hdr_format,
-                                                            rhi::image_format::r16g16_sfloat, rhi::image_format::r16g16_sfloat,
-                                                            rhi::image_format::r16g16_sfloat, render_layout::hdr_format,
-                                                            rhi::image_format::r32_uint, render_layout::hdr_format,
-                                                            render_layout::hdr_format, render_layout::hdr_format,
-                                                            render_layout::hdr_format, rhi::image_format::r32_uint};
+            constexpr deren::utility::vessel::array formats{
+                render_layout::hdr_format,
+                render_layout::gbuffer_formats[0],
+                render_layout::gbuffer_formats[1],
+                render_layout::gbuffer_formats[2],
+                render_layout::gbuffer_velocity_format,
+                render_layout::hdr_format,
+                rhi::image_format::depth,
+                render_layout::hdr_format,
+                render_layout::hdr_format,
+                render_layout::hdr_format,
+                render_layout::hdr_format,
+                render_layout::hdr_format,
+                render_layout::hdr_format,
+                rhi::image_format::r16_sfloat,
+                render_layout::visibility_format,
+                rhi::image_format::r32_uint,
+                rhi::image_format::r32_uint,
+                render_layout::hdr_format,
+                render_layout::hdr_format,
+                render_layout::hdr_format,
+                render_layout::hdr_format,
+                rhi::image_format::r16g16_sfloat,
+                rhi::image_format::r16g16_sfloat,
+                rhi::image_format::r16g16_sfloat,
+                render_layout::hdr_format,
+                rhi::image_format::r32_uint,
+                render_layout::hdr_format,
+                render_layout::hdr_format,
+                render_layout::hdr_format,
+                render_layout::hdr_format,
+                rhi::image_format::r32_uint,
+            };
             for (size_t i = 0; i < values.size(); ++i) {
                 auto& value = values[i];
                 value.id = ids[i];
@@ -184,12 +233,18 @@ export namespace deren::engine::pass {
             render_resource::instances::lifetime life = render_resource::instances::lifetime::output_size;
             char const* debug_name = nullptr;
         };
-        static constexpr deren::utility::vessel::array software_ids{render_resource::resource_id::software_depth,
-                                                                    render_resource::resource_id::software_id};
-        static constexpr deren::utility::vessel::array software_heap_slots{render_layout::heap_slots::software_depth,
-                                                                           render_layout::heap_slots::software_id};
-        static constexpr deren::utility::vessel::array software_storage_heap_slots{render_layout::heap_slots::software_depth_storage,
-                                                                                   render_layout::heap_slots::software_id_storage};
+        static constexpr deren::utility::vessel::array software_ids{
+            render_resource::resource_id::software_depth,
+            render_resource::resource_id::software_id,
+        };
+        static constexpr deren::utility::vessel::array software_heap_slots{
+            render_layout::heap_slots::software_depth,
+            render_layout::heap_slots::software_id,
+        };
+        static constexpr deren::utility::vessel::array software_storage_heap_slots{
+            render_layout::heap_slots::software_depth_storage,
+            render_layout::heap_slots::software_id_storage,
+        };
         /**
          * @brief the two declarations: R32_UINT, frame-sized, sampled AND storage
          *
@@ -202,31 +257,37 @@ export namespace deren::engine::pass {
             constexpr deren::promise::rhi::image_flags flags = deren::promise::rhi::to_bits(deren::promise::rhi::image_flag::sampled) |
                                                                deren::promise::rhi::to_bits(deren::promise::rhi::image_flag::storage) |
                                                                deren::promise::rhi::to_bits(deren::promise::rhi::image_flag::transfer_source);
-            return {{
-                {.id = render_resource::resource_id::software_depth,
-                 .heap_slot = render_layout::heap_slots::software_depth,
-                 .storage_heap_slot = render_layout::heap_slots::software_depth_storage,
-                 .format = deren::promise::rhi::image_format::r32_uint,
-                 .flags = flags,
-                 .scope = render_resource::resource_scope::per_swapchain_image,
-                 .life = render_resource::instances::lifetime::output_size,
-                 .debug_name = "software depth image"},
-                {.id = render_resource::resource_id::software_id,
-                 .heap_slot = render_layout::heap_slots::software_id,
-                 .storage_heap_slot = render_layout::heap_slots::software_id_storage,
-                 .format = deren::promise::rhi::image_format::r32_uint,
-                 .flags = flags,
-                 .scope = render_resource::resource_scope::per_swapchain_image,
-                 .life = render_resource::instances::lifetime::output_size,
-                 .debug_name = "software id image"},
-            }};
+            return {
+                {
+                    {
+                        .id = render_resource::resource_id::software_depth,
+                        .heap_slot = render_layout::heap_slots::software_depth,
+                        .storage_heap_slot = render_layout::heap_slots::software_depth_storage,
+                        .format = deren::promise::rhi::image_format::r32_uint,
+                        .flags = flags,
+                        .scope = render_resource::resource_scope::per_swapchain_image,
+                        .life = render_resource::instances::lifetime::output_size,
+                        .debug_name = "software depth image",
+                    },
+                    {
+                        .id = render_resource::resource_id::software_id,
+                        .heap_slot = render_layout::heap_slots::software_id,
+                        .storage_heap_slot = render_layout::heap_slots::software_id_storage,
+                        .format = deren::promise::rhi::image_format::r32_uint,
+                        .flags = flags,
+                        .scope = render_resource::resource_scope::per_swapchain_image,
+                        .life = render_resource::instances::lifetime::output_size,
+                        .debug_name = "software id image",
+                    },
+                },
+            };
         }
         /// THE TWO REQUESTS TASK 4 WILL HAND THE TABLE (one per swapchain image, at the frame's render extent). Kept
         /// beside the declaration so the request and the tested declaration cannot drift apart.
         static deren::utility::vessel::array<render_resource::instances::request, software_resource_count> software_descriptions(
             render_resource::instances::resource_context const& context) {
             namespace managed = render_resource::instances;
-            auto const families = software_resource_families();
+            constexpr auto families = software_resource_families();
             deren::utility::vessel::array<managed::request, software_resource_count> values;
             for (std::size_t i = 0; i < values.size(); ++i) {
                 auto& value = values[i];
@@ -262,7 +323,7 @@ export namespace deren::engine::pass {
             value.zero_on_create = true;
             return value;
         }
-        void select_resources(deren::utility::vessel::array<bool, resource_count> selection) noexcept {
+        void select_resources(deren::utility::vessel::array<bool, resource_count> const& selection) noexcept {
             required = selection;
             for (size_t i = 17; i < resource_count; ++i) {
                 required[i] = true; // the reflection lane and its denoiser images are always allocated
@@ -293,11 +354,11 @@ export namespace deren::engine::pass {
             return resource_view;
         }
         render_resource::pass_io const& io() const noexcept override {
-            static render_resource::pass_io const value{.name = "output_targets"};
+            static constexpr render_resource::pass_io value{.name = "output_targets"};
             return value;
         }
         deren::engine::pass::behaviour const& behaviour() const noexcept override {
-            static deren::engine::pass::behaviour const value{.extent = extent_rule::none, .resync_viewport = false};
+            static constexpr deren::engine::pass::behaviour value{.extent = extent_rule::none, .resync_viewport = false};
             return value;
         }
         std::string_view feature() const noexcept override {

@@ -7,6 +7,8 @@ target_sources(render_graph_core
         source/engine/render_graph/types.cppm
         source/engine/render_graph/parameters.cppm
         source/engine/render_graph/diagnostics.cppm
+        source/engine/render_graph/range_operations.cppm
+        source/engine/render_graph/synchronization.cppm
         source/engine/render_graph/render_graph.cppm
     PRIVATE source/engine/render_graph/render_graph.cpp
         source/engine/render_graph/diagnostics.cpp

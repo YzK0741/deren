@@ -18,7 +18,7 @@ namespace deren::utility::detail::trace_native {
                                 unavailable,
                                 timeout,
                                 output_limit,
-                                failed };
+                                failed, };
     trace capture(std::uint32_t skip, std::uint32_t depth) noexcept;
     bool resolve(std::uintptr_t pc, frame_info& frame) noexcept;
     void write_trace(trace const& value) noexcept;

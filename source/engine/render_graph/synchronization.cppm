@@ -1,7 +1,13 @@
-#pragma once
+module;
 #include <cstdint>
+#include <optional>
+#include <utility>
+#include <variant>
+export module deren.engine.render_graph:synchronization;
+import :types;
+import :range_operations;
 // Internal single-queue CPU synchronization model; no native/RHI masks.
-namespace deren::engine::render_graph::detail {
+export namespace deren::engine::render_graph::detail {
     inline uint32_t bits(pipeline_stage value) noexcept {
         return static_cast<uint32_t>(value);
     }
@@ -126,8 +132,11 @@ namespace deren::engine::render_graph::detail {
         }
     }
     inline resource_state state_for(resource_kind kind, resolved_access const& access) noexcept {
-        return {layout_for(kind, access.scope.usage), access.scope.stages,
-                access.scope.usage == resource_usage::present ? memory_access::none : access_for(access.mode)};
+        return {
+            layout_for(kind, access.scope.usage),
+            access.scope.stages,
+            access.scope.usage == resource_usage::present ? memory_access::none : access_for(access.mode),
+        };
     }
     inline resource_state join_writer(resource_state current, std::optional<resource_state> const& writer) noexcept {
         if (writer) {

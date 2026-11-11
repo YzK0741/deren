@@ -116,7 +116,7 @@ export namespace deren::engine::pass {
         [[nodiscard]] std::string_view feature() const noexcept override;
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const& host) override;
-        [[nodiscard]] deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
+        [[nodiscard]] deren::promise::rhi::error record_content(resolved_io const& io) noexcept override; // NOLINT
 
         /// @brief hand over this frame's scene (the renderer calls it right before the stage is recorded)
         void set_frame(scene_frame const& frame) noexcept;

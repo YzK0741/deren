@@ -6,11 +6,9 @@ export import deren.utility.shared;
 export namespace deren::engine::render_graph {
     inline constexpr uint32_t invalid_index = std::numeric_limits<uint32_t>::max();
     class builder;
-    struct resource_access;
     template <typename Tag>
     class basic_ref {
         friend class builder;
-        friend struct resource_access;
         uint64_t incarnation_ = 0;
         uint32_t index_ = invalid_index;
         basic_ref(uint64_t incarnation, uint32_t index) noexcept
@@ -22,6 +20,9 @@ export namespace deren::engine::render_graph {
         basic_ref() noexcept = default;
         uint32_t index() const noexcept {
             return index_;
+        }
+        uint64_t incarnation() const noexcept {
+            return incarnation_;
         }
         bool operator==(basic_ref const&) const noexcept = default;
     };
@@ -151,16 +152,16 @@ export namespace deren::engine::render_graph {
 
     public:
         resource_access(texture_ref ref, content_access mode, texture_range range = {}, access_scope scope = {}) noexcept
-            : incarnation_(ref.incarnation_)
-            , resource_(ref.index_)
+            : incarnation_(ref.incarnation())
+            , resource_(ref.index())
             , kind_(resource_kind::texture)
             , mode_(mode)
             , range_(range)
             , scope_(scope) {
         }
         resource_access(buffer_ref ref, content_access mode, buffer_range range = {}, access_scope scope = {}) noexcept
-            : incarnation_(ref.incarnation_)
-            , resource_(ref.index_)
+            : incarnation_(ref.incarnation())
+            , resource_(ref.index())
             , kind_(resource_kind::buffer)
             , mode_(mode)
             , range_(range)

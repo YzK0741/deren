@@ -23,10 +23,9 @@
 #include <cstddef>
 #include <cstdint> // int32_t below, for the same measured reason as platform_path.cpp's include
 #include <cstdio>
-#include <cstring>
 #include <iterator> // std::size on the stack buffers below (same reason as platform_path.cpp)
 
-#if defined(_WIN32)
+#ifdef _WIN32
 // THE `#ifndef` IS LOAD-BEARING, not decoration: libstdc++'s `c++config.h` - reached through <cstddef> and
 // <cstdio> above - already defines NOMINMAX when it pulls in a Windows header, so an unguarded `#define` here is
 // a REdefinition, which the project's `-Werror` turns into a build failure (measured with GCC 16.2 on MinGW).
@@ -50,7 +49,7 @@
 #endif
 
 namespace {
-#if defined(_WIN32)
+#ifdef _WIN32
     /// copy a UTF-8 string into @p out as wide characters, truncating rather than failing
     void utf8_to_wide(char const* const text, wchar_t* const out, std::size_t const capacity) {
         if (out == nullptr || capacity == 0) {
@@ -110,7 +109,7 @@ extern "C" int32_t utility_platform_ask_open_file(char const* title, char const*
     if (has_shell_metacharacter(title) || has_shell_metacharacter(filter_patterns)) {
         return -1; // refuse rather than build a command line out of a string a shell would reinterpret
     }
-#if defined(_WIN32)
+#ifdef _WIN32
     wchar_t wide_title[256] = {};
     wchar_t wide_patterns[512] = {};
     utf8_to_wide(title, wide_title, std::size(wide_title));

@@ -34,7 +34,7 @@ namespace {
 
 namespace deren::vulkan {
     std::expected<vk_pipeline, std::string_view> make_pipeline(
-        VkDevice device,
+        VkDevice const device,
         VkFormat const color_format,
         VkFormat const depth_format,
         std::span<uint8_t const> const vertex_shader_code,
@@ -50,8 +50,8 @@ namespace deren::vulkan {
         // multi-target implementation below, with the engine's standard src-alpha blending (the
         // forward pipelines' convention: alpha is coverage, and an opaque draw's alpha 1 reduces the
         // blend math to the source color).
-        deren::utility::vessel::array<VkFormat, 1> const single_format = {color_format};
-        deren::utility::vessel::array<VkPipelineColorBlendAttachmentState, 1> const single_blend = {make_color_blend_attachment()};
+        utility::vessel::array const single_format = {color_format};
+        constexpr utility::vessel::array single_blend = {make_color_blend_attachment()};
         std::span<VkFormat const> const color_formats = has_color_attachment ? std::span<VkFormat const>(single_format) : std::span<VkFormat const>{};
         std::span<VkPipelineColorBlendAttachmentState const> const blend_attachments = has_color_attachment ? std::span<VkPipelineColorBlendAttachmentState const>(single_blend) : std::span<VkPipelineColorBlendAttachmentState const>{};
         return make_pipeline(device,
@@ -166,8 +166,8 @@ namespace deren::vulkan {
             dynamic_states[dynamic_state_count++] = VK_DYNAMIC_STATE_DEPTH_BIAS;
         }
 
-        VkPipelineInputAssemblyStateCreateInfo const input_assembly_state_create_info = make_input_assembly_state();
-        VkPipelineViewportStateCreateInfo const viewport_state_create_info = make_viewport_state();
+        constexpr VkPipelineInputAssemblyStateCreateInfo input_assembly_state_create_info = make_input_assembly_state();
+        constexpr VkPipelineViewportStateCreateInfo viewport_state_create_info = make_viewport_state();
         VkPipelineDynamicStateCreateInfo const dynamic_state_create_info = make_dynamic_state(dynamic_states.data(), dynamic_state_count);
         VkPipelineRasterizationStateCreateInfo const rasterization_state_create_info = make_rasterization_state(depth_bias_enabled, depth_bias_constant_factor, depth_bias_slope_factor, depth_bias_clamp);
         VkPipelineDepthStencilStateCreateInfo const depth_stencil_state_create_info = make_depth_stencil_state(depth_test_enabled, depth_compare_op);
@@ -175,8 +175,8 @@ namespace deren::vulkan {
         // per target: the G-buffer overwrites its three surface targets and accumulates into the HDR
         // target) or the opaque overwrite state (a G-buffer must not blend: there alpha is
         // metallic/roughness/flags data - see make_color_blend_attachment_opaque)
-        VkPipelineColorBlendAttachmentState const default_blend = make_color_blend_attachment_opaque();
-        deren::utility::vessel::vector<VkPipelineColorBlendAttachmentState> const opaque_blend_attachments(color_formats.size(), default_blend);
+        constexpr VkPipelineColorBlendAttachmentState default_blend = make_color_blend_attachment_opaque();
+        utility::vessel::vector const opaque_blend_attachments(color_formats.size(), default_blend);
         std::span<VkPipelineColorBlendAttachmentState const> const blends = blend_attachments.empty() ? std::span<VkPipelineColorBlendAttachmentState const>(opaque_blend_attachments) : blend_attachments;
         VkPipelineColorBlendStateCreateInfo const color_blend_state_create_info = make_color_blend_state(blends.data(), static_cast<uint32_t>(blends.size()));
         VkPipelineMultisampleStateCreateInfo const multisample_state_create_info = make_multisample_state(msaa_level);

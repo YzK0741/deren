@@ -67,13 +67,13 @@ export namespace deren::engine {
         [[nodiscard]] transfer_rhi::submission_token receipt() const noexcept {
             return value ? value->token : transfer_rhi::submission_token{};
         }
-        [[nodiscard]] transfer_rhi::error poll() {
+        [[nodiscard]] transfer_rhi::error poll() const {
             return value ? value->observe(false) : transfer_rhi::error::invalid_argument;
         }
-        [[nodiscard]] transfer_rhi::error wait(std::uint64_t timeout_ns) {
+        [[nodiscard]] transfer_rhi::error wait(std::uint64_t timeout_ns) const {
             return value ? value->observe(true, timeout_ns) : transfer_rhi::error::invalid_argument;
         }
-        [[nodiscard]] std::expected<std::span<std::byte const>, transfer_rhi::error> readback(std::size_t index) {
+        [[nodiscard]] std::expected<std::span<std::byte const>, transfer_rhi::error> readback(std::size_t index) const {
             namespace rhi = transfer_rhi;
             if (!value || index >= value->outputs.size()) {
                 return std::unexpected(rhi::error::invalid_argument);
@@ -95,9 +95,9 @@ export namespace deren::engine {
         explicit buffer_transfer_batch(transfer_rhi::shared_object<transfer_rhi::api_core> core)
             : value(std::allocate_shared<transfer_detail::submission>(deren::utility::memory::allocator<transfer_detail::submission>{}, std::move(core))) {
         }
-        std::expected<std::size_t, transfer_rhi::error> append(resource_handle<transfer_rhi::buffer> resource,
+        std::expected<std::size_t, transfer_rhi::error> append(resource_handle<transfer_rhi::buffer> const& resource,
                                                                std::uint64_t offset, std::uint64_t size, std::span<std::byte const> bytes,
-                                                               transfer_rhi::synchronization::scope before, transfer_rhi::synchronization::scope after, bool download) {
+                                                               transfer_rhi::synchronization::scope before, transfer_rhi::synchronization::scope after, bool download) const {
             namespace rhi = transfer_rhi;
             namespace sync = rhi::synchronization;
             if (!value || !value->core) {
@@ -154,12 +154,12 @@ export namespace deren::engine {
         buffer_transfer_batch(buffer_transfer_batch&&) noexcept = default;
         buffer_transfer_batch& operator=(buffer_transfer_batch&&) noexcept = default;
         [[nodiscard]] transfer_rhi::error upload(resource_handle<transfer_rhi::buffer> destination, std::uint64_t offset,
-                                                 std::span<std::byte const> bytes, transfer_rhi::synchronization::scope before, transfer_rhi::synchronization::scope after) {
+                                                 std::span<std::byte const> bytes, transfer_rhi::synchronization::scope before, transfer_rhi::synchronization::scope after) const {
             auto result = append(std::move(destination), offset, bytes.size(), bytes, before, after, false);
             return result ? transfer_rhi::error::ok : result.error();
         }
         [[nodiscard]] std::expected<std::size_t, transfer_rhi::error> readback(resource_handle<transfer_rhi::buffer> source,
-                                                                               std::uint64_t offset, std::uint64_t size, transfer_rhi::synchronization::scope before, transfer_rhi::synchronization::scope after) {
+                                                                               std::uint64_t offset, std::uint64_t size, transfer_rhi::synchronization::scope before, transfer_rhi::synchronization::scope after) const {
             return append(std::move(source), offset, size, {}, before, after, true);
         }
     };
@@ -184,7 +184,7 @@ export namespace deren::engine {
             return buffer_transfer_batch(core);
         }
         [[nodiscard]] std::size_t pending_count() const noexcept {
-            return std::count_if(pending.begin(), pending.end(), [](auto const& state) { return !state->completed; });
+            return std::ranges::count_if(pending, [](auto const& state) { return !state->completed; });
         }
         [[nodiscard]] std::expected<buffer_transfer_ticket, transfer_rhi::error> submit(buffer_transfer_batch&& batch) {
             namespace rhi = transfer_rhi;

@@ -4,10 +4,8 @@
 
 module;
 
-#include <algorithm>
-#include <cstddef>
 #include <cstdint>
-#include <cstring>
+
 module deren.engine.pass.ray_traced_reflection;
 import deren.vstd;
 import deren.utility.shared;
@@ -115,8 +113,10 @@ namespace deren::engine::pass {
         }
         uint64_t address = 0;
         deren::promise::rhi::buffer* const table_buffer = context.create_upload_buffer(context.parent, table.data(), static_cast<uint64_t>(table.size()),
-                                                                                       deren::promise::rhi::buffer_flags{deren::promise::rhi::to_bits(
-                                                                                           deren::promise::rhi::buffer_flag::shader_binding_table)},
+                                                                                       deren::promise::rhi::buffer_flags{
+                                                                                           deren::promise::rhi::to_bits(
+                                                                                               deren::promise::rhi::buffer_flag::shader_binding_table),
+                                                                                       },
                                                                                        &address);
         if (table_buffer == nullptr || address == 0) {
             deren::utility::log("ray-traced reflections unavailable: the shader binding table buffer could not be created");

@@ -68,7 +68,7 @@ namespace deren::asset::subtilis {
                     utility::memory::deallocate(old);
                     return next;
                 },
-                [](void*, void* ptr) { utility::memory::deallocate(ptr); }, nullptr};
+                [](void*, void* ptr) { utility::memory::deallocate(ptr); }, nullptr,};
             auto* doc = yyjson_read_opts(reinterpret_cast<char*>(const_cast<byte*>(bytes.data())), bytes.size(), 0, &allocator, nullptr);
             if (!doc) {
                 return false;

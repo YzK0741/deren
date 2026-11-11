@@ -1,5 +1,5 @@
 /**
- * @file source/engine/visibility/hzb.cppm
+ * @file hzb.cppm
  * @defgroup engine_visibility_hzb HZB occlusion culling (the CPU reference)
  * @brief the CPU REFERENCE for the HZB (hierarchical Z-buffer) occlusion-culling design:
  *        docs/superpowers/specs/2026-10-20-hzb-occlusion-design.md §4.1, §5, §6, §9.2 and §10.1.
@@ -42,6 +42,8 @@
  * `heap_at<...>(heap_slots_hzb_x)` and then indexes `frame_slot * stride + index`, never `+ heap_frame_slot` (§5.3).
  */
 module;
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 
@@ -143,21 +145,11 @@ namespace deren::engine::visibility::hzb::detail {
     }
 
     [[nodiscard]] bool all_finite(std::array<double, 16> const& matrix) noexcept {
-        for (double const value : matrix) {
-            if (!std::isfinite(value)) {
-                return false;
-            }
-        }
-        return true;
+        return std::ranges::all_of(matrix, [](auto value) { return std::isfinite(value); });
     }
 
     [[nodiscard]] bool all_finite3(std::array<double, 3> const& vector) noexcept {
-        for (double const value : vector) {
-            if (!std::isfinite(value)) {
-                return false;
-            }
-        }
-        return true;
+        return std::ranges::all_of(vector, [](auto value) { return std::isfinite(value); });
     }
 
     /// @brief the largest row sum of the matrix's linear part: the operator-norm upper bound §6.2 asks for
@@ -352,6 +344,8 @@ export namespace deren::engine::visibility::hzb {
 
     /**
      * @brief the word offset of level @p level inside one frame's lane
+     * @param width pyramid width in texels
+     * @param height pyramid height in texels
      * @param level clamped to the pyramid's level count: `pyramid_words` returns the total word count, which is
      *        the only value a caller can sensibly ask for past the last 1x1 level
      * @note THE SINGLE FORMULA §4.1 ASKS FOR: the host sizes the buffer with `pyramid_words`, the build pass writes
@@ -402,7 +396,7 @@ export namespace deren::engine::visibility::hzb {
         /// @brief one texel (float depth) of @p level
         /// @pre valid(), and (level, x, y) inside that level's extent
         [[nodiscard]] constexpr float at(std::uint32_t const level, std::uint32_t const x, std::uint32_t const y) const noexcept {
-            std::size_t const index = std::size_t(level_offset(this->width, this->height, level)) + std::size_t(y) * level_width(this->width, level) + x;
+            std::size_t const index = static_cast<std::size_t>(level_offset(this->width, this->height, level)) + static_cast<std::size_t>(y) * level_width(this->width, level) + x;
             return this->words[index];
         }
 
@@ -411,7 +405,7 @@ export namespace deren::engine::visibility::hzb {
         [[nodiscard]] constexpr std::span<float const> level_words(std::uint32_t const level) const noexcept {
             std::size_t const begin = level_offset(this->width, this->height, level);
             level_size const size = level_size_of(this->width, this->height, level);
-            return this->words.subspan(begin, std::size_t(size.width) * size.height);
+            return this->words.subspan(begin, static_cast<std::size_t>(size.width) * size.height);
         }
     };
 
@@ -430,7 +424,7 @@ export namespace deren::engine::visibility::hzb {
      */
     [[nodiscard]] max_pyramid_view build_max_pyramid(std::span<float const> const depth, std::uint32_t const width, std::uint32_t const height, std::span<float> const storage) noexcept {
         std::uint32_t const levels = level_count(width, height);
-        std::size_t const depth_texels = std::size_t(width) * height;
+        std::size_t const depth_texels = static_cast<std::size_t>(width) * height;
         if (levels == 0u || depth.size() < depth_texels || storage.size() < pyramid_words(width, height)) {
             return {};
         }
@@ -448,14 +442,14 @@ export namespace deren::engine::visibility::hzb {
                 for (std::uint32_t x = 0; x < current.width; ++x) {
                     std::uint32_t const x0 = 2u * x < previous.width ? 2u * x : previous.width - 1u;
                     std::uint32_t const x1 = 2u * x + 1u < previous.width ? 2u * x + 1u : previous.width - 1u;
-                    float const top_left = storage[previous_begin + std::size_t(y0) * previous.width + x0];
-                    float const top_right = storage[previous_begin + std::size_t(y0) * previous.width + x1];
-                    float const bottom_left = storage[previous_begin + std::size_t(y1) * previous.width + x0];
-                    float const bottom_right = storage[previous_begin + std::size_t(y1) * previous.width + x1];
+                    float const top_left = storage[previous_begin + static_cast<std::size_t>(y0) * previous.width + x0];
+                    float const top_right = storage[previous_begin + static_cast<std::size_t>(y0) * previous.width + x1];
+                    float const bottom_left = storage[previous_begin + static_cast<std::size_t>(y1) * previous.width + x0];
+                    float const bottom_right = storage[previous_begin + static_cast<std::size_t>(y1) * previous.width + x1];
                     // fmax rather than `a > b ? a : b`: a NaN depth from garbage input must not swallow the max of the
                     // real neighbours (the GPU's max over a cleared 1.0 and a NaN is not defined either, but here the
                     // conservative answer is "keep the larger real depth")
-                    storage[current_begin + std::size_t(y) * current.width + x] = std::fmax(std::fmax(top_left, top_right), std::fmax(bottom_left, bottom_right));
+                    storage[current_begin + static_cast<std::size_t>(y) * current.width + x] = std::fmax(std::fmax(top_left, top_right), std::fmax(bottom_left, bottom_right));
                 }
             }
         }
@@ -741,12 +735,8 @@ export namespace deren::engine::visibility::hzb {
             }
         }
         double cosine = (trace - 1.) * .5;
-        if (cosine > 1.) {
-            cosine = 1.;
-        }
-        if (cosine < -1.) {
-            cosine = -1.;
-        }
+        cosine = std::min(cosine, 1.);
+        cosine = std::max(cosine, -1.);
         if (std::sqrt(distance2) > scene_radius * limits.translation_ratio || std::acos(cosine) * 57.29577951308232 > limits.rotation_degrees) {
             return false;
         }
@@ -778,6 +768,8 @@ export namespace deren::engine::visibility::hzb {
 
     /**
      * @brief compact @p keep over @p candidate_ids: `survivors[k] = candidate_ids[i]` for the k-th kept i, i ascending
+     * @param candidate_ids the candidate record ids in the order the cull pass produced them
+     * @param keep one flag per candidate, true when the candidate survives
      * @param survivors the output prefix to write; must hold at least the number of kept candidates
      * @return the two counts, or nullopt when the input could not be a valid cull result
      */

@@ -25,8 +25,6 @@
  */
 module;
 
-#include <cstdint>
-
 export module deren.engine.pass.software_merge;
 export import deren.vstd;
 export import deren.utility.shared;
@@ -48,12 +46,16 @@ export namespace deren::engine::pass {
             // ONE DEPTH TARGET, THE FRAME'S G-BUFFER DEPTH. The software images are read through the frame's heap
             // (sampled descriptors), so they are not bindings; the only thing a declaration has to say is the
             // attachment this pass renders into, and that it fills the DEPTH slot rather than a colour one.
-            static constexpr std::array<render_resource::render_target, 1> merge_targets{{{
-                .resource = render_resource::resource_id::gbuffer_depth,
-                .element = 0,
-                .kind = render_resource::target_kind::depth,
-            }}};
-            static constinit render_resource::pass_io const value{.name = "software merge", .targets = merge_targets};
+            static constexpr std::array<render_resource::render_target, 1> merge_targets{
+                {
+                    {
+                        .resource = render_resource::resource_id::gbuffer_depth,
+                        .element = 0,
+                        .kind = render_resource::target_kind::depth,
+                    },
+                },
+            };
+            static constexpr render_resource::pass_io value{.name = "software merge", .targets = merge_targets};
             return value;
         }
 
@@ -61,12 +63,14 @@ export namespace deren::engine::pass {
             // A GRAPHICS pass over the FULL extent (one fullscreen triangle at the render resolution), and the
             // viewport must be re-synced from the resolved extent because this pass's pipeline is its object
             // rather than a name in the renderer's registry.
-            static deren::engine::pass::behaviour const value{.kind = behaviour_kind::graphics,
-                                                              .group_size_x = 8u,
-                                                              .group_size_y = 8u,
-                                                              .group_size_z = 1u,
-                                                              .extent = extent_rule::full,
-                                                              .resync_viewport = true};
+            static constexpr deren::engine::pass::behaviour value{
+                .kind = behaviour_kind::graphics,
+                .group_size_x = 8u,
+                .group_size_y = 8u,
+                .group_size_z = 1u,
+                .extent = extent_rule::full,
+                .resync_viewport = true,
+            };
             return value;
         }
 

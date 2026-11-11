@@ -49,9 +49,11 @@ namespace deren::engine::gaussian_splatting {
             return x * y - xy * xy >= 0 && x * z - xz * xz >= 0 && y * z - yz * yz >= 0 && x * y * z + 2 * xy * xz * yz - x * yz * yz - y * xz * xz - z * xy * xy >= 0;
         }
         glm::dmat3 covariance(geometry_record const& g) {
-            return {{g.covariance_x[0], g.covariance_x[1], g.covariance_x[2]},
-                    {g.covariance_x[1], g.covariance_yz[0], g.covariance_yz[1]},
-                    {g.covariance_x[2], g.covariance_yz[1], g.covariance_yz[2]}};
+            return {
+                {g.covariance_x[0], g.covariance_x[1], g.covariance_x[2]},
+                {g.covariance_x[1], g.covariance_yz[0], g.covariance_yz[1]},
+                {g.covariance_x[2], g.covariance_yz[1], g.covariance_yz[2]},
+            };
         }
     } // namespace
     std::expected<sort_camera, foundation_error> validate_raster_camera(raster_camera const& camera) {

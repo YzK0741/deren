@@ -6,6 +6,45 @@ Both use shared renderer and resource infrastructure; neither name denotes the w
 The feature name is lowercase `subtilis`, including user-facing log prefixes, tool messages and
 archived records.
 
+## Frame-isolated asynchronous pages (2026-11-10)
+
+The optional GPU cut uses a request buffer and page-table snapshot per frame-ring slot.
+After the frame walker completes a slot, its feedback joins a deduplicated CPU backlog
+and its arena references are released. Each geometry is prepared once per frame even
+when several items share it; all geometries share `[render] subtilis_page_upload_bytes`
+(default 8 MiB) per frame. Sources are served round-robin with a fair byte share, so one
+source cannot consume the whole budget. Total in-flight upload payload is limited to that
+budget times the frame-ring slot count. All sources share one page arena sized by
+`[render] subtilis_resident_page_bytes` (default 64 MiB). The arena is split into
+fixed 64 KiB slots, so the budget is a real global limit rather than a per-source
+allowance. If a geometry's pinned set cannot fit, that geometry keeps using its full index
+buffer without paging.
+
+An eviction removes the canonical mapping from future snapshots. The physical slot
+remains protected while any older snapshot references it, including when its object
+has been hidden or removed. When the shared arena is full, unpinned unreferenced slots
+may be reclaimed to cover the allocation shortfall. A source with an accepted upload
+keeps its slots until completion is confirmed. If no physical slot is safe, installation is deferred and the cut
+can use its existing whole-item LOD0 fallback. Retired and reserved slots remain inside
+the bounded arena. Page preparation never waits for device idle or upload tickets.
+
+Each geometry coalesces requests and their shared dependencies into one upload batch,
+with at most one batch in flight. Its slots stay reserved and its pages stay unavailable
+until polling confirms completion. Only then does the canonical residency plan commit;
+existing frame snapshots remain unchanged. Rejected submissions release reservations,
+while an error observing accepted work preserves the ticket and its resources. Pending
+uploads are retained by the runtime independently of frame snapshots and scene objects,
+so hiding or removing an object does not force a synchronous upload drain.
+
+Visibility raster and resolve read the same page-table snapshot and arena addresses from the
+current frame's draw item. Page tables remain per geometry, while every geometry addresses
+the same shared arena. The GPU cut checks
+the selected run against its reservation and emits the preloaded LOD0 command if it exceeds
+capacity or needs an absent page. Overlapping reservations follow the same publication order
+as CPU cuts.
+
+The dated phase records below describe earlier milestones.
+
 > **Phase closed (2026-10-23).** The subtilis phase is closed. DAG+HZB is the accepted shipping path
 > (textured Bistro 10.44/5.64 ms far/near); the software-raster lane remains optional/default-off and will
 > not be optimized further (negative result; the supporting maintainer records are not distributed with
@@ -151,8 +190,8 @@ reports a shared/LOD0 fallback - the frame never mixes two G-buffer producers.
 | --- | --- |
 | DAG asset/import + validation | `source/engine/geometry/subtilis_dag_asset.cppm`, `subtilis_dag_import.cppm` |
 | Legacy forest validation | `subtilis_asset.cppm` |
-| CPU cut reference | `subtilis_dag_lod.cppm`, legacy `subtilis_lod.cppm` (+ `subtilis.cppm` for the M1a LOD0 bridge) |
-| Offline builder | `subtilis_builder.cppm`, `subtilis_builder.cpp`, `subtilis_builder_topology.cpp`, `subtilis_builder_simplify.cpp`, `subtilis_builder_internal.hpp` |
+| CPU cut reference | `subtilis_dag_lod.cppm`, `subtilis_dag_cut_closure.cppm`, legacy `subtilis_lod.cppm` (+ `subtilis.cppm` for the M1a LOD0 bridge) |
+| Offline builder | `subtilis_builder.cppm`, `subtilis_builder.cpp`, `subtilis_builder_topology.cpp`, `subtilis_builder_simplify.cpp` |
 | Explicit upload / generations | `subtilis_upload.cppm`, `subtilis_upload.cpp` |
 | Main-view selection + frame publication | `source/engine/runtime/runtime.cpp` (`record_visibility_items`), `subtilis_selection.cppm` |
 | Consumer lane | `source/shaders/scene/visibility.slang`, `visibility_resolve.slang`, `source/engine/visibility/visibility.cppm` |
@@ -271,8 +310,8 @@ is summarized here; its raw records are not distributed with this repository.
   `subtilis = true`; the full OFF/ON matrix and raw logs were kept in maintainer records that are not
   distributed with this repository. The textured asset preparation/verification scripts are
   `scripts/measure/prepare_bistro_textures.py`, `convert_bistro_metalrough.py`, `verify_bistro_textured.py`.
-- The Bistro assets themselves stay outside the repository and are not distributed with it; the captured
-  evidence (webp/logs/json) behind the numbers above is not distributed either.
+- The textured Bistro package is distributed as `asset/bistro` (CC BY 4.0, Git LFS); the captured
+  evidence (webp/logs/json) behind the numbers above is not distributed with the repository.
 
 ## 8. Known limits and open items
 

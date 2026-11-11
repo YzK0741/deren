@@ -91,12 +91,14 @@ export namespace deren::engine::pass {
         }
 
         [[nodiscard]] deren::engine::pass::behaviour const& behaviour() const noexcept override {
-            static deren::engine::pass::behaviour const value{.kind = behaviour_kind::compute,
-                                                              .group_size_x = 8,
-                                                              .group_size_y = 8,
-                                                              .group_size_z = 1,
-                                                              .extent = extent_rule::full,
-                                                              .resync_viewport = false};
+            static constexpr deren::engine::pass::behaviour value{
+                .kind = behaviour_kind::compute,
+                .group_size_x = 8,
+                .group_size_y = 8,
+                .group_size_z = 1,
+                .extent = extent_rule::full,
+                .resync_viewport = false,
+            };
             return value;
         }
 

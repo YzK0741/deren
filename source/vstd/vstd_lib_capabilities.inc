@@ -16,8 +16,8 @@
 // `using std::chrono::locate_zone;` both compile), so asking early did not measure "MSVC lacks this",
 // it measured "not yet declared" - and the result was a std module that silently dropped both surfaces.
 //
-// WHERE IT IS INCLUDED: vstd.cppm, inside the global module fragment, after the standard header list
-// and before `export module vstd;` - the last point at which a macro can still be seen by every
+// WHERE IT IS INCLUDED: vstd_libcxx.cppm, inside the global module fragment, after the standard header list
+// and before `export module deren.vstd.libcxx;` - the last point at which a macro can still be seen by every
 // partition, and the first point at which the library has answered.
 //
 // UNDER LIBC++ THIS FILE DOES NOTHING, on purpose: <__config> has already answered both questions from

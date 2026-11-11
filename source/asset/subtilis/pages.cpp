@@ -41,7 +41,7 @@ namespace deren::asset::subtilis {
                 return none;
             }
             --it;
-            if (element < it->first || element >= uint64_t(it->first) + it->count) {
+            if (element < it->first || element >= static_cast<uint64_t>(it->first) + it->count) {
                 return none;
             }
             return static_cast<uint32_t>(it - pages.begin());
@@ -64,7 +64,7 @@ namespace deren::asset::subtilis {
         uint32_t previous = 0;
         for (uint32_t i = 0; i < p.pages.size(); ++i) {
             auto const& page = p.pages[i];
-            if (page.section < 1 || page.section > 6 || page.section < previous || !page.count || (page.flags & ~uint16_t(page_flags::always_resident)) || page.reserved) {
+            if (page.section < 1 || page.section > 6 || page.section < previous || !page.count || (page.flags & ~static_cast<uint16_t>(page_flags::always_resident)) || page.reserved) {
                 return fail(error_code::invalid_payload, "invalid page record");
             }
             previous = page.section;
@@ -96,11 +96,11 @@ namespace deren::asset::subtilis {
         // makes the LOD0/root pages usable without a residency request.
         for (uint32_t i = 0; i < p.pages.size(); ++i) {
             auto const& page = p.pages[i];
-            if (!(page.flags & uint16_t(page_flags::always_resident))) {
+            if (!(page.flags & static_cast<uint16_t>(page_flags::always_resident))) {
                 continue;
             }
             for (uint32_t d = page.dependency_first; d < page.dependency_first + page.dependency_count; ++d) {
-                if (!(p.pages[p.page_dependencies[d]].flags & uint16_t(page_flags::always_resident))) {
+                if (!(p.pages[p.page_dependencies[d]].flags & static_cast<uint16_t>(page_flags::always_resident))) {
                     return fail(error_code::invalid_payload, "resident page depends on an evictable page");
                 }
             }
@@ -113,7 +113,7 @@ namespace deren::asset::subtilis {
                 return fail(error_code::invalid_payload, "cluster index window has no page");
             }
             auto const& page = p.pages[page_id];
-            if (uint64_t(cluster.first_index) + cluster.index_count > uint64_t(page.first) + page.count) {
+            if (static_cast<uint64_t>(cluster.first_index) + cluster.index_count > static_cast<uint64_t>(page.first) + page.count) {
                 return fail(error_code::invalid_payload, "cluster index window crosses a page boundary");
             }
         }
@@ -206,29 +206,16 @@ namespace deren::asset::subtilis {
             }
         }
 
-        vector<bool> resident(p.clusters.size(), false);
+        // No page is pinned implicitly. Leaf/root pages become resident on demand; only explicit
+        // always_resident flags (future root pages) are honored by validate_pages().
         for (auto id : p.leaves) {
-            if (id >= resident.size()) {
+            if (id >= p.clusters.size()) {
                 return fail(error_code::invalid_payload, "leaf outside cluster table");
             }
-            resident[id] = true;
         }
         for (auto id : p.roots) {
-            if (id >= resident.size()) {
+            if (id >= p.clusters.size()) {
                 return fail(error_code::invalid_payload, "root outside cluster table");
-            }
-            resident[id] = true;
-        }
-        for (uint32_t i = 0; i < p.pages.size(); ++i) {
-            auto& page = p.pages[i];
-            if (page.section == 5 || page.section == 6) {
-                page.flags |= uint16_t(page_flags::always_resident);
-            } else if (page.section == 2) {
-                for (uint32_t id = page.first; id < page.first + page.count; ++id) {
-                    if (resident[id]) {
-                        page.flags |= uint16_t(page_flags::always_resident);
-                    }
-                }
             }
         }
         // Dependencies point from the page that consumes an element to the page that stores it.
@@ -244,7 +231,7 @@ namespace deren::asset::subtilis {
             auto const end = first + count;
             for (uint32_t i = 0; i < p.pages.size(); ++i) {
                 auto const& page = p.pages[i];
-                if (page.section == section && page.first < end && first < uint64_t(page.first) + page.count) {
+                if (page.section == section && page.first < end && first < static_cast<uint64_t>(page.first) + page.count) {
                     out.push_back(i);
                 }
             }
@@ -263,7 +250,7 @@ namespace deren::asset::subtilis {
             } else if (page.section == 3) {
                 for (uint32_t id = page.first; id < page.first + page.count; ++id) {
                     auto const& group = p.groups[id];
-                    if (uint64_t(group.fine_first) + group.fine_count > p.references.size() || uint64_t(group.coarse_first) + group.coarse_count > p.references.size()) {
+                    if (static_cast<uint64_t>(group.fine_first) + group.fine_count > p.references.size() || static_cast<uint64_t>(group.coarse_first) + group.coarse_count > p.references.size()) {
                         return fail(error_code::invalid_payload, "group reference range outside table");
                     }
                     add_section_pages(dependencies, 4, group.fine_first, group.fine_count);
@@ -292,22 +279,6 @@ namespace deren::asset::subtilis {
                 }
             }
             append_dependencies(i, std::move(dependencies));
-        }
-        // Residency is a closure: every page a resident page depends on must also be resident.
-        for (bool changed = true; changed;) {
-            changed = false;
-            for (auto const& page : p.pages) {
-                if (!(page.flags & uint16_t(page_flags::always_resident))) {
-                    continue;
-                }
-                for (uint32_t d = page.dependency_first; d < page.dependency_first + page.dependency_count; ++d) {
-                    auto& dependency = p.pages[p.page_dependencies[d]];
-                    if (!(dependency.flags & uint16_t(page_flags::always_resident))) {
-                        dependency.flags |= uint16_t(page_flags::always_resident);
-                        changed = true;
-                    }
-                }
-            }
         }
         for (auto& page : p.pages) {
             page.priority = page.flags ? page_priority_always_resident : static_cast<uint16_t>(page.section);

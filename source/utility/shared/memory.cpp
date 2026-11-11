@@ -3,7 +3,7 @@ module;
 
 #include <cstddef>
 #include <cstdint>
-#if defined(DEREN_MEMORY_TESTING)
+#ifdef DEREN_MEMORY_TESTING
 #include "memory_test_hooks.hpp"
 #endif
 #include <mimalloc.h>
@@ -35,7 +35,7 @@ namespace deren::utility::memory {
         if (bytes > static_cast<std::size_t>(std::numeric_limits<std::ptrdiff_t>::max())) {
             return std::unexpected(allocation_error::size_overflow);
         }
-#if defined(DEREN_MEMORY_TESTING)
+#ifdef DEREN_MEMORY_TESTING
         if (utility_memory_test_should_fail()) {
             return std::unexpected(allocation_error::out_of_memory);
         }

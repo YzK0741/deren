@@ -18,7 +18,6 @@
 // Imports are NOT transitive: this partition imports what its code calls.
 // ============================================================================
 module;
-#include "../lighting/radiance_capture.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -33,6 +32,7 @@ import :declarations;
 
 import deren.promise.rhi;
 import deren.engine.visibility.software;
+import deren.engine.lighting.radiance_capture;
 import deren.engine.pass.hzb_cull;
 
 namespace deren::engine {
@@ -42,14 +42,14 @@ namespace deren::engine {
         }
         this->rhi_face().wait_idle();
         auto const bytes = radiance_readback->mapped();
-        std::uint64_t count = std::uint64_t(radiance_extent.width) * radiance_extent.height * 4;
+        std::uint64_t count = static_cast<std::uint64_t>(radiance_extent.width) * radiance_extent.height * 4;
         if (count == 0 || count > SIZE_MAX / sizeof(float) || bytes.size() < count * 2) {
             return std::unexpected(deren::utility::vessel::string("radiance capture: invalid readback extent"));
         }
         radiance_image image{.width = radiance_extent.width, .height = radiance_extent.height};
         image.rgba.resize(static_cast<std::size_t>(count));
         for (std::size_t i = 0; i < count; ++i) {
-            std::uint16_t bits = std::to_integer<std::uint8_t>(bytes[i * 2]) | (std::uint16_t(std::to_integer<std::uint8_t>(bytes[i * 2 + 1])) << 8);
+            std::uint16_t bits = std::to_integer<std::uint8_t>(bytes[i * 2]) | (static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(bytes[i * 2 + 1])) << 8);
             image.rgba[i] = radiance_detail::decode_binary16(bits);
         }
         radiance_ready = false;
@@ -162,14 +162,14 @@ namespace deren::engine {
                 // Independent diagnostic CSR uses the GPU's actual IDs, without reclassifying candidates.
                 deren::utility::vessel::vector<deren::utility::vessel::vector<software::tile_entry>> bins(grid.tile_count());
                 for (auto const& entry : entries) {
-                    auto const& item = *std::find_if(references.begin(), references.end(), [&](auto const& value) { return value.item_index == entry.item_index; });
+                    auto const& item = *std::ranges::find_if(references, [&](auto const& value) { return value.item_index == entry.item_index; });
                     auto const projected = software::project(item.records[entry.meshlet_id], item.model, camera, grid);
                     if (!projected.on_screen) {
                         continue;
                     }
                     for (auto y = projected.tile_min_y; y <= projected.tile_max_y; ++y) {
                         for (auto x = projected.tile_min_x; x <= projected.tile_max_x; ++x) {
-                            bins[std::size_t(y) * grid.tiles_x + x].push_back(entry);
+                            bins[static_cast<std::size_t>(y) * grid.tiles_x + x].push_back(entry);
                         }
                     }
                 }
@@ -200,7 +200,7 @@ namespace deren::engine {
                     }
                 }
             }
-            std::array<char const*, 2> const suffixes{"-depth.u32", "-id.u32"};
+            constexpr std::array suffixes{"-depth.u32", "-id.u32"};
             for (std::size_t i = 0; i < suffixes.size(); ++i) {
                 auto* buffer = this->software_probe_readbacks[i].get();
                 if (!buffer) {

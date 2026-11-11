@@ -103,7 +103,7 @@ namespace deren::engine::gaussian_splatting {
             deren::utility::vessel::array<std::span<std::uint8_t const>, 3> compute;
         };
         std::expected<deren::utility::vessel::vector<std::byte>, foundation_error> render_image(
-            rhi::api_core& core, rhi::descriptor_heap& heap, pass::gaussian_splatting_pass& raster,
+            rhi::api_core& core, rhi::descriptor_heap const& heap, pass::gaussian_splatting_pass& raster,
             std::shared_ptr<raster_frame const> const& frame, raster_camera const& camera, float clear_depth, std::shared_ptr<gpu_frame const> const& gpu = {}) {
             rhi::image_desc desc;
             desc.extent = camera.extent;
@@ -240,12 +240,12 @@ namespace deren::engine::gaussian_splatting {
                 raw_keys[values[i]] = keys[i];
             }
             std::iota(expected.begin(), expected.end(), 0u);
-            std::stable_sort(expected.begin(), expected.end(), [&](auto a, auto b) { return raw_keys[a] < raw_keys[b]; });
+            std::ranges::stable_sort(expected, [&](auto a, auto b) { return raw_keys[a] < raw_keys[b]; });
             if (expected != values) {
                 return failure("GPU actual depth keys disagree with CPU stable_sort");
             }
             std::iota(indices.begin(), indices.end(), 0u);
-            std::sort(indices.begin(), indices.end(), [&](auto a, auto b) { return inputs[a].stable_id < inputs[b].stable_id; });
+            std::ranges::sort(indices, [&](auto a, auto b) { return inputs[a].stable_id < inputs[b].stable_id; });
             for (auto index : indices) {
                 for (std::uint32_t local = 0; local < inputs[index].asset->gpu()->particle_count(); ++local) {
                     candidates.push_back({index, local});
@@ -289,7 +289,7 @@ namespace deren::engine::gaussian_splatting {
         }
     } // namespace
     std::expected<raster_probe_report, foundation_error> run_raster_probe(rhi::api_core& core, std::span<std::uint8_t const> vertex, std::span<std::uint8_t const> fragment,
-                                                                          deren::utility::vessel::array<std::span<std::uint8_t const>, 3> compute, bool gpu, rhi::shared_object<rhi::api_core> device_root) {
+                                                                          deren::utility::vessel::array<std::span<std::uint8_t const> /*unused*/, 3> compute, bool gpu, rhi::shared_object<rhi::api_core> device_root) {
         if (vertex.empty() || fragment.empty() || vertex.size() % 4 != 0 || fragment.size() % 4 != 0) {
             return failure("Gaussian probe requires both SPIR-V stages");
         }
@@ -334,8 +334,8 @@ namespace deren::engine::gaussian_splatting {
         if (!device_root) {
             return failure("Gaussian probe requires a shared device handle", error_code::invalid_argument);
         }
-        foundation_limits const default_limits{};
-        std::span<raster_instance const> const empty_inputs{};
+        constexpr foundation_limits default_limits{};
+        constexpr std::span<raster_instance const> empty_inputs{};
         raster_probe_report report;
         std::shared_ptr<gpu_frame> completed_probe_slot;
         auto check = [&](std::span<raster_instance const> inputs, raster_camera const& camera, float depth, char const* name, bool known_center = false, bool known_edge = false) -> std::expected<void, foundation_error> {
@@ -349,7 +349,7 @@ namespace deren::engine::gaussian_splatting {
             }
             std::shared_ptr<gpu_frame> gpu_snapshot;
             if (gpu) {
-                foundation_limits const limits{};
+                constexpr foundation_limits limits{};
                 auto prepared = prepare_gpu_frame(core, inputs, camera, limits, completed_probe_slot.get(), device_root);
                 if (!prepared) {
                     return std::unexpected(prepared.error());
@@ -511,7 +511,7 @@ namespace deren::engine::gaussian_splatting {
             }
             auto blank = render_image(core, *heap, raster, *empty, camera, 1, *failed_frame);
             auto const errors = (*failed_frame)->completed_stats(report.cases).errors;
-            if (!blank || !errors || !std::all_of(blank->begin(), blank->end(), [](auto byte) { return byte == std::byte{0}; })) {
+            if (!blank || !errors || !std::ranges::all_of(*blank, [](auto byte) { return byte == std::byte{0}; })) {
                 return failure("GPU overflow did not skip the entire frame");
             }
             ++report.cases;

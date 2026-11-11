@@ -25,6 +25,6 @@ extern "C" {
 DEREN_API_EXPORT std::shared_ptr<deren::gui::overlay> deren_make_gui(std::uint32_t abi_version, deren::gui::create_info const* info);
 }
 
-#if defined(__clang__)
+#ifdef __clang__
 #pragma clang diagnostic pop
 #endif

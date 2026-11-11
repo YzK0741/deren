@@ -34,7 +34,8 @@ export namespace deren::engine::subtilis {
                            invalid_hierarchy,
                            invalid_error,
                            invalid_lod0_coverage,
-                           capacity };
+                           capacity,
+    };
     class dag_asset {
         utility::vessel::vector<dag_cluster> clusters_;
         utility::vessel::vector<dag_group> groups_;

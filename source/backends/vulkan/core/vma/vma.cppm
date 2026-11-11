@@ -1,9 +1,5 @@
 module;
 
-#include "resource_memory_tracker.h"
-#include "texture_upload_layout.h"
-#include "upload_sequence.h"
-
 #include <cstddef>
 #include <cstdint>
 #include <vulkan/vulkan.h>
@@ -11,6 +7,9 @@ module;
 #include <vma/vk_mem_alloc.h>
 
 export module deren.vulkan.core:vma;
+import deren.vulkan.core.vma.resource_memory_tracker;
+import deren.vulkan.core.vma.texture_upload_layout;
+import deren.vulkan.core.vma.upload_sequence;
 export import deren.utility.shared;
 
 export import deren.vstd;
@@ -191,8 +190,8 @@ namespace deren::vulkan {
         VmaAllocator allocator = {};
         detail::resource_memory_tracker<deren::promise::rhi::resource_memory_statistics> memory_tracker;
         void account_allocation(bool image, VmaAllocation allocation, bool adding) noexcept;
-        VkResult allocate_buffer(VkBufferCreateInfo const*, VmaAllocationCreateInfo const*, VkBuffer*, VmaAllocation*, VmaAllocationInfo*);
-        VkResult allocate_image(VkImageCreateInfo const*, VmaAllocationCreateInfo const*, VkImage*, VmaAllocation*, VmaAllocationInfo*);
+        VkResult allocate_buffer(VkBufferCreateInfo const* buffer_create_info, VmaAllocationCreateInfo const* options, VkBuffer* buffer, VmaAllocation* allocation, VmaAllocationInfo* detail);
+        VkResult allocate_image(VkImageCreateInfo const* image_create_info, VmaAllocationCreateInfo const* options, VkImage* image, VmaAllocation* allocation, VmaAllocationInfo* detail);
         void destroy_buffer(VkBuffer buffer, VmaAllocation allocation);
         void destroy_image(VkImage image, VmaAllocation allocation);
 
@@ -553,11 +552,8 @@ namespace {
                          VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
             break;
         }
-        case deren::vulkan::buffer_type::acceleration_structure_scratch: {
-            info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-                         VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-            break;
-        }
+        case deren::vulkan::buffer_type::acceleration_structure_scratch:
+            [[fallthrough]];
         case deren::vulkan::buffer_type::storage_gpu_only: {
             info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                          VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
@@ -923,17 +919,16 @@ namespace deren::vulkan {
         // Copy data
         if (staging_info.pMappedData) {
             memcpy(staging_info.pMappedData, data, size);
-            if (!this->is_host_coherent(staging_info.memoryType)) {
-                if (vmaFlushAllocation(this->allocator, staging_allocation, 0, size) != VK_SUCCESS) {
-                    return false;
-                }
+            if ((!this->is_host_coherent(staging_info.memoryType)) && (vmaFlushAllocation(this->allocator, staging_allocation, 0, size) != VK_SUCCESS)) {
+                return false;
             }
+
         } else {
             return false;
         }
         // Execute the copy command (cache access guarded by cache_mutex)
         std::pair<VkCommandPool, VkCommandBuffer> command_pair;
-        VkFence fence = VK_NULL_HANDLE;
+        VkFence fence;
         {
             std::lock_guard guard(this->cache_mutex);
             if (!this->command_cache.empty()) {
@@ -953,7 +948,7 @@ namespace deren::vulkan {
 
         VkCommandBuffer command_buffer = command_pair.second;
 
-        auto discard = [&]() {
+        auto discard = [&] {
             if (fence) {
                 vkDestroyFence(this->logical_device, fence, nullptr);
             }
@@ -1035,7 +1030,7 @@ namespace deren::vulkan {
         }
 
         std::pair<VkCommandPool, VkCommandBuffer> command_pair;
-        VkFence fence = VK_NULL_HANDLE;
+        VkFence fence;
         {
             std::lock_guard guard(this->cache_mutex);
             if (!this->command_cache.empty()) {
@@ -1054,7 +1049,7 @@ namespace deren::vulkan {
         VkCommandBuffer const command_buffer = command_pair.second;
 
         bool reusable = true;
-        auto const release_pair = [&]() {
+        auto const release_pair = [&] {
             if (!reusable) {
                 if (fence) {
                     vkDestroyFence(this->logical_device, fence, nullptr);
@@ -1081,7 +1076,7 @@ namespace deren::vulkan {
         // the shaders" after. HOST as a pipeline stage is what carries both directions.
         auto const submit_barrier = [&](VkImageLayout const old_layout, VkImageLayout const new_layout, VkAccessFlags const src_access, VkAccessFlags const dst_access,
                                         VkPipelineStageFlags const src_stage, VkPipelineStageFlags const dst_stage) {
-            VkCommandBufferBeginInfo const begin_info = make_command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
+            constexpr VkCommandBufferBeginInfo begin_info = make_command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
 
             VkImageMemoryBarrier barrier = {};
             barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -1176,7 +1171,7 @@ namespace deren::vulkan {
                              [this](uint64_t const h) { this->free_buffer(h); }};
         };
 
-        uint64_t handle = 0;
+        uint64_t handle;
         // distribute() locks internally (enable_handle_distribute::access_mutex); no outer lock needed
         if (auto const result = this->distribute(); result) {
             handle = result.value();

@@ -70,6 +70,6 @@ export namespace deren::engine::subtilis {
 
     /// Bytes in one frame's slice: the header followed by the item array.
     [[nodiscard]] constexpr std::uint64_t cut_frame_bytes() noexcept {
-        return sizeof(cut_frame) + std::uint64_t(cut_item_capacity) * sizeof(cut_item);
+        return sizeof(cut_frame) + static_cast<std::uint64_t>(cut_item_capacity) * sizeof(cut_item);
     }
 } // namespace deren::engine::subtilis

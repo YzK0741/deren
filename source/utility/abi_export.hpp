@@ -75,8 +75,8 @@
  * build-mode keyword is a utility (`source/utility/abi_export.hpp`, m04074).
  */
 
-#if defined(_WIN32)
-#if defined(DEREN_API_SHARED)
+#ifdef _WIN32
+#ifdef DEREN_API_SHARED
 #if defined(DEREN_API_BUILD)
 #define DEREN_API_EXPORT __declspec(dllexport)
 #else

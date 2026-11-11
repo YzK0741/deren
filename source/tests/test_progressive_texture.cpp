@@ -1,7 +1,9 @@
-#include "../engine/visibility/progressive_texture.h"
 #include "vk_test.h"
 
 #include <array>
+#include <vector>
+
+import deren.engine.visibility.progressive_texture;
 
 int main() {
     namespace p = deren::engine::progressive_texture;
@@ -23,10 +25,14 @@ int main() {
     CHECK(unchanged && unchanged->bytes == std::vector<std::uint8_t>(black_white.begin(), black_white.end()));
 
     // Desired textures precede recent ones; within a class prefer already resident content.
-    std::array<p::candidate, 4> candidates{{{.bytes = 60, .last_used = 99, .resident = true},
-                                            {.bytes = 60, .last_used = 100, .wanted = true},
-                                            {.bytes = 200, .last_used = 100, .wanted = true},
-                                            {.bytes = 10, .last_used = 1, .resident = true}}};
+    std::array<p::candidate, 4> candidates{
+        {
+            {.bytes = 60, .last_used = 99, .resident = true},
+            {.bytes = 60, .last_used = 100, .wanted = true},
+            {.bytes = 200, .last_used = 100, .wanted = true},
+            {.bytes = 10, .last_used = 1, .resident = true},
+        },
+    };
     auto selected = p::select(candidates, 100, 100, 30);
     CHECK(!selected[0] && selected[1] && !selected[2] && !selected[3]);
     candidates[0].wanted = true;
@@ -54,8 +60,12 @@ int main() {
     CHECK(!p::resample(black_white, 2, 1, 3, 1, false));
 
     // With one full image's budget, improve both textures before giving all bytes to one.
-    std::array<p::mip_candidate, 2> tiers{{{.width = 512, .height = 512, .levels = 1, .floor = 2, .target = 0, .resident = 2, .last_used = 10, .wanted = true},
-                                           {.width = 512, .height = 512, .levels = 1, .floor = 2, .target = 0, .resident = 2, .last_used = 10, .wanted = true}}};
+    std::array<p::mip_candidate, 2> tiers{
+        {
+            {.width = 512, .height = 512, .levels = 1, .floor = 2, .target = 0, .resident = 2, .last_used = 10, .wanted = true},
+            {.width = 512, .height = 512, .levels = 1, .floor = 2, .target = 0, .resident = 2, .last_used = 10, .wanted = true},
+        },
+    };
     auto levels = p::select_mips(tiers, 10, 1024 * 1024, 30);
     CHECK(levels[0] == 1 && levels[1] == 1);
     levels = p::select_mips(tiers, 10, 0, 30);

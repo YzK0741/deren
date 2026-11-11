@@ -5,7 +5,6 @@
  */
 module;
 
-#include <cstddef>
 #include <cstdint>
 module deren.engine.pass.hzb_build;
 import deren.vstd;

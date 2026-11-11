@@ -157,7 +157,7 @@ inline void check_lazy_resource_contract(rhi::api_core& core) {
                 auto warm = core.commands->create_command_buffer({});
                 CHECK(warm->begin_recording({}) == rhi::error::ok);
                 std::array<rhi::buffer_barrier, 2> warm_barriers{{{.resource = keys->get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::shader_read_write},
-                                                                  {.resource = values->get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::shader_read_write}}};
+                                                                  {.resource = values->get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::shader_read_write},},};
                 CHECK(warm->barrier({.buffers = warm_barriers}) == rhi::error::ok);
                 CHECK(warm->end_recording() == rhi::error::ok);
                 warm.reset();

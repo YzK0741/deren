@@ -14,8 +14,13 @@ namespace {
     constexpr rhi_sync::scope compute_write{rhi_sync::stage::compute_shader, rhi_sync::access::write};
     constexpr rhi_sync::scope fragment_read{rhi_sync::stage::fragment_shader, rhi_sync::access::read};
     void image_tests() {
-        constexpr std::array ordinary{rhi_sync::image_layout::general, rhi_sync::image_layout::shader_read_only,
-                                      rhi_sync::image_layout::color_attachment, rhi_sync::image_layout::transfer_source, rhi_sync::image_layout::transfer_destination};
+        constexpr std::array ordinary{
+            rhi_sync::image_layout::general,
+            rhi_sync::image_layout::shader_read_only,
+            rhi_sync::image_layout::color_attachment,
+            rhi_sync::image_layout::transfer_source,
+            rhi_sync::image_layout::transfer_destination,
+        };
         for (auto before : ordinary) {
             for (auto after : ordinary) {
                 rhi_sync::image_transition input{{before, compute_write}, {after, fragment_read}, {1, 2, 3, 4, rhi_sync::aspect::color}};

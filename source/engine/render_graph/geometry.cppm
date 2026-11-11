@@ -65,11 +65,13 @@ export namespace deren::engine::render_graph::geometry {
             }
         }
         constexpr access_scope color{resource_usage::color_attachment, pipeline_stage::color_output};
-        parameters params{{{{in.surface[0], {}, color}, {in.surface[1], {}, color}, {in.surface[2], {}, color}}},
-                          {in.velocity, {}, color},
-                          {in.color, {}, color},
-                          {in.depth, {}, {resource_usage::depth_stencil_attachment, pipeline_stage::depth_stencil}},
-                          {}};
+        parameters params{
+            {{{in.surface[0], {}, color}, {in.surface[1], {}, color}, {in.surface[2], {}, color}}},
+            {in.velocity, {}, color},
+            {in.color, {}, color},
+            {in.depth, {}, {resource_usage::depth_stencil_attachment, pipeline_stage::depth_stencil}},
+            {},
+        };
         if (in.shared) {
             constexpr access_scope mesh{resource_usage::storage, pipeline_stage::mesh_shader};
             params.shared = shared_parameters{
@@ -79,14 +81,16 @@ export namespace deren::engine::render_graph::geometry {
                 {in.shared->previous_transforms, {}, mesh},
                 {in.shared->skin, {}, mesh},
                 {in.shared->previous_skin, {}, mesh},
-                {in.shared->morph, {}, mesh}};
+                {in.shared->morph, {}, mesh},
+            };
             if (in.shared->meshlets) {
                 constexpr access_scope indirect{resource_usage::indirect_buffer, pipeline_stage::draw_indirect};
                 params.shared->meshlets = meshlet_parameters{
                     {in.shared->meshlets->table, {}, mesh},
                     {in.shared->meshlets->culled, {}, mesh},
                     {in.shared->meshlets->statistics, {}, mesh},
-                    {in.shared->meshlets->indirect, {}, indirect}};
+                    {in.shared->meshlets->indirect, {}, indirect},
+                };
             }
         }
         auto added = graph.add_pass("scene geometry", std::move(params));

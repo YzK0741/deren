@@ -7,9 +7,9 @@ import deren.utility.shared;
 namespace deren::engine::pass {
     namespace rhi = deren::promise::rhi;
     namespace {
-        deren::utility::vessel::array<std::string_view, 1> const pipeline_names = {"gaussian"};
-        deren::engine::pass::behaviour const raster_behaviour{.kind = behaviour_kind::instanced, .pipelines = pipeline_names};
-        render_resource::pass_io const raster_io{.name = "gaussian", .targets = render_resource::transparent_targets, .push = std::nullopt};
+        constexpr deren::utility::vessel::array<std::string_view, 1> pipeline_names = {"gaussian"};
+        constexpr deren::engine::pass::behaviour raster_behaviour{.kind = behaviour_kind::instanced, .pipelines = pipeline_names};
+        constexpr render_resource::pass_io raster_io{.name = "gaussian", .targets = render_resource::transparent_targets, .push = std::nullopt};
     } // namespace
     render_resource::pass_io const& gaussian_splatting_pass::io() const noexcept {
         return raster_io;
@@ -31,7 +31,7 @@ namespace deren::engine::pass {
             return;
         }
         deren::utility::vessel::array<rhi::image_format, 1> const colors = {color_format};
-        deren::utility::vessel::array<rhi::blend_mode, 1> const blend = {rhi::blend_mode::alpha};
+        constexpr deren::utility::vessel::array<rhi::blend_mode, 1> blend = {rhi::blend_mode::alpha};
         rhi::pipeline_desc desc;
         desc.color_formats = colors;
         desc.depth_format = context.depth_format;
@@ -45,7 +45,7 @@ namespace deren::engine::pass {
         desc.debug_name = "gaussian raster";
         pipeline = rhi::unique_object<rhi::pipeline>{context.face->resources->create_pipeline(desc)};
         if (rhi::query_extension<rhi::gpu_sorting>(*context.face)) {
-            deren::utility::vessel::array<std::string_view, 3> const names = {"gaussian_reset.comp.spv", "gaussian_prepare.comp.spv", "gaussian_finalize.comp.spv"};
+            constexpr deren::utility::vessel::array<std::string_view, 3> names = {"gaussian_reset.comp.spv", "gaussian_prepare.comp.spv", "gaussian_finalize.comp.spv"};
             for (std::size_t i = 0; i < names.size(); ++i) {
                 auto const code = context.shader(context.parent, names[i]);
                 if (code.empty() || code.size() % 4u != 0u) {
@@ -122,7 +122,7 @@ namespace deren::engine::pass {
             rhi::image_barrier{.resource = io.targets[1].image_handle, .from = rhi::image_use::shader_read, .to = rhi::image_use::depth_attachment},
             rhi::image_barrier{.resource = io.targets[0].image_handle, .from = rhi::image_use::color_attachment, .to = rhi::image_use::color_attachment},
         };
-        if (local_barriers) {
+        if (local_barriers) { // NOLINT
             record_error = io.list->barrier(rhi::barrier_group{.images = barriers});
             if (record_error != rhi::error::ok) {
                 return record_error;
@@ -137,7 +137,7 @@ namespace deren::engine::pass {
         scope.depth = {.view = io.targets[1].view_handle, .load = rhi::load_op::load, .store = rhi::store_op::store};
         scope.has_depth = true;
         record_error = io.list->begin_rendering(scope);
-        if (record_error != rhi::error::ok) {
+        if (record_error != rhi::error::ok) { // NOLINT
             if (local_barriers) {
                 auto const recovered = io.list->barrier(restore);
                 if (recovered != rhi::error::ok) {

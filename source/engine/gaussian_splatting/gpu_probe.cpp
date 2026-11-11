@@ -1,10 +1,11 @@
 module;
-#include <cstddef>
+
 #include <cstdint>
-#include <cstring>
+
 module deren.engine.gaussian_splatting.probe;
 import deren.vstd;
 import deren.utility.shared;
+
 namespace deren::engine::gaussian_splatting {
     namespace rhi = deren::promise::rhi;
     std::expected<std::uint32_t, foundation_error> run_gpu_sort_probe(rhi::api_core& core) {
@@ -44,7 +45,7 @@ namespace deren::engine::gaussian_splatting {
                         break;
                     }
                 }
-                std::stable_sort(expected.begin(), expected.end(), [&](auto a, auto b) { return keys[a] < keys[b]; });
+                std::ranges::stable_sort(expected, [&](auto a, auto b) { return keys[a] < keys[b]; });
                 auto make = [&](std::span<std::uint32_t const> data, std::uint64_t size, rhi::buffer_flags flags) {
                     rhi::buffer_desc desc;
                     desc.size = std::max<std::uint64_t>(size, 4u);
@@ -116,6 +117,6 @@ namespace deren::engine::gaussian_splatting {
                 ++cases;
             }
         }
-        return cases;
+        return cases; // NOLINT(bugprone-narrowing-conversions): clang-tidy 24 false positive on std::expected
     }
 } // namespace deren::engine::gaussian_splatting

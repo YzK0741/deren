@@ -25,15 +25,25 @@ export namespace deren::engine::subtilis {
                                       batched,
     };
     /// One frame's page-install pass over the cut's request buffer. `requests` counts entries the
-    /// previous frame wrote, `installed` counts pages admitted this pass, `pending` counts entries
-    /// compacted forward because the byte budget was exhausted, and `overflow` mirrors the shader's
-    /// request-buffer overflow flag.
+    /// completed slot wrote, `installed` counts completed pages, `submitted` counts queued pages,
+    /// and `bytes` charges only newly submitted copies. Pending demand includes in-flight pages.
+    /// `in_flight_bytes` counts reserved upload payload, not resident arena bytes. `abandoned`
+    /// counts pages whose upload failed repeatedly and were returned to absent for a new request.
+    /// `evicted` counts pages the residency manager chose as victims for this install.
+    /// `page_misses` counts cut items that fell back to LOD0 because an index page was absent.
     struct page_install_stats {
+        upload_rhi::error result = upload_rhi::error::ok;
         std::uint32_t requests = 0;
         std::uint32_t installed = 0;
+        std::uint32_t submitted = 0;
+        std::uint32_t in_flight = 0;
         std::uint32_t pending = 0;
         std::uint32_t overflow = 0;
+        std::uint32_t abandoned = 0;
+        std::uint32_t evicted = 0;
+        std::uint32_t page_misses = 0;
         std::uint64_t bytes = 0;
+        std::uint64_t in_flight_bytes = 0;
     };
     /// Immutable GPU cut input: one record per DAG group. Kept separate from the 48-byte
     /// meshlet ABI so the render-side record can never grow into the meshlet contract.
@@ -59,17 +69,53 @@ export namespace deren::engine::subtilis {
     /// The source must remain immutable through every alias after publication;
     /// do not move-assign or modify it through a second, mutable shared handle.
     /// Returns only after both GPU buffers are ready. `resident_page_bytes` caps the device slot
-    /// arena for streaming pages (default 8 MiB). Automatic selects a single transfer batch when
+    /// arena for streaming pages (default 64 MiB). Automatic selects a single transfer batch when
     /// the device, submission and scoped synchronization are available; otherwise it uses
     /// synchronous creation. Forced batched mode refuses missing capabilities; failures are propagated.
     /// Separate batched uploads do not share the backend's initial-content cache: reuse the returned uploaded_geometry.
     /// @details The feature overview, the measured numbers and the document index are in @ref md_docs_2subtilis.
+    /// One device-wide pool of fixed-size subtilis page slots. Passing the same pool to every
+    /// upload makes `resident_page_bytes` a real global budget instead of a per-source allowance.
+    class page_arena_pool {
+        struct state;
+        std::shared_ptr<state> state_;
+
+        explicit page_arena_pool(std::shared_ptr<state> state) noexcept;
+
+    public:
+        static constexpr std::uint32_t slot_bytes = 64u << 10;
+
+        [[nodiscard]] static std::expected<std::shared_ptr<page_arena_pool>, upload_rhi::error>
+        create(upload_rhi::shared_object<upload_rhi::api_core> const& device, std::uint64_t bytes);
+        ~page_arena_pool();
+        page_arena_pool(page_arena_pool const&) = delete ("page_arena_pool owns one shared GPU arena; share the handle instead");
+        page_arena_pool& operator=(page_arena_pool const&) = delete ("page_arena_pool owns one shared GPU arena; share the handle instead");
+
+        [[nodiscard]] std::uint32_t capacity_slots() const noexcept;
+        [[nodiscard]] std::shared_ptr<render_resource::instances::generation const> const& arena() const noexcept;
+        using slot_evict_fn = bool (*)(void*, std::uint32_t);
+
+        /// Removes `count` free slots from the pool. When the pool is full, owners of unreferenced
+        /// slots are asked to evict one page; `skip_owner` keeps the requesting source out of that
+        /// search because its residency plan is already in flight.
+        [[nodiscard]] bool acquire(std::uint32_t count, deren::utility::vessel::vector<std::uint32_t>& out, void const* skip_owner = nullptr, std::uint32_t* evicted = nullptr);
+        void set_owner(std::uint32_t slot, void* context, slot_evict_fn evict);
+        void clear_owner(std::uint32_t slot);
+        void release(std::uint32_t slot);
+        void release(std::span<std::uint32_t const> slots);
+        void retain(std::uint32_t slot);
+        void drop(std::uint32_t slot);
+        /// Copies initial bytes into a slot. The arena is host-visible/coherent.
+        [[nodiscard]] bool write(std::uint32_t slot, std::span<std::byte const> bytes);
+    };
+
     [[nodiscard]] std::expected<std::shared_ptr<uploaded_geometry const>, upload_rhi::error>
     upload_geometry(upload_rhi::shared_object<upload_rhi::api_core> const& device,
                     std::shared_ptr<built_geometry const> source,
                     upload_rhi::buffer_flags flags = upload_rhi::to_bits(upload_rhi::buffer_flag::device_address),
                     geometry_upload_mode mode = geometry_upload_mode::automatic,
-                    std::uint64_t resident_page_bytes = 8ull << 20);
+                    std::uint64_t resident_page_bytes = 64ull << 20,
+                    std::shared_ptr<page_arena_pool> arena_pool = {});
     /// One immutable CPU hierarchy and its complete GPU payload. Buffers reachable through it
     /// are valid while this generation, or a view that shares it, still exists.
     class uploaded_geometry {
@@ -87,7 +133,7 @@ export namespace deren::engine::subtilis {
         std::shared_ptr<page_state> page_state_;
         friend std::expected<std::shared_ptr<uploaded_geometry const>, upload_rhi::error>
         upload_geometry(upload_rhi::shared_object<upload_rhi::api_core> const&, std::shared_ptr<built_geometry const>, upload_rhi::buffer_flags,
-                        geometry_upload_mode, std::uint64_t);
+                        geometry_upload_mode, std::uint64_t, std::shared_ptr<page_arena_pool>);
 
     public:
         uploaded_geometry(construction_key /*unused*/, std::shared_ptr<void const> resources, std::shared_ptr<built_geometry const> source,
@@ -166,17 +212,32 @@ export namespace deren::engine::subtilis {
         [[nodiscard]] upload_rhi::buffer* page_requests() const noexcept {
             return page_requests_ ? page_requests_->objects[0].buffer.get() : nullptr;
         }
+        /// Configure before any snapshot is published. Growth preserves slot-zero buffers.
+        [[nodiscard]] upload_rhi::error configure_page_frames(std::uint32_t count) const;
+        [[nodiscard]] upload_rhi::buffer* page_table(std::uint32_t slot) const noexcept;
+        [[nodiscard]] upload_rhi::buffer* page_requests(std::uint32_t slot) const noexcept;
+        /// Caller must have completed this slot's GPU submission, or abandoned its recording.
+        /// Collect requests, release references and reopen this slot for preparation.
+        [[nodiscard]] upload_rhi::error complete_page_frame(std::uint32_t slot) const;
+        /// Freeze a snapshot and protect every arena slot it can access until completion.
+        [[nodiscard]] upload_rhi::error publish_page_frame(std::uint32_t slot) const;
+        /// Poll only. Successful completion updates canonical residency, never a live snapshot.
+        [[nodiscard]] page_install_stats collect_page_uploads() const;
+        [[nodiscard]] bool has_pending_page_upload() const noexcept;
         [[nodiscard]] std::uint32_t page_count() const noexcept {
             return page_count_;
         }
         [[nodiscard]] std::uint32_t page_request_capacity() const noexcept {
             return page_request_capacity_;
         }
-        /// Promote last frame's index-page requests into the host-visible page table under a byte
-        /// budget. Pages that do not fit stay `requested` and are compacted to the front of the
-        /// request buffer for the next frame. Admitted pages are copied from the host-side payload
-        /// into a free arena slot, the transfer is fenced, and only then is the table published.
-        /// Installing past the resident slot count evicts least-recently-used pages first.
-        [[nodiscard]] page_install_stats install_requested_pages(std::uint64_t budget_bytes, std::uint32_t frame = 0) const noexcept;
+        /// Prepare a completed, unpublished slot under a byte budget. Pending requests
+        /// survive in a shared CPU backlog. Copies submit without waiting; only unreferenced
+        /// physical slots can be reused. Completion updates future snapshots only.
+        /// `max_install_pages` bounds how many explicitly requested pages this call admits;
+        /// dependency pages may still be added by the residency plan. Call publish_page_frame
+        /// before recording GPU use.
+        [[nodiscard]] page_install_stats install_requested_pages(std::uint64_t budget_bytes, std::uint32_t sequence = 0,
+                                                                 std::uint32_t slot = 0,
+                                                                 std::uint32_t max_install_pages = 0xFFFFFFFFu) const noexcept;
     };
 } // namespace deren::engine::subtilis

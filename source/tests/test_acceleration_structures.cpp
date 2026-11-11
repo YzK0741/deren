@@ -631,7 +631,7 @@ namespace {
 
         inputs.hooks.mask_ready = [](void*) { return true; };
 
-        inputs.hooks.record_mask_bake = [](void* parent, rhi::command_buffer&, deren::engine::pass::mask_bake_request const&) { ++*static_cast<int*>(parent); };
+        inputs.hooks.record_mask_bake = [](void* parent, rhi::command_buffer const&, deren::engine::pass::mask_bake_request const&) { ++*static_cast<int*>(parent); };
 
         raster_test::raster_probe_commands commands;
 
@@ -737,7 +737,7 @@ namespace {
 
         inputs.hooks.skin_ready = [](void*) { return true; };
 
-        inputs.hooks.record_skin = [](void*, rhi::command_buffer&, std::span<deren::engine::ray_tracing::caster_level const>) { return true; };
+        inputs.hooks.record_skin = [](void*, rhi::command_buffer const&, std::span<deren::engine::ray_tracing::caster_level const>) { return true; };
 
         deren::engine::ray_tracing::structure_set skinned{device, access};
 
@@ -749,7 +749,7 @@ namespace {
 
         CHECK(skinned.update(commands, 0, inputs) && skinned.handle(0));
 
-        inputs.hooks.record_skin = [](void*, rhi::command_buffer&, std::span<deren::engine::ray_tracing::caster_level const>) { return false; };
+        inputs.hooks.record_skin = [](void*, rhi::command_buffer const&, std::span<deren::engine::ray_tracing::caster_level const>) { return false; };
 
         auto const failed_update = skinned.update(commands, 0, inputs);
 
@@ -1164,17 +1164,19 @@ int main(int const argc, char** const argv) {
 
     bool const multi_geometry = std::any_of(argv + 1, argv + argc, [](char const* arg) { return std::string_view(arg) == "--multi-geometry"; });
 
-    deren::utility::vessel::vector<vertex> vertices{{.position = {0.0f, 0.0f, 0.0f}},
+    deren::utility::vessel::vector<vertex> vertices{
+        {.position = {0.0f, 0.0f, 0.0f}},
 
-                                                    {.position = {1.0f, 0.0f, 0.0f}},
+        {.position = {1.0f, 0.0f, 0.0f}},
 
-                                                    {.position = {0.0f, 1.0f, 0.0f}},
+        {.position = {0.0f, 1.0f, 0.0f}},
 
-                                                    {.position = {10.0f, 0.0f, 0.0f}},
+        {.position = {10.0f, 0.0f, 0.0f}},
 
-                                                    {.position = {11.0f, 0.0f, 0.0f}},
+        {.position = {11.0f, 0.0f, 0.0f}},
 
-                                                    {.position = {10.0f, 1.0f, 0.0f}}};
+        {.position = {10.0f, 1.0f, 0.0f}},
+    };
 
     std::uint32_t const indices[6] = {0u, 1u, 2u, 0u, 1u, 2u};
 
@@ -1187,11 +1189,17 @@ int main(int const argc, char** const argv) {
 
     rhi::unique_object<rhi::buffer> vertex_buffer = core->resources->create_buffer(rhi::buffer_desc{
 
-        .size = vertices.size() * sizeof(vertex), .usage = rhi::buffer_usage::storage_coherent, .flags = build_input_flags});
+        .size = vertices.size() * sizeof(vertex),
+        .usage = rhi::buffer_usage::storage_coherent,
+        .flags = build_input_flags,
+    });
 
     rhi::unique_object<rhi::buffer> index_buffer = core->resources->create_buffer(rhi::buffer_desc{
 
-        .size = index_data.size_bytes(), .usage = rhi::buffer_usage::storage_coherent, .flags = build_input_flags});
+        .size = index_data.size_bytes(),
+        .usage = rhi::buffer_usage::storage_coherent,
+        .flags = build_input_flags,
+    });
 
     CHECK(vertex_buffer != nullptr);
 
@@ -1473,15 +1481,17 @@ int main(int const argc, char** const argv) {
 
         };
 
-        triangle_soup = rhi::unique_object<rhi::acceleration_structure>{core->resources->create_acceleration_structure(rhi::acceleration_structure_desc{
+        triangle_soup = rhi::unique_object<rhi::acceleration_structure>{
+            core->resources->create_acceleration_structure(rhi::acceleration_structure_desc{
 
-            .type = rhi::acceleration_structure_type::bottom_level,
+                .type = rhi::acceleration_structure_type::bottom_level,
 
-            .geometries = &unindexed,
+                .geometries = &unindexed,
 
-            .geometry_count = 1u,
+                .geometry_count = 1u,
 
-        })};
+            }),
+        };
 
         CHECK(triangle_soup);
 

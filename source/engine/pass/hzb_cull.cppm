@@ -103,11 +103,11 @@ export namespace deren::engine::pass {
     inline constexpr std::uint32_t hzb_stat_overflow_items = 3u; ///< items whose run could not be described (§9.4)
 
     // THE SHADER'S MIRRORS OF THE DRAW-ITEM RECORD, asserted here so the GPU's model fetch cannot drift from the
-    // host's record silently: hzb_cull.slang reads the model's 16 floats at dword 12 of a 28-dword row.
-    static_assert(deren::engine::visibility::draw_item_bytes == 112u);
+    // host's record silently: hzb_cull.slang reads the model's 16 floats at dword 12 of a 32-dword row.
+    static_assert(deren::engine::visibility::draw_item_bytes == 128u);
     static_assert(deren::engine::visibility::draw_item_model_offset == 48u);
     static_assert(deren::engine::visibility::draw_item_model_offset == 12u * sizeof(std::uint32_t));
-    static_assert(deren::engine::visibility::draw_item_bytes == 28u * sizeof(std::uint32_t));
+    static_assert(deren::engine::visibility::draw_item_bytes == 32u * sizeof(std::uint32_t));
 
     class hzb_cull_pass final : public frame_pass {
     public:
@@ -117,7 +117,7 @@ export namespace deren::engine::pass {
             // NO BINDINGS, NO TARGETS, NO DECLARED PUSH BLOCK: every resource travels through the frame's heap and
             // the graph's declaration carries the ordering (the same empty-declaration shape the build pass records
             // with). The push block is composed per frame from `set_frame`'s values plus the framework's index lanes.
-            static constinit render_resource::pass_io const value{.name = "hzb cull"};
+            static constexpr render_resource::pass_io value{.name = "hzb cull"};
             return value;
         }
 
@@ -125,12 +125,14 @@ export namespace deren::engine::pass {
             // ONE WORKGROUP PER ITEM, 64 THREADS (the shader's [numthreads(64, 1, 1)]): the dispatch is
             // `item_count` groups, which the host knows exactly (§2.1 - no indirect dispatch is needed for the cull
             // itself), and the extent rule is the frame's so a resize changes nothing about the pass.
-            static deren::engine::pass::behaviour const value{.kind = behaviour_kind::compute,
-                                                              .group_size_x = 64,
-                                                              .group_size_y = 1,
-                                                              .group_size_z = 1,
-                                                              .extent = extent_rule::full,
-                                                              .resync_viewport = false};
+            static constexpr deren::engine::pass::behaviour value{
+                .kind = behaviour_kind::compute,
+                .group_size_x = 64,
+                .group_size_y = 1,
+                .group_size_z = 1,
+                .extent = extent_rule::full,
+                .resync_viewport = false,
+            };
             return value;
         }
 
@@ -167,7 +169,7 @@ export namespace deren::engine::pass {
             this->gpu_software = gpu_software;
         }
 
-        [[nodiscard]] rhi::error record_content(resolved_io const& io) noexcept override;
+        [[nodiscard]] rhi::error record_content(resolved_io const& io) noexcept override; // NOLINT
 
     private:
         std::optional<pipelines::pipeline_handle> cull_pipeline = std::nullopt;

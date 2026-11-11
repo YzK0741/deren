@@ -34,9 +34,11 @@ export namespace deren::engine::render_graph::gbuffer_debug {
             }
         }
         constexpr access_scope sampled{resource_usage::sampled, pipeline_stage::fragment_shader};
-        parameters params{{{{in.surface[0], {}, sampled}, {in.surface[1], {}, sampled}, {in.surface[2], {}, sampled}}},
-                          {in.velocity, {}, sampled},
-                          {in.target, {}, {resource_usage::color_attachment, pipeline_stage::color_output}}};
+        parameters params{
+            {{{in.surface[0], {}, sampled}, {in.surface[1], {}, sampled}, {in.surface[2], {}, sampled}}},
+            {in.velocity, {}, sampled},
+            {in.target, {}, {resource_usage::color_attachment, pipeline_stage::color_output}},
+        };
         auto added = graph.add_pass("GBuffer debug view", std::move(params));
         if (!added) {
             return std::unexpected(added.error());

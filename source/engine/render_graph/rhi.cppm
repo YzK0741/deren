@@ -7,7 +7,8 @@ export import deren.promise.rhi.synchronization;
 namespace deren::engine::render_graph::rhi_bridge::detail {
     namespace sync = deren::promise::rhi::synchronization;
     std::expected<sync::scope, sync::error> scope(resource_state value) noexcept {
-        auto stages = static_cast<uint32_t>(value.stages), access = static_cast<uint32_t>(value.access);
+        auto stages = static_cast<uint32_t>(value.stages);
+        auto access = static_cast<uint32_t>(value.access);
         if ((stages & ~2047U) || (access & ~3U)) {
             return std::unexpected(sync::error::unsupported);
         }
@@ -42,7 +43,7 @@ namespace deren::engine::render_graph::rhi_bridge::detail {
             return std::unexpected(masks.error());
         }
         sync::image_layout layout;
-        switch (value.layout) {
+        switch (value.layout) { // NOLINT
         case resource_layout::undefined:
             layout = sync::image_layout::undefined;
             break;
@@ -125,7 +126,8 @@ export namespace deren::engine::render_graph::rhi_bridge {
                 if (!range || !shape || range->base_mip >= shape->mip_levels || !range->mip_count || range->mip_count > shape->mip_levels - range->base_mip || range->base_layer >= shape->array_layers || !range->layer_count || range->layer_count > shape->array_layers - range->base_layer || !static_cast<uint32_t>(range->aspects) || (static_cast<uint32_t>(range->aspects) & ~static_cast<uint32_t>(shape->aspects))) {
                     return fail(sync::error::invalid_argument);
                 }
-                auto before = detail::image_state(barrier.before), after = detail::image_state(barrier.after);
+                auto before = detail::image_state(barrier.before);
+                auto after = detail::image_state(barrier.after);
                 if (!before || !after) {
                     return fail(!before ? before.error() : after.error());
                 }
@@ -145,7 +147,8 @@ export namespace deren::engine::render_graph::rhi_bridge {
                 if (barrier.before.layout == resource_layout::undefined && (barrier.before.access != memory_access::none || barrier.before.stages != pipeline_stage::none)) {
                     return fail(sync::error::invalid_argument);
                 }
-                auto before = detail::scope(barrier.before), after = detail::scope(barrier.after);
+                auto before = detail::scope(barrier.before);
+                auto after = detail::scope(barrier.after);
                 if (!before || !after) {
                     return fail(!before ? before.error() : after.error());
                 }

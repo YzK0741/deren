@@ -26,7 +26,6 @@
 module;
 
 #include <cstdint>
-#include <cstring>
 
 export module deren.engine.pass.geometry_buffer_debug;
 export import deren.vstd;
@@ -87,7 +86,7 @@ export namespace deren::engine::pass {
         /// The removed legacy path's `record()` transitioned the four sampled G-buffer images itself (see its comment). A
         /// graph-recorded frame declares those reads and the HDR target write instead, and the graph emits both -
         /// so its recorder calls THIS entry and one submission never runs both barrier paths.
-        deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
+        deren::promise::rhi::error record_content(resolved_io const& io) noexcept override; // NOLINT
 
         /// @brief whether the pass built everything it records with (the renderer gates the feature on this)
         [[nodiscard]] bool pipeline_ready() const noexcept;
@@ -117,7 +116,7 @@ export namespace deren::engine::pass {
         static constexpr deren::utility::vessel::array<std::string_view, 1> pipeline_names = {"gbuffer-debug"};
         // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
         // would duplicate it and hide the override.
-        inline static constexpr deren::engine::pass::behaviour pass_behaviour = {
+        static constexpr deren::engine::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::fullscreen,
             .extent = extent_rule::full, // the view runs at the frame's resolution
             .extent_of = resource_id::none,

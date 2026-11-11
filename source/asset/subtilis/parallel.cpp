@@ -38,11 +38,11 @@ namespace deren::asset::subtilis::builder_detail {
             return fail(error_code::capacity, "known workspace budget cannot hold one reduction task");
         }
         size_t const by_budget = max_known_work_bytes / max_estimate;
-        size_t const concurrency = std::min({size_t(threads), count, by_budget});
+        size_t const concurrency = std::min({static_cast<size_t>(threads), count, by_budget});
         // Coarse tasks first for load balance; index ties stay ascending. This only changes dispatch
         // order, never commit order or any visible ID.
         vector<size_t> order(count);
-        std::iota(order.begin(), order.end(), size_t(0));
+        std::iota(order.begin(), order.end(), static_cast<size_t>(0));
         std::stable_sort(order.begin(), order.end(), [&](size_t left, size_t right) {
             return estimates[left] != estimates[right] ? estimates[left] > estimates[right] : left < right;
         });

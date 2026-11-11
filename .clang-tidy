@@ -25,6 +25,14 @@
 #     却会拆散按功能分组的注释、产生巨大 diff。收益 < 搅动成本，永久排除。
 #   - readability-function-cognitive-complexity / readability-function-size :
 #     复杂度类检查暂不处理（按用户要求）
+#   - readability-convert-member-functions-to-static : the bitmap helpers in
+#     core.declarations.cppm do access texture_group_state members, but the check
+#     reports them from the module AST; virtual get_tag() overrides cannot be static
+#     at all. Keeping it only produces fixed noise in that file.
+#   - readability-named-parameter              : interface/default implementations
+#     intentionally leave unused parameters unnamed; naming them only adds noise.
+#   - readability-trailing-comma               : the repository does not use trailing
+#     commas in enum/initializer lists; the check only fights the established style.
 Checks: >
   -*,
   bugprone-*,
@@ -46,6 +54,9 @@ Checks: >
   -readability-math-missing-parentheses,
   -readability-function-cognitive-complexity,
   -readability-function-size,
+  -readability-convert-member-functions-to-static,
+  -readability-named-parameter,
+  -readability-trailing-comma,
 
 # 把所有警告视为错误会阻碍迭代，这里先保持警告
 WarningsAsErrors: ''

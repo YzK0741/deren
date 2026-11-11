@@ -83,12 +83,14 @@ export namespace deren::engine::pass {
     /// v0.5 this lane IS the opaque producer when it runs, so the depth it tests against is the one the lighting,
     /// transparent and toon stages read afterwards (the dedicated capture depth of the capture-only step is
     /// retired from the frame: writing it too would be a second depth no reader names).
-    inline constexpr std::array<render_resource::render_target, 2> visibility_raster_targets = {{
-        {.resource = render_resource::resource_id::visibility_buffer, .kind = render_resource::target_kind::color},
-        {.resource = render_resource::resource_id::gbuffer_depth, .kind = render_resource::target_kind::depth},
-    }};
+    inline constexpr std::array<render_resource::render_target, 2> visibility_raster_targets = {
+        {
+            {.resource = render_resource::resource_id::visibility_buffer, .kind = render_resource::target_kind::color},
+            {.resource = render_resource::resource_id::gbuffer_depth, .kind = render_resource::target_kind::depth},
+        },
+    };
 
-    inline constinit render_resource::pass_io const visibility_raster_io = {
+    inline constexpr render_resource::pass_io visibility_raster_io = {
         .name = "visibility raster",
         .bindings = {},
         .targets = visibility_raster_targets,
@@ -107,7 +109,7 @@ export namespace deren::engine::pass {
             // a graphics pass over its declared targets; the viewport comes from the resolved extent because
             // this pipeline is NOT in the runtime's registry (it is the pass's), so `update_pass_geometry`'s
             // hand-maintained resync does not see it - the declaration carries the rule instead.
-            static deren::engine::pass::behaviour const value{.kind = behaviour_kind::graphics, .extent = extent_rule::full, .resync_viewport = true};
+            static constexpr deren::engine::pass::behaviour value{.kind = behaviour_kind::graphics, .extent = extent_rule::full, .resync_viewport = true};
             return value;
         }
 

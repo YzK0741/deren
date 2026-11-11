@@ -27,7 +27,7 @@ namespace deren::vulkan {
     rhi::unique_object<rhi::command_buffer> core::command_facet::create_command_buffer(rhi::command_buffer_desc const& declared_desc) {
         // THE ABI GUARD, the same rule every factory descriptor follows: only the prefix the caller
         // declares is read, so an older caller's structure keeps this build's default.
-        rhi::command_buffer_kind kind = rhi::command_buffer_kind::primary;
+        auto kind = rhi::command_buffer_kind::primary;
         if (covered_by(declared_desc.struct_size, offsetof(rhi::command_buffer_desc, kind), sizeof(rhi::command_buffer_desc::kind))) {
             kind = declared_desc.kind;
         }

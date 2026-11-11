@@ -16,7 +16,6 @@
 module;
 
 #include <cstdint>
-#include <cstring>
 #include <glm/glm.hpp>
 
 export module deren.engine.pass.ray_traced_reflection;
@@ -72,7 +71,7 @@ export namespace deren::engine::pass {
                       "the reflection pass's barrier slots must match the declaration it indexes");
 
         static constexpr deren::utility::vessel::array<std::string_view, 1> pipeline_names = {"rt_reflection"};
-        inline static constexpr deren::engine::pass::behaviour pass_behaviour = {
+        static constexpr deren::engine::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::ray_tracing,
             .group_size_x = group_size,
             .group_size_y = group_size,

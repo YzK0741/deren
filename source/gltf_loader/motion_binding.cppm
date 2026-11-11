@@ -1,4 +1,39 @@
-// Private implementation of the standalone motion binding contract.
+// ============================================================================
+// module: deren.gltf_loader:motion_binding
+// Standalone motion binding, as a module partition of the glTF loader.
+//
+// The definitions here belong to declarations exported by the primary module
+// interface, so this partition defines them without re-exporting the names. It
+// is imported by gltf_loader.cpp and never by the primary interface: importing
+// the primary interface back from here is what lets the definitions use
+// `scenes`, `node` and the other loader types.
+// ============================================================================
+module;
+
+#include <algorithm>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <expected>
+#include <filesystem>
+#include <fstream>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
+#include <iterator>
+#include <memory>
+#include <span>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <yyjson.h>
+
+module deren.gltf_loader:motion_binding;
+
+import deren.gltf_loader;
+import deren.utility;
+import deren.utility.shared;
+
 namespace deren::gltf {
     namespace motion_detail {
         struct entry {

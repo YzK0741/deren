@@ -8,7 +8,9 @@
 // that size. If the leaf count ever argues for it, this is the file that changes.
 
 module;
-#include <cstdint> // uint32_t: the push block's spare lane is a uint
+#include <algorithm> // std::clamp: the reflection-strength lane
+#include <cmath>     // std::lround: the packed lane
+#include <cstdint>   // uint32_t: the push block's spare lane is a uint
 // NO VULKAN HEADER: every barrier, scope and handle in this file is the contract's now (the boundary
 // sweep names the remaining files that still need one, and why).
 
@@ -72,13 +74,15 @@ namespace deren::engine::pass {
         deren::utility::vessel::array<rhi::color_attachment, 1> const colors = {
             rhi::color_attachment{.view = io.targets[0].view_handle, .load = rhi::load_op::load, .store = rhi::store_op::store, .clear = {}},
         };
-        rhi::depth_attachment const depth = {.view = io.targets[1].view_handle,
-                                             .load = rhi::load_op::load, // make_load_depth_attachment_info's loadOp
-                                             .store = rhi::store_op::store,
-                                             .read_only = false,
-                                             .has_stencil = false,
-                                             .clear_depth = 1.0f,
-                                             .clear_stencil = 0};
+        rhi::depth_attachment const depth = {
+            .view = io.targets[1].view_handle,
+            .load = rhi::load_op::load, // make_load_depth_attachment_info's loadOp
+            .store = rhi::store_op::store,
+            .read_only = false,
+            .has_stencil = false,
+            .clear_depth = 1.0f,
+            .clear_stencil = 0,
+        };
         rhi::rendering_info const rendering_info{
             .struct_size = sizeof(rhi::rendering_info),
             .area = {.offset_x = 0, .offset_y = 0, .width = this->pass_frame.extent.width, .height = this->pass_frame.extent.height},
@@ -110,10 +114,8 @@ namespace deren::engine::pass {
         env.depth_write_locked = true;
         // Quantized into the push block's spare lane. 0 == no reflection composite, which is the default
         // frame and the whole `rt_reflections = false` path.
-        float const reflection_strength = this->pass_frame.rt_reflection_strength < 0.0f   ? 0.0f
-                                          : this->pass_frame.rt_reflection_strength > 1.0f ? 1.0f
-                                                                                           : this->pass_frame.rt_reflection_strength;
-        env.extra_push_lane = static_cast<uint32_t>(reflection_strength * 255.0f + 0.5f);
+        float const reflection_strength = std::clamp(this->pass_frame.rt_reflection_strength, 0.0f, 1.0f);
+        env.extra_push_lane = static_cast<uint32_t>(std::lround(reflection_strength * 255.0f));
 
         for (primitive const* const leaf : this->pass_frame.leaves) {
             leaf->draw(env);

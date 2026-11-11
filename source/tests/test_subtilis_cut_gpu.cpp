@@ -32,6 +32,7 @@ import deren.engine.subtilis.lod;
 import deren.engine.subtilis.selection;
 import deren.engine.subtilis.dag_lod;
 import deren.engine.subtilis.cut;
+import deren.engine.subtilis.page_streaming;
 
 namespace rhi = deren::promise::rhi;
 namespace sub = deren::engine::subtilis;
@@ -181,27 +182,27 @@ int main() {
         return deren::vk_test::finish("test_subtilis_cut_gpu");
     }
 
-    auto commands = core->commands->make_command_buffer({});
-    CHECK(commands != nullptr);
-    if (!commands) {
-        return deren::vk_test::finish("test_subtilis_cut_gpu");
-    }
     std::uint64_t const items_address = addresses->buffer_address(*item_buffer, 0);
     cut_push const push{
         .items = glm::uvec2(std::uint32_t(items_address & 0xFFFFFFFFu), std::uint32_t(items_address >> 32u)),
         .item_count = 1,
         .reserved = 0,
     };
-    CHECK(commands->begin_recording({}) == rhi::error::ok);
-    CHECK(commands->bind_pipeline(*pipeline->trace->contract) == rhi::error::ok);
-    CHECK(commands->push_constants(0, std::as_bytes(std::span(&push, 1))) == rhi::error::ok);
-    commands->dispatch(1, 1, 1);
-    CHECK(commands->end_recording() == rhi::error::ok);
-    auto submitted = submission->submit(*commands);
-    CHECK(submitted.has_value());
-    if (submitted) {
-        CHECK(submission->wait(*submitted, UINT64_MAX) == rhi::error::ok);
-    }
+    auto const dispatch = [&] {
+        auto commands = core->commands->make_command_buffer({});
+        if (!commands || commands->begin_recording({}) != rhi::error::ok ||
+            commands->bind_pipeline(*pipeline->trace->contract) != rhi::error::ok ||
+            commands->push_constants(0, std::as_bytes(std::span(&push, 1))) != rhi::error::ok) {
+            return false;
+        }
+        commands->dispatch(1, 1, 1);
+        if (commands->end_recording() != rhi::error::ok) {
+            return false;
+        }
+        auto submitted = submission->submit(*commands);
+        return submitted && submission->wait(*submitted, UINT64_MAX) == rhi::error::ok;
+    };
+    CHECK(dispatch());
 
     std::uint32_t command[3]{};
     std::memcpy(command, command_buffer->mapped().data(), sizeof(command));
@@ -222,6 +223,56 @@ int main() {
                 deren::vk_test::write_line("first mismatch at {}: gpu first={} count={} cpu first={} count={}", i, gpu[i].first_index, gpu[i].index_count, cpu[i].first_index, cpu[i].index_count);
                 break;
             }
+        }
+    }
+    // A constrained run can hold its preloaded fallback but cannot hold the selected cut.
+    CHECK(cpu.size() > 1u);
+    if (cpu.size() > 1u) {
+        auto const fallback = cpu.back();
+        std::memcpy(meshlet_buffer->mapped().data(), &fallback, sizeof(fallback));
+        item->output_capacity = 1;
+        item->lod0_count = 1;
+        CHECK(dispatch());
+        std::memcpy(command, command_buffer->mapped().data(), sizeof(command));
+        CHECK(command[0] == 1 && command[1] == 1 && command[2] == 1);
+        CHECK(std::memcmp(gpu, &fallback, sizeof(fallback)) == 0);
+    }
+    // The same cut requests a cold index window, then emits page IDs once it is resident.
+    auto page_table = make_storage(*core, sizeof(sub::gpu_page_table_entry));
+    auto page_requests = make_storage(*core, sizeof(sub::gpu_page_request_header) + sizeof(sub::gpu_page_request));
+    CHECK(page_table && page_requests);
+    if (page_table && page_requests && cpu.size() > 1u) {
+        sub::gpu_page_table_entry entry{.section = 1, .count = static_cast<std::uint32_t>(geometry->indices().size())};
+        sub::gpu_page_request_header header{.capacity = 1};
+        auto requests = page_requests->mapped();
+        std::memcpy(page_table->mapped().data(), &entry, sizeof(entry));
+        std::memcpy(requests.data(), &header, sizeof(header));
+        item->output_capacity = capacity;
+        item->page_table = addresses->buffer_address(*page_table, 0);
+        item->page_requests = addresses->buffer_address(*page_requests, 0);
+        item->page_count = 1;
+        item->request_capacity = 1;
+        item->request_frame = 37;
+        CHECK(dispatch());
+        std::memcpy(command, command_buffer->mapped().data(), sizeof(command));
+        std::memcpy(&header, requests.data(), sizeof(header));
+        sub::gpu_page_request request{};
+        std::memcpy(&request, requests.data() + sizeof(header), sizeof(request));
+        CHECK(command[0] == item->lod0_count);
+        // Every selected cluster references the same single page, and the page-table claim
+        // admits exactly one request for it. The request fits capacity 1, so this is not overflow.
+        CHECK(header.count == 1 && header.overflow == 0);
+        CHECK(request.page == 0 && request.item == 0 && request.frame == 37);
+
+        entry.state = static_cast<std::uint32_t>(sub::gpu_page_state::resident);
+        std::memcpy(page_table->mapped().data(), &entry, sizeof(entry));
+        CHECK(dispatch());
+        std::memcpy(command, command_buffer->mapped().data(), sizeof(command));
+        CHECK(command[0] == cpu.size());
+        for (std::size_t i = 0; i < cpu.size(); ++i) {
+            auto expected = cpu[i];
+            expected.page_id = 1;
+            CHECK(std::memcmp(&gpu[i], &expected, sizeof(expected)) == 0);
         }
     }
     return deren::vk_test::finish("test_subtilis_cut_gpu");

@@ -31,7 +31,8 @@ export namespace deren::engine::render_graph::execution {
                                   missing_recorder,
                                   parameter_type_mismatch,
                                   sealed_builder,
-                                  invalid_argument };
+                                  invalid_argument,
+    };
     struct build_error {
         build_error_code code = build_error_code::invalid_argument;
         std::optional<graph_error> graph{};
@@ -51,10 +52,10 @@ export namespace deren::engine::render_graph::execution {
                 : function(std::move(value)) {
             }
             bool matches(parameter_snapshot const& snapshot) const noexcept override {
-                return snapshot.template get<P>();
+                return snapshot.get<P>();
             }
             rhi::error record(rhi::command_buffer& commands, record_context const& context) const noexcept override {
-                return std::invoke(function, *context.pass().parameters.template get<P>(), commands, context);
+                return std::invoke(function, *context.pass().parameters.get<P>(), commands, context);
             }
         };
         struct barrier_recorder final : recorder {
@@ -201,7 +202,7 @@ export namespace deren::engine::render_graph::execution {
                 return result_type(std::move(*result));
             }
         }
-        std::expected<void, build_error> export_resource(texture_ref ref, texture_range range = {}) {
+        std::expected<void, build_error> export_resource(texture_ref const ref, texture_range const& range = {}) {
             if (auto error = blocked()) {
                 return std::unexpected(*error);
             }

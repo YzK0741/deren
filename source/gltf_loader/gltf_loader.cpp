@@ -32,7 +32,8 @@ import deren.utility.shared;
 
 import deren.utility;
 
-#include "motion_binding.hpp"
+import :motion_binding;
+import :subtilis_payload;
 
 namespace {
     using fastgltf::Asset;
@@ -568,7 +569,7 @@ namespace {
         deren::utility::vessel::vector<deren::utility::vessel::map<deren::utility::vessel::string, float>> floats = {};
     };
 
-    void collect_material_extras(simdjson::dom::object* extras, std::size_t const object_index, fastgltf::Category const object_type, void* user_pointer) {
+    void collect_material_extras(simdjson::dom::object* extras, std::size_t const object_index, fastgltf::Category const object_type, void* user_pointer) { // NOLINT
         if (object_type != fastgltf::Category::Materials || extras == nullptr || user_pointer == nullptr) {
             return; // another object's extras: this loader claims material rows and nothing else
         }
@@ -696,9 +697,8 @@ namespace {
         return result;
     }
 
-#include "subtilis_payload.inc"
-
-    deren::gltf::scene load_scene(Asset const& asset, std::size_t const scene_index, subtilis_cache const* payloads = nullptr) {
+    deren::gltf::scene load_scene(Asset const& asset, std::size_t const scene_index,
+                                  deren::gltf::detail::subtilis_cache const* payloads = nullptr) {
         deren::gltf::scene result;
         result.name = asset.scenes[scene_index].name;
 
@@ -742,7 +742,7 @@ namespace {
             }
             if (auto const* trs = std::get_if<fastgltf::TRS>(&fnode.transform)) {
                 current_node.translation = glm::vec3(trs->translation[0], trs->translation[1], trs->translation[2]);
-                glm::quat rotation = {};
+                glm::quat rotation;
                 // fastgltf stores quaternions as xyzw with w the scalar, same layout as glm
                 rotation.x = trs->rotation[0];
                 rotation.y = trs->rotation[1];
@@ -894,7 +894,7 @@ namespace {
     // element/component combinations that cannot hold animation values (Mat*, vec2, unknown).
     deren::utility::vessel::vector<float> flatten_float_accessor(Asset const& asset, fastgltf::Accessor const& accessor) {
         parsed_data const raw = get_data_from_accessor(asset, accessor);
-        std::size_t components = 0;
+        std::size_t components;
         switch (accessor.type) {
         case fastgltf::AccessorType::Scalar:
             components = 1;
@@ -962,7 +962,7 @@ namespace {
             deren::gltf::animation_channel channel = {};
             channel.sampler = f_channel.samplerIndex;
             channel.target_node = *f_channel.nodeIndex;
-            std::size_t per_key = 0;
+            std::size_t per_key;
             switch (f_channel.path) {
             case fastgltf::AnimationPath::Translation:
                 channel.path = deren::gltf::animation_path::translation;
@@ -1724,7 +1724,7 @@ namespace deren::gltf {
         }
         deren::gltf::scene const& parent = loaded.scene[scene_index];
         deren::utility::vessel::vector<node> const& nodes = parent.nodes;
-        std::size_t const none = static_cast<std::size_t>(-1);
+        constexpr std::size_t none = static_cast<std::size_t>(-1);
 
         auto const family_of = [&loaded](primitive const& prim) {
             return prim.material_index < loaded.materials.size()
@@ -1901,18 +1901,18 @@ namespace deren::gltf {
             };
             std::size_t const bone_node = node_of_source(skin_object->joints[dominant]);
             if (bone_node != none) {
-                deren::utility::vessel::vector<std::size_t> parent(nodes.size(), none);
+                deren::utility::vessel::vector<std::size_t> parent_vec(nodes.size(), none);
                 for (std::size_t i = 0; i < nodes.size(); ++i) {
                     for (std::size_t const child : nodes[i].children) {
-                        parent[child] = i;
+                        parent_vec[child] = i;
                     }
                 }
                 // THE CAPTURED HEAD LOOKUP: walk up from the dominant bone to the nearest ancestor whose name is
                 // a head bone; `looks_like_head_joint` is the same token rule the rest of this loader uses. No
                 // head ancestor at all falls back to the dominant bone itself, exactly as the captured viewer does.
                 std::size_t head_node = bone_node;
-                while (head_node != none && !looks_like_head_joint(nodes[head_node].name) && parent[head_node] != none) {
-                    head_node = parent[head_node];
+                while (head_node != none && !looks_like_head_joint(nodes[head_node].name) && parent_vec[head_node] != none) {
+                    head_node = parent_vec[head_node];
                 }
                 if (head_node == none || !looks_like_head_joint(nodes[head_node].name)) {
                     head_node = bone_node;
@@ -2194,9 +2194,9 @@ namespace deren::gltf {
         }
 
         scenes result;
-        subtilis_cache payloads;
+        deren::gltf::detail::subtilis_cache payloads;
         if (options.extract_subtilis_payload) {
-            payloads = extract_subtilis_payloads(buffer_exp.get(), asset);
+            payloads = deren::gltf::detail::extract_subtilis_payloads(buffer_exp.get(), asset, get_source_bytes);
         }
         result.scene.reserve(asset.scenes.size());
         for (std::size_t i = 0; i < asset.scenes.size(); ++i) {
@@ -2288,7 +2288,7 @@ namespace deren::gltf {
     }
 
     scene_iterator::pointer scene_iterator::operator->() const noexcept {
-        return &this->current;
+        return &this->operator*();
     }
 
     scene_iterator& scene_iterator::operator++() {
@@ -2443,16 +2443,15 @@ namespace deren::gltf {
 
     namespace {
         deren::utility::vessel::vector<resolved_material> resolve_materials_impl(deren::gltf::scenes const& scenes, deren::gltf::scenes* const consume_scene) {
-            constexpr deren::utility::vessel::array<std::string_view, 5> slot_names = {"albedo", "metallic_roughness", "normal", "occlusion", "emissive"};
 
             if (consume_scene != nullptr) {
                 // Textures no material references will never be decoded; release their decoded bytes
                 // before the mip peak rather than carrying them through the whole resolve.
                 deren::utility::vessel::vector<uint8_t> referenced(consume_scene->textures.size(), 0);
                 for (auto const& material : consume_scene->materials) {
-                    for (auto const& entry : material.texture_indices) {
-                        if (entry.second < referenced.size()) {
-                            referenced[entry.second] = 1;
+                    for (auto const& val : material.texture_indices | std::views::values) {
+                        if (val < referenced.size()) {
+                            referenced[val] = 1;
                         }
                     }
                 }
@@ -2525,6 +2524,7 @@ namespace deren::gltf {
                 // family cannot look up the entry describing THIS material. See resolved_material::name.
                 out.name = mat.name;
                 for (int32_t i = 0; i < 5; ++i) {
+                    constexpr deren::utility::vessel::array<std::string_view, 5> slot_names = {"albedo", "metallic_roughness", "normal", "occlusion", "emissive"};
                     auto const it = mat.texture_indices.find(deren::utility::vessel::string(slot_names[i]));
                     if (it == mat.texture_indices.end() || it->second >= scenes.textures.size()) {
                         continue;
@@ -2566,7 +2566,7 @@ namespace deren::gltf {
         if (this->built) {
             return;
         }
-        built_mesh const mesh = build_mesh(*((*this->inner).primitive));
+        built_mesh const mesh = build_mesh(*(this->inner->primitive));
         auto const* const first = reinterpret_cast<uint8_t const*>(mesh.vertices.data());
         this->vertex_bytes.assign(first, first + mesh.vertices.size() * sizeof(vertex));
         this->vertex_stride = sizeof(vertex);
@@ -2582,10 +2582,10 @@ namespace deren::gltf {
         return vertex_view{.data = this->vertex_bytes, .stride = this->vertex_stride, .count = this->vertex_count};
     }
     subtilis_payload_view drawable_iterator::get_subtilis() const {
-        if (!(this->inner != scene_iterator{})) {
+        if (this->inner == scene_iterator{}) {
             return {};
         }
-        auto const* primitive = (*this->inner).primitive;
+        auto const* primitive = this->inner->primitive;
         if (!primitive || !primitive->subtilis) {
             return {};
         }
@@ -2599,11 +2599,11 @@ namespace deren::gltf {
     }
 
     glm::mat4 drawable_iterator::get_transform() const {
-        return (*this->inner).transform_matrix;
+        return this->inner->transform_matrix;
     }
 
     resolved_material const* drawable_iterator::current_material() const {
-        uint32_t const index = (*this->inner).primitive->material_index;
+        uint32_t const index = this->inner->primitive->material_index;
         return index < this->materials.size() ? &this->materials[index] : nullptr;
     }
 

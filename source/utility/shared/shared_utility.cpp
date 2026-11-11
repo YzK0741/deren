@@ -5,7 +5,7 @@ module;
 #include <cstdint>
 #include <cstdio> // std::snprintf: format the log prefix without allocating on the worker
 #include <ctime>  // std::tm, localtime_s / localtime_r
-#if defined(DEREN_LOG_TESTING)
+#ifdef DEREN_LOG_TESTING
 #include "log_test_hooks.hpp"
 #endif
 #include <cstdlib> // std::atexit, for the sink's drain at exit (see instance())
@@ -39,7 +39,8 @@ namespace deren::utility {
         enum class log_level : std::uint8_t { info,
                                               warning,
                                               error,
-                                              verbose };
+                                              verbose,
+        };
 
         constexpr char const* log_level_name(log_level const level) noexcept {
             switch (level) {
@@ -386,8 +387,13 @@ namespace deren::utility {
         } else {
             apply_manual_level(text, level);
         }
-        log_entry message{timestamp, current_thread_token(), level, function,
-                          deren::utility::vessel::string(text)}; // the copy the queue keeps is made on THIS side
+        log_entry message{
+            timestamp,
+            current_thread_token(),
+            level,
+            function,
+            deren::utility::vessel::string(text),
+        }; // the copy the queue keeps is made on THIS side
         {
             std::lock_guard lock(this->queue_mutex);
             if (!this->accepting) {

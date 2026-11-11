@@ -1,18 +1,9 @@
 module;
-#include <array>
-#include <charconv>
-#include <cmath>
+
 #include <cstdint>
-#include <cstdlib>
-#include <cstring>  // std::memcpy: the probe's same-frame camera snapshot for the metadata
-#include <expected> // the HZB lane's graph adapter answers std::expected, like the other adapters
-#include <limits>
-#include <memory>
-#include <optional>
-#include <span>
-#include <string_view>
-#include <utility>
+
 module deren.engine.runtime;
+import deren.vstd;
 import deren.engine.render_graph.post;
 import deren.engine.render_graph.compose;
 import deren.engine.render_graph.lighting;
@@ -39,7 +30,7 @@ import deren.engine.pass.output_targets;
 import deren.engine.visibility.software;
 import deren.engine.visibility.hzb; // the pyramid layout the probe's lane sizes are computed with (§4.1)
 import deren.promise.rhi;
-#include "../visibility/feedback_readback.h"
+import deren.engine.visibility.feedback_readback;
 namespace deren::engine {
     namespace graph = deren::engine::render_graph;
     namespace rhi = deren::promise::rhi;
@@ -92,7 +83,7 @@ namespace deren::engine {
             software_visibility,
             software_merge,
             game_toon_depth_rim,
-            count
+            count,
         };
         constexpr std::size_t lane_count = static_cast<std::size_t>(lane::count);
         constexpr std::size_t lane_slot(lane l) noexcept {
@@ -104,6 +95,10 @@ namespace deren::engine {
         }
         static_assert(lane_slot(lane::bloom_0) == 0 && lane_slot(lane::post_resolve) == 5,
                       "the post chain's six lanes must stay contiguous: its block walks ios[0..5] by index");
+        static_assert(lane_slot(lane::bloom_1) == 1 && lane_slot(lane::bloom_2) == 2 && lane_slot(lane::bloom_3) == 3,
+                      "the post chain's reserved bloom slots must stay contiguous");
+        static_assert(lane_slot(lane::goo_rim) == lane_slot(lane::toon_screen_rim) + 1,
+                      "goo_rim is the reserved lane after toon_screen_rim");
         struct post_recording_payload {
             pass::pass_host host{};
             std::array<pass::resolved_io, lane_count> ios;
@@ -139,13 +134,15 @@ namespace deren::engine {
                 return rhi::error::invalid_argument;
             }
             std::array<rhi::color_attachment, 1> colors{{{.view = io.targets[0].view_handle, .load = rhi::load_op::clear, .store = rhi::store_op::store, .clear = {}}}};
-            rhi::rendering_info info{.struct_size = sizeof(rhi::rendering_info),
-                                     .area = {.offset_x = 0, .offset_y = 0, .width = io.extent.width, .height = io.extent.height},
-                                     .layer_count = 1,
-                                     .colors = colors,
-                                     .depth = {},
-                                     .has_depth = false,
-                                     .secondary_contents = false};
+            rhi::rendering_info info{
+                .struct_size = sizeof(rhi::rendering_info),
+                .area = {.offset_x = 0, .offset_y = 0, .width = io.extent.width, .height = io.extent.height},
+                .layer_count = 1,
+                .colors = colors,
+                .depth = {},
+                .has_depth = false,
+                .secondary_contents = false,
+            };
             auto error = io.list->begin_rendering(info);
             if (error == rhi::error::ok) {
                 io.list->end_rendering();
@@ -266,7 +263,6 @@ namespace deren::engine {
         if (this->main_graph_frame) {
             input_state = {};
         }
-        graph::resource_state ldr_state{};
         std::array<graph::resource_state, 4> level_states{};
         graph::execution::builder build(this->core_lifetime);
         graph::post::inputs inputs{};
@@ -302,8 +298,11 @@ namespace deren::engine {
             if (pending < this->bloom_graph_pending_generations.size()) {
                 auto known = this->bloom_graph_states.find(weak_bloom_generation{generation});
                 if (known != this->bloom_graph_states.end() && known->second[index]) {
-                    state = {graph::resource_layout::shader_read_only, graph::pipeline_stage::fragment_shader | graph::pipeline_stage::color_output,
-                             graph::memory_access::read | graph::memory_access::write};
+                    state = {
+                        graph::resource_layout::shader_read_only,
+                        graph::pipeline_stage::fragment_shader | graph::pipeline_stage::color_output,
+                        graph::memory_access::read | graph::memory_access::write,
+                    };
                 }
                 this->bloom_graph_pending_generations[pending] = generation;
             }
@@ -350,16 +349,18 @@ namespace deren::engine {
             // transition the removed legacy pass performed for itself, keeping the invariant every frame relies on: the
             // history is SAMPLED whenever the graph starts. (After this, the post-record hand-back keeps it so.)
             if (index >= this->taa_history_initialized.size() || !this->taa_history_initialized[index]) {
-                auto const first_use = commands->barrier(rhi::image_barrier{.resource = taa_history_handle.get(),
-                                                                            .from = rhi::image_use::undefined,
-                                                                            .to = rhi::image_use::shader_read,
-                                                                            .range = {}});
+                auto const first_use = commands->barrier(rhi::image_barrier{
+                    .resource = taa_history_handle.get(),
+                    .from = rhi::image_use::undefined,
+                    .to = rhi::image_use::shader_read,
+                    .range = {},
+                });
                 if (first_use != rhi::error::ok) {
                     return first_use;
                 }
                 this->taa_history_initialized[index] = true;
             }
-            graph::resource_state const history_prior{graph::resource_layout::shader_read_only, graph::pipeline_stage::fragment_shader, graph::memory_access::read};
+            constexpr graph::resource_state history_prior{graph::resource_layout::shader_read_only, graph::pipeline_stage::fragment_shader, graph::memory_access::read};
             auto taa_history_ref = build.import_texture(taa_history_handle, {graph::initial_contents::defined, history_prior}, "TAA history");
             if (!taa_history_ref) {
                 return post_build_error(taa_history_ref.error());
@@ -386,6 +387,7 @@ namespace deren::engine {
         }
         access ldr;
         if (settings.resolution != graph::post::resolve::none) {
+            graph::resource_state ldr_state{};
             ldr = access_for(8, 4, ldr_state);
             if (!ldr || ldr.get() != this->ldr_images[index].get()) {
                 return rhi::error::not_ready;
@@ -411,8 +413,10 @@ namespace deren::engine {
         pass::stage composite{.name = "post_composite", .passes = this->post_composite_stage};
         this->prepare_stage(composite);
         if (settings.resolution != graph::post::resolve::none) {
-            pass::stage resolve{.name = settings.resolution == graph::post::resolve::fxaa ? "fxaa" : "upscale",
-                                .passes = settings.resolution == graph::post::resolve::fxaa ? std::span<pass::frame_pass*>{this->fxaa_pass} : std::span<pass::frame_pass*>{this->upscale_pass}};
+            pass::stage resolve{
+                .name = settings.resolution == graph::post::resolve::fxaa ? "fxaa" : "upscale",
+                .passes = settings.resolution == graph::post::resolve::fxaa ? std::span<pass::frame_pass*>{this->fxaa_pass} : std::span<pass::frame_pass*>{this->upscale_pass},
+            };
             this->prepare_stage(resolve);
         }
         // Resolve in its final allocation: resolved_io contains spans into its storage.
@@ -421,7 +425,6 @@ namespace deren::engine {
         auto& host = payload->host;
         auto& ios = payload->ios;
         auto& passes = payload->passes;
-        std::optional<graph::lighting::outputs> lit;
         if (this->main_graph_frame) {
             // THE TWO STATICALLY BOUND IMAGES' LAYOUT PROTOCOL (stage 2B): the deferred lighting descriptor keeps the
             // RT visibility and MegaLights resolve images bound even when their producers are predicated out, and the
@@ -489,8 +492,10 @@ namespace deren::engine {
                     }
                     auto ibl_handle = access::from_shared(this->core_lifetime, this->ibl_images[i]);
                     auto ref = build.import_texture(ibl_handle,
-                                                    {graph::initial_contents::defined,
-                                                     {graph::resource_layout::shader_read_only, graph::pipeline_stage::fragment_shader, graph::memory_access::read}},
+                                                    {
+                                                        graph::initial_contents::defined,
+                                                        {graph::resource_layout::shader_read_only, graph::pipeline_stage::fragment_shader, graph::memory_access::read},
+                                                    },
                                                     names[i]);
                     if (!ref) {
                         return post_build_error(ref.error());
@@ -528,8 +533,10 @@ namespace deren::engine {
                 auto counts_handle = resource_handle<rhi::buffer>::from_shared(this->core_lifetime, rhi::shared_object<rhi::buffer>{std::move(counts_generation), counts});
                 auto counts_import =
                     build.import_buffer(counts_handle,
-                                        {graph::initial_contents::defined,
-                                         {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::read | graph::memory_access::write}},
+                                        {
+                                            graph::initial_contents::defined,
+                                            {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::read | graph::memory_access::write},
+                                        },
                                         "cluster counts");
                 if (!counts_import) {
                     return post_build_error(counts_import.error());
@@ -553,14 +560,15 @@ namespace deren::engine {
             if (this->shadow_allocated_layers != 0) {
                 auto shadow_generation = this->shadow_resource_view.find(render_resource::resource_id::shadow_map);
                 if (shadow_generation && shadow_generation->device.get() == this->core_lifetime.get() && slot < shadow_generation->objects.size()) {
-                    auto* shadow_image = shadow_generation->objects[slot].image.get();
-                    if (shadow_image) {
+                    if (auto* shadow_image = shadow_generation->objects[slot].image.get(); shadow_image) {
                         auto shadow_handle = access::from_shared(this->core_lifetime, rhi::shared_object<rhi::image>{std::move(shadow_generation), shadow_image});
                         graph::execution::import_state const shadow_import =
                             this->graph_shadow_frame
                                 ? graph::execution::import_state{graph::initial_contents::undefined, {}}
-                                : graph::execution::import_state{graph::initial_contents::defined,
-                                                                 {graph::resource_layout::shader_read_only, graph::pipeline_stage::fragment_shader, graph::memory_access::read}};
+                                : graph::execution::import_state{
+                                      graph::initial_contents::defined,
+                                      {graph::resource_layout::shader_read_only, graph::pipeline_stage::fragment_shader, graph::memory_access::read},
+                                  };
                         auto shadow_ref = build.import_texture(shadow_handle, shadow_import, "shadow cascades");
                         if (!shadow_ref) {
                             return post_build_error(shadow_ref.error());
@@ -599,16 +607,38 @@ namespace deren::engine {
                 // scene_table_resource_views follow pass::scene_tables_pass::ids.
                 shared_import{&this->scene_table_resource_views[5], id::meshlet_table, 0, this->meshlet_buffer.get(), mesh, graph::memory_access::read, "meshlet table"},
                 shared_import{&this->scene_table_resource_views[8], id::meshlet_culled_table, 0, this->meshlet_culled_buffer.get(), mesh, graph::memory_access::read, "host-culled meshlets"},
-                shared_import{&this->scene_table_resource_views[7], id::meshlet_statistics, 0, this->meshlet_stats_buffer.get(), mesh,
-                              graph::memory_access::read | graph::memory_access::write, "meshlet statistics"},
+                shared_import{
+                    &this->scene_table_resource_views[7],
+                    id::meshlet_statistics,
+                    0,
+                    this->meshlet_stats_buffer.get(),
+                    mesh,
+                    graph::memory_access::read | graph::memory_access::write,
+                    "meshlet statistics",
+                },
                 // The mesh draws are indirect records: the command buffer is consumed at the DRAW-INDIRECT stage,
                 // so its import reports the draw-indirect stage instead of the mesh stage.
-                shared_import{&this->scene_table_resource_views[6], id::mesh_indirect_commands, 0, this->mesh_indirect_buffer.get(),
-                              graph::pipeline_stage::draw_indirect, graph::memory_access::read, "mesh indirect commands"},
+                shared_import{
+                    &this->scene_table_resource_views[6],
+                    id::mesh_indirect_commands,
+                    0,
+                    this->mesh_indirect_buffer.get(),
+                    graph::pipeline_stage::draw_indirect,
+                    graph::memory_access::read,
+                    "mesh indirect commands",
+                },
                 // THE VISIBILITY ITEM TABLE (v0.2b): the raster lane declares it as a read so the table's
                 // producer/consumer dependency is the graph's
-                shared_import{&this->scene_table_resource_views[9], id::visibility_items, 0, this->visibility_items_buffer.get(), mesh,
-                              graph::memory_access::read, "visibility items"}};
+                shared_import{
+                    &this->scene_table_resource_views[9],
+                    id::visibility_items,
+                    0,
+                    this->visibility_items_buffer.get(),
+                    mesh,
+                    graph::memory_access::read,
+                    "visibility items",
+                },
+            };
             std::array<graph::buffer_ref, 13> shared_refs;
             for (uint32_t i = 0; i < shared_imports.size(); ++i) {
                 auto const& entry = shared_imports[i];
@@ -651,9 +681,10 @@ namespace deren::engine {
                 if (!rt_handle) {
                     return rhi::error::not_ready;
                 }
-                graph::execution::import_state const rt_import{
+                constexpr graph::execution::import_state rt_import{
                     graph::initial_contents::defined,
-                    graph::resource_state{graph::resource_layout::shader_read_only, graph::pipeline_stage::fragment_shader, graph::memory_access::read}};
+                    graph::resource_state{graph::resource_layout::shader_read_only, graph::pipeline_stage::fragment_shader, graph::memory_access::read},
+                };
                 auto rt_ref = build.import_texture(rt_handle, rt_import, "RT shadow visibility");
                 if (!rt_ref) {
                     return post_build_error(rt_ref.error());
@@ -679,9 +710,10 @@ namespace deren::engine {
                 if (!reflection_handle) {
                     return rhi::error::not_ready;
                 }
-                graph::execution::import_state const reflection_import{
+                constexpr graph::execution::import_state reflection_import{
                     graph::initial_contents::undefined,
-                    graph::resource_state{graph::resource_layout::undefined, graph::pipeline_stage::none, graph::memory_access::none}};
+                    graph::resource_state{graph::resource_layout::undefined, graph::pipeline_stage::none, graph::memory_access::none},
+                };
                 auto reflection_ref = build.import_texture(reflection_handle, reflection_import, "RT reflection");
                 if (!reflection_ref) {
                     return post_build_error(reflection_ref.error());
@@ -712,9 +744,9 @@ namespace deren::engine {
                                                   this->reflection_denoise_pass[2] != nullptr && this->reflection_denoise_pass[3] != nullptr;
             if (reflection_denoise_ready) {
                 auto const reflection_slot = this->frame_ring().position();
-                auto const import_target = [&](std::uint32_t const index, auto const& images, auto const& views, std::string_view const name,
+                auto const import_target = [&](std::uint32_t const image_index, auto const& images, auto const& views, std::string_view const name,
                                                bool const history = false) -> std::optional<graph::texture_ref> {
-                    auto generation = this->output_resource_views[index].find(pass::output_targets_pass::ids[index]);
+                    auto generation = this->output_resource_views[image_index].find(pass::output_targets_pass::ids[image_index]);
                     if (!generation || generation->device.get() != this->core_lifetime.get() || reflection_slot >= generation->objects.size()) {
                         return std::nullopt;
                     }
@@ -722,15 +754,16 @@ namespace deren::engine {
                     if (!image || !views[reflection_slot] || image != images[reflection_slot].get()) {
                         return std::nullopt;
                     }
-                    auto access = access::from_shared(this->core_lifetime, rhi::shared_object<rhi::image>{std::move(generation), image});
-                    if (!access) {
+                    auto image_access = access::from_shared(this->core_lifetime, rhi::shared_object<rhi::image>{std::move(generation), image});
+                    if (!image_access) {
                         return std::nullopt;
                     }
                     graph::execution::import_state const state{
                         history ? graph::initial_contents::defined : graph::initial_contents::undefined,
                         history ? graph::resource_state{graph::resource_layout::shader_read_only, graph::pipeline_stage::compute_shader, graph::memory_access::read}
-                                : graph::resource_state{graph::resource_layout::undefined, graph::pipeline_stage::none, graph::memory_access::none}};
-                    auto imported = build.import_texture(access, state, name);
+                                : graph::resource_state{graph::resource_layout::undefined, graph::pipeline_stage::none, graph::memory_access::none},
+                    };
+                    auto imported = build.import_texture(image_access, state, name);
                     if (!imported) {
                         return std::nullopt;
                     }
@@ -876,11 +909,13 @@ namespace deren::engine {
                 }
                 auto const bytes = sw::software_tiles_bytes(extent.width, extent.height);
                 if (metrics && valid_budget && bytes * this->frame_ring().slot_count() <= this->software_tiles_buffer->size()) {
-                    pass::gpu_route_parameters parameters{.threshold_px = this->software_raster_threshold_px,
-                                                          .near_plane = std::nextafter(static_cast<float>(metrics->near_plane), std::numeric_limits<float>::infinity()),
-                                                          .projection_scale = std::nextafter(static_cast<float>(metrics->proj_scale), std::numeric_limits<float>::infinity()),
-                                                          .perspective = metrics->kind == sw::projection_kind::perspective,
-                                                          .budget = budget};
+                    pass::gpu_route_parameters parameters{
+                        .threshold_px = this->software_raster_threshold_px,
+                        .near_plane = std::nextafter(static_cast<float>(metrics->near_plane), std::numeric_limits<float>::infinity()),
+                        .projection_scale = std::nextafter(static_cast<float>(metrics->proj_scale), std::numeric_limits<float>::infinity()),
+                        .perspective = metrics->kind == sw::projection_kind::perspective,
+                        .budget = budget,
+                    };
                     this->software_gpu_route_active_frame = this->software_visibility->prepare_gpu_route(this->frame_ring().position(), extent.width, extent.height, parameters);
                 }
             }
@@ -916,8 +951,10 @@ namespace deren::engine {
             if (hzb_build_lane) {
                 auto levels_import = hzb_cull_lane
                                          ? build.import_buffer(this->hzb_levels_buffer,
-                                                               {graph::initial_contents::defined,
-                                                                {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::read}},
+                                                               {
+                                                                   graph::initial_contents::defined,
+                                                                   {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::read},
+                                                               },
                                                                "hzb levels")
                                          : build.import_buffer(this->hzb_levels_buffer, {}, "hzb levels");
                 if (!levels_import) {
@@ -925,8 +962,10 @@ namespace deren::engine {
                 }
                 auto header_import = hzb_cull_lane
                                          ? build.import_buffer(this->hzb_header_buffer,
-                                                               {graph::initial_contents::defined,
-                                                                {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::read}},
+                                                               {
+                                                                   graph::initial_contents::defined,
+                                                                   {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::read},
+                                                               },
                                                                "hzb header")
                                          : build.import_buffer(this->hzb_header_buffer, {}, "hzb header");
                 if (!header_import) {
@@ -946,16 +985,22 @@ namespace deren::engine {
             std::optional<graph::buffer_ref> hzb_items_ref{};
             if (hzb_cull_lane && hzb_levels_ref && hzb_header_ref) {
                 auto items_import = build.import_buffer(this->hzb_items_buffer,
-                                                        {graph::initial_contents::defined,
-                                                         {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::read}},
+                                                        {
+                                                            graph::initial_contents::defined,
+                                                            {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::read},
+                                                        },
                                                         "hzb items");
                 auto results_import = build.import_buffer(this->hzb_results_buffer,
-                                                          {graph::initial_contents::defined,
-                                                           {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::read}},
+                                                          {
+                                                              graph::initial_contents::defined,
+                                                              {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::read},
+                                                          },
                                                           "hzb results");
                 auto survivors_import = build.import_buffer(this->hzb_survivors_buffer,
-                                                            {graph::initial_contents::defined,
-                                                             {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::write}},
+                                                            {
+                                                                graph::initial_contents::defined,
+                                                                {graph::resource_layout::general, graph::pipeline_stage::compute_shader, graph::memory_access::write},
+                                                            },
                                                             "hzb survivors");
                 if (!items_import || !results_import || !survivors_import) {
                     return post_build_error(!items_import ? items_import.error() : (!results_import ? results_import.error() : survivors_import.error()));
@@ -1067,15 +1112,15 @@ namespace deren::engine {
                     software_depth_ref = *depth_import;
                     software_id_ref = *id_import;
 
-                    graph::visibility::software_raster_inputs inputs{*software_depth_ref, *software_id_ref, shared_refs[0], shared_refs[12], shared_refs[8], *software_tiles_ref, shared_refs[10], {}};
+                    graph::visibility::software_raster_inputs software_inputs{*software_depth_ref, *software_id_ref, shared_refs[0], shared_refs[12], shared_refs[8], *software_tiles_ref, shared_refs[10], {}};
                     if (this->subtilis_active_frame) {
-                        inputs.culled_meshlets = shared_refs[9];
+                        software_inputs.culled_meshlets = shared_refs[9];
                     }
                     if (hzb_cull_lane) {
-                        inputs.hzb_results = hzb_results_ref;
+                        software_inputs.hzb_results = hzb_results_ref;
                     }
-                    inputs.indirect_arguments = software_route_arguments_ref;
-                    software_inputs_ref = inputs;
+                    software_inputs.indirect_arguments = software_route_arguments_ref;
+                    software_inputs_ref = software_inputs;
                 }
                 // THE §8.2 ORDER, STATED RATHER THAN EMERGENT: cull BEFORE raster (phase B2's raster consumes the
                 // survivor table and indirect commands the cull just wrote).
@@ -1300,7 +1345,7 @@ namespace deren::engine {
                     shared_refs[12], // this frame's draw-item table
                     shared_refs[8],  // the meshlet record table the id's order indexes
                     shared_refs[3],  // previous transforms: the motion vector's second half
-                    shared_refs[10]  // mesh statistics: the resolve's two failure counters are atomic adds
+                    shared_refs[10], // mesh statistics: the resolve's two failure counters are atomic adds
                 };
                 if (this->subtilis_active_frame) {
                     resolve_inputs.shared->culled_meshlets = shared_refs[9];
@@ -1447,8 +1492,14 @@ namespace deren::engine {
                     ios[lane_slot(lane::scene)].list != commands || ios[lane_slot(lane::scene)].targets.size() != 6) {
                     return rhi::error::not_ready;
                 }
-                std::array expected{this->gbuffer_images[0][index].get(), this->gbuffer_images[1][index].get(), this->gbuffer_images[2][index].get(),
-                                    velocity.get(), scene_target_image, depth.get()};
+                std::array expected{
+                    this->gbuffer_images[0][index].get(),
+                    this->gbuffer_images[1][index].get(),
+                    this->gbuffer_images[2][index].get(),
+                    velocity.get(),
+                    scene_target_image,
+                    depth.get(),
+                };
                 for (uint32_t i = 0; i < expected.size(); ++i) {
                     if (ios[lane_slot(lane::scene)].targets[i].image_handle != expected[i]) {
                         return rhi::error::invalid_argument;
@@ -1534,29 +1585,48 @@ namespace deren::engine {
                 }
                 auto denoise_added = build.append([&](graph::builder& description) noexcept {
                     return graph::reflection_denoise::append(
-                        description, {*rt_reflection, *depth_ref, lighting_inputs.surface[1], *velocity_ref, *rt_reflection_denoised, *rt_reflection_denoised_history,
-                                      *rt_reflection_reprojected, *rt_reflection_prefiltered, *rt_reflection_average, *rt_reflection_average_history, *rt_reflection_moments,
-                                      *rt_reflection_moments_prefiltered, *rt_reflection_moments_history, *rt_reflection_surface_history, *rt_reflection_surface_current,
-                                      *rt_reflection_depth_history, *rt_reflection_depth_current});
+                        description, {
+                                         *rt_reflection,
+                                         *depth_ref,
+                                         lighting_inputs.surface[1],
+                                         *velocity_ref,
+                                         *rt_reflection_denoised,
+                                         *rt_reflection_denoised_history,
+                                         *rt_reflection_reprojected,
+                                         *rt_reflection_prefiltered,
+                                         *rt_reflection_average,
+                                         *rt_reflection_average_history,
+                                         *rt_reflection_moments,
+                                         *rt_reflection_moments_prefiltered,
+                                         *rt_reflection_moments_history,
+                                         *rt_reflection_surface_history,
+                                         *rt_reflection_surface_current,
+                                         *rt_reflection_depth_history,
+                                         *rt_reflection_depth_current,
+                                     });
                 });
                 if (!denoise_added) {
                     return post_build_error(denoise_added.error());
                 }
                 constexpr std::array<lane, 4> denoise_lanes{lane::reflection_reproject, lane::reflection_prefilter, lane::reflection_resolve, lane::reflection_history_copy};
-                std::array<pass::frame_pass*, 4> denoise_passes{this->reflection_denoise_pass[0], this->reflection_denoise_pass[1], this->reflection_denoise_pass[2],
-                                                                this->reflection_denoise_pass[3]};
+                std::array<pass::frame_pass*, 4> denoise_passes{
+                    this->reflection_denoise_pass[0],
+                    this->reflection_denoise_pass[1],
+                    this->reflection_denoise_pass[2],
+                    this->reflection_denoise_pass[3],
+                };
                 pass::stage denoise_stage{.name = "reflection_denoise", .passes = denoise_passes};
                 this->prepare_stage(denoise_stage);
-                for (std::size_t index = 0; index < denoise_lanes.size(); ++index) {
-                    auto const slot = lane_slot(denoise_lanes[index]);
-                    passes[slot] = this->reflection_denoise_pass[index];
-                    ios[slot].push_block = host.push_block;
-                    if (passes[slot] == nullptr || !host.resolve || !host.resolve(host.context, *passes[slot], ios[slot]) || ios[slot].list != commands) {
+                for (std::size_t denoise_index = 0; denoise_index < denoise_lanes.size(); ++denoise_index) {
+                    auto const denoise_slot = lane_slot(denoise_lanes[denoise_index]);
+                    passes[denoise_slot] = this->reflection_denoise_pass[denoise_index];
+                    ios[denoise_slot].push_block = host.push_block;
+                    if (passes[denoise_slot] == nullptr || !host.resolve || !host.resolve(host.context, *passes[denoise_slot], ios[denoise_slot]) || ios[denoise_slot].list != commands) {
                         return rhi::error::not_ready;
                     }
                     auto bound = build.bind_pass<graph::reflection_denoise::stage_parameters>(
-                        denoise_added->passes[index],
-                        [payload, target_lane = denoise_lanes[index]](graph::reflection_denoise::stage_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(target_lane); });
+                        denoise_added->passes[denoise_index],
+                        [payload, target_lane = denoise_lanes[denoise_index]](graph::reflection_denoise::stage_parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept { return payload->record(target_lane); });
                     if (!bound) {
                         return post_build_error(bound.error());
                     }
@@ -1568,7 +1638,7 @@ namespace deren::engine {
                 if (!appended) {
                     return post_build_error(appended.error());
                 }
-                lit = *appended;
+                auto lit = *appended;
                 pass::stage stage{.name = "deferred", .passes = this->deferred_pass};
                 this->prepare_stage(stage);
                 passes[lane_slot(lane::deferred)] = this->deferred_pass[0];
@@ -1581,7 +1651,7 @@ namespace deren::engine {
                     ios[lane_slot(lane::deferred)].list != commands || ios[lane_slot(lane::deferred)].targets.size() != 1 || ios[lane_slot(lane::deferred)].targets[0].image_handle != scene_target_image) {
                     return rhi::error::not_ready;
                 }
-                auto bound = build.bind_pass<graph::lighting::parameters>(lit->pass,
+                auto bound = build.bind_pass<graph::lighting::parameters>(lit.pass,
                                                                           [this, payload](graph::lighting::parameters const&, rhi::command_buffer&, graph::execution::record_context const&) noexcept {
                                                                               this->gpu_mark_through(gpu_mark_id::software_merge_end);
                                                                               auto error = payload->record(lane::deferred);
@@ -1626,7 +1696,7 @@ namespace deren::engine {
                 auto extent = this->render_extent();
                 if (!this->radiance_readback || this->radiance_extent.width != extent.width || this->radiance_extent.height != extent.height) {
                     rhi::buffer_desc desc{};
-                    desc.size = std::uint64_t(extent.width) * extent.height * 8;
+                    desc.size = static_cast<std::uint64_t>(extent.width) * extent.height * 8;
                     desc.usage = rhi::buffer_usage::readback_coherent;
                     this->radiance_readback = this->rhi_face().resources->create_buffer(desc);
                     this->radiance_extent = extent;
@@ -1985,10 +2055,12 @@ namespace deren::engine {
         // the graph" - so the frame that wrote it hands it back, as the removed legacy TAA record did for its
         // frame. The graph cannot carry a state that outlives its plan, which is why this stays the runtime's.
         if (this->graph_taa_frame && taa_history_image != nullptr) {
-            auto const hand_back = commands->barrier(rhi::image_barrier{.resource = taa_history_image,
-                                                                        .from = rhi::image_use::transfer_destination,
-                                                                        .to = rhi::image_use::shader_read,
-                                                                        .range = {}});
+            auto const hand_back = commands->barrier(rhi::image_barrier{
+                .resource = taa_history_image,
+                .from = rhi::image_use::transfer_destination,
+                .to = rhi::image_use::shader_read,
+                .range = {},
+            });
             if (hand_back != rhi::error::ok) {
                 return hand_back;
             }
@@ -2017,7 +2089,7 @@ namespace deren::engine {
             // nothing in the frame pipeline copies out of an image it just sampled. A copy after a sampled read
             // needs no ordering beyond the write flush that recipe carries, and the image is left in the state the
             // frame's next graph import discards (the HDR is re-imported with undefined contents).
-            auto const from = rhi::image_use::color_attachment;
+            constexpr auto from = rhi::image_use::color_attachment;
             if (!hdr || !this->gaussian_hdr_readback) {
                 deren::utility::log("Gaussian HDR capture: FAIL allocation");
             } else if (auto const entry = commands->barrier(rhi::image_barrier{.resource = hdr, .from = from, .to = rhi::image_use::transfer_source});
@@ -2026,8 +2098,8 @@ namespace deren::engine {
             } else {
                 auto const copied = commands->copy_image_to_buffer(*this->gaussian_hdr_readback, *hdr, {.extent = extent});
                 auto const restored = commands->barrier(rhi::image_barrier{.resource = hdr, .from = rhi::image_use::transfer_source, .to = from});
-                rhi::buffer_barrier const host{.resource = this->gaussian_hdr_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read};
-                auto const published = commands->barrier(rhi::barrier_group{.buffers = std::span{&host, 1}});
+                rhi::buffer_barrier const host_barrier{.resource = this->gaussian_hdr_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read};
+                auto const published = commands->barrier(rhi::barrier_group{.buffers = std::span{&host_barrier, 1}});
                 if (copied != rhi::error::ok || restored != rhi::error::ok || published != rhi::error::ok) {
                     deren::utility::log("Gaussian HDR capture: FAIL copy or publication");
                 } else {
@@ -2045,7 +2117,8 @@ namespace deren::engine {
             auto const extent = this->render_extent();
             std::array<rhi::image*, 2> const images{
                 this->software_depth_images[this->current_image_index].get(),
-                this->software_id_images[this->current_image_index].get()};
+                this->software_id_images[this->current_image_index].get(),
+            };
             bool complete = this->software_raster_active_frame;
             for (std::size_t i = 0; complete && i < images.size(); ++i) {
                 rhi::buffer_desc desc;
@@ -2058,19 +2131,25 @@ namespace deren::engine {
                     complete = false;
                     break;
                 }
-                auto const entered = commands->barrier(rhi::image_barrier{.resource = image,
-                                                                          .from = rhi::image_use::shader_write,
-                                                                          .to = rhi::image_use::transfer_source});
+                auto const entered = commands->barrier(rhi::image_barrier{
+                    .resource = image,
+                    .from = rhi::image_use::shader_write,
+                    .to = rhi::image_use::transfer_source,
+                });
                 auto const copied = entered == rhi::error::ok
                                         ? commands->copy_image_to_buffer(*destination, *image, {.extent = extent})
                                         : entered;
-                auto const restored = commands->barrier(rhi::image_barrier{.resource = image,
-                                                                           .from = rhi::image_use::transfer_source,
-                                                                           .to = rhi::image_use::shader_read});
-                rhi::buffer_barrier const host{.resource = destination,
-                                               .from = rhi::buffer_use::transfer_destination,
-                                               .to = rhi::buffer_use::host_read};
-                auto const published = commands->barrier(rhi::barrier_group{.buffers = std::span{&host, 1}});
+                auto const restored = commands->barrier(rhi::image_barrier{
+                    .resource = image,
+                    .from = rhi::image_use::transfer_source,
+                    .to = rhi::image_use::shader_read,
+                });
+                rhi::buffer_barrier const host_barrier{
+                    .resource = destination,
+                    .from = rhi::buffer_use::transfer_destination,
+                    .to = rhi::buffer_use::host_read,
+                };
+                auto const published = commands->barrier(rhi::barrier_group{.buffers = std::span{&host_barrier, 1}});
                 complete = copied == rhi::error::ok && restored == rhi::error::ok && published == rhi::error::ok;
             }
             this->software_route_probe_ready = false;
@@ -2110,8 +2189,11 @@ namespace deren::engine {
                     this->software_route_probe_items.push_back(std::move(item));
                 }
                 std::array<rhi::buffer*, 3> sources{this->software_tiles_buffer.get(), this->hzb_results_buffer.get(), this->hzb_survivors_buffer.get()};
-                std::array<std::uint64_t, 3> sizes{visibility::software::software_tiles_bytes(extent.width, extent.height),
-                                                   pass::hzb_results_words_per_lane * 4ull, meshlet_capacity * sizeof(meshlet)};
+                std::array<std::uint64_t, 3> sizes{
+                    visibility::software::software_tiles_bytes(extent.width, extent.height),
+                    pass::hzb_results_words_per_lane * 4ull,
+                    meshlet_capacity * sizeof(meshlet),
+                };
                 for (std::size_t i = 0; complete && i < sources.size(); ++i) {
                     rhi::buffer_desc desc;
                     desc.size = sizes[i];
@@ -2127,8 +2209,8 @@ namespace deren::engine {
                     auto copied = entered == rhi::error::ok ? commands->copy_buffer(*destination, *sources[i], sizes[i], slot * sizes[i], 0u) : entered;
                     rhi::buffer_barrier restore{.resource = sources[i], .from = rhi::buffer_use::transfer_source, .to = rhi::buffer_use::shader_read_write};
                     auto restored = commands->barrier(rhi::barrier_group{.buffers = std::span{&restore, 1}});
-                    rhi::buffer_barrier host{.resource = destination, .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read};
-                    auto published = commands->barrier(rhi::barrier_group{.buffers = std::span{&host, 1}});
+                    rhi::buffer_barrier host_barrier{.resource = destination, .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read};
+                    auto published = commands->barrier(rhi::barrier_group{.buffers = std::span{&host_barrier, 1}});
                     complete = copied == rhi::error::ok && restored == rhi::error::ok && published == rhi::error::ok;
                 }
                 this->software_route_probe_ready = complete;
@@ -2149,7 +2231,7 @@ namespace deren::engine {
             // THE PAIR IS THE LEGACY ONE, deliberately (same reasoning as the Gaussian HDR copy above): unified
             // image layouts make every state GENERAL, so this pair is a synchronization recipe, and the depth is
             // re-imported with undefined contents by the next frame.
-            auto const from = rhi::image_use::color_attachment;
+            constexpr auto from = rhi::image_use::color_attachment;
             if (!depth || !this->depth_probe_readback) {
                 deren::utility::log("depth probe capture: FAIL allocation");
             } else if (auto const entry = commands->barrier(rhi::image_barrier{.resource = depth, .from = from, .to = rhi::image_use::transfer_source});
@@ -2158,8 +2240,8 @@ namespace deren::engine {
             } else {
                 auto const copied = commands->copy_image_to_buffer(*this->depth_probe_readback, *depth, {.extent = extent});
                 auto const restored = commands->barrier(rhi::image_barrier{.resource = depth, .from = rhi::image_use::transfer_source, .to = from});
-                rhi::buffer_barrier const host{.resource = this->depth_probe_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read};
-                auto const published = commands->barrier(rhi::barrier_group{.buffers = std::span{&host, 1}});
+                rhi::buffer_barrier const host_barrier{.resource = this->depth_probe_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read};
+                auto const published = commands->barrier(rhi::barrier_group{.buffers = std::span{&host_barrier, 1}});
                 if (copied != rhi::error::ok || restored != rhi::error::ok || published != rhi::error::ok) {
                     deren::utility::log("depth probe capture: FAIL copy or publication");
                 } else {
@@ -2201,8 +2283,12 @@ namespace deren::engine {
                 // pass the script's magic/extent check and silently describe the wrong frame. Refuse instead.
                 deren::utility::log("hzb probe capture: skipped - the HZB build lane did not record on this screenshot frame");
             } else {
-                std::array<rhi::buffer_barrier, 2> const to_source{{{.resource = levels, .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::transfer_source},
-                                                                    {.resource = header, .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::transfer_source}}};
+                std::array<rhi::buffer_barrier, 2> const to_source{
+                    {
+                        {.resource = levels, .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::transfer_source},
+                        {.resource = header, .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::transfer_source},
+                    },
+                };
                 auto const entered = commands->barrier(rhi::barrier_group{.buffers = std::span<rhi::buffer_barrier const>(to_source)});
                 // THE COPY IS THE FRAME SLOT'S LANE, not the whole buffer: the tables are ONE descriptor with an
                 // internal per-frame lane (§5.3), and the source offset is that lane's byte start.
@@ -2213,11 +2299,19 @@ namespace deren::engine {
                                                ? commands->copy_buffer(*this->hzb_probe_header_readback, *header, pass::hzb_header_byte_capacity,
                                                                        static_cast<std::uint64_t>(slot) * pass::hzb_header_byte_capacity, 0u)
                                                : entered;
-                std::array<rhi::buffer_barrier, 2> const restored{{{.resource = levels, .from = rhi::buffer_use::transfer_source, .to = rhi::buffer_use::shader_write},
-                                                                   {.resource = header, .from = rhi::buffer_use::transfer_source, .to = rhi::buffer_use::shader_write}}};
+                std::array<rhi::buffer_barrier, 2> const restored{
+                    {
+                        {.resource = levels, .from = rhi::buffer_use::transfer_source, .to = rhi::buffer_use::shader_write},
+                        {.resource = header, .from = rhi::buffer_use::transfer_source, .to = rhi::buffer_use::shader_write},
+                    },
+                };
                 auto const left = commands->barrier(rhi::barrier_group{.buffers = std::span<rhi::buffer_barrier const>(restored)});
-                std::array<rhi::buffer_barrier, 2> const host_reads{{{.resource = this->hzb_probe_pyramid_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read},
-                                                                     {.resource = this->hzb_probe_header_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read}}};
+                std::array<rhi::buffer_barrier, 2> const host_reads{
+                    {
+                        {.resource = this->hzb_probe_pyramid_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read},
+                        {.resource = this->hzb_probe_header_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read},
+                    },
+                };
                 auto const published = commands->barrier(rhi::barrier_group{.buffers = std::span<rhi::buffer_barrier const>(host_reads)});
                 if (levels_copied != rhi::error::ok || header_copied != rhi::error::ok || left != rhi::error::ok || published != rhi::error::ok) {
                     deren::utility::log("hzb probe capture: FAIL copy or publication");

@@ -26,7 +26,7 @@ namespace deren::vulkan {
         // Allocate completion storage before closing the recording, so allocation failure is retryable.
         auto submission = std::make_unique<pending_submission>();
         submission->parent = parent;
-        VkFenceCreateInfo const create = make_fence_info();
+        constexpr VkFenceCreateInfo create = make_fence_info();
         auto status = vkCreateFence(parent->device.logical_device, &create, nullptr, &submission->fence);
         if (status != VK_SUCCESS) {
             return generic_error(status);

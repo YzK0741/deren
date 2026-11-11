@@ -25,8 +25,6 @@
 
 module;
 
-#include <cstdint>
-
 export module deren.engine.pass.transparent;
 export import deren.vstd;
 export import deren.utility.shared;
@@ -92,7 +90,7 @@ export namespace deren::engine::pass {
         static constexpr deren::utility::vessel::array<std::string_view, 0> pipeline_names = {}; // the leaves name their pipelines
         // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
         // would duplicate it and hide the override.
-        inline static constexpr deren::engine::pass::behaviour pass_behaviour = {
+        static constexpr deren::engine::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::graphics,
             .extent = extent_rule::full,
             .extent_of = resource_id::none,

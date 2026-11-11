@@ -25,26 +25,48 @@ export namespace deren::engine::pass {
 
     public:
         static constexpr size_t resource_count = 11;
-        static constexpr deren::utility::vessel::array ids{render_resource::resource_id::material_table, render_resource::resource_id::instance_table,
-                                                           render_resource::resource_id::toon_colour_table, render_resource::resource_id::toon_lane_table, render_resource::resource_id::toon_rig_table,
-                                                           render_resource::resource_id::meshlet_table, render_resource::resource_id::mesh_indirect_commands,
-                                                           render_resource::resource_id::meshlet_statistics, render_resource::resource_id::meshlet_culled_table,
-                                                           render_resource::resource_id::visibility_items, render_resource::resource_id::subtilis_cut_items};
-        static constexpr deren::utility::vessel::array heap_slots{render_layout::heap_slots::materials, render_layout::heap_slots::instance_transforms,
-                                                                  render_layout::heap_slots::toon_colours, render_layout::heap_slots::toon_lanes, render_layout::heap_slots::toon_rig,
-                                                                  render_layout::heap_slots::meshlets, 0u, render_layout::heap_slots::meshlet_stats, render_layout::heap_slots::meshlet_culled,
-                                                                  render_layout::heap_slots::visibility_items, 0u};
+        static constexpr deren::utility::vessel::array ids{
+            render_resource::resource_id::material_table,
+            render_resource::resource_id::instance_table,
+            render_resource::resource_id::toon_colour_table,
+            render_resource::resource_id::toon_lane_table,
+            render_resource::resource_id::toon_rig_table,
+            render_resource::resource_id::meshlet_table,
+            render_resource::resource_id::mesh_indirect_commands,
+            render_resource::resource_id::meshlet_statistics,
+            render_resource::resource_id::meshlet_culled_table,
+            render_resource::resource_id::visibility_items,
+            render_resource::resource_id::subtilis_cut_items,
+        };
+        static constexpr deren::utility::vessel::array heap_slots{
+            render_layout::heap_slots::materials,
+            render_layout::heap_slots::instance_transforms,
+            render_layout::heap_slots::toon_colours,
+            render_layout::heap_slots::toon_lanes,
+            render_layout::heap_slots::toon_rig,
+            render_layout::heap_slots::meshlets,
+            0u,
+            render_layout::heap_slots::meshlet_stats,
+            render_layout::heap_slots::meshlet_culled,
+            render_layout::heap_slots::visibility_items,
+            0u,
+        };
         static deren::utility::vessel::array<render_resource::instances::request, resource_count> descriptions(render_resource::instances::resource_context const& context) {
             namespace managed = render_resource::instances;
             namespace rhi = deren::promise::rhi;
             deren::utility::vessel::array<uint64_t, resource_count> const sizes{
-                uint64_t(material_capacity) * sizeof(material_record), uint64_t(instance_capacity) * sizeof(glm::mat4),
-                uint64_t(material_capacity) * uint64_t(toon_colour_lane::count) * sizeof(glm::vec4),
-                uint64_t(material_capacity) * toon_lane_blocks * sizeof(glm::uvec4), sizeof(toon_rig), uint64_t(meshlet_capacity) * sizeof(meshlet),
-                uint64_t(context.frame_slots) * 4u * meshlet_capacity * rhi::mesh_task_command_size,
-                uint64_t(context.frame_slots) * 16u * sizeof(uint32_t), uint64_t(context.frame_slots) * meshlet_capacity * sizeof(meshlet),
-                uint64_t(context.frame_slots) * deren::engine::visibility::id_item_capacity * sizeof(deren::engine::visibility::draw_item),
-                uint64_t(context.frame_slots) * deren::engine::subtilis::cut_frame_bytes()};
+                static_cast<uint64_t>(material_capacity) * sizeof(material_record),
+                static_cast<uint64_t>(instance_capacity) * sizeof(glm::mat4),
+                static_cast<uint64_t>(material_capacity) * static_cast<uint64_t>(toon_colour_lane::count) * sizeof(glm::vec4),
+                static_cast<uint64_t>(material_capacity) * toon_lane_blocks * sizeof(glm::uvec4),
+                sizeof(toon_rig),
+                static_cast<uint64_t>(meshlet_capacity) * sizeof(meshlet),
+                static_cast<uint64_t>(context.frame_slots) * 4u * meshlet_capacity * rhi::mesh_task_command_size,
+                static_cast<uint64_t>(context.frame_slots) * 16u * sizeof(uint32_t),
+                static_cast<uint64_t>(context.frame_slots) * meshlet_capacity * sizeof(meshlet),
+                static_cast<uint64_t>(context.frame_slots) * deren::engine::visibility::id_item_capacity * sizeof(deren::engine::visibility::draw_item),
+                static_cast<uint64_t>(context.frame_slots) * deren::engine::subtilis::cut_frame_bytes(),
+            };
             deren::utility::vessel::array<managed::request, resource_count> values;
             for (size_t i = 0; i < values.size(); ++i) {
                 auto& value = values[i];
@@ -79,11 +101,11 @@ export namespace deren::engine::pass {
             return resource_view;
         }
         render_resource::pass_io const& io() const noexcept override {
-            static render_resource::pass_io const value{.name = "scene_tables"};
+            static constexpr render_resource::pass_io value{.name = "scene_tables"};
             return value;
         }
         deren::engine::pass::behaviour const& behaviour() const noexcept override {
-            static deren::engine::pass::behaviour const value{.extent = extent_rule::none, .resync_viewport = false};
+            static constexpr deren::engine::pass::behaviour value{.extent = extent_rule::none, .resync_viewport = false};
             return value;
         }
         std::string_view feature() const noexcept override {

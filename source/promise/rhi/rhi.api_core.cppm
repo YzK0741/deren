@@ -40,7 +40,7 @@
 // part of the ABI, and the `struct_size` guards let callers omit trailing descriptor fields safely.
 // ============================================================================
 module;
-#include <cstddef>
+
 #include <cstdint>
 
 export module deren.promise.rhi:api_core;
@@ -199,8 +199,8 @@ export namespace deren::promise::rhi {
         context_view<command_context> commands;
         context_view<frame_context> frames;
         api_core() noexcept = default;
-        virtual ~api_core() noexcept = default;
-        virtual void release() noexcept = 0;
+        ~api_core() noexcept override = default;
+        void release() noexcept override = 0;
         [[nodiscard]] virtual ability_bits abilities() const noexcept = 0;
         [[nodiscard]] virtual extension* query_extension(extension_kind kind) noexcept = 0;
         virtual void wait_idle() = 0;

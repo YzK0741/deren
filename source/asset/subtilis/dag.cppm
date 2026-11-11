@@ -28,7 +28,7 @@ export namespace deren::asset::subtilis {
         }
     };
     enum class cut_mode { model_error,
-                          screen_error };
+                          screen_error, };
     struct cut_parameters {
         cut_mode mode = cut_mode::model_error;
         float threshold = 0;

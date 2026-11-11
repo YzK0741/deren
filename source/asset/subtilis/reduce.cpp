@@ -101,7 +101,7 @@ namespace deren::asset::subtilis::builder_detail {
             radius = std::max(radius, std::hypot(double(p[0]) - center[0], double(p[1]) - center[1], double(p[2]) - center[2]));
         }
         float rounded = static_cast<float>(radius);
-        if (double(rounded) < radius) {
+        if (static_cast<double>(rounded) < radius) {
             rounded = std::nextafter(rounded, std::numeric_limits<float>::infinity());
         }
         if (!std::isfinite(rounded)) {
@@ -299,9 +299,9 @@ namespace deren::asset::subtilis::builder_detail {
         if (!clustered) {
             return std::unexpected(clustered.error());
         }
-        double error = double(step_error) * scale.diagonal;
+        double error = static_cast<double>(step_error) * scale.diagonal;
         float rounded = static_cast<float>(error);
-        if (double(rounded) < error) {
+        if (static_cast<double>(rounded) < error) {
             rounded = std::nextafter(rounded, std::numeric_limits<float>::infinity());
         }
         if (!std::isfinite(rounded)) {

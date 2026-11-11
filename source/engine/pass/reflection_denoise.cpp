@@ -4,7 +4,6 @@
  */
 module;
 
-#include <cstddef>
 #include <cstdint>
 module deren.engine.pass.reflection_denoise;
 import deren.vstd;
@@ -48,12 +47,14 @@ namespace deren::engine::pass {
         if (!this->build_pipeline.has_value() || io.list == nullptr || io.extent.width == 0u || io.extent.height == 0u) {
             return rhi::error::invalid_argument;
         }
-        reflection_denoise_push const push{.temporal_stability_factor = this->temporal_stability_factor,
-                                           .max_samples = this->max_samples,
-                                           .history_valid = this->history_valid ? 1u : 0u,
-                                           .screen_width = io.extent.width,
-                                           .screen_height = io.extent.height,
-                                           .max_roughness = this->max_roughness};
+        reflection_denoise_push const push{
+            .temporal_stability_factor = this->temporal_stability_factor,
+            .max_samples = this->max_samples,
+            .history_valid = this->history_valid ? 1u : 0u,
+            .screen_width = io.extent.width,
+            .screen_height = io.extent.height,
+            .max_roughness = this->max_roughness,
+        };
         if (!io.push_block(*io.list, std::as_bytes(std::span<reflection_denoise_push const>(&push, 1u)))) {
             return rhi::error::invalid_argument;
         }

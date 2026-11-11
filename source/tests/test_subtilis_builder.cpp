@@ -225,8 +225,18 @@ int main() {
             }
         }
     }
-    sub::build_input grid_input{{bytes(std::span(grid)), sizeof(vertex), static_cast<std::uint32_t>(grid.size()),
-                                 bytes(std::span(triangles)), 4, 0, static_cast<std::uint32_t>(triangles.size()), 0}};
+    sub::build_input grid_input{
+        {
+            bytes(std::span(grid)),
+            sizeof(vertex),
+            static_cast<std::uint32_t>(grid.size()),
+            bytes(std::span(triangles)),
+            4,
+            0,
+            static_cast<std::uint32_t>(triangles.size()),
+            0,
+        },
+    };
     auto hierarchy = sub::build(grid_input);
     CHECK(hierarchy);
     if (hierarchy) {
@@ -462,9 +472,13 @@ int main() {
     }();
     CHECK(outlier && hierarchy && std::ranges::equal(outlier->indices(), hierarchy->indices()));
     CHECK(outlier && outlier->vertices().size() == (grid.size() + 1) * sizeof(vertex));
-    std::array<vertex, 3> large_vertices{{{{1e30f, 0, 0}, {0, 0, 1}, {0, 0}},
-                                          {{std::nextafter(1e30f, 2e30f), 0, 0}, {0, 0, 1}, {1, 0}},
-                                          {{1e30f, 1e24f, 0}, {0, 0, 1}, {0, 1}}}};
+    std::array<vertex, 3> large_vertices{
+        {
+            {{1e30f, 0, 0}, {0, 0, 1}, {0, 0}},
+            {{std::nextafter(1e30f, 2e30f), 0, 0}, {0, 0, 1}, {1, 0}},
+            {{1e30f, 1e24f, 0}, {0, 0, 1}, {0, 1}},
+        },
+    };
     auto large = sub::build({{bytes(std::span(large_vertices)), sizeof(vertex), 3, bytes(std::span(indices)), 4, 0, 3, 0}});
     CHECK(large);
     if (large) {

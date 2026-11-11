@@ -394,7 +394,7 @@ namespace deren::asset_library {
                     warn(library.warnings_, iterator->path(), "cannot inspect: " + type_error.message());
                 }
             }
-            std::sort(children.begin(), children.end());
+            std::ranges::sort(children);
 
             for (fs::path const& child : children) {
                 fs::path const relative_path = child.lexically_relative(library.root_);
@@ -418,7 +418,7 @@ namespace deren::asset_library {
         };
         scan_directory(scan_directory, library.root_, scan_depth);
 
-        std::sort(library.entries_.begin(), library.entries_.end(),
+        std::ranges::sort(library.entries_,
                   [](asset_entry const& left, asset_entry const& right) { return left.id < right.id; });
         if (library.entries_.empty()) {
             library.error_ = "no assets found under '" + library.root_.string() + "'";

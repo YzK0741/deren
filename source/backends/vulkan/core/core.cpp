@@ -241,7 +241,7 @@ namespace deren::vulkan {
         uint64_t signal_values[2] = {signal_value, 0};
         // The wait side's value array, for the count rule above: the element is ignored (the semaphore
         // is binary) but the count has to be there.
-        uint64_t const wait_value = 0;
+        constexpr uint64_t wait_value = 0;
         VkTimelineSemaphoreSubmitInfo timeline_info = make_timeline_semaphore_info(
             1, &wait_value, 2, signal_values);
 
@@ -598,14 +598,14 @@ namespace deren::vulkan {
         // pass stores the nearest surface's emissive term in (lighting-independent, and it needs the emissive texture and
         // the UVs the G-buffer does not store - see core::gbuffer_pass_attachment_count). The first
         // five are overwritten: a nearer non-emissive surface must clear a farther emitter's color.
-        deren::utility::vessel::array<VkFormat, gbuffer_pass_attachment_count> const formats = {
+        constexpr deren::utility::vessel::array<VkFormat, gbuffer_pass_attachment_count> formats = {
             gbuffer_formats[0],
             gbuffer_formats[1],
             gbuffer_formats[2],
             gbuffer_velocity_format,
             hdr_format,
         };
-        deren::utility::vessel::array<VkPipelineColorBlendAttachmentState, gbuffer_pass_attachment_count> const blends = {
+        constexpr utility::vessel::array<VkPipelineColorBlendAttachmentState, gbuffer_pass_attachment_count> blends = {
             make_color_blend_attachment_opaque(),
             make_color_blend_attachment_opaque(),
             make_color_blend_attachment_opaque(),
@@ -651,7 +651,7 @@ namespace deren::vulkan {
         VkShaderStageFlagBits const first_stage) const {
         // ONE colour target, and it is the HDR one: this pass runs inside the HDR chain (after the lighting
         // stage, before the resolve), so the tonemap stays the post chain's - see the declaration's note.
-        deren::utility::vessel::array<VkFormat, 1> const formats = {hdr_format};
+        constexpr utility::vessel::array formats = {hdr_format};
         // STANDARD ALPHA BLENDING, AND FOR AN OPAQUE MATERIAL IT IS BIT-IDENTICAL TO THE OVERWRITE THIS
         // REPLACES: `src * srcAlpha + dst * (1 - srcAlpha)` at `srcAlpha == 1` is `src`, and the character stage
         // writes an alpha of exactly 1 for every material that is not the article's transparent variant (see
@@ -663,7 +663,7 @@ namespace deren::vulkan {
         // read-modify-written by this pass instead of overwritten. Nothing consumes it - `post.slang` returns
         // `float4(color, 1.0)` and samples `.rgb` - and the A/B that proves the rest of the character is
         // unaffected (0 px) is in `remaining_port_spec.md`'s "其余部位按参考对齐（续）" item 10.
-        deren::utility::vessel::array<VkPipelineColorBlendAttachmentState, 1> const blends = {make_color_blend_attachment()};
+        constexpr utility::vessel::array blends = {make_color_blend_attachment()};
         auto result = deren::vulkan::make_pipeline(
             this->device.logical_device,
             std::span<VkFormat const>(formats),
@@ -702,10 +702,10 @@ namespace deren::vulkan {
         // ONE colour target, and it is the HDR one - the same target the character-forward stage just wrote, so
         // that the multiply lands on the TOON result rather than on a resolved copy of it. The grade and the
         // tonemap stay the post chain's, exactly as they are for the toon stage itself.
-        deren::utility::vessel::array<VkFormat, 1> const formats = {hdr_format};
+        constexpr deren::utility::vessel::array<VkFormat, 1> formats = {hdr_format};
         // THE MULTIPLY (see make_color_blend_attachment_multiply): this is the state that makes the article's
         // two `Trick` shaders overlays rather than surfaces, and the reason the port needs no blend extension.
-        deren::utility::vessel::array<VkPipelineColorBlendAttachmentState, 1> const blends = {make_color_blend_attachment_multiply()};
+        constexpr deren::utility::vessel::array blends = {make_color_blend_attachment_multiply()};
         auto result = deren::vulkan::make_pipeline(
             this->device.logical_device,
             std::span<VkFormat const>(formats),
@@ -748,11 +748,11 @@ namespace deren::vulkan {
         // ONE colour target, and it is the HDR one - the same target the character-forward stage has just
         // written, so the hull lands in the TOON result rather than on a resolved copy of it. The grade and the
         // tonemap stay the post chain's, exactly as they are for the toon stage and for the overlay group.
-        deren::utility::vessel::array<VkFormat, 1> const formats = {hdr_format};
+        constexpr deren::utility::vessel::array formats = {hdr_format};
         // OVERWRITE, NOT MULTIPLY: the article's outline is an OPAQUE surface - `MyZmdOutlineShader`'s SubShader
         // states no `Blend` at all and its fragment returns alpha 1 - so this is the state the TOON stage uses
         // (`make_color_blend_attachment_opaque`), not the overlay group's multiply.
-        deren::utility::vessel::array<VkPipelineColorBlendAttachmentState, 1> const blends = {make_color_blend_attachment_opaque()};
+        constexpr deren::utility::vessel::array blends = {make_color_blend_attachment_opaque()};
         auto result = deren::vulkan::make_pipeline(
             this->device.logical_device,
             std::span<VkFormat const>(formats),
@@ -826,7 +826,7 @@ namespace deren::vulkan {
             if (this->frame.prefetched_slot != UINT32_MAX) {
                 // A rebuild or shutdown may discard the prefetched frame. Consume its binary
                 // acquire signal before the same slot semaphore can be reused after a rebuild.
-                VkPipelineStageFlags const stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+                constexpr VkPipelineStageFlags stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
                 VkSubmitInfo drain = make_submit_info(nullptr, 0);
                 drain.waitSemaphoreCount = 1;
                 drain.pWaitSemaphores = &this->frame.image_available_semaphores[this->frame.prefetched_slot];

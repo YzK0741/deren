@@ -1,5 +1,4 @@
 // Opt-in device measurement. Timed paths mirror current VMA host upload and a staging alternative.
-#include "texture_upload_layout.h"
 
 #include <algorithm>
 #include <bit>
@@ -16,6 +15,7 @@ import deren.utility.shared;
 import deren.promise.rhi;
 import deren.engine.backend_loader;
 import deren.vulkan.main_context;
+import deren.vulkan.core.vma.texture_upload_layout;
 namespace rhi = deren::promise::rhi;
 namespace vessel = deren::utility::vessel;
 using timer = std::chrono::steady_clock;
@@ -52,7 +52,8 @@ namespace {
     enum class route { host_current,
                        host_native,
                        staging_shared_usage,
-                       staging };
+                       staging,
+    };
     char const* name(route method) {
         switch (method) {
         case route::host_current:

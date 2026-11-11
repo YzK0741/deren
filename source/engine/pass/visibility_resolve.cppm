@@ -54,19 +54,21 @@ export namespace deren::engine::pass {
             // graph's resolve lane records the ordering; the push block is composed at record time (see
             // record_content). An empty declaration is the accurate one for a heap-native compute pass - the
             // clustered-light sort is the precedent.
-            static constinit render_resource::pass_io const value{.name = "visibility resolve"};
+            static constexpr render_resource::pass_io value{.name = "visibility resolve"};
             return value;
         }
 
         [[nodiscard]] deren::engine::pass::behaviour const& behaviour() const noexcept override {
             // ONE 8x8 GROUP PER PIXEL TILE over the whole render extent: the shader's [numthreads(8, 8, 1)] is the
             // same number, and the record step sizes the grid from the extent - so a resize needs no state.
-            static deren::engine::pass::behaviour const value{.kind = behaviour_kind::compute,
-                                                              .group_size_x = 8,
-                                                              .group_size_y = 8,
-                                                              .group_size_z = 1,
-                                                              .extent = extent_rule::full,
-                                                              .resync_viewport = false};
+            static constexpr deren::engine::pass::behaviour value{
+                .kind = behaviour_kind::compute,
+                .group_size_x = 8,
+                .group_size_y = 8,
+                .group_size_z = 1,
+                .extent = extent_rule::full,
+                .resync_viewport = false,
+            };
             return value;
         }
 

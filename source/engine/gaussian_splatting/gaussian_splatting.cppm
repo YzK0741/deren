@@ -1,7 +1,7 @@
 module;
-#include <cstddef>
-#include <cstdint>
+
 #include <glm/glm.hpp>
+
 export module deren.engine.gaussian_splatting;
 export import deren.vstd;
 export import deren.utility.shared;
@@ -11,6 +11,7 @@ import deren.engine.pass.chain;
 import deren.engine.pass.buffer_storage;
 import deren.engine.render_resource;
 import deren.engine.render_resource.instances;
+
 export namespace deren::engine::gaussian_splatting {
     enum class error_code { invalid_argument,
                             limit_exceeded,

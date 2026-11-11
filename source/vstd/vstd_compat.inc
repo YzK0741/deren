@@ -21,7 +21,7 @@
 // everything in THIS file is a question about the compiler (__cplusplus, _MSVC_LANG, __cpp_rtti,
 // __cpp_char8_t, __has_include, __has_builtin) or about libc++, and it must run before any library
 // header; the two questions that need a library header to have been included live in
-// vstd_lib_capabilities.inc, which vstd.cppm includes after its header list. MSVC is where that
+// vstd_lib_capabilities.inc, which vstd_libcxx.cppm includes after its header list. MSVC is where that
 // distinction was measured rather than guessed - see the comments on each decision below.
 //
 // THE ONE RULE THAT MATTERS, and it is a rule about DEFINEDNESS rather than about value: a VSTD_*
@@ -190,7 +190,7 @@
 // feature-test macros: on MSVC those macros only exist once a library header has been included
 // (MSVC keeps them in <yvals_core.h>, and it has no <__config> for this file to pull in), and this
 // file runs before any library header. They are decided in vstd/vstd_lib_capabilities.inc, which
-// vstd.cppm includes after its header list and before `export module vstd;`. Measured: at THAT point
+// vstd_libcxx.cppm includes after its header list and before `export module deren.vstd.libcxx;`. Measured: at THAT point
 // MSVC reports __cpp_lib_chrono = 201907 and __cpp_lib_print = 202406, and `using
 // std::chrono::locate_zone;` / `using std::vprint_nonunicode;` both compile - so the two capabilities
 // are really there, it was only ever the timing of the question that was wrong.

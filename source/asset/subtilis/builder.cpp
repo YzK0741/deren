@@ -17,7 +17,7 @@ namespace deren::asset::subtilis {
             return std::unexpected(error{code, message, {}, {}});
         }
         uint64_t storage(payload const& p) {
-            return uint64_t(p.indices.size()) * 4 + uint64_t(p.clusters.size()) * 32 + uint64_t(p.groups.size()) * 48 + uint64_t(p.references.size() + p.leaves.size() + p.roots.size()) * 4 + uint64_t(p.pages.size()) * 32 + uint64_t(p.page_dependencies.size()) * 4 + 8192;
+            return static_cast<uint64_t>(p.indices.size()) * 4 + static_cast<uint64_t>(p.clusters.size()) * 32 + static_cast<uint64_t>(p.groups.size()) * 48 + static_cast<uint64_t>(p.references.size() + p.leaves.size() + p.roots.size()) * 4 + static_cast<uint64_t>(p.pages.size()) * 32 + static_cast<uint64_t>(p.page_dependencies.size()) * 4 + 8192;
         }
         result<sphere> lod_sphere(source_geometry const& source, payload const& p, std::span<uint32_t const> fine, bd::frontier const& coarse) {
             array<double, 3> lo{}, hi{};
@@ -58,7 +58,7 @@ namespace deren::asset::subtilis {
                 vertex(v);
             }
             float rounded = static_cast<float>(radius);
-            if (double(rounded) < radius) {
+            if (static_cast<double>(rounded) < radius) {
                 rounded = std::nextafter(rounded, std::numeric_limits<float>::infinity());
             }
             if (!std::isfinite(rounded)) {
@@ -134,7 +134,7 @@ namespace deren::asset::subtilis {
                                          validate,
                                          encode,
                                          count };
-        constexpr size_t stage_kinds = size_t(stage_kind::count);
+        constexpr size_t stage_kinds = static_cast<size_t>(stage_kind::count);
         struct stage_definition {
             char const* name;
             bool inclusive;
@@ -160,7 +160,7 @@ namespace deren::asset::subtilis {
             array<double, stage_kinds> cpu{};
             array<uint64_t, stage_kinds> count{};
             void add(stage_kind kind, double milliseconds, uint64_t tasks = 1) noexcept {
-                auto at = size_t(kind);
+                auto at = static_cast<size_t>(kind);
                 cpu[at] += milliseconds;
                 count[at] += tasks;
             }
@@ -228,9 +228,9 @@ namespace deren::asset::subtilis {
                         previous = std::max(previous, data.groups[data.clusters[id].producer].error);
                     }
                 }
-                double cumulative = double(previous) + slot.candidate.local_error;
+                double cumulative = static_cast<double>(previous) + slot.candidate.local_error;
                 float error = static_cast<float>(cumulative);
-                if (double(error) < cumulative) {
+                if (static_cast<double>(error) < cumulative) {
                     error = std::nextafter(error, std::numeric_limits<float>::infinity());
                 }
                 if (!lod || !std::isfinite(error)) {
@@ -262,7 +262,7 @@ namespace deren::asset::subtilis {
             }
             auto const& coarse = slot.candidate.coarse;
             auto used = storage(data);
-            if (used > budget.max_output_bytes || slot.additional > budget.max_output_bytes - used || used > budget.max_known_work_bytes - base_work || slot.additional > budget.max_known_work_bytes - base_work - used || uint64_t(data.indices.size()) + coarse.indices.size() > UINT32_MAX || uint64_t(data.clusters.size()) + coarse.clusters.size() >= none || uint64_t(data.references.size()) + workspace.fine[group].size() + coarse.clusters.size() > UINT32_MAX || data.groups.size() + 1 >= none) {
+            if (used > budget.max_output_bytes || slot.additional > budget.max_output_bytes - used || used > budget.max_known_work_bytes - base_work || slot.additional > budget.max_known_work_bytes - base_work - used || static_cast<uint64_t>(data.indices.size()) + coarse.indices.size() > UINT32_MAX || static_cast<uint64_t>(data.clusters.size()) + coarse.clusters.size() >= none || static_cast<uint64_t>(data.references.size()) + workspace.fine[group].size() + coarse.clusters.size() > UINT32_MAX || data.groups.size() + 1 >= none) {
                 stages.add(stage_kind::commit, stage_now() - started);
                 return fail(error_code::capacity, "DAG append exceeds build budget");
             }
@@ -367,7 +367,7 @@ namespace deren::asset::subtilis {
                     max_estimate = std::max(max_estimate, estimates[group]);
                 }
                 size_t const available = context.budget.max_known_work_bytes - context.base_work;
-                size_t const admitted = std::min({size_t(context.threads), groups, available / max_estimate});
+                size_t const admitted = std::min({static_cast<size_t>(context.threads), groups, available / max_estimate});
                 auto prepare_task = [&](size_t group) -> result<void> {
                     return prepare_group(workspace, group, context.source, context.data, context.topology, context.scale, context.options);
                 };
@@ -402,7 +402,7 @@ namespace deren::asset::subtilis {
             if (source.positions.size() > validation_limits.max_records || source.indices.size() > validation_limits.max_records) {
                 return fail(error_code::capacity, "source record limit");
             }
-            uint64_t base_work = uint64_t(source.positions.size()) * 64 + uint64_t(source.indices.size()) * 96 + 65536;
+            uint64_t base_work = static_cast<uint64_t>(source.positions.size()) * 64 + static_cast<uint64_t>(source.indices.size()) * 96 + 65536;
             if (base_work > budget.max_known_work_bytes) {
                 return fail(error_code::capacity, "known work budget too small");
             }

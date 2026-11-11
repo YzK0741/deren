@@ -120,7 +120,7 @@ namespace deren::engine::pass {
         this->pass_frame = frame;
     }
 
-    void post_composite_pass::set_overlay(draw_callback const overlay) noexcept {
+    void post_composite_pass::set_overlay(draw_callback const& overlay) noexcept {
         // The host's hook, installed once by whoever creates the passes. It is STORED, not put in the frame: what the
         // frame decides per frame is whether THIS pass is the frame's last writer (see prepare_frame).
         this->overlay_callback = overlay;
@@ -133,7 +133,7 @@ namespace deren::engine::pass {
         // that resolve carries the overlay; when neither runs, this pass is the last writer and draws the
         // overlay itself.
         bool const resolved = facts.fxaa_resolves || facts.upscale_resolves;
-        composite_frame frame = {};
+        composite_frame frame;
         frame.after_draw = resolved ? draw_callback{} : this->overlay_callback;
         frame.write_ldr = resolved;
         frame.suppress_bloom = facts.debug_view;
@@ -153,9 +153,6 @@ namespace deren::engine::pass {
             return this->fill_push(out, false);
         }
         render_resource::resource_info const* const ldr = render_resource::find(resource_id::ldr);
-        if (ldr == nullptr) {
-            return false;
-        }
         resolved_binding const target = context.resources->find(resource_id::ldr, 0, instance_for(ldr->scope, out.frame));
         // THE CONTRACT LANE IS THE GUARD (plan X5 B2): the raw lane is gone, and "no LDR image this generation"
         // is exactly "no contract handle was published for it".

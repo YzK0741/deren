@@ -90,22 +90,28 @@ export namespace deren::engine::render_graph::lighting {
             }
         }
         constexpr access_scope sampled{resource_usage::sampled, pipeline_stage::fragment_shader};
-        parameters params{{{{in.surface[0], {}, sampled}, {in.surface[1], {}, sampled}, {in.surface[2], {}, sampled}}},
-                          {in.depth, {}, sampled},
-                          {in.color, {}, {resource_usage::color_attachment, pipeline_stage::color_output}},
-                          {}};
+        parameters params{
+            {{{in.surface[0], {}, sampled}, {in.surface[1], {}, sampled}, {in.surface[2], {}, sampled}}},
+            {in.depth, {}, sampled},
+            {in.color, {}, {resource_usage::color_attachment, pipeline_stage::color_output}},
+            {},
+        };
         if (in.shared) {
             constexpr access_scope uniform{resource_usage::uniform_buffer, pipeline_stage::fragment_shader};
             params.shared = shared_parameters{{in.shared->camera, {}, uniform}, {in.shared->light, {}, uniform}, {}};
             if (in.shared->ibl) {
-                params.shared->ibl = ibl_parameters{{in.shared->ibl->environment, {}, sampled},
-                                                    {in.shared->ibl->irradiance, {}, sampled},
-                                                    {in.shared->ibl->lut, {}, sampled}};
+                params.shared->ibl = ibl_parameters{
+                    {in.shared->ibl->environment, {}, sampled},
+                    {in.shared->ibl->irradiance, {}, sampled},
+                    {in.shared->ibl->lut, {}, sampled},
+                };
             }
             if (in.shared->cluster) {
                 constexpr access_scope storage{resource_usage::storage, pipeline_stage::fragment_shader};
-                params.shared->cluster = cluster_parameters{{in.shared->cluster->counts, {}, storage},
-                                                            {in.shared->cluster->indices, {}, storage}};
+                params.shared->cluster = cluster_parameters{
+                    {in.shared->cluster->counts, {}, storage},
+                    {in.shared->cluster->indices, {}, storage},
+                };
             }
             if (in.shared->shadow_cascades) {
                 params.shared->shadow_cascades = texture_read{*in.shared->shadow_cascades, {}, sampled};

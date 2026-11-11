@@ -1,6 +1,13 @@
-#pragma once
-// Internal CPU range operations; include after the primary module declaration.
-namespace deren::engine::render_graph::detail {
+module;
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <utility>
+#include <variant>
+export module deren.engine.render_graph:range_operations;
+import :types;
+export namespace deren::engine::render_graph::detail {
     inline uint32_t bits(texture_aspect aspect) noexcept {
         return static_cast<uint32_t>(aspect);
     }
@@ -58,7 +65,8 @@ namespace deren::engine::render_graph::detail {
         }
         if (auto x = std::get_if<buffer_range>(&a)) {
             auto const& y = std::get<buffer_range>(b);
-            auto begin = std::max(x->offset, y.offset), end = std::min(x->offset + x->size, y.offset + y.size);
+            auto begin = std::max(x->offset, y.offset);
+            auto end = std::min(x->offset + x->size, y.offset + y.size);
             if (begin >= end) {
                 return std::nullopt;
             }
@@ -67,8 +75,10 @@ namespace deren::engine::render_graph::detail {
         auto const& x = std::get<texture_range>(a);
         auto const& y = std::get<texture_range>(b);
         auto aspects = bits(x.aspects) & bits(y.aspects);
-        auto mip_begin = std::max(x.base_mip, y.base_mip), mip_end = std::min(x.base_mip + x.mip_count, y.base_mip + y.mip_count);
-        auto layer_begin = std::max(x.base_layer, y.base_layer), layer_end = std::min(x.base_layer + x.layer_count, y.base_layer + y.layer_count);
+        auto mip_begin = std::max(x.base_mip, y.base_mip);
+        auto mip_end = std::min(x.base_mip + x.mip_count, y.base_mip + y.mip_count);
+        auto layer_begin = std::max(x.base_layer, y.base_layer);
+        auto layer_end = std::min(x.base_layer + x.layer_count, y.base_layer + y.layer_count);
         if (!aspects || mip_begin >= mip_end || layer_begin >= layer_end) {
             return std::nullopt;
         }
@@ -91,7 +101,8 @@ namespace deren::engine::render_graph::detail {
             if (x->offset < in.offset) {
                 result.outside[result.count++] = buffer_range{x->offset, in.offset - x->offset};
             }
-            auto end = x->offset + x->size, inside_end = in.offset + in.size;
+            auto end = x->offset + x->size;
+            auto inside_end = in.offset + in.size;
             if (inside_end < end) {
                 result.outside[result.count++] = buffer_range{inside_end, end - inside_end};
             }
@@ -99,8 +110,7 @@ namespace deren::engine::render_graph::detail {
         }
         auto const& x = std::get<texture_range>(whole);
         auto const& in = std::get<texture_range>(*result.inside);
-        auto remaining = bits(x.aspects) & ~bits(in.aspects);
-        if (remaining) {
+        if (auto remaining = bits(x.aspects) & ~bits(in.aspects)) {
             result.outside[result.count++] = texture_range{x.base_mip, x.mip_count, x.base_layer, x.layer_count, static_cast<texture_aspect>(remaining)};
         }
         auto emit = [&](uint32_t mip, uint32_t mip_count, uint32_t layer, uint32_t layer_count) {

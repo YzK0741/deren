@@ -31,7 +31,7 @@ namespace deren::engine {
     // per-generation handle
     // =============================================================================================
 
-    void pass_filter::register_resource(render_resource::resource_id const id, uint32_t const element, resource_handles const handles) noexcept {
+    void pass_filter::register_resource(render_resource::resource_id const id, uint32_t const element, resource_handles const& handles) noexcept {
         // The key packs the declaration's identity: which resource, and which element of its family. A SECOND
         // registration of the same key REPLACES the first, because the runtime re-publishing a resource after a
         // rebuild is the same statement as publishing it.

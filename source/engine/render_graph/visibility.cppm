@@ -166,7 +166,7 @@ export namespace deren::engine::render_graph::visibility {
     std::expected<pass_ref, graph_error> append_hzb_cull(builder& description, buffer_ref levels, buffer_ref header,
                                                          buffer_ref items, buffer_ref candidates, buffer_ref draw_items,
                                                          buffer_ref results, buffer_ref survivors, buffer_ref commands,
-                                                         std::optional<software_routing_inputs> routing = {}) noexcept {
+                                                         std::optional<software_routing_inputs> const& routing = {}) noexcept {
         constexpr access_scope storage{resource_usage::storage, pipeline_stage::compute_shader};
         hzb_cull_parameters params{{levels, {}, storage}, {header, {}, storage}, {items, {}, storage}, {candidates, {}, storage}, {draw_items, {}, storage}, {results, {}, storage}, {survivors, {}, storage}, {commands, {}, storage}};
         if (routing) {
@@ -196,7 +196,7 @@ export namespace deren::engine::render_graph::visibility {
     std::expected<pass_ref, graph_error> append_hzb_recovery(builder& description, buffer_ref levels, buffer_ref header,
                                                              buffer_ref items, buffer_ref candidates, buffer_ref draw_items,
                                                              buffer_ref results, buffer_ref survivors, buffer_ref commands,
-                                                             std::optional<software_routing_inputs> routing = {}) noexcept {
+                                                             std::optional<software_routing_inputs> const& routing = {}) noexcept {
         constexpr access_scope storage{resource_usage::storage, pipeline_stage::compute_shader};
         hzb_recovery_parameters params{{levels, {}, storage}, {header, {}, storage}, {items, {}, storage}, {candidates, {}, storage}, {draw_items, {}, storage}, {results, {}, storage}, {survivors, {}, storage}, {commands, {}, storage}};
         if (routing) {
@@ -314,12 +314,14 @@ export namespace deren::engine::render_graph::visibility {
         if (in.shared) {
             constexpr access_scope buffer{resource_usage::storage, pipeline_stage::compute_shader};
             constexpr access_scope camera{resource_usage::uniform_buffer, pipeline_stage::compute_shader};
-            params.shared = resolve_shared_parameters{{in.shared->camera, {}, camera},
-                                                      {in.shared->materials, {}, buffer},
-                                                      {in.shared->items, {}, buffer},
-                                                      {in.shared->meshlets, {}, buffer},
-                                                      {in.shared->previous_transforms, {}, buffer},
-                                                      {in.shared->statistics, {}, buffer}};
+            params.shared = resolve_shared_parameters{
+                {in.shared->camera, {}, camera},
+                {in.shared->materials, {}, buffer},
+                {in.shared->items, {}, buffer},
+                {in.shared->meshlets, {}, buffer},
+                {in.shared->previous_transforms, {}, buffer},
+                {in.shared->statistics, {}, buffer},
+            };
             if (in.shared->culled_meshlets) {
                 params.shared->culled_meshlets = buffer_read{*in.shared->culled_meshlets, {}, buffer};
             }
@@ -406,13 +408,15 @@ export namespace deren::engine::render_graph::visibility {
         }
         constexpr access_scope storage{resource_usage::storage, pipeline_stage::compute_shader};
         constexpr access_scope camera{resource_usage::uniform_buffer, pipeline_stage::compute_shader};
-        software_raster_parameters params{{in.software_depth, {}, storage},
-                                          {in.software_id, {}, storage},
-                                          {in.camera, {}, camera},
-                                          {in.items, {}, storage},
-                                          {in.meshlets, {}, storage},
-                                          {in.tiles, {}, storage},
-                                          {in.statistics, {}, storage}};
+        software_raster_parameters params{
+            {in.software_depth, {}, storage},
+            {in.software_id, {}, storage},
+            {in.camera, {}, camera},
+            {in.items, {}, storage},
+            {in.meshlets, {}, storage},
+            {in.tiles, {}, storage},
+            {in.statistics, {}, storage},
+        };
         if (in.culled_meshlets) {
             params.culled_meshlets = buffer_read{*in.culled_meshlets, {}, storage};
         }

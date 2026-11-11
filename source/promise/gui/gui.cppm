@@ -2,7 +2,7 @@ module;
 
 #include <cstddef>
 #include <cstdint>
-struct GLFWwindow;
+#include <GLFW/glfw3.h>
 
 export module deren.promise.gui;
 export import deren.vstd;

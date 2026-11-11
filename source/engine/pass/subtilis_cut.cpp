@@ -68,10 +68,12 @@ namespace deren::engine::pass {
         // The shader wrote BOTH the selected records and the command. The command is the one the raster's
         // indirect read consumes, so it must be visible before the record step's draw calls; the records are
         // consumed by the mesh stage of the same draw.
-        std::array<deren::promise::rhi::buffer_barrier, 2> const barriers{{
-            {.resource = &command_buffer, .from = deren::promise::rhi::buffer_use::shader_write, .to = deren::promise::rhi::buffer_use::indirect_read},
-            {.resource = &meshlet_table, .from = deren::promise::rhi::buffer_use::shader_write, .to = deren::promise::rhi::buffer_use::shader_read},
-        }};
+        std::array<deren::promise::rhi::buffer_barrier, 2> const barriers{
+            {
+                {.resource = &command_buffer, .from = deren::promise::rhi::buffer_use::shader_write, .to = deren::promise::rhi::buffer_use::indirect_read},
+                {.resource = &meshlet_table, .from = deren::promise::rhi::buffer_use::shader_write, .to = deren::promise::rhi::buffer_use::shader_read},
+            },
+        };
         if (commands.barrier(deren::promise::rhi::barrier_group{.buffers = barriers}) != deren::promise::rhi::error::ok) {
             deren::utility::log("subtilis cut: the write-to-raster barrier was refused - the GPU cut would draw with stale records");
             return false;

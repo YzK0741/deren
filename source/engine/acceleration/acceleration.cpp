@@ -61,9 +61,9 @@ namespace deren::engine::acceleration_structure {
 
     // ---- bottom level structure ---------------------------------------------------------------------------
 
-    bottom_level_structures::bottom_level_structures(rhi::api_core& face, rhi::shared_object<rhi::api_core> access)
+    bottom_level_structures::bottom_level_structures(rhi::api_core& face, rhi::shared_object<rhi::api_core> const& access)
         : contract(access && access.get() != &face ? nullptr : &face)
-        , device_root(std::move(access)) {
+        , device_root(access) {
     }
 
     // The entries' `unique_object<rhi::acceleration_structure>` members destroy their structure when the vector
@@ -153,7 +153,7 @@ namespace deren::engine::acceleration_structure {
         return {};
     }
 
-    std::expected<void, deren::utility::vessel::string> bottom_level_structures::record_update(rhi::command_buffer& commands, std::span<uint32_t const> const indices) {
+    std::expected<void, deren::utility::vessel::string> bottom_level_structures::record_update(rhi::command_buffer& commands, std::span<uint32_t const> const indices) const {
         for (std::uint32_t const index : indices) {
             if (index >= this->entries.size()) {
                 continue;
@@ -175,9 +175,9 @@ namespace deren::engine::acceleration_structure {
     // Spelled exactly as the declaration in the module interface is: doxygen matches a definition against
     // its declaration by the written signature, and `std::uint32_t` here against `uint32_t` there made it
     // report "no matching class member found" for this one constructor (the only warning in the doc build).
-    top_level_structure::top_level_structure(rhi::api_core& face, uint32_t const frame_slot_count, rhi::shared_object<rhi::api_core> access)
+    top_level_structure::top_level_structure(rhi::api_core& face, uint32_t const frame_slot_count, rhi::shared_object<rhi::api_core> const& access)
         : contract(access && access.get() != &face ? nullptr : &face)
-        , device_root(std::move(access))
+        , device_root(access)
         , max_instances(max_instances_of(face))
         , slots(frame_slot_count) {
     }
@@ -223,9 +223,11 @@ namespace deren::engine::acceleration_structure {
             requests[1].id = render_resource::resource_id::rt_instance_table;
             requests[1].type = managed::kind::buffer;
             requests[1].life = managed::lifetime::frame_slot;
-            requests[1].buffer = {.size = static_cast<std::uint64_t>(wanted) * sizeof(instance_record),
-                                  .usage = rhi::buffer_usage::storage_coherent,
-                                  .flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::acceleration_structure_input)};
+            requests[1].buffer = {
+                .size = static_cast<std::uint64_t>(wanted) * sizeof(instance_record),
+                .usage = rhi::buffer_usage::storage_coherent,
+                .flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::acceleration_structure_input),
+            };
             if (!target.storage_provider) {
                 target.storage_provider = &target.storage_chain.emplace<deren::engine::pass::resource_storage_pass>();
             }
