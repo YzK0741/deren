@@ -6,7 +6,6 @@
 module;
 
 #include <cstdint>
-#include <memory> // std::shared_ptr: the frame's secondary is the contract handle
 module deren.engine.pass.transparent;
 import deren.vstd;
 import deren.utility.shared;
@@ -98,13 +97,15 @@ namespace deren::engine::pass {
         deren::utility::vessel::array<rhi::color_attachment, 1> const colors = {
             rhi::color_attachment{.view = io.targets[0].view_handle, .load = rhi::load_op::load, .store = rhi::store_op::store, .clear = {}},
         };
-        rhi::depth_attachment const depth = {.view = io.targets[1].view_handle,
-                                             .load = rhi::load_op::load, // make_load_depth_attachment_info's loadOp
-                                             .store = rhi::store_op::store,
-                                             .read_only = false,
-                                             .has_stencil = false,
-                                             .clear_depth = 1.0f,
-                                             .clear_stencil = 0};
+        rhi::depth_attachment const depth = {
+            .view = io.targets[1].view_handle,
+            .load = rhi::load_op::load, // make_load_depth_attachment_info's loadOp
+            .store = rhi::store_op::store,
+            .read_only = false,
+            .has_stencil = false,
+            .clear_depth = 1.0f,
+            .clear_stencil = 0,
+        };
         rhi::rendering_info const rendering_info{
             .struct_size = sizeof(rhi::rendering_info),
             .area = {.offset_x = 0, .offset_y = 0, .width = this->pass_frame.extent.width, .height = this->pass_frame.extent.height},

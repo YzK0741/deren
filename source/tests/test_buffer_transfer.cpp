@@ -12,7 +12,7 @@ import deren.promise.rhi;
 import deren.engine.buffer_transfer;
 import deren.engine.backend_loader;
 import deren.vulkan.main_context;
-#include "../engine/visibility/feedback_readback.h"
+import deren.engine.visibility.feedback_readback;
 #include "queue_gate.hpp"
 namespace rhi = deren::promise::rhi;
 namespace sync = rhi::synchronization;

@@ -40,9 +40,6 @@
 
 #include "../../utility/abi_export.hpp"
 
-#include <cstdint>
-#include <memory> // no standard pointer is named by the declaration any more (abi 44 returns the contract's `shared_object`)
-
 /**
  * @file source/promise/rhi/backend_entry.hpp
  * @brief the single `extern "C"` entry point that hands an `api_core` across the boundary.
@@ -61,7 +58,7 @@
 // (`-Wreturn-type-c-linkage`). It is deliberate here (see the banner): the C ABI is used for the NAME -
 // an undecorated symbol a host can resolve by string - not to promise that only C types travel. The
 // warning is silenced at the declaration and at the definition rather than by weakening either.
-#if defined(__clang__)
+#ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wreturn-type-c-linkage"
 #endif
@@ -109,6 +106,6 @@ using deren_make_api_core_fn = deren::promise::rhi::shared_object<deren::promise
                                                                                                      deren::promise::rhi::create_info const*,
                                                                                                      deren::promise::rhi::error_info*);
 
-#if defined(__clang__)
+#ifdef __clang__
 #pragma clang diagnostic pop
 #endif

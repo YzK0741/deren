@@ -28,9 +28,11 @@ export namespace deren::engine::render_graph {
             if (in.target == in.depth) {
                 return std::unexpected(graph_error{.code = error_code::conflicting_import, .pass_name = "character forward", .resource_name = "character forward alias"});
             }
-            parameters params{{in.target, {}, {resource_usage::color_attachment, pipeline_stage::color_output}},
-                              {in.depth, {}, {resource_usage::depth_stencil_read, pipeline_stage::depth_stencil}},
-                              {in.material, {}, {resource_usage::sampled, pipeline_stage::fragment_shader}}};
+            parameters params{
+                {in.target, {}, {resource_usage::color_attachment, pipeline_stage::color_output}},
+                {in.depth, {}, {resource_usage::depth_stencil_read, pipeline_stage::depth_stencil}},
+                {in.material, {}, {resource_usage::sampled, pipeline_stage::fragment_shader}},
+            };
             auto added = graph.add_pass("character forward", std::move(params));
             if (!added) {
                 return std::unexpected(added.error());
@@ -64,9 +66,11 @@ export namespace deren::engine::render_graph {
             if (in.target == in.depth || in.target == in.albedo || in.depth == in.albedo) {
                 return std::unexpected(graph_error{.code = error_code::conflicting_import, .pass_name = "toon screen rim", .resource_name = "rim alias"});
             }
-            parameters params{{in.target, {}, {resource_usage::color_attachment, pipeline_stage::color_output}},
-                              {in.depth, {}, {resource_usage::sampled, pipeline_stage::fragment_shader}},
-                              {in.albedo, {}, {resource_usage::sampled, pipeline_stage::fragment_shader}}};
+            parameters params{
+                {in.target, {}, {resource_usage::color_attachment, pipeline_stage::color_output}},
+                {in.depth, {}, {resource_usage::sampled, pipeline_stage::fragment_shader}},
+                {in.albedo, {}, {resource_usage::sampled, pipeline_stage::fragment_shader}},
+            };
             auto added = graph.add_pass("toon screen rim", std::move(params));
             if (!added) {
                 return std::unexpected(added.error());
@@ -98,9 +102,11 @@ export namespace deren::engine::render_graph {
             if (in.target == in.depth || in.target == in.albedo || in.depth == in.albedo) {
                 return std::unexpected(graph_error{.code = error_code::conflicting_import, .pass_name = "goo rim", .resource_name = "rim alias"});
             }
-            parameters params{{in.target, {}, {resource_usage::color_attachment, pipeline_stage::color_output}},
-                              {in.depth, {}, {resource_usage::sampled, pipeline_stage::fragment_shader}},
-                              {in.albedo, {}, {resource_usage::sampled, pipeline_stage::fragment_shader}}};
+            parameters params{
+                {in.target, {}, {resource_usage::color_attachment, pipeline_stage::color_output}},
+                {in.depth, {}, {resource_usage::sampled, pipeline_stage::fragment_shader}},
+                {in.albedo, {}, {resource_usage::sampled, pipeline_stage::fragment_shader}},
+            };
             auto added = graph.add_pass("goo rim", std::move(params));
             if (!added) {
                 return std::unexpected(added.error());

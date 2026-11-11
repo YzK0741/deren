@@ -121,7 +121,7 @@ namespace deren::engine::subtilis {
         return result;
     }
 
-    bool page_request_buffer::push(gpu_page_request const& request) noexcept {
+    bool page_request_buffer::push(gpu_page_request const& request) noexcept { // NOLINT
         auto state = header();
         if (state.count >= capacity_) {
             state.overflow = 1;

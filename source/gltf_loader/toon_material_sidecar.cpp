@@ -100,7 +100,7 @@ namespace deren::toon {
             if (parsed.ec != std::errc{} || parsed.ptr != end) {
                 return std::nullopt;
             }
-            return value;
+            return value; // NOLINT
         }
 
     } // namespace
@@ -122,8 +122,7 @@ namespace deren::toon {
                 continue;
             }
             deren::utility::vessel::array<std::string_view, 4> fields = {};
-            std::size_t const count = split_row(line, fields);
-            if (count != 4) {
+            if (std::size_t const count = split_row(line, fields); count != 4) {
                 return std::unexpected(deren::utility::vessel::format("line {}: expected four tab-separated columns, found {}: '{}'", line_number, count, line));
             }
             if (fields[0] == "material") {

@@ -367,11 +367,11 @@ export namespace deren::promise::rhi {
     struct micromap : object {
 
         micromap() noexcept = default;
-        virtual ~micromap() noexcept = default;
+        ~micromap() noexcept override = default;
 
         /// Release the caller's one handle (see `buffer::release()`): the backend destroys the structure and
         /// gives its memory back.
-        virtual void release() noexcept = 0;
+        void release() noexcept override = 0;
     };
 
     /// ONE TRIANGLE GEOMETRY of a bottom-level structure: where its vertices and indices are, and how many.    ///
@@ -453,10 +453,10 @@ export namespace deren::promise::rhi {
     struct acceleration_structure : object {
 
         acceleration_structure() noexcept = default;
-        virtual ~acceleration_structure() noexcept = default;
+        ~acceleration_structure() noexcept override = default;
 
         /// Release the caller's one handle (see `buffer::release()`).
-        virtual void release() noexcept = 0;
+        void release() noexcept override = 0;
 
         /// THE ADDRESS a shader (or an instance record's `structure_reference`) uses to reach this structure.
         /// Zero means the backend could not report one - which a top-level structure never means, since an
@@ -479,14 +479,14 @@ export namespace deren::promise::rhi {
     struct buffer : object {
 
         buffer() noexcept = default;
-        virtual ~buffer() noexcept = default;
+        ~buffer() noexcept override = default;
 
         /// RELEASE THE CALLER'S ONE HANDLE. Runs inside the backend, whatever the compiler's `delete`
         /// would have done, and **may free nothing**: the resource can be shared/reused, so the object
         /// dies only when its last caller releases (see the release note above). Do not touch the handle
         /// afterwards. A frame view never came from a factory, so there is nothing to release: callers MUST
         /// NOT invoke release() on it, and the backend MAY terminate on that lifecycle precondition violation.
-        virtual void release() noexcept = 0;
+        void release() noexcept override = 0;
 
         [[nodiscard]] virtual std::uint64_t size() const noexcept = 0;
         /// Direct bytes of a host-visible buffer; empty when it cannot be mapped. Successful host-mapped
@@ -525,11 +525,11 @@ export namespace deren::promise::rhi {
     struct image : object {
 
         image() noexcept = default;
-        virtual ~image() noexcept = default;
+        ~image() noexcept override = default;
 
         /// see `buffer::release()`: runs inside the backend; the object may survive
         /// because a backend is allowed to serve identical content from one shared, content-keyed entry.
-        virtual void release() noexcept = 0;
+        void release() noexcept override = 0;
 
         [[nodiscard]] virtual image_extent extent() const noexcept = 0;
         [[nodiscard]] virtual image_format format() const noexcept = 0;
@@ -584,9 +584,9 @@ export namespace deren::promise::rhi {
     struct image_view : object {
 
         image_view() noexcept = default;
-        virtual ~image_view() noexcept = default;
+        ~image_view() noexcept override = default;
         /// Release the view; the backend destroys the native view and then the parent handle it kept.
-        virtual void release() noexcept = 0;
+        void release() noexcept override = 0;
         /// Copy the parent handle; empty for frame images or unsupported backends.
         [[nodiscard]] virtual shared_object<image> get_image() const noexcept {
             return {};
@@ -738,9 +738,9 @@ export namespace deren::promise::rhi {
     struct sampler : object {
 
         sampler() noexcept = default;
-        virtual ~sampler() noexcept = default;
+        ~sampler() noexcept override = default;
         /// see `buffer::release()`
-        virtual void release() noexcept = 0;
+        void release() noexcept override = 0;
     };
 
     /// How many sampled slots one immutable texture group carries (`texture_group_info::textures`).
@@ -753,8 +753,8 @@ export namespace deren::promise::rhi {
     /// Immutable sampled 2D slots. The device and backend must outlive every `texture_group`.
     struct texture_group : object {
         texture_group() noexcept = default;
-        virtual ~texture_group() noexcept = default;
-        virtual void release() noexcept = 0;
+        ~texture_group() noexcept override = default;
+        void release() noexcept override = 0;
     };
     using texture_group_ref = shared_object<texture_group>;
 
@@ -777,8 +777,8 @@ export namespace deren::promise::rhi {
     /// outlive every group. Immutability covers bindings, not resource content or synchronization.
     struct resource_group : object {
         resource_group() noexcept = default;
-        virtual ~resource_group() noexcept = default;
-        virtual void release() noexcept = 0;
+        ~resource_group() noexcept override = default;
+        void release() noexcept override = 0;
     };
     using resource_group_ref = shared_object<resource_group>;
     /// Resource creation interface reached by pointer. Empty products mean creation was refused/failed.
@@ -806,15 +806,12 @@ export namespace deren::promise::rhi {
             desc.data->size() != desc.resource.size) {
             return error::invalid_argument;
         }
-        switch (desc.resource.usage) {
-        case buffer_usage::vertex:
-        case buffer_usage::index:
-        case buffer_usage::uniform_gpu_only:
-        case buffer_usage::storage_gpu_only:
+        auto const usage = desc.resource.usage;
+        if (usage == buffer_usage::vertex || usage == buffer_usage::index || usage == buffer_usage::uniform_gpu_only ||
+            usage == buffer_usage::storage_gpu_only) {
             return error::ok;
-        default:
-            return error::unsupported;
         }
+        return error::unsupported;
     }
     struct lazy_buffer : buffer {
         using buffer::buffer;

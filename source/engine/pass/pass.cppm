@@ -364,6 +364,7 @@ export namespace deren::engine::pass {
     };
 
     /// Read the pipeline's SBT group bytes through the optional RHI service.
+    // NOLINTNEXTLINE(readability-non-const-parameter): query_extension takes an api_core&, so this cannot be const.
     [[nodiscard]] inline bool shader_group_handles(deren::promise::rhi::api_core* const face,
                                                    deren::promise::rhi::pipeline const& handle, std::uint32_t const first_group,
                                                    std::uint32_t const group_count, std::span<std::uint8_t> const out) noexcept {
@@ -613,7 +614,10 @@ export namespace deren::engine::pass {
             rebind();
         }
         overlay_begin(overlay_begin&& other) noexcept
-            : overlay_begin(static_cast<overlay_begin const&>(other)) {
+            : color_formats(std::move(other.color_formats))
+            , inheritance(std::move(other.inheritance))
+            , begin(std::move(other.begin)) {
+            rebind();
         }
         overlay_begin& operator=(overlay_begin const& other) noexcept {
             color_formats = other.color_formats;
@@ -623,7 +627,11 @@ export namespace deren::engine::pass {
             return *this;
         }
         overlay_begin& operator=(overlay_begin&& other) noexcept {
-            return *this = static_cast<overlay_begin const&>(other);
+            color_formats = std::move(other.color_formats);
+            inheritance = std::move(other.inheritance);
+            begin = std::move(other.begin);
+            rebind();
+            return *this;
         }
 
     private:
@@ -690,9 +698,11 @@ export namespace deren::engine::pass {
             if (!valid() || !finish || (has_recording && !has_recording(parent))) {
                 return rhi::error::ok;
             }
-            auto error = commands.barrier(rhi::image_barrier{.resource = &target,
-                                                             .from = rhi::image_use::color_attachment,
-                                                             .to = rhi::image_use::color_attachment});
+            auto error = commands.barrier(rhi::image_barrier{
+                .resource = &target,
+                .from = rhi::image_use::color_attachment,
+                .to = rhi::image_use::color_attachment,
+            });
             if (error != rhi::error::ok) {
                 return error;
             }
@@ -1085,7 +1095,7 @@ export namespace deren::engine::pass {
          * @note publishing the same key twice REPLACES it, so a frame that re-publishes an alias (or a provider
          *       that publishes in two passes) ends with the last value rather than with two entries
          */
-        void publish(render_resource::resource_id const id, uint32_t const element, uint32_t const instance, resolved_binding const binding) noexcept {
+        void publish(render_resource::resource_id const id, uint32_t const element, uint32_t const instance, resolved_binding const& binding) noexcept {
             for (entry& e : this->entries) {
                 if (e.id == id && e.element == element && e.instance == instance) {
                     e.binding = binding;
@@ -1114,8 +1124,10 @@ export namespace deren::engine::pass {
                 if (f.id == id && f.element == element && instance < f.view_handles.size()) {
                     // THE CONTRACT LANE IS THE ONLY ONE (plan X5 B2): the family no longer carries the native
                     // pair, so this branch answers from the columns the renderer published.
-                    return resolved_binding{.image_handle = instance < f.image_handles.size() ? f.image_handles[instance] : nullptr,
-                                            .view_handle = instance < f.view_handles.size() ? f.view_handles[instance] : nullptr};
+                    return resolved_binding{
+                        .image_handle = instance < f.image_handles.size() ? f.image_handles[instance] : nullptr,
+                        .view_handle = instance < f.view_handles.size() ? f.view_handles[instance] : nullptr,
+                    };
                 }
             }
             return {};
@@ -1214,10 +1226,10 @@ export namespace deren::engine::pass {
      *       means the pass sizes its work and gets {0,0}
      */
     [[nodiscard]] inline deren::promise::rhi::image_extent resolve_extent(behaviour const& how, resolve_context const& context) noexcept {
-        switch (how.extent) {
+        switch (how.extent) { // NOLINT(bugprone-branch-clone): the four cases produce different extents; the module AST misreports them.
         case extent_rule::full:
             return context.frame.extent;
-        case extent_rule::half:
+        case extent_rule::half: // NOLINT(bugprone-branch-clone): CLion anchors this false positive on the second case.
             return deren::promise::rhi::image_extent{std::max(1u, context.frame.extent.width / 2u), std::max(1u, context.frame.extent.height / 2u)};
         case extent_rule::resource:
             return context.extent_of == nullptr ? deren::promise::rhi::image_extent{} : context.extent_of(context.parent, how.extent_of, how.extent_of_element);

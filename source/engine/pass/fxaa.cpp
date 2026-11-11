@@ -8,7 +8,7 @@
 module;
 
 #include <cstdint>
-#include <cstring>
+
 module deren.engine.pass.fxaa;
 import deren.vstd;
 import deren.utility.shared;
@@ -95,7 +95,7 @@ namespace deren::engine::pass {
         this->pass_frame = frame;
     }
 
-    void fxaa_pass::set_overlay(draw_callback const overlay) noexcept {
+    void fxaa_pass::set_overlay(draw_callback const& overlay) noexcept {
         // The host's hook, installed once. This pass needs no fact to decide whether to use it: whenever FXAA
         // resolves, THIS is the frame's last writer (the composite's frame is what needs the answer).
         this->overlay_callback = overlay;

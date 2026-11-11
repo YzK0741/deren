@@ -1,8 +1,5 @@
 // Headless unit tests: deren.engine.math module (pure CPU - IBL precompute helpers) ===
 #include "../engine/lighting/cubemap_sampling.hpp"
-#include "../engine/lighting/environment_controls.hpp"
-#include "../engine/lighting/radiance_capture.hpp"
-#include "../engine/lighting/reflection_probe.hpp"
 #include "../shaders/toon/reference_shape.h"
 #include "render_math_fixture.h"
 #include "vk_test.h"
@@ -15,6 +12,9 @@
 
 import deren.engine.math;
 import deren.engine.primitive; // orbit_camera_pan_delta: the arrow-key camera pan
+import deren.engine.lighting.environment_controls;
+import deren.engine.lighting.radiance_capture;
+import deren.engine.lighting.reflection_probe;
 
 namespace {
     void test_scaled_picking_distance() {

@@ -70,8 +70,8 @@ namespace deren::engine::render_graph {
                     auto c = static_cast<uint8_t>(text[i]);
                     if (c < 0x80) {
                         ++i;
-                        switch (c) {
-                        case '"':
+                        switch (c) { // NOLINT(bugprone-branch-clone): the cases emit different escapes; the module AST misreports them.
+                        case '"':    // NOLINT(bugprone-branch-clone): CLion anchors the switch diagnostic on the first case.
                             raw("\\\"");
                             break;
                         case '\\':
@@ -253,7 +253,7 @@ namespace deren::engine::render_graph {
             struct interval {
                 std::size_t first, last;
             };
-            void resource(resource_record const& value, std::size_t i, std::optional<interval> use) {
+            void resource(resource_record const& value, std::size_t i, std::optional<interval> const& use) {
                 raw("{\"index\":");
                 number(i);
                 raw(",\"identity\":{\"device\":");
@@ -292,7 +292,7 @@ namespace deren::engine::render_graph {
                 raw(",\"live\":");
                 boolean(value.live);
                 raw(",\"cull_reason\":");
-                if (value.live) {
+                if (value.live) { // NOLINT(bugprone-branch-clone): then emits "null"; else emits the reason string.
                     raw("null");
                 } else {
                     string("not_reachable_from_outputs_or_side_effects");

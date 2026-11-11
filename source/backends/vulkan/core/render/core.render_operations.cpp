@@ -44,10 +44,12 @@ namespace deren::vulkan {
                     return;
                 }
                 mark(phase);
-                if (++calls % 4096 == 0) {
+                if (++calls % std::uint64_t{4096} == 0) {
+                    double const sample_count = static_cast<double>(calls);
+                    auto const average = [sample_count](double total) noexcept { return total / sample_count; };
                     deren::utility::log("operation CPU profile: {} calls | prepare {:.3f} us | validate {:.3f} us | demand {:.3f} us | native {:.3f} us | save {:.3f} us | early {:.3f} us",
-                                        calls, totals[0] / calls, totals[1] / calls, totals[2] / calls,
-                                        totals[3] / calls, totals[4] / calls, totals[5] / calls);
+                                        calls, average(totals[0]), average(totals[1]), average(totals[2]),
+                                        average(totals[3]), average(totals[4]), average(totals[5]));
                 }
             }
         };
@@ -130,7 +132,7 @@ namespace deren::vulkan {
         };
 
         // Validate the whole saved batch before any native command from this batch.
-        auto* pipeline = emitted_pipeline;
+        auto const* pipeline = emitted_pipeline;
         std::uint64_t pipeline_identity = native_state[static_cast<unsigned>(kind::pipeline)][1];
         auto resources = current_resources;
         auto textures = current_textures;
@@ -240,12 +242,12 @@ namespace deren::vulkan {
             }
         }
         profile.mark(3);
-        auto const command = native();
+        auto* const command = native();
         auto push = [&](std::uint32_t offset, std::span<std::byte const> bytes) {
             ++parent->emitted_setters;
             return parent->resource.descriptor_heaps.push_data(command, offset, bytes);
         };
-        auto publish_groups = [&]() {
+        auto publish_groups = [&] {
             if (!emitted_pipeline) {
                 return true;
             }
@@ -258,7 +260,7 @@ namespace deren::vulkan {
                         return false;
                     }
                 }
-                if (std::find(resource_refs.begin(), resource_refs.end(), current_resources) == resource_refs.end()) {
+                if (std::ranges::find(resource_refs, current_resources) == resource_refs.end()) {
                     resource_refs.push_back(current_resources);
                 }
             }
@@ -277,7 +279,7 @@ namespace deren::vulkan {
                 if (!push(emitted_pipeline->group_binding.push_byte_offset, std::as_bytes(std::span(&token, 1)))) {
                     return false;
                 }
-                if (current_textures && std::find(group_refs.begin(), group_refs.end(), current_textures) == group_refs.end()) {
+                if (current_textures && std::ranges::find(group_refs, current_textures) == group_refs.end()) {
                     group_refs.push_back(current_textures);
                 }
             }
@@ -287,12 +289,12 @@ namespace deren::vulkan {
             auto const& d = op->data;
             auto type = op->kind();
             if (!op->is_unique() && type != kind::push && type != kind::resource_group && type != kind::texture_group) {
-                auto const index = static_cast<unsigned>(type);
+                auto const type_index = static_cast<unsigned>(type);
                 auto const mask = rec::bit(type);
-                if (optimize && (native_state_mask & mask) && native_state[index] == d) {
+                if (optimize && (native_state_mask & mask) && native_state[type_index] == d) {
                     continue;
                 }
-                native_state[index] = d;
+                native_state[type_index] = d;
                 native_state_mask |= mask;
             }
             switch (type) {

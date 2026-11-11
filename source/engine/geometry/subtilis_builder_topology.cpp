@@ -30,7 +30,7 @@ namespace deren::engine::subtilis::builder_detail {
             vector<std::array<std::uint32_t, 4>> faces;
             faces.reserve(count);
             for (std::uint32_t i = 0; i < count; ++i) {
-                auto first = std::size_t(i) * 3;
+                auto first = static_cast<std::size_t>(i) * 3;
                 std::array<std::uint32_t, 3> corners{t.class_of[indices[first]], t.class_of[indices[first + 1]], t.class_of[indices[first + 2]]};
                 for (uint32_t k = 0; k < 3; ++k) {
                     auto a = corners[k];
@@ -46,8 +46,8 @@ namespace deren::engine::subtilis::builder_detail {
                 std::array<double, 3> ab{};
                 std::array<double, 3> ac{};
                 for (uint32_t k = 0; k < 3; ++k) {
-                    ab[k] = double(b[k]) - a[k];
-                    ac[k] = double(c[k]) - a[k];
+                    ab[k] = static_cast<double>(b[k]) - a[k];
+                    ac[k] = static_cast<double>(c[k]) - a[k];
                 }
                 if (std::hypot(ab[1] * ac[2] - ab[2] * ac[1], ab[2] * ac[0] - ab[0] * ac[2], ab[0] * ac[1] - ab[1] * ac[0]) == 0) {
                     out.unsafe[i] = 1;
@@ -130,7 +130,7 @@ namespace deren::engine::subtilis::builder_detail {
             if (t.unsafe_triangles[id]) {
                 return result;
             }
-            auto triangle = std::span(data.indices).subspan(std::size_t(id) * 3, 3);
+            auto triangle = std::span(data.indices).subspan(static_cast<std::size_t>(id) * 3, 3);
             indices.insert(indices.end(), triangle.begin(), triangle.end());
         }
         auto g = graph(data, t, indices);

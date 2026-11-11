@@ -1,5 +1,5 @@
 // Signal reporting is deliberately smaller than healthy-context stack diagnostics.
-#if !defined(_WIN32)
+#ifndef _WIN32
 #include "stacktrace_native.hpp"
 
 #include <algorithm>

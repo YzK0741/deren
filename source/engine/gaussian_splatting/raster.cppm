@@ -126,9 +126,6 @@ export namespace deren::engine::gaussian_splatting {
     };
     // NOLINTNEXTLINE(readability-trailing-comma): Clang 23 mislocates commas around empty module default arguments.
     [[nodiscard]] std::expected<std::shared_ptr<raster_asset const>, foundation_error> make_raster_asset(deren::promise::rhi::api_core&, deren::gaussian::asset, foundation_limits const& = {}, deren::promise::rhi::shared_object<deren::promise::rhi::api_core> = {});
-    /// @param reuse an optional frame to REFILL (the caller can pass a live frame back; the returned handle carries that same frame
-    ///        when one is given, exactly like a freshly prepared one), which is how a steady-state frame allocates
-    ///        nothing. @see raster_frame's reused buffer capacities and the plan's Task 8.
     /// A caller that passes no shared device handle must guarantee the core outlives the frame. Production supplies one
     /// initially; an allocated legacy frame cannot gain a shared device handle by reuse. Reuse must be a completed slot.
     // NOLINTNEXTLINE(readability-trailing-comma): Clang 23 mislocates commas around empty module default arguments.

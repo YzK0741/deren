@@ -11,7 +11,7 @@ export namespace deren::gaussian {
                             missing_property,
                             invalid_data,
                             truncated,
-                            limit_exceeded };
+                            limit_exceeded, };
     struct diagnostic {
         error_code code;
         std::size_t byte_offset = 0;

@@ -21,7 +21,7 @@ export namespace deren::asset::subtilis {
                             invalid_geometry,
                             invalid_options,
                             invalid_dag,
-                            io };
+                            io, };
     struct error {
         error_code code;
         string context;

@@ -40,7 +40,7 @@ namespace deren::engine::pass {
         // THE TARGET SHAPE IS THE DECLARATION'S: one R32_UINT colour target (the visibility buffer), the shared
         // depth image, no blending (integer targets cannot blend), depth test on and LESS_OR_EQUAL - the same
         // comparison the G-buffer pass uses, so an equal-depth tie keeps the same triangle the old path keeps.
-        std::array<rhi::image_format, 1> const color_formats = {deren::engine::render_layout::visibility_format};
+        constexpr std::array<rhi::image_format, 1> color_formats = {deren::engine::render_layout::visibility_format};
         auto built = pipelines::make_graphics_pipeline(*context.face,
                                                        std::span<rhi::image_format const>(color_formats),
                                                        rhi::image_format::depth,
@@ -71,24 +71,21 @@ namespace deren::engine::pass {
         if (!this->raster_pipeline.has_value() || !segment) {
             return false;
         }
-        rhi::image_format const color_format = deren::engine::render_layout::visibility_format;
         rhi::command_buffer_inheritance_info inheritance{};
-        inheritance.color_format_count = 1;
-        inheritance.color_formats = &color_format;
-        inheritance.depth_format = rhi::image_format::depth;
-        inheritance.samples = 1;
         rhi::command_buffer_begin_info begin{};
         begin.usage = rhi::to_bits(rhi::command_buffer_usage::render_pass_continue);
         begin.next = &inheritance.header;
         if (segment->begin_recording(begin) != rhi::error::ok) {
             return false;
         }
-        this->raster_pipeline->viewport = rhi::viewport{.x = 0.0f,
-                                                        .y = 0.0f,
-                                                        .width = static_cast<float>(this->pass_frame.extent.width),
-                                                        .height = static_cast<float>(this->pass_frame.extent.height),
-                                                        .min_depth = 0.0f,
-                                                        .max_depth = 1.0f};
+        this->raster_pipeline->viewport = rhi::viewport{
+            .x = 0.0f,
+            .y = 0.0f,
+            .width = static_cast<float>(this->pass_frame.extent.width),
+            .height = static_cast<float>(this->pass_frame.extent.height),
+            .min_depth = 0.0f,
+            .max_depth = 1.0f,
+        };
         this->raster_pipeline->scissor = rhi::rect{.offset_x = 0, .offset_y = 0, .width = this->pass_frame.extent.width, .height = this->pass_frame.extent.height};
         this->raster_pipeline->begin_pipeline(*segment);
         segment->set_cull_mode(rhi::cull_mode::back);
@@ -115,13 +112,15 @@ namespace deren::engine::pass {
         std::array<rhi::color_attachment, 1> const colors = {
             rhi::color_attachment{.view = io.targets[0].view_handle, .load = this->load_existing ? rhi::load_op::load : rhi::load_op::clear, .store = rhi::store_op::store, .clear = {0.0f, 0.0f, 0.0f, 0.0f}},
         };
-        rhi::depth_attachment const depth = {.view = io.targets[1].view_handle,
-                                             .load = this->load_existing ? rhi::load_op::load : rhi::load_op::clear,
-                                             .store = rhi::store_op::store,
-                                             .read_only = false,
-                                             .has_stencil = false,
-                                             .clear_depth = 1.0f,
-                                             .clear_stencil = 0};
+        rhi::depth_attachment const depth = {
+            .view = io.targets[1].view_handle,
+            .load = this->load_existing ? rhi::load_op::load : rhi::load_op::clear,
+            .store = rhi::store_op::store,
+            .read_only = false,
+            .has_stencil = false,
+            .clear_depth = 1.0f,
+            .clear_stencil = 0,
+        };
         this->pass_frame.bind_segment = &visibility_raster_pass::bind_segment;
         this->pass_frame.segment_context = this;
         bool const segmented = !this->pass_frame.segments.empty() && this->pass_frame.bind_segment != nullptr;
@@ -159,12 +158,14 @@ namespace deren::engine::pass {
         // below name the same numbers, for the same "the record step cannot know this pass's extent" reason the
         // declaration's `resync_viewport` documents. (This pipeline is the pass's, so writing its state is
         // the pass's business - the runtime's registry-wide resync never sees it.)
-        this->raster_pipeline->viewport = rhi::viewport{.x = 0.0f,
-                                                        .y = 0.0f,
-                                                        .width = static_cast<float>(this->pass_frame.extent.width),
-                                                        .height = static_cast<float>(this->pass_frame.extent.height),
-                                                        .min_depth = 0.0f,
-                                                        .max_depth = 1.0f};
+        this->raster_pipeline->viewport = rhi::viewport{
+            .x = 0.0f,
+            .y = 0.0f,
+            .width = static_cast<float>(this->pass_frame.extent.width),
+            .height = static_cast<float>(this->pass_frame.extent.height),
+            .min_depth = 0.0f,
+            .max_depth = 1.0f,
+        };
         this->raster_pipeline->scissor = rhi::rect{.offset_x = 0, .offset_y = 0, .width = this->pass_frame.extent.width, .height = this->pass_frame.extent.height};
         this->raster_pipeline->begin_pipeline(*io.list);
         // THE PIPELINE'S TWO DYNAMIC RASTER STATES: `make_graphics_pipeline` creates EVERY graphics pipeline with

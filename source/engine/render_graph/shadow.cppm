@@ -34,7 +34,7 @@ export namespace deren::engine::render_graph::shadow {
         // declaration is a promise about ordering, not an operation - no discard is recorded, the spare layers keep
         // their previous contents, and nothing samples them (the lighting read uses the same cascade count the pass
         // renders). Making the range precise is a follow-up for the execution/backends path, not for this adapter.
-        texture_range const written{};
+        constexpr texture_range written{};
         parameters params{{in.cascades, written, {resource_usage::depth_stencil_attachment, pipeline_stage::depth_stencil}}};
         auto added = graph.add_pass("shadow cascades", std::move(params));
         if (!added) {

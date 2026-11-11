@@ -71,7 +71,7 @@ namespace deren::engine {
             float const ax = std::abs(dir.x);
             float const ay = std::abs(dir.y);
             float const az = std::abs(dir.z);
-            float major = 0.0f;
+            float major;
             if (ax >= ay && ax >= az) {
                 face = dir.x >= 0.0f ? 0 : 1;
                 u = face == 0 ? -dir.z : dir.z;
@@ -217,7 +217,7 @@ namespace deren::engine {
     // The levels a cubemap of this size can carry at all: level 0 down to 1x1. The prefilter bake takes
     // its depth from `[lighting] env_mip_count` (the SHADER's chain), while the irradiance bake is free to
     // build the whole chain: it is the CPU side and each level is one 2x2 box filter of the level above.
-    int32_t environment_pyramid_levels(int32_t const env_size) {
+    static int32_t environment_pyramid_levels(int32_t const env_size) {
         int32_t levels = 1;
         for (int32_t size = env_size; size > 1; size >>= 1) {
             ++levels;
@@ -228,7 +228,7 @@ namespace deren::engine {
     // One box-filtered source mip chain: level k is 2^k times smaller than the environment. The
     // prefilter reads a level per sample instead of always reading level 0, which is what keeps
     // the coarse levels smooth (see prefilter_environment).
-    deren::utility::vessel::vector<deren::utility::vessel::vector<float>> build_environment_pyramid(std::span<float const> const env, int32_t const env_size, int32_t const levels) {
+    static deren::utility::vessel::vector<deren::utility::vessel::vector<float>> build_environment_pyramid(std::span<float const> const env, int32_t const env_size, int32_t const levels) {
         deren::utility::vessel::vector<deren::utility::vessel::vector<float>> pyramid;
         pyramid.reserve(static_cast<std::size_t>(levels));
         pyramid.emplace_back(env.begin(), env.end());
@@ -265,7 +265,7 @@ namespace deren::engine {
     // Bilinear fetch of one pyramid level, inside the face of @p dir. Filtering stops at the face
     // edge (the environment is a smooth analytic gradient and the sun disc sits well inside a
     // face, so nothing visible crosses a seam).
-    glm::vec3 sample_cubemap_level(std::span<float const> const level, int32_t const size, glm::vec3 const& dir) {
+    static glm::vec3 sample_cubemap_level(std::span<float const> const level, int32_t const size, glm::vec3 const& dir) {
         int32_t face = 0;
         float u = 0.0f;
         float v = 0.0f;
@@ -288,7 +288,7 @@ namespace deren::engine {
     }
 
     // Trilinear fetch across the pyramid: one bilinear fetch per level, blended by the fraction.
-    glm::vec3 sample_environment_trilinear(deren::utility::vessel::vector<deren::utility::vessel::vector<float>> const& pyramid, int32_t const env_size, glm::vec3 const& dir, float const lod) {
+    static glm::vec3 sample_environment_trilinear(deren::utility::vessel::vector<deren::utility::vessel::vector<float>> const& pyramid, int32_t const env_size, glm::vec3 const& dir, float const lod) {
         float const clamped = std::clamp(lod, 0.0f, static_cast<float>(pyramid.size() - 1));
         int32_t const low = static_cast<int32_t>(clamped);
         int32_t const high = std::min(low + 1, static_cast<int32_t>(pyramid.size()) - 1);

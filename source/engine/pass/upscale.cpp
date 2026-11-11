@@ -8,8 +8,6 @@
 module;
 
 #include <cstdint>
-#include <new> // ::operator new's aligned overloads must be VISIBLE here: the deferred
-               // __libcpp_allocate codegen crashes without them (clang 22, measured this session)
 module deren.engine.pass.upscale;
 import deren.vstd;
 import deren.utility.shared;
@@ -147,7 +145,7 @@ namespace deren::engine::pass {
         return con;
     }
 
-    void upscale_pass::set_overlay(draw_callback const overlay) noexcept {
+    void upscale_pass::set_overlay(draw_callback const& overlay) noexcept {
         // The host's hook, installed once. This pass needs no fact to decide whether to use it: whenever the
         // chain is resolved, THIS is the frame's last writer (the composite's frame is what needs the answer).
         this->overlay_callback = overlay;

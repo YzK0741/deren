@@ -12,7 +12,7 @@ import :declarations;
 namespace deren::vulkan {
     namespace rhi = deren::promise::rhi;
 
-    rhi::error core::validate_resource_group_pipeline(rhi::pipeline_desc const& desc) {
+    rhi::error core::validate_resource_group_pipeline(rhi::pipeline_desc const& desc) const {
         if (rhi::validate_resource_group_layout(desc.resource_group) != rhi::error::ok) {
             return rhi::error::invalid_argument;
         }
@@ -58,12 +58,12 @@ namespace deren::vulkan {
                 }
             }
             spvReflectDestroyShaderModule(&module);
-            bool consumes = std::any_of(desc.resource_group.begin(), desc.resource_group.end(),
-                                        [stage](auto const& binding) { return (binding.shader_stage_bits & stage) != 0; });
+            bool const consumes = std::ranges::any_of(desc.resource_group,
+                                                      [stage](auto const& binding) { return (binding.shader_stage_bits & stage) != 0; });
             return valid && (!consumes || heap);
         };
-        auto first = desc.first_stage == rhi::shader_stage::mesh ? 8u : 1u;
-        auto allowed = desc.first_stage == rhi::shader_stage::compute ? 4u : first | (desc.fragment_code.empty() ? 0u : 2u);
+        auto const first = desc.first_stage == rhi::shader_stage::mesh ? 8u : 1u;
+        auto const allowed = desc.first_stage == rhi::shader_stage::compute ? 4u : first | (desc.fragment_code.empty() ? 0u : 2u);
         for (auto const& binding : desc.resource_group) {
             if ((binding.shader_stage_bits & ~allowed) ||
                 rhi::validate_push_constants_range(binding.push_byte_offset, 4, resource.descriptor_heaps.limits().max_push_data) != rhi::error::ok) {

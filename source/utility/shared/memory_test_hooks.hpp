@@ -3,7 +3,7 @@
 // Only linked when VR_BUILD_TESTS is enabled. No public utility API or production callbacks.
 #if defined(_MSC_VER) && defined(DEREN_MEMORY_TESTING)
 #define MEMORY_TEST_API __declspec(dllexport)
-#elif defined(_MSC_VER)
+#elifdef _MSC_VER
 #define MEMORY_TEST_API __declspec(dllimport)
 #else
 #define MEMORY_TEST_API __attribute__((visibility("default")))

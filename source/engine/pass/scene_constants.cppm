@@ -62,11 +62,11 @@ export namespace deren::engine::pass {
             return resource_view;
         }
         render_resource::pass_io const& io() const noexcept override {
-            static render_resource::pass_io const value{.name = "scene_constants"};
+            static constexpr render_resource::pass_io value{.name = "scene_constants"};
             return value;
         }
         deren::engine::pass::behaviour const& behaviour() const noexcept override {
-            static deren::engine::pass::behaviour const value{.extent = extent_rule::none, .resync_viewport = false};
+            static constexpr deren::engine::pass::behaviour value{.extent = extent_rule::none, .resync_viewport = false};
             return value;
         }
         std::string_view feature() const noexcept override {

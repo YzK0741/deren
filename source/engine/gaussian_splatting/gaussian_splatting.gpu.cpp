@@ -11,7 +11,7 @@ namespace deren::engine::gaussian_splatting {
             return std::unexpected(foundation_error{code, std::move(message)});
         }
         bool finite_lane(deren::utility::vessel::array<float, 4> const& lane) {
-            return std::all_of(lane.begin(), lane.end(), [](float v) { return std::isfinite(v); });
+            return std::ranges::all_of(lane, [](float v) { return std::isfinite(v); });
         }
         bool positive_semidefinite(geometry_record const& g) {
             if (g.covariance_x[0] < 0 || g.covariance_yz[0] < 0 || g.covariance_yz[2] < 0) {
@@ -119,7 +119,7 @@ namespace deren::engine::gaussian_splatting {
         }
         deren::utility::log("gaussian upload: packed data validated");
         std::shared_ptr<gpu_asset> result(new gpu_asset{});
-        result->device_root = std::move(device_root);
+        result->device_root = device_root;
         result->count = static_cast<std::uint32_t>(asset.geometry.size());
         result->degree = asset.sh_degree;
         result->bytes = *size;
@@ -197,8 +197,7 @@ namespace deren::engine::gaussian_splatting {
             return failure(error_code::invalid_argument, "Gaussian upload requires a shared device handle");
         }
         auto root = result->device_root;
-        managed::resource_context const context{};
-        if (result->storage_chain.prepare_resources(root, context, admit) != rhi::error::ok) {
+        if (constexpr managed::resource_context context{}; result->storage_chain.prepare_resources(root, context, admit) != rhi::error::ok) {
             return failure(admission_code, admission_message);
         }
         result->storage_view = result->storage_chain.resources().snapshot();

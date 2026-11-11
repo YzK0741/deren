@@ -8,7 +8,6 @@ module;
 
 #include <algorithm> // std::clamp / std::max in set_ssao's clamps
 #include <cstdint>
-#include <cstring>
 #include <glm/glm.hpp> // the push block's ssao lane and the frame's inverse view-projection
 module deren.engine.pass.deferred;
 import deren.vstd;
@@ -79,7 +78,7 @@ namespace deren::engine::pass {
         }
         // The blend state is the stage's: the attachment is LOADed and the lighting ADDS to the emissive the
         // G-buffer pass wrote.
-        deren::utility::vessel::array<rhi::blend_mode, 1> const blend = {rhi::blend_mode::additive};
+        constexpr deren::utility::vessel::array blend = {rhi::blend_mode::additive};
         auto built = pipelines::build_deferred(*context.face,
                                                std::span<rhi::blend_mode const>(blend), vertex_spirv, fragment_spirv);
         if (!built) {
@@ -150,7 +149,7 @@ namespace deren::engine::pass {
         // against the declaration), and its VALUES are now the pass's too - the SSAO parameters and the flat-render
         // flag the pass carries, the frame's inverse view-projection from `resolved_io::constants`, and the frame's answer to
         // what the lighting chain is doing. The renderer used to compose all of it and hand it over as raw bytes.
-        push_constants push = {};
+        push_constants push;
         push.inv_view_proj = io.constants.inv_view_proj;
         push.ssao = glm::vec4(this->ssao_radius, this->ssao_active ? this->ssao_intensity : 0.0f, static_cast<float>(this->ssao_samples), this->ssao_bias);
         push.unlit = this->unlit_shading ? 1.0f : 0.0f;

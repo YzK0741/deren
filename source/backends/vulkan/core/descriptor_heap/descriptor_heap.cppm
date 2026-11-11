@@ -491,19 +491,23 @@ namespace deren::vulkan {
         image_info.pNext = nullptr;
         image_info.pView = &view; // the VIEW TO CREATE, not an existing VkImageView (see the header's note)
         image_info.layout = layout;
-        VkResourceDescriptorInfoEXT const info = {.sType = VK_STRUCTURE_TYPE_RESOURCE_DESCRIPTOR_INFO_EXT,
-                                                  .pNext = nullptr,
-                                                  .type = type,
-                                                  .data = {.pImage = &image_info}};
+        VkResourceDescriptorInfoEXT const info = {
+            .sType = VK_STRUCTURE_TYPE_RESOURCE_DESCRIPTOR_INFO_EXT,
+            .pNext = nullptr,
+            .type = type,
+            .data = {.pImage = &image_info},
+        };
         return this->write_descriptors(offset_bytes, std::span<VkResourceDescriptorInfoEXT const>(&info, 1));
     }
 
     bool descriptor_heap::write_buffer(VkDeviceSize const offset_bytes, std::uintptr_t const address, VkDeviceSize const size, VkDescriptorType const type) noexcept {
         VkDeviceAddressRangeEXT const range = {.address = address, .size = size};
-        VkResourceDescriptorInfoEXT const info = {.sType = VK_STRUCTURE_TYPE_RESOURCE_DESCRIPTOR_INFO_EXT,
-                                                  .pNext = nullptr,
-                                                  .type = type,
-                                                  .data = {.pAddressRange = &range}};
+        VkResourceDescriptorInfoEXT const info = {
+            .sType = VK_STRUCTURE_TYPE_RESOURCE_DESCRIPTOR_INFO_EXT,
+            .pNext = nullptr,
+            .type = type,
+            .data = {.pAddressRange = &range},
+        };
         return this->write_descriptors(offset_bytes, std::span<VkResourceDescriptorInfoEXT const>(&info, 1));
     }
 

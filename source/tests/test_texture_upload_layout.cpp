@@ -1,11 +1,12 @@
-#include "texture_upload_layout.h"
-#include "upload_sequence.h"
 #include "vk_test.h"
 
 #include <array>
 #include <limits>
 #include <vector>
+#include <vulkan/vulkan.h>
 
+import deren.vulkan.core.vma.texture_upload_layout;
+import deren.vulkan.core.vma.upload_sequence;
 import deren.utility.shared;
 import deren.vulkan.constant_init;
 #include "texture_regions_fixture.h"

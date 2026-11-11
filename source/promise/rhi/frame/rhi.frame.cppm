@@ -2,7 +2,6 @@
 // module: deren.promise.rhi:frame
 module;
 
-#include <cstddef>
 #include <cstdint>
 
 export module deren.promise.rhi:frame;
@@ -18,9 +17,9 @@ export namespace deren::promise::rhi {
     struct swapchain : object {
 
         swapchain() noexcept = default;
-        virtual ~swapchain() noexcept = default;
+        ~swapchain() noexcept override = default;
         /// see `buffer::release()`
-        virtual void release() noexcept = 0;
+        void release() noexcept override = 0;
 
         // ---- the presentation verbs (abi 14) --------------------------------------------------
         // The swapchain was created once at startup and is rebuilt IN PLACE - never replaced - so

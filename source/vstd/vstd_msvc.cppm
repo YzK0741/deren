@@ -6,36 +6,38 @@
 // VENDORED FROM THE MSVC TOOLCHAIN
 // -------------------------------
 // The body below is the MSVC STL's modules/std.ixx, copied from Visual Studio
-// 2022 17.14 / MSVC 14.44.35207 and renamed from `std` to `deren.vstd`. It includes
-// the full standard-library header set inside the module purview; the
-// `_BUILD_STD_MODULE` define makes those headers export their entities from this
-// module. Build it as a normal source module - no `import std;`, no CMake
+// 2022 17.14 / MSVC 14.44.35207 and renamed from `std` to `deren.vstd.msvc`.
+// It includes the full standard-library header set inside the module purview;
+// the `_BUILD_STD_MODULE` define makes those headers export their entities from
+// this module. The public facade `source/vstd/vstd.cppm` re-exports it as
+// `deren.vstd`. Build it as a normal source module - no `import std;`, no CMake
 // CXX_MODULE_STD path, and no experimental import-std gate.
 //
-// WHY NOT vstd.cppm ON MSVC
-// -------------------------
-// source/vstd/vstd.cppm is the libc++-derived 71-partition re-export. cl.exe 19.44
+// WHY NOT vstd_libcxx.cppm ON MSVC
+// ---------------------------------
+// source/vstd/vstd_libcxx.cppm is the libc++-derived 71-partition re-export. cl.exe 19.44
 // crashes with C1001 on every TU that instantiates std::span / std::array /
 // std::tuple through it (7 of 326 objects on the real tree); see source/vstd/README.md
 // for the measured evidence. Using the MSVC STL's module source avoids that
-// construction while keeping the project-facing module name `deren.vstd`.
+// construction while the public facade keeps the project-facing module name
+// `deren.vstd`.
 //
 // WHAT THAT COSTS - STATED PLAINLY, NOT HIDDEN
 // --------------------------------------------
 // * Under MSVC the standard library is the MSVC STL, with MSVC semantics, not the
-//   libc++ that source/vstd/vstd.cppm is generated from and byte-bound to. The
+//   libc++ that source/vstd/vstd_libcxx.cppm is generated from and byte-bound to. The
 //   clang64 build - the one this repository verifies, ships and benchmarks - is
 //   untouched by this file.
 // * The module exports the whole standard library, not the trimmed header whitelist
-//   of vstd.cppm, and it is bound to the installed MSVC STL version. Refresh this
+//   of vstd_libcxx.cppm, and it is bound to the installed MSVC STL version. Refresh this
 //   copy when the toolchain is upgraded.
 // * The VSTD_* portability macros (source/vstd/vstd_compat.inc) are not part of this
 //   module's face; consumers only use the standard-library names.
 //
-// VERSIONING: this file does not change the shipped (clang64) module's face, so
-// source/vstd/vstd.cppm's banner remains the versioned interface. If the project
-// decides the MSVC dialect is part of vstd's public interface, bump both banners
-// together.
+// VERSIONING: the public version banner lives on the facade (source/vstd/vstd.cppm);
+// this backend does not change the shipped (clang64) module's face. If the project
+// ever treats a backend's interface as part of vstd's public interface, bump the
+// facade banner and this comment together.
 
 // In a module-file, the optional `module;` must appear first; see [cpp.pre].
 module;
@@ -70,7 +72,7 @@ module;
 // <intrin.h> defines some types outside of `extern "C"` or `extern "C++"`.
 #include <intrin.h>
 
-export module deren.vstd;
+export module deren.vstd.msvc;
 
 #pragma warning(push)
 #pragma warning(disable : 5244) // '#include <meow>' in the purview of module 'std' appears erroneous.

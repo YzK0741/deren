@@ -1,14 +1,15 @@
-#pragma once
+module;
 
 #include <algorithm>
 #include <bit>
-#include <cstdint>
 #include <limits>
 #include <optional>
 #include <vulkan/vulkan.h>
 
 // Backend-private CPU layout calculation, shared by payload validation and mip offsets.
-namespace deren::vulkan::detail {
+export module deren.vulkan.core.vma.texture_upload_layout;
+
+export namespace deren::vulkan::detail {
     struct format_block {
         uint32_t width, height, bytes;
     };
@@ -22,7 +23,7 @@ namespace deren::vulkan::detail {
         case VK_FORMAT_R8_UINT:
         case VK_FORMAT_R8_SINT:
         case VK_FORMAT_R8_SRGB:
-            return format_block{1, 1, 1};
+            return format_block{.width = 1, .height = 1, .bytes = 1};
 
         // 16-bit single channel / 8-bit dual channel
         case VK_FORMAT_R16_UNORM:
@@ -39,7 +40,7 @@ namespace deren::vulkan::detail {
         case VK_FORMAT_R8G8_UINT:
         case VK_FORMAT_R8G8_SINT:
         case VK_FORMAT_R8G8_SRGB:
-            return format_block{1, 1, 2};
+            return format_block{.width = 1, .height = 1, .bytes = 2};
 
         // 24-bit
         case VK_FORMAT_R8G8B8_UNORM:
@@ -49,7 +50,7 @@ namespace deren::vulkan::detail {
         case VK_FORMAT_R8G8B8_UINT:
         case VK_FORMAT_R8G8B8_SINT:
         case VK_FORMAT_R8G8B8_SRGB:
-            return format_block{1, 1, 3};
+            return format_block{.width = 1, .height = 1, .bytes = 3};
 
         // 32-bit
         case VK_FORMAT_R32_UINT:
@@ -80,7 +81,7 @@ namespace deren::vulkan::detail {
         case VK_FORMAT_A2B10G10R10_UINT_PACK32:
         case VK_FORMAT_A2R10G10B10_UNORM_PACK32:
         case VK_FORMAT_A2R10G10B10_UINT_PACK32:
-            return format_block{1, 1, 4};
+            return format_block{.width = 1, .height = 1, .bytes = 4};
 
         // 64-bit
         case VK_FORMAT_R64_UINT:
@@ -96,13 +97,13 @@ namespace deren::vulkan::detail {
         case VK_FORMAT_R16G16B16A16_UINT:
         case VK_FORMAT_R16G16B16A16_SINT:
         case VK_FORMAT_R16G16B16A16_SFLOAT:
-            return format_block{1, 1, 8};
+            return format_block{.width = 1, .height = 1, .bytes = 8};
 
         // 96-bit
         case VK_FORMAT_R32G32B32_UINT:
         case VK_FORMAT_R32G32B32_SINT:
         case VK_FORMAT_R32G32B32_SFLOAT:
-            return format_block{1, 1, 12};
+            return format_block{.width = 1, .height = 1, .bytes = 12};
 
         // 128-bit
         case VK_FORMAT_R64G64_UINT:
@@ -111,21 +112,21 @@ namespace deren::vulkan::detail {
         case VK_FORMAT_R32G32B32A32_UINT:
         case VK_FORMAT_R32G32B32A32_SINT:
         case VK_FORMAT_R32G32B32A32_SFLOAT:
-            return format_block{1, 1, 16};
+            return format_block{.width = 1, .height = 1, .bytes = 16};
 
         // Depth/stencil
         case VK_FORMAT_D16_UNORM:
-            return format_block{1, 1, 2};
+            return format_block{.width = 1, .height = 1, .bytes = 2};
         case VK_FORMAT_X8_D24_UNORM_PACK32:
         case VK_FORMAT_D24_UNORM_S8_UINT:
         case VK_FORMAT_D32_SFLOAT:
-            return format_block{1, 1, 4};
+            return format_block{.width = 1, .height = 1, .bytes = 4};
         case VK_FORMAT_D32_SFLOAT_S8_UINT:
-            return format_block{1, 1, 8};
+            return format_block{.width = 1, .height = 1, .bytes = 8};
         // Stencil-only: one byte per texel. It used to fall through into the BC1 group below and be
         // reported as 8.
         case VK_FORMAT_S8_UINT:
-            return format_block{1, 1, 1};
+            return format_block{.width = 1, .height = 1, .bytes = 1};
 
         // BC / ETC2 / EAC: 4 x 4 texels per block.
         case VK_FORMAT_BC1_RGB_UNORM_BLOCK:
@@ -140,7 +141,7 @@ namespace deren::vulkan::detail {
         case VK_FORMAT_ETC2_R8G8B8A1_SRGB_BLOCK:
         case VK_FORMAT_EAC_R11_UNORM_BLOCK:
         case VK_FORMAT_EAC_R11_SNORM_BLOCK:
-            return format_block{4, 4, 8};
+            return format_block{.width = 4, .height = 4, .bytes = 8};
 
         // BC / ETC2 / EAC: 4 x 4 texels per block.
         case VK_FORMAT_BC2_UNORM_BLOCK:
@@ -157,65 +158,65 @@ namespace deren::vulkan::detail {
         case VK_FORMAT_ETC2_R8G8B8A8_SRGB_BLOCK:
         case VK_FORMAT_EAC_R11G11_UNORM_BLOCK:
         case VK_FORMAT_EAC_R11G11_SNORM_BLOCK:
-            return format_block{4, 4, 16};
+            [[fallthrough]];
 
         // ASTC block extent varies by format; every block occupies 16 bytes.
         case VK_FORMAT_ASTC_4x4_UNORM_BLOCK:
         case VK_FORMAT_ASTC_4x4_SRGB_BLOCK:
         case VK_FORMAT_ASTC_4x4_SFLOAT_BLOCK:
-            return format_block{4, 4, 16};
+            return format_block{.width = 4, .height = 4, .bytes = 16};
         case VK_FORMAT_ASTC_5x4_UNORM_BLOCK:
         case VK_FORMAT_ASTC_5x4_SRGB_BLOCK:
         case VK_FORMAT_ASTC_5x4_SFLOAT_BLOCK:
-            return format_block{5, 4, 16};
+            return format_block{.width = 5, .height = 4, .bytes = 16};
         case VK_FORMAT_ASTC_5x5_UNORM_BLOCK:
         case VK_FORMAT_ASTC_5x5_SRGB_BLOCK:
         case VK_FORMAT_ASTC_5x5_SFLOAT_BLOCK:
-            return format_block{5, 5, 16};
+            return format_block{.width = 5, .height = 5, .bytes = 16};
         case VK_FORMAT_ASTC_6x5_UNORM_BLOCK:
         case VK_FORMAT_ASTC_6x5_SRGB_BLOCK:
         case VK_FORMAT_ASTC_6x5_SFLOAT_BLOCK:
-            return format_block{6, 5, 16};
+            return format_block{.width = 6, .height = 5, .bytes = 16};
         case VK_FORMAT_ASTC_6x6_UNORM_BLOCK:
         case VK_FORMAT_ASTC_6x6_SRGB_BLOCK:
         case VK_FORMAT_ASTC_6x6_SFLOAT_BLOCK:
-            return format_block{6, 6, 16};
+            return format_block{.width = 6, .height = 6, .bytes = 16};
         case VK_FORMAT_ASTC_8x5_UNORM_BLOCK:
         case VK_FORMAT_ASTC_8x5_SRGB_BLOCK:
         case VK_FORMAT_ASTC_8x5_SFLOAT_BLOCK:
-            return format_block{8, 5, 16};
+            return format_block{.width = 8, .height = 5, .bytes = 16};
         case VK_FORMAT_ASTC_8x6_UNORM_BLOCK:
         case VK_FORMAT_ASTC_8x6_SRGB_BLOCK:
         case VK_FORMAT_ASTC_8x6_SFLOAT_BLOCK:
-            return format_block{8, 6, 16};
+            return format_block{.width = 8, .height = 6, .bytes = 16};
         case VK_FORMAT_ASTC_8x8_UNORM_BLOCK:
         case VK_FORMAT_ASTC_8x8_SRGB_BLOCK:
         case VK_FORMAT_ASTC_8x8_SFLOAT_BLOCK:
-            return format_block{8, 8, 16};
+            return format_block{.width = 8, .height = 8, .bytes = 16};
         case VK_FORMAT_ASTC_10x5_UNORM_BLOCK:
         case VK_FORMAT_ASTC_10x5_SRGB_BLOCK:
         case VK_FORMAT_ASTC_10x5_SFLOAT_BLOCK:
-            return format_block{10, 5, 16};
+            return format_block{.width = 10, .height = 5, .bytes = 16};
         case VK_FORMAT_ASTC_10x6_UNORM_BLOCK:
         case VK_FORMAT_ASTC_10x6_SRGB_BLOCK:
         case VK_FORMAT_ASTC_10x6_SFLOAT_BLOCK:
-            return format_block{10, 6, 16};
+            return format_block{.width = 10, .height = 6, .bytes = 16};
         case VK_FORMAT_ASTC_10x8_UNORM_BLOCK:
         case VK_FORMAT_ASTC_10x8_SRGB_BLOCK:
         case VK_FORMAT_ASTC_10x8_SFLOAT_BLOCK:
-            return format_block{10, 8, 16};
+            return format_block{.width = 10, .height = 8, .bytes = 16};
         case VK_FORMAT_ASTC_10x10_UNORM_BLOCK:
         case VK_FORMAT_ASTC_10x10_SRGB_BLOCK:
         case VK_FORMAT_ASTC_10x10_SFLOAT_BLOCK:
-            return format_block{10, 10, 16};
+            return format_block{.width = 10, .height = 10, .bytes = 16};
         case VK_FORMAT_ASTC_12x10_UNORM_BLOCK:
         case VK_FORMAT_ASTC_12x10_SRGB_BLOCK:
         case VK_FORMAT_ASTC_12x10_SFLOAT_BLOCK:
-            return format_block{12, 10, 16};
+            return format_block{.width = 12, .height = 10, .bytes = 16};
         case VK_FORMAT_ASTC_12x12_UNORM_BLOCK:
         case VK_FORMAT_ASTC_12x12_SRGB_BLOCK:
         case VK_FORMAT_ASTC_12x12_SFLOAT_BLOCK:
-            return format_block{12, 12, 16};
+            return format_block{.width = 12, .height = 12, .bytes = 16};
 
         default:
             return std::nullopt;

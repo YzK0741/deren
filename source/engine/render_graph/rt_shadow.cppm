@@ -42,9 +42,11 @@ export namespace deren::engine::render_graph::rt_shadow {
             }
         }
         constexpr access_scope sampled{resource_usage::sampled, pipeline_stage::ray_tracing};
-        parameters params{{in.visibility, {}, {resource_usage::storage, pipeline_stage::ray_tracing}},
-                          {{{in.surface[0], {}, sampled}, {in.surface[1], {}, sampled}, {in.surface[2], {}, sampled}}},
-                          {in.depth, {}, sampled}};
+        parameters params{
+            {in.visibility, {}, {resource_usage::storage, pipeline_stage::ray_tracing}},
+            {{{in.surface[0], {}, sampled}, {in.surface[1], {}, sampled}, {in.surface[2], {}, sampled}}},
+            {in.depth, {}, sampled},
+        };
         auto added = graph.add_pass("ray-traced shadows", std::move(params));
         if (!added) {
             return std::unexpected(added.error());

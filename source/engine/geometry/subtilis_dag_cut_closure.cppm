@@ -1,5 +1,5 @@
-#pragma once
-namespace deren::engine::subtilis::dag_lod_detail {
+export module deren.engine.subtilis.dag_cut_closure;
+export namespace deren::engine::subtilis::dag_lod_detail {
     template <class Geometry, class Decisions>
     void close_coarsening(Geometry const& geometry, Decisions& decisions) {
         auto groups = geometry.groups();

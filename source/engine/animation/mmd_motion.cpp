@@ -74,10 +74,12 @@ namespace deren::engine::animation {
 
         /** @brief one channel's control points, read at the offsets the format actually uses */
         [[nodiscard]] mmd_bezier read_bezier(std::uint8_t const* block, std::size_t channel) noexcept {
-            return mmd_bezier{static_cast<float>(block[vmd_bezier_x1[channel]]) / 127.0f,
-                              static_cast<float>(block[vmd_bezier_y1[channel]]) / 127.0f,
-                              static_cast<float>(block[vmd_bezier_x2[channel]]) / 127.0f,
-                              static_cast<float>(block[vmd_bezier_y2[channel]]) / 127.0f};
+            return mmd_bezier{
+                static_cast<float>(block[vmd_bezier_x1[channel]]) / 127.0f,
+                static_cast<float>(block[vmd_bezier_y1[channel]]) / 127.0f,
+                static_cast<float>(block[vmd_bezier_x2[channel]]) / 127.0f,
+                static_cast<float>(block[vmd_bezier_y2[channel]]) / 127.0f,
+            };
         }
 
         /** @brief index of the first key at or after @p frame, assuming @p frames is sorted ascending */
@@ -309,15 +311,15 @@ namespace deren::engine::animation {
         // order them here; the last frame any track reaches is the timeline length.
         std::uint32_t last = 0;
         for (auto& track : motion.bones) {
-            std::sort(track.keys.begin(), track.keys.end(),
-                      [](mmd_bone_key const& a, mmd_bone_key const& b) { return a.frame < b.frame; });
+            std::ranges::sort(track.keys,
+                              [](mmd_bone_key const& a, mmd_bone_key const& b) { return a.frame < b.frame; });
             if (!track.keys.empty() && track.keys.back().frame > last) {
                 last = track.keys.back().frame;
             }
         }
         for (auto& track : motion.morphs) {
-            std::sort(track.keys.begin(), track.keys.end(),
-                      [](mmd_morph_key const& a, mmd_morph_key const& b) { return a.frame < b.frame; });
+            std::ranges::sort(track.keys,
+                              [](mmd_morph_key const& a, mmd_morph_key const& b) { return a.frame < b.frame; });
             if (!track.keys.empty() && track.keys.back().frame > last) {
                 last = track.keys.back().frame;
             }

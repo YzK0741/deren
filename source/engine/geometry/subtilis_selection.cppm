@@ -1,7 +1,5 @@
 module;
 #include <cstddef>
-#include <cstdint>
-#include <cstring>
 #include <glm/glm.hpp>
 export module deren.engine.subtilis.selection;
 export import deren.vstd;
@@ -42,9 +40,9 @@ export namespace deren::engine::subtilis {
         bool standard_depth = projection[0][2] == 0 && projection[1][2] == 0 && projection[2][2] < 0;
         bool standard_perspective = perspective && projection[2][2] <= -1 && projection[3][0] == 0 && projection[3][1] == 0;
         if ((standard_perspective || orthographic) && standard_depth) {
-            double near = double(projection[3][2]) / projection[2][2];
+            double near = static_cast<double>(projection[3][2]) / projection[2][2];
             p.near_plane = static_cast<float>(near);
-            if (double(p.near_plane) < near) {
+            if (static_cast<double>(p.near_plane) < near) {
                 p.near_plane = std::nextafter(p.near_plane, std::numeric_limits<float>::infinity());
             }
         }
@@ -74,7 +72,7 @@ export namespace deren::engine::subtilis {
             if (record.first_index != cursor || record.base_vertex != 0 || !meshlet_record_sound(record, source.lod0_index_count())) {
                 return false;
             }
-            if (!(dag_cluster{record} == dag_cluster{source.lod0_clusters()[id++]})) {
+            if (dag_cluster{.record = record} != dag_cluster{.record = source.lod0_clusters()[id++]}) {
                 return false;
             }
             cursor += record.index_count;

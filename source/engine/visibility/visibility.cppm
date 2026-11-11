@@ -387,7 +387,10 @@ export namespace deren::engine::visibility {
 
     /**
      * @brief the perspective-correct weights for a screen-space barycentric triple
-     * @param w_a/w_b/w_c the three vertices' clip-space w (the rasterizer's perspective divide denominator)
+     * @param weights
+     * @param w_a
+     * @param w_b
+     * @param w_c
      * @return the weights normalized to one; all zero when the denominator collapses (degenerate input)
      */
     [[nodiscard]] constexpr barycentrics perspective_correct(barycentrics const& weights, float const w_a, float const w_b, float const w_c) noexcept {

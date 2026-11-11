@@ -187,7 +187,7 @@ namespace deren::utility {
      * @ingroup bvh
      * @brief extract the six frustum planes from a combined view-projection matrix
      * @param view_proj the camera's proj * view (row-major, as built by make_orbit_camera_ubo)
-     * @return frustum whose planes are in world space; plane i has inward-facing normal
+     * @return frustum whose planes are in world space; plane I has inward-facing normal
      *         (glm::vec3(plane) = normal, plane.w = signed distance), so a point is inside when
      *         dot(normal, p) + plane.w >= 0 (matches frustum::in's p-vertex test)
      * @note Gribb-Hartmann plane extraction; rows of a row-major matrix are the clip-space plane
@@ -254,6 +254,7 @@ namespace deren::utility {
          * @ingroup bvh
          * @brief build the internal tree bottom-up from the given leaves
          * @param leaves leaf nodes sorted by morton code
+         * @param nodes
          * @param origin normalization origin (scene AABB min)
          * @param scale normalization scale (1 / scene extent)
          * @return the root node on success, error message on failure
@@ -604,7 +605,7 @@ namespace deren::utility {
 
     bool frustum::in(glm::vec3 const& min, glm::vec3 const& max) const {
         return std::ranges::all_of(this->planes, [&min, &max](glm::vec4 const& p) {
-            glm::vec3 pos = {};
+            glm::vec3 pos;
             pos.x = p.x >= 0 ? max.x : min.x;
             pos.y = p.y >= 0 ? max.y : min.y;
             pos.z = p.z >= 0 ? max.z : min.z;

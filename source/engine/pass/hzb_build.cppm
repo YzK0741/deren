@@ -72,7 +72,7 @@ export namespace deren::engine::pass {
             // per-image depth, the two HZB tables, the camera) and the graph's declaration carries the ordering. The
             // push block is composed per dispatch at record time (one `level` lane plus the framework's two heap
             // index lanes) - the same empty-declaration shape the visibility resolve records with.
-            static constinit render_resource::pass_io const value{.name = "hzb build"};
+            static constexpr render_resource::pass_io value{.name = "hzb build"};
             return value;
         }
 
@@ -80,12 +80,14 @@ export namespace deren::engine::pass {
             // ONE 8x8 GROUP PER TILE OF EACH PYRAMID LEVEL: the shader's [numthreads(8, 8, 1)] is the same number,
             // and the `full` extent rule is the frame's render extent - the extent of the G-buffer depth the
             // pyramid is built from, which is also the extent the host sizes the buffer with.
-            static deren::engine::pass::behaviour const value{.kind = behaviour_kind::compute,
-                                                              .group_size_x = 8,
-                                                              .group_size_y = 8,
-                                                              .group_size_z = 1,
-                                                              .extent = extent_rule::full,
-                                                              .resync_viewport = false};
+            static constexpr deren::engine::pass::behaviour value{
+                .kind = behaviour_kind::compute,
+                .group_size_x = 8,
+                .group_size_y = 8,
+                .group_size_z = 1,
+                .extent = extent_rule::full,
+                .resync_viewport = false,
+            };
             return value;
         }
 
@@ -124,7 +126,7 @@ export namespace deren::engine::pass {
             this->levels_buffer = levels;
         }
 
-        [[nodiscard]] rhi::error record_content(resolved_io const& io) noexcept override;
+        [[nodiscard]] rhi::error record_content(resolved_io const& io) noexcept override; // NOLINT
 
     private:
         std::optional<pipelines::pipeline_handle> build_pipeline = std::nullopt;

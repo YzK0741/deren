@@ -323,9 +323,21 @@ namespace {
             }
             break;
         }
-        std::vector<std::string> const expected{"vertex_address_low", "vertex_address_high", "index_address_low", "index_address_high",
-                                                "first_index", "base_vertex", "index_width", "meshlet_base",
-                                                "meshlet_table", "material_index", "motion_index", "flags", "model"};
+        std::vector<std::string> const expected{
+            "vertex_address_low",
+            "vertex_address_high",
+            "index_address_low",
+            "index_address_high",
+            "first_index",
+            "base_vertex",
+            "index_width",
+            "meshlet_base",
+            "meshlet_table",
+            "material_index",
+            "motion_index",
+            "flags",
+            "model",
+        };
         CHECK_MSG(fields.size() == expected.size(), "the shared VisibilityDrawItem must declare 12 lanes + model");
         for (std::size_t i = 0; i < fields.size() && i < expected.size(); ++i) {
             CHECK_MSG(fields[i] == expected[i], (std::string("the resolve shader's draw-item field ") + std::to_string(i) + " is '" + fields[i] + "', expected '" + expected[i] + "'").c_str());
@@ -485,9 +497,21 @@ namespace {
         // admitted frame with the switch off records it too - the two inputs are independent, the answer is one lane.
         CHECK(choose_opaque_lane(true, admission::admitted) == opaque_lane::visibility);
         CHECK(choose_opaque_lane(false, admission::admitted) == opaque_lane::geometry);
-        std::array const refusals{admission::disabled, admission::no_pipeline, admission::no_scene, admission::no_draws, admission::depth_equal_stage,
-                                  admission::custom_pipeline, admission::instanced, admission::deforming, admission::missing_geometry, admission::no_meshlet_run,
-                                  admission::missing_material, admission::meshlet_overflow, admission::item_overflow};
+        std::array const refusals{
+            admission::disabled,
+            admission::no_pipeline,
+            admission::no_scene,
+            admission::no_draws,
+            admission::depth_equal_stage,
+            admission::custom_pipeline,
+            admission::instanced,
+            admission::deforming,
+            admission::missing_geometry,
+            admission::no_meshlet_run,
+            admission::missing_material,
+            admission::meshlet_overflow,
+            admission::item_overflow,
+        };
         for (admission const refusal : refusals) {
             CHECK_MSG(choose_opaque_lane(true, refusal) == opaque_lane::geometry, "a refusal must record the geometry lane");
             CHECK_MSG(!describe(refusal).empty(), "every refusal has a name for the one fallback line");

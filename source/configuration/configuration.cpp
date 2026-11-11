@@ -172,7 +172,7 @@ namespace deren::app_config {
                 }
             }
             if (auto v = (*render)["exposure"].value<double>()) {
-                settings.render.exposure = std::isfinite(*v) ? float(std::clamp(*v, 0.05, 20.0)) : 1.0f;
+                settings.render.exposure = std::isfinite(*v) ? static_cast<float>(std::clamp(*v, 0.05, 20.0)) : 1.0f;
             }
             if (auto v = (*render)["tone_mapping"].value<int64_t>()) {
                 settings.render.tone_mapping = (*v >= 0 && *v <= 2) ? static_cast<int32_t>(*v) : 0;
@@ -527,7 +527,7 @@ namespace deren::app_config {
             }
             auto shape_control = [&](char const* key, float lo, float hi) {
                 auto value = (*toon)[key].value<double>();
-                return value && std::isfinite(*value) ? float(std::clamp(*value, double(lo), double(hi))) : 0.f;
+                return value && std::isfinite(*value) ? static_cast<float>(std::clamp(*value, static_cast<double>(lo), static_cast<double>(hi))) : 0.f;
             };
             settings.toon.nose_shadow_reduction = shape_control("nose_shadow_reduction", 0, 1);
             settings.toon.hair_highlight_width = shape_control("hair_highlight_width", 0, 1);
@@ -567,14 +567,14 @@ namespace deren::app_config {
                     return;
                 }
                 for (size_t i = 0; i < 3; ++i) {
-                    target[i] = float((*values)[i].value_or(std::numeric_limits<double>::quiet_NaN()));
+                    target[i] = static_cast<float>((*values)[i].value_or(std::numeric_limits<double>::quiet_NaN()));
                 }
             };
             vec("position", r.position);
             vec("box_min", r.minimum);
             vec("box_max", r.maximum);
-            r.fade = probe->contains("fade") ? float((*probe)["fade"].value_or(std::numeric_limits<double>::quiet_NaN())) : .5f;
-            r.gain = probe->contains("gain") ? float((*probe)["gain"].value_or(std::numeric_limits<double>::quiet_NaN())) : 1.f;
+            r.fade = probe->contains("fade") ? static_cast<float>((*probe)["fade"].value_or(std::numeric_limits<double>::quiet_NaN())) : .5f;
+            r.gain = probe->contains("gain") ? static_cast<float>((*probe)["gain"].value_or(std::numeric_limits<double>::quiet_NaN())) : 1.f;
         }
         if (toml::table const* lighting = table.get_as<toml::table>("lighting")) {
             if (toml::node const* node = lighting->get("env_size")) {
@@ -614,16 +614,16 @@ namespace deren::app_config {
                 }
             }
             if (auto v = (*lighting)["environment_rotation"].value<double>()) {
-                settings.lighting.environment_rotation = std::isfinite(*v) ? float(std::remainder(*v, 360.0)) : 0.0f;
+                settings.lighting.environment_rotation = std::isfinite(*v) ? static_cast<float>(std::remainder(*v, 360.0)) : 0.0f;
             }
             if (auto v = (*lighting)["environment_strength"].value<double>()) {
-                settings.lighting.environment_strength = std::isfinite(*v) ? float(std::clamp(*v, 0.0, 64.0)) : 1.0f;
+                settings.lighting.environment_strength = std::isfinite(*v) ? static_cast<float>(std::clamp(*v, 0.0, 64.0)) : 1.0f;
             }
             if (auto v = (*lighting)["environment_blur"].value<double>()) {
-                settings.lighting.environment_blur = std::isfinite(*v) ? float(std::clamp(*v, 0.0, 1.0)) : 0.5f;
+                settings.lighting.environment_blur = std::isfinite(*v) ? static_cast<float>(std::clamp(*v, 0.0, 1.0)) : 0.5f;
             }
             if (auto v = (*lighting)["environment_background"].value<int64_t>()) {
-                settings.lighting.environment_background = *v >= 0 && *v <= 3 ? int32_t(*v) : 0;
+                settings.lighting.environment_background = *v >= 0 && *v <= 3 ? static_cast<int32_t>(*v) : 0;
             }
             if (toml::node const* node = lighting->get("demo_lights")) {
                 if (std::optional<int64_t> const value = node->value<int64_t>()) {

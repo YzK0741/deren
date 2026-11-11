@@ -94,7 +94,8 @@ export namespace deren::engine::visibility::software {
 
     enum class projection_kind { perspective,
                                  orthographic,
-                                 unsupported };
+                                 unsupported,
+    };
 
     /// why the CPU front half refused an input; a refused tile list means "this frame runs the complete hardware path"
     enum class software_error {
@@ -136,7 +137,7 @@ export namespace deren::engine::visibility::software {
     };
 
     [[nodiscard]] inline bool matrix_finite(std::array<float, 16> const& matrix) noexcept {
-        return std::all_of(matrix.begin(), matrix.end(), [](float const value) { return std::isfinite(value); });
+        return std::ranges::all_of(matrix, [](float const value) { return std::isfinite(value); });
     }
 
     /**
@@ -209,7 +210,7 @@ export namespace deren::engine::visibility::software {
         }
         double const m22 = static_cast<double>(parameters.proj[2u * 4u + 2u]);
         double const m32 = static_cast<double>(parameters.proj[3u * 4u + 2u]);
-        double near_plane = 0.0;
+        double near_plane;
         if (kind == projection_kind::perspective) {
             double const denominator = m22 - 1.0;
             if (denominator == 0.0) {
@@ -232,14 +233,16 @@ export namespace deren::engine::visibility::software {
         if (!std::isfinite(proj_scale) || proj_scale <= 0.0) {
             return std::unexpected{software_error::unsupported_projection};
         }
-        return camera_metrics{.kind = kind,
-                              .near_plane_known = true,
-                              .near_plane = near_plane,
-                              .proj_scale = proj_scale,
-                              .view = parameters.view,
-                              .proj = parameters.proj,
-                              .width = parameters.width,
-                              .height = parameters.height};
+        return camera_metrics{
+            .kind = kind,
+            .near_plane_known = true,
+            .near_plane = near_plane,
+            .proj_scale = proj_scale,
+            .view = parameters.view,
+            .proj = parameters.proj,
+            .width = parameters.width,
+            .height = parameters.height,
+        };
     }
 
     /// one record's conservative projected measurements (the criterion itself; no screen mapping)
@@ -274,8 +277,12 @@ export namespace deren::engine::visibility::software {
         double const scale = model_radius_scale(model);
         double const world_radius = static_cast<double>(record.radius) * scale;
         std::array<double, 4> const world_center =
-            transform_point(model, {static_cast<double>(record.center_x), static_cast<double>(record.center_y),
-                                    static_cast<double>(record.center_z), 1.0});
+            transform_point(model, {
+                                       static_cast<double>(record.center_x),
+                                       static_cast<double>(record.center_y),
+                                       static_cast<double>(record.center_z),
+                                       1.0,
+                                   });
         if (!std::isfinite(world_center[0]) || !std::isfinite(world_center[1]) || !std::isfinite(world_center[2]) ||
             !std::isfinite(world_radius)) {
             return measurement;
@@ -358,13 +365,16 @@ export namespace deren::engine::visibility::software {
     };
 
     [[nodiscard]] inline tile_grid make_tile_grid(std::uint32_t const width, std::uint32_t const height) noexcept {
-        return tile_grid{.size = tile_size,
-                         .tiles_x = (width + tile_size - 1u) / tile_size,
-                         .tiles_y = (height + tile_size - 1u) / tile_size};
+        return tile_grid{
+            .size = tile_size,
+            .tiles_x = (width + tile_size - 1u) / tile_size,
+            .tiles_y = (height + tile_size - 1u) / tile_size,
+        };
     }
 
     enum class routing_metric { cluster_diameter,
-                                triangle_edge };
+                                triangle_edge,
+    };
 
     /// one record's conservative screen-space box and the inclusive tile range it covers (empty when off-screen)
     struct projected_record {
@@ -400,8 +410,12 @@ export namespace deren::engine::visibility::software {
             return result;
         }
         std::array<double, 4> const world_center =
-            transform_point(model, {static_cast<double>(record.center_x), static_cast<double>(record.center_y),
-                                    static_cast<double>(record.center_z), 1.0});
+            transform_point(model, {
+                                       static_cast<double>(record.center_x),
+                                       static_cast<double>(record.center_y),
+                                       static_cast<double>(record.center_z),
+                                       1.0,
+                                   });
         std::array<double, 4> const view_center = transform_point(camera.view, world_center);
         std::array<double, 4> const clip = transform_point(camera.proj, view_center);
         if (!std::isfinite(clip[0]) || !std::isfinite(clip[1]) || !std::isfinite(clip[2]) || !(clip[3] > 0.0)) {

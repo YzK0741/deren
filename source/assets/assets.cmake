@@ -59,6 +59,11 @@ target_sources(deren_assets
         FILE_SET CXX_MODULES
         FILES
         source/gltf_loader/gltf_loader.cppm
+        # Module partitions of deren.gltf_loader. Both are imported only by gltf_loader.cpp:
+        # the primary interface stays the single public surface, and neither partition is imported
+        # back by the primary (that would make the module depend on its own implementation units).
+        source/gltf_loader/motion_binding.cppm
+        source/gltf_loader/subtilis_payload.cppm
         # The separate TOON MATERIAL SIDECAR is a module rather than more code in gltf_loader, because what
         # it reads is not glTF: a glTF material carries the spec's five texture slots and six factors, and a
         # toon character needs a second set (a diffuse ramp, a shadow LUT, a specular ramp, a matcap, a face

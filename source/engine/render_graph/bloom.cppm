@@ -31,16 +31,20 @@ export namespace deren::engine::render_graph::bloom {
         if (!input) {
             return std::unexpected(input.error());
         }
-        constexpr std::array names{"bloom prefilter", "bloom downsample 1", "bloom downsample 2", "bloom downsample 3"};
         std::array<texture_ref, level_count> levels;
         for (uint32_t i = 0; i < level_count; ++i) {
+            constexpr std::array names{"bloom prefilter", "bloom downsample 1", "bloom downsample 2", "bloom downsample 3"};
             auto target = graph.import_texture(desc.levels[i], initial_contents::undefined, names[i], {}, desc.level_states[i]);
             if (!target) {
                 return std::unexpected(target.error());
             }
             levels[i] = *target;
-            std::array<resource_access, 2> accesses{{{i ? levels[i - 1] : *input, content_access::read, {}, {resource_usage::sampled, pipeline_stage::fragment_shader}},
-                                                     {*target, content_access::discard_write, {}, {resource_usage::color_attachment, pipeline_stage::color_output}}}};
+            std::array<resource_access, 2> accesses{
+                {
+                    {i ? levels[i - 1] : *input, content_access::read, {}, {resource_usage::sampled, pipeline_stage::fragment_shader}},
+                    {*target, content_access::discard_write, {}, {resource_usage::color_attachment, pipeline_stage::color_output}},
+                },
+            };
             auto pass = graph.add_pass(names[i], accesses);
             if (!pass) {
                 return std::unexpected(pass.error());
@@ -52,10 +56,14 @@ export namespace deren::engine::render_graph::bloom {
         }
         // export_resource roots contents but emits no epilogue. An explicit boundary reader
         // orders the final color write before the external composite's fragment reads.
-        std::array<resource_access, level_count> handoff{{{levels[0], content_access::read, {}, {resource_usage::sampled, pipeline_stage::fragment_shader}},
-                                                          {levels[1], content_access::read, {}, {resource_usage::sampled, pipeline_stage::fragment_shader}},
-                                                          {levels[2], content_access::read, {}, {resource_usage::sampled, pipeline_stage::fragment_shader}},
-                                                          {levels[3], content_access::read, {}, {resource_usage::sampled, pipeline_stage::fragment_shader}}}};
+        std::array<resource_access, level_count> handoff{
+            {
+                {levels[0], content_access::read, {}, {resource_usage::sampled, pipeline_stage::fragment_shader}},
+                {levels[1], content_access::read, {}, {resource_usage::sampled, pipeline_stage::fragment_shader}},
+                {levels[2], content_access::read, {}, {resource_usage::sampled, pipeline_stage::fragment_shader}},
+                {levels[3], content_access::read, {}, {resource_usage::sampled, pipeline_stage::fragment_shader}},
+            },
+        };
         auto boundary = graph.add_pass("bloom to composite", handoff, {true});
         if (!boundary) {
             return std::unexpected(boundary.error());

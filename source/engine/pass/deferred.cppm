@@ -23,7 +23,6 @@ module;
 
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <glm/glm.hpp>
 
 export module deren.engine.pass.deferred;
@@ -111,7 +110,7 @@ export namespace deren::engine::pass {
             this->rt_reflections_on = enabled;
         }
         void set_rt_reflection_strength(float strength) noexcept override {
-            this->rt_reflection_strength = strength < 0.0f ? 0.0f : (strength > 1.0f ? 1.0f : strength);
+            this->rt_reflection_strength = glm::clamp(strength, 0.0f, 1.0f);
         }
         [[nodiscard]] bool rt_reflections() const noexcept {
             return this->rt_reflections_on;
@@ -130,7 +129,7 @@ export namespace deren::engine::pass {
         static constexpr deren::utility::vessel::array<std::string_view, 1> pipeline_names = {"deferred"};
         // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
         // would duplicate it and hide the override.
-        inline static constexpr deren::engine::pass::behaviour pass_behaviour = {
+        static constexpr deren::engine::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::fullscreen,
             .extent = extent_rule::full, // the lighting runs at the frame's resolution
             .extent_of = resource_id::none,

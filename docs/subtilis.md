@@ -151,8 +151,8 @@ reports a shared/LOD0 fallback - the frame never mixes two G-buffer producers.
 | --- | --- |
 | DAG asset/import + validation | `source/engine/geometry/subtilis_dag_asset.cppm`, `subtilis_dag_import.cppm` |
 | Legacy forest validation | `subtilis_asset.cppm` |
-| CPU cut reference | `subtilis_dag_lod.cppm`, legacy `subtilis_lod.cppm` (+ `subtilis.cppm` for the M1a LOD0 bridge) |
-| Offline builder | `subtilis_builder.cppm`, `subtilis_builder.cpp`, `subtilis_builder_topology.cpp`, `subtilis_builder_simplify.cpp`, `subtilis_builder_internal.hpp` |
+| CPU cut reference | `subtilis_dag_lod.cppm`, `subtilis_dag_cut_closure.cppm`, legacy `subtilis_lod.cppm` (+ `subtilis.cppm` for the M1a LOD0 bridge) |
+| Offline builder | `subtilis_builder.cppm`, `subtilis_builder.cpp`, `subtilis_builder_topology.cpp`, `subtilis_builder_simplify.cpp` |
 | Explicit upload / generations | `subtilis_upload.cppm`, `subtilis_upload.cpp` |
 | Main-view selection + frame publication | `source/engine/runtime/runtime.cpp` (`record_visibility_items`), `subtilis_selection.cppm` |
 | Consumer lane | `source/shaders/scene/visibility.slang`, `visibility_resolve.slang`, `source/engine/visibility/visibility.cppm` |

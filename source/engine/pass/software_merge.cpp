@@ -58,20 +58,24 @@ namespace deren::engine::pass {
         // LOAD + STORE, not CLEAR: the existing depth is the comparison's other half. The depth test is the merge
         // (LESS_OR_EQUAL writes only when the fragment's SV_Depth is <= the stored value), so the pass itself carries
         // no arithmetic; the fragment stage provides the software depth it compares.
-        rhi::depth_attachment const depth{.view = io.targets[0].view_handle,
-                                          .load = rhi::load_op::load,
-                                          .store = rhi::store_op::store,
-                                          .read_only = false,
-                                          .has_stencil = false,
-                                          .clear_depth = 1.0f,
-                                          .clear_stencil = 0u};
-        rhi::rendering_info const rendering_info{.struct_size = sizeof(rhi::rendering_info),
-                                                 .area = {.offset_x = 0, .offset_y = 0, .width = io.extent.width, .height = io.extent.height},
-                                                 .layer_count = 1,
-                                                 .colors = {},
-                                                 .depth = depth,
-                                                 .has_depth = true,
-                                                 .secondary_contents = false};
+        rhi::depth_attachment const depth{
+            .view = io.targets[0].view_handle,
+            .load = rhi::load_op::load,
+            .store = rhi::store_op::store,
+            .read_only = false,
+            .has_stencil = false,
+            .clear_depth = 1.0f,
+            .clear_stencil = 0u,
+        };
+        rhi::rendering_info const rendering_info{
+            .struct_size = sizeof(rhi::rendering_info),
+            .area = {.offset_x = 0, .offset_y = 0, .width = io.extent.width, .height = io.extent.height},
+            .layer_count = 1,
+            .colors = {},
+            .depth = depth,
+            .has_depth = true,
+            .secondary_contents = false,
+        };
         auto const begun = io.list->begin_rendering(rendering_info);
         if (begun != rhi::error::ok) {
             return begun;

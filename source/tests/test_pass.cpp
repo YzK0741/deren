@@ -34,12 +34,18 @@ namespace {
     /// The dedicated binding every fake pass carries: one sampled image of it at binding 0. What a pass reaches
     /// through the frame's heap is not a declaration the fake host has to spell out - the framework has no set to
     /// resolve it into (every stage reads the descriptor heap).
-    deren::utility::vessel::array<rr::pass_binding, 1> const fake_local_bindings = {{{.binding = 0,
-                                                                                      .parent = rr::binding_scope::local,
-                                                                                      .kind = rr::binding_kind::sampled_image,
-                                                                                      .resource = rr::resource_id::hdr,
-                                                                                      .access = rr::binding_access::read,
-                                                                                      .sampler = rr::sampler_hint::gbuffer}}};
+    deren::utility::vessel::array<rr::pass_binding, 1> const fake_local_bindings = {
+        {
+            {
+                .binding = 0,
+                .parent = rr::binding_scope::local,
+                .kind = rr::binding_kind::sampled_image,
+                .resource = rr::resource_id::hdr,
+                .access = rr::binding_access::read,
+                .sampler = rr::sampler_hint::gbuffer,
+            },
+        },
+    };
 
     /// the declaration every fake pass carries, renamed to the pass it belongs to
     rr::pass_io named_io(std::string_view const name, std::span<rr::render_target const> const targets = {}) {
@@ -390,9 +396,11 @@ namespace {
 
     /// a declaration the schema must refuse: a binding whose resource was never set
     rr::pass_io const& bad_io() {
-        static constexpr deren::utility::vessel::array<rr::pass_binding, 1> bindings = {{
-            {.binding = 0, .parent = rr::binding_scope::local, .kind = rr::binding_kind::sampled_image, .resource = rr::resource_id::none, .sampler = rr::sampler_hint::post},
-        }};
+        static constexpr deren::utility::vessel::array<rr::pass_binding, 1> bindings = {
+            {
+                {.binding = 0, .parent = rr::binding_scope::local, .kind = rr::binding_kind::sampled_image, .resource = rr::resource_id::none, .sampler = rr::sampler_hint::post},
+            },
+        };
         static constexpr rr::pass_io io = {.name = "bad", .bindings = bindings, .push = std::nullopt};
         return io;
     }
@@ -554,7 +562,8 @@ int32_t main() {
                 CHECK(static_cast<contract_command_buffer&>(cmd).image_barriers > 0);
                 ++context->finishes;
                 return context->result; },
-            .parent = &context};
+            .parent = &context,
+        };
         CHECK(callback.finish_with_dependency(commands, target, {}) == rhi::error::ok);
         CHECK(context.finishes == 1 && commands.last_image_barrier.resource == &target);
         CHECK(commands.last_image_barrier.from == rhi::image_use::color_attachment && commands.last_image_barrier.to == rhi::image_use::color_attachment);
@@ -653,14 +662,20 @@ int32_t main() {
             if (failure == 3) {
                 commands.execute_result = rhi::error::operation_failed;
             }
-            std::array<segment_buffer, 2> segments{{{.buffer = deren::promise::rhi::mergeable_command_buffer_ref{&first}},
-                                                    {.buffer = deren::promise::rhi::mergeable_command_buffer_ref{&second}}}};
-            scene_frame frame{.leaves = parallel ? std::span<deren::engine::primitive const* const>(leaves) : std::span<deren::engine::primitive const* const>(leaves).first(1),
-                              .segments = parallel ? std::span<segment_buffer const>(segments) : std::span<segment_buffer const>(segments).first(1),
-                              .make_environment = [](void*, deren::engine::recording_target, bool) { return deren::engine::render_environment{}; },
-                              .run_tasks = [](void*, std::span<std::function<void()>> tasks) { for (auto& task : tasks){ task();
+            std::array<segment_buffer, 2> segments{
+                {
+                    {.buffer = deren::promise::rhi::mergeable_command_buffer_ref{&first}},
+                    {.buffer = deren::promise::rhi::mergeable_command_buffer_ref{&second}},
+                },
+            };
+            scene_frame frame{
+                .leaves = parallel ? std::span<deren::engine::primitive const* const>(leaves) : std::span<deren::engine::primitive const* const>(leaves).first(1),
+                .segments = parallel ? std::span<segment_buffer const>(segments) : std::span<segment_buffer const>(segments).first(1),
+                .make_environment = [](void*, deren::engine::recording_target, bool) { return deren::engine::render_environment{}; },
+                .run_tasks = [](void*, std::span<std::function<void()>> tasks) { for (auto& task : tasks){ task();
 } },
-                              .extent = {16, 16}};
+                .extent = {16, 16},
+            };
             scene_pass scene;
             scene.set_frame(frame);
             std::array<resolved_binding, 6> targets{};
@@ -940,11 +955,17 @@ int32_t main() {
         };
         declared_pass pass;
         vp::resolved_io io = {};
-        deren::utility::vessel::array<rr::pass_binding, 1> const as_binding = {{{.binding = 0,
-                                                                                 .parent = rr::binding_scope::local,
-                                                                                 .kind = rr::binding_kind::acceleration_structure,
-                                                                                 .resource = rr::resource_id::top_level_structure,
-                                                                                 .access = rr::binding_access::read}}};
+        deren::utility::vessel::array<rr::pass_binding, 1> const as_binding = {
+            {
+                {
+                    .binding = 0,
+                    .parent = rr::binding_scope::local,
+                    .kind = rr::binding_kind::acceleration_structure,
+                    .resource = rr::resource_id::top_level_structure,
+                    .access = rr::binding_access::read,
+                },
+            },
+        };
         rr::pass_io const as_declaration{.name = "as_consumer", .bindings = as_binding};
         declared_pass as_pass;
         as_pass.declaration = &as_declaration;

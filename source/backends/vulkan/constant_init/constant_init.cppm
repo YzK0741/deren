@@ -72,23 +72,29 @@ export namespace deren::vulkan {
      * @brief command pool that allows per-buffer reset (the engine resets/re-records buffers)
      */
     constexpr VkCommandPoolCreateInfo make_command_pool_info(uint32_t const queue_family) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-                .pNext = nullptr,
-                .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-                .queueFamilyIndex = queue_family};
+        return {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+            .queueFamilyIndex = queue_family,
+        };
     }
     /** @brief plain binary semaphore (vkAcquireNextImageKHR / vkQueuePresentKHR need binary) */
     constexpr VkSemaphoreCreateInfo make_binary_semaphore_info() noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-                .pNext = nullptr,
-                .flags = 0};
+        return {
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+        };
     }
     /** @brief timeline semaphore starting at 0 (frame-slot submission counting + host pacing) */
     constexpr VkSemaphoreTypeCreateInfo make_timeline_semaphore_type_info() noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
-                .pNext = nullptr,
-                .semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE,
-                .initialValue = 0};
+        return {
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
+            .pNext = nullptr,
+            .semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE,
+            .initialValue = 0,
+        };
     }
     /**
      * @brief linear/mipmap sampler with repeat-style addressing
@@ -96,54 +102,60 @@ export namespace deren::vulkan {
      * @param max_lod upper clamp (e.g. the texture's mip count - 1)
      */
     constexpr VkSamplerCreateInfo make_texture_sampler_info(VkSamplerAddressMode const address_mode, float const max_lod) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-                .pNext = nullptr,
-                .flags = 0,
-                .magFilter = VK_FILTER_LINEAR,
-                .minFilter = VK_FILTER_LINEAR,
-                .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
-                .addressModeU = address_mode,
-                .addressModeV = address_mode,
-                .addressModeW = address_mode,
-                .mipLodBias = 0.0f,
-                .anisotropyEnable = VK_FALSE,
-                .maxAnisotropy = 1.0f,
-                .compareEnable = VK_FALSE,
-                .compareOp = VK_COMPARE_OP_NEVER,
-                .minLod = 0.0f,
-                .maxLod = max_lod,
-                .borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK,
-                .unnormalizedCoordinates = VK_FALSE};
+        return {
+            .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .magFilter = VK_FILTER_LINEAR,
+            .minFilter = VK_FILTER_LINEAR,
+            .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+            .addressModeU = address_mode,
+            .addressModeV = address_mode,
+            .addressModeW = address_mode,
+            .mipLodBias = 0.0f,
+            .anisotropyEnable = VK_FALSE,
+            .maxAnisotropy = 1.0f,
+            .compareEnable = VK_FALSE,
+            .compareOp = VK_COMPARE_OP_NEVER,
+            .minLod = 0.0f,
+            .maxLod = max_lod,
+            .borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK,
+            .unnormalizedCoordinates = VK_FALSE,
+        };
     }
     /**
      * @brief shadow-map sampler: LINEAR min/mag gives HARDWARE percentage-closer filtering on a
      *        sampler2DShadow (compareOp matches pbr.frag's "not deeper than stored depth")
      */
     constexpr VkSamplerCreateInfo make_shadow_sampler_info() noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-                .pNext = nullptr,
-                .flags = 0,
-                .magFilter = VK_FILTER_LINEAR,
-                .minFilter = VK_FILTER_LINEAR,
-                .mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
-                .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-                .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-                .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-                .mipLodBias = 0.0f,
-                .anisotropyEnable = VK_FALSE,
-                .maxAnisotropy = 1.0f,
-                .compareEnable = VK_TRUE,
-                .compareOp = VK_COMPARE_OP_LESS_OR_EQUAL,
-                .minLod = 0.0f,
-                .maxLod = 0.0f,
-                .borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK,
-                .unnormalizedCoordinates = VK_FALSE};
+        return {
+            .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .magFilter = VK_FILTER_LINEAR,
+            .minFilter = VK_FILTER_LINEAR,
+            .mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
+            .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+            .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+            .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+            .mipLodBias = 0.0f,
+            .anisotropyEnable = VK_FALSE,
+            .maxAnisotropy = 1.0f,
+            .compareEnable = VK_TRUE,
+            .compareOp = VK_COMPARE_OP_LESS_OR_EQUAL,
+            .minLod = 0.0f,
+            .maxLod = 0.0f,
+            .borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK,
+            .unnormalizedCoordinates = VK_FALSE,
+        };
     }
     /** @brief unsignaled fence (host waits after one-shot upload submits) */
     constexpr VkFenceCreateInfo make_fence_info() noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-                .pNext = nullptr,
-                .flags = 0};
+        return {
+            .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+        };
     }
     /**
      * @brief query pool of @p count queries, all of type @p query_type
@@ -152,35 +164,42 @@ export namespace deren::vulkan {
      *        frame may write: see core::gpu_timing_mark_capacity)
      */
     constexpr VkQueryPoolCreateInfo make_query_pool_info(VkQueryType const query_type, uint32_t const count) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
-                .pNext = nullptr,
-                .flags = 0,
-                .queryType = query_type,
-                .queryCount = count,
-                .pipelineStatistics = 0};
+        return {
+            .sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .queryType = query_type,
+            .queryCount = count,
+            .pipelineStatistics = 0,
+        };
     }
     /** @brief host-visible staging buffer: TRANSFER_SRC only, exclusive sharing */
     constexpr VkBufferCreateInfo make_staging_buffer_info(VkDeviceSize const size) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-                .pNext = nullptr,
-                .flags = 0,
-                .size = size,
-                .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-                .queueFamilyIndexCount = 0,
-                .pQueueFamilyIndices = nullptr};
+        return {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .size = size,
+            .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+            .queueFamilyIndexCount = 0,
+            .pQueueFamilyIndices = nullptr,
+        };
     }
     /**
      * @brief one-queue device queue create info (one queue of @p queue_family)
+     * @param queue_family
      * @param queue_priorities caller-provided array of @p queue_family's queue priorities
      */
     constexpr VkDeviceQueueCreateInfo make_device_queue_info(uint32_t const queue_family, float const* queue_priorities) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-                .pNext = nullptr,
-                .flags = 0,
-                .queueFamilyIndex = queue_family,
-                .queueCount = 1,
-                .pQueuePriorities = queue_priorities};
+        return {
+            .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .queueFamilyIndex = queue_family,
+            .queueCount = 1,
+            .pQueuePriorities = queue_priorities,
+        };
     }
     /**
      * @brief 2D image view with identity component swizzle
@@ -194,14 +213,16 @@ export namespace deren::vulkan {
      * @param base_array_layer first array layer the view addresses
      */
     constexpr VkImageViewCreateInfo make_image_view_info(VkImage const image, VkFormat const format, VkImageViewType const view_type, VkImageAspectFlags const aspect_mask, uint32_t const level_count, uint32_t const layer_count, uint32_t const base_mip_level = 0, uint32_t const base_array_layer = 0) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-                .pNext = nullptr,
-                .flags = 0,
-                .image = image,
-                .viewType = view_type,
-                .format = format,
-                .components = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
-                .subresourceRange = {aspect_mask, base_mip_level, level_count, base_array_layer, layer_count}};
+        return {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .image = image,
+            .viewType = view_type,
+            .format = format,
+            .components = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
+            .subresourceRange = {aspect_mask, base_mip_level, level_count, base_array_layer, layer_count},
+        };
     }
 
     // ---- Barriers, copies, and the remaining call-site info structs ----
@@ -213,27 +234,38 @@ export namespace deren::vulkan {
 
     /**
      * @brief one image memory barrier with the queue-family pair the engine always ignores
+     * @param src_stage
+     * @param src_access
+     * @param dst_stage
+     * @param dst_access
+     * @param old_layout
+     * @param new_layout
      * @param image target image (VK_NULL_HANDLE is allowed for a recipe template)
+     * @param subresource_range
+     * @param src_queue_family
+     * @param dst_queue_family
      */
     constexpr VkImageMemoryBarrier2 make_image_memory_barrier_2(
         VkPipelineStageFlags2 const src_stage, VkAccessFlags2 const src_access,
         VkPipelineStageFlags2 const dst_stage, VkAccessFlags2 const dst_access,
         VkImageLayout const old_layout, VkImageLayout const new_layout,
-        VkImage const image, VkImageSubresourceRange const subresource_range,
+        VkImage const image, VkImageSubresourceRange const& subresource_range,
         uint32_t const src_queue_family = VK_QUEUE_FAMILY_IGNORED,
         uint32_t const dst_queue_family = VK_QUEUE_FAMILY_IGNORED) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-                .pNext = nullptr,
-                .srcStageMask = src_stage,
-                .srcAccessMask = src_access,
-                .dstStageMask = dst_stage,
-                .dstAccessMask = dst_access,
-                .oldLayout = old_layout,
-                .newLayout = new_layout,
-                .srcQueueFamilyIndex = src_queue_family,
-                .dstQueueFamilyIndex = dst_queue_family,
-                .image = image,
-                .subresourceRange = subresource_range};
+        return {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+            .pNext = nullptr,
+            .srcStageMask = src_stage,
+            .srcAccessMask = src_access,
+            .dstStageMask = dst_stage,
+            .dstAccessMask = dst_access,
+            .oldLayout = old_layout,
+            .newLayout = new_layout,
+            .srcQueueFamilyIndex = src_queue_family,
+            .dstQueueFamilyIndex = dst_queue_family,
+            .image = image,
+            .subresourceRange = subresource_range,
+        };
     }
     /** @brief one buffer memory barrier with the queue-family pair the engine always ignores */
     constexpr VkBufferMemoryBarrier2 make_buffer_memory_barrier_2(
@@ -242,89 +274,103 @@ export namespace deren::vulkan {
         VkBuffer const buffer, VkDeviceSize const offset, VkDeviceSize const size,
         uint32_t const src_queue_family = VK_QUEUE_FAMILY_IGNORED,
         uint32_t const dst_queue_family = VK_QUEUE_FAMILY_IGNORED) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
-                .pNext = nullptr,
-                .srcStageMask = src_stage,
-                .srcAccessMask = src_access,
-                .dstStageMask = dst_stage,
-                .dstAccessMask = dst_access,
-                .srcQueueFamilyIndex = src_queue_family,
-                .dstQueueFamilyIndex = dst_queue_family,
-                .buffer = buffer,
-                .offset = offset,
-                .size = size};
+        return {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .pNext = nullptr,
+            .srcStageMask = src_stage,
+            .srcAccessMask = src_access,
+            .dstStageMask = dst_stage,
+            .dstAccessMask = dst_access,
+            .srcQueueFamilyIndex = src_queue_family,
+            .dstQueueFamilyIndex = dst_queue_family,
+            .buffer = buffer,
+            .offset = offset,
+            .size = size,
+        };
     }
     /** @brief buffer/image copy region with explicitly packed row and image strides */
     constexpr VkBufferImageCopy make_buffer_image_copy(
         VkDeviceSize const buffer_offset, uint32_t const buffer_row_length, uint32_t const buffer_image_height,
         VkImageSubresourceLayers const image_subresource, VkOffset3D const image_offset,
         VkExtent3D const image_extent) noexcept {
-        return {.bufferOffset = buffer_offset,
-                .bufferRowLength = buffer_row_length,
-                .bufferImageHeight = buffer_image_height,
-                .imageSubresource = image_subresource,
-                .imageOffset = image_offset,
-                .imageExtent = image_extent};
+        return {
+            .bufferOffset = buffer_offset,
+            .bufferRowLength = buffer_row_length,
+            .bufferImageHeight = buffer_image_height,
+            .imageSubresource = image_subresource,
+            .imageOffset = image_offset,
+            .imageExtent = image_extent,
+        };
     }
     /** @brief one host image-to-memory copy region, tightly packed (strides 0) */
     constexpr VkImageToMemoryCopy make_image_to_memory_copy(
         void* const host_pointer, VkImageSubresourceLayers const image_subresource,
         VkOffset3D const image_offset, VkExtent3D const image_extent) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_IMAGE_TO_MEMORY_COPY_EXT,
-                .pNext = nullptr,
-                .pHostPointer = host_pointer,
-                .memoryRowLength = 0,
-                .memoryImageHeight = 0,
-                .imageSubresource = image_subresource,
-                .imageOffset = image_offset,
-                .imageExtent = image_extent};
+        return {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_TO_MEMORY_COPY_EXT,
+            .pNext = nullptr,
+            .pHostPointer = host_pointer,
+            .memoryRowLength = 0,
+            .memoryImageHeight = 0,
+            .imageSubresource = image_subresource,
+            .imageOffset = image_offset,
+            .imageExtent = image_extent,
+        };
     }
     /** @brief one host memory-to-image copy region, tightly packed (strides 0) */
     constexpr VkMemoryToImageCopyEXT make_memory_to_image_copy(
         void const* const host_pointer, VkImageSubresourceLayers const image_subresource,
         VkOffset3D const image_offset, VkExtent3D const image_extent) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_MEMORY_TO_IMAGE_COPY_EXT,
-                .pNext = nullptr,
-                .pHostPointer = host_pointer,
-                .memoryRowLength = 0,
-                .memoryImageHeight = 0,
-                .imageSubresource = image_subresource,
-                .imageOffset = image_offset,
-                .imageExtent = image_extent};
+        return {
+            .sType = VK_STRUCTURE_TYPE_MEMORY_TO_IMAGE_COPY_EXT,
+            .pNext = nullptr,
+            .pHostPointer = host_pointer,
+            .memoryRowLength = 0,
+            .memoryImageHeight = 0,
+            .imageSubresource = image_subresource,
+            .imageOffset = image_offset,
+            .imageExtent = image_extent,
+        };
     }
     /** @brief the head of one vkCopyImageToMemoryEXT call */
     constexpr VkCopyImageToMemoryInfo make_copy_image_to_memory_info(
         VkImage const src_image, VkImageLayout const src_layout,
         uint32_t const region_count, VkImageToMemoryCopy const* const regions) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_COPY_IMAGE_TO_MEMORY_INFO_EXT,
-                .pNext = nullptr,
-                .flags = 0,
-                .srcImage = src_image,
-                .srcImageLayout = src_layout,
-                .regionCount = region_count,
-                .pRegions = regions};
+        return {
+            .sType = VK_STRUCTURE_TYPE_COPY_IMAGE_TO_MEMORY_INFO_EXT,
+            .pNext = nullptr,
+            .flags = 0,
+            .srcImage = src_image,
+            .srcImageLayout = src_layout,
+            .regionCount = region_count,
+            .pRegions = regions,
+        };
     }
     /** @brief the head of one vkCopyMemoryToImageEXT call */
     constexpr VkCopyMemoryToImageInfoEXT make_copy_memory_to_image_info(
         VkImage const dst_image, VkImageLayout const dst_layout,
         uint32_t const region_count, VkMemoryToImageCopyEXT const* const regions) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_COPY_MEMORY_TO_IMAGE_INFO_EXT,
-                .pNext = nullptr,
-                .flags = 0,
-                .dstImage = dst_image,
-                .dstImageLayout = dst_layout,
-                .regionCount = region_count,
-                .pRegions = regions};
+        return {
+            .sType = VK_STRUCTURE_TYPE_COPY_MEMORY_TO_IMAGE_INFO_EXT,
+            .pNext = nullptr,
+            .flags = 0,
+            .dstImage = dst_image,
+            .dstImageLayout = dst_layout,
+            .regionCount = region_count,
+            .pRegions = regions,
+        };
     }
     /** @brief one descriptor heap binding window */
     constexpr VkBindHeapInfoEXT make_bind_heap_info(
         VkDeviceAddress const heap_address, VkDeviceSize const heap_size,
         VkDeviceSize const reserved_range_offset, VkDeviceSize const reserved_range_size) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_BIND_HEAP_INFO_EXT,
-                .pNext = nullptr,
-                .heapRange = {.address = heap_address, .size = heap_size},
-                .reservedRangeOffset = reserved_range_offset,
-                .reservedRangeSize = reserved_range_size};
+        return {
+            .sType = VK_STRUCTURE_TYPE_BIND_HEAP_INFO_EXT,
+            .pNext = nullptr,
+            .heapRange = {.address = heap_address, .size = heap_size},
+            .reservedRangeOffset = reserved_range_offset,
+            .reservedRangeSize = reserved_range_size,
+        };
     }
     /** @brief one micromap build info; @p dst_micromap and @p scratch_address are null/0 for a size query */
     constexpr VkMicromapBuildInfoEXT make_micromap_build_info(
@@ -333,27 +379,31 @@ export namespace deren::vulkan {
         VkMicromapUsageEXT const* const usage, VkDeviceAddress const data_address,
         VkDeviceAddress const triangle_array_address, uint32_t const triangle_array_stride,
         VkDeviceAddress const scratch_address = 0) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_MICROMAP_BUILD_INFO_EXT,
-                .pNext = nullptr,
-                .type = type,
-                .flags = flags,
-                .mode = mode,
-                .dstMicromap = dst_micromap,
-                .usageCountsCount = usage_count,
-                .pUsageCounts = usage,
-                .ppUsageCounts = nullptr,
-                .data = {.deviceAddress = data_address},
-                .scratchData = {.deviceAddress = scratch_address},
-                .triangleArray = {.deviceAddress = triangle_array_address},
-                .triangleArrayStride = triangle_array_stride};
+        return {
+            .sType = VK_STRUCTURE_TYPE_MICROMAP_BUILD_INFO_EXT,
+            .pNext = nullptr,
+            .type = type,
+            .flags = flags,
+            .mode = mode,
+            .dstMicromap = dst_micromap,
+            .usageCountsCount = usage_count,
+            .pUsageCounts = usage,
+            .ppUsageCounts = nullptr,
+            .data = {.deviceAddress = data_address},
+            .scratchData = {.deviceAddress = scratch_address},
+            .triangleArray = {.deviceAddress = triangle_array_address},
+            .triangleArrayStride = triangle_array_stride,
+        };
     }
     /** @brief the zeroed size-query answer struct (the driver fills the three sizes) */
     constexpr VkMicromapBuildSizesInfoEXT make_micromap_build_sizes_info() noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_MICROMAP_BUILD_SIZES_INFO_EXT,
-                .pNext = nullptr,
-                .micromapSize = 0,
-                .buildScratchSize = 0,
-                .discardable = 0};
+        return {
+            .sType = VK_STRUCTURE_TYPE_MICROMAP_BUILD_SIZES_INFO_EXT,
+            .pNext = nullptr,
+            .micromapSize = 0,
+            .buildScratchSize = 0,
+            .discardable = 0,
+        };
     }
     /** @brief one acceleration-structure build/refit geometry info */
     constexpr VkAccelerationStructureBuildGeometryInfoKHR make_acceleration_structure_build_info(
@@ -363,89 +413,107 @@ export namespace deren::vulkan {
         VkAccelerationStructureGeometryKHR const* const geometries,
         VkDeviceAddress const scratch_address,
         VkAccelerationStructureGeometryKHR const* const* const pp_geometries = nullptr) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR,
-                .pNext = nullptr,
-                .type = type,
-                .flags = flags,
-                .mode = mode,
-                .srcAccelerationStructure = src,
-                .dstAccelerationStructure = dst,
-                .geometryCount = geometry_count,
-                .pGeometries = geometries,
-                .ppGeometries = pp_geometries,
-                .scratchData = {.deviceAddress = scratch_address}};
+        return {
+            .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR,
+            .pNext = nullptr,
+            .type = type,
+            .flags = flags,
+            .mode = mode,
+            .srcAccelerationStructure = src,
+            .dstAccelerationStructure = dst,
+            .geometryCount = geometry_count,
+            .pGeometries = geometries,
+            .ppGeometries = pp_geometries,
+            .scratchData = {.deviceAddress = scratch_address},
+        };
     }
     /** @brief the zeroed size-query answer struct (the driver fills the three sizes) */
     constexpr VkAccelerationStructureBuildSizesInfoKHR make_acceleration_structure_build_sizes_info() noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR,
-                .pNext = nullptr,
-                .accelerationStructureSize = 0,
-                .updateScratchSize = 0,
-                .buildScratchSize = 0};
+        return {
+            .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR,
+            .pNext = nullptr,
+            .accelerationStructureSize = 0,
+            .updateScratchSize = 0,
+            .buildScratchSize = 0,
+        };
     }
     /** @brief one acceleration-structure binding at a constant heap offset */
     constexpr VkDescriptorSetAndBindingMappingEXT make_descriptor_set_and_binding_mapping(
         uint32_t const descriptor_set, uint32_t const first_binding, uint32_t const binding_count,
         VkSpirvResourceTypeFlagsEXT const resource_mask, VkDescriptorMappingSourceEXT const source,
         uint32_t const heap_offset, uint32_t const heap_array_stride) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT,
-                .pNext = nullptr,
-                .descriptorSet = descriptor_set,
-                .firstBinding = first_binding,
-                .bindingCount = binding_count,
-                .resourceMask = resource_mask,
-                .source = source,
-                .sourceData = {.constantOffset = {.heapOffset = heap_offset,
-                                                  .heapArrayStride = heap_array_stride,
-                                                  .pEmbeddedSampler = nullptr,
-                                                  .samplerHeapOffset = 0,
-                                                  .samplerHeapArrayStride = 0}}};
+        return {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT,
+            .pNext = nullptr,
+            .descriptorSet = descriptor_set,
+            .firstBinding = first_binding,
+            .bindingCount = binding_count,
+            .resourceMask = resource_mask,
+            .source = source,
+            .sourceData = {
+                .constantOffset = {
+                    .heapOffset = heap_offset,
+                    .heapArrayStride = heap_array_stride,
+                    .pEmbeddedSampler = nullptr,
+                    .samplerHeapOffset = 0,
+                    .samplerHeapArrayStride = 0,
+                },
+            },
+        };
     }
     /** @brief host wait on a semaphore value array */
     constexpr VkSemaphoreWaitInfo make_semaphore_wait_info(
         uint32_t const semaphore_count, VkSemaphore const* const semaphores,
         uint64_t const* const values, VkSemaphoreWaitFlags const flags = 0) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
-                .pNext = nullptr,
-                .flags = flags,
-                .semaphoreCount = semaphore_count,
-                .pSemaphores = semaphores,
-                .pValues = values};
+        return {
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
+            .pNext = nullptr,
+            .flags = flags,
+            .semaphoreCount = semaphore_count,
+            .pSemaphores = semaphores,
+            .pValues = values,
+        };
     }
     /** @brief one swapchain present call */
     constexpr VkPresentInfoKHR make_present_info(
         uint32_t const wait_count, VkSemaphore const* const waits,
         uint32_t const swapchain_count, VkSwapchainKHR const* const swapchains,
         uint32_t const* const image_indices, VkResult* const results = nullptr) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-                .pNext = nullptr,
-                .waitSemaphoreCount = wait_count,
-                .pWaitSemaphores = waits,
-                .swapchainCount = swapchain_count,
-                .pSwapchains = swapchains,
-                .pImageIndices = image_indices,
-                .pResults = results};
+        return {
+            .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+            .pNext = nullptr,
+            .waitSemaphoreCount = wait_count,
+            .pWaitSemaphores = waits,
+            .swapchainCount = swapchain_count,
+            .pSwapchains = swapchains,
+            .pImageIndices = image_indices,
+            .pResults = results,
+        };
     }
     /** @brief the timeline value arrays attached to a submit */
     constexpr VkTimelineSemaphoreSubmitInfo make_timeline_semaphore_info(
         uint32_t const wait_count, uint64_t const* const wait_values,
         uint32_t const signal_count, uint64_t const* const signal_values) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
-                .pNext = nullptr,
-                .waitSemaphoreValueCount = wait_count,
-                .pWaitSemaphoreValues = wait_values,
-                .signalSemaphoreValueCount = signal_count,
-                .pSignalSemaphoreValues = signal_values};
+        return {
+            .sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
+            .pNext = nullptr,
+            .waitSemaphoreValueCount = wait_count,
+            .pWaitSemaphoreValues = wait_values,
+            .signalSemaphoreValueCount = signal_count,
+            .pSignalSemaphoreValues = signal_values,
+        };
     }
     /** @brief one shader module create info over caller-provided SPIR-V words */
     constexpr VkShaderModuleCreateInfo make_shader_module_info(
         std::size_t const code_size, uint32_t const* const code,
         VkShaderModuleCreateFlags const flags = 0) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-                .pNext = nullptr,
-                .flags = flags,
-                .codeSize = code_size,
-                .pCode = code};
+        return {
+            .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = flags,
+            .codeSize = code_size,
+            .pCode = code,
+        };
     }
 
     // ---- Device query chains (properties / features) ----
@@ -485,7 +553,7 @@ export namespace deren::vulkan {
     // `deren.vulkan.core:init_utils` takes for its property chain: the other fields are the DEVICE's answer,
     // written by the driver, and listing them as zeroes here would be a caller claiming to fill them. The sType
     // and pNext are OURS, and they are the two the type system cannot check.
-#if defined(__clang__)
+#ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
 #endif
@@ -508,7 +576,7 @@ export namespace deren::vulkan {
     constexpr VkPhysicalDeviceMeshShaderFeaturesEXT make_mesh_shader_features() noexcept {
         return {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT, .pNext = nullptr};
     }
-#if defined(__clang__)
+#ifdef __clang__
 #pragma clang diagnostic pop
 #endif
 
@@ -520,11 +588,13 @@ export namespace deren::vulkan {
      * @param level primary or secondary
      */
     constexpr VkCommandBufferAllocateInfo make_command_buffer_allocate_info(VkCommandPool const pool, VkCommandBufferLevel const level) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-                .pNext = nullptr,
-                .commandPool = pool,
-                .level = level,
-                .commandBufferCount = 1};
+        return {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+            .pNext = nullptr,
+            .commandPool = pool,
+            .level = level,
+            .commandBufferCount = 1,
+        };
     }
     /**
      * @brief command buffer begin info
@@ -533,10 +603,12 @@ export namespace deren::vulkan {
      * @param inheritance secondary-buffer inheritance info (nullptr for primary buffers)
      */
     constexpr VkCommandBufferBeginInfo make_command_buffer_begin_info(VkCommandBufferUsageFlags const flags, VkCommandBufferInheritanceInfo const* inheritance) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-                .pNext = nullptr,
-                .flags = flags,
-                .pInheritanceInfo = inheritance};
+        return {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            .pNext = nullptr,
+            .flags = flags,
+            .pInheritanceInfo = inheritance,
+        };
     }
     /**
      * @brief one-shot submit of a command buffer with no semaphores
@@ -544,15 +616,17 @@ export namespace deren::vulkan {
      * @param command_buffer_count number of command buffers to submit (0 for a semaphore-only drain)
      */
     constexpr VkSubmitInfo make_submit_info(VkCommandBuffer const* command_buffers, uint32_t const command_buffer_count = 1) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                .pNext = nullptr,
-                .waitSemaphoreCount = 0,
-                .pWaitSemaphores = nullptr,
-                .pWaitDstStageMask = nullptr,
-                .commandBufferCount = command_buffer_count,
-                .pCommandBuffers = command_buffers,
-                .signalSemaphoreCount = 0,
-                .pSignalSemaphores = nullptr};
+        return {
+            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .pNext = nullptr,
+            .waitSemaphoreCount = 0,
+            .pWaitSemaphores = nullptr,
+            .pWaitDstStageMask = nullptr,
+            .commandBufferCount = command_buffer_count,
+            .pCommandBuffers = command_buffers,
+            .signalSemaphoreCount = 0,
+            .pSignalSemaphores = nullptr,
+        };
     }
 
     // ---- Copy-command infos ----
@@ -582,13 +656,15 @@ export namespace deren::vulkan {
      * @param depth copied depth in texels
      */
     constexpr VkImageCopy2 make_image_copy_2(VkImageSubresourceLayers const src_subresource, std::int32_t const src_x, std::int32_t const src_y, std::int32_t const src_z, VkImageSubresourceLayers const dst_subresource, std::int32_t const dst_x, std::int32_t const dst_y, std::int32_t const dst_z, std::uint32_t const width, std::uint32_t const height, std::uint32_t const depth) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_IMAGE_COPY_2,
-                .pNext = nullptr,
-                .srcSubresource = src_subresource,
-                .srcOffset = {src_x, src_y, src_z},
-                .dstSubresource = dst_subresource,
-                .dstOffset = {dst_x, dst_y, dst_z},
-                .extent = {width, height, depth}};
+        return {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_COPY_2,
+            .pNext = nullptr,
+            .srcSubresource = src_subresource,
+            .srcOffset = {src_x, src_y, src_z},
+            .dstSubresource = dst_subresource,
+            .dstOffset = {dst_x, dst_y, dst_z},
+            .extent = {width, height, depth},
+        };
     }
     /**
      * @brief one vkCmdCopyImage2 call
@@ -600,14 +676,16 @@ export namespace deren::vulkan {
      * @param regions caller-provided image-copy array
      */
     constexpr VkCopyImageInfo2 make_copy_image_info_2(VkImage const src_image, VkImageLayout const src_layout, VkImage const dst_image, VkImageLayout const dst_layout, uint32_t const region_count, VkImageCopy2 const* regions) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_COPY_IMAGE_INFO_2,
-                .pNext = nullptr,
-                .srcImage = src_image,
-                .srcImageLayout = src_layout,
-                .dstImage = dst_image,
-                .dstImageLayout = dst_layout,
-                .regionCount = region_count,
-                .pRegions = regions};
+        return {
+            .sType = VK_STRUCTURE_TYPE_COPY_IMAGE_INFO_2,
+            .pNext = nullptr,
+            .srcImage = src_image,
+            .srcImageLayout = src_layout,
+            .dstImage = dst_image,
+            .dstImageLayout = dst_layout,
+            .regionCount = region_count,
+            .pRegions = regions,
+        };
     }
     /**
      * @brief one vkCmdCopyBuffer2 region
@@ -626,12 +704,14 @@ export namespace deren::vulkan {
      * @param regions caller-provided buffer-copy array
      */
     constexpr VkCopyBufferInfo2 make_copy_buffer_info_2(VkBuffer const src_buffer, VkBuffer const dst_buffer, uint32_t const region_count, VkBufferCopy2 const* regions) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2,
-                .pNext = nullptr,
-                .srcBuffer = src_buffer,
-                .dstBuffer = dst_buffer,
-                .regionCount = region_count,
-                .pRegions = regions};
+        return {
+            .sType = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2,
+            .pNext = nullptr,
+            .srcBuffer = src_buffer,
+            .dstBuffer = dst_buffer,
+            .regionCount = region_count,
+            .pRegions = regions,
+        };
     }
 
     // ---- Secondary-command-buffer inheritance (dynamic rendering 1.3) ----
@@ -642,14 +722,16 @@ export namespace deren::vulkan {
      * @param p_next points at the VkCommandBufferInheritanceRenderingInfo (caller-provided)
      */
     constexpr VkCommandBufferInheritanceInfo make_inheritance_info(void const* p_next) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO,
-                .pNext = p_next,
-                .renderPass = VK_NULL_HANDLE,
-                .subpass = 0,
-                .framebuffer = VK_NULL_HANDLE,
-                .occlusionQueryEnable = VK_FALSE,
-                .queryFlags = 0,
-                .pipelineStatistics = 0};
+        return {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO,
+            .pNext = p_next,
+            .renderPass = VK_NULL_HANDLE,
+            .subpass = 0,
+            .framebuffer = VK_NULL_HANDLE,
+            .occlusionQueryEnable = VK_FALSE,
+            .queryFlags = 0,
+            .pipelineStatistics = 0,
+        };
     }
     /**
      * @brief dynamic-rendering inheritance: which attachments a secondary may assume
@@ -660,15 +742,17 @@ export namespace deren::vulkan {
      * @param rasterization_samples the instance's sample count (always 1 in this engine)
      */
     constexpr VkCommandBufferInheritanceRenderingInfo make_inheritance_rendering_info(bool const has_color_attachment, VkFormat const* color_format_ptr, VkFormat const depth_format, VkSampleCountFlagBits const rasterization_samples) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_RENDERING_INFO,
-                .pNext = nullptr,
-                .flags = 0,
-                .viewMask = 0,
-                .colorAttachmentCount = has_color_attachment ? 1u : 0u,
-                .pColorAttachmentFormats = has_color_attachment ? color_format_ptr : nullptr,
-                .depthAttachmentFormat = depth_format,
-                .stencilAttachmentFormat = VK_FORMAT_UNDEFINED,
-                .rasterizationSamples = rasterization_samples};
+        return {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_RENDERING_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .viewMask = 0,
+            .colorAttachmentCount = has_color_attachment ? 1u : 0u,
+            .pColorAttachmentFormats = has_color_attachment ? color_format_ptr : nullptr,
+            .depthAttachmentFormat = depth_format,
+            .stencilAttachmentFormat = VK_FORMAT_UNDEFINED,
+            .rasterizationSamples = rasterization_samples,
+        };
     }
     /**
      * @brief dynamic-rendering inheritance with N color attachments: a secondary recorded for a
@@ -679,15 +763,17 @@ export namespace deren::vulkan {
      * @param rasterization_samples the instance's sample count (always 1 in this engine)
      */
     constexpr VkCommandBufferInheritanceRenderingInfo make_inheritance_rendering_info(VkFormat const* color_formats, uint32_t const color_count, VkFormat const depth_format, VkSampleCountFlagBits const rasterization_samples) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_RENDERING_INFO,
-                .pNext = nullptr,
-                .flags = 0,
-                .viewMask = 0,
-                .colorAttachmentCount = color_count,
-                .pColorAttachmentFormats = color_count > 0 ? color_formats : nullptr,
-                .depthAttachmentFormat = depth_format,
-                .stencilAttachmentFormat = VK_FORMAT_UNDEFINED,
-                .rasterizationSamples = rasterization_samples};
+        return {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_RENDERING_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .viewMask = 0,
+            .colorAttachmentCount = color_count,
+            .pColorAttachmentFormats = color_count > 0 ? color_formats : nullptr,
+            .depthAttachmentFormat = depth_format,
+            .stencilAttachmentFormat = VK_FORMAT_UNDEFINED,
+            .rasterizationSamples = rasterization_samples,
+        };
     }
     /**
      * @brief one barrier pass with any mix of memory, buffer, and image barriers
@@ -699,15 +785,17 @@ export namespace deren::vulkan {
      * @param memories caller-provided memory barrier array
      */
     constexpr VkDependencyInfo make_dependency_info(uint32_t const image_count, VkImageMemoryBarrier2 const* images, uint32_t const buffer_count, VkBufferMemoryBarrier2 const* buffers, uint32_t const memory_count = 0, VkMemoryBarrier2 const* memories = nullptr) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-                .pNext = nullptr,
-                .dependencyFlags = 0,
-                .memoryBarrierCount = memory_count,
-                .pMemoryBarriers = memories,
-                .bufferMemoryBarrierCount = buffer_count,
-                .pBufferMemoryBarriers = buffers,
-                .imageMemoryBarrierCount = image_count,
-                .pImageMemoryBarriers = images};
+        return {
+            .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+            .pNext = nullptr,
+            .dependencyFlags = 0,
+            .memoryBarrierCount = memory_count,
+            .pMemoryBarriers = memories,
+            .bufferMemoryBarrierCount = buffer_count,
+            .pBufferMemoryBarriers = buffers,
+            .imageMemoryBarrierCount = image_count,
+            .pImageMemoryBarriers = images,
+        };
     }
     /**
      * @brief one barrier pass: VkDependencyInfo with only image memory barriers
@@ -733,16 +821,18 @@ export namespace deren::vulkan {
      */
     constexpr VkRenderingAttachmentInfo make_attachment_info(VkImageView const image_view, VkImageLayout const image_layout, VkAttachmentLoadOp const load_op, VkAttachmentStoreOp const store_op, VkClearValue const clear_value, VkResolveModeFlagBits const resolve_mode = VK_RESOLVE_MODE_NONE,
                                                              VkImageView const resolve_image_view = VK_NULL_HANDLE) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-                .pNext = nullptr,
-                .imageView = image_view,
-                .imageLayout = image_layout,
-                .resolveMode = resolve_mode,
-                .resolveImageView = resolve_image_view,
-                .resolveImageLayout = resolve_mode == VK_RESOLVE_MODE_NONE ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL,
-                .loadOp = load_op,
-                .storeOp = store_op,
-                .clearValue = clear_value};
+        return {
+            .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+            .pNext = nullptr,
+            .imageView = image_view,
+            .imageLayout = image_layout,
+            .resolveMode = resolve_mode,
+            .resolveImageView = resolve_image_view,
+            .resolveImageLayout = resolve_mode == VK_RESOLVE_MODE_NONE ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL,
+            .loadOp = load_op,
+            .storeOp = store_op,
+            .clearValue = clear_value,
+        };
     }
 
     /**
@@ -754,18 +844,19 @@ export namespace deren::vulkan {
      *        a later pass in the same submission samples
      */
     constexpr VkRenderingAttachmentInfo make_depth_attachment_info(VkImageView const image_view, VkAttachmentStoreOp const store_op) noexcept {
-        VkClearValue clear_value = {};
-        clear_value.depthStencil = {1.0f, 0};
-        return {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-                .pNext = nullptr,
-                .imageView = image_view,
-                .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
-                .resolveMode = VK_RESOLVE_MODE_NONE,
-                .resolveImageView = VK_NULL_HANDLE,
-                .resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-                .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-                .storeOp = store_op,
-                .clearValue = clear_value};
+        VkClearValue clear_value = {.depthStencil = {.depth = 1.0f, .stencil = 0}};
+        return {
+            .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+            .pNext = nullptr,
+            .imageView = image_view,
+            .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
+            .resolveMode = VK_RESOLVE_MODE_NONE,
+            .resolveImageView = VK_NULL_HANDLE,
+            .resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = store_op,
+            .clearValue = clear_value,
+        };
     }
     /**
      * @brief depth attachment of an instance that CONTINUES an existing depth buffer: loadOp LOAD,
@@ -776,16 +867,18 @@ export namespace deren::vulkan {
      *       record of where the opaque geometry is)
      */
     constexpr VkRenderingAttachmentInfo make_load_depth_attachment_info(VkImageView const image_view) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-                .pNext = nullptr,
-                .imageView = image_view,
-                .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
-                .resolveMode = VK_RESOLVE_MODE_NONE,
-                .resolveImageView = VK_NULL_HANDLE,
-                .resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-                .loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
-                .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-                .clearValue = {}};
+        return {
+            .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+            .pNext = nullptr,
+            .imageView = image_view,
+            .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
+            .resolveMode = VK_RESOLVE_MODE_NONE,
+            .resolveImageView = VK_NULL_HANDLE,
+            .resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
+            .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+            .clearValue = {},
+        };
     }
     /**
      * @brief color attachment of a rendering instance: GENERAL layout,
@@ -799,16 +892,18 @@ export namespace deren::vulkan {
      *        PRESENT_SRC_KHR only after vkCmdEndRendering
      */
     constexpr VkRenderingAttachmentInfo make_color_attachment_info(VkImageView const image_view, VkClearValue const clear_value, VkResolveModeFlagBits const resolve_mode, VkImageView const resolve_image_view) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-                .pNext = nullptr,
-                .imageView = image_view,
-                .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
-                .resolveMode = resolve_mode,
-                .resolveImageView = resolve_image_view,
-                .resolveImageLayout = resolve_mode == VK_RESOLVE_MODE_NONE ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL,
-                .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-                .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-                .clearValue = clear_value};
+        return {
+            .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+            .pNext = nullptr,
+            .imageView = image_view,
+            .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
+            .resolveMode = resolve_mode,
+            .resolveImageView = resolve_image_view,
+            .resolveImageLayout = resolve_mode == VK_RESOLVE_MODE_NONE ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL,
+            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+            .clearValue = clear_value,
+        };
     }
     /**
      * @brief color attachment of a rendering instance that LOADS the image's existing contents
@@ -819,16 +914,18 @@ export namespace deren::vulkan {
      */
     constexpr VkRenderingAttachmentInfo make_load_color_attachment_info(VkImageView const image_view) noexcept {
         VkClearValue clear_value = {};
-        return {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-                .pNext = nullptr,
-                .imageView = image_view,
-                .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
-                .resolveMode = VK_RESOLVE_MODE_NONE,
-                .resolveImageView = VK_NULL_HANDLE,
-                .resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-                .loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
-                .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-                .clearValue = clear_value};
+        return {
+            .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+            .pNext = nullptr,
+            .imageView = image_view,
+            .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
+            .resolveMode = VK_RESOLVE_MODE_NONE,
+            .resolveImageView = VK_NULL_HANDLE,
+            .resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
+            .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+            .clearValue = clear_value,
+        };
     }
     /**
      * @brief dynamic-rendering instance: one layer, at most one color attachment
@@ -839,16 +936,18 @@ export namespace deren::vulkan {
      * @param depth_attachment the depth attachment, or nullptr
      */
     constexpr VkRenderingInfo make_rendering_info(VkRenderingFlags const flags, VkRect2D const render_area, bool const has_color_attachment, VkRenderingAttachmentInfo const* color_attachments, VkRenderingAttachmentInfo const* depth_attachment) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
-                .pNext = nullptr,
-                .flags = flags,
-                .renderArea = render_area,
-                .layerCount = 1,
-                .viewMask = 0,
-                .colorAttachmentCount = has_color_attachment ? 1u : 0u,
-                .pColorAttachments = has_color_attachment ? color_attachments : nullptr,
-                .pDepthAttachment = depth_attachment,
-                .pStencilAttachment = nullptr};
+        return {
+            .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+            .pNext = nullptr,
+            .flags = flags,
+            .renderArea = render_area,
+            .layerCount = 1,
+            .viewMask = 0,
+            .colorAttachmentCount = has_color_attachment ? 1u : 0u,
+            .pColorAttachments = has_color_attachment ? color_attachments : nullptr,
+            .pDepthAttachment = depth_attachment,
+            .pStencilAttachment = nullptr,
+        };
     }
     /**
      * @brief dynamic-rendering instance with N color attachments (the G-buffer pass writes three:
@@ -863,55 +962,65 @@ export namespace deren::vulkan {
      * @param layer_count number of layers rendered to (1 unless a multiview pass)
      */
     constexpr VkRenderingInfo make_rendering_info(VkRenderingFlags const flags, VkRect2D const render_area, VkRenderingAttachmentInfo const* color_attachments, uint32_t const color_count, VkRenderingAttachmentInfo const* depth_attachment, uint32_t const layer_count = 1) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
-                .pNext = nullptr,
-                .flags = flags,
-                .renderArea = render_area,
-                .layerCount = layer_count,
-                .viewMask = 0,
-                .colorAttachmentCount = color_count,
-                .pColorAttachments = color_count > 0 ? color_attachments : nullptr,
-                .pDepthAttachment = depth_attachment,
-                .pStencilAttachment = nullptr};
+        return {
+            .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+            .pNext = nullptr,
+            .flags = flags,
+            .renderArea = render_area,
+            .layerCount = layer_count,
+            .viewMask = 0,
+            .colorAttachmentCount = color_count,
+            .pColorAttachments = color_count > 0 ? color_attachments : nullptr,
+            .pDepthAttachment = depth_attachment,
+            .pStencilAttachment = nullptr,
+        };
     }
 
     // ---- Fixed-function pipeline state (engine-wide conventions) ----
 
     /** @brief one shader stage of a graphics pipeline (entry point "main", no specialization) */
     constexpr VkPipelineShaderStageCreateInfo make_shader_stage(VkShaderModule const module, VkShaderStageFlagBits const stage) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                .pNext = nullptr,
-                .flags = 0,
-                .stage = stage,
-                .module = module,
-                .pName = "main",
-                .pSpecializationInfo = nullptr};
+        return {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .stage = stage,
+            .module = module,
+            .pName = "main",
+            .pSpecializationInfo = nullptr,
+        };
     }
     /** @brief triangle-list input assembly */
     constexpr VkPipelineInputAssemblyStateCreateInfo make_input_assembly_state() noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-                .pNext = nullptr,
-                .flags = 0,
-                .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-                .primitiveRestartEnable = VK_FALSE};
+        return {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+            .primitiveRestartEnable = VK_FALSE,
+        };
     }
     /** @brief viewport/scissor are dynamic state: only the counts are static */
     constexpr VkPipelineViewportStateCreateInfo make_viewport_state() noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
-                .pNext = nullptr,
-                .flags = 0,
-                .viewportCount = 1,
-                .pViewports = nullptr,
-                .scissorCount = 1,
-                .pScissors = nullptr};
+        return {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .viewportCount = 1,
+            .pViewports = nullptr,
+            .scissorCount = 1,
+            .pScissors = nullptr,
+        };
     }
     /** @brief dynamic state list (caller-provided array) */
     constexpr VkPipelineDynamicStateCreateInfo make_dynamic_state(VkDynamicState const* states, uint32_t const count) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-                .pNext = nullptr,
-                .flags = 0,
-                .dynamicStateCount = count,
-                .pDynamicStates = states};
+        return {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .dynamicStateCount = count,
+            .pDynamicStates = states,
+        };
     }
     /**
      * @brief fill rasterization, back-face cull, CCW front face, optional slope-scaled depth bias
@@ -922,19 +1031,21 @@ export namespace deren::vulkan {
      * @param depth_bias_clamp depth bias clamp, 0 disables clamping
      */
     constexpr VkPipelineRasterizationStateCreateInfo make_rasterization_state(bool const depth_bias_enabled, float const depth_bias_constant_factor, float const depth_bias_slope_factor, float const depth_bias_clamp) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-                .pNext = nullptr,
-                .flags = 0,
-                .depthClampEnable = VK_FALSE,
-                .rasterizerDiscardEnable = VK_FALSE,
-                .polygonMode = VK_POLYGON_MODE_FILL,
-                .cullMode = VK_CULL_MODE_BACK_BIT,
-                .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
-                .depthBiasEnable = depth_bias_enabled ? VK_TRUE : VK_FALSE,
-                .depthBiasConstantFactor = depth_bias_constant_factor,
-                .depthBiasClamp = depth_bias_clamp,
-                .depthBiasSlopeFactor = depth_bias_slope_factor,
-                .lineWidth = 1.0f};
+        return {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .depthClampEnable = VK_FALSE,
+            .rasterizerDiscardEnable = VK_FALSE,
+            .polygonMode = VK_POLYGON_MODE_FILL,
+            .cullMode = VK_CULL_MODE_BACK_BIT,
+            .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+            .depthBiasEnable = depth_bias_enabled ? VK_TRUE : VK_FALSE,
+            .depthBiasConstantFactor = depth_bias_constant_factor,
+            .depthBiasClamp = depth_bias_clamp,
+            .depthBiasSlopeFactor = depth_bias_slope_factor,
+            .lineWidth = 1.0f,
+        };
     }
     /**
      * @brief depth test + write, with the COMPARE OPERATOR chosen by the caller
@@ -950,18 +1061,20 @@ export namespace deren::vulkan {
      *        happen to be in front of the recorded depth, which is not a surface it was asked to draw.
      */
     constexpr VkPipelineDepthStencilStateCreateInfo make_depth_stencil_state(bool const depth_test_enabled, VkCompareOp const depth_compare_op) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
-                .pNext = nullptr,
-                .flags = 0,
-                .depthTestEnable = depth_test_enabled ? VK_TRUE : VK_FALSE,
-                .depthWriteEnable = depth_test_enabled ? VK_TRUE : VK_FALSE,
-                .depthCompareOp = depth_compare_op,
-                .depthBoundsTestEnable = VK_FALSE,
-                .stencilTestEnable = VK_FALSE,
-                .front = {},
-                .back = {},
-                .minDepthBounds = 0.0f,
-                .maxDepthBounds = 0.0f};
+        return {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .depthTestEnable = depth_test_enabled ? VK_TRUE : VK_FALSE,
+            .depthWriteEnable = depth_test_enabled ? VK_TRUE : VK_FALSE,
+            .depthCompareOp = depth_compare_op,
+            .depthBoundsTestEnable = VK_FALSE,
+            .stencilTestEnable = VK_FALSE,
+            .front = {},
+            .back = {},
+            .minDepthBounds = 0.0f,
+            .maxDepthBounds = 0.0f,
+        };
     }
     /**
      * @brief depth test + write (disabled for background passes such as the skybox, which draw
@@ -981,14 +1094,16 @@ export namespace deren::vulkan {
      *        pipeline needed.
      */
     constexpr VkPipelineColorBlendAttachmentState make_color_blend_attachment() noexcept {
-        return {.blendEnable = VK_TRUE,
-                .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
-                .dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-                .colorBlendOp = VK_BLEND_OP_ADD,
-                .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
-                .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-                .alphaBlendOp = VK_BLEND_OP_ADD,
-                .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT};
+        return {
+            .blendEnable = VK_TRUE,
+            .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
+            .dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+            .colorBlendOp = VK_BLEND_OP_ADD,
+            .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+            .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+            .alphaBlendOp = VK_BLEND_OP_ADD,
+            .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+        };
     }
     /**
      * @brief blend state for a target that is OVERWRITTEN instead of blended (a G-buffer
@@ -1002,14 +1117,16 @@ export namespace deren::vulkan {
      *       while the normal target (alpha = roughness, rarely 0) survived but was dimmed by it.
      */
     constexpr VkPipelineColorBlendAttachmentState make_color_blend_attachment_opaque() noexcept {
-        return {.blendEnable = VK_FALSE,
-                .srcColorBlendFactor = VK_BLEND_FACTOR_ONE,
-                .dstColorBlendFactor = VK_BLEND_FACTOR_ZERO,
-                .colorBlendOp = VK_BLEND_OP_ADD,
-                .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
-                .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
-                .alphaBlendOp = VK_BLEND_OP_ADD,
-                .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT};
+        return {
+            .blendEnable = VK_FALSE,
+            .srcColorBlendFactor = VK_BLEND_FACTOR_ONE,
+            .dstColorBlendFactor = VK_BLEND_FACTOR_ZERO,
+            .colorBlendOp = VK_BLEND_OP_ADD,
+            .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+            .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+            .alphaBlendOp = VK_BLEND_OP_ADD,
+            .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+        };
     }
     /**
      * @brief blend state for a target that is ACCUMULATED INTO (src + dst): the G-buffer pass's
@@ -1019,14 +1136,16 @@ export namespace deren::vulkan {
      *       background pass already wrote, and a pixel with no geometry contributes exactly 0
      */
     constexpr VkPipelineColorBlendAttachmentState make_color_blend_attachment_additive() noexcept {
-        return {.blendEnable = VK_TRUE,
-                .srcColorBlendFactor = VK_BLEND_FACTOR_ONE,
-                .dstColorBlendFactor = VK_BLEND_FACTOR_ONE,
-                .colorBlendOp = VK_BLEND_OP_ADD,
-                .srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
-                .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
-                .alphaBlendOp = VK_BLEND_OP_ADD,
-                .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT};
+        return {
+            .blendEnable = VK_TRUE,
+            .srcColorBlendFactor = VK_BLEND_FACTOR_ONE,
+            .dstColorBlendFactor = VK_BLEND_FACTOR_ONE,
+            .colorBlendOp = VK_BLEND_OP_ADD,
+            .srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+            .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+            .alphaBlendOp = VK_BLEND_OP_ADD,
+            .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+        };
     }
     /**
      * @brief blend state for a target that is MULTIPLIED INTO (`dst = src * dst`): the article's two overlay
@@ -1054,28 +1173,33 @@ export namespace deren::vulkan {
      *       rectangle instead of a shadow
      */
     constexpr VkPipelineColorBlendAttachmentState make_color_blend_attachment_multiply() noexcept {
-        return {.blendEnable = VK_TRUE,
-                .srcColorBlendFactor = VK_BLEND_FACTOR_DST_COLOR,
-                .dstColorBlendFactor = VK_BLEND_FACTOR_ZERO,
-                .colorBlendOp = VK_BLEND_OP_ADD,
-                .srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
-                .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
-                .alphaBlendOp = VK_BLEND_OP_ADD,
-                .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT};
+        return {
+            .blendEnable = VK_TRUE,
+            .srcColorBlendFactor = VK_BLEND_FACTOR_DST_COLOR,
+            .dstColorBlendFactor = VK_BLEND_FACTOR_ZERO,
+            .colorBlendOp = VK_BLEND_OP_ADD,
+            .srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+            .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+            .alphaBlendOp = VK_BLEND_OP_ADD,
+            .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+        };
     }
     /**
      * @brief blend state for one attachment; depth-only pipelines have no color attachment
+     * @param has_color_attachment
      * @param attachment caller-provided blend attachment (ignored when has_color_attachment false)
      */
     constexpr VkPipelineColorBlendStateCreateInfo make_color_blend_state(bool const has_color_attachment, VkPipelineColorBlendAttachmentState const* attachment) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-                .pNext = nullptr,
-                .flags = 0,
-                .logicOpEnable = VK_FALSE,
-                .logicOp = VK_LOGIC_OP_COPY,
-                .attachmentCount = has_color_attachment ? 1u : 0u,
-                .pAttachments = has_color_attachment ? attachment : nullptr,
-                .blendConstants = {1.0f, 1.0f, 1.0f, 1.0f}};
+        return {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .logicOpEnable = VK_FALSE,
+            .logicOp = VK_LOGIC_OP_COPY,
+            .attachmentCount = has_color_attachment ? 1u : 0u,
+            .pAttachments = has_color_attachment ? attachment : nullptr,
+            .blendConstants = {1.0f, 1.0f, 1.0f, 1.0f},
+        };
     }
     /**
      * @brief blend state with N attachments, same blend constants
@@ -1083,41 +1207,48 @@ export namespace deren::vulkan {
      * @param count number of attachments (0 for a depth-only pipeline)
      */
     constexpr VkPipelineColorBlendStateCreateInfo make_color_blend_state(VkPipelineColorBlendAttachmentState const* attachments, uint32_t const count) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-                .pNext = nullptr,
-                .flags = 0,
-                .logicOpEnable = VK_FALSE,
-                .logicOp = VK_LOGIC_OP_COPY,
-                .attachmentCount = count,
-                .pAttachments = count > 0 ? attachments : nullptr,
-                .blendConstants = {1.0f, 1.0f, 1.0f, 1.0f}};
+        return {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .logicOpEnable = VK_FALSE,
+            .logicOp = VK_LOGIC_OP_COPY,
+            .attachmentCount = count,
+            .pAttachments = count > 0 ? attachments : nullptr,
+            .blendConstants = {1.0f, 1.0f, 1.0f, 1.0f},
+        };
     }
     /** @brief multisample state (rasterizationSamples is the instance's sample count) */
     constexpr VkPipelineMultisampleStateCreateInfo make_multisample_state(VkSampleCountFlagBits const samples) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-                .pNext = nullptr,
-                .flags = 0,
-                .rasterizationSamples = samples,
-                .sampleShadingEnable = VK_FALSE,
-                .minSampleShading = 0.0f,
-                .pSampleMask = nullptr,
-                .alphaToCoverageEnable = VK_FALSE,
-                .alphaToOneEnable = VK_FALSE};
+        return {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .rasterizationSamples = samples,
+            .sampleShadingEnable = VK_FALSE,
+            .minSampleShading = 0.0f,
+            .pSampleMask = nullptr,
+            .alphaToCoverageEnable = VK_FALSE,
+            .alphaToOneEnable = VK_FALSE,
+        };
     }
     /**
      * @brief dynamic-rendering attachment declaration (replaces render pass + subpass)
+     * @param has_color_attachment
      * @param color_format_ptr pointer to the caller's color format: the returned info stores
      *        that pointer, so it must outlive the struct
      * @param depth_format the depth attachment format (VK_FORMAT_UNDEFINED for depth-only)
      */
     constexpr VkPipelineRenderingCreateInfo make_rendering_create_info(bool const has_color_attachment, VkFormat const* color_format_ptr, VkFormat const depth_format) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
-                .pNext = nullptr,
-                .viewMask = 0,
-                .colorAttachmentCount = has_color_attachment ? 1u : 0u,
-                .pColorAttachmentFormats = has_color_attachment ? color_format_ptr : nullptr,
-                .depthAttachmentFormat = depth_format,
-                .stencilAttachmentFormat = VK_FORMAT_UNDEFINED};
+        return {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+            .pNext = nullptr,
+            .viewMask = 0,
+            .colorAttachmentCount = has_color_attachment ? 1u : 0u,
+            .pColorAttachmentFormats = has_color_attachment ? color_format_ptr : nullptr,
+            .depthAttachmentFormat = depth_format,
+            .stencilAttachmentFormat = VK_FORMAT_UNDEFINED,
+        };
     }
     /**
      * @brief dynamic-rendering attachment declaration for an N-target pipeline (the G-buffer
@@ -1128,13 +1259,15 @@ export namespace deren::vulkan {
      * @param depth_format the depth attachment format (VK_FORMAT_UNDEFINED if none)
      */
     constexpr VkPipelineRenderingCreateInfo make_rendering_create_info(VkFormat const* color_formats, uint32_t const color_count, VkFormat const depth_format) noexcept {
-        return {.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
-                .pNext = nullptr,
-                .viewMask = 0,
-                .colorAttachmentCount = color_count,
-                .pColorAttachmentFormats = color_count > 0 ? color_formats : nullptr,
-                .depthAttachmentFormat = depth_format,
-                .stencilAttachmentFormat = VK_FORMAT_UNDEFINED};
+        return {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+            .pNext = nullptr,
+            .viewMask = 0,
+            .colorAttachmentCount = color_count,
+            .pColorAttachmentFormats = color_count > 0 ? color_formats : nullptr,
+            .depthAttachmentFormat = depth_format,
+            .stencilAttachmentFormat = VK_FORMAT_UNDEFINED,
+        };
     }
 
     // ---- Per-frame image layout transitions (constinit defaults) ----

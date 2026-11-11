@@ -1,4 +1,4 @@
-#include "../backends/vulkan/core/vma/resource_memory_tracker.h"
+import deren.vulkan.core.vma.resource_memory_tracker;
 #include "vk_test.h"
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>

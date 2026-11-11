@@ -21,15 +21,27 @@ namespace deren::engine::subtilis {
         // encoded bytes and a group is 48 (36 used, 12 required zero padding); the engine structs are
         // 56 and 36 bytes respectively, so copying them would shift every page boundary.
         struct wire_page_cluster {
-            std::uint32_t first_index = 0, index_count = 0, producer = 0, consumer = 0;
-            float center_x = 0, center_y = 0, center_z = 0, radius = 0;
+            [[maybe_unused]] std::uint32_t first_index = 0;
+            [[maybe_unused]] std::uint32_t index_count = 0;
+            [[maybe_unused]] std::uint32_t producer = 0;
+            [[maybe_unused]] std::uint32_t consumer = 0;
+            [[maybe_unused]] float center_x = 0;
+            [[maybe_unused]] float center_y = 0;
+            [[maybe_unused]] float center_z = 0;
+            [[maybe_unused]] float radius = 0;
         };
         static_assert(sizeof(wire_page_cluster) == 32u);
         struct wire_page_group {
-            std::uint32_t fine_first = 0, fine_count = 0, coarse_first = 0, coarse_count = 0;
-            float lod_x = 0, lod_y = 0, lod_z = 0, lod_radius = 0;
+            [[maybe_unused]] std::uint32_t fine_first = 0;
+            [[maybe_unused]] std::uint32_t fine_count = 0;
+            [[maybe_unused]] std::uint32_t coarse_first = 0;
+            [[maybe_unused]] std::uint32_t coarse_count = 0;
+            [[maybe_unused]] float lod_x = 0;
+            [[maybe_unused]] float lod_y = 0;
+            [[maybe_unused]] float lod_z = 0;
+            [[maybe_unused]] float lod_radius = 0;
             float error = 0;
-            std::array<std::byte, 12> padding{};
+            [[maybe_unused]] std::array<std::byte, 12> padding{};
         };
         static_assert(sizeof(wire_page_group) == 48u);
         static_assert(offsetof(wire_page_group, error) == 32u);
@@ -127,7 +139,7 @@ namespace deren::engine::subtilis {
 
     double maximum_triangle_edge(meshlet const& record, std::span<std::uint8_t const> vertices,
                                  std::span<std::uint32_t const> indices, std::uint32_t stride) noexcept {
-        double const invalid = std::numeric_limits<double>::infinity();
+        constexpr double invalid = std::numeric_limits<double>::infinity();
         if (stride < 12u || vertices.size() % stride != 0u || record.index_count == 0u || record.index_count % 3u != 0u ||
             static_cast<std::uint64_t>(record.first_index) + record.index_count > indices.size()) {
             return invalid;
@@ -299,17 +311,17 @@ namespace deren::engine::subtilis {
         if (cut_payload) {
             // Small immutable payload read only by the future cut compute stage. storage_coherent
             // (rather than storage_gpu_only) is required by the one-shot initial-data path.
-            auto const storage_flags = upload_rhi::to_bits(upload_rhi::buffer_flag::device_address) |
-                                       upload_rhi::to_bits(upload_rhi::buffer_flag::storage) |
-                                       upload_rhi::to_bits(upload_rhi::buffer_flag::transfer_destination);
+            constexpr auto storage_flags = upload_rhi::to_bits(upload_rhi::buffer_flag::device_address) |
+                                           upload_rhi::to_bits(upload_rhi::buffer_flag::storage) |
+                                           upload_rhi::to_bits(upload_rhi::buffer_flag::transfer_destination);
             append(render_resource::resource_id::scene_cut_groups, std::as_bytes(std::span(cut_payload->groups)), upload_rhi::buffer_usage::storage_coherent, storage_flags, cut_payload);
             append(render_resource::resource_id::scene_cut_references, std::as_bytes(std::span(cut_payload->references)), upload_rhi::buffer_usage::storage_coherent, storage_flags, cut_payload);
             append(render_resource::resource_id::scene_cut_clusters, std::as_bytes(std::span(cut_payload->clusters)), upload_rhi::buffer_usage::storage_coherent, storage_flags, cut_payload);
         }
         if (page_payload) {
-            auto const storage_flags = upload_rhi::to_bits(upload_rhi::buffer_flag::device_address) |
-                                       upload_rhi::to_bits(upload_rhi::buffer_flag::storage) |
-                                       upload_rhi::to_bits(upload_rhi::buffer_flag::transfer_destination);
+            constexpr auto storage_flags = upload_rhi::to_bits(upload_rhi::buffer_flag::device_address) |
+                                           upload_rhi::to_bits(upload_rhi::buffer_flag::storage) |
+                                           upload_rhi::to_bits(upload_rhi::buffer_flag::transfer_destination);
             append(render_resource::resource_id::scene_page_arena, std::as_bytes(std::span(page_pages->initial_bytes)), upload_rhi::buffer_usage::storage_coherent, storage_flags, page_payload);
             append(render_resource::resource_id::scene_page_table, std::as_bytes(std::span(page_payload->table)), upload_rhi::buffer_usage::storage_coherent, storage_flags, page_payload);
             append(render_resource::resource_id::scene_page_requests, page_payload->requests.bytes(), upload_rhi::buffer_usage::storage_coherent, storage_flags, page_payload);
@@ -353,8 +365,8 @@ namespace deren::engine::subtilis {
             namespace sync = upload_rhi::synchronization;
             // Immutable geometry is read by vertex input and the available shader stages.
             // The AS build verb records its own transfer-write -> build-read pre-barrier.
-            auto const readers = sync::stage::vertex_input | sync::stage::vertex_shader | sync::stage::fragment_shader |
-                                 sync::stage::compute_shader | sync::stage::task_shader | sync::stage::mesh_shader | sync::stage::ray_tracing;
+            constexpr auto readers = sync::stage::vertex_input | sync::stage::vertex_shader | sync::stage::fragment_shader |
+                                     sync::stage::compute_shader | sync::stage::task_shader | sync::stage::mesh_shader | sync::stage::ray_tracing;
             auto const supported = static_cast<std::uint32_t>(scopes->supported_stages());
             sync::scope const published{static_cast<sync::stage>(supported & static_cast<std::uint32_t>(readers)), sync::access::read};
             buffer_transfer_service transfers(device);
@@ -392,7 +404,7 @@ namespace deren::engine::subtilis {
         auto const* edge_mode = std::getenv("DEREN_SOFTWARE_RASTER_EDGE");
         auto const* gpu_mode = std::getenv("DEREN_SOFTWARE_RASTER_GPU");
         if ((edge_mode && std::string_view(edge_mode) == "1") || (gpu_mode && std::string_view(gpu_mode) == "1")) {
-            auto append = [&](meshlet const& record) {
+            auto append_edge = [&](meshlet const& record) {
                 edges.push_back({
                     record.first_index,
                     record.index_count,
@@ -403,15 +415,15 @@ namespace deren::engine::subtilis {
             if (auto const* dag = source->hierarchy_dag()) {
                 edges.reserve(dag->clusters().size());
                 for (auto const& c : dag->clusters()) {
-                    append(c.record);
+                    append_edge(c.record);
                 }
             } else {
                 edges.reserve(source->hierarchy().clusters().size());
                 for (auto const& c : source->hierarchy().clusters()) {
-                    append(c);
+                    append_edge(c);
                 }
             }
-            std::sort(edges.begin(), edges.end(), [](auto const& a, auto const& b) {
+            std::ranges::sort(edges, [](auto const& a, auto const& b) {
                 return std::tuple(a.first_index, a.index_count, a.base_vertex) < std::tuple(b.first_index, b.index_count, b.base_vertex);
             });
         }

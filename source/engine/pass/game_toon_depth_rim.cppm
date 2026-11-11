@@ -35,8 +35,6 @@
 
 module;
 
-#include <cstdint>
-
 export module deren.engine.pass.game_toon_depth_rim;
 export import deren.vstd;
 export import deren.utility.shared;
@@ -81,10 +79,12 @@ export namespace deren::engine::pass {
          * can state it here. `toon_screen_rim_io` lives in `render_resource` because its declaration is shared with
          * the article's rim documentation; this one is not shared with anything.
          */
-        inline static constexpr deren::utility::vessel::array<render_resource::render_target, 1> pass_targets = {{
-            {.resource = resource_id::scene_color, .element = 0},
-        }};
-        inline static constexpr render_resource::pass_io pass_declaration = {
+        static constexpr deren::utility::vessel::array<render_resource::render_target, 1> pass_targets = {
+            {
+                {.resource = resource_id::scene_color, .element = 0},
+            },
+        };
+        static constexpr render_resource::pass_io pass_declaration = {
             .name = "game_toon_depth_rim",
             .bindings = {},
             .targets = pass_targets,
@@ -106,7 +106,7 @@ export namespace deren::engine::pass {
         ///
         /// The graph recorder calls THIS entry and the graph emits the input transitions and the target write;
         /// the pass records no barriers (its sampled inputs are heap slots the graph declares on its behalf).
-        void record_impl(resolved_io const& io);
+        void record_impl(resolved_io const& io) const;
         deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
 
         /// @brief whether the pass built the pipeline it records with (the renderer's gate asks this)
@@ -134,7 +134,7 @@ export namespace deren::engine::pass {
         static constexpr deren::utility::vessel::array<std::string_view, 1> pipeline_names = {"game-toon-depth-rim"};
         // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
         // would duplicate it and hide the override.
-        inline static constexpr deren::engine::pass::behaviour pass_behaviour = {
+        static constexpr deren::engine::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::fullscreen,
             .extent = extent_rule::full, // the contour is drawn at the frame's resolution
             .extent_of = resource_id::none,

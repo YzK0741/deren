@@ -1,7 +1,9 @@
-#pragma once
+module;
 #include <vulkan/vulkan.h>
 
-namespace deren::vulkan::detail {
+export module deren.vulkan.core.vma.upload_sequence;
+
+export namespace deren::vulkan::detail {
     struct upload_result {
         VkResult status;
         bool may_be_pending;
@@ -28,6 +30,6 @@ namespace deren::vulkan::detail {
         if (status != VK_SUCCESS) {
             return {status, status != VK_ERROR_DEVICE_LOST};
         }
-        return {reset(), false};
+        return {.status = reset(), .may_be_pending = false};
     }
 } // namespace deren::vulkan::detail

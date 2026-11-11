@@ -194,14 +194,16 @@ namespace {
             float variance;
             bool visible;
         };
-        deren::utility::vessel::array<probe_case, 6> const cases = {{
-            {"control, well inside", -2.0f, 0.01f, true},
-            {"support crosses the far plane from inside", -99.9f, 1.0f, true},
-            {"entirely beyond the far plane", -101.0f, 0.01f, false},
-            {"support crosses the far plane from outside", -100.2f, 0.01f, true},
-            {"centre exactly on the near plane", -0.1f, 0.01f, false},
-            {"support reaches the near plane", -0.2f, 0.01f, false},
-        }};
+        deren::utility::vessel::array<probe_case, 6> const cases = {
+            {
+                {"control, well inside", -2.0f, 0.01f, true},
+                {"support crosses the far plane from inside", -99.9f, 1.0f, true},
+                {"entirely beyond the far plane", -101.0f, 0.01f, false},
+                {"support crosses the far plane from outside", -100.2f, 0.01f, true},
+                {"centre exactly on the near plane", -0.1f, 0.01f, false},
+                {"support reaches the near plane", -0.2f, 0.01f, false},
+            },
+        };
         for (probe_case const& item : cases) {
             gs::geometry_record g{{0, 0, item.z, 0.5f}, {item.variance, 0, 0, 0}, {item.variance, 0, item.variance, 0}};
             auto const p = gs::project_splat(g, glm::mat4{1}, c);

@@ -4,7 +4,6 @@ module;
 #include <cmath>     // std::sin / std::cos in the orbit camera maths
 #include <cstddef>
 #include <cstdint>
-#include <cstdio>
 #include <cstring>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -176,13 +175,12 @@ namespace deren::engine {
         [[maybe_unused]] bool const pushed = env.push_at(env.push_source, env.target, env.mesh_geometry_push_offset, std::span<std::byte const>(payload.data(), bytes));
     }
 
-    void primitive::mesh_dispatch(render_environment const& env, primitive const& geometry, uint32_t const index_count, uint32_t const instance_count, uint32_t const survivors) const {
+    void primitive::mesh_dispatch(render_environment const& env, primitive const& geometry, uint32_t const index_count, uint32_t const instance_count, uint32_t const survivors) {
         // ---- the dispatch: one workgroup per `mesh_triangles_per_workgroup` triangles of THIS draw ----
         // The workgroup budget is the shader's (see source/shaders/geometry/mesh_geometry.slang: 85 triangles, 255 vertices,
         // because a triangle costs three of the device's 256 output vertices), and the group count has to cover
         // the window: the separate stage itself decides how many 85 triangles are real, which is what makes a
         // window that is not a multiple of 85 work without a second command.
-        constexpr uint32_t triangles_per_workgroup = 85u;
         uint32_t const triangles = index_count / 3u;
         // A MESHLET SESSION DISPATCHES ONE WORKGROUP PER MESHLET: each one reads its window out of the table and
         // emits the whole meshlet, so the group count is the primitive's run - not a slice of a triangle count. A
@@ -190,6 +188,7 @@ namespace deren::engine {
         // meshlet the frustum rejected costs no workgroup at all (docs/mesh_shaders.md step 3).
         uint32_t groups = survivors;
         if (survivors == not_culled) {
+            constexpr uint32_t triangles_per_workgroup = 85u;
             groups = env.meshlets ? geometry.meshlet_count : (triangles + triangles_per_workgroup - 1u) / triangles_per_workgroup;
         }
         if (groups != 0u && static_cast<bool>(env.target)) {
@@ -376,7 +375,7 @@ namespace deren::engine {
         glm::vec3 const directions[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
         glm::vec3 const up[6] = {{0, 1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}, {0, 1, 0}, {0, 1, 0}};
         camera_ubo result{};
-        if (face >= 6 || !(near_plane > 0 && far_plane > near_plane) || !std::isfinite(far_plane)) {
+        if (face >= 6 || near_plane <= 0 || far_plane <= near_plane || !std::isfinite(far_plane)) {
             result.view = result.proj = result.view_proj_unjittered = result.prev_view_proj = glm::mat4(1);
             return result;
         }
@@ -405,7 +404,7 @@ namespace deren::engine {
         // the subject changes its apparent SIZE, so the arrow keys read as a zoom rather than as an up/down
         // slide. World up keeps the two gestures distinct at every pitch; y is exactly 0 unless UP/DOWN is
         // held, which is also what keeps the horizontal keys' output byte-identical to the first cut's.
-        glm::vec3 const up(0.0f, 1.0f, 0.0f);
+        constexpr glm::vec3 up(0.0f, 1.0f, 0.0f);
 
         // Normalize the two axes TOGETHER: a diagonal press must not move sqrt(2) times faster than a
         // straight one (the two axes are orthogonal, so this is sqrt(strafe^2 + rise^2)). No key held is

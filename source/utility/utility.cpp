@@ -26,10 +26,10 @@ std::optional<uint64_t> deren::utility::enable_handle_distribute::distribute() n
         auto const it = recycled_handles.begin();
         uint64_t handle = *it;
         recycled_handles.erase(it);
-        return handle;
+        return handle; // NOLINT
     }
     if (this->handle_upper_bound < UINT64_MAX) {
-        return this->handle_upper_bound++;
+        return this->handle_upper_bound++; // NOLINT
     }
     return std::nullopt;
 }
@@ -194,7 +194,7 @@ namespace {
             : out(out) {
         }
 
-        void write(char const* const data, std::size_t const size) {
+        void write(char const* const data, std::size_t const size) { // NOLINT
             for (std::size_t i = 0; i < size; ++i) {
                 crc = crc32_update(crc, static_cast<uint8_t>(data[i]));
             }
@@ -276,7 +276,7 @@ std::expected<void, deren::utility::vessel::string> deren::utility::write_png(st
     ihdr.reserve(13);
     struct vector_sink {
         deren::utility::vessel::vector<uint8_t>& out;
-        void write(char const* data, std::size_t size) {
+        void write(char const* data, std::size_t size) const {
             out.insert(out.end(), data, data + size);
         }
     };

@@ -98,8 +98,16 @@ int main() {
     stream.clear();
 
     // Push bytes are copied; partial overlaps must preserve the earlier non-overwritten bytes.
-    std::array bytes{std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4},
-                     std::byte{5}, std::byte{6}, std::byte{7}, std::byte{8}};
+    std::array bytes{
+        std::byte{1},
+        std::byte{2},
+        std::byte{3},
+        std::byte{4},
+        std::byte{5},
+        std::byte{6},
+        std::byte{7},
+        std::byte{8},
+    };
     stream.append<rec::operation_kind::push>({0}, bytes);
     bytes.fill(std::byte{9});
     stream.append<rec::operation_kind::push>({4}, std::span(bytes).first(4));

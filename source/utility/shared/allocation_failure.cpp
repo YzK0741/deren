@@ -5,10 +5,10 @@
 
 #include <atomic>
 #include <cstdlib>
-#if defined(DEREN_MEMORY_TESTING)
+#ifdef DEREN_MEMORY_TESTING
 #include "memory_test_hooks.hpp"
 #endif
-#if defined(_WIN32)
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
@@ -49,7 +49,7 @@ namespace deren::utility::memory::detail {
             append(" alignment=");
             number(alignment);
             append("\n");
-#if defined(DEREN_MEMORY_TESTING)
+#ifdef DEREN_MEMORY_TESTING
             utility_memory_test_before_failure_write();
 #endif
             deren::utility::detail::trace_native::fast_panic(text, count);
@@ -57,7 +57,7 @@ namespace deren::utility::memory::detail {
     }
 } // namespace deren::utility::memory::detail
 
-#if defined(DEREN_MEMORY_TESTING)
+#ifdef DEREN_MEMORY_TESTING
 namespace {
     thread_local std::int64_t allocation_countdown = -1;
     std::atomic<bool> pause_first_failure = false;

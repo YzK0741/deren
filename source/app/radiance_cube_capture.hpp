@@ -113,7 +113,7 @@ namespace deren::app::radiance_capture {
                              exists,
                              open,
                              write,
-                             rename };
+                             rename, };
     inline char const* describe(write_error error) {
         switch (error) {
         case write_error::invalid_pixels:

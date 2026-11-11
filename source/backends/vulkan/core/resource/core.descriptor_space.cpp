@@ -71,10 +71,12 @@ namespace deren::vulkan {
             parent->resource.lazy_descriptors[info.slot] = std::move(saved);
             return rhi::error::ok;
         }
-        auto status = parent->resource.heap_view.write_image({.offset = static_cast<std::uint64_t>(info.slot) * heap_slot_stride,
-                                                              .resource = info.resource,
-                                                              .view = info.view,
-                                                              .type = info.type});
+        auto status = parent->resource.heap_view.write_image({
+            .offset = static_cast<std::uint64_t>(info.slot) * heap_slot_stride,
+            .resource = info.resource,
+            .view = info.view,
+            .type = info.type,
+        });
         if (status == rhi::error::ok) {
             std::lock_guard lock(parent->resource.lazy_descriptors_mutex);
             parent->resource.lazy_descriptors.erase(info.slot);
@@ -133,10 +135,12 @@ namespace deren::vulkan {
             info.size > properties.limits.maxStorageBufferRange || info.size > UINT64_MAX - address) {
             return rhi::error::invalid_argument;
         }
-        auto status = parent->resource.heap_view.write_buffer({.offset = static_cast<std::uint64_t>(info.slot) * heap_slot_stride,
-                                                               .address = address,
-                                                               .size = info.size,
-                                                               .type = rhi::descriptor_type::storage_buffer});
+        auto status = parent->resource.heap_view.write_buffer({
+            .offset = static_cast<std::uint64_t>(info.slot) * heap_slot_stride,
+            .address = address,
+            .size = info.size,
+            .type = rhi::descriptor_type::storage_buffer,
+        });
         lock.unlock();
         if (status == rhi::error::ok) {
             std::lock_guard descriptors_lock(parent->resource.lazy_descriptors_mutex);
@@ -163,10 +167,12 @@ namespace deren::vulkan {
         if (structure.parent != parent || !structure.native) {
             return rhi::error::invalid_argument;
         }
-        auto status = parent->resource.heap_view.write_buffer({.offset = static_cast<std::uint64_t>(info.slot) * heap_slot_stride,
-                                                               .address = structure.device_address(),
-                                                               .size = structure.size_bytes(),
-                                                               .type = rhi::descriptor_type::acceleration_structure});
+        auto status = parent->resource.heap_view.write_buffer({
+            .offset = static_cast<std::uint64_t>(info.slot) * heap_slot_stride,
+            .address = structure.device_address(),
+            .size = structure.size_bytes(),
+            .type = rhi::descriptor_type::acceleration_structure,
+        });
         if (status == rhi::error::ok) {
             std::lock_guard descriptors_lock(parent->resource.lazy_descriptors_mutex);
             parent->resource.lazy_descriptors.erase(info.slot);

@@ -92,7 +92,7 @@ export namespace deren::engine::pass {
         /// allows one access per resource per pass. The migration therefore records two graph passes from this
         /// one pass object - the resolve through THIS entry and the history copy through `record_copy` - and the
         /// graph emits both the attachment transitions and the transfer round trip the removed legacy path recorded here.
-        deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
+        deren::promise::rhi::error record_content(resolved_io const& io) noexcept override; // NOLINT
         /// @brief the history copy alone, with none of this pass's ordering
         void record(resolved_io const& io);
         deren::promise::rhi::error record_copy(resolved_io const& io) noexcept;
@@ -130,12 +130,15 @@ export namespace deren::engine::pass {
 
     private:
         /// @brief the resolve's drawing half
+        /// @param io
+        /// @param history_valid
         /// @param local_transitions true for the removed legacy record (this pass's attachment/input barriers), false for
         ///        a graph-recorded frame (the graph declares them)
         bool record_resolve(resolved_io const& io, bool history_valid, bool local_transitions);
         /// @brief the HDR -> history copy's half
+        /// @param io
         /// @param local_transitions true for the removed legacy record (the transfer round trip), false for the graph
-        bool record_copy(resolved_io const& io, bool local_transitions);
+        static bool record_copy(resolved_io const& io, bool local_transitions);
         render_resource::instances::resource_snapshot resource_view;
         /// the four inputs the resolve reads, which the declaration numbers contiguously from zero
         static constexpr uint32_t local_binding_count = 4;
@@ -145,7 +148,7 @@ export namespace deren::engine::pass {
         static constexpr deren::utility::vessel::array<std::string_view, 1> pipeline_names = {"taa"};
         // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
         // would duplicate it and hide the override.
-        inline static constexpr deren::engine::pass::behaviour pass_behaviour = {
+        static constexpr deren::engine::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::fullscreen,
             .extent = extent_rule::full, // the resolve runs at the frame's resolution
             .extent_of = resource_id::none,

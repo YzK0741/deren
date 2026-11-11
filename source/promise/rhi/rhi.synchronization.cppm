@@ -4,7 +4,8 @@ export module deren.promise.rhi.synchronization;
 // Scope-only vocabulary. No handles, virtual recording entry points or native masks.
 export namespace deren::promise::rhi::synchronization {
     enum class error { invalid_argument,
-                       unsupported };
+                       unsupported,
+    };
     enum class stage : uint32_t { none = 0,
                                   vertex_shader = 1,
                                   fragment_shader = 2,
@@ -22,20 +23,23 @@ export namespace deren::promise::rhi::synchronization {
                                   /// source/engine/pass/ray_traced_shadow.cpp - with the recipe's stage the model lost
                                   /// half its sun). A ray query inside a compute shader uses `compute_shader`; this value
                                   /// names the ray-tracing pipeline stages only.
-                                  ray_tracing = 1024 };
+                                  ray_tracing = 1024,
+    };
     constexpr stage operator|(stage a, stage b) noexcept {
         // Fixed-underlying enum is a bitmask: combinations need not have individual enumerators.
         return static_cast<stage>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b)); // NOLINT(clang-analyzer-optin.core.EnumCastOutOfRange)
     }
     enum class access : uint32_t { none = 0,
                                    read = 1,
-                                   write = 2 };
+                                   write = 2,
+    };
     constexpr access operator|(access a, access b) noexcept {
         return static_cast<access>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
     }
     enum class aspect : uint32_t { color = 1,
                                    depth = 2,
-                                   stencil = 4 };
+                                   stencil = 4,
+    };
     constexpr aspect operator|(aspect a, aspect b) noexcept {
         return static_cast<aspect>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
     }
@@ -48,7 +52,8 @@ export namespace deren::promise::rhi::synchronization {
                               depth_stencil_read_only,
                               transfer_source,
                               transfer_destination,
-                              present };
+                              present,
+    };
     struct scope {
         stage stages = stage::none;
         access accesses = access::none;
@@ -64,7 +69,8 @@ export namespace deren::promise::rhi::synchronization {
                                   vertex_buffer = 256,
                                   index_buffer = 512,
                                   indirect_buffer = 1024,
-                                  present = 2048 };
+                                  present = 2048,
+    };
     struct image_state {
         image_layout layout = image_layout::undefined;
         synchronization::scope scope = {};

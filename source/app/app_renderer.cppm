@@ -77,12 +77,14 @@ export namespace deren::app {
 
         /// @brief the two callbacks the runtime asks for, with this demo as their context
         [[nodiscard]] runtime::chain_wiring wiring() noexcept {
-            return runtime::chain_wiring{.parent = this,
-                                         .prepare = &app_renderer::prepare,
-                                         .collect = &app_renderer::collect,
-                                         .feature_active = &app_renderer::feature_active,
-                                         .feature_available = &app_renderer::feature_available,
-                                         .recreated = &app_renderer::recreated};
+            return runtime::chain_wiring{
+                .parent = this,
+                .prepare = &app_renderer::prepare,
+                .collect = &app_renderer::collect,
+                .feature_active = &app_renderer::feature_active,
+                .feature_available = &app_renderer::feature_available,
+                .recreated = &app_renderer::recreated,
+            };
         }
 
         // =============================================================================================

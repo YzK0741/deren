@@ -38,8 +38,10 @@ export namespace deren::engine::render_graph::taa {
             }
         }
         constexpr access_scope sampled{resource_usage::sampled, pipeline_stage::fragment_shader};
-        resolve_parameters params{{{{in.scene_color, {}, sampled}, {in.velocity, {}, sampled}, {in.depth, {}, sampled}, {in.history, {}, sampled}}},
-                                  {in.target, {}, {resource_usage::color_attachment, pipeline_stage::color_output}}};
+        resolve_parameters params{
+            {{{in.scene_color, {}, sampled}, {in.velocity, {}, sampled}, {in.depth, {}, sampled}, {in.history, {}, sampled}}},
+            {in.target, {}, {resource_usage::color_attachment, pipeline_stage::color_output}},
+        };
         auto added = graph.add_pass("TAA resolve", std::move(params));
         if (!added) {
             return std::unexpected(added.error());

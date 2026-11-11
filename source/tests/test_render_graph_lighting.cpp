@@ -137,8 +137,11 @@ int main() {
         // THE CASCADED SHADOW MAP (adoption stage 2H, consumer half): a layered depth array sampled by the shading
         // path. Its producer still records outside the graph, so the import's prior state is the sampled one.
         auto shadow_cascades = *graph.import_texture({1, 25}, rg::initial_contents::defined, "shadow cascades", {1, 4, rg::texture_aspect::depth},
-                                                     rg::resource_state{rg::resource_layout::shader_read_only, rg::pipeline_stage::fragment_shader,
-                                                                        rg::memory_access::read});
+                                                     rg::resource_state{
+                                                         rg::resource_layout::shader_read_only,
+                                                         rg::pipeline_stage::fragment_shader,
+                                                         rg::memory_access::read,
+                                                     });
         shared.shadow_cascades = shadow_cascades;
         inputs.shared = shared;
         auto lit = lighting::append(graph, inputs);
@@ -190,19 +193,32 @@ int main() {
         std::array<rg::buffer_ref, 7> shared_buffers;
         for (unsigned i = 0; i < shared_buffers.size(); ++i) {
             shared_buffers[i] = *graph.import_buffer({51, 10 + i}, rg::initial_contents::defined, "shared", {64},
-                                                     rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::mesh_shader | rg::pipeline_stage::fragment_shader,
-                                                                        rg::memory_access::read});
+                                                     rg::resource_state{
+                                                         rg::resource_layout::general,
+                                                         rg::pipeline_stage::mesh_shader | rg::pipeline_stage::fragment_shader,
+                                                         rg::memory_access::read,
+                                                     });
         }
         rg::resource_state const read_state{rg::resource_layout::general, rg::pipeline_stage::mesh_shader, rg::memory_access::read};
-        rg::resource_state const read_write_state{rg::resource_layout::general, rg::pipeline_stage::mesh_shader,
-                                                  rg::memory_access::read | rg::memory_access::write};
+        rg::resource_state const read_write_state{
+            rg::resource_layout::general,
+            rg::pipeline_stage::mesh_shader,
+            rg::memory_access::read | rg::memory_access::write,
+        };
         auto table = *graph.import_buffer({51, 20}, rg::initial_contents::defined, "meshlet table", {64}, read_state);
         auto culled = *graph.import_buffer({51, 21}, rg::initial_contents::defined, "host-culled meshlets", {64}, read_state);
         auto stats = *graph.import_buffer({51, 22}, rg::initial_contents::defined, "meshlet statistics", {32}, read_write_state);
         auto indirect = *graph.import_buffer({51, 23}, rg::initial_contents::defined, "mesh indirect commands", {64},
                                              rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::draw_indirect, rg::memory_access::read});
-        in.shared = rg::geometry::shared_inputs{shared_buffers[0], shared_buffers[1], shared_buffers[2],
-                                                shared_buffers[3], shared_buffers[4], shared_buffers[5], shared_buffers[6]};
+        in.shared = rg::geometry::shared_inputs{
+            shared_buffers[0],
+            shared_buffers[1],
+            shared_buffers[2],
+            shared_buffers[3],
+            shared_buffers[4],
+            shared_buffers[5],
+            shared_buffers[6],
+        };
         in.shared->meshlets = rg::geometry::meshlet_inputs{table, culled, stats, indirect};
         auto drawn = rg::geometry::append(graph, in);
         CHECK(drawn && graph.export_resource(in.color));
@@ -234,8 +250,11 @@ int main() {
         // producer -> consumer dependency.
         rg::builder graph;
         auto counts = *graph.import_buffer({61, 1}, rg::initial_contents::defined, "cluster counts", {64},
-                                           rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::compute_shader,
-                                                              rg::memory_access::read | rg::memory_access::write});
+                                           rg::resource_state{
+                                               rg::resource_layout::general,
+                                               rg::pipeline_stage::compute_shader,
+                                               rg::memory_access::read | rg::memory_access::write,
+                                           });
         auto indices = *graph.import_buffer({61, 2}, rg::initial_contents::undefined, "cluster indices", {64}, rg::resource_state{});
         auto sort = cluster::append(graph, {counts, indices});
         CHECK(sort);
@@ -247,8 +266,11 @@ int main() {
                 inputs.surface[i] = *graph.import_texture({61, 4 + i}, rg::initial_contents::defined, "surface", {}, attached);
             }
             inputs.depth = *graph.import_texture({61, 7}, rg::initial_contents::defined, "depth", {1, 1, rg::texture_aspect::depth},
-                                                 rg::resource_state{rg::resource_layout::depth_stencil_attachment, rg::pipeline_stage::depth_stencil,
-                                                                    rg::memory_access::write});
+                                                 rg::resource_state{
+                                                     rg::resource_layout::depth_stencil_attachment,
+                                                     rg::pipeline_stage::depth_stencil,
+                                                     rg::memory_access::write,
+                                                 });
             auto camera = *graph.import_buffer({61, 8}, rg::initial_contents::defined, "camera", {64},
                                                rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::fragment_shader, rg::memory_access::read});
             auto light = *graph.import_buffer({61, 9}, rg::initial_contents::defined, "light", {64},
@@ -304,8 +326,11 @@ int main() {
                 inputs.surface[i] = *graph.import_texture({71, 3 + i}, rg::initial_contents::defined, "surface", {}, attached);
             }
             inputs.depth = *graph.import_texture({71, 6}, rg::initial_contents::defined, "depth", {1, 1, rg::texture_aspect::depth},
-                                                 rg::resource_state{rg::resource_layout::depth_stencil_attachment, rg::pipeline_stage::depth_stencil,
-                                                                    rg::memory_access::write});
+                                                 rg::resource_state{
+                                                     rg::resource_layout::depth_stencil_attachment,
+                                                     rg::pipeline_stage::depth_stencil,
+                                                     rg::memory_access::write,
+                                                 });
             auto camera = *graph.import_buffer({71, 7}, rg::initial_contents::defined, "camera", {64},
                                                rg::resource_state{rg::resource_layout::general, rg::pipeline_stage::fragment_shader, rg::memory_access::read});
             auto light = *graph.import_buffer({71, 8}, rg::initial_contents::defined, "light", {64},

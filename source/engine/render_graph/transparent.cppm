@@ -28,8 +28,10 @@ export namespace deren::engine::render_graph::transparent {
         if (in.target == in.depth) {
             return std::unexpected(graph_error{.code = error_code::conflicting_import, .pass_name = "transparent", .resource_name = "transparent alias"});
         }
-        parameters params{{in.target, {}, {resource_usage::color_attachment, pipeline_stage::color_output}},
-                          {in.depth, {}, {resource_usage::depth_stencil_read, pipeline_stage::depth_stencil}}};
+        parameters params{
+            {in.target, {}, {resource_usage::color_attachment, pipeline_stage::color_output}},
+            {in.depth, {}, {resource_usage::depth_stencil_read, pipeline_stage::depth_stencil}},
+        };
         auto added = graph.add_pass("transparent", std::move(params));
         if (!added) {
             return std::unexpected(added.error());

@@ -39,12 +39,14 @@ export namespace deren::engine::render_resource {
      * declaration exists to make impossible, now in the other direction (the field is easy to forget when every
      * other declaration so far was a compute pass).
      */
-    inline constexpr deren::utility::vessel::array<pass_binding, 4> taa_bindings = {{
-        {.binding = 0, .parent = binding_scope::local, .kind = binding_kind::sampled_image, .resource = resource_id::scene_color, .access = binding_access::read, .sampler = sampler_hint::taa, .stages = stage_flag::fragment},
-        {.binding = 1, .parent = binding_scope::local, .kind = binding_kind::sampled_image, .resource = resource_id::taa_history, .access = binding_access::read, .sampler = sampler_hint::taa, .stages = stage_flag::fragment},
-        {.binding = 2, .parent = binding_scope::local, .kind = binding_kind::sampled_image, .resource = resource_id::velocity, .access = binding_access::read, .sampler = sampler_hint::taa, .stages = stage_flag::fragment},
-        {.binding = 3, .parent = binding_scope::local, .kind = binding_kind::sampled_image, .resource = resource_id::gbuffer_depth, .access = binding_access::read, .sampler = sampler_hint::taa, .stages = stage_flag::fragment},
-    }};
+    inline constexpr deren::utility::vessel::array<pass_binding, 4> taa_bindings = {
+        {
+            {.binding = 0, .parent = binding_scope::local, .kind = binding_kind::sampled_image, .resource = resource_id::scene_color, .access = binding_access::read, .sampler = sampler_hint::taa, .stages = stage_flag::fragment},
+            {.binding = 1, .parent = binding_scope::local, .kind = binding_kind::sampled_image, .resource = resource_id::taa_history, .access = binding_access::read, .sampler = sampler_hint::taa, .stages = stage_flag::fragment},
+            {.binding = 2, .parent = binding_scope::local, .kind = binding_kind::sampled_image, .resource = resource_id::velocity, .access = binding_access::read, .sampler = sampler_hint::taa, .stages = stage_flag::fragment},
+            {.binding = 3, .parent = binding_scope::local, .kind = binding_kind::sampled_image, .resource = resource_id::gbuffer_depth, .access = binding_access::read, .sampler = sampler_hint::taa, .stages = stage_flag::fragment},
+        },
+    };
 
     /// @brief the resolve RENDERS INTO the frame's HDR target, which is why it needs a target and not a binding
     inline constexpr render_target taa_target = {.resource = resource_id::hdr, .element = 0};
@@ -86,14 +88,16 @@ export namespace deren::engine::render_resource {
      * which image that is. It also means the scene pass and the TAA resolve agree by construction about which
      * image the scene writes and the resolve reads.
      */
-    inline constexpr deren::utility::vessel::array<render_target, 6> scene_targets = {{
-        {.resource = resource_id::gbuffer_targets, .element = 0},
-        {.resource = resource_id::gbuffer_targets, .element = 1},
-        {.resource = resource_id::gbuffer_targets, .element = 2},
-        {.resource = resource_id::velocity, .element = 0},
-        {.resource = resource_id::scene_color, .element = 0},
-        {.resource = resource_id::gbuffer_depth, .element = 0, .kind = target_kind::depth},
-    }};
+    inline constexpr deren::utility::vessel::array<render_target, 6> scene_targets = {
+        {
+            {.resource = resource_id::gbuffer_targets, .element = 0},
+            {.resource = resource_id::gbuffer_targets, .element = 1},
+            {.resource = resource_id::gbuffer_targets, .element = 2},
+            {.resource = resource_id::velocity, .element = 0},
+            {.resource = resource_id::scene_color, .element = 0},
+            {.resource = resource_id::gbuffer_depth, .element = 0, .kind = target_kind::depth},
+        },
+    };
 
     // cl 19.44 (MSVC 14.44) ICEs on this shape - and ONLY this shape: a module-interface-scope constexpr
     // variable whose value is a DISENGAGED std::optional (fatal error C1001 in msc1.cpp:1589, exit
@@ -123,10 +127,12 @@ export namespace deren::engine::render_resource {
      * It reaches the same shared resources the scene pass does - a blended surface reads the same materials, the
      * same camera and the separate same shadow map - so it declares no binding either.
      */
-    inline constexpr deren::utility::vessel::array<render_target, 2> transparent_targets = {{
-        {.resource = resource_id::scene_color, .element = 0},
-        {.resource = resource_id::gbuffer_depth, .element = 0, .kind = target_kind::depth},
-    }};
+    inline constexpr deren::utility::vessel::array<render_target, 2> transparent_targets = {
+        {
+            {.resource = resource_id::scene_color, .element = 0},
+            {.resource = resource_id::gbuffer_depth, .element = 0, .kind = target_kind::depth},
+        },
+    };
 
     /// @brief the transparent pass's declaration
     /// @ingroup engine_render_resource
@@ -154,10 +160,12 @@ export namespace deren::engine::render_resource {
      * It declares no separate binding: it reads the same materials, camera and light the scene pass does,
      * and all of those reach its shaders through the frame's heap.
      */
-    inline constexpr deren::utility::vessel::array<render_target, 2> character_forward_targets = {{
-        {.resource = resource_id::scene_color, .element = 0},
-        {.resource = resource_id::gbuffer_depth, .element = 0, .kind = target_kind::depth},
-    }};
+    inline constexpr deren::utility::vessel::array<render_target, 2> character_forward_targets = {
+        {
+            {.resource = resource_id::scene_color, .element = 0},
+            {.resource = resource_id::gbuffer_depth, .element = 0, .kind = target_kind::depth},
+        },
+    };
 
     /// @brief the character-forward pass's declaration
     /// @ingroup engine_render_resource
@@ -187,9 +195,11 @@ export namespace deren::engine::render_resource {
      * block is 48 bytes: the two projection terms from the frame, the rim's width/gain/strength and its colour
      * from the pass, and the framework appends the two heap lanes on top.
      */
-    inline constexpr deren::utility::vessel::array<render_target, 1> toon_screen_rim_targets = {{
-        {.resource = resource_id::scene_color, .element = 0},
-    }};
+    inline constexpr deren::utility::vessel::array<render_target, 1> toon_screen_rim_targets = {
+        {
+            {.resource = resource_id::scene_color, .element = 0},
+        },
+    };
 
     /// @brief the screen-space depth rim's declaration
     /// @ingroup engine_render_resource
@@ -217,9 +227,11 @@ export namespace deren::engine::render_resource {
      * either the reference's constant (in the shader) or the material's (a colour lane the shader reads through
      * the G-buffer's material id). The framework appends the two heap lanes on top, so the shader's block is 80.
      */
-    inline constexpr deren::utility::vessel::array<render_target, 1> goo_rim_targets = {{
-        {.resource = resource_id::scene_color, .element = 0},
-    }};
+    inline constexpr deren::utility::vessel::array<render_target, 1> goo_rim_targets = {
+        {
+            {.resource = resource_id::scene_color, .element = 0},
+        },
+    };
 
     /// @brief the rewritten chain's rim declaration
     /// @ingroup engine_render_resource
@@ -245,9 +257,11 @@ export namespace deren::engine::render_resource {
      * image the pass writes (UNDEFINED -> GENERAL) and the lighting stage samples (GENERAL -> SHADER_READ), both
      * transitions recorded by the pass itself.
      */
-    inline constexpr deren::utility::vessel::array<barrier_image, 1> rt_shadow_barriers = {{
-        {.resource = resource_id::rt_shadow_visibility, .element = 0},
-    }};
+    inline constexpr deren::utility::vessel::array<barrier_image, 1> rt_shadow_barriers = {
+        {
+            {.resource = resource_id::rt_shadow_visibility, .element = 0},
+        },
+    };
 
     /**
      * @brief the ray-traced sun shadow pass's declaration: a full-resolution compute dispatch, sharing everything
@@ -267,9 +281,11 @@ export namespace deren::engine::render_resource {
     };
 
     /// @brief the one image the ray-traced reflection pass writes, sampled by deferred lighting
-    inline constexpr deren::utility::vessel::array<barrier_image, 1> rt_reflection_barriers = {{
-        {.resource = resource_id::rt_reflection, .element = 0},
-    }};
+    inline constexpr deren::utility::vessel::array<barrier_image, 1> rt_reflection_barriers = {
+        {
+            {.resource = resource_id::rt_reflection, .element = 0},
+        },
+    };
 
     /// @brief the ray-traced reflection pass's declaration: full-resolution trace, one storage image output
     inline constexpr pass_io rt_reflection_io = {
@@ -292,10 +308,12 @@ export namespace deren::engine::render_resource {
      *
      * Both are per FRAME SLOT (the slot's count and index arrays), which the host resolves from the frame.
      */
-    inline constexpr deren::utility::vessel::array<barrier_buffer, 2> cluster_barriers = {{
-        {.resource = resource_id::cluster_counts, .element = 0},
-        {.resource = resource_id::cluster_indices, .element = 0},
-    }};
+    inline constexpr deren::utility::vessel::array<barrier_buffer, 2> cluster_barriers = {
+        {
+            {.resource = resource_id::cluster_counts, .element = 0},
+            {.resource = resource_id::cluster_indices, .element = 0},
+        },
+    };
 
     /**
      * @brief the clustered-light sort's declaration: a one-dimensional compute dispatch over the cluster grid
@@ -318,9 +336,11 @@ export namespace deren::engine::render_resource {
     };
 
     /// @brief the resource the deferred lighting stage RENDERS INTO, by declaration
-    inline constexpr deren::utility::vessel::array<render_target, 1> deferred_targets = {{
-        {.resource = resource_id::scene_color, .element = 0, .kind = target_kind::color},
-    }};
+    inline constexpr deren::utility::vessel::array<render_target, 1> deferred_targets = {
+        {
+            {.resource = resource_id::scene_color, .element = 0, .kind = target_kind::color},
+        },
+    };
 
     /**
      * @brief the deferred lighting stage's declaration: a fullscreen triangle that shades every pixel
@@ -391,32 +411,42 @@ export namespace deren::engine::render_resource {
     inline constexpr deren::utility::vessel::array<barrier_image, 1> post_bloom_2_source = {{barrier_image{.resource = resource_id::bloom, .element = 1}}};
     inline constexpr deren::utility::vessel::array<barrier_image, 1> post_bloom_3_source = {{barrier_image{.resource = resource_id::bloom, .element = 2}}};
 
-    inline constexpr deren::utility::vessel::array<pass_io, 4> post_bloom_io = {{
-        {.name = "post_bloom_0",
-         .bindings = {},
-         .targets = post_bloom_0_target,
-         .barrier_images = {},
-         .barrier_buffers = {},
-         .push = push_block{.offset = 0, .size = post_push_bytes, .stages = stage_flag::fragment}},
-        {.name = "post_bloom_1",
-         .bindings = {},
-         .targets = post_bloom_1_target,
-         .barrier_images = post_bloom_1_source,
-         .barrier_buffers = {},
-         .push = push_block{.offset = 0, .size = post_push_bytes, .stages = stage_flag::fragment}},
-        {.name = "post_bloom_2",
-         .bindings = {},
-         .targets = post_bloom_2_target,
-         .barrier_images = post_bloom_2_source,
-         .barrier_buffers = {},
-         .push = push_block{.offset = 0, .size = post_push_bytes, .stages = stage_flag::fragment}},
-        {.name = "post_bloom_3",
-         .bindings = {},
-         .targets = post_bloom_3_target,
-         .barrier_images = post_bloom_3_source,
-         .barrier_buffers = {},
-         .push = push_block{.offset = 0, .size = post_push_bytes, .stages = stage_flag::fragment}},
-    }};
+    inline constexpr deren::utility::vessel::array<pass_io, 4> post_bloom_io = {
+        {
+            {
+                .name = "post_bloom_0",
+                .bindings = {},
+                .targets = post_bloom_0_target,
+                .barrier_images = {},
+                .barrier_buffers = {},
+                .push = push_block{.offset = 0, .size = post_push_bytes, .stages = stage_flag::fragment},
+            },
+            {
+                .name = "post_bloom_1",
+                .bindings = {},
+                .targets = post_bloom_1_target,
+                .barrier_images = post_bloom_1_source,
+                .barrier_buffers = {},
+                .push = push_block{.offset = 0, .size = post_push_bytes, .stages = stage_flag::fragment},
+            },
+            {
+                .name = "post_bloom_2",
+                .bindings = {},
+                .targets = post_bloom_2_target,
+                .barrier_images = post_bloom_2_source,
+                .barrier_buffers = {},
+                .push = push_block{.offset = 0, .size = post_push_bytes, .stages = stage_flag::fragment},
+            },
+            {
+                .name = "post_bloom_3",
+                .bindings = {},
+                .targets = post_bloom_3_target,
+                .barrier_images = post_bloom_3_source,
+                .barrier_buffers = {},
+                .push = push_block{.offset = 0, .size = post_push_bytes, .stages = stage_flag::fragment},
+            },
+        },
+    };
 
     /// @brief what the composite RENDERS INTO by declaration: the swapchain (the FXAA-off case; see its comment)
     inline constexpr deren::utility::vessel::array<render_target, 1> post_composite_targets = {{render_target{.resource = resource_id::swapchain_image, .element = 0, .kind = target_kind::color}}};
@@ -532,10 +562,14 @@ export namespace deren::engine::render_resource {
     inline constexpr deren::utility::vessel::array<render_target, 1> gbuffer_debug_targets = {{render_target{.resource = resource_id::hdr, .element = 0, .kind = target_kind::color}}};
 
     /// @brief the four images it moves to a sampled layout: the three stored surface targets and the motion vectors
-    inline constexpr deren::utility::vessel::array<barrier_image, 4> gbuffer_debug_barriers = {{barrier_image{.resource = resource_id::gbuffer_targets, .element = 0},
-                                                                                                barrier_image{.resource = resource_id::gbuffer_targets, .element = 1},
-                                                                                                barrier_image{.resource = resource_id::gbuffer_targets, .element = 2},
-                                                                                                barrier_image{.resource = resource_id::velocity, .element = 0}}};
+    inline constexpr deren::utility::vessel::array<barrier_image, 4> gbuffer_debug_barriers = {
+        {
+            barrier_image{.resource = resource_id::gbuffer_targets, .element = 0},
+            barrier_image{.resource = resource_id::gbuffer_targets, .element = 1},
+            barrier_image{.resource = resource_id::gbuffer_targets, .element = 2},
+            barrier_image{.resource = resource_id::velocity, .element = 0},
+        },
+    };
 
     /**
      * @brief the G-buffer debug view's declaration: the stored surface, one channel at a time, into the HDR target

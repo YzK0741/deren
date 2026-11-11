@@ -101,14 +101,16 @@ namespace deren::engine::pass {
         // THE PAIR IS THE MEASUREMENT: (shader_write, acceleration_structure_read) is exactly the raw masks this
         // replaced (COMPUTE_SHADER/SHADER_WRITE -> ACCELERATION_STRUCTURE_BUILD/SHADER_READ), and no earlier
         // role named the acceleration-structure build as a READER (see `buffer_use`).
-        deren::promise::rhi::barrier_group const order{
+        constexpr deren::promise::rhi::barrier_group order{
             .struct_size = sizeof(deren::promise::rhi::barrier_group),
             .images = {},
             .buffers = {},
             .stage = deren::promise::rhi::stage_hint::none,
             .has_memory = true,
-            .memory = deren::promise::rhi::memory_barrier{.from = deren::promise::rhi::buffer_use::shader_write,
-                                                          .to = deren::promise::rhi::buffer_use::acceleration_structure_read},
+            .memory = deren::promise::rhi::memory_barrier{
+                .from = deren::promise::rhi::buffer_use::shader_write,
+                .to = deren::promise::rhi::buffer_use::acceleration_structure_read,
+            },
         };
         if (commands.barrier(order) != deren::promise::rhi::error::ok) {
             // A REFUSED ORDERING BARRIER IS NOT DROPPED SILENTLY: the dispatches are already recorded and the

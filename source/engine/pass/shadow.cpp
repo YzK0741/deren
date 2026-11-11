@@ -94,8 +94,7 @@ namespace deren::engine::pass {
         // stage), and a missing shader or a refusal is a log line - the mesh form above is a complete answer.
         std::span<uint8_t const> const meshlet_spirv = context.shader != nullptr ? context.shader(context.parent, meshlet_shader_name) : std::span<uint8_t const>{};
         if (!meshlet_spirv.empty()) {
-            auto meshlet_built = pipelines::build_shadow(*context.face, rhi::image_format::depth, create_bias_constant, create_bias_slope, create_bias_clamp, meshlet_spirv, fragment_spirv, rhi::shader_stage::mesh);
-            if (meshlet_built) {
+            if (auto meshlet_built = pipelines::build_shadow(*context.face, rhi::image_format::depth, create_bias_constant, create_bias_slope, create_bias_clamp, meshlet_spirv, fragment_spirv, rhi::shader_stage::mesh)) {
                 this->meshlet_pipeline = std::move(*meshlet_built);
                 deren::utility::log("SUCCESS: shadow MESHLET pipeline created (one workgroup per meshlet, window read from the table)");
             } else {
@@ -157,7 +156,7 @@ namespace deren::engine::pass {
         return rhi::error::ok;
     }
 
-    void shadow_pass::record_impl(resolved_io const& io) {
+    void shadow_pass::record_impl(resolved_io const& io) const {
         if (!this->pipeline_ready() || io.targets.empty() || io.list == nullptr) {
             return;
         }
@@ -231,13 +230,15 @@ namespace deren::engine::pass {
             // storeOp STORE - the map has to survive for the shading stages that sample it.
             // THE SCOPE RIDES THE CONTRACT TOO (abi 20): one depth attachment, no colour one, and the raw call's
             // flags word is the `secondary_contents` bit.
-            rhi::depth_attachment const depth_attachment = {.view = layer_view,
-                                                            .load = rhi::load_op::clear, // make_depth_attachment_info's loadOp
-                                                            .store = rhi::store_op::store,
-                                                            .read_only = false,
-                                                            .has_stencil = false,
-                                                            .clear_depth = 1.0f,
-                                                            .clear_stencil = 0};
+            rhi::depth_attachment const depth_attachment = {
+                .view = layer_view,
+                .load = rhi::load_op::clear, // make_depth_attachment_info's loadOp
+                .store = rhi::store_op::store,
+                .read_only = false,
+                .has_stencil = false,
+                .clear_depth = 1.0f,
+                .clear_stencil = 0,
+            };
             rhi::rendering_info const rendering_info{
                 .struct_size = sizeof(rhi::rendering_info),
                 .area = {.offset_x = 0, .offset_y = 0, .width = map_extent.width, .height = map_extent.height},

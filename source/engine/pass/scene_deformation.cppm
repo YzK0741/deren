@@ -22,18 +22,24 @@ export namespace deren::engine::pass {
         render_resource::instances::resource_snapshot resource_view;
 
     public:
-        static constexpr deren::utility::vessel::array ids{render_resource::resource_id::motion_vectors,
-                                                           render_resource::resource_id::skin_matrices,
-                                                           render_resource::resource_id::skin_matrices_previous,
-                                                           render_resource::resource_id::morph_targets};
-        static constexpr deren::utility::vessel::array<uint64_t, 4> sizes{uint64_t(scene_motion_capacity) * sizeof(glm::mat4),
-                                                                          uint64_t(scene_skin_capacity) * sizeof(glm::mat4),
-                                                                          uint64_t(scene_skin_capacity) * sizeof(glm::mat4),
-                                                                          uint64_t(scene_morph_capacity) * sizeof(float)};
-        static constexpr deren::utility::vessel::array heap_slots{render_layout::heap_slots::previous_transforms,
-                                                                  render_layout::heap_slots::skin_matrices,
-                                                                  render_layout::heap_slots::skin_matrices_previous,
-                                                                  render_layout::heap_slots::morph_data};
+        static constexpr deren::utility::vessel::array ids{
+            render_resource::resource_id::motion_vectors,
+            render_resource::resource_id::skin_matrices,
+            render_resource::resource_id::skin_matrices_previous,
+            render_resource::resource_id::morph_targets,
+        };
+        static constexpr deren::utility::vessel::array<uint64_t, 4> sizes{
+            static_cast<uint64_t>(scene_motion_capacity) * sizeof(glm::mat4),
+            static_cast<uint64_t>(scene_skin_capacity) * sizeof(glm::mat4),
+            static_cast<uint64_t>(scene_skin_capacity) * sizeof(glm::mat4),
+            static_cast<uint64_t>(scene_morph_capacity) * sizeof(float),
+        };
+        static constexpr deren::utility::vessel::array heap_slots{
+            render_layout::heap_slots::previous_transforms,
+            render_layout::heap_slots::skin_matrices,
+            render_layout::heap_slots::skin_matrices_previous,
+            render_layout::heap_slots::morph_data,
+        };
         void select_resources(deren::utility::vessel::array<bool, 4> const& selected) noexcept {
             required = selected;
         }
@@ -64,11 +70,11 @@ export namespace deren::engine::pass {
             return resource_view;
         }
         render_resource::pass_io const& io() const noexcept override {
-            static render_resource::pass_io const value{.name = "scene_deformation"};
+            static constexpr render_resource::pass_io value{.name = "scene_deformation"};
             return value;
         }
         deren::engine::pass::behaviour const& behaviour() const noexcept override {
-            static deren::engine::pass::behaviour const value{.extent = extent_rule::none, .resync_viewport = false};
+            static constexpr deren::engine::pass::behaviour value{.extent = extent_rule::none, .resync_viewport = false};
             return value;
         }
         std::string_view feature() const noexcept override {

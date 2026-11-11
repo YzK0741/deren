@@ -59,8 +59,7 @@ namespace deren::engine::pass {
         if (this->triangle_requested && caps && caps->buffer_int64_atomics()) {
             auto const atomic_spirv = context.shader ? context.shader(context.parent, "software_visibility_atomic.comp.spv") : std::span<std::uint8_t const>{};
             if (!atomic_spirv.empty()) {
-                auto atomic_built = pipelines::build_software_visibility(*context.face, atomic_spirv);
-                if (atomic_built) {
+                if (auto atomic_built = pipelines::build_software_visibility(*context.face, atomic_spirv)) {
                     this->triangle_pipeline = std::move(atomic_built->trace);
                 }
             }
@@ -88,18 +87,22 @@ namespace deren::engine::pass {
         }
         auto& scratch = this->triangle_scratch[slot];
         if (!scratch || scratch->size() != pixels * sizeof(std::uint64_t)) {
-            auto replacement = this->device->resources->create_buffer({.size = pixels * sizeof(std::uint64_t),
-                                                                       .usage = rhi::buffer_usage::storage_gpu_only,
-                                                                       .flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::storage)});
+            auto replacement = this->device->resources->create_buffer({
+                .size = pixels * sizeof(std::uint64_t),
+                .usage = rhi::buffer_usage::storage_gpu_only,
+                .flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::storage),
+            });
             if (!replacement) {
                 return false;
             }
             scratch = std::move(replacement);
         }
-        if (heap->write_buffer({.slot = render_layout::heap_slots::software_atomic + slot,
-                                .resource = scratch.get(),
-                                .size = scratch->size(),
-                                .type = rhi::descriptor_type::storage_buffer}) != rhi::error::ok) {
+        if (heap->write_buffer({
+                .slot = render_layout::heap_slots::software_atomic + slot,
+                .resource = scratch.get(),
+                .size = scratch->size(),
+                .type = rhi::descriptor_type::storage_buffer,
+            }) != rhi::error::ok) {
             return false;
         }
         this->triangle_slot = slot;
@@ -115,7 +118,7 @@ namespace deren::engine::pass {
         return {reinterpret_cast<std::uint32_t*>(bytes.data()), bytes.size() / 4u};
     }
 
-    bool software_visibility_pass::prepare_gpu_route(std::uint32_t slot, std::uint32_t width, std::uint32_t height, gpu_route_parameters parameters) {
+    bool software_visibility_pass::prepare_gpu_route(std::uint32_t slot, std::uint32_t width, std::uint32_t height, gpu_route_parameters const& parameters) {
         this->gpu_route_ready = false;
         if (!this->device || !std::isfinite(parameters.threshold_px) || parameters.threshold_px <= 0.0f ||
             !std::isfinite(parameters.near_plane) || parameters.near_plane <= 0.0f ||
@@ -217,12 +220,16 @@ namespace deren::engine::pass {
         std::uint32_t const groups_x = (io.extent.width + tile_extent - 1u) / tile_extent;
         std::uint32_t const groups_y = (io.extent.height + tile_extent - 1u) / tile_extent;
         io.list->dispatch(groups_x, groups_y, 1u); // initialize every pixel, including tiles omitted from the CSR
-        if (io.list->barrier(rhi::image_barrier{.resource = this->software_depth_target,
-                                                .from = rhi::image_use::shader_write,
-                                                .to = rhi::image_use::shader_read_write}) != rhi::error::ok ||
-            io.list->barrier(rhi::image_barrier{.resource = this->software_id_target,
-                                                .from = rhi::image_use::shader_write,
-                                                .to = rhi::image_use::shader_read_write}) != rhi::error::ok) {
+        if (io.list->barrier(rhi::image_barrier{
+                .resource = this->software_depth_target,
+                .from = rhi::image_use::shader_write,
+                .to = rhi::image_use::shader_read_write,
+            }) != rhi::error::ok ||
+            io.list->barrier(rhi::image_barrier{
+                .resource = this->software_id_target,
+                .from = rhi::image_use::shader_write,
+                .to = rhi::image_use::shader_read_write,
+            }) != rhi::error::ok) {
             return rhi::error::not_ready;
         }
         // The host writes the compact active-tile list alongside the CSR offsets. Each dispatched raster group maps

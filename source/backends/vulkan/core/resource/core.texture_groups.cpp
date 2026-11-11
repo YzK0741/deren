@@ -1,8 +1,5 @@
 // Immutable texture-group lifetime and allocation. GPU publication is separate.
 module;
-#include <cstddef>
-#include <cstdint>
-#include <cstring>
 #include <spirv-reflect/spirv_reflect.h>
 #include <vulkan/vulkan.h>
 module deren.vulkan.core;
@@ -22,13 +19,17 @@ namespace deren::vulkan {
         if (!resource.descriptor_heaps.ready()) {
             return rhi::error::unsupported;
         }
-        auto const base = VkDeviceSize(texture_group_state::table_slot) * 64;
+        constexpr auto base = static_cast<VkDeviceSize>(texture_group_state::table_slot) * 64;
         if (resource.texture_groups.reserved_offset != base) {
             return rhi::error::unsupported;
         }
-        rhi::unique_object<rhi::buffer> records{this->resource.create_buffer({.size = static_cast<std::uint64_t>(1025u) * 80u,
-                                                                              .usage = rhi::buffer_usage::storage_coherent,
-                                                                              .flags = rhi::to_bits(rhi::buffer_flag::device_address)})};
+        rhi::unique_object<rhi::buffer> records{
+            this->resource.create_buffer({
+                .size = static_cast<std::uint64_t>(1025u) * 80u,
+                .usage = rhi::buffer_usage::storage_coherent,
+                .flags = rhi::to_bits(rhi::buffer_flag::device_address),
+            }),
+        };
         if (!records || records->mapped().size() < static_cast<std::uint64_t>(1025u) * 80u) {
             return rhi::error::out_of_device_memory;
         }
@@ -49,7 +50,7 @@ namespace deren::vulkan {
         }
         auto const& image = *static_cast<core::image const*>(dummy.get());
         VkImageViewCreateInfo const info = make_image_view_info(image.native_handle, image.resolved_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 1, 1);
-        if (!resource.descriptor_heaps.write_image(VkDeviceSize(texture_group_state::texture_base) * 64, info, VK_IMAGE_LAYOUT_GENERAL) ||
+        if (!resource.descriptor_heaps.write_image(static_cast<VkDeviceSize>(texture_group_state::texture_base) * 64, info, VK_IMAGE_LAYOUT_GENERAL) ||
             !resource.descriptor_heaps.write_buffer(base, resource.address_view.buffer_address(*records, 0), records->size(), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
             return rhi::error::operation_failed;
         }
@@ -159,8 +160,7 @@ namespace deren::vulkan {
             if (free == texture_group_state::texture_capacity) {
                 return rhi::error::out_of_device_memory;
             }
-            auto fresh = std::shared_ptr<texture_group_state::sampled_view_entry>(
-                new (std::nothrow) texture_group_state::sampled_view_entry);
+            auto fresh = std::make_shared_for_overwrite<texture_group_state::sampled_view_entry>();
             if (!fresh) {
                 return rhi::error::out_of_host_memory;
             }
@@ -171,7 +171,7 @@ namespace deren::vulkan {
             fresh->slot = free;
             auto const& image = static_cast<core::image const&>(texture);
             VkImageViewCreateInfo const view_info = make_image_view_info(image.native_handle, image.resolved_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, image.mip_levels, 1);
-            if (!resource.descriptor_heaps.write_image((VkDeviceSize(texture_group_state::texture_base) + fresh->slot) * 64,
+            if (!resource.descriptor_heaps.write_image((static_cast<VkDeviceSize>(texture_group_state::texture_base) + fresh->slot) * 64,
                                                        view_info, VK_IMAGE_LAYOUT_GENERAL)) {
                 return rhi::error::operation_failed;
             }

@@ -2,7 +2,6 @@
 // module: deren.promise.rhi:core
 module;
 
-#include <cstddef>
 #include <cstdint>
 
 export module deren.promise.rhi:core;
@@ -56,7 +55,7 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual std::expected<resource_group_ref, error> create_resource_group(resource_group_desc const& /*unused*/) {
             return std::unexpected(error::unsupported);
         }
-        [[nodiscard]] virtual texture_group_ref assign_texture_group(texture_group_info const& /*info*/, error* result = nullptr) {
+        [[nodiscard]] virtual texture_group_ref assign_texture_group(texture_group_info const& /*info*/, error* result = nullptr) { // NOLINT
             if (result != nullptr) {
                 *result = error::unsupported;
             }

@@ -117,7 +117,7 @@ export namespace deren::engine::pass {
             // NO BINDINGS, NO TARGETS, NO DECLARED PUSH BLOCK: every resource travels through the frame's heap and
             // the graph's declaration carries the ordering (the same empty-declaration shape the build pass records
             // with). The push block is composed per frame from `set_frame`'s values plus the framework's index lanes.
-            static constinit render_resource::pass_io const value{.name = "hzb cull"};
+            static constexpr render_resource::pass_io value{.name = "hzb cull"};
             return value;
         }
 
@@ -125,12 +125,14 @@ export namespace deren::engine::pass {
             // ONE WORKGROUP PER ITEM, 64 THREADS (the shader's [numthreads(64, 1, 1)]): the dispatch is
             // `item_count` groups, which the host knows exactly (§2.1 - no indirect dispatch is needed for the cull
             // itself), and the extent rule is the frame's so a resize changes nothing about the pass.
-            static deren::engine::pass::behaviour const value{.kind = behaviour_kind::compute,
-                                                              .group_size_x = 64,
-                                                              .group_size_y = 1,
-                                                              .group_size_z = 1,
-                                                              .extent = extent_rule::full,
-                                                              .resync_viewport = false};
+            static constexpr deren::engine::pass::behaviour value{
+                .kind = behaviour_kind::compute,
+                .group_size_x = 64,
+                .group_size_y = 1,
+                .group_size_z = 1,
+                .extent = extent_rule::full,
+                .resync_viewport = false,
+            };
             return value;
         }
 
@@ -167,7 +169,7 @@ export namespace deren::engine::pass {
             this->gpu_software = gpu_software;
         }
 
-        [[nodiscard]] rhi::error record_content(resolved_io const& io) noexcept override;
+        [[nodiscard]] rhi::error record_content(resolved_io const& io) noexcept override; // NOLINT
 
     private:
         std::optional<pipelines::pipeline_handle> cull_pipeline = std::nullopt;

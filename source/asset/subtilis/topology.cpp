@@ -30,7 +30,7 @@ namespace deren::asset::subtilis::builder_detail {
             vector<std::array<std::uint32_t, 4>> faces;
             faces.reserve(count);
             for (std::uint32_t i = 0; i < count; ++i) {
-                auto first = std::size_t(i) * 3;
+                auto first = static_cast<std::size_t>(i) * 3;
                 std::array<std::uint32_t, 3> corners{classes[indices[first]], classes[indices[first + 1]], classes[indices[first + 2]]};
                 for (unsigned k = 0; k < 3; ++k) {
                     auto a = corners[k];

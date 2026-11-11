@@ -654,9 +654,12 @@ namespace {
                         namespace sync_types = rhi::synchronization;
                         rhi::scoped_buffer_barrier const transition{
                             .resource = buffer.get(),
-                            .transition = {.before = {sync_types::stage::compute_shader, sync_types::access::write},
-                                           .after = {sync_types::stage::compute_shader, sync_types::access::read},
-                                           .size = buffer->size()}};
+                            .transition = {
+                                .before = {sync_types::stage::compute_shader, sync_types::access::write},
+                                .after = {sync_types::stage::compute_shader, sync_types::access::read},
+                                .size = buffer->size(),
+                            },
+                        };
                         CHECK(sync->record(recorder, {}, std::span(&transition, 1)) == rhi::error::ok);
                     }
                 }

@@ -244,9 +244,23 @@ namespace deren::vulkan {
             recording_error = rhi::error::unsupported;
             return;
         }
-        operations.append<rec::operation_kind::trace>({raygen.address, raygen.stride, raygen.size,
-                                                       miss.address, miss.stride, miss.size, hit.address, hit.stride, hit.size,
-                                                       callable.address, callable.stride, callable.size, width, height, depth});
+        operations.append<rec::operation_kind::trace>({
+            raygen.address,
+            raygen.stride,
+            raygen.size,
+            miss.address,
+            miss.stride,
+            miss.size,
+            hit.address,
+            hit.stride,
+            hit.size,
+            callable.address,
+            callable.stride,
+            callable.size,
+            width,
+            height,
+            depth,
+        });
         ++parent->deferred_requested;
     }
 

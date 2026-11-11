@@ -257,9 +257,12 @@ int main() {
     CHECK((list.consumers == deren::utility::vessel::vector<rhi::buffer_use>{rhi::buffer_use::shader_read_write, rhi::buffer_use::shader_read, rhi::buffer_use::shader_read, rhi::buffer_use::indirect_read, rhi::buffer_use::host_read}));
     CHECK((*frame)->completed_stats(123u).frame_id == 123u);
     list.operations.clear();
-    gs::gpu_frame_timing const timing{&list, [](void* parent, std::uint32_t phase) {
-                                          static_cast<commands*>(parent)->operations.push_back("mark" + deren::utility::vessel::to_string(phase));
-                                      }};
+    gs::gpu_frame_timing const timing{
+        &list,
+        [](void* parent, std::uint32_t phase) {
+            static_cast<commands*>(parent)->operations.push_back("mark" + deren::utility::vessel::to_string(phase));
+        },
+    };
     CHECK((*frame)->record_preparation(list, pipelines, {&list, push}, timing) == rhi::error::ok);
     CHECK((list.operations == deren::utility::vessel::vector<deren::utility::vessel::string>{"bind", "push8", "compute", "bind", "push8", "compute", "mark0", "sort", "mark1", "bind", "push8", "compute", "mark2"}));
     pass::gaussian_splatting_pass stage;

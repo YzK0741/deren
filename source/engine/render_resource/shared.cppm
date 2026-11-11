@@ -16,8 +16,8 @@
  *
  * WHAT BELONGS HERE: handles for resources the SCHEMA declares as shared (`resource_scope::device_wide` and
  * the ones every pass may use), filled ONCE by the runtime and passed around by const reference. The
- * rule for admitting something is that more than one consumer needs it and no single consumer creates and destroys it - a pass's
- * family stays with that pass, and anything only the frame loop touches stays in the frame loop.
+ * rule for admitting something is that more than one consumer needs it and no single consumer creates and destroys it.
+ * A pass's family stays with that pass, and anything only the frame loop touches stays in the frame loop.
  *
  * WHAT IS HERE TODAY AND WHAT WILL JOIN IT: the samplers, because they are process-wide objects that a
  * declaration CHOOSES between (`sampler_hint`) and must never name directly - a pass that could name a raw
@@ -28,10 +28,6 @@
  * need them is whichever writes the scene block through a declaration. Inventing the table before that would
  * guess at its keys.
  */
-
-module;
-
-#include <cstdint>
 
 export module deren.engine.render_resource.shared;
 
@@ -46,7 +42,7 @@ export namespace deren::engine::render_resource::shared {
      *
      * FIVE of them have a `sampler_hint` a declaration can choose by (see `of`). `textures` is the sixth and
      * has none YET: it is the sampler the bindless texture ARRAY is read through (repeat addressing, a long LOD
-     * range), it was reachable only from the renderer's hand-written set code, and it joined this struct when
+     * range), it was reachable only from the renderer's handwritten set code, and it joined this struct when
      * the alphaMode MASK bake - A separate job with no declaration - had to write the scene layout's binding 1
      * itself. A hint for it belongs with the first DECLARATION that names the array.
      */
@@ -63,10 +59,10 @@ export namespace deren::engine::render_resource::shared {
         ///        declaration's validator enforces exactly
         /// Supplied by the runtime: never release these objects or use them beyond its lifetime.
         [[nodiscard]] constexpr deren::promise::rhi::sampler* of(sampler_hint const hint) const noexcept {
-            switch (hint) {
+            switch (hint) { // NOLINT(bugprone-branch-clone): each case returns a different sampler.
             case sampler_hint::none:
                 return nullptr;
-            case sampler_hint::gbuffer:
+            case sampler_hint::gbuffer: // NOLINT(bugprone-branch-clone)
                 return gbuffer;
             case sampler_hint::taa:
                 return taa;

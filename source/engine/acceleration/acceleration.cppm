@@ -205,7 +205,7 @@ namespace deren::engine::acceleration_structure {
         build_stats stats = {};
 
     public:
-        explicit bottom_level_structures(rhi::api_core& face, rhi::shared_object<rhi::api_core> access = {});
+        explicit bottom_level_structures(rhi::api_core& face, rhi::shared_object<rhi::api_core> const& access = {});
         bottom_level_structures(bottom_level_structures const&) = delete ("bottom_level_structures is non-copyable: construct it in place and keep its identity");
         bottom_level_structures& operator=(bottom_level_structures const&) = delete ("bottom_level_structures is non-copyable: configure the object in place");
         bottom_level_structures(bottom_level_structures&&) = delete ("bottom_level_structures is non-movable: its resources are tied to the current address");
@@ -220,6 +220,7 @@ namespace deren::engine::acceleration_structure {
          *        geometry whose BYTES change while its addresses and counts do not (a skinned mesh's
          *        vertices, written by source/shaders/geometry/compute_skin.slang). It costs traversal efficiency, which is
          *        why it is per geometry rather than a flag on the whole structure set.
+         * @param dependencies
          * @return the index this geometry got, or an error message on failure
          * @note this is HOST work (a size query plus an allocation); the GPU build happens in
          *       record_build(). A source with no triangles is skipped and returns the index it WOULD
@@ -243,7 +244,7 @@ namespace deren::engine::acceleration_structure {
         /**
          * @ingroup engine_acceleration_structure
          * @brief REFIT the listed structures in place, because the bytes behind their geometry changed
-         * @param command_buffer where to record
+         * @param commands
          * @param indices the geometry indices to refit (only the ones added with refittable = true)
          * @return success, or an error message
          * @note a refit is legal exactly when the geometry's ADDRESSES AND COUNTS are unchanged and only
@@ -253,7 +254,7 @@ namespace deren::engine::acceleration_structure {
          * @note the caller must have made the writes visible to the acceleration structure build stage
          *       first (a command-level barrier), or the refit reads whatever was there before
          */
-        std::expected<void, deren::utility::vessel::string> record_update(deren::promise::rhi::command_buffer& commands, std::span<uint32_t const> indices);
+        std::expected<void, deren::utility::vessel::string> record_update(deren::promise::rhi::command_buffer& commands, std::span<uint32_t const> indices) const;
 
         /** @brief how many structures were added */
         [[nodiscard]] uint32_t size() const noexcept {
@@ -329,8 +330,9 @@ namespace deren::engine::acceleration_structure {
          * @brief create the top level structure for @p face, with one slot per frame in flight
          * @param face the contract face the structures are created and released through
          * @param frame_slot_count how many per-frame slots to allocate (the runtime's frame count)
+         * @param access
          */
-        explicit top_level_structure(rhi::api_core& face, uint32_t frame_slot_count, rhi::shared_object<rhi::api_core> access = {});
+        explicit top_level_structure(rhi::api_core& face, uint32_t frame_slot_count, rhi::shared_object<rhi::api_core> const& access = {});
         top_level_structure(top_level_structure const&) = delete ("top_level_structure is non-copyable: construct it in place and keep its identity");
         top_level_structure& operator=(top_level_structure const&) = delete ("top_level_structure is non-copyable: configure the object in place");
         top_level_structure(top_level_structure&&) = delete ("top_level_structure is non-movable: its resources are tied to the current address");
@@ -362,7 +364,6 @@ namespace deren::engine::acceleration_structure {
         /**
          * @ingroup engine_acceleration_structure
          * @brief record the build of the current slot's list into @p command_buffer
-         * @param command_buffer a buffer being recorded outside a rendering instance
          * @return success, or an error message
          */
         std::expected<void, deren::utility::vessel::string> record_build(deren::promise::rhi::command_buffer& commands);

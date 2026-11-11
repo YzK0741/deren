@@ -113,8 +113,10 @@ export namespace deren::engine::visibility::software {
                             ++plan.counts[tile];
                             ++plan.entry_count;
                             if (slot < entry_capacity) {
-                                plan.entries[tile * entry_capacity + slot] = tile_entry{.item_index = item.item_index,
-                                                                                        .meshlet_id = meshlet_id};
+                                plan.entries[tile * entry_capacity + slot] = tile_entry{
+                                    .item_index = item.item_index,
+                                    .meshlet_id = meshlet_id,
+                                };
                             }
                         }
                     }
@@ -181,7 +183,7 @@ export namespace deren::engine::visibility::software {
         deren::utility::vessel::vector<tile_entry> entries;    ///< entry_count entries, grouped by tile, in the order above
 
         /// @brief the CSR range of tile (@p x, @p y), as A separate span entries (empty for a sparse tile)
-        [[nodiscard]] inline std::span<tile_entry const> tile_span(std::uint32_t const x, std::uint32_t const y) const noexcept {
+        [[nodiscard]] std::span<tile_entry const> tile_span(std::uint32_t const x, std::uint32_t const y) const noexcept {
             if (x >= this->grid.tiles_x || y >= this->grid.tiles_y || this->offsets.size() != static_cast<std::size_t>(this->grid.tile_count()) + 1u) {
                 return {};
             }
@@ -216,7 +218,7 @@ export namespace deren::engine::visibility::software {
                 return false;
             }
         }
-        std::fill(lane.begin(), lane.end(), 0u);
+        std::ranges::fill(lane, 0u);
         lane[0] = lists.grid.tiles_x;
         lane[1] = lists.grid.tiles_y;
         lane[2] = lists.entry_count;
@@ -230,8 +232,8 @@ export namespace deren::engine::visibility::software {
             }
         }
         lane[5] = active_tile_count;
-        std::copy(lists.counts.begin(), lists.counts.end(), lane.begin() + software_tiles_counts_word(tiles));
-        std::copy(lists.offsets.begin(), lists.offsets.end(), lane.begin() + software_tiles_offsets_word(tiles));
+        std::ranges::copy(lists.counts, lane.begin() + software_tiles_counts_word(tiles));
+        std::ranges::copy(lists.offsets, lane.begin() + software_tiles_offsets_word(tiles));
         std::uint32_t const entries_word = software_tiles_entries_word(tiles);
         for (std::uint32_t index = 0u; index < lists.entry_count; ++index) {
             lane[entries_word + index * 2u] = lists.entries[index].item_index;
@@ -254,17 +256,17 @@ export namespace deren::engine::visibility::software {
         auto less = [](tile_entry const& a, tile_entry const& b) {
             return a.item_index < b.item_index || (a.item_index == b.item_index && a.meshlet_id < b.meshlet_id);
         };
-        std::sort(entries.begin(), entries.end(), less);
-        entries.erase(std::unique(entries.begin(), entries.end(), [](tile_entry const& a, tile_entry const& b) {
+        std::ranges::sort(entries, less);
+        entries.erase(std::ranges::unique(entries, [](tile_entry const& a, tile_entry const& b) {
                           return a.item_index == b.item_index && a.meshlet_id == b.meshlet_id;
-                      }),
+                      }).begin(),
                       entries.end());
         return entries;
     }
 
     /// Number of non-empty CSR tiles dispatched by the sparse software raster pass.
     [[nodiscard]] inline std::uint32_t active_tile_count(software_tile_lists const& lists) noexcept {
-        return static_cast<std::uint32_t>(std::count_if(lists.counts.begin(), lists.counts.end(), [](std::uint32_t const count) { return count != 0u; }));
+        return static_cast<std::uint32_t>(std::ranges::count_if(lists.counts, [](std::uint32_t const count) { return count != 0u; }));
     }
 
     struct gpu_partition_item {
@@ -545,6 +547,7 @@ export namespace deren::engine::visibility::software {
      * @param parameters the frame's camera (view/proj/extent)
      * @param threshold_px the subpixel threshold (1.0 is the primary band)
      * @param entry_budget the global CSR entry budget; the single capacity of this design (`software_entry_budget`)
+     * @param metric
      * @return the CSR plan, or the named reason this frame must run the COMPLETE hardware path
      * @note `entry_budget_exceeded` is an ERROR rather than a truncated list: a partial list would silently drop
      *       visible subpixel clusters (spec §5.4). A zero budget is refused as invalid; every overflow decision is

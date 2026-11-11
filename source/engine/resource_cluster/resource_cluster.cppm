@@ -24,22 +24,24 @@ export namespace deren::engine {
             }
         };
     } // namespace resource_cluster_detail
-    class resource_cluster;
 
     /// An engine handle over an RHI object: get/operator-> return the underlying object.
     /// Every copy shares the same release(), which runs exactly once, after the last copy is gone.
     template <typename T>
     class resource_handle {
-        friend class resource_cluster;
         std::shared_ptr<resource_cluster_detail::parent<T>> value;
         T* resource = nullptr;
+
+    public:
+        resource_handle() noexcept = default;
+        /// Internal: builds a handle over an existing cluster entry. Callers normally use resource_cluster.
         explicit resource_handle(std::shared_ptr<resource_cluster_detail::parent<T>> parent) noexcept
             : value(std::move(parent)) {
             resource = value ? value->object.get() : nullptr;
         }
-
-    public:
-        resource_handle() noexcept = default;
+        [[nodiscard]] std::shared_ptr<resource_cluster_detail::parent<T>> const& storage() const noexcept {
+            return value;
+        }
         [[nodiscard]] T* get() const noexcept {
             return value ? resource : nullptr;
         }
@@ -135,19 +137,19 @@ export namespace deren::engine {
         }
         [[nodiscard]] std::expected<resource_handle<deren::promise::rhi::image_view>, deren::promise::rhi::error>
         create_image_view(resource_handle<deren::promise::rhi::image> const& image, deren::promise::rhi::image_view_desc const& desc) {
-            if (!image || image.value->device.get() != core.get()) {
+            if (!image || image.storage()->device.get() != core.get()) {
                 return std::unexpected(deren::promise::rhi::error::invalid_argument);
             }
-            return keep(image->make_view(desc).release(), image.value);
+            return keep(image->make_view(desc).release(), image.storage());
         }
         template <typename T>
         [[nodiscard]] deren::promise::rhi::error share(resource_handle<T> const& resource) {
-            if (!resource || resource.value->device.get() != core.get()) {
+            if (!resource || resource.storage()->device.get() != core.get()) {
                 return deren::promise::rhi::error::invalid_argument;
             }
-            auto const found = std::find_if(members.begin(), members.end(), [&](auto const& entry) { return entry.get() == resource.value.get(); });
+            auto const found = std::find_if(members.begin(), members.end(), [&](auto const& entry) { return entry.get() == resource.storage().get(); });
             if (found == members.end()) {
-                members.push_back(resource.value);
+                members.push_back(resource.storage());
             }
             return deren::promise::rhi::error::ok;
         }

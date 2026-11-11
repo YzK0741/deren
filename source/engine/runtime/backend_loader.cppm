@@ -60,9 +60,6 @@
 // ============================================================================
 module;
 
-#include <cstdint>
-#include <memory> // backend_entry.hpp is included in the module purview; pre-include its system headers
-
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 #define GLFW_EXPOSE_NATIVE_WIN32 // the HWND behind the caller's GLFWwindow (see the banner)
@@ -70,7 +67,7 @@ module;
 
 export module deren.engine.backend_loader;
 export import deren.utility.shared;
-
+export import deren.vstd;
 export import deren.promise.rhi; // create_info / api_core / error_info / abi_version
 
 import deren.utility;              // executable_directory() + the named-diagnosis channel
@@ -95,11 +92,13 @@ namespace {
     /// `initialization_failed` for everything else - the two decisions a caller can act on.
     void report(std::string_view what, rhi::error code, std::int32_t native_code, std::string_view detail,
                 std::source_location where = std::source_location::current()) {
-        rhi::error_info const info{.code = code,
-                                   .api = rhi::graphics_api::vulkan,
-                                   .native_code = native_code,
-                                   .message = detail,
-                                   .where = where};
+        rhi::error_info const info{
+            .code = code,
+            .api = rhi::graphics_api::vulkan,
+            .native_code = native_code,
+            .message = detail,
+            .where = where,
+        };
         deren::utility::error("backend_loader: {} (error code {}, native {}, at {}:{}) - {}", what,
                               static_cast<std::uint32_t>(info.code), info.native_code, where.file_name(), where.line(),
                               detail);
@@ -158,7 +157,7 @@ namespace deren::engine {
         // means nothing to the DLL's copy, so the native handle is what crosses. The caller's
         // structure is otherwise handed over unchanged, and it is a cheap trivially-copyable POD.
         rhi::create_info wire = desc;
-#if defined(_WIN32)
+#ifdef _WIN32
         wire.native_window = desc.native_window != nullptr
                                  ? static_cast<void*>(glfwGetWin32Window(static_cast<GLFWwindow*>(desc.native_window)))
                                  : nullptr;

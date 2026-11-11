@@ -45,7 +45,7 @@ namespace deren::engine::subtilis {
                 }
                 group.error = old.error;
                 auto const& b = node.bounds;
-                group.lod = {float(b.center[0]), float(b.center[1]), float(b.center[2]), 0};
+                group.lod = {static_cast<float>(b.center[0]), static_cast<float>(b.center[1]), static_cast<float>(b.center[2]), 0};
                 double dx = b.center[0] - group.lod.x;
                 double dy = b.center[1] - group.lod.y;
                 double dz = b.center[2] - group.lod.z;
@@ -57,12 +57,12 @@ namespace deren::engine::subtilis {
                         continue;
                     }
                     auto const& child = groups[producer].lod;
-                    double x = double(child.x) - group.lod.x;
-                    double y = double(child.y) - group.lod.y;
-                    double z = double(child.z) - group.lod.z;
+                    double x = static_cast<double>(child.x) - group.lod.x;
+                    double y = static_cast<double>(child.y) - group.lod.y;
+                    double z = static_cast<double>(child.z) - group.lod.z;
                     radius = std::max(radius, std::sqrt(x * x + y * y + z * z) + child.radius);
                 }
-                group.lod.radius = float(radius);
+                group.lod.radius = static_cast<float>(radius);
                 if (group.lod.radius < radius) {
                     group.lod.radius = std::nextafter(group.lod.radius, std::numeric_limits<float>::infinity());
                 }
@@ -124,15 +124,15 @@ namespace deren::engine::subtilis {
             if (g.index_count % 3 || (g.index_width != 2 && g.index_width != 4) || !g.vertex_count || g.vertex_stride < 12 ||
                 in.normal_offset > g.vertex_stride || 12 > g.vertex_stride - in.normal_offset ||
                 in.uv_offset > g.vertex_stride || 8 > g.vertex_stride - in.uv_offset ||
-                std::uint64_t(g.vertex_count) * g.vertex_stride > g.vertex_data.size() ||
-                std::uint64_t(g.first_index) * g.index_width > g.index_data.size() ||
-                std::uint64_t(g.index_count) * g.index_width > g.index_data.size() - std::uint64_t(g.first_index) * g.index_width) {
+                static_cast<std::uint64_t>(g.vertex_count) * g.vertex_stride > g.vertex_data.size() ||
+                static_cast<std::uint64_t>(g.first_index) * g.index_width > g.index_data.size() ||
+                static_cast<std::uint64_t>(g.index_count) * g.index_width > g.index_data.size() - static_cast<std::uint64_t>(g.first_index) * g.index_width) {
                 return std::unexpected(build_error::invalid_input);
             }
-            std::uint64_t vertex_bytes = std::uint64_t(g.vertex_count) * g.vertex_stride;
-            std::uint64_t index_bytes = std::uint64_t(g.index_count) * 4;
+            std::uint64_t vertex_bytes = static_cast<std::uint64_t>(g.vertex_count) * g.vertex_stride;
+            std::uint64_t index_bytes = static_cast<std::uint64_t>(g.index_count) * 4;
             if (vertex_bytes > options.max_output_bytes || index_bytes > options.max_output_bytes - vertex_bytes ||
-                (std::uint64_t(g.index_count) + meshlet_max_indices - 1) / meshlet_max_indices > (1u << 14)) {
+                (static_cast<std::uint64_t>(g.index_count) + meshlet_max_indices - 1) / meshlet_max_indices > (1u << 14)) {
                 return std::unexpected(build_error::capacity);
             }
             auto vertex_window = g.vertex_data.first(static_cast<std::size_t>(vertex_bytes));
@@ -142,7 +142,7 @@ namespace deren::engine::subtilis {
             std::array<double, 3> low{};
             std::array<double, 3> high{};
             for (std::uint32_t i = 0; i < g.vertex_count; ++i) {
-                auto* bytes = result.vertices.data() + std::size_t(i) * g.vertex_stride;
+                auto* bytes = result.vertices.data() + static_cast<std::size_t>(i) * g.vertex_stride;
                 std::memcpy(result.positions[i].data(), bytes, 12);
                 std::memcpy(result.attributes[i].data(), bytes + in.normal_offset, 12);
                 std::memcpy(result.attributes[i].data() + 3, bytes + in.uv_offset, 8);
@@ -160,7 +160,7 @@ namespace deren::engine::subtilis {
             result.indices.reserve(g.index_count);
             for (std::uint32_t i = 0; i < g.index_count; ++i) {
                 std::uint32_t value = 0;
-                auto const* bytes = g.index_data.data() + (std::uint64_t(g.first_index) + i) * g.index_width;
+                auto const* bytes = g.index_data.data() + (static_cast<std::uint64_t>(g.first_index) + i) * g.index_width;
                 if (g.index_width == 2) {
                     std::uint16_t short_value = 0;
                     std::memcpy(&short_value, bytes, 2);
@@ -168,7 +168,7 @@ namespace deren::engine::subtilis {
                 } else {
                     std::memcpy(&value, bytes, 4);
                 }
-                std::int64_t absolute = std::int64_t(value) + g.base_vertex;
+                std::int64_t absolute = static_cast<std::int64_t>(value) + g.base_vertex;
                 if (absolute < 0 || static_cast<std::uint64_t>(absolute) >= g.vertex_count) {
                     return std::unexpected(build_error::invalid_input);
                 }
@@ -177,8 +177,8 @@ namespace deren::engine::subtilis {
             for (std::size_t i = 0; i < result.indices.size(); ++i) {
                 auto const& p = result.positions[result.indices[i]];
                 for (uint32_t axis = 0; axis < 3; ++axis) {
-                    low[axis] = i ? std::min(low[axis], double(p[axis])) : p[axis];
-                    high[axis] = i ? std::max(high[axis], double(p[axis])) : p[axis];
+                    low[axis] = i ? std::min(low[axis], static_cast<double>(p[axis])) : p[axis];
+                    high[axis] = i ? std::max(high[axis], static_cast<double>(p[axis])) : p[axis];
                 }
             }
             result.origin = low;
@@ -207,10 +207,10 @@ namespace deren::engine::subtilis {
         double radius = 0;
         for (auto index : indices) {
             auto const& p = data.positions[index];
-            radius = std::max(radius, std::hypot(double(p[0]) - center[0], double(p[1]) - center[1], double(p[2]) - center[2]));
+            radius = std::max(radius, std::hypot(static_cast<double>(p[0]) - center[0], static_cast<double>(p[1]) - center[1], static_cast<double>(p[2]) - center[2]));
         }
         float rounded = static_cast<float>(radius);
-        if (double(rounded) < radius) {
+        if (static_cast<double>(rounded) < radius) {
             rounded = std::nextafter(rounded, std::numeric_limits<float>::infinity());
         }
         if (!std::isfinite(rounded)) {
@@ -283,14 +283,14 @@ namespace deren::engine::subtilis {
         bd::vector<group_record> groups;
         bd::vector<meshlet> records;
         bd::vector<std::uint32_t> payload = source.indices;
-        std::uint64_t bytes = source.vertices.size() + std::uint64_t(payload.size()) * 4 + std::uint64_t(roots.size()) * 4 + sizeof(build_statistics) + sizeof(build_options) + std::uint64_t(stats.level_triangles.size()) * 8;
+        std::uint64_t bytes = source.vertices.size() + static_cast<std::uint64_t>(payload.size()) * 4 + static_cast<std::uint64_t>(roots.size()) * 4 + sizeof(build_statistics) + sizeof(build_options) + static_cast<std::uint64_t>(stats.level_triangles.size()) * 8;
         if (bytes > options.max_output_bytes) {
             return std::unexpected(build_error::capacity);
         }
         for (std::size_t level = levels.size(); level > 0; --level) {
             for (auto id : levels[level - 1]) {
                 auto const& node = nodes[id];
-                std::uint64_t addition = sizeof(validated_group) + std::uint64_t(node.records.size()) * sizeof(meshlet) + (node.children.empty() ? 0 : std::uint64_t(node.indices.size()) * 4);
+                std::uint64_t addition = sizeof(validated_group) + static_cast<std::uint64_t>(node.records.size()) * sizeof(meshlet) + (node.children.empty() ? 0 : static_cast<std::uint64_t>(node.indices.size()) * 4);
                 if (bytes > options.max_output_bytes || addition > options.max_output_bytes - bytes ||
                     payload.size() > UINT32_MAX || node.indices.size() > UINT32_MAX - payload.size()) {
                     return std::unexpected(build_error::capacity);

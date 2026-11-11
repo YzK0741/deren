@@ -6,7 +6,7 @@ module;
 module deren.utility.shared;
 import deren.vstd;
 
-#if defined(_MSC_VER)
+#ifdef _MSC_VER
 #define TRACE_NOINLINE __declspec(noinline)
 #else
 #define TRACE_NOINLINE __attribute__((noinline))
@@ -92,7 +92,6 @@ namespace deren::utility::diagnostics {
                                               trace.addresses[j], next.base, trace.addresses[j] - next.base, next.module);
             }
             auto status = symbolizer_status::ok;
-            std::size_t written = 0;
             auto now = native::monotonic_ms();
             if (invalid) {
                 status = symbolizer_status::failed;
@@ -103,6 +102,7 @@ namespace deren::utility::diagnostics {
             } else if (now >= deadline) {
                 status = symbolizer_status::timeout;
             } else {
+                std::size_t written = 0;
                 auto raw_status = native::symbolize_group(tool.c_str(), frame.module, offsets, j - i, options.inlines,
                                                           output.data(), remaining_output, written, static_cast<std::uint32_t>(deadline - now));
                 switch (raw_status) {
