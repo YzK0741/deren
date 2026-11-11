@@ -1027,76 +1027,85 @@ namespace deren::engine::subtilis {
                     stats.result = upload_rhi::error::operation_failed;
                     return stats;
                 }
-                plan = std::move(*revised);
-                deren::utility::vessel::vector<std::uint32_t> assigned;
-                bool acquired_slots = false;
-                std::uint32_t cross_evicted = 0;
-                if (!plan->installs.empty()) {
-                    // The source may reclaim its own unpinned pages, but never a page in the plan
-                    // that is about to be uploaded. Other sources protect their in-flight plans
-                    // through the same callback.
-                    state->installing_pages = std::span<std::uint32_t const>{plan->installs};
-                    acquired_slots = state->pool->acquire(static_cast<std::uint32_t>(plan->installs.size()), assigned, nullptr, &cross_evicted);
-                    state->installing_pages = {};
+                if (revised->installed_bytes > budget_bytes) {
+                    // Evicting the trial victims can change the dependency closure. If the revised
+                    // plan no longer fits the install budget, leave the targets absent and pending
+                    // for a later frame instead of starting an over-budget transaction.
+                    plan.reset();
+                } else {
+                    plan = std::move(*revised);
                 }
-                stats.evicted += cross_evicted;
-                if (acquired_slots) {
-                    for (auto physical : assigned) {
-                        state->reserved[physical] = 1;
-                        state->owned_slots.push_back(physical);
+                if (plan) {
+                    deren::utility::vessel::vector<std::uint32_t> assigned;
+                    bool acquired_slots = false;
+                    std::uint32_t cross_evicted = 0;
+                    if (!plan->installs.empty()) {
+                        // Exclude this source from victim selection. Its resident dependencies are
+                        // not listed in installing_pages, so reclaiming any of its pages could
+                        // invalidate the dependency-closed plan before apply.
+                        state->installing_pages = std::span<std::uint32_t const>{plan->installs};
+                        acquired_slots = state->pool->acquire(static_cast<std::uint32_t>(plan->installs.size()), assigned, state, &cross_evicted);
+                        state->installing_pages = {};
                     }
-                    if (!state->transfers) {
-                        state->transfers = std::make_unique<buffer_transfer_service>(state->device);
-                    }
-                    namespace sync = upload_rhi::synchronization;
-                    constexpr sync::scope published{
-                        sync::stage::compute_shader | sync::stage::task_shader | sync::stage::mesh_shader |
-                            sync::stage::fragment_shader | sync::stage::vertex_shader,
-                        sync::access::read,
-                    };
-                    auto batch = state->transfers->make_batch();
-                    auto arena = resource_handle<upload_rhi::buffer>::from_shared(
-                        state->device, upload_rhi::shared_object<upload_rhi::buffer>{state->arena, state->arena->objects[0].buffer.get()});
-                    for (std::size_t k = 0; k < plan->installs.size(); ++k) {
-                        auto const install = plan->installs[k];
-                        auto const physical = assigned[k];
-                        auto const source_offset = state->payload->arena.layout.page_offset(install);
-                        if (!source_offset || table[install].bytes > state->payload->slot_bytes) {
-                            stats.result = upload_rhi::error::invalid_argument;
-                            break;
-                        }
-                        auto bytes = std::span<std::byte const>{state->payload->arena.bytes.data() + *source_offset, table[install].bytes};
-                        constexpr sync::scope no_before{};
-                        stats.result = batch.upload(arena, static_cast<std::uint64_t>(physical) * state->payload->slot_bytes, bytes, no_before, published);
-                        if (stats.result != upload_rhi::error::ok) {
-                            break;
-                        }
-                    }
-                    if (stats.result != upload_rhi::error::ok) {
+                    stats.evicted += cross_evicted;
+                    if (acquired_slots) {
                         for (auto physical : assigned) {
-                            state->reserved[physical] = 0;
-                            state->release_owned(physical);
+                            state->reserved[physical] = 1;
+                            state->owned_slots.push_back(physical);
                         }
-                        return stats;
-                    }
-                    // Store bookkeeping before native submit can accept work.
-                    state->uploading.emplace(page_state::upload{{}, std::move(*plan), std::move(assigned)});
-                    auto ticket = state->transfers->submit(std::move(batch));
-                    if (!ticket) {
-                        stats.result = ticket.error();
-                        for (auto physical : state->uploading->assigned) {
-                            state->reserved[physical] = 0;
-                            state->release_owned(physical);
+                        if (!state->transfers) {
+                            state->transfers = std::make_unique<buffer_transfer_service>(state->device);
                         }
-                        state->uploading.reset();
-                        return stats;
+                        namespace sync = upload_rhi::synchronization;
+                        constexpr sync::scope published{
+                            sync::stage::compute_shader | sync::stage::task_shader | sync::stage::mesh_shader |
+                                sync::stage::fragment_shader | sync::stage::vertex_shader,
+                            sync::access::read,
+                        };
+                        auto batch = state->transfers->make_batch();
+                        auto arena = resource_handle<upload_rhi::buffer>::from_shared(
+                            state->device, upload_rhi::shared_object<upload_rhi::buffer>{state->arena, state->arena->objects[0].buffer.get()});
+                        for (std::size_t k = 0; k < plan->installs.size(); ++k) {
+                            auto const install = plan->installs[k];
+                            auto const physical = assigned[k];
+                            auto const source_offset = state->payload->arena.layout.page_offset(install);
+                            if (!source_offset || table[install].bytes > state->payload->slot_bytes) {
+                                stats.result = upload_rhi::error::invalid_argument;
+                                break;
+                            }
+                            auto bytes = std::span<std::byte const>{state->payload->arena.bytes.data() + *source_offset, table[install].bytes};
+                            constexpr sync::scope no_before{};
+                            stats.result = batch.upload(arena, static_cast<std::uint64_t>(physical) * state->payload->slot_bytes, bytes, no_before, published);
+                            if (stats.result != upload_rhi::error::ok) {
+                                break;
+                            }
+                        }
+                        if (stats.result != upload_rhi::error::ok) {
+                            for (auto physical : assigned) {
+                                state->reserved[physical] = 0;
+                                state->release_owned(physical);
+                            }
+                            return stats;
+                        }
+                        // Store bookkeeping before native submit can accept work.
+                        state->uploading.emplace(page_state::upload{{}, std::move(*plan), std::move(assigned)});
+                        auto ticket = state->transfers->submit(std::move(batch));
+                        if (!ticket) {
+                            stats.result = ticket.error();
+                            for (auto physical : state->uploading->assigned) {
+                                state->reserved[physical] = 0;
+                                state->release_owned(physical);
+                            }
+                            state->uploading.reset();
+                            return stats;
+                        }
+                        auto& upload = *state->uploading;
+                        upload.ticket = std::move(*ticket);
+                        stats.submitted = static_cast<std::uint32_t>(upload.plan.installs.size());
+                        stats.in_flight = stats.submitted;
+                        stats.bytes = upload.plan.installed_bytes;
+                        stats.in_flight_bytes = stats.bytes;
                     }
-                    auto& upload = *state->uploading;
-                    upload.ticket = std::move(*ticket);
-                    stats.submitted = static_cast<std::uint32_t>(upload.plan.installs.size());
-                    stats.in_flight = stats.submitted;
-                    stats.bytes = upload.plan.installed_bytes;
-                    stats.in_flight_bytes = stats.bytes;
                 }
             }
         }

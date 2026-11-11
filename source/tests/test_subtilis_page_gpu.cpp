@@ -435,6 +435,9 @@ int main() {
                 });
             }
             std::uint32_t evicted = 0;
+            std::uint32_t skipped_evicted = 0;
+            CHECK(!(*pool)->acquire(1, replacement, pool->get(), &skipped_evicted));
+            CHECK(skipped_evicted == 0);
             CHECK((*pool)->acquire(1, replacement, nullptr, &evicted));
             CHECK(evicted == 1);
         }

@@ -3385,7 +3385,7 @@ namespace deren::engine {
                     deren::utility::log("subtilis pages: snapshot publication failed ({})", static_cast<std::uint32_t>(published));
                     return false;
                 }
-                remaining_budget -= page_stats.bytes;
+                remaining_budget -= std::min(remaining_budget, page_stats.bytes);
                 this->subtilis_page_budget_left = remaining_budget;
                 this->subtilis_page_upload_bytes += page_stats.bytes;
                 this->subtilis_page_frames[frame_slot].push_back(plan.cut_source);
