@@ -443,6 +443,38 @@ int main() {
         }
     }
     {
+        auto pool = sub::page_arena_pool::create(core, 2ull * sub::page_arena_pool::slot_bytes);
+        CHECK(pool);
+        if (pool) {
+            deren::utility::vessel::vector<std::uint32_t> occupied, reused, extra;
+            CHECK((*pool)->acquire(2, occupied));
+            (*pool)->release(occupied);
+            // Returning a slot twice must not append it twice. A duplicate free-list entry would
+            // later hand the same physical arena slot to two sources.
+            (*pool)->release(occupied.front());
+            CHECK((*pool)->acquire(2, reused));
+            CHECK(reused.size() == 2 && reused[0] != reused[1]);
+            CHECK(!(*pool)->acquire(1, extra));
+            (*pool)->release(reused);
+        }
+    }
+    {
+        auto pool = sub::page_arena_pool::create(core, sub::page_arena_pool::slot_bytes);
+        CHECK(pool);
+        if (pool) {
+            deren::utility::vessel::vector<std::uint32_t> slot, reused, extra;
+            CHECK((*pool)->acquire(1, slot));
+            (*pool)->retain(slot.front());
+            (*pool)->release(slot.front()); // Deferred until the published frame drops it.
+            (*pool)->drop(slot.front());
+            (*pool)->release(slot.front()); // Must be a no-op: the slot is already free.
+            CHECK((*pool)->acquire(1, reused));
+            CHECK(reused.size() == 1 && reused.front() == slot.front());
+            CHECK(!(*pool)->acquire(1, extra));
+            (*pool)->release(reused);
+        }
+    }
+    {
         auto pinned = make_paged_geometry(false, true);
         auto pool = sub::page_arena_pool::create(core, sub::page_arena_pool::slot_bytes);
         CHECK(pinned && pool);

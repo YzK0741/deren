@@ -140,6 +140,9 @@ namespace deren::engine::subtilis {
         deren::utility::vessel::vector<std::uint32_t> free_slots;
         deren::utility::vessel::vector<std::uint32_t> references;
         deren::utility::vessel::vector<std::uint8_t> pending_free;
+        // Mirrors free_slots membership. It makes release() idempotent: a slot that was already
+        // returned cannot be appended twice and later handed to two owners.
+        deren::utility::vessel::vector<std::uint8_t> free_mark;
         deren::utility::vessel::vector<void*> owner_context;
         deren::utility::vessel::vector<page_arena_pool::slot_evict_fn> owner_evict;
         std::mutex lock;
@@ -181,6 +184,7 @@ namespace deren::engine::subtilis {
         pool_state->free_slots.reserve(static_cast<std::size_t>(count));
         pool_state->references.assign(static_cast<std::size_t>(count), 0u);
         pool_state->pending_free.assign(static_cast<std::size_t>(count), 0u);
+        pool_state->free_mark.assign(static_cast<std::size_t>(count), 1u);
         pool_state->owner_context.assign(static_cast<std::size_t>(count), nullptr);
         pool_state->owner_evict.assign(static_cast<std::size_t>(count), nullptr);
         for (std::uint32_t slot = 0; slot < count; ++slot) {
@@ -218,7 +222,7 @@ namespace deren::engine::subtilis {
                 std::scoped_lock guard{state_->lock};
                 std::size_t available = 0;
                 for (auto const slot : state_->free_slots) {
-                    if (state_->references[slot] == 0) {
+                    if (state_->references[slot] == 0 && state_->free_mark[slot] != 0) {
                         ++available;
                     }
                 }
@@ -226,11 +230,12 @@ namespace deren::engine::subtilis {
                     out.reserve(count);
                     for (auto it = state_->free_slots.rbegin(); it != state_->free_slots.rend() && out.size() < count;) {
                         auto const slot = *it;
-                        if (state_->references[slot] != 0) {
+                        if (state_->references[slot] != 0 || state_->free_mark[slot] == 0) {
                             ++it;
                             continue;
                         }
                         out.push_back(slot);
+                        state_->free_mark[slot] = 0;
                         // A reverse_iterator's base() points one past the element it dereferences,
                         // so the element to erase is prev(base()). Erasing next.base() - 1 removed
                         // the neighbouring slot and left this one on the free list: with one shared
@@ -294,7 +299,8 @@ namespace deren::engine::subtilis {
         }
         if (state_->references[slot] != 0) {
             state_->pending_free[slot] = 1;
-        } else {
+        } else if (state_->free_mark[slot] == 0) {
+            state_->free_mark[slot] = 1;
             state_->free_slots.push_back(slot);
         }
     }
@@ -320,7 +326,10 @@ namespace deren::engine::subtilis {
         --state_->references[slot];
         if (state_->references[slot] == 0 && state_->pending_free[slot] != 0) {
             state_->pending_free[slot] = 0;
-            state_->free_slots.push_back(slot);
+            if (state_->free_mark[slot] == 0) {
+                state_->free_mark[slot] = 1;
+                state_->free_slots.push_back(slot);
+            }
         }
     }
 

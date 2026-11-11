@@ -106,6 +106,8 @@ export namespace deren::engine::subtilis {
         [[nodiscard]] bool acquire(std::uint32_t count, deren::utility::vessel::vector<std::uint32_t>& out, void const* skip_owner = nullptr, std::uint32_t* evicted = nullptr);
         void set_owner(std::uint32_t slot, void* context, slot_evict_fn evict);
         void clear_owner(std::uint32_t slot);
+        /// Returns a slot to the pool. Releasing an already-free slot is a no-op: a page can be
+        /// returned by both its owner and a failed transaction without duplicating the free entry.
         void release(std::uint32_t slot);
         void release(std::span<std::uint32_t const> slots);
         void retain(std::uint32_t slot);
