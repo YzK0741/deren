@@ -27,6 +27,7 @@
 #include <windows.h>
 #else
 
+#include <cerrno>
 #include <time.h>
 #endif
 
