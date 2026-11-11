@@ -2407,6 +2407,17 @@ namespace deren::engine {
         /// M2's per-frame cut payload: a camera header plus the compact item list the GPU dispatches.
         render_resource::instances::view<rhi::buffer> subtilis_cut_items_buffer = {};
         void* subtilis_cut_items_mapped = nullptr;
+        /// Keep snapshots and their geometry alive until the paced slot completes.
+        deren::utility::vessel::vector<deren::utility::vessel::vector<std::shared_ptr<subtilis::uploaded_geometry const>>> subtilis_page_frames;
+        std::uint64_t subtilis_page_sequence = 0;
+        std::uint64_t subtilis_page_budget_left = 0;
+        std::uint64_t subtilis_page_upload_bytes = 0;
+        /// Round-robin cursor for page installs: the next source to be served first.
+        std::size_t subtilis_page_install_cursor = 0;
+        std::uint64_t subtilis_page_upload_budget = 8ull << 20;
+        std::uint64_t subtilis_resident_page_budget = 64ull << 20;
+        /// Pending uploads outlive scene removal and frame-snapshot completion.
+        deren::utility::vessel::vector<std::shared_ptr<subtilis::uploaded_geometry const>> subtilis_page_uploads;
         /// The knob ([render] subtilis_gpu_cut). Default off: the CPU cut remains the authority.
         bool subtilis_gpu_cut = false;
         pass::subtilis_cut_job cut_job = {};
@@ -3887,6 +3898,10 @@ namespace deren::engine {
         void set_subtilis_hysteresis(bool enabled) noexcept;
         /// M2: let the GPU write an eligible item's cut run and mesh-task command instead of the CPU.
         void set_subtilis_gpu_cut(bool enabled) noexcept;
+        /// Per-frame page upload budget, shared by every source. Takes effect next frame.
+        void set_subtilis_page_upload_bytes(std::uint64_t value) noexcept;
+        /// Per-source page-slot arena budget, used when a source is uploaded.
+        void set_subtilis_resident_page_bytes(std::uint64_t value) noexcept;
         void set_software_raster(bool enabled) noexcept;
         void set_software_raster_threshold_px(float value) noexcept;
         [[nodiscard]] bool subtilis_enabled() const noexcept {

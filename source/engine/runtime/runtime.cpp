@@ -1497,6 +1497,12 @@ namespace deren::engine {
     void runtime::set_subtilis_gpu_cut(bool enabled) noexcept {
         this->subtilis_gpu_cut = enabled;
     }
+    void runtime::set_subtilis_page_upload_bytes(std::uint64_t const value) noexcept {
+        this->subtilis_page_upload_budget = std::max<std::uint64_t>(value, 1u);
+    }
+    void runtime::set_subtilis_resident_page_bytes(std::uint64_t const value) noexcept {
+        this->subtilis_resident_page_budget = std::max<std::uint64_t>(value, 1u);
+    }
 
     void runtime::set_software_raster(bool const enabled) noexcept {
         this->software_raster_on = enabled;
@@ -2216,7 +2222,7 @@ namespace deren::engine {
             subtilis::reservation space = {};
             std::uint32_t item_index = 0;
             bool gpu_cut = false;
-            subtilis::uploaded_geometry const* cut_source = nullptr;
+            std::shared_ptr<subtilis::uploaded_geometry const> cut_source;
             uint32_t input_count = 0;
             uint32_t selected_count = 0;
             uint32_t fallback_count = 0;
@@ -2474,15 +2480,14 @@ namespace deren::engine {
                     leaf.subtilis_geometry->cut_groups() != nullptr && leaf.subtilis_geometry->cut_references() != nullptr &&
                     leaf.subtilis_geometry->cut_clusters() != nullptr && leaf.subtilis_geometry->cut_group_count() != 0u &&
                     leaf.subtilis_geometry->cut_group_count() <= subtilis::cut_max_groups &&
-                    leaf.subtilis_geometry->source().hierarchy_dag()->maximum_selected_bound() <= leaf.subtilis_geometry->cut_cluster_count() &&
-                    leaf.subtilis_geometry->source().hierarchy_dag()->maximum_selected_bound() <= plan.space.count;
+                    leaf.subtilis_geometry->source().hierarchy_dag()->maximum_selected_bound() <= leaf.subtilis_geometry->cut_cluster_count();
                 if (cut_eligible) {
                     // A page-miss frame must still draw the WHOLE item as LOD0: the cut shader can only
                     // write a contiguous meshlet run, so the host preloads the LOD0 records where the
                     // visibility path already expects `space.base`. If that write fails, use the CPU cut
                     // instead of publishing a run that reads unrelated records.
                     auto const lod0 = leaf.subtilis_geometry->source().lod0_clusters();
-                    if (lod0.empty() || lod0.size() > plan.space.count ||
+                    if (lod0.empty() || subtilis::check_reservation(plan.space, lod0.size(), published) != subtilis::fallback_reason::none ||
                         !runtime::meshlet_culled_write(this, plan.space.base, std::as_bytes(lod0))) {
                         cut_eligible = false;
                     } else {
@@ -2492,7 +2497,7 @@ namespace deren::engine {
                 if (cut_eligible) {
                     plan.run = subtilis::visible_run{plan.space.base, 0u, subtilis::run_source::visible, subtilis::fallback_reason::none};
                     plan.gpu_cut = true;
-                    plan.cut_source = leaf.subtilis_geometry.get();
+                    plan.cut_source = leaf.subtilis_geometry;
                     plan.input_count = plan.space.count;
                     plan.input_triangles = leaf.draw_index_count / 3;
                     plan.selected_triangles = 0u;
@@ -2593,13 +2598,21 @@ namespace deren::engine {
                 order[index] = index;
             }
             std::ranges::sort(order, [&](std::uint32_t a, std::uint32_t b) { return plans[a].space.base < plans[b].space.base; });
-            for (std::uint32_t position = 1; position < count; ++position) {
-                visibility_item_plan const& previous = plans[order[position - 1u]];
-                visibility_item_plan const& current = plans[order[position]];
-                if (previous.space.count != 0u && current.space.count != 0u &&
-                    static_cast<std::uint64_t>(previous.space.base) + previous.space.count > static_cast<std::uint64_t>(current.space.base)) {
-                    ordered_planning[order[position - 1u]] = true;
-                    ordered_planning[order[position]] = true;
+            std::uint32_t furthest = 0u;
+            std::uint64_t furthest_end = 0u;
+            for (auto index : order) {
+                auto const space = plans[index].space;
+                if (space.count == 0u) {
+                    continue;
+                }
+                if (space.base < furthest_end) {
+                    ordered_planning[furthest] = true;
+                    ordered_planning[index] = true;
+                }
+                auto const end = static_cast<std::uint64_t>(space.base) + space.count;
+                if (end > furthest_end) {
+                    furthest = index;
+                    furthest_end = end;
                 }
             }
         }
@@ -2657,7 +2670,7 @@ namespace deren::engine {
                     }
                     plan_item(index, std::span<subtilis::reservation const>(published_snapshot), selected, probe_order);
                 }
-                if (plan.run.source == subtilis::run_source::visible && plan.run.count != 0u && space.count != 0u) {
+                if (plan.run.source == subtilis::run_source::visible && (plan.gpu_cut || plan.run.count != 0u) && space.count != 0u) {
                     published.emplace(space.base, space.base + space.count);
                 }
             }
@@ -3258,7 +3271,7 @@ namespace deren::engine {
             }
         };
         // ---- THE GPU CUT (M2) ----
-        // One thread per GPU-cut item selects its run and writes its command; this dispatch must precede every
+        // One workgroup per GPU-cut item selects its run and writes its command; this dispatch must precede every
         // segment that draws those items. The item table is host-mapped and copied per frame, so no descriptor
         // is needed: item/group/reference/cluster/output/command addresses all travel as buffer device addresses.
         std::uint32_t gpu_cut_items = 0u;
@@ -3267,6 +3280,7 @@ namespace deren::engine {
                 ++gpu_cut_items;
             }
         }
+        std::uint32_t gpu_cut_paged_items = 0u;
         if (gpu_cut_items != 0u) {
             if (gpu_cut_items > subtilis::cut_item_capacity) {
                 return false;
@@ -3286,20 +3300,99 @@ namespace deren::engine {
             frame->item_capacity = subtilis::cut_item_capacity;
             auto* const items = reinterpret_cast<subtilis::cut_item*>(frame_bytes + sizeof(subtilis::cut_frame));
             std::uint32_t item = 0u;
-            constexpr std::uint64_t page_install_budget = 8ull << 20;
-            for (auto const& plan : plans) {
+            auto const log_page_stats = [&](subtilis::page_install_stats const& page_stats) {
+                if (page_stats.overflow != 0u) {
+                    deren::utility::log("subtilis pages: request buffer overflowed at frame {} ({} requests, {} installed, {} pending)", frame_slot,
+                                        page_stats.requests, page_stats.installed, page_stats.pending);
+                }
+                if (page_stats.abandoned != 0u) {
+                    deren::utility::log("subtilis pages: abandoned {} failed page upload(s), returning them to absent at frame {}",
+                                        page_stats.abandoned, frame_slot);
+                }
+                if (page_stats.page_misses != 0u) {
+                    deren::utility::log("subtilis pages: {} item(s) fell back to LOD0 on a page miss at frame {}", page_stats.page_misses, frame_slot);
+                }
+                if (page_stats.evicted != 0u) {
+                    deren::utility::log("subtilis pages: evicted {} page(s) to install a request at frame {}", page_stats.evicted, frame_slot);
+                }
+                if (page_stats.submitted != 0u) {
+                    deren::utility::log("subtilis pages: queued {} page(s), {} bytes, {} pending at frame {}", page_stats.submitted, page_stats.bytes,
+                                        page_stats.pending, frame_slot);
+                }
+                if (page_stats.installed != 0u) {
+                    deren::utility::log("subtilis pages: installed {} page(s) at frame {}", page_stats.installed, frame_slot);
+                }
+            };
+            // INSTALL IN A ROTATED ORDER: one source may not consume the whole global budget
+            // every frame. Each source gets a fair byte slice (at least one page-sized floor),
+            // and the starting point advances so a source at the front of the plan list cannot
+            // starve the rest. The item list below is still built in plan order.
+            deren::utility::vessel::vector<std::size_t> page_install_order;
+            deren::utility::vessel::vector<subtilis::uploaded_geometry const*> seen_sources;
+            for (std::size_t index = 0; index < plans.size(); ++index) {
+                auto const& plan = plans[index];
                 if (!plan.gpu_cut) {
                     continue;
                 }
                 auto const& source = *plan.cut_source;
-                auto const page_stats = source.install_requested_pages(page_install_budget, static_cast<std::uint32_t>(frame_slot));
-                if (page_stats.overflow != 0u) {
-                    deren::utility::log("subtilis pages: request buffer overflowed at frame {} ({} requests, {} installed, {} pending)", frame_slot,
-                                        page_stats.requests, page_stats.installed, page_stats.pending);
-                } else if (page_stats.installed != 0u) {
-                    deren::utility::log("subtilis pages: installed {} page(s), {} bytes, {} pending at frame {}", page_stats.installed, page_stats.bytes,
-                                        page_stats.pending, frame_slot);
+                auto& retained = this->subtilis_page_frames[frame_slot];
+                bool const prepared = std::ranges::any_of(retained, [&](auto const& value) { return value.get() == &source; });
+                bool const seen = std::ranges::any_of(seen_sources, [&](auto const* value) { return value == &source; });
+                if (!prepared && !seen) {
+                    seen_sources.push_back(&source);
+                    page_install_order.push_back(index);
                 }
+            }
+            constexpr std::uint64_t fair_page_floor = 64ull << 10;
+            std::uint64_t remaining_budget = this->subtilis_page_budget_left;
+            std::size_t const install_count = page_install_order.size();
+            std::size_t const install_start = install_count == 0 ? 0 : this->subtilis_page_install_cursor % install_count;
+            std::size_t first_unserved = install_count;
+            for (std::size_t round = 0; round < install_count; ++round) {
+                if (remaining_budget == 0) {
+                    first_unserved = std::min(first_unserved, round);
+                }
+                auto const plan_index = page_install_order[(install_start + round) % install_count];
+                auto& plan = plans[plan_index];
+                auto& source = *plan.cut_source;
+                auto const configured = source.configure_page_frames(this->frame_ring().slot_count());
+                if (configured != rhi::error::ok) {
+                    deren::utility::log("subtilis pages: frame-buffer configuration failed ({})", static_cast<std::uint32_t>(configured));
+                    return false;
+                }
+                std::uint64_t const fair_bytes = std::max<std::uint64_t>(remaining_budget / (install_count - round), fair_page_floor);
+                std::uint64_t const install_budget = std::min(remaining_budget, fair_bytes);
+                std::uint32_t const max_pages = static_cast<std::uint32_t>(std::min<std::uint64_t>(
+                    std::max<std::uint64_t>(fair_bytes / fair_page_floor, 1u), 1024u));
+                auto const page_stats = source.install_requested_pages(install_budget, static_cast<std::uint32_t>(this->subtilis_page_sequence),
+                                                                       frame_slot, max_pages);
+                if (source.has_pending_page_upload() && std::ranges::none_of(this->subtilis_page_uploads,
+                                                                             [&](auto const& value) { return value.get() == &source; })) {
+                    this->subtilis_page_uploads.push_back(plan.cut_source);
+                }
+                if (page_stats.result != rhi::error::ok) {
+                    deren::utility::log("subtilis pages: frame preparation failed ({})", static_cast<std::uint32_t>(page_stats.result));
+                    return false;
+                }
+                auto const published = source.publish_page_frame(frame_slot);
+                if (published != rhi::error::ok) {
+                    deren::utility::log("subtilis pages: snapshot publication failed ({})", static_cast<std::uint32_t>(published));
+                    return false;
+                }
+                remaining_budget -= page_stats.bytes;
+                this->subtilis_page_budget_left = remaining_budget;
+                this->subtilis_page_upload_bytes += page_stats.bytes;
+                this->subtilis_page_frames[frame_slot].push_back(plan.cut_source);
+                log_page_stats(page_stats);
+            }
+            if (install_count != 0) {
+                this->subtilis_page_install_cursor = (install_start + first_unserved) % install_count;
+            }
+            for (auto& plan : plans) {
+                if (!plan.gpu_cut) {
+                    continue;
+                }
+                auto const& source = *plan.cut_source;
                 auto& cut = items[item++];
                 std::memcpy(cut.model, plan.block.model.data(), sizeof(cut.model));
                 cut.groups = runtime::buffer_address(*source.cut_groups());
@@ -3316,11 +3409,14 @@ namespace deren::engine {
                 cut.command_index = runtime::visibility_command_run + plan.item_index;
                 cut.flags = 0u;
                 cut.page_arena = source.page_arena() != nullptr ? runtime::buffer_address(*source.page_arena()) : 0u;
-                cut.page_table = source.page_table() != nullptr ? runtime::buffer_address(*source.page_table()) : 0u;
-                cut.page_requests = source.page_requests() != nullptr ? runtime::buffer_address(*source.page_requests()) : 0u;
+                cut.page_table = source.page_table(frame_slot) != nullptr ? runtime::buffer_address(*source.page_table(frame_slot)) : 0u;
+                cut.page_requests = source.page_requests(frame_slot) != nullptr ? runtime::buffer_address(*source.page_requests(frame_slot)) : 0u;
                 cut.page_count = cut.page_table != 0u ? source.page_count() : 0u;
+                plan.row.page_table = cut.page_table;
+                plan.row.page_arena = cut.page_arena;
+                gpu_cut_paged_items += cut.page_count != 0u ? 1u : 0u;
                 cut.request_capacity = cut.page_requests != 0u ? source.page_request_capacity() : 0u;
-                cut.request_frame = static_cast<std::uint32_t>(frame_slot);
+                cut.request_frame = static_cast<std::uint32_t>(this->subtilis_page_sequence);
                 cut.lod0_count = plan.lod0_count;
             }
             std::uint64_t const items_address = runtime::buffer_address(*this->subtilis_cut_items_buffer) +
@@ -3329,14 +3425,14 @@ namespace deren::engine {
                 return false;
             }
             // Publish the GPU request writes to the host domain before a later
-            // install_requested_pages() drains submissions and reads the queue.
+            // completed frame slot is collected and its queue is read.
             // Coherent mapping removes invalidation, not this memory dependency.
             for (auto const& plan : plans) {
-                if (!plan.gpu_cut || plan.cut_source->page_requests() == nullptr) {
+                if (!plan.gpu_cut || plan.cut_source->page_requests(frame_slot) == nullptr) {
                     continue;
                 }
                 rhi::buffer_barrier const requests{
-                    .resource = plan.cut_source->page_requests(),
+                    .resource = plan.cut_source->page_requests(frame_slot),
                     .from = rhi::buffer_use::shader_write,
                     .to = rhi::buffer_use::host_read,
                 };
@@ -3400,6 +3496,9 @@ namespace deren::engine {
             deren::utility::log("subtilis capacity: items {} peak {}, table {}/{}, max run {}, refused frames {}, error {} px, hysteresis {}", count, this->subtilis_peak_items, this->meshlet_total, meshlet_capacity, this->subtilis_max_run, this->subtilis_capacity_frames, this->subtilis_error_px, this->subtilis_hysteresis);
             deren::utility::log("subtilis: cut run publication: {} -> {} records, {} -> {} triangles, {} fallback item(s)",
                                 input_count, selected_count, input_triangles, selected_triangles, fallback_count);
+            if (this->subtilis_gpu_cut) {
+                deren::utility::log("subtilis GPU cut: dispatched {} items ({} paged)", gpu_cut_items, gpu_cut_paged_items);
+            }
         }
         recorded = count;
         visibility_recorded_item_count = count;
@@ -3833,7 +3932,9 @@ namespace deren::engine {
                                                  (runtime_detail::ray_query_available_of(this->rhi_face()) ? rhi::to_bits(rhi::buffer_flag::acceleration_structure_input) : rhi::no_buffer_flags);
         if (geometry_source) {
             if (!shared_generation) {
-                auto uploaded = subtilis::upload_geometry(this->core_lifetime, geometry_source, geometry_flags);
+                auto uploaded = subtilis::upload_geometry(this->core_lifetime, geometry_source, geometry_flags,
+                                                          subtilis::geometry_upload_mode::automatic,
+                                                          this->subtilis_resident_page_budget);
                 if (!uploaded) {
                     return nullptr;
                 }
@@ -3845,22 +3946,6 @@ namespace deren::engine {
             }
             if (!result->bind_subtilis_geometry(shared_generation)) {
                 return nullptr;
-            }
-            if (auto* const page_table = shared_generation->page_table(); page_table != nullptr) {
-                if (!this->write_heap_buffer(*page_table, deren::engine::render_layout::heap_slots::subtilis_page_table, page_table->size(),
-                                             rhi::descriptor_type::storage_buffer)) {
-                    deren::utility::log("descriptor heap: the subtilis page table did not reach grid slot {}",
-                                        deren::engine::render_layout::heap_slots::subtilis_page_table);
-                    return nullptr;
-                }
-            }
-            if (auto* const page_arena = shared_generation->page_arena(); page_arena != nullptr) {
-                if (!this->write_heap_buffer(*page_arena, deren::engine::render_layout::heap_slots::subtilis_page_arena, page_arena->size(),
-                                             rhi::descriptor_type::storage_buffer)) {
-                    deren::utility::log("descriptor heap: the subtilis page arena did not reach grid slot {}",
-                                        deren::engine::render_layout::heap_slots::subtilis_page_arena);
-                    return nullptr;
-                }
             }
         } else {
             namespace managed = render_resource::instances;

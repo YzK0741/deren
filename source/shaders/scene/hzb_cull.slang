@@ -62,12 +62,12 @@ bool hzb_hardware_candidate(HzbItem src, uint index)
 
 // ---- THE DRAW-ITEM MODEL MATRIX, from heap_slots_visibility_items ----
 //
-// The cull needs ONE field of the item: the model matrix. The draw-item record is 112 bytes = 28 u32 words (whose
+// The cull needs ONE field of the item: the model matrix. The draw-item record is 128 bytes = 32 u32 words (whose
 // shape deren::engine::visibility::draw_item pins on the host, and whose reader in this tree is
 // visibility_resolve.slang's VisibilityDrawItem), with the model's 16 floats at dword 12. Reading the words and
-// bit-casting is deliberate: a `StructuredBuffer<VR_MAT4>` at this slot would stride 64 bytes, not 112, and the
+// bit-casting is deliberate: a `StructuredBuffer<VR_MAT4>` at this slot would stride 64 bytes, and the
 // model would come out of the wrong bytes for every item but the first.
-static const uint hzb_draw_item_dwords = 28u;      // mirrors visibility::draw_item_bytes / sizeof(uint32_t)
+static const uint hzb_draw_item_dwords = 32u;      // mirrors visibility::draw_item_bytes / sizeof(uint32_t)
 static const uint hzb_draw_item_model_dword = 12u; // mirrors visibility::draw_item_model_offset / sizeof(uint32_t)
 
 /// @brief the item's model matrix, as the CPU reference reads it (the 16 floats in the renderer's memory order)

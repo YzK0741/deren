@@ -482,6 +482,19 @@ namespace deren::engine {
         // may still be executing and destroying in-use resources would violate VUIDs (~core()
         // also waits, but that runs after this body — too late for the VMA frees here).
         this->core_face.wait_idle();
+        for (auto const& source : this->subtilis_page_uploads) {
+            auto const result = source->collect_page_uploads();
+            if (result.result != rhi::error::ok) {
+                deren::utility::panic(std::source_location::current(), "subtilis: final page upload completion failed ({})", static_cast<std::uint32_t>(result.result));
+            }
+        }
+        this->subtilis_page_uploads.clear();
+        for (std::uint32_t slot = 0; slot < this->subtilis_page_frames.size(); ++slot) {
+            for (auto const& source : this->subtilis_page_frames[slot]) {
+                static_cast<void>(source->complete_page_frame(slot));
+            }
+        }
+        this->subtilis_page_frames.clear();
         if (this->pending_present.valid()) {
             rhi::error const result = this->pending_present.get();
             if (result != rhi::error::ok && result != rhi::error::out_of_date) {

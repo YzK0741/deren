@@ -137,39 +137,31 @@ struct MeshletRecord
     float cone_cos;   // the smallest dot any face normal has with the axis, i.e. the cone's half-angle is acos(this)
 };
 
-/// @brief read index @p i through the record's streamed page, or the draw's buffer when it has none
-///
-/// @note THE PAGE ID IS THE SIDE LANE docs/subtilis_m2_m5_plan.md calls for: the 48-byte meshlet record
-///       already carries it in the four bytes the std430 float3 left at offset 12, so the geometry lanes
-///       stay 40 bytes and no stage's push block grows. The table entry is 32 bytes in the scene page
-///       table heap slot; its arena offset is a byte offset into the page arena heap slot. A page that is
-///       not resident (or an index outside the page) answers 0 - the cut shader only emits a page id for a
-///       resident, fully containing page, so reaching that case means the host/GPU residence states
-///       disagreed, and a zero index is the one value that cannot read outside the arena.
-uint mesh_index_at(const MeshGeometryLanes geometry, const MeshletRecord record, const uint i)
+/// Resolve the index window through the same draw and frame-slot snapshot the cut used.
+uint64_t meshlet_index_page(const MeshletRecord record, const uint64_t table, const uint64_t arena)
 {
-    if (record.page_id == 0u)
-        return mesh_index_at(geometry, i);
+    if (record.page_id == 0u || table == 0ull || arena == 0ull)
+        return 0ull;
 
-    ByteAddressBuffer table = heap_at<ByteAddressBuffer>(heap_slots_subtilis_page_table);
-    const uint entry_base = (record.page_id - 1u) * 32u;
-    const uint4 entry_lo = table.Load4(entry_base);
-    const uint4 entry_hi = table.Load4(entry_base + 16u);
-    const uint page_first = entry_lo.z;
-    const uint page_count = entry_lo.w;
-    const uint arena_offset = entry_hi.x;
-    const uint state = entry_hi.z;
-    if (state != 2u || i < page_first || i >= page_first + page_count)
-        return 0u;
+    uint* entry = (uint*)(table + uint64_t(record.page_id - 1u) * 32ull);
+    const uint first = entry[2];
+    const uint count = entry[3];
+    if (entry[6] != 2u || record.first_index < first || record.index_count > count)
+        return 0ull;
+    const uint local = record.first_index - first;
+    if (local > count - record.index_count)
+        return 0ull;
 
-    ByteAddressBuffer arena = heap_at<ByteAddressBuffer>(heap_slots_subtilis_page_arena);
-    const uint local = i - page_first;
-    if (geometry.index_width == 2u)
-    {
-        const uint word = arena.Load(arena_offset + (local >> 1u) * 4u);
-        return (local & 1u) != 0u ? (word >> 16u) : (word & 0xFFFFu);
-    }
-    return arena.Load(arena_offset + local * 4u);
+    // Cooked index pages always store 32-bit indices.
+    return arena + uint64_t(entry[4]) + uint64_t(local) * 4ull;
+}
+
+uint meshlet_index_at(const MeshGeometryLanes geometry, const MeshletRecord record, const uint local,
+                      const uint64_t page)
+{
+    if (page != 0ull)
+        return ((uint*)page)[local];
+    return mesh_index_at(geometry, record.first_index + local);
 }
 
 /// @brief one record of the meshlet table (grid slot `heap_slots_meshlets`)

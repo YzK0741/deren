@@ -423,6 +423,16 @@ namespace deren::app_config {
                     settings.render.subtilis_gpu_cut = *value;
                 }
             }
+            if (auto const* node = render->get("subtilis_page_upload_bytes")) {
+                if (auto value = node->value<std::int64_t>(); value && *value > 0) {
+                    settings.render.subtilis_page_upload_bytes = static_cast<std::uint64_t>(*value);
+                }
+            }
+            if (auto const* node = render->get("subtilis_resident_page_bytes")) {
+                if (auto value = node->value<std::int64_t>(); value && *value > 0) {
+                    settings.render.subtilis_resident_page_bytes = static_cast<std::uint64_t>(*value);
+                }
+            }
             if (toml::node const* node = render->get("software_raster")) {
                 if (auto value = node->value<bool>()) {
                     settings.render.software_raster = *value;

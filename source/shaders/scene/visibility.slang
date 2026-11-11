@@ -61,20 +61,7 @@ struct VisibilityPush
 };
 [[vk::push_constant]] ConstantBuffer<VisibilityPush> push;
 #define heap_frame_slot (push.frame_slot)
-
-// The only three members of the camera block this stage needs, in the host record's order (`camera_ubo`:
-// view, proj, ...; proj is the JITTERED projection the G-buffer pass also rasterizes with, so depth agrees).
-struct VisibilityCamera
-{
-    VR_MAT4 view;
-    VR_MAT4 proj;
-};
-#define visibility_camera heap_at<ConstantBuffer<VisibilityCamera>>(heap_camera_slot)
-
-// The id's field shifts, the C++ layout's constants spelled out (see deren.engine.visibility's static_asserts).
-static const uint visibility_id_meshlet_shift = 7u;
-static const uint visibility_id_item_shift = visibility_id_meshlet_shift + 12u;
-static const uint visibility_id_valid = 1u << 31u;
+#include "common/mesh_fetch.slang"
 
 // One triangle's three vertices, plus the flat id every one of them carries: the fragment stage receives it
 // UNINTERPOLATED, so all three corners of a triangle name the same triangle.
@@ -148,6 +135,13 @@ void mesh_main(out vertices VisibilityVertexOutput verts[mesh_vertices_per_workg
     // THE ID IS THE MESHLET'S ORDER INSIDE THE ITEM, not its table index: the resolve pass reads the item's
     // record to find the run's base, so the two halves agree on the order the dispatch was built with.
     const uint meshlet_in_item = survivor_offset + group_id.x;
+    uint64_t page = 0ull;
+    if (meshlet.page_id != 0u)
+    {
+        const uint row = push.frame_slot * visibility_item_capacity + push.item_index;
+        const VisibilityDrawItem item = heap_at<StructuredBuffer<VisibilityDrawItem>>(heap_slots_visibility_items)[row];
+        page = meshlet_index_page(meshlet, item.page_table, item.page_arena);
+    }
     for (uint t = 0u; t < triangle_count; ++t)
     {
         const uint vis_id = visibility_id_valid | (push.item_index << visibility_id_item_shift) |
@@ -156,7 +150,7 @@ void mesh_main(out vertices VisibilityVertexOutput verts[mesh_vertices_per_workg
         {
             // THE RECORD'S WINDOW AND THE RECORD'S base_vertex, exactly as the pbr meshlet entry fetches them:
             // `geometry.base_vertex` is the run's flag lane in a meshlet session, never a vertex offset.
-            const uint raw_index = mesh_index_at(geometry, meshlet, meshlet.first_index + t * mesh_indices_per_triangle + corner);
+            const uint raw_index = meshlet_index_at(geometry, meshlet, t * mesh_indices_per_triangle + corner, page);
             const uint vertex_index = uint(int(raw_index) + meshlet.base_vertex);
             const MeshVertex v = mesh_vertex_at(geometry, vertex_index);
             VisibilityVertexOutput o;

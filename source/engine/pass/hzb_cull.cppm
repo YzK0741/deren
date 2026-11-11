@@ -103,11 +103,11 @@ export namespace deren::engine::pass {
     inline constexpr std::uint32_t hzb_stat_overflow_items = 3u; ///< items whose run could not be described (§9.4)
 
     // THE SHADER'S MIRRORS OF THE DRAW-ITEM RECORD, asserted here so the GPU's model fetch cannot drift from the
-    // host's record silently: hzb_cull.slang reads the model's 16 floats at dword 12 of a 28-dword row.
-    static_assert(deren::engine::visibility::draw_item_bytes == 112u);
+    // host's record silently: hzb_cull.slang reads the model's 16 floats at dword 12 of a 32-dword row.
+    static_assert(deren::engine::visibility::draw_item_bytes == 128u);
     static_assert(deren::engine::visibility::draw_item_model_offset == 48u);
     static_assert(deren::engine::visibility::draw_item_model_offset == 12u * sizeof(std::uint32_t));
-    static_assert(deren::engine::visibility::draw_item_bytes == 28u * sizeof(std::uint32_t));
+    static_assert(deren::engine::visibility::draw_item_bytes == 32u * sizeof(std::uint32_t));
 
     class hzb_cull_pass final : public frame_pass {
     public:

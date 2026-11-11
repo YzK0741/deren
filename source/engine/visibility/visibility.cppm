@@ -120,9 +120,7 @@ export namespace deren::engine::visibility {
     //    transform/material the fragment would have seen. `model` stays a plain float array so the
     //    record has no glm dependency; the host fills it at the same place it records the draw.
     //
-    //    SIZE: twelve 32-bit lanes then the matrix (16 floats). 48 + 64 = 112 bytes, and 112 is a
-    //    multiple of 16 - the std430 struct's alignment in the resolve shader - so the record needs no
-    //    trailing padding and the same number is asserted on both sides.
+    //    Twelve 32-bit lanes, the 64-byte matrix, and two 64-bit page addresses form a 128-byte row.
     // =============================================================================================
     /// where the item's meshlet records come from: the import-time table or this frame's host-culled lane
     enum class meshlet_source : std::uint32_t { table = 0u,
@@ -133,11 +131,12 @@ export namespace deren::engine::visibility {
     /// the number of 32-bit lanes before the model matrix
     inline constexpr std::uint32_t draw_item_dwords = 12u;
     inline constexpr std::uint32_t draw_item_model_offset = draw_item_dwords * sizeof(std::uint32_t);
-    inline constexpr std::uint32_t draw_item_bytes = draw_item_model_offset + 16u * sizeof(float);
+    inline constexpr std::uint32_t draw_item_page_offset = draw_item_model_offset + 16u * sizeof(float);
+    inline constexpr std::uint32_t draw_item_bytes = draw_item_page_offset + 2u * sizeof(std::uint64_t);
 
     static_assert(draw_item_model_offset % 16u == 0u, "the matrix must land on the std430 16-byte alignment");
     static_assert(draw_item_bytes % 16u == 0u, "a std430 structured-buffer element cannot straddle its alignment");
-    static_assert(draw_item_bytes == 112u, "the shader mirrors this number");
+    static_assert(draw_item_bytes == 128u, "the shader mirrors this number");
 
     struct draw_item {
         std::uint32_t vertex_address_low = 0; ///< device address of the item's vertex buffer base
@@ -153,6 +152,8 @@ export namespace deren::engine::visibility {
         std::uint32_t motion_index = 0;   ///< previous_transform index (the velocity half)
         std::uint32_t flags = 0;          ///< reserved: 0 in v0
         std::array<float, 16> model = {}; ///< the draw's model matrix, row-major like the push block
+        std::uint64_t page_table = 0;     ///< this frame's immutable page-table snapshot
+        std::uint64_t page_arena = 0;     ///< this geometry's bounded index page arena
     };
 
     static_assert(sizeof(draw_item) == draw_item_bytes, "the record must be exactly the documented size");
@@ -160,6 +161,8 @@ export namespace deren::engine::visibility {
     static_assert(offsetof(draw_item, vertex_address_low) == 0u);
     static_assert(offsetof(draw_item, meshlet_table) == 32u);
     static_assert(offsetof(draw_item, model) == draw_item_model_offset);
+    static_assert(offsetof(draw_item, page_table) == draw_item_page_offset);
+    static_assert(offsetof(draw_item, page_arena) == draw_item_page_offset + sizeof(std::uint64_t));
 
     // =============================================================================================
     // 3. THE RASTER STAGE'S PER-ITEM PUSH BLOCK (the shader's `VisibilityPush`, byte for byte)

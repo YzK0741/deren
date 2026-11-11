@@ -242,6 +242,40 @@ namespace deren::engine {
         // the cursor the backend answered (every use below reads this one, not a second counter).
         uint32_t const frame_slot = open.frame.frame_index;
         this->current_image_index = open.frame.image_index;
+        this->subtilis_page_upload_bytes = 0;
+        std::erase_if(this->subtilis_page_uploads, [&](auto const& source) {
+            auto const completed = source->collect_page_uploads();
+            if (completed.result != rhi::error::ok) {
+                static bool logged_page_upload_failure = false;
+                if (!logged_page_upload_failure) {
+                    logged_page_upload_failure = true;
+                    deren::utility::log("subtilis pages: upload completion failed ({}); retaining the upload and retrying", static_cast<std::uint32_t>(completed.result));
+                }
+            }
+            if (completed.installed != 0u) {
+                deren::utility::log("subtilis pages: installed {} page(s) at frame {}", completed.installed, frame_slot);
+            }
+            if (completed.abandoned != 0u) {
+                deren::utility::log("subtilis pages: abandoned {} failed page upload(s), returning them to absent at frame {}",
+                                    completed.abandoned, frame_slot);
+            }
+            this->subtilis_page_upload_bytes += completed.in_flight_bytes;
+            return !source->has_pending_page_upload();
+        });
+        // Even a removed/hidden geometry must release its old snapshot here.
+        // An abandoned recording is also safe to release after this slot's wait.
+        this->subtilis_page_frames.resize(this->frame_ring().slot_count());
+        for (auto const& source : this->subtilis_page_frames[frame_slot]) {
+            if (source->complete_page_frame(frame_slot) != rhi::error::ok) {
+                deren::utility::panic("subtilis: failed to collect a completed frame's page requests");
+            }
+        }
+        this->subtilis_page_frames[frame_slot].clear();
+        ++this->subtilis_page_sequence;
+        auto const frame_budget = this->subtilis_page_upload_budget;
+        auto const staging_limit = frame_budget * this->frame_ring().slot_count();
+        auto const staging_free = this->subtilis_page_upload_bytes < staging_limit ? staging_limit - this->subtilis_page_upload_bytes : 0;
+        this->subtilis_page_budget_left = std::min(frame_budget, staging_free);
         // wait_and_acquire succeeded: only this completed slot's former generation can be released/reset.
         this->submitted_resource_views[frame_slot] = {};
         this->frame_resource_clusters[frame_slot].clear();

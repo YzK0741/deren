@@ -129,17 +129,26 @@ namespace deren::engine::subtilis {
     }
 
     std::expected<residency_plan, residency_error> page_manager::plan_request(std::uint32_t page) const {
-        if (page >= pages_.size()) {
+        return plan_requests(std::span(&page, 1));
+    }
+
+    std::expected<residency_plan, residency_error> page_manager::plan_requests(std::span<std::uint32_t const> targets) const {
+        if (targets.empty()) {
             return std::unexpected(residency_error::invalid_page);
         }
         utility::vessel::vector<std::uint8_t> state(pages_.size(), std::uint8_t{0});
         utility::vessel::vector<std::uint32_t> order;
         order.reserve(pages_.size());
-        if (auto collected = collect(page, state, order); !collected) {
-            return std::unexpected(collected.error());
+        for (auto page : targets) {
+            if (page >= pages_.size()) {
+                return std::unexpected(residency_error::invalid_page);
+            }
+            if (auto collected = collect(page, state, order); !collected) {
+                return std::unexpected(collected.error());
+            }
         }
         residency_plan plan;
-        plan.target = page;
+        plan.target = targets.front();
         utility::vessel::vector<std::uint8_t> required(pages_.size(), std::uint8_t{0});
         for (auto id : order) {
             required[id] = 1;

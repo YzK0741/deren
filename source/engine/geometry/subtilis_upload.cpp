@@ -132,7 +132,10 @@ namespace deren::engine::subtilis {
             if (!table) {
                 return std::unexpected(table.error());
             }
-            auto const capacity = std::min<std::uint32_t>(std::max<std::uint32_t>(static_cast<std::uint32_t>(pages.size()), 1u), 256u);
+            // The shader claims each page in the page table before appending, so a page appears at
+            // most once per frame. Capacity therefore follows the page count rather than a duplicate
+            // estimate; one 16-byte request per page is small next to the 32-byte table row.
+            auto const capacity = std::max<std::uint32_t>(static_cast<std::uint32_t>(pages.size()), 1u);
             return std::make_shared<page_payload_block>(std::move(*packed), std::move(*table), capacity, std::move(*manager), slots, slot_bytes);
         }
     } // namespace
@@ -181,6 +184,18 @@ namespace deren::engine::subtilis {
     }
 
     struct page_state {
+        struct upload {
+            buffer_transfer_ticket ticket;
+            residency_plan plan;
+            deren::utility::vessel::vector<std::uint32_t> assigned;
+        };
+        std::optional<upload> uploading;
+        struct frame {
+            upload_rhi::shared_object<upload_rhi::buffer> table, requests;
+            deren::utility::vessel::vector<std::uint32_t> references;
+            bool published = false;
+            std::uint32_t collected = 0, overflow = 0, page_misses = 0;
+        };
         std::shared_ptr<page_payload_block> payload;
         upload_rhi::shared_object<upload_rhi::api_core> device;
         std::shared_ptr<render_resource::instances::generation const> arena;
@@ -188,6 +203,22 @@ namespace deren::engine::subtilis {
         deren::utility::vessel::vector<std::byte> initial_bytes;
         deren::utility::vessel::vector<std::uint32_t> slot_of;
         deren::utility::vessel::vector<std::uint32_t> free_slots;
+        deren::utility::vessel::vector<frame> frames;
+        deren::utility::vessel::vector<std::uint32_t> references, pending;
+        deren::utility::vessel::vector<std::uint32_t> pending_priority;
+        deren::utility::vessel::vector<std::uint8_t> reserved;
+        std::uint32_t failed_polls = 0;
+
+        // rebuild_free writes free_slots; clang-tidy's module AST reports a false positive.
+        void rebuild_free() { // NOLINT(readability-make-member-function-const)
+            free_slots.clear();
+            for (std::uint32_t slot = 0; slot < payload->slots; ++slot) {
+                if (references[slot] == 0 && !reserved[slot] &&
+                    std::ranges::find(slot_of, slot) == slot_of.end()) {
+                    free_slots.push_back(slot);
+                }
+            }
+        }
     };
 
     std::expected<std::shared_ptr<uploaded_geometry const>, upload_rhi::error>
@@ -260,6 +291,9 @@ namespace deren::engine::subtilis {
             page_pages->device = device;
             page_pages->initial_bytes.assign(static_cast<std::size_t>(slots) * page_payload->slot_bytes, std::byte{0});
             page_pages->slot_of.assign(pages.size(), UINT32_MAX);
+            page_pages->pending_priority.assign(pages.size(), 0u);
+            page_pages->references.assign(slots, 0u);
+            page_pages->reserved.assign(slots, 0u);
             std::uint32_t next_slot = 0;
             for (std::uint32_t i = 0; i < pages.size(); ++i) {
                 auto& entry = page_payload->table[i];
@@ -438,199 +472,376 @@ namespace deren::engine::subtilis {
                                                        page_payload ? page_payload->requests.capacity() : 0u, std::move(edges), std::move(page_pages));
     }
 
-    page_install_stats uploaded_geometry::install_requested_pages(std::uint64_t budget_bytes, std::uint32_t frame) const noexcept {
+    upload_rhi::error uploaded_geometry::configure_page_frames(std::uint32_t count) const {
+        auto* state = page_state_.get();
+        if (!state) {
+            return upload_rhi::error::ok;
+        }
+        if (count == 0) {
+            return upload_rhi::error::invalid_argument;
+        }
+        if (state->frames.size() == count) {
+            return upload_rhi::error::ok;
+        }
+        if (std::ranges::any_of(state->frames, [](auto const& f) { return f.published; })) {
+            return upload_rhi::error::not_ready;
+        }
+        // Allocate transactionally: a failed allocation must not replace a live buffer.
+        auto frames = state->frames;
+        frames.resize(count);
+        for (std::uint32_t i = 0; i < count; ++i) {
+            if (frames[i].table) {
+                continue;
+            }
+            if (i == 0) {
+                frames[i].table = {page_table_, this->page_table()};
+                frames[i].requests = {page_requests_, this->page_requests()};
+                continue;
+            }
+            constexpr auto flags = upload_rhi::to_bits(upload_rhi::buffer_flag::device_address) |
+                                   upload_rhi::to_bits(upload_rhi::buffer_flag::storage);
+            frames[i].table = state->device->resources->create_buffer({.size = this->page_table()->size(), .usage = upload_rhi::buffer_usage::storage_coherent, .flags = flags, .initial_bytes = std::as_bytes(std::span(state->payload->table))});
+            frames[i].requests = state->device->resources->create_buffer({.size = this->page_requests()->size(), .usage = upload_rhi::buffer_usage::storage_coherent, .flags = flags});
+            if (!frames[i].table || !frames[i].requests) {
+                return upload_rhi::error::operation_failed;
+            }
+            auto bytes = frames[i].requests->mapped();
+            if (bytes.size() != frames[i].requests->size()) {
+                return upload_rhi::error::operation_failed;
+            }
+            std::memset(bytes.data(), 0, bytes.size());
+            gpu_page_request_header const header{0, page_request_capacity_, 0, 0};
+            std::memcpy(bytes.data(), &header, sizeof(header));
+        }
+        state->frames = std::move(frames);
+        return upload_rhi::error::ok;
+    }
+
+    upload_rhi::buffer* uploaded_geometry::page_table(std::uint32_t slot) const noexcept {
+        if (!page_state_ || page_state_->frames.empty()) {
+            return slot == 0 ? this->page_table() : nullptr;
+        }
+        return slot < page_state_->frames.size() ? page_state_->frames[slot].table.get() : nullptr;
+    }
+    upload_rhi::buffer* uploaded_geometry::page_requests(std::uint32_t slot) const noexcept {
+        if (!page_state_ || page_state_->frames.empty()) {
+            return slot == 0 ? this->page_requests() : nullptr;
+        }
+        return slot < page_state_->frames.size() ? page_state_->frames[slot].requests.get() : nullptr;
+    }
+
+    upload_rhi::error uploaded_geometry::complete_page_frame(std::uint32_t slot) const {
+        auto* state = page_state_.get();
+        if (!state) {
+            return upload_rhi::error::ok;
+        }
+        if (state->frames.empty()) {
+            if (auto result = configure_page_frames(1); result != upload_rhi::error::ok) {
+                return result;
+            }
+        }
+        if (slot >= state->frames.size()) {
+            return upload_rhi::error::invalid_argument;
+        }
+        auto& frame = state->frames[slot];
+        auto bytes = frame.requests->mapped();
+        if (bytes.size() != frame.requests->size()) {
+            return upload_rhi::error::operation_failed;
+        }
+        gpu_page_request_header header{};
+        std::memcpy(&header, bytes.data(), sizeof(header));
+        frame.collected += header.count;
+        frame.page_misses += header.frame;
+        frame.overflow |= header.overflow | (header.count > page_request_capacity_ ? 1u : 0u);
+        for (std::uint32_t i = 0; i < std::min(header.count, page_request_capacity_); ++i) {
+            gpu_page_request request{};
+            std::memcpy(&request, bytes.data() + sizeof(header) + static_cast<std::size_t>(i) * sizeof(request), sizeof(request));
+            if (request.page < page_count_ && !state->payload->manager.resident(request.page)) {
+                auto const found = std::ranges::find(state->pending, request.page);
+                if (found == state->pending.end()) {
+                    state->pending.push_back(request.page);
+                    state->pending_priority[request.page] = request.priority;
+                } else if (request.priority > state->pending_priority[request.page]) {
+                    state->pending_priority[request.page] = request.priority;
+                }
+            }
+        }
+        header = {0, page_request_capacity_, 0, 0};
+        std::memcpy(bytes.data(), &header, sizeof(header));
+        for (auto physical : frame.references) {
+            --state->references[physical];
+        }
+        frame.references.clear();
+        frame.published = false;
+        state->rebuild_free();
+        return upload_rhi::error::ok;
+    }
+
+    upload_rhi::error uploaded_geometry::publish_page_frame(std::uint32_t slot) const {
+        auto* state = page_state_.get();
+        if (!state) {
+            return upload_rhi::error::ok;
+        }
+        if (slot >= state->frames.size()) {
+            return upload_rhi::error::invalid_argument;
+        }
+        auto& frame = state->frames[slot];
+        if (frame.published) {
+            return upload_rhi::error::not_ready;
+        }
+        auto bytes = frame.table->mapped();
+        auto source = std::as_bytes(std::span(state->payload->table));
+        if (bytes.size() != source.size()) {
+            return upload_rhi::error::operation_failed;
+        }
+        std::memcpy(bytes.data(), source.data(), source.size());
+        for (auto physical : state->slot_of) {
+            if (physical != UINT32_MAX) {
+                frame.references.push_back(physical);
+                ++state->references[physical];
+            }
+        }
+        frame.published = true;
+        return upload_rhi::error::ok;
+    }
+
+    bool uploaded_geometry::has_pending_page_upload() const noexcept {
+        return page_state_ && page_state_->uploading.has_value();
+    }
+
+    page_install_stats uploaded_geometry::collect_page_uploads() const {
         page_install_stats stats;
         auto* state = page_state_.get();
-        auto* request_buffer = this->page_requests();
-        auto* table_buffer = this->page_table();
-        if (!state || !state->payload || !state->arena || !state->device || !request_buffer || !table_buffer || page_count_ == 0u ||
-            page_request_capacity_ == 0u || state->payload->table.size() != page_count_) {
+        if (!state) {
             return stats;
         }
-        // The request queue and page table are shared by all frame slots. Waiting
-        // only for the paced slot does not finish the other slot's cut dispatch.
-        // Drain before reading OR resetting the queue, including empty/budget-limited
-        // calls. Keep this synchronous until requests have per-submission storage.
-        state->device->wait_idle();
-        auto request_bytes = request_buffer->mapped();
-        auto table_bytes = table_buffer->mapped();
-        constexpr std::size_t header_size = sizeof(gpu_page_request_header);
-        constexpr std::size_t request_size = sizeof(gpu_page_request);
-        constexpr std::size_t entry_size = sizeof(gpu_page_table_entry);
-        auto const slot_bytes = state->payload->slot_bytes;
-        if (request_bytes.size() < header_size + static_cast<std::size_t>(page_request_capacity_) * request_size ||
-            table_bytes.size() < static_cast<std::size_t>(page_count_) * entry_size) {
-            return stats;
-        }
-
-        auto read_entry = [&](std::uint32_t page) {
-            gpu_page_table_entry entry{};
-            std::memcpy(&entry, table_bytes.data() + static_cast<std::size_t>(page) * entry_size, entry_size);
-            return entry;
-        };
-        auto write_entry = [&](std::uint32_t page, gpu_page_table_entry const& entry) {
-            std::memcpy(table_bytes.data() + static_cast<std::size_t>(page) * entry_size, &entry, entry_size);
-        };
-        auto rebuild_free = [&] {
-            state->free_slots.clear();
-            for (std::uint32_t slot = 0; slot < state->payload->slots; ++slot) {
-                bool used = false;
-                for (std::uint32_t page = 0; page < page_count_; ++page) {
-                    if (state->slot_of[page] == slot) {
-                        used = true;
-                        break;
-                    }
+        if (state->uploading) {
+            auto& upload = *state->uploading;
+            stats.in_flight = static_cast<std::uint32_t>(upload.plan.installs.size());
+            stats.in_flight_bytes = upload.plan.installed_bytes;
+            // Give a failed transfer a few polls to recover (a poll can be transiently not ready),
+            // then release its slots and return the pages to absent so the cut can request them
+            // again. Without this the page table stayed requested forever and the source stalled.
+            auto abandon = [&](auto const& installs, auto const& assigned) {
+                for (auto physical : assigned) {
+                    state->reserved[physical] = 0;
                 }
-                if (!used) {
-                    state->free_slots.push_back(slot);
+                for (auto page : installs) {
+                    state->slot_of[page] = UINT32_MAX;
+                    state->pending_priority[page] = 0;
+                    auto& entry = state->payload->table[page];
+                    entry.state = static_cast<std::uint32_t>(gpu_page_state::absent);
+                    entry.offset = 0;
                 }
-            }
-        };
-
-        gpu_page_request_header header{};
-        std::memcpy(&header, request_bytes.data(), header_size);
-        stats.requests = header.count;
-        stats.overflow = header.overflow;
-        auto const available = std::min(header.count, page_request_capacity_);
-        if (header.count > page_request_capacity_) {
-            stats.overflow = 1u;
-        }
-
-        namespace sync = upload_rhi::synchronization;
-        sync::scope const published{
-            sync::stage::compute_shader | sync::stage::task_shader | sync::stage::mesh_shader | sync::stage::fragment_shader |
-                sync::stage::vertex_shader,
-            sync::access::read,
-        };
-        auto* entries = request_bytes.data() + header_size;
-        std::uint32_t pending = 0;
-        for (std::uint32_t i = 0; i < available; ++i) {
-            gpu_page_request request{};
-            std::memcpy(&request, entries + static_cast<std::size_t>(i) * request_size, request_size);
-            if (request.page >= page_count_) {
-                continue;
-            }
-            auto entry = read_entry(request.page);
-            if (entry.state == static_cast<std::uint32_t>(gpu_page_state::resident)) {
-                continue;
-            }
-
-            bool installed = false;
-            auto planned = state->payload->manager.plan_request(request.page);
-            if (planned && planned->installed_bytes <= budget_bytes - stats.bytes) {
-                auto plan = std::move(*planned);
-                auto const installs = plan.installs;
-                auto const installed_bytes = plan.installed_bytes;
-                struct evicted_entry {
-                    std::uint32_t page = 0, slot = 0;
-                    gpu_page_table_entry entry{};
-                };
-                deren::utility::vessel::vector<evicted_entry> evicted;
-                deren::utility::vessel::vector<std::uint32_t> assigned;
-                for (auto page : plan.evictions) {
-                    auto victim = read_entry(page);
-                    if (state->slot_of[page] != UINT32_MAX) {
-                        evicted.push_back({page, state->slot_of[page], victim});
-                        state->free_slots.push_back(state->slot_of[page]);
-                        state->slot_of[page] = UINT32_MAX;
-                    }
-                    victim.state = static_cast<std::uint32_t>(gpu_page_state::absent);
-                    victim.offset = 0;
-                    write_entry(page, victim);
-                }
-                auto rollback = [&] {
-                    for (auto const& victim : evicted) {
-                        write_entry(victim.page, victim.entry);
-                        state->slot_of[victim.page] = victim.slot;
-                    }
-                    rebuild_free();
-                };
-                if (state->free_slots.size() >= installs.size() && (state->transfers || !installs.empty())) {
-                    if (!state->transfers && !installs.empty()) {
-                        state->transfers = std::make_unique<buffer_transfer_service>(state->device);
+                std::erase_if(state->pending, [&](auto page) {
+                    return std::ranges::find(installs, page) != installs.end();
+                });
+                state->uploading.reset();
+                state->rebuild_free();
+                state->failed_polls = 0;
+                stats.abandoned = static_cast<std::uint32_t>(installs.size());
+            };
+            auto const result = upload.ticket.poll();
+            if (result != upload_rhi::error::not_ready) {
+                stats.result = result;
+                if (result == upload_rhi::error::ok) {
+                    auto const installs = upload.plan.installs;
+                    if (!state->payload->manager.apply(std::move(upload.plan))) {
+                        stats.result = upload_rhi::error::operation_failed;
+                        if (++state->failed_polls >= 3u) {
+                            abandon(installs, upload.assigned);
+                            stats.result = upload_rhi::error::ok;
+                        }
+                        return stats;
                     }
                     for (std::size_t k = 0; k < installs.size(); ++k) {
-                        assigned.push_back(state->free_slots.back());
-                        state->free_slots.pop_back();
+                        auto const id = installs[k];
+                        auto const physical = upload.assigned[k];
+                        auto& entry = state->payload->table[id];
+                        entry.state = static_cast<std::uint32_t>(gpu_page_state::resident);
+                        entry.offset = physical * state->payload->slot_bytes;
+                        state->slot_of[id] = physical;
+                        state->pending_priority[id] = 0u;
+                        state->reserved[physical] = 0;
                     }
-                    if (!installs.empty()) {
-                        auto batch = state->transfers->make_batch();
-                        auto const arena_access = resource_handle<upload_rhi::buffer>::from_shared(
-                            state->device, upload_rhi::shared_object<upload_rhi::buffer>{state->arena, state->arena->objects[0].buffer.get()});
-                        bool copied = true;
-                        for (std::size_t k = 0; k < installs.size(); ++k) {
-                            auto const page = installs[k];
-                            auto const page_entry = read_entry(page);
-                            auto const source_offset = state->payload->arena.layout.page_offset(page);
-                            if (!source_offset || page_entry.bytes > slot_bytes) {
-                                copied = false;
-                                break;
-                            }
-                            auto const source_bytes =
-                                std::span<std::byte const>{state->payload->arena.bytes.data() + *source_offset, page_entry.bytes};
-                            sync::scope no_before{};
-                            auto const result =
-                                batch.upload(arena_access, static_cast<std::uint64_t>(assigned[k]) * slot_bytes, source_bytes, no_before, published);
-                            if (result != upload_rhi::error::ok) {
-                                copied = false;
-                                break;
-                            }
-                        }
-                        if (copied) {
-                            auto submitted = state->transfers->submit(std::move(batch));
-                            copied = submitted && submitted->wait(UINT64_MAX) == upload_rhi::error::ok;
-                        }
-                        if (copied) {
-                            auto applied = state->payload->manager.apply(std::move(plan));
-                            if (applied) {
-                                for (std::size_t k = 0; k < installs.size(); ++k) {
-                                    auto page_entry = read_entry(installs[k]);
-                                    page_entry.state = static_cast<std::uint32_t>(gpu_page_state::resident);
-                                    page_entry.offset = assigned[k] * slot_bytes;
-                                    state->slot_of[installs[k]] = assigned[k];
-                                    write_entry(installs[k], page_entry);
-                                }
-                                stats.bytes += installed_bytes;
-                                stats.installed += static_cast<std::uint32_t>(installs.size());
-                                installed = true;
-                            }
-                        }
-                        if (!installed) {
-                            state->device->wait_idle();
-                        }
+                    stats.installed = static_cast<std::uint32_t>(installs.size());
+                    stats.in_flight = 0;
+                    stats.in_flight_bytes = 0;
+                    state->failed_polls = 0;
+                    state->uploading.reset();
+                    stats.result = state->transfers->collect();
+                    state->rebuild_free();
+                } else {
+                    if (++state->failed_polls >= 3u) {
+                        abandon(upload.plan.installs, upload.assigned);
+                        stats.result = upload_rhi::error::ok;
                     }
                 }
-                if (!installed) {
-                    rollback();
-                }
-            }
-            if (installed) {
-                continue;
-            }
-
-            entry.state = static_cast<std::uint32_t>(gpu_page_state::requested);
-            write_entry(request.page, entry);
-            bool duplicate = false;
-            for (std::uint32_t j = 0; j < pending; ++j) {
-                gpu_page_request queued{};
-                std::memcpy(&queued, entries + static_cast<std::size_t>(j) * request_size, request_size);
-                if (queued.page == request.page) {
-                    duplicate = true;
-                    break;
-                }
-            }
-            if (!duplicate) {
-                std::memcpy(entries + static_cast<std::size_t>(pending) * request_size, &request, request_size);
-                ++pending;
+                // Failed observation retains the ticket, its resources and all
+                // reserved slots. It is never interpreted as a completed upload.
             }
         }
+        std::erase_if(state->pending, [&](auto page) {
+            if (!state->payload->manager.resident(page)) {
+                return false;
+            }
+            state->pending_priority[page] = 0u;
+            return true;
+        });
+        stats.pending = static_cast<std::uint32_t>(state->pending.size());
+        return stats;
+    }
 
-        header.count = pending;
-        header.capacity = page_request_capacity_;
-        header.overflow = 0u;
-        header.frame = frame;
-        std::memcpy(request_bytes.data(), &header, header_size);
-        stats.pending = pending;
+    page_install_stats uploaded_geometry::install_requested_pages(std::uint64_t budget_bytes, std::uint32_t sequence,
+                                                                  std::uint32_t slot, std::uint32_t max_install_pages) const noexcept {
+        (void)sequence; // The request header's fourth word carries page misses, not the frame sequence.
+        page_install_stats stats;
+        auto* state = page_state_.get();
+        if (!state) {
+            return stats;
+        }
+        if (state->frames.empty()) {
+            stats.result = configure_page_frames(1);
+        }
+        if (stats.result != upload_rhi::error::ok) {
+            return stats;
+        }
+        if (slot >= state->frames.size()) {
+            stats.result = upload_rhi::error::invalid_argument;
+            return stats;
+        }
+        auto& frame = state->frames[slot];
+        if (frame.published) {
+            stats.result = upload_rhi::error::not_ready;
+            return stats;
+        }
+        stats = collect_page_uploads();
+        if (stats.result != upload_rhi::error::ok) {
+            return stats;
+        }
+        stats.result = complete_page_frame(slot);
+        if (stats.result != upload_rhi::error::ok) {
+            return stats;
+        }
+        stats.requests = std::exchange(frame.collected, 0u);
+        stats.overflow = std::exchange(frame.overflow, 0u);
+        stats.page_misses = std::exchange(frame.page_misses, 0u);
+        auto& table = state->payload->table;
+        // One transaction can contain many requests. While it is in flight the
+        // manager is unchanged, so its dependency-closed plan cannot become stale.
+        if (!state->uploading && budget_bytes != 0 && max_install_pages != 0) {
+            std::ranges::sort(state->pending, [state](std::uint32_t a, std::uint32_t b) {
+                auto const priority_a = state->pending_priority[a];
+                auto const priority_b = state->pending_priority[b];
+                return priority_a != priority_b ? priority_a > priority_b : a < b;
+            });
+            deren::utility::vessel::vector<std::uint32_t> targets;
+            std::optional<residency_plan> plan;
+            for (auto page : state->pending) {
+                if (targets.size() >= max_install_pages) {
+                    break;
+                }
+                if (state->payload->manager.resident(page)) {
+                    continue;
+                }
+                targets.push_back(page);
+                auto trial = state->payload->manager.plan_requests(targets);
+                if (!trial || trial->installed_bytes > budget_bytes) {
+                    targets.pop_back();
+                    continue;
+                }
+                plan = std::move(*trial);
+            }
+            if (plan) {
+                // Logical eviction precedes physical reuse. Older snapshots still
+                // protect their slots, so a full arena defers without any waiting.
+                stats.evicted = static_cast<std::uint32_t>(plan->evictions.size());
+                for (auto victim : plan->evictions) {
+                    if (!state->payload->manager.evict(victim)) {
+                        stats.result = upload_rhi::error::operation_failed;
+                        return stats;
+                    }
+                    state->slot_of[victim] = UINT32_MAX;
+                    state->pending_priority[victim] = 0u;
+                    table[victim].state = static_cast<std::uint32_t>(gpu_page_state::absent);
+                    table[victim].offset = 0;
+                }
+                state->rebuild_free();
+                auto revised = state->payload->manager.plan_requests(targets);
+                if (!revised) {
+                    stats.result = upload_rhi::error::operation_failed;
+                    return stats;
+                }
+                plan = std::move(*revised);
+                if (state->free_slots.size() >= plan->installs.size()) {
+                    if (!state->transfers) {
+                        state->transfers = std::make_unique<buffer_transfer_service>(state->device);
+                    }
+                    namespace sync = upload_rhi::synchronization;
+                    constexpr sync::scope published{
+                        sync::stage::compute_shader | sync::stage::task_shader | sync::stage::mesh_shader |
+                            sync::stage::fragment_shader | sync::stage::vertex_shader,
+                        sync::access::read,
+                    };
+                    auto batch = state->transfers->make_batch();
+                    auto arena = resource_handle<upload_rhi::buffer>::from_shared(
+                        state->device, upload_rhi::shared_object<upload_rhi::buffer>{state->arena, state->arena->objects[0].buffer.get()});
+                    deren::utility::vessel::vector<std::uint32_t> assigned;
+                    for (auto install : plan->installs) {
+                        auto const physical = state->free_slots.back();
+                        state->free_slots.pop_back();
+                        state->reserved[physical] = 1;
+                        assigned.push_back(physical);
+                        auto const source_offset = state->payload->arena.layout.page_offset(install);
+                        if (!source_offset || table[install].bytes > state->payload->slot_bytes) {
+                            stats.result = upload_rhi::error::invalid_argument;
+                            break;
+                        }
+                        auto bytes = std::span<std::byte const>{state->payload->arena.bytes.data() + *source_offset, table[install].bytes};
+                        constexpr sync::scope no_before{};
+                        stats.result = batch.upload(arena, static_cast<std::uint64_t>(physical) * state->payload->slot_bytes, bytes, no_before, published);
+                        if (stats.result != upload_rhi::error::ok) {
+                            break;
+                        }
+                    }
+                    if (stats.result != upload_rhi::error::ok) {
+                        for (auto physical : assigned) {
+                            state->reserved[physical] = 0;
+                        }
+                        state->rebuild_free();
+                        return stats;
+                    }
+                    // Store bookkeeping before native submit can accept work.
+                    state->uploading.emplace(page_state::upload{{}, std::move(*plan), std::move(assigned)});
+                    auto ticket = state->transfers->submit(std::move(batch));
+                    if (!ticket) {
+                        stats.result = ticket.error();
+                        for (auto physical : state->uploading->assigned) {
+                            state->reserved[physical] = 0;
+                        }
+                        state->uploading.reset();
+                        state->rebuild_free();
+                        return stats;
+                    }
+                    auto& upload = *state->uploading;
+                    upload.ticket = std::move(*ticket);
+                    stats.submitted = static_cast<std::uint32_t>(upload.plan.installs.size());
+                    stats.in_flight = stats.submitted;
+                    stats.bytes = upload.plan.installed_bytes;
+                    stats.in_flight_bytes = stats.bytes;
+                }
+            }
+        }
+        for (auto page : state->pending) {
+            if (!state->payload->manager.resident(page)) {
+                table[page].state = static_cast<std::uint32_t>(gpu_page_state::requested);
+            }
+        }
+        stats.pending = static_cast<std::uint32_t>(state->pending.size());
+        auto bytes = frame.table->mapped();
+        std::memcpy(bytes.data(), table.data(), table.size() * sizeof(gpu_page_table_entry));
+        gpu_page_request_header const header{0, page_request_capacity_, 0, 0};
+        std::memcpy(frame.requests->mapped().data(), &header, sizeof(header));
         return stats;
     }
 } // namespace deren::engine::subtilis

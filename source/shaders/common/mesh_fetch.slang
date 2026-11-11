@@ -14,9 +14,8 @@ static const uint visibility_id_valid = 1u << 31u;
 /// descriptor with the lanes inside it, not a per-frame array of descriptors (see the item fetch below).
 static const uint visibility_item_capacity = 4096u;
 
-// ---- 2. THE PER-FRAME DRAW-ITEM RECORD (mirror of deren.engine.visibility::draw_item, 112 bytes) ----
-// Field order and byte offsets are the C++ record's; `model` stays the LAST member because the host writes the
-// 48 bytes of lanes and then the 16-float matrix that came out of the same push block the raster used. The matrix
+// ---- 2. THE PER-FRAME DRAW-ITEM RECORD (mirror of deren.engine.visibility::draw_item, 128 bytes) ----
+// The 48 bytes of draw lanes precede the same model matrix that the raster push block carries. The matrix
 // is declared `VR_MAT4` (`row_major float4x4` = SPIR-V ColMajor), which is the spelling the host's column-major
 // glm::mat4 bytes are read with - exactly as the raster stage's push block reads it.
 struct VisibilityDrawItem
@@ -34,6 +33,8 @@ struct VisibilityDrawItem
     uint motion_index;        // previous_transform index (the velocity half)
     uint flags;               // reserved: 0 in v0
     VR_MAT4 model;            // row-major in the record's spelling: the draw item's model matrix
+    uint64_t page_table;      // frame-slot snapshot used by the cut dispatch
+    uint64_t page_arena;      // per-geometry index page storage
 };
 
 // ---- 3. THE CAMERA FIELDS THIS STAGE READS (mirror of deren.vulkan::camera_ubo's order) ----
@@ -122,8 +123,8 @@ MeshGeometryLanes visibility_geometry(VisibilityDrawItem item) {
     geometry.index_width = item.index_width;
     return geometry;
 }
-MeshVertex visibility_vertex(MeshGeometryLanes geometry, MeshletRecord record, uint triangle, uint corner) {
-    const uint raw_index = mesh_index_at(geometry, record, record.first_index + triangle * mesh_indices_per_triangle + corner);
+MeshVertex visibility_vertex(MeshGeometryLanes geometry, MeshletRecord record, uint triangle, uint corner, uint64_t page) {
+    const uint raw_index = meshlet_index_at(geometry, record, triangle * mesh_indices_per_triangle + corner, page);
     return mesh_vertex_at(geometry, uint(int(raw_index) + record.base_vertex));
 }
 float4 visibility_world(float3 position, VR_MAT4 model) { return mul(float4(position, 1.0), model); }

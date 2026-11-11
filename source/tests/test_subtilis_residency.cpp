@@ -43,6 +43,28 @@ namespace {
 int main() {
     {
         auto t = small_table();
+        auto manager = sub::make_page_manager(t.pages, t.dependencies, budget(500));
+        CHECK(manager);
+        if (!manager) {
+            return 1;
+        }
+        std::array<std::uint32_t, 3> targets{2, 3, 2};
+        auto plan = manager->plan_requests(targets);
+        CHECK(plan && plan->installs.size() == 3 && plan->installed_bytes == 300);
+        CHECK(manager->stats().resident_pages == 2);
+        if (plan) {
+            CHECK(manager->apply(std::move(*plan)));
+            CHECK(manager->resident(1) && manager->resident(2) && manager->resident(3));
+        }
+        std::array<std::uint32_t, 2> competing{2, 6};
+        auto replacement = manager->plan_requests(competing);
+        CHECK(replacement && replacement->evictions.size() == 1 && replacement->evictions[0] == 3);
+        CHECK(!manager->plan_requests({}));
+        std::array<std::uint32_t, 2> invalid{2, 99};
+        CHECK(!manager->plan_requests(invalid));
+    }
+    {
+        auto t = small_table();
         auto manager = sub::make_page_manager(t.pages, t.dependencies, budget(400));
         CHECK(manager);
         if (!manager) {

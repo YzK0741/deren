@@ -944,9 +944,9 @@ int32_t main() {
         // whatever the heap happened to contain - silently, which is the failure mode this whole file exists to
         // catch. The host side is text too (runtime.cpp, core.cpp and the initialisation partition that now
         // carries core's render-target heap writes are where every heap write lives), so the check is the same
-        // kind as the one above, with ONE documented exception: the bloom chain writes its levels with
-        // arithmetic (`bloom_l0 + level * heap_image_capacity`), so l1..l3 are named in the header and never
-        // spelled out in the host. Every other exception is a BUG, not a style choice.
+        // kind as the one above. The bloom chain writes l1..l3 with arithmetic
+        // (`bloom_l0 + level * heap_image_capacity`). The old subtilis slots stay reserved after
+        // the switch to per-draw page addresses.
         //
         // THIS SCANS THE RENDERER'S SOURCES INSTEAD OF NAMING THEM, and that is the fix for a real
         // history: the explicit list broke three times, once per partition that took heap writes
@@ -979,10 +979,16 @@ int32_t main() {
                 }
             }
         }
-        deren::utility::vessel::array<std::string_view, 3> const written_by_arithmetic = {"bloom_l1", "bloom_l2", "bloom_l3"};
+        constexpr deren::utility::vessel::array<std::string_view, 5> not_written_by_name = {
+            "bloom_l1",
+            "bloom_l2",
+            "bloom_l3",
+            "subtilis_page_table",
+            "subtilis_page_arena",
+        };
         uint32_t covered = 0;
         for (auto const& [name, value] : shader_slots) {
-            if (std::find(written_by_arithmetic.begin(), written_by_arithmetic.end(), name) != written_by_arithmetic.end()) {
+            if (std::ranges::find(not_written_by_name, name) != not_written_by_name.end()) {
                 continue;
             }
             deren::utility::vessel::string const needle = "heap_slots::" + name;

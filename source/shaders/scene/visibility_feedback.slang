@@ -27,7 +27,7 @@ void main(uint3 thread : SV_DispatchThreadID) {
         output.InterlockedOr(2048u, 1u, ignored);
         return;
     }
-    uint material = heap_at<ByteAddressBuffer>(heap_slots_visibility_items).Load((push.frame_slot * 4096u + item) * 112u + 36u);
+    uint material = heap_at<ByteAddressBuffer>(heap_slots_visibility_items).Load((push.frame_slot * 4096u + item) * 128u + 36u);
     if (material >= push.material_count || material >= 16384u) output.InterlockedOr(2048u, 1u, ignored);
     else output.InterlockedOr((material / 32u) * 4u, 1u << (material % 32u), ignored);
 }
