@@ -6,6 +6,39 @@ Both use shared renderer and resource infrastructure; neither name denotes the w
 The feature name is lowercase `subtilis`, including user-facing log prefixes, tool messages and
 archived records.
 
+## Frame-isolated asynchronous pages (2026-11-10)
+
+The optional GPU cut uses a request buffer and page-table snapshot per frame-ring slot.
+After the frame walker completes a slot, its feedback joins a deduplicated CPU backlog
+and its arena references are released. Each geometry is prepared once per frame even
+when several items share it; all geometries share `[render] subtilis_page_upload_bytes`
+(default 8 MiB) per frame. Sources are served round-robin with a fair byte share, so one
+source cannot consume the whole budget. Total in-flight upload payload is limited to that
+budget times the frame-ring slot count. Each source's page arena is sized by
+`[render] subtilis_resident_page_bytes` (default 64 MiB).
+
+An eviction removes the canonical mapping from future snapshots. The physical slot
+remains protected while any older snapshot references it, including when its object
+has been hidden or removed. If no physical slot is safe, installation is deferred and
+the cut can use its existing whole-item LOD0 fallback. Retired and reserved slots remain
+inside the bounded arena. Page preparation never waits for device idle or upload tickets.
+
+Each geometry coalesces requests and their shared dependencies into one upload batch,
+with at most one batch in flight. Its slots stay reserved and its pages stay unavailable
+until polling confirms completion. Only then does the canonical residency plan commit;
+existing frame snapshots remain unchanged. Rejected submissions release reservations,
+while an error observing accepted work preserves the ticket and its resources. Pending
+uploads are retained by the runtime independently of frame snapshots and scene objects,
+so hiding or removing an object does not force a synchronous upload drain.
+
+Visibility raster and resolve read the same page-table snapshot and arena addresses from the
+current frame's draw item. Each geometry can therefore use its own arena. The GPU cut checks
+the selected run against its reservation and emits the preloaded LOD0 command if it exceeds
+capacity or needs an absent page. Overlapping reservations follow the same publication order
+as CPU cuts.
+
+The dated phase records below describe earlier milestones.
+
 > **Phase closed (2026-10-23).** The subtilis phase is closed. DAG+HZB is the accepted shipping path
 > (textured Bistro 10.44/5.64 ms far/near); the software-raster lane remains optional/default-off and will
 > not be optimized further (negative result; the supporting maintainer records are not distributed with
@@ -271,8 +304,8 @@ is summarized here; its raw records are not distributed with this repository.
   `subtilis = true`; the full OFF/ON matrix and raw logs were kept in maintainer records that are not
   distributed with this repository. The textured asset preparation/verification scripts are
   `scripts/measure/prepare_bistro_textures.py`, `convert_bistro_metalrough.py`, `verify_bistro_textured.py`.
-- The Bistro assets themselves stay outside the repository and are not distributed with it; the captured
-  evidence (webp/logs/json) behind the numbers above is not distributed either.
+- The textured Bistro package is distributed as `asset/bistro` (CC BY 4.0, Git LFS); the captured
+  evidence (webp/logs/json) behind the numbers above is not distributed with the repository.
 
 ## 8. Known limits and open items
 
