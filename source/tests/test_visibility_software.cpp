@@ -310,10 +310,12 @@ namespace {
         auto const hugging_near = sw::classify(record(0.0f, 0.0f, -10.0f, 8.0f), model, camera, 100.0f);
         CHECK(!hugging_near.front_of_near);
         // NaN / negative / infinite radius and NaN centre: all fail OPEN (never classified as software)
-        for (meshlet const degenerate : {record(0.0f, 0.0f, -10.0f, std::numeric_limits<float>::quiet_NaN()),
-                                         record(0.0f, 0.0f, -10.0f, -1.0f),
-                                         record(0.0f, 0.0f, -10.0f, std::numeric_limits<float>::infinity()),
-                                         record(std::numeric_limits<float>::quiet_NaN(), 0.0f, -10.0f, 0.001f)}) {
+        for (meshlet const degenerate : {
+                 record(0.0f, 0.0f, -10.0f, std::numeric_limits<float>::quiet_NaN()),
+                 record(0.0f, 0.0f, -10.0f, -1.0f),
+                 record(0.0f, 0.0f, -10.0f, std::numeric_limits<float>::infinity()),
+                 record(std::numeric_limits<float>::quiet_NaN(), 0.0f, -10.0f, 0.001f),
+             }) {
             auto const result = sw::classify(degenerate, model, camera, 100.0f);
             CHECK(!result.subpixel);
         }
@@ -462,10 +464,14 @@ namespace {
         // count/max/overflow (so Task 1 could size the default from data). The PRODUCTION path has no per-tile
         // capacity any more (CSR: one global budget), so it accepts the same three records at budget 3 and refuses
         // them at budget 2 - the global rejection is pinned in the CSR section below.
-        std::vector<meshlet> const three = {record(0.0f, 0.0f, -10.0f, 0.002f), record(0.0f, 0.0f, -10.0f, 0.002f),
-                                            record(0.0f, 0.0f, -10.0f, 0.002f)};
+        std::vector<meshlet> const three = {
+            record(0.0f, 0.0f, -10.0f, 0.002f),
+            record(0.0f, 0.0f, -10.0f, 0.002f),
+            record(0.0f, 0.0f, -10.0f, 0.002f),
+        };
         std::vector<sw::item_records> const crowded = {
-            sw::item_records{.item_index = 0u, .model = identity(), .records = span_of(three)}};
+            sw::item_records{.item_index = 0u, .model = identity(), .records = span_of(three)},
+        };
         auto const measured = sw::build_tile_lists_measure(crowded, parameters, 4.0f, 2u);
         CHECK(measured.overflow);
         CHECK(measured.overflow_tiles == 1u);
@@ -489,7 +495,8 @@ namespace {
             record(0.0f, 0.0f, -10.0f, 0.0004f), // software k=2 -> id 4
         };
         std::vector<sw::item_records> const one_item = {
-            sw::item_records{.item_index = 3u, .model = identity(), .records = span_of(mixed)}};
+            sw::item_records{.item_index = 3u, .model = identity(), .records = span_of(mixed)},
+        };
         auto const mixed_plan = sw::build_tile_lists_measure(one_item, parameters, 1.0f, 8u);
         CHECK(mixed_plan.items[0].hardware_count == 2u && mixed_plan.items[0].software_count == 3u);
         CHECK(mixed_plan.cluster_count == 3u);
@@ -518,7 +525,8 @@ namespace {
             record(0.0f, 0.0f, -10.0f, static_cast<float>(3.0 / (rigid_scale * 1000.0))), // 3.0 px
         };
         std::vector<sw::item_records> const items = {
-            sw::item_records{.item_index = 0u, .model = identity(), .records = span_of(records)}};
+            sw::item_records{.item_index = 0u, .model = identity(), .records = span_of(records)},
+        };
         auto const one = sw::build_tile_lists_measure(items, parameters, 1.0f, 32u);
         auto const two = sw::build_tile_lists_measure(items, parameters, 2.0f, 32u);
         CHECK(one.items[0].software_count == 1u && one.items[0].hardware_count == 2u);
@@ -537,7 +545,8 @@ namespace {
     void errors() {
         std::vector<meshlet> const records = {record(0.0f, 0.0f, -10.0f, 0.001f)};
         std::vector<sw::item_records> const items = {
-            sw::item_records{.item_index = 0u, .model = identity(), .records = span_of(records)}};
+            sw::item_records{.item_index = 0u, .model = identity(), .records = span_of(records)},
+        };
         auto const good = camera_parameters_for(perspective(1.0f, 1.0f, 1.0f), 64u, 64u);
         CHECK(sw::build_tile_lists_measure(items, good, 1.0f, 32u).cluster_count <= 1u);
         auto const zero_extent = sw::build_tile_lists_measure(
@@ -561,7 +570,8 @@ namespace {
         // a NaN record is fail-open (hardware), not an error: the plan is still produced, the record is just not moved
         std::vector<meshlet> const nan_records = {record(0.0f, 0.0f, -10.0f, std::numeric_limits<float>::quiet_NaN())};
         std::vector<sw::item_records> const nan_items = {
-            sw::item_records{.item_index = 0u, .model = identity(), .records = span_of(nan_records)}};
+            sw::item_records{.item_index = 0u, .model = identity(), .records = span_of(nan_records)},
+        };
         auto const nan_plan = sw::build_tile_lists(nan_items, good, 1.0f, 32u);
         CHECK(nan_plan.has_value());
         CHECK(nan_plan->items.size() == 1u && nan_plan->items[0].software_count == 0u);
@@ -570,7 +580,8 @@ namespace {
         std::vector<meshlet> many(static_cast<std::size_t>(deren::engine::visibility::id_meshlet_capacity) + 1u,
                                   record(0.0f, 0.0f, -10.0f, 0.0001f));
         std::vector<sw::item_records> const overflow_items = {
-            sw::item_records{.item_index = 0u, .model = identity(), .records = span_of(many)}};
+            sw::item_records{.item_index = 0u, .model = identity(), .records = span_of(many)},
+        };
         auto const overflow_plan = sw::build_tile_lists(overflow_items, good, 1.0f, 32u);
         CHECK(overflow_plan.has_value());
         CHECK(overflow_plan->items[0].hardware_count == overflow_plan->items[0].record_count);
@@ -622,8 +633,12 @@ namespace {
         std::array<sw::projected_record, 2> wrong_cache{};
         cached_items[0].cached_projections = wrong_cache;
         CHECK(!sw::build_tile_lists(cached_items, parameters, 4.0f, sw::software_entry_budget));
-        std::array<meshlet, 4> mixed{record(0, 0, -10, 0.002f), record(0, 0, -10, 0.5f),
-                                     record(10, 0, -10, 0.002f), record(0, 0, -0.5f, 0.002f)};
+        std::array<meshlet, 4> mixed{
+            record(0, 0, -10, 0.002f),
+            record(0, 0, -10, 0.5f),
+            record(10, 0, -10, 0.002f),
+            record(0, 0, -0.5f, 0.002f),
+        };
         std::array<sw::projected_record, 4> projections;
         for (std::size_t i = 0; i < mixed.size(); ++i) {
             projections[i] = sw::project(mixed[i], identity(), *metrics, grid);
@@ -702,7 +717,8 @@ namespace {
         // accepted as long as the GLOBAL budget allows them.
         std::vector<meshlet> five(5u, record(0.0f, 0.0f, -10.0f, 0.002f));
         std::vector<sw::item_records> const five_items = {
-            sw::item_records{.item_index = 0u, .model = identity(), .records = span_of(five)}};
+            sw::item_records{.item_index = 0u, .model = identity(), .records = span_of(five)},
+        };
         auto const too_small = sw::build_tile_lists(five_items, parameters, 4.0f, 4u);
         CHECK(!too_small.has_value() && too_small.error() == sw::software_error::entry_budget_exceeded);
         auto const exactly = sw::build_tile_lists(five_items, parameters, 4.0f, 5u);
@@ -712,7 +728,8 @@ namespace {
         CHECK(roomy.has_value() && roomy->entry_count == 5u);
         std::vector<meshlet> hundred(100u, record(0.0f, 0.0f, -10.0f, 0.002f));
         std::vector<sw::item_records> const hundred_items = {
-            sw::item_records{.item_index = 0u, .model = identity(), .records = span_of(hundred)}};
+            sw::item_records{.item_index = 0u, .model = identity(), .records = span_of(hundred)},
+        };
         auto const no_per_tile_cap = sw::build_tile_lists(hundred_items, parameters, 4.0f, 100u);
         CHECK(no_per_tile_cap.has_value());
         if (no_per_tile_cap) {
@@ -863,12 +880,14 @@ namespace {
         std::uint32_t item_index = 0u;
 
         sw::reference_item reference() const {
-            return sw::reference_item{.item_index = item_index,
-                                      .model = model,
-                                      .base_vertex = 0,
-                                      .records = std::span<meshlet const>(records.data(), records.size()),
-                                      .positions = std::span<std::array<float, 3> const>(positions.data(), positions.size()),
-                                      .indices = std::span<std::uint32_t const>(indices.data(), indices.size())};
+            return sw::reference_item{
+                .item_index = item_index,
+                .model = model,
+                .base_vertex = 0,
+                .records = std::span<meshlet const>(records.data(), records.size()),
+                .positions = std::span<std::array<float, 3> const>(positions.data(), positions.size()),
+                .indices = std::span<std::uint32_t const>(indices.data(), indices.size()),
+            };
         }
         sw::item_records item(meshlet const& record) const {
             return sw::item_records{.item_index = item_index, .model = model, .records = std::span<meshlet const>(&record, 1u)};
@@ -881,18 +900,24 @@ namespace {
     raster_fixture planar_triangle(float const z, float const half_extent, std::uint32_t const item_index) {
         raster_fixture fixture{};
         fixture.item_index = item_index;
-        fixture.positions = {{0.25f - half_extent, 0.25f - half_extent, z},
-                             {0.25f + half_extent, 0.25f - half_extent, z},
-                             {0.25f - half_extent, 0.25f + half_extent, z}};
+        fixture.positions = {
+            {0.25f - half_extent, 0.25f - half_extent, z},
+            {0.25f + half_extent, 0.25f - half_extent, z},
+            {0.25f - half_extent, 0.25f + half_extent, z},
+        };
         // the record window covers the first triangle; centre at the tile's centre, radius far below the subpixel bound
-        fixture.records = {meshlet{.first_index = 0u,
-                                   .index_count = 3u,
-                                   .base_vertex = 0,
-                                   .page_id = 0u,
-                                   .center_x = 0.25f,
-                                   .center_y = 0.25f,
-                                   .center_z = z,
-                                   .radius = 1.0e-4f}};
+        fixture.records = {
+            meshlet{
+                .first_index = 0u,
+                .index_count = 3u,
+                .base_vertex = 0,
+                .page_id = 0u,
+                .center_x = 0.25f,
+                .center_y = 0.25f,
+                .center_z = z,
+                .radius = 1.0e-4f,
+            },
+        };
         return fixture;
     }
 
@@ -911,8 +936,10 @@ namespace {
         if (!lists) {
             return {};
         }
-        auto const image = sw::rasterize_tiles(*lists, sw::reference_inputs{.camera = camera_parameters_for(orthographic(1.0f, 10.0f, 1.0f, 1.0f), 64u, 64u),
-                                                                            .items = std::span<sw::reference_item const>(references.data(), references.size())});
+        auto const image = sw::rasterize_tiles(*lists, sw::reference_inputs{
+                                                           .camera = camera_parameters_for(orthographic(1.0f, 10.0f, 1.0f, 1.0f), 64u, 64u),
+                                                           .items = std::span<sw::reference_item const>(references.data(), references.size()),
+                                                       });
         CHECK(image.has_value());
         return image.has_value() ? *image : sw::software_image{};
     }
@@ -1000,8 +1027,10 @@ namespace {
                 plan.entries.insert(plan.entries.begin() + static_cast<std::ptrdiff_t>(plan.offsets[tile]) + 1,
                                     sw::tile_entry{.item_index = 2u, .meshlet_id = 1u});
                 std::vector<sw::reference_item> references = {tied.reference()};
-                auto const image = sw::rasterize_tiles(plan, sw::reference_inputs{.camera = camera_parameters_for(orthographic(1.0f, 10.0f, 1.0f, 1.0f), 64u, 64u),
-                                                                                  .items = std::span<sw::reference_item const>(references.data(), references.size())});
+                auto const image = sw::rasterize_tiles(plan, sw::reference_inputs{
+                                                                 .camera = camera_parameters_for(orthographic(1.0f, 10.0f, 1.0f, 1.0f), 64u, 64u),
+                                                                 .items = std::span<sw::reference_item const>(references.data(), references.size()),
+                                                             });
                 CHECK(image.has_value());
                 auto const low = deren::engine::visibility::pack_id(2u, 0u, 0u);
                 auto const high = deren::engine::visibility::pack_id(2u, 1u, 0u);
@@ -1022,8 +1051,10 @@ namespace {
             behind.positions = {{0.2f, 0.2f, 0.5f}, {0.3f, 0.2f, 0.5f}, {0.2f, 0.3f, 0.5f}}; // eye-space z positive -> w<0
             std::vector<sw::reference_item> references = {behind.reference()};
             auto const plan = single_entry_plan(4u, 4u, 2u, 2u, sw::tile_entry{.item_index = 0u, .meshlet_id = 0u});
-            auto const image = sw::rasterize_tiles(plan, sw::reference_inputs{.camera = camera_parameters_for(perspective(1.0f, 1.0f, 1.0f), 64u, 64u),
-                                                                              .items = std::span<sw::reference_item const>(references.data(), references.size())});
+            auto const image = sw::rasterize_tiles(plan, sw::reference_inputs{
+                                                             .camera = camera_parameters_for(perspective(1.0f, 1.0f, 1.0f), 64u, 64u),
+                                                             .items = std::span<sw::reference_item const>(references.data(), references.size()),
+                                                         });
             CHECK(image.has_value());
             if (image) {
                 CHECK(image->at(39u, 39u).id == sw::software_id_empty);
@@ -1036,8 +1067,10 @@ namespace {
             degenerate.positions = {{0.0f, 0.0f, -7.75f}, {0.0f, 0.0f, -7.75f}, {0.0f, 0.0f, -7.75f}};
             std::vector<sw::reference_item> references = {degenerate.reference()};
             auto const plan = single_entry_plan(4u, 4u, 2u, 2u, sw::tile_entry{.item_index = 0u, .meshlet_id = 0u});
-            auto const image = sw::rasterize_tiles(plan, sw::reference_inputs{.camera = camera_parameters_for(orthographic(1.0f, 10.0f, 1.0f, 1.0f), 64u, 64u),
-                                                                              .items = std::span<sw::reference_item const>(references.data(), references.size())});
+            auto const image = sw::rasterize_tiles(plan, sw::reference_inputs{
+                                                             .camera = camera_parameters_for(orthographic(1.0f, 10.0f, 1.0f, 1.0f), 64u, 64u),
+                                                             .items = std::span<sw::reference_item const>(references.data(), references.size()),
+                                                         });
             CHECK(image.has_value());
             if (image) {
                 CHECK(image->at(39u, 39u).id == sw::software_id_empty);
@@ -1050,8 +1083,10 @@ namespace {
             raster_fixture clamped = planar_triangle(-0.5f, 0.0625f, 0u); // eye z inside the ortho near plane: NDC z < 0
             std::vector<sw::reference_item> references = {clamped.reference()};
             auto const plan = single_entry_plan(4u, 4u, 2u, 2u, sw::tile_entry{.item_index = 0u, .meshlet_id = 0u});
-            auto const image = sw::rasterize_tiles(plan, sw::reference_inputs{.camera = camera_parameters_for(orthographic(1.0f, 10.0f, 1.0f, 1.0f), 64u, 64u),
-                                                                              .items = std::span<sw::reference_item const>(references.data(), references.size())});
+            auto const image = sw::rasterize_tiles(plan, sw::reference_inputs{
+                                                             .camera = camera_parameters_for(orthographic(1.0f, 10.0f, 1.0f, 1.0f), 64u, 64u),
+                                                             .items = std::span<sw::reference_item const>(references.data(), references.size()),
+                                                         });
             CHECK(image.has_value());
             if (image) {
                 sw::software_pixel const pixel = image->at(39u, 39u);
@@ -1064,20 +1099,26 @@ namespace {
         {
             std::vector<sw::reference_item> references = {planar_triangle(-7.75f, 0.0625f, 0u).reference()};
             auto const missing_item = single_entry_plan(4u, 4u, 2u, 2u, sw::tile_entry{.item_index = 7u, .meshlet_id = 0u});
-            auto const missing_result = sw::rasterize_tiles(missing_item, sw::reference_inputs{.camera = camera_parameters_for(orthographic(1.0f, 10.0f, 1.0f, 1.0f), 64u, 64u),
-                                                                                               .items = std::span<sw::reference_item const>(references.data(), references.size())});
+            auto const missing_result = sw::rasterize_tiles(missing_item, sw::reference_inputs{
+                                                                              .camera = camera_parameters_for(orthographic(1.0f, 10.0f, 1.0f, 1.0f), 64u, 64u),
+                                                                              .items = std::span<sw::reference_item const>(references.data(), references.size()),
+                                                                          });
             CHECK(!missing_result.has_value() && missing_result.error() == sw::software_error::invalid_reference);
             auto const bad_meshlet = single_entry_plan(4u, 4u, 2u, 2u, sw::tile_entry{.item_index = 0u, .meshlet_id = 9u});
-            auto const bad_meshlet_result = sw::rasterize_tiles(bad_meshlet, sw::reference_inputs{.camera = camera_parameters_for(orthographic(1.0f, 10.0f, 1.0f, 1.0f), 64u, 64u),
-                                                                                                  .items = std::span<sw::reference_item const>(references.data(), references.size())});
+            auto const bad_meshlet_result = sw::rasterize_tiles(bad_meshlet, sw::reference_inputs{
+                                                                                 .camera = camera_parameters_for(orthographic(1.0f, 10.0f, 1.0f, 1.0f), 64u, 64u),
+                                                                                 .items = std::span<sw::reference_item const>(references.data(), references.size()),
+                                                                             });
             CHECK(!bad_meshlet_result.has_value() && bad_meshlet_result.error() == sw::software_error::invalid_reference);
             auto const wrong_offsets = [] {
                 auto plan = single_entry_plan(4u, 4u, 2u, 2u, sw::tile_entry{.item_index = 0u, .meshlet_id = 0u});
                 plan.offsets.pop_back();
                 return plan;
             }();
-            auto const wrong_result = sw::rasterize_tiles(wrong_offsets, sw::reference_inputs{.camera = camera_parameters_for(orthographic(1.0f, 10.0f, 1.0f, 1.0f), 64u, 64u),
-                                                                                              .items = std::span<sw::reference_item const>(references.data(), references.size())});
+            auto const wrong_result = sw::rasterize_tiles(wrong_offsets, sw::reference_inputs{
+                                                                             .camera = camera_parameters_for(orthographic(1.0f, 10.0f, 1.0f, 1.0f), 64u, 64u),
+                                                                             .items = std::span<sw::reference_item const>(references.data(), references.size()),
+                                                                         });
             CHECK(!wrong_result.has_value() && wrong_result.error() == sw::software_error::invalid_reference);
         }
     }
@@ -1169,8 +1210,12 @@ namespace {
             return;
         }
         auto const grid = sw::make_tile_grid(256u, 256u);
-        std::vector<meshlet> records = {record(0, 0, -5, 0.2f), record(4, 0, -5, 0.001f),
-                                        record(0, 0, -5, 0.001f), record(0.4f, 0, -5, 0.001f)};
+        std::vector<meshlet> records = {
+            record(0, 0, -5, 0.2f),
+            record(4, 0, -5, 0.001f),
+            record(0, 0, -5, 0.001f),
+            record(0.4f, 0, -5, 0.001f),
+        };
         std::vector<sw::projected_record> projections;
         for (auto const& m : records) {
             projections.push_back(sw::project(m, identity(), *camera, grid));

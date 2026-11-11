@@ -1,8 +1,14 @@
 # The portable engine target.
 include_guard(GLOBAL)
 
+add_library(engine_visibility_support STATIC)
+target_sources(engine_visibility_support PUBLIC FILE_SET CXX_MODULES FILES
+    source/engine/visibility/feedback_readback.cppm
+    source/engine/visibility/progressive_texture.cppm)
+target_link_libraries(engine_visibility_support PUBLIC promise vstd_lib)
+
 add_library(deren_engine STATIC)
-target_link_libraries(deren_engine PRIVATE asset_subtilis_core)
+target_link_libraries(deren_engine PRIVATE asset_subtilis_core engine_visibility_support)
 add_library(deren::engine ALIAS deren_engine)
 
 target_sources(deren_engine
@@ -15,6 +21,9 @@ target_sources(deren_engine
         source/engine/gaussian_splatting/gpu_frame.cppm
         source/engine/gaussian_splatting/probe.cppm
         source/engine/math/math.cppm
+        source/engine/lighting/environment_controls.cppm
+        source/engine/lighting/radiance_capture.cppm
+        source/engine/lighting/reflection_probe.cppm
         ${VR_RUNTIME_MODULES}
         source/engine/pipelines/pipelines.cppm
         source/engine/render_resource/render_resource.cppm
@@ -66,6 +75,7 @@ target_sources(deren_engine
         source/engine/geometry/subtilis_asset.cppm
         source/engine/geometry/subtilis_dag_asset.cppm
         source/engine/geometry/subtilis_dag_lod.cppm
+        source/engine/geometry/subtilis_dag_cut_closure.cppm
         source/engine/geometry/subtilis_dag_import.cppm
         source/engine/geometry/subtilis_residency.cppm
         source/engine/geometry/subtilis_page_streaming.cppm

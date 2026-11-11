@@ -63,11 +63,6 @@ export namespace deren::engine::render_graph::execution {
     class record_context {
         detail::state const& state_;
         uint32_t pass_;
-        friend class prepared_graph;
-        record_context(detail::state const& state, uint32_t pass) noexcept
-            : state_(state)
-            , pass_(pass) {
-        }
         bool declared(uint32_t index) const noexcept {
             for (auto const& access : pass().accesses) {
                 if (access.resource == index) {
@@ -78,6 +73,10 @@ export namespace deren::engine::render_graph::execution {
         }
 
     public:
+        record_context(detail::state const& state, uint32_t pass) noexcept
+            : state_(state)
+            , pass_(pass) {
+        }
         uint32_t pass_index() const noexcept {
             return pass_;
         }

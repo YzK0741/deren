@@ -36,36 +36,36 @@ namespace deren::engine::subtilis::builder_detail {
             if (parent.depth > options.max_depth) {
                 return std::unexpected(rejection::budget);
             }
-            std::sort(parent.source_triangles.begin(), parent.source_triangles.end());
+            std::ranges::sort(parent.source_triangles);
             auto region = source_region(data, topology, parent.source_triangles);
             if (!region.valid) {
                 return std::unexpected(rejection::topology);
             }
             // Candidate-local data avoids whole-asset allocation/clearing for each simplification.
             vector<std::uint32_t> original_ids = parent.indices;
-            std::sort(original_ids.begin(), original_ids.end());
-            original_ids.erase(std::unique(original_ids.begin(), original_ids.end()), original_ids.end());
+            std::ranges::sort(original_ids);
+            original_ids.erase(std::ranges::unique(original_ids).begin(), original_ids.end());
             vector<std::array<float, 3>> positions(original_ids.size());
             vector<std::array<float, 5>> attributes(original_ids.size());
             vector<uint8_t> locks(original_ids.size(), 0);
             for (std::size_t i = 0; i < original_ids.size(); ++i) {
                 auto id = original_ids[i];
                 for (uint32_t axis = 0; axis < 3; ++axis) {
-                    positions[i][axis] = static_cast<float>((double(data.positions[id][axis]) - data.origin[axis]) / data.scale);
+                    positions[i][axis] = static_cast<float>((static_cast<double>(data.positions[id][axis]) - data.origin[axis]) / data.scale);
                 }
                 attributes[i] = data.attributes[id];
                 auto c = topology.class_of[id];
-                locks[i] = (topology.seams[c] || std::binary_search(region.boundary_classes.begin(), region.boundary_classes.end(), c)) ? meshopt_SimplifyVertex_Lock : 0;
+                locks[i] = (topology.seams[c] || std::ranges::binary_search(region.boundary_classes, c)) ? meshopt_SimplifyVertex_Lock : 0;
             }
             vector<std::uint32_t> local_indices;
             local_indices.reserve(parent.indices.size());
             for (auto id : parent.indices) {
-                local_indices.push_back(static_cast<std::uint32_t>(std::lower_bound(original_ids.begin(), original_ids.end(), id) - original_ids.begin()));
+                local_indices.push_back(static_cast<std::uint32_t>(std::ranges::lower_bound(original_ids, id) - original_ids.begin()));
             }
             vector<std::uint32_t> simplified(local_indices.size());
             std::array<float, 5> weights{options.normal_weight, options.normal_weight, options.normal_weight, options.uv_weight, options.uv_weight};
             auto input_triangles = local_indices.size() / 3;
-            std::size_t target_triangles = std::max<std::size_t>(1, static_cast<std::size_t>(double(input_triangles) * options.target_ratio));
+            std::size_t target_triangles = std::max<std::size_t>(1, static_cast<std::size_t>(static_cast<double>(input_triangles) * options.target_ratio));
             float step_error = 0;
             // Upstream can discard NaN intermediate errors while returning a finite
             // result. Isolate its floating-point status and keep the children if
@@ -116,10 +116,10 @@ namespace deren::engine::subtilis::builder_detail {
                 auto first = static_cast<std::uint32_t>(parent.indices.size());
                 if (!cluster.triangle_count || cluster.triangle_count > meshlet_max_triangles || cluster.vertex_count > 255 ||
                     cluster.vertex_offset > vertices.size() || cluster.vertex_count > vertices.size() - cluster.vertex_offset ||
-                    cluster.triangle_offset > triangles.size() || std::uint64_t(cluster.triangle_count) * 3 > triangles.size() - cluster.triangle_offset) {
+                    cluster.triangle_offset > triangles.size() || static_cast<std::uint64_t>(cluster.triangle_count) * 3 > triangles.size() - cluster.triangle_offset) {
                     return std::unexpected(rejection::topology);
                 }
-                for (std::size_t corner = 0; corner < std::size_t(cluster.triangle_count) * 3; ++corner) {
+                for (std::size_t corner = 0; corner < static_cast<std::size_t>(cluster.triangle_count) * 3; ++corner) {
                     auto local = triangles[cluster.triangle_offset + corner];
                     if (local >= cluster.vertex_count || vertices[cluster.vertex_offset + local] >= original_ids.size()) {
                         return std::unexpected(rejection::topology);
@@ -135,9 +135,9 @@ namespace deren::engine::subtilis::builder_detail {
             if (parent.indices.size() != count) {
                 return std::unexpected(rejection::topology);
             }
-            double error = double(previous_error) + double(step_error) * data.scale;
+            double error = static_cast<double>(previous_error) + static_cast<double>(step_error) * data.scale;
             parent.error = static_cast<float>(error);
-            if (double(parent.error) < error) {
+            if (static_cast<double>(parent.error) < error) {
                 parent.error = std::nextafter(parent.error, std::numeric_limits<float>::infinity());
             }
             if (!std::isfinite(parent.error)) {
@@ -159,7 +159,7 @@ namespace deren::engine::subtilis::builder_detail {
         vector<std::array<float, 3>> positions(data.positions.size());
         for (auto id : data.indices) {
             for (uint32_t axis = 0; axis < 3; ++axis) {
-                positions[id][axis] = static_cast<float>((double(data.positions[id][axis]) - data.origin[axis]) / data.scale);
+                positions[id][axis] = static_cast<float>((static_cast<double>(data.positions[id][axis]) - data.origin[axis]) / data.scale);
             }
         }
         auto frontier = roots;
@@ -181,7 +181,7 @@ namespace deren::engine::subtilis::builder_detail {
                 groups[partitions[i]].push_back(frontier[i]);
             }
             for (auto& group : groups) {
-                std::sort(group.begin(), group.end(), stable_order);
+                std::ranges::sort(group, stable_order);
             }
             std::sort(groups.begin(), groups.end(), [&](auto const& a, auto const& b) { return stable_order(a.front(), b.front()); });
             vector<std::uint32_t> next;
@@ -211,7 +211,7 @@ namespace deren::engine::subtilis::builder_detail {
                 frontier.clear();
                 break;
             }
-            std::sort(next.begin(), next.end(), stable_order);
+            std::ranges::sort(next, stable_order);
             std::uint64_t total = finished_triangles;
             for (auto id : next) {
                 total += nodes[id].indices.size() / 3;
@@ -220,7 +220,7 @@ namespace deren::engine::subtilis::builder_detail {
             frontier = std::move(next);
         }
         finished.insert(finished.end(), frontier.begin(), frontier.end());
-        std::sort(finished.begin(), finished.end(), stable_order);
+        std::ranges::sort(finished, stable_order);
         roots = std::move(finished);
         return {};
     }

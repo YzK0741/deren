@@ -161,12 +161,16 @@ int main() {
         CHECK(!sub::validate_pages(bad_dependency, {}));
 
         auto bad_resident = paged;
+        bool bad_resident_case = false;
         for (auto& page : bad_resident.pages) {
-            if (page.dependency_count != 0 && (page.flags & uint16_t(sub::page_flags::always_resident)) != 0) {
+            if (page.dependency_count != 0) {
+                page.flags |= uint16_t(sub::page_flags::always_resident);
                 bad_resident.pages[bad_resident.page_dependencies[page.dependency_first]].flags = 0;
+                bad_resident_case = true;
                 break;
             }
         }
+        CHECK(bad_resident_case);
         CHECK(!sub::validate_pages(bad_resident, {}));
 
         auto bad_cycle = paged;

@@ -12,12 +12,6 @@
 module;
 
 #include <GLFW/glfw3.h>
-#include <cstddef> // std::ptrdiff_t in the cull verify's fill
-#include <cstdint> // the HZB cull probe's table word types
-#include <cstdio>  // std::snprintf: the HZB probe's %.9g float metadata (round-trips float32 exactly)
-#include <cstdlib> // std::getenv: the probe capture's paths
-#include <cstring> // std::memcmp: the cull verify's survivor-order comparison
-#include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
 module deren.engine.runtime:probes;
@@ -39,7 +33,7 @@ import deren.utility;
 import deren.engine.frame_constants; // one frame's shared constants (see update_frame_constants)
 
 namespace deren::engine {
-    rhi::shared_object<rhi::command_buffer> runtime::make_probe_commands(std::string_view const what) {
+    rhi::shared_object<rhi::command_buffer> runtime::make_probe_commands(std::string_view const what) const {
         // ONE PROBE'S RECORDING SESSION, THROUGH THE CONTRACT (abi 22): a primary command buffer the backend
         // creates, begun with the one-time-submit usage the raw pool's TRANSIENT flag used to spell. The pool, the
         // queue family and the submission are the backend's now - the probe keeps what it always had, which is a
@@ -50,9 +44,11 @@ namespace deren::engine {
             deren::utility::log("descriptor heap: {} could not allocate a contract command buffer", what);
             return nullptr;
         }
-        rhi::command_buffer_begin_info const begin = {.struct_size = sizeof(rhi::command_buffer_begin_info),
-                                                      .usage = rhi::to_bits(rhi::command_buffer_usage::one_time_submit),
-                                                      .next = nullptr};
+        constexpr rhi::command_buffer_begin_info begin = {
+            .struct_size = sizeof(rhi::command_buffer_begin_info),
+            .usage = rhi::to_bits(rhi::command_buffer_usage::one_time_submit),
+            .next = nullptr,
+        };
         if (commands->begin_recording(begin) != rhi::error::ok) {
             deren::utility::log("descriptor heap: {} could not begin recording", what);
             return nullptr;
@@ -60,7 +56,7 @@ namespace deren::engine {
         return commands;
     }
 
-    bool runtime::submit_probe_commands(rhi::command_buffer& commands) {
+    bool runtime::submit_probe_commands(rhi::command_buffer& commands) const {
         // THE CONTRACT SUBMITS IT (plan X4): `api_core::submit()` takes the caller's own list as well as the
         // frame's, so an isolated probe buffer no longer goes to the queue through the escape - the raw
         // `vkQueueSubmit` that stood here was this file's second and last Vulkan call. NOTHING IS PRESENTED for
@@ -69,7 +65,7 @@ namespace deren::engine {
         return this->rhi_face().commands->submit(commands) == rhi::error::ok;
     }
 
-    void runtime::run_heap_probe(uint32_t const texture_slot) {
+    void runtime::run_heap_probe(uint32_t const texture_slot) const {
         // ---- THE HEAP-NATIVE PROBE (see source/shaders/debug/heap_probe_comp.slang and docs/descriptor_heap_migration.md) ----
         //
         // The whole migration assumes four things about the native path, and this is where they stop being
@@ -82,7 +78,7 @@ namespace deren::engine {
         // Slot 0 of the sampler heap is the texture sampler: the first of the six core::create_samplers makes, in
         // the order source/shaders/heap_slots.glsl names (the contract test compares that order, and the host has no
         // per-sampler constant because it keeps them as a list).
-        uint32_t const sampler_slot = static_cast<uint32_t>(deren::engine::render_layout::heap_sampler_base);
+        constexpr uint32_t sampler_slot = static_cast<uint32_t>(deren::engine::render_layout::heap_sampler_base);
         std::span<uint8_t const> const spirv = this->registered_shader("heap_probe.comp.spv");
         if (!contract_descriptor_ready(vk) || spirv.empty()) {
             return; // no heap, no grid or no shader: nothing to probe with, and no heap path to protect
@@ -97,11 +93,13 @@ namespace deren::engine {
         // THE CONTRACT DESTROYS IT (unique_object releases it on every path out of this function,
         // including the two early returns below), and `mapped()` is the byte view `create_buffer` threw away
         // for everything that is not host-visible.
-        rhi::unique_object<rhi::buffer> answer{this->core_face.resources->create_buffer(rhi::buffer_desc{
-            .size = 16u,
-            .usage = rhi::buffer_usage::storage_coherent,
-            .flags = rhi::to_bits(rhi::buffer_flag::device_address),
-        })};
+        rhi::unique_object<rhi::buffer> answer{
+            this->core_face.resources->create_buffer(rhi::buffer_desc{
+                .size = 16u,
+                .usage = rhi::buffer_usage::storage_coherent,
+                .flags = rhi::to_bits(rhi::buffer_flag::device_address),
+            }),
+        };
         std::span<std::byte> const answer_bytes = answer ? answer->mapped() : std::span<std::byte>{};
         if (answer_bytes.empty()) {
             deren::utility::log("descriptor heap: the heap-native probe could not allocate its answer buffer");
@@ -171,7 +169,7 @@ namespace deren::engine {
                             material_readback & 0xFFFFu);
     }
 
-    void runtime::run_heap_graphics_probe(uint32_t const material_slot, bool const mesh_shader) {
+    void runtime::run_heap_graphics_probe(uint32_t const material_slot, bool const mesh_shader) const {
         // ---- THE GRAPHICS HALF OF THE HEAP-NATIVE PROBE (see source/shaders/debug/heap_probe.slang) ----
         //
         // The compute probe proved the mechanism for a compute pipeline; this is the same question for the kind
@@ -252,10 +250,12 @@ namespace deren::engine {
         // the caller created (its doc), while `barrier` resolves any image the backend handed out and records
         // into whatever list is recording. `undefined -> color_attachment` is what the raw barrier spelled
         // (TOP_OF_PIPE -> COLOR_ATTACHMENT_OUTPUT, no source access, UNDEFINED -> GENERAL).
-        rhi::image_barrier const to_colour{.resource = target.get(),
-                                           .from = rhi::image_use::undefined,
-                                           .to = rhi::image_use::color_attachment,
-                                           .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}};
+        rhi::image_barrier const to_colour{
+            .resource = target.get(),
+            .from = rhi::image_use::undefined,
+            .to = rhi::image_use::color_attachment,
+            .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u},
+        };
         if (commands->barrier(to_colour) != rhi::error::ok) {
             deren::utility::log("descriptor heap: the heap-native graphics probe's target transition was refused");
             return;
@@ -324,7 +324,7 @@ namespace deren::engine {
         // IT IS LEGAL HERE for the reason it always was: the barrier above has been submitted and waited on, so
         // the render's writes are visible to the host stage and the image is in GENERAL (the layout this
         // renderer keeps every image in). The region is the whole image, tightly packed.
-        rhi::image_copy_region const host_region = {
+        constexpr rhi::image_copy_region host_region = {
             .extent = rhi::image_extent{.width = pipelines::heap_probe_extent, .height = pipelines::heap_probe_extent, .depth = 1u},
             .mip_level = 0,
             .base_array_layer = 0,
@@ -400,8 +400,12 @@ namespace deren::engine {
         std::string const pyramid_path = std::string(prefix) + ".pyramid.bin";
         {
             std::ofstream output(pyramid_path, std::ios::binary | std::ios::trunc);
-            deren::utility::vessel::array<std::uint32_t, 4> const file_header = {hzb_pyramid_file_magic, this->hzb_probe_extent.width, this->hzb_probe_extent.height,
-                                                                                 this->hzb_probe_levels};
+            deren::utility::vessel::array<std::uint32_t, 4> const file_header = {
+                hzb_pyramid_file_magic,
+                this->hzb_probe_extent.width,
+                this->hzb_probe_extent.height,
+                this->hzb_probe_levels,
+            };
             output.write(reinterpret_cast<char const*>(file_header.data()), sizeof(file_header));
             output.write(reinterpret_cast<char const*>(pyramid_bytes.data()), static_cast<std::streamsize>(required_words));
             if (!output) {
@@ -521,7 +525,7 @@ namespace deren::engine {
         std::span<std::byte> const header_mapped = this->hzb_cull_probe_header_readback->mapped();
         std::span<std::byte> const survivors_mapped = this->hzb_cull_probe_survivors_readback->mapped();
         std::uint64_t const required_pyramid = static_cast<std::uint64_t>(this->hzb_cull_probe_words) * deren::engine::visibility::hzb::hzb_word_bytes;
-        std::uint64_t const required_survivors = static_cast<std::uint64_t>(pass::hzb_cull_candidate_capacity) * sizeof(deren::engine::meshlet);
+        constexpr std::uint64_t required_survivors = static_cast<std::uint64_t>(pass::hzb_cull_candidate_capacity) * sizeof(deren::engine::meshlet);
         if (required_pyramid == 0u || pyramid_bytes.size() < required_pyramid || header_mapped.size() < pass::hzb_header_byte_capacity ||
             survivors_mapped.size() < required_survivors) {
             deren::utility::log("hzb cull probe capture: FAIL unavailable readback");
@@ -534,7 +538,6 @@ namespace deren::engine {
         deren::engine::meshlet const* const candidates = static_cast<deren::engine::meshlet const*>(this->meshlet_culled_mapped);
         deren::engine::visibility::draw_item const* const draw_items = static_cast<deren::engine::visibility::draw_item const*>(this->visibility_items_mapped);
         deren::engine::meshlet const* const survivors = reinterpret_cast<deren::engine::meshlet const*>(survivors_mapped.data());
-        std::size_t const survivor_lane_base = 0u; // the readback contains one slot lane
         std::size_t const candidate_lane_base = static_cast<std::size_t>(slot) * deren::engine::meshlet_capacity;
         std::size_t const item_lane_base = static_cast<std::size_t>(slot) * pass::hzb_cull_item_capacity;
         std::size_t const draw_lane_base = static_cast<std::size_t>(slot) * deren::engine::visibility::id_item_capacity;
@@ -555,9 +558,9 @@ namespace deren::engine {
         // The history pyramid keeps phase A's file shape (a 4-word header the script can sanity-check first), with a
         // DIFFERENT magic: one names a FILE's shape ("this is the cull's history pyramid"), the other the HZB
         // header's GPU-table magic.
-        constexpr std::uint32_t hzb_cull_pyramid_file_magic = 0x485A4342u; // "HZCB": HZB Cull, history pyramid
         std::string const pyramid_path = std::string(prefix) + ".history.pyramid.bin";
         {
+            constexpr std::uint32_t hzb_cull_pyramid_file_magic = 0x485A4342u; // "HZCB": HZB Cull, history pyramid
             std::array<std::uint32_t, 4> const file_header{hzb_cull_pyramid_file_magic, extent.width, extent.height, this->hzb_cull_probe_levels};
             std::ofstream output(pyramid_path, std::ios::binary | std::ios::trunc);
             output.write(reinterpret_cast<char const*>(file_header.data()), sizeof(file_header));
@@ -578,19 +581,19 @@ namespace deren::engine {
             return;
         }
         std::string const flags_path = std::string(prefix) + ".flags.bin";
-        std::size_t const flags_bytes = static_cast<std::size_t>(pass::hzb_cull_candidate_capacity) * sizeof(std::uint32_t);
+        std::size_t constexpr flags_bytes = static_cast<std::size_t>(pass::hzb_cull_candidate_capacity) * sizeof(std::uint32_t);
         if (!write_file(flags_path, results + results_lane_base + pass::hzb_results_flags_offset, flags_bytes)) {
             deren::utility::log("hzb cull probe capture: FAIL flags file write");
             return;
         }
         std::string const counts_path = std::string(prefix) + ".counts.bin";
-        std::size_t const counts_bytes = static_cast<std::size_t>(pass::hzb_cull_item_capacity) * sizeof(std::uint32_t);
+        std::size_t constexpr counts_bytes = static_cast<std::size_t>(pass::hzb_cull_item_capacity) * sizeof(std::uint32_t);
         if (!write_file(counts_path, results + results_lane_base + pass::hzb_results_pass1_count_offset, counts_bytes)) {
             deren::utility::log("hzb cull probe capture: FAIL counts file write");
             return;
         }
         std::string const stats_path = std::string(prefix) + ".stats.bin";
-        std::size_t const stats_bytes = static_cast<std::size_t>(pass::hzb_results_stats_capacity) * sizeof(std::uint32_t);
+        std::size_t constexpr stats_bytes = static_cast<std::size_t>(pass::hzb_results_stats_capacity) * sizeof(std::uint32_t);
         if (!write_file(stats_path, results + results_lane_base + pass::hzb_results_stats_offset, stats_bytes)) {
             deren::utility::log("hzb cull probe capture: FAIL stats file write");
             return;
@@ -601,13 +604,13 @@ namespace deren::engine {
             return;
         }
         std::string const candidates_path = std::string(prefix) + ".candidates.bin";
-        std::size_t const candidates_bytes = static_cast<std::size_t>(deren::engine::meshlet_capacity) * sizeof(deren::engine::meshlet);
+        std::size_t constexpr candidates_bytes = static_cast<std::size_t>(deren::engine::meshlet_capacity) * sizeof(deren::engine::meshlet);
         if (!write_file(candidates_path, candidates + candidate_lane_base, candidates_bytes)) {
             deren::utility::log("hzb cull probe capture: FAIL candidates file write");
             return;
         }
         std::string const draw_items_path = std::string(prefix) + ".draw_items.bin";
-        std::size_t const draw_items_bytes = static_cast<std::size_t>(deren::engine::visibility::id_item_capacity) * sizeof(deren::engine::visibility::draw_item);
+        std::size_t constexpr draw_items_bytes = static_cast<std::size_t>(deren::engine::visibility::id_item_capacity) * sizeof(deren::engine::visibility::draw_item);
         if (!write_file(draw_items_path, draw_items + draw_lane_base, draw_items_bytes)) {
             deren::utility::log("hzb cull probe capture: FAIL draw-items file write");
             return;
@@ -688,8 +691,12 @@ namespace deren::engine {
                 camera.proj[index] = static_cast<double>(header_float(pass::hzb_header_word_proj + index));
             }
             camera.position = {static_cast<double>(header_float(pass::hzb_header_word_camera_pos)), static_cast<double>(header_float(pass::hzb_header_word_camera_pos + 1u)), static_cast<double>(header_float(pass::hzb_header_word_camera_pos + 2u))};
-            hzb::max_pyramid_view const pyramid{std::span<float const>{reinterpret_cast<float const*>(pyramid_bytes.data()), static_cast<std::size_t>(this->hzb_cull_probe_words)},
-                                                extent.width, extent.height, this->hzb_cull_probe_levels};
+            hzb::max_pyramid_view const pyramid{
+                std::span<float const>{reinterpret_cast<float const*>(pyramid_bytes.data()), static_cast<std::size_t>(this->hzb_cull_probe_words)},
+                extent.width,
+                extent.height,
+                this->hzb_cull_probe_levels,
+            };
             std::uint32_t const item_count = std::min(this->hzb_cull_probe_item_count, pass::hzb_cull_item_capacity);
             std::vector<std::uint32_t> candidate_ids(pass::hzb_cull_item_capacity);
             std::iota(candidate_ids.begin(), candidate_ids.end(), 0u);
@@ -711,11 +718,13 @@ namespace deren::engine {
                 for (std::size_t index = 0u; index < 16u; ++index) {
                     model[index] = static_cast<double>(draw_items[draw_lane_base + item].model[index]);
                 }
-                std::fill(keep.begin(), keep.begin() + static_cast<std::ptrdiff_t>(count), false);
+                std::fill_n(keep.begin(), static_cast<std::ptrdiff_t>(count), false);
                 for (std::uint32_t index = 0u; index < count; ++index) {
                     deren::engine::meshlet const& record = candidates[candidate_lane_base + description.meshlet_base + index];
-                    hzb::hzb_sphere const sphere{{static_cast<double>(record.center_x), static_cast<double>(record.center_y), static_cast<double>(record.center_z)},
-                                                 static_cast<double>(record.radius)};
+                    hzb::hzb_sphere const sphere{
+                        {static_cast<double>(record.center_x), static_cast<double>(record.center_y), static_cast<double>(record.center_z)},
+                        static_cast<double>(record.radius),
+                    };
                     hzb::hzb_decision const decision = hzb::hzb_test_sphere(camera, model, sphere, pyramid);
                     bool const reference_culled = decision == hzb::hzb_decision::occluded;
                     keep[index] = !reference_culled;
@@ -751,6 +760,7 @@ namespace deren::engine {
                     count_bad += 1u;
                 }
                 for (std::uint32_t order = 0u; order < hardware_reference->survivors; ++order) {
+                    std::size_t constexpr survivor_lane_base = 0u;
                     deren::engine::meshlet const& gpu_record = survivors[survivor_lane_base + description.meshlet_base + order];
                     deren::engine::meshlet const& reference_record = candidates[candidate_lane_base + description.meshlet_base + hardware_compacted[order]];
                     if (std::memcmp(&gpu_record, &reference_record, sizeof(deren::engine::meshlet)) != 0) {
@@ -840,8 +850,8 @@ namespace deren::engine {
             }
         }
         // ---- THE METADATA ----
-        std::string const metadata_path = std::string(prefix) + ".json";
         {
+            std::string const metadata_path = std::string(prefix) + ".json";
             std::ofstream output(metadata_path, std::ios::trunc);
             output << "{\n";
             output << "  \"kind\": \"hzb-cull-probe\",\n";

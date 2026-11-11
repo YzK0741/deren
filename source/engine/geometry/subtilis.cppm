@@ -50,7 +50,7 @@ export namespace deren::engine::subtilis {
             double sign = (plane & 1u) ? -1. : 1.;
             std::array<double, 4> equation{};
             for (uint32_t column = 0; column < 4; ++column) {
-                equation[column] = plane == 4 ? double(clip[column * 4 + 2]) : double(clip[column * 4 + 3]) + sign * double(clip[column * 4 + axis]);
+                equation[column] = plane == 4 ? static_cast<double>(clip[column * 4 + 2]) : static_cast<double>(clip[column * 4 + 3]) + sign * static_cast<double>(clip[column * 4 + axis]);
             }
             double distance = equation[0] * center[0] + equation[1] * center[1] + equation[2] * center[2] + equation[3];
             double radius = sphere_radius * std::sqrt(equation[0] * equation[0] + equation[1] * equation[1] + equation[2] * equation[2]);
@@ -73,8 +73,8 @@ export namespace deren::engine::subtilis {
             return fallback_reason::source_mismatch;
         }
         for (auto other : published) {
-            if (space.count && other.count && std::uint64_t(space.base) < std::uint64_t(other.base) + other.count &&
-                std::uint64_t(other.base) < std::uint64_t(space.base) + space.count) {
+            if (space.count && other.count && static_cast<std::uint64_t>(space.base) < static_cast<std::uint64_t>(other.base) + other.count &&
+                static_cast<std::uint64_t>(other.base) < static_cast<std::uint64_t>(space.base) + space.count) {
                 return fallback_reason::overlap;
             }
         }

@@ -1,9 +1,8 @@
 module;
-#include <cstddef>
+
 #include <cstdint>
-#include <cstdlib>
-#include <cstring>
 #include <glm/glm.hpp>
+
 module deren.engine.gaussian_splatting.raster;
 import deren.vstd;
 import deren.utility.shared;

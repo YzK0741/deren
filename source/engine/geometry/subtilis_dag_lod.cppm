@@ -1,9 +1,8 @@
 module;
 
-#include "subtilis_dag_cut_closure.hpp"
-
 #include <cstdint>
 export module deren.engine.subtilis.dag_lod;
+import deren.engine.subtilis.dag_cut_closure;
 export import deren.vstd;
 export import deren.engine.subtilis.dag_asset;
 export import deren.engine.subtilis.lod;
@@ -31,9 +30,11 @@ export namespace deren::engine::subtilis {
             return 0;
         }
         inline double scale_bound(lod_detail::matrix const& m) {
-            double one = 0, inf = 0;
+            double one = 0;
+            double inf = 0;
             for (uint32_t i = 0; i < 3; ++i) {
-                double col = 0, row = 0;
+                double col = 0;
+                double row = 0;
                 for (uint32_t j = 0; j < 3; ++j) {
                     col += std::abs(m[i * 4 + j]);
                     row += std::abs(m[j * 4 + i]);
@@ -49,15 +50,21 @@ export namespace deren::engine::subtilis {
     inline std::expected<cut_statistics, cut_error> select_cut(dag_asset const& geometry, view_parameters const& view, uint32_t capacity, utility::vessel::vector<meshlet>& out, dag_cut_history* history = nullptr, uint64_t epoch = 0) {
         out.clear();
         auto kind = dag_lod_detail::projection_type(view.projection);
+        int32_t declared_kind = 0;
+        if (view.kind == projection_kind::perspective) {
+            declared_kind = 1;
+        } else if (view.kind == projection_kind::orthographic) {
+            declared_kind = 2;
+        }
         bool force = view.force_finest || !kind || !lod_detail::affine(view.model) || !lod_detail::affine(view.view) || !view.width || !view.height || !std::isfinite(view.near_plane) || view.near_plane <= 0 || !std::isfinite(view.target_error_px) || view.target_error_px < 0;
-        force |= kind != (view.kind == projection_kind::perspective ? 1 : view.kind == projection_kind::orthographic ? 2
-                                                                                                                     : 0);
+        force |= kind != declared_kind;
         lod_detail::matrix camera{};
-        double scale = 1, pixels = 1;
+        double scale = 1;
+        double pixels = 1;
         if (!force) {
             camera = lod_detail::multiply(lod_detail::widen(view.view), lod_detail::widen(view.model));
             scale = dag_lod_detail::scale_bound(camera);
-            pixels = std::max(std::abs(double(view.projection[0])) * view.width, std::abs(double(view.projection[5])) * view.height) * .5;
+            pixels = std::max(std::abs(static_cast<double>(view.projection[0])) * view.width, std::abs(static_cast<double>(view.projection[5])) * view.height) * .5;
             force = !std::isfinite(scale) || !std::isfinite(pixels);
         }
         cut_statistics stats{};
@@ -72,8 +79,8 @@ export namespace deren::engine::subtilis {
             }
             auto const& g = geometry.groups()[id];
             double depth = -(camera[2] * g.lod.x + camera[6] * g.lod.y + camera[10] * g.lod.z + camera[14]);
-            double closest = depth - double(g.lod.radius) * scale;
-            if (closest <= double(view.near_plane)) {
+            double closest = depth - static_cast<double>(g.lod.radius) * scale;
+            if (closest <= static_cast<double>(view.near_plane)) {
                 stats.forced_finest = true;
                 continue;
             }
@@ -94,7 +101,7 @@ export namespace deren::engine::subtilis {
         }
         // Close every dependency decision before inspecting output clusters.
         dag_lod_detail::close_coarsening(geometry, coarsen);
-        stats.groups_selected = static_cast<uint32_t>(std::count(coarsen.begin(), coarsen.end(), true));
+        stats.groups_selected = static_cast<uint32_t>(std::ranges::count(coarsen, true));
         out.reserve(std::min(capacity, geometry.maximum_selected_bound()));
         for (auto const& c : clusters) {
             if ((c.producer == dag_none || coarsen[c.producer]) && (c.consumer == dag_none || !coarsen[c.consumer])) {

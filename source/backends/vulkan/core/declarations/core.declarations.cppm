@@ -28,8 +28,10 @@
 module;
 
 #include <GLFW/glfw3.h>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.core:declarations;
@@ -159,7 +161,7 @@ namespace deren::vulkan {
      * different picture.
      */
     [[nodiscard]] constexpr VkFormat native_render_format(deren::promise::rhi::image_format format) noexcept {
-        using image_format = deren::promise::rhi::image_format;
+        using deren::promise::rhi::image_format;
         switch (format) {
         case image_format::rgba8_unorm:
             return VK_FORMAT_R8G8B8A8_UNORM;
@@ -398,7 +400,7 @@ namespace deren::vulkan {
                 return tag;
             }
             frame_commands() noexcept = default;
-            [[nodiscard]] deren::promise::rhi::error push_constants(std::uint32_t, std::span<std::byte const>) noexcept override;
+            [[nodiscard]] deren::promise::rhi::error push_constants(std::uint32_t size, std::span<std::byte const> data) noexcept override;
             core* parent = nullptr;
             /// the buffer this list records into: null = the frame's slot buffer, set = one the caller created
             VkCommandBuffer target = VK_NULL_HANDLE;
@@ -436,7 +438,7 @@ namespace deren::vulkan {
             void reference_lazy(core::buffer const&);
             void reference_lazy(core::image const&);
             deren::utility::vessel::vector<deren::promise::rhi::resource_group_ref> resource_refs;
-            [[nodiscard]] deren::promise::rhi::error load_resource_group(deren::promise::rhi::resource_group_ref const&) override;
+            [[nodiscard]] deren::promise::rhi::error load_resource_group(deren::promise::rhi::resource_group_ref const& group) override;
             deren::utility::vessel::vector<deren::promise::rhi::texture_group_ref> group_refs;
             deren::utility::vessel::vector<std::shared_ptr<core::command_buffer>> secondary_refs;
             [[nodiscard]] deren::promise::rhi::error load_texture_group(deren::promise::rhi::texture_group_ref const& group) override;
@@ -485,7 +487,7 @@ namespace deren::vulkan {
             void dispatch(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept override;
             [[nodiscard]] deren::promise::rhi::error dispatch_indirect(deren::promise::rhi::buffer const& arguments, std::uint64_t offset) override;
             void draw_mesh_tasks(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept override;
-            [[nodiscard]] deren::promise::rhi::error draw_indirect(deren::promise::rhi::buffer const&, std::uint64_t, std::uint32_t, std::uint32_t) override;
+            [[nodiscard]] deren::promise::rhi::error draw_indirect(promise::rhi::buffer const& arguments, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) override;
             [[nodiscard]] deren::promise::rhi::error draw_mesh_tasks_indirect(deren::promise::rhi::buffer const& argument_buffer, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) override;
             /// abi 24: the ray-tracing LAUNCH, through the entry point resolved once at startup
             /// (`core::ray_trace_launch`). It records nothing when the device published no `vkCmdTraceRaysKHR`.
@@ -770,11 +772,11 @@ namespace deren::vulkan {
             [[nodiscard]] deren::promise::rhi::image_format format() const noexcept override {
                 return captured_format;
             }
-            [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::image_view> make_view(deren::promise::rhi::image_view_desc const&) override;
+            [[nodiscard]] deren::promise::rhi::unique_object<deren::promise::rhi::image_view> make_view(deren::promise::rhi::image_view_desc const& desc) override;
             [[nodiscard]] deren::promise::rhi::shared_object<deren::promise::rhi::image> share() override {
                 return this->self.lock();
             }
-            [[nodiscard]] std::expected<deren::promise::rhi::image_content, deren::promise::rhi::error> get_content(deren::promise::rhi::image_copy_region const&) const override;
+            [[nodiscard]] std::expected<deren::promise::rhi::image_content, deren::promise::rhi::error> get_content(deren::promise::rhi::image_copy_region const& copy_region) const override;
             void release() noexcept override;
         };
         struct frame_resources_view final : deren::promise::rhi::frame_resources {
@@ -962,7 +964,7 @@ namespace deren::vulkan {
             VkMicromapUsageEXT usage = {}; ///< the one usage record the build declares
 
             void release() noexcept override;
-            ~micromap() noexcept;
+            ~micromap() noexcept override;
         };
 
         /// AN ACCELERATION STRUCTURE THE BACKEND CREATES AND DESTROYS (tier-1 since abi 26): the memory it lives in, the
@@ -1018,7 +1020,7 @@ namespace deren::vulkan {
             /// give the allocation back: `delete this`, whose destructor destroys the structure and THEN
             /// releases the memory (see the note above)
             void release() noexcept override;
-            ~acceleration_structure() noexcept;
+            ~acceleration_structure() noexcept override;
         };
 
         /// AN IMAGE THE FACTORY MAKES: what `create_image()` hands the caller (abi 7's image face, §17's design).
@@ -1274,10 +1276,10 @@ namespace deren::vulkan {
             [[nodiscard]] bool ready() const noexcept override;
             [[nodiscard]] deren::promise::rhi::descriptor_heap_properties properties() const noexcept override;
             [[nodiscard]] deren::promise::rhi::heap_bindings bindings() const noexcept override;
-            [[nodiscard]] deren::promise::rhi::error write_image(deren::promise::rhi::heap_image_write_info const&) noexcept override;
-            [[nodiscard]] deren::promise::rhi::error write_image_native(deren::promise::rhi::heap_image_write_info const&, bool tracked) noexcept;
-            [[nodiscard]] deren::promise::rhi::error write_buffer(deren::promise::rhi::heap_buffer_write_info const&) noexcept override;
-            [[nodiscard]] deren::promise::rhi::error bind(deren::promise::rhi::heap_bind_info const&) const noexcept override;
+            [[nodiscard]] deren::promise::rhi::error write_image(deren::promise::rhi::heap_image_write_info const& write_info) noexcept override;
+            [[nodiscard]] deren::promise::rhi::error write_image_native(deren::promise::rhi::heap_image_write_info const& write_info, bool tracked) const noexcept;
+            [[nodiscard]] deren::promise::rhi::error write_buffer(deren::promise::rhi::heap_buffer_write_info const& write_info) noexcept override;
+            [[nodiscard]] deren::promise::rhi::error bind(deren::promise::rhi::heap_bind_info const& bind_info) const noexcept override;
         };
 
         /// THE SERVABLE FACE OF THE DESCRIPTOR SPACE (see `rhi::descriptor_space`): positions and portable
@@ -1297,10 +1299,10 @@ namespace deren::vulkan {
             [[nodiscard]] deren::promise::rhi::descriptor_position position(deren::promise::rhi::texture_group const& group) const noexcept override;
             [[nodiscard]] deren::promise::rhi::error write(deren::promise::rhi::descriptor_write const& info) noexcept override;
             [[nodiscard]] deren::promise::rhi::descriptor_slot_range fixed_slots() const noexcept override;
-            [[nodiscard]] deren::promise::rhi::error write_image(deren::promise::rhi::descriptor_image_write const&) noexcept override;
-            [[nodiscard]] deren::promise::rhi::error write_buffer(deren::promise::rhi::descriptor_buffer_write const&) noexcept override;
-            [[nodiscard]] deren::promise::rhi::error write_acceleration_structure(deren::promise::rhi::descriptor_acceleration_structure_write const&) noexcept override;
-            [[nodiscard]] deren::promise::rhi::error bind(deren::promise::rhi::descriptor_bind_info const&) noexcept override;
+            [[nodiscard]] deren::promise::rhi::error write_image(deren::promise::rhi::descriptor_image_write const& write_info) noexcept override;
+            [[nodiscard]] deren::promise::rhi::error write_buffer(deren::promise::rhi::descriptor_buffer_write const& write) noexcept override;
+            [[nodiscard]] deren::promise::rhi::error write_acceleration_structure(deren::promise::rhi::descriptor_acceleration_structure_write const& write) noexcept override;
+            [[nodiscard]] deren::promise::rhi::error bind(deren::promise::rhi::descriptor_bind_info const& bind_info) noexcept override;
         };
 
         // ---- THE STATE BEHIND THE RECORDING SURFACE --------------------------------------------------
@@ -1446,7 +1448,7 @@ namespace deren::vulkan {
             }
             ~resource_group() noexcept override;
         };
-        [[nodiscard]] deren::promise::rhi::error validate_resource_group_pipeline(deren::promise::rhi::pipeline_desc const&);
+        [[nodiscard]] deren::promise::rhi::error validate_resource_group_pipeline(deren::promise::rhi::pipeline_desc const&) const;
         struct texture_group final : deren::promise::rhi::texture_group {
             static constexpr std::string_view tag = concrete::texture_group;
             [[nodiscard]] std::string_view get_tag() const noexcept override {
@@ -1485,10 +1487,10 @@ namespace deren::vulkan {
             }
             command_submission_view() noexcept = default;
             core* parent = nullptr;
-            [[nodiscard]] std::expected<deren::promise::rhi::submission_token, deren::promise::rhi::error> submit(deren::promise::rhi::command_buffer&) override;
-            [[nodiscard]] std::expected<deren::promise::rhi::submission_token, deren::promise::rhi::error> submit(std::span<deren::promise::rhi::mergeable_command_buffer_ref const>) override;
-            [[nodiscard]] deren::promise::rhi::error poll(deren::promise::rhi::submission_token) noexcept override;
-            [[nodiscard]] deren::promise::rhi::error wait(deren::promise::rhi::submission_token, std::uint64_t) noexcept override;
+            [[nodiscard]] std::expected<deren::promise::rhi::submission_token, deren::promise::rhi::error> submit(deren::promise::rhi::command_buffer& buffer) override;
+            [[nodiscard]] std::expected<deren::promise::rhi::submission_token, deren::promise::rhi::error> submit(std::span<deren::promise::rhi::mergeable_command_buffer_ref const> mergeable_buffers) override;
+            [[nodiscard]] deren::promise::rhi::error poll(deren::promise::rhi::submission_token submit_token) noexcept override;
+            [[nodiscard]] deren::promise::rhi::error wait(deren::promise::rhi::submission_token submit_token, std::uint64_t timeout_ns) noexcept override;
         };
         struct frame_checkpoint_view final : deren::promise::rhi::frame_checkpoint {
             static constexpr std::string_view tag = "deren.vulkan.frame_checkpoint";
@@ -1516,7 +1518,7 @@ namespace deren::vulkan {
             ~pending_submission() noexcept;
         };
         void poll_submissions(bool all = false) const noexcept;
-        [[nodiscard]] std::shared_ptr<core::command_buffer> reference_command(core::command_buffer& command, bool recorded_secondary);
+        [[nodiscard]] static std::shared_ptr<core::command_buffer> reference_command(core::command_buffer& command, bool recorded_secondary);
         /// THE COMMAND BUFFERS `create_command_buffer()` HANDED OUT (abi 15), the same registry shape
         /// `contract_images` uses and for the same reason: the batch merge (`execute(span)` / `submit(span)`)
         /// and the one-shot submit must tell "a buffer this backend made" from "some pointer a caller has"
@@ -1551,10 +1553,10 @@ namespace deren::vulkan {
             scoped_sync_view() noexcept = default;
             core* parent = nullptr;
             [[nodiscard]] deren::promise::rhi::synchronization::stage supported_stages() const noexcept override;
-            [[nodiscard]] deren::promise::rhi::error describe(deren::promise::rhi::image const&, deren::promise::rhi::scoped_image_info&) const noexcept override;
-            [[nodiscard]] deren::promise::rhi::error describe(deren::promise::rhi::buffer const&, deren::promise::rhi::scoped_buffer_info&) const noexcept override;
-            [[nodiscard]] deren::promise::rhi::error validate(std::span<deren::promise::rhi::scoped_image_barrier const>, std::span<deren::promise::rhi::scoped_buffer_barrier const>) const noexcept override;
-            [[nodiscard]] deren::promise::rhi::error record(deren::promise::rhi::command_recorder&, std::span<deren::promise::rhi::scoped_image_barrier const>, std::span<deren::promise::rhi::scoped_buffer_barrier const>) const noexcept override;
+            [[nodiscard]] deren::promise::rhi::error describe(deren::promise::rhi::image const& image, deren::promise::rhi::scoped_image_info& info) const noexcept override;
+            [[nodiscard]] deren::promise::rhi::error describe(deren::promise::rhi::buffer const& buffer, deren::promise::rhi::scoped_buffer_info& info) const noexcept override;
+            [[nodiscard]] deren::promise::rhi::error validate(std::span<deren::promise::rhi::scoped_image_barrier const> image_barriers, std::span<deren::promise::rhi::scoped_buffer_barrier const> buffer_barriers) const noexcept override;
+            [[nodiscard]] deren::promise::rhi::error record(deren::promise::rhi::command_recorder& recorder, std::span<deren::promise::rhi::scoped_image_barrier const> image_barriers, std::span<deren::promise::rhi::scoped_buffer_barrier const> buffer_barriers) const noexcept override;
         };
         /// true between the ACQUIRE of a frame and the SUBMIT that hands it to the queue: it is the window
         /// `begin_commands()`, `use()` and `copy_image_to_buffer()` answer in (nullptr, or
@@ -1599,8 +1601,8 @@ namespace deren::vulkan {
         [[nodiscard]] deren::promise::rhi::error materialize(core::image_view&) noexcept;
         [[nodiscard]] deren::promise::rhi::error materialize(core::resource_group&) noexcept;
         [[nodiscard]] deren::promise::rhi::error materialize(core::texture_group&) noexcept;
-        [[nodiscard]] std::shared_ptr<void> depend_on(core::buffer const&);
-        [[nodiscard]] std::shared_ptr<void> depend_on(core::image const&);
+        [[nodiscard]] static std::shared_ptr<void> depend_on(core::buffer const&);
+        [[nodiscard]] static std::shared_ptr<void> depend_on(core::image const&);
         [[nodiscard]] VkFormat resolve_format(deren::promise::rhi::image_format) const noexcept;
         [[nodiscard]] std::uint64_t internal_address(core::buffer const&, std::uint64_t offset = 0) const noexcept;
         /// THE BACKEND'S SPELLING of `create_buffer`: the factories hand CALLERS an unique_object, but the
@@ -1646,10 +1648,11 @@ namespace deren::vulkan {
          */
         [[nodiscard]] ::deren::promise::rhi::image_extent render_extent() const noexcept {
             auto const scaled = [this](uint32_t const axis) {
-                uint32_t const value = static_cast<uint32_t>(static_cast<float>(axis) * this->render_scale + 0.5f);
+                uint32_t const value = static_cast<uint32_t>(
+                    std::llround(static_cast<double>(axis) * static_cast<double>(this->render_scale)));
                 return value == 0u ? 1u : value; // a zero extent is not a small frame, it is an invalid one
             };
-            return ::deren::promise::rhi::image_extent{scaled(this->frame.swap_chain_extent.width), scaled(this->frame.swap_chain_extent.height)};
+            return ::deren::promise::rhi::image_extent{.width = scaled(this->frame.swap_chain_extent.width), .height = scaled(this->frame.swap_chain_extent.height)};
         }
         /// THE SAME SIZE, IN THE API'S STRUCT (plan X5 B3.2): `VkRect2D`'s extent and the swapchain create
         /// info still take a `VkExtent2D`, so this is the ONE place that conversion lives. The engine's
@@ -1870,7 +1873,7 @@ namespace deren::vulkan {
          * is why nothing here stores the title pointer.
          */
         explicit core(deren::promise::rhi::create_info const& options);
-        ~core();
+        ~core() override;
 
         /// @brief allocate a PRIMARY command buffer THAT CREATES AND DESTROYS Its COMMAND POOL
         /// @note one pool per buffer is what makes the wrapper self-contained (see
@@ -1991,7 +1994,6 @@ namespace deren::vulkan {
         /**
          * @ingroup vulkan_core
          * @brief submit the recorded command buffer for the current frame slot
-         * @param command_buffer the command buffer to submit
          * @param image_index the acquired swapchain image index: it selects the per-image binary
          *        semaphore this submit signals for present to wait on
          * @return the result of vkQueueSubmit
@@ -2407,7 +2409,6 @@ namespace deren::vulkan {
         void init_image_views() noexcept;
         void create_depth_image(VkImage& image, VkDeviceMemory& image_memory, VkImageView& image_view) const noexcept;
         void create_depth_resources() noexcept;
-        void create_color_resources();
         void create_samplers();
         void create_sync_objects();
         void create_timestamp_query_pool() noexcept;

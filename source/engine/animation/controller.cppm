@@ -374,7 +374,7 @@ namespace deren::engine::animation {
             // pools - a node referenced by several scenes has identical copies, and the tree only
             // contains the nodes that were actually imported. The pose is value-copied into the
             // controller's node_pose (no source type is stored).
-            for (auto const& [source, targets] : this->source_nodes) {
+            for (auto const& source : this->source_nodes | std::views::keys) {
                 auto const loader_it = scenes.node_by_source.find(source);
                 if (loader_it == scenes.node_by_source.end()) {
                     continue; // synthesized tree node (e.g. an extra "/prim" leaf) has no source node
@@ -445,7 +445,7 @@ namespace deren::engine::animation {
                     // stable source list for slicing update()'s sampling across the pool workers
                     // (source_nodes is fixed after init; select() only swaps the active clip)
                     this->sample_keys.reserve(this->source_nodes.size());
-                    for (auto const& [source, targets] : this->source_nodes) {
+                    for (auto const& source : this->source_nodes | std::views::keys) {
                         this->sample_keys.push_back(source);
                     }
                     deren::utility::log("animation: parallel sampling enabled ({} channels / {} sources, runtime task pool)", max_channels, this->sample_keys.size());
@@ -550,8 +550,8 @@ namespace deren::engine::animation {
                 // read one float delta attribute of a morph target. The source only keeps FLOAT
                 // morph deltas (glTF loader drops non-float target attributes), so the data can
                 // be read directly as glm::vec3 without a component-type check.
-                auto const read_delta_vec3 = [](auto const& attrs, std::string_view const name, std::size_t const i) -> glm::vec3 {
-                    auto const it = attrs.find(typename std::remove_cvref_t<decltype(attrs)>::key_type(name));
+                auto const read_delta_vec3 = []<typename T0>(T0 const& attrs, std::string_view const name, std::size_t const i) -> glm::vec3 {
+                    auto const it = attrs.find(typename std::remove_cvref_t<T0>::key_type(name));
                     if (it == attrs.end()) {
                         return glm::vec3(0.0f); // missing delta -> no displacement
                     }

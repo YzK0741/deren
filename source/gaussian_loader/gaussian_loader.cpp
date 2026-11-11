@@ -69,14 +69,14 @@ namespace deren::gaussian {
             if (p.signed_value) {
                 std::int64_t v = 0;
                 auto r = std::from_chars(token.data(), token.data() + token.size(), v);
-                auto max = (std::int64_t(1) << (p.bytes * 8 - 1)) - 1;
+                auto max = (static_cast<std::int64_t>(1) << (p.bytes * 8 - 1)) - 1;
                 if (r.ec != std::errc{} || r.ptr != token.data() + token.size() || v < -max - 1 || v > max) {
                     return false;
                 }
                 value = static_cast<double>(v);
             } else {
                 std::uint64_t v = 0;
-                if (!unsigned_number(token, v) || v > ((std::uint64_t(1) << (p.bytes * 8)) - 1)) {
+                if (!unsigned_number(token, v) || v > ((static_cast<std::uint64_t>(1) << (p.bytes * 8)) - 1)) {
                     return false;
                 }
                 value = static_cast<double>(v);
@@ -148,7 +148,7 @@ namespace deren::gaussian {
                 if (properties.size() >= 256) {
                     return fail(error_code::limit_exceeded, line_offset, {}, "too many properties");
                 }
-                if (std::any_of(properties.begin(), properties.end(), [name](auto const& old) { return old.name == name; })) {
+                if (std::ranges::any_of(properties, [name](auto const& old) { return old.name == name; })) {
                     return fail(error_code::invalid_header, line_offset, deren::utility::vessel::string(name), "duplicate property");
                 }
                 p.name = name;
@@ -171,7 +171,7 @@ namespace deren::gaussian {
             return fail(error_code::limit_exceeded, offset, {}, "particle/output budget exceeded");
         }
         auto find = [&properties](std::string_view name) -> std::size_t {
-            auto it = std::find_if(properties.begin(), properties.end(), [name](auto const& p) { return p.name == name; });
+            auto it = std::ranges::find_if(properties, [name](auto const& p) { return p.name == name; });
             return static_cast<std::size_t>(it - properties.begin());
         };
         deren::utility::vessel::array<std::size_t, 14> required{};
@@ -236,14 +236,14 @@ namespace deren::gaussian {
                     }
                     std::uint64_t bits = 0;
                     for (unsigned b = 0; b < p.bytes; ++b) {
-                        bits |= std::uint64_t(std::to_integer<unsigned char>(bytes[offset++])) << (b * 8);
+                        bits |= static_cast<std::uint64_t>(std::to_integer<unsigned char>(bytes[offset++])) << (b * 8);
                     }
                     if (p.floating) {
-                        value = p.bytes == 4 ? double(std::bit_cast<float>(static_cast<std::uint32_t>(bits))) : std::bit_cast<double>(bits);
-                    } else if (p.signed_value && (bits & (std::uint64_t(1) << (p.bytes * 8 - 1)))) {
-                        value = double(bits) - std::ldexp(1.0, int(p.bytes * 8));
+                        value = p.bytes == 4 ? static_cast<double>(std::bit_cast<float>(static_cast<std::uint32_t>(bits))) : std::bit_cast<double>(bits);
+                    } else if (p.signed_value && (bits & (static_cast<std::uint64_t>(1) << (p.bytes * 8 - 1)))) {
+                        value = static_cast<double>(bits) - std::ldexp(1.0, static_cast<int>(p.bytes * 8));
                     } else {
-                        value = double(bits);
+                        value = static_cast<double>(bits);
                     }
                     if (!std::isfinite(value)) {
                         return fail(error_code::invalid_data, start, p.name, "nonfinite scalar");
@@ -268,8 +268,8 @@ namespace deren::gaussian {
                 }
             }
             for (unsigned i = 0; i < 3; ++i) {
-                point.center[i] = float(row[required[i]]);
-                point.scale[i] = float(std::exp(row[required[i + 3]]));
+                point.center[i] = static_cast<float>(row[required[i]]);
+                point.scale[i] = static_cast<float>(std::exp(row[required[i + 3]]));
             }
             double norm = 0;
             for (unsigned i = 0; i < 4; ++i) {
@@ -279,17 +279,17 @@ namespace deren::gaussian {
                 return fail(error_code::invalid_data, offset, "rot_0", "zero quaternion");
             }
             for (unsigned i = 0; i < 4; ++i) {
-                point.rotation[i] = float(row[required[i + 6]] / norm);
+                point.rotation[i] = static_cast<float>(row[required[i + 6]] / norm);
             }
             double logit = row[required[10]];
-            point.opacity = float(logit >= 0 ? 1 / (1 + std::exp(-logit)) : std::exp(logit) / (1 + std::exp(logit)));
+            point.opacity = static_cast<float>(logit >= 0 ? 1 / (1 + std::exp(-logit)) : std::exp(logit) / (1 + std::exp(logit)));
             for (unsigned i = 0; i < 3; ++i) {
-                point.sh[i] = float(row[required[11 + i]]);
+                point.sh[i] = static_cast<float>(row[required[11 + i]]);
             }
             unsigned bands = rest_count / 3;
             for (unsigned c = 0; c < 3; ++c) {
                 for (unsigned k = 0; k < bands; ++k) {
-                    auto value = float(row[rest[c * bands + k]]);
+                    auto value = static_cast<float>(row[rest[c * bands + k]]);
                     if (!std::isfinite(value)) {
                         return fail(error_code::invalid_data, offset, properties[rest[c * bands + k]].name, "SH exceeds float32");
                     }
@@ -310,15 +310,15 @@ namespace deren::gaussian {
                     variance += v * v;
                 }
                 double radius = 3 * std::sqrt(variance);
-                double lower = double(point.center[i]) - radius, upper = double(point.center[i]) + radius;
-                float lo = float(lower), hi = float(upper);
-                if (double(lo) > lower) {
+                double lower = static_cast<double>(point.center[i]) - radius, upper = static_cast<double>(point.center[i]) + radius;
+                float lo = static_cast<float>(lower), hi = static_cast<float>(upper);
+                if (static_cast<double>(lo) > lower) {
                     lo = std::nextafter(lo, -std::numeric_limits<float>::infinity());
                 }
-                if (double(hi) < upper) {
+                if (static_cast<double>(hi) < upper) {
                     hi = std::nextafter(hi, std::numeric_limits<float>::infinity());
                 }
-                if (!std::isfinite(float(variance)) || float(variance) == 0 || !std::isfinite(lo) || !std::isfinite(hi)) {
+                if (!std::isfinite(static_cast<float>(variance)) || static_cast<float>(variance) == 0 || !std::isfinite(lo) || !std::isfinite(hi)) {
                     return fail(error_code::invalid_data, offset, {}, "covariance/support outside float32");
                 }
                 if (item == 0) {
@@ -347,7 +347,7 @@ namespace deren::gaussian {
             return std::unexpected(diagnostic{error_code::io, 0, {}, "cannot read file size"});
         }
         auto size = static_cast<std::uint64_t>(end);
-        if (size > limits.max_file_bytes || size > std::numeric_limits<std::size_t>::max() || size > std::uint64_t(std::numeric_limits<std::streamsize>::max())) {
+        if (size > limits.max_file_bytes || size > std::numeric_limits<std::size_t>::max() || size > static_cast<std::uint64_t>(std::numeric_limits<std::streamsize>::max())) {
             return std::unexpected(diagnostic{error_code::limit_exceeded, 0, {}, "file budget exceeded"});
         }
         deren::utility::vessel::vector<std::byte> data(static_cast<std::size_t>(size));

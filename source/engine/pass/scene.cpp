@@ -130,13 +130,15 @@ namespace deren::engine::pass {
             if (declared.targets[t].kind == render_resource::target_kind::depth) {
                 // the surface depth must SURVIVE the instance: the lighting stage, the transparent pass, the
                 // resolve and the debug view all read it later in the same submission
-                depth_attachment = rhi::depth_attachment{.view = io.targets[t].view_handle,
-                                                         .load = rhi::load_op::clear, // make_depth_attachment_info's loadOp
-                                                         .store = rhi::store_op::store,
-                                                         .read_only = false,
-                                                         .has_stencil = false,
-                                                         .clear_depth = 1.0f,
-                                                         .clear_stencil = 0};
+                depth_attachment = rhi::depth_attachment{
+                    .view = io.targets[t].view_handle,
+                    .load = rhi::load_op::clear, // make_depth_attachment_info's loadOp
+                    .store = rhi::store_op::store,
+                    .read_only = false,
+                    .has_stencil = false,
+                    .clear_depth = 1.0f,
+                    .clear_stencil = 0,
+                };
                 has_depth = true;
             } else {
                 // every target clears to zero: no geometry, no motion, no emissive

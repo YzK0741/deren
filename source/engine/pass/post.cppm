@@ -36,7 +36,6 @@
 module;
 
 #include <cstdint>
-#include <cstring>
 
 export module deren.engine.pass.post;
 export import deren.vstd;
@@ -204,7 +203,7 @@ export namespace deren::engine::pass {
          */
 
         /// @brief install the host's overlay hook (recorded inside this pass's instance when it is the last writer)
-        void set_overlay(draw_callback overlay) noexcept;
+        void set_overlay(draw_callback const& overlay) noexcept;
         /// @brief build this pass's frame from the published facts (see frame_pass::prepare_frame)
         void prepare_frame(frame_facts const& facts) noexcept override;
         /// @brief the frame for this stage; the pass composes it itself now (see frame_pass::prepare_frame),
@@ -221,7 +220,7 @@ export namespace deren::engine::pass {
         static constexpr deren::utility::vessel::array<std::string_view, 1> pipeline_names = {"post_composite"};
         // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
         // would duplicate it and hide the override.
-        inline static constexpr deren::engine::pass::behaviour pass_behaviour = {
+        static constexpr deren::engine::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::fullscreen,
             .extent = extent_rule::full, // the composite runs at the frame's resolution
             .extent_of = resource_id::none,

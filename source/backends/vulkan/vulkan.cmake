@@ -78,8 +78,11 @@ target_sources(vulkan_core_support
         source/backends/vulkan/core/support/core_support.cppm
         source/backends/vulkan/core/support/lazy_loading.cppm
         source/backends/vulkan/core/support/push_range_validation.cppm
+        source/backends/vulkan/core/vma/resource_memory_tracker.cppm
+        source/backends/vulkan/core/vma/texture_upload_layout.cppm
+        source/backends/vulkan/core/vma/upload_sequence.cppm
 )
-target_link_libraries(vulkan_core_support PUBLIC vstd_lib)
+target_link_libraries(vulkan_core_support PUBLIC vstd_lib Vulkan::Vulkan)
 
 add_library(deren_vulkan SHARED)
 add_library(deren::vulkan ALIAS deren_vulkan)

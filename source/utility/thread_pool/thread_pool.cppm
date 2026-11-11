@@ -50,13 +50,13 @@ namespace deren::utility {
         struct action_deleter {
             void operator()(action_type* action) const noexcept {
                 std::destroy_at(action);
-                deren::utility::memory::allocator<action_type>{}.deallocate(action, 1);
+                deren::utility::memory::allocator<action_type>::deallocate(action, 1);
             }
         };
         using action_pointer = std::unique_ptr<action_type, action_deleter>;
         // Construct outside access_mutex: even std::function's move may destroy a user callable.
         static action_pointer make_action(action_type action) {
-            auto* storage = deren::utility::memory::allocator<action_type>{}.allocate(1);
+            auto* storage = deren::utility::memory::allocator<action_type>::allocate(1);
             std::construct_at(storage, std::move(action));
             return action_pointer(storage);
         }
@@ -183,8 +183,8 @@ namespace deren::utility {
         this->active_thread.fetch_add(1);
         action_pointer current_task;
         while (true) {
-            int32_t current_priority = 0;
-            bool execute = false;
+            int32_t current_priority;
+            bool execute;
             {
                 std::unique_lock lock(this->access_mutex);
                 this->active_thread.fetch_sub(1);

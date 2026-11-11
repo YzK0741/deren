@@ -52,13 +52,21 @@ namespace {
         return reinterpret_cast<VkPhysicalDevice>(id);
     }
     deren::utility::vessel::vector<char const*> full_extensions() {
-        return {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME,
-                VK_KHR_MAINTENANCE_5_EXTENSION_NAME, VK_KHR_SHADER_UNTYPED_POINTERS_EXTENSION_NAME,
-                VK_EXT_MESH_SHADER_EXTENSION_NAME, VK_KHR_UNIFIED_IMAGE_LAYOUTS_EXTENSION_NAME,
-                VK_EXT_HOST_IMAGE_COPY_EXTENSION_NAME, VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
-                VK_KHR_RAY_QUERY_EXTENSION_NAME, VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
-                VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME, VK_KHR_RAY_TRACING_MAINTENANCE_1_EXTENSION_NAME,
-                VK_EXT_OPACITY_MICROMAP_EXTENSION_NAME};
+        return {
+            VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+            VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME,
+            VK_KHR_MAINTENANCE_5_EXTENSION_NAME,
+            VK_KHR_SHADER_UNTYPED_POINTERS_EXTENSION_NAME,
+            VK_EXT_MESH_SHADER_EXTENSION_NAME,
+            VK_KHR_UNIFIED_IMAGE_LAYOUTS_EXTENSION_NAME,
+            VK_EXT_HOST_IMAGE_COPY_EXTENSION_NAME,
+            VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
+            VK_KHR_RAY_QUERY_EXTENSION_NAME,
+            VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
+            VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
+            VK_KHR_RAY_TRACING_MAINTENANCE_1_EXTENSION_NAME,
+            VK_EXT_OPACITY_MICROMAP_EXTENSION_NAME,
+        };
     }
     void reset() {
         fixtures = {driver_fixture{full_extensions()}, driver_fixture{full_extensions()}};
@@ -184,8 +192,13 @@ int main() {
     // RHI exposes direct mapping without flush/invalidate: every mapped intent must
     // select coherent host-visible memory, even when CPU_TO_GPU only prefers it.
     using deren::vulkan::buffer_type;
-    for (auto type : {buffer_type::uniform_coherent, buffer_type::uniform_cached,
-                      buffer_type::storage_coherent, buffer_type::readback_coherent, buffer_type::staging_source}) {
+    for (auto type : {
+             buffer_type::uniform_coherent,
+             buffer_type::uniform_cached,
+             buffer_type::storage_coherent,
+             buffer_type::readback_coherent,
+             buffer_type::staging_source,
+         }) {
         auto const allocation = get_allocation_info_from_type(type);
         CHECK((allocation.requiredFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) != 0);
         CHECK((allocation.requiredFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) != 0);
@@ -193,9 +206,13 @@ int main() {
     }
     CHECK((get_allocation_info_from_type(buffer_type::uniform_cached).preferredFlags & VK_MEMORY_PROPERTY_HOST_CACHED_BIT) != 0);
     // Unrelated optional extensions must not hide heap shaders or RT limits.
-    for (auto const missing : {VK_EXT_OPACITY_MICROMAP_EXTENSION_NAME, VK_EXT_MESH_SHADER_EXTENSION_NAME,
-                               VK_EXT_HOST_IMAGE_COPY_EXTENSION_NAME, VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME,
-                               VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME}) {
+    for (auto const missing : {
+             VK_EXT_OPACITY_MICROMAP_EXTENSION_NAME,
+             VK_EXT_MESH_SHADER_EXTENSION_NAME,
+             VK_EXT_HOST_IMAGE_COPY_EXTENSION_NAME,
+             VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME,
+             VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
+         }) {
         reset();
         remove_extension(fixtures[0], missing);
         device_capabilities caps;
@@ -262,8 +279,11 @@ int main() {
     }
     reset();
     CHECK(pick_suitable_device(VK_NULL_HANDLE, reinterpret_cast<VkSurfaceKHR>(uintptr_t(1))) == device(1));
-    for (char const* optional : {VK_EXT_OPACITY_MICROMAP_EXTENSION_NAME, VK_EXT_MESH_SHADER_EXTENSION_NAME,
-                                 VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME}) {
+    for (char const* optional : {
+             VK_EXT_OPACITY_MICROMAP_EXTENSION_NAME,
+             VK_EXT_MESH_SHADER_EXTENSION_NAME,
+             VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
+         }) {
         reset();
         remove_extension(fixtures[0], optional);
         CHECK(pick_suitable_device(VK_NULL_HANDLE, reinterpret_cast<VkSurfaceKHR>(uintptr_t(1))) == device(1));

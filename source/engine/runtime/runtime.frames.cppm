@@ -11,10 +11,6 @@
 module;
 
 #include <GLFW/glfw3.h>
-#include <cstddef>
-#include <cstdint>
-#include <cstdlib>
-#include <cstring> // std::memcpy, for composing a pass's push block
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -246,6 +242,40 @@ namespace deren::engine {
         // the cursor the backend answered (every use below reads this one, not a second counter).
         uint32_t const frame_slot = open.frame.frame_index;
         this->current_image_index = open.frame.image_index;
+        this->subtilis_page_upload_bytes = 0;
+        std::erase_if(this->subtilis_page_uploads, [&](auto const& source) {
+            auto const completed = source->collect_page_uploads();
+            if (completed.result != rhi::error::ok) {
+                static bool logged_page_upload_failure = false;
+                if (!logged_page_upload_failure) {
+                    logged_page_upload_failure = true;
+                    deren::utility::log("subtilis pages: upload completion failed ({}); retaining the upload and retrying", static_cast<std::uint32_t>(completed.result));
+                }
+            }
+            if (completed.installed != 0u) {
+                deren::utility::log("subtilis pages: installed {} page(s) at frame {}", completed.installed, frame_slot);
+            }
+            if (completed.abandoned != 0u) {
+                deren::utility::log("subtilis pages: abandoned {} failed page upload(s), returning them to absent at frame {}",
+                                    completed.abandoned, frame_slot);
+            }
+            this->subtilis_page_upload_bytes += completed.in_flight_bytes;
+            return !source->has_pending_page_upload();
+        });
+        // Even a removed/hidden geometry must release its old snapshot here.
+        // An abandoned recording is also safe to release after this slot's wait.
+        this->subtilis_page_frames.resize(this->frame_ring().slot_count());
+        for (auto const& source : this->subtilis_page_frames[frame_slot]) {
+            if (source->complete_page_frame(frame_slot) != rhi::error::ok) {
+                deren::utility::panic("subtilis: failed to collect a completed frame's page requests");
+            }
+        }
+        this->subtilis_page_frames[frame_slot].clear();
+        ++this->subtilis_page_sequence;
+        auto const frame_budget = this->subtilis_page_upload_budget;
+        auto const staging_limit = frame_budget * this->frame_ring().slot_count();
+        auto const staging_free = this->subtilis_page_upload_bytes < staging_limit ? staging_limit - this->subtilis_page_upload_bytes : 0;
+        this->subtilis_page_budget_left = std::min(frame_budget, staging_free);
         // wait_and_acquire succeeded: only this completed slot's former generation can be released/reset.
         this->submitted_resource_views[frame_slot] = {};
         this->frame_resource_clusters[frame_slot].clear();
@@ -370,7 +400,7 @@ namespace deren::engine {
         }
         // Reset managed scratch after the completed-slot wait and after updating this frame's light facts.
         // No clustered dispatch means no count clear, matching the former feature-gated memset.
-        deren::utility::vessel::array<render_resource::resource_id, 1> const preserved_counts = {render_resource::resource_id::cluster_counts};
+        deren::utility::vessel::array<render_resource::resource_id, 1> constexpr preserved_counts = {render_resource::resource_id::cluster_counts};
         std::span<render_resource::resource_id const> const preserved = this->active_features().clustered ? std::span<render_resource::resource_id const>{} : std::span<render_resource::resource_id const>{preserved_counts};
         if ((this->frame_chain != nullptr && this->frame_chain->begin_frame(frame_slot, preserved) != rhi::error::ok) ||
             this->shared_resource_fallback.begin_frame(frame_slot, preserved) != rhi::error::ok) {
@@ -520,16 +550,20 @@ namespace deren::engine {
                 // all six faces, transfer_destination -> shader_read): the layer count is 6 rather than the
                 // recipes' single layer, and the handle is the CONTRACT image the escape used to derive a native
                 // one from.
-                rhi::subresource_range const six_faces{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 6u};
-                bool const to_transfer = frame_commands->barrier(rhi::image_barrier{.resource = this->furnace_cube_image.get(),
-                                                                                    .from = rhi::image_use::undefined,
-                                                                                    .to = rhi::image_use::transfer_destination,
-                                                                                    .range = six_faces}) == rhi::error::ok;
+                rhi::subresource_range constexpr six_faces{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 6u};
+                bool const to_transfer = frame_commands->barrier(rhi::image_barrier{
+                                             .resource = this->furnace_cube_image.get(),
+                                             .from = rhi::image_use::undefined,
+                                             .to = rhi::image_use::transfer_destination,
+                                             .range = six_faces,
+                                         }) == rhi::error::ok;
                 bool const cleared = to_transfer && frame_commands->clear_color_image(*this->furnace_cube_image, deren::utility::vessel::array<float, 4>{1.0f, 1.0f, 1.0f, 1.0f}, six_faces) == rhi::error::ok;
-                bool const to_sampling = cleared && frame_commands->barrier(rhi::image_barrier{.resource = this->furnace_cube_image.get(),
-                                                                                               .from = rhi::image_use::transfer_destination,
-                                                                                               .to = rhi::image_use::shader_read,
-                                                                                               .range = six_faces}) == rhi::error::ok;
+                bool const to_sampling = cleared && frame_commands->barrier(rhi::image_barrier{
+                                                        .resource = this->furnace_cube_image.get(),
+                                                        .from = rhi::image_use::transfer_destination,
+                                                        .to = rhi::image_use::shader_read,
+                                                        .range = six_faces,
+                                                    }) == rhi::error::ok;
                 if (!to_sampling) {
                     // NAMED AND NOT FATAL, exactly like the raw sequence this replaced: the cube keeps its
                     // DESCRIPTOR (write_ibl_bindings republishes the same address every frame), so a refusal
@@ -664,8 +698,7 @@ namespace deren::engine {
                 }
                 if (!boxes.empty()) {
                     this->cull_bvh.reset(); // destroy the old tree first (its leaves reference this scene)
-                    auto make_result = deren::utility::bvh<primitive>::make(boxes);
-                    if (make_result) {
+                    if (auto make_result = deren::utility::bvh<primitive>::make(boxes)) {
                         this->cull_bvh = std::move(make_result).value();
                     }
                 } else {
@@ -1095,10 +1128,12 @@ namespace deren::engine {
                     // with - and NOT max_shadow_cascades: the two differ whenever fewer cascades are active
                     // than were ever allocated, and a range reaching past the image's layer count is a
                     // VUID on every shadow-off frame.
-                    (void)frame_commands->barrier(rhi::image_barrier{.resource = this->shadow_images[static_cast<std::size_t>(frame_slot)].get(),
-                                                                     .from = rhi::image_use::undefined,
-                                                                     .to = rhi::image_use::depth_read,
-                                                                     .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = this->shadow_allocated_layers}});
+                    (void)frame_commands->barrier(rhi::image_barrier{
+                        .resource = this->shadow_images[static_cast<std::size_t>(frame_slot)].get(),
+                        .from = rhi::image_use::undefined,
+                        .to = rhi::image_use::depth_read,
+                        .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = this->shadow_allocated_layers},
+                    });
                 }
             }
         }
@@ -1140,7 +1175,7 @@ namespace deren::engine {
         // the tagged type this chain entry must declare - the backend refuses a chain whose `s_type` is not
         // `vulkan_command_buffer_inheritance` (validate_structure), and the symptom is a secondary that never
         // begins. Omitting the member is what keeps the NSDI's `{vulkan_command_buffer_inheritance, sizeof(...)}`.
-        rhi::command_buffer_inheritance_info const inheritance = {
+        rhi::command_buffer_inheritance_info constexpr inheritance = {
             .color_format_count = 0,
             .color_formats = nullptr, // depth-only: the shadow map is the one attachment
             .depth_format = rhi::image_format::depth,
@@ -1192,7 +1227,7 @@ namespace deren::engine {
         // differently; that path is gone.
         return this->gbuffer_pass_active();
     }
-    bool runtime::cluster_resources_available() noexcept {
+    bool runtime::cluster_resources_available() const noexcept {
         if (this->cluster_pass[0] == nullptr) {
             return false; // the active chain has no cluster pass (a stub chain, or the pass was not resolved)
         }
@@ -1342,7 +1377,13 @@ namespace deren::engine {
             }
             constexpr float origin = 0.0f;
             session.set_viewport(deren::promise::rhi::viewport{
-                .x = origin, .y = origin, .width = static_cast<float>(this->shadow_map_size), .height = static_cast<float>(this->shadow_map_size), .min_depth = origin, .max_depth = 1.0f});
+                .x = origin,
+                .y = origin,
+                .width = static_cast<float>(this->shadow_map_size),
+                .height = static_cast<float>(this->shadow_map_size),
+                .min_depth = origin,
+                .max_depth = 1.0f,
+            });
             session.set_scissor(deren::promise::rhi::rect{.offset_x = 0, .offset_y = 0, .width = this->shadow_map_size, .height = this->shadow_map_size});
         };
         // The shadow pass MUST write depth for every caster: its env always records depth-write
@@ -1451,14 +1492,14 @@ namespace deren::engine {
         // adding would keep a farther emitter when a nearer non-emissive fragment wins depth later.
         // 深度写入仍由绘制时的动态状态控制，mesh/meshlet 共用同一份创建配方。
         auto const build_gbuffer = [this, fragment_shader_code](std::span<uint8_t const> const stage_code) {
-            deren::utility::vessel::array<rhi::image_format, gbuffer_pass_attachment_count> const formats = {
+            deren::utility::vessel::array<rhi::image_format, gbuffer_pass_attachment_count> constexpr formats = {
                 deren::engine::render_layout::gbuffer_formats[0],
                 deren::engine::render_layout::gbuffer_formats[1],
                 deren::engine::render_layout::gbuffer_formats[2],
                 deren::engine::render_layout::gbuffer_velocity_format,
                 deren::engine::render_layout::hdr_format,
             };
-            deren::utility::vessel::array<rhi::blend_mode, gbuffer_pass_attachment_count> const blends = {
+            deren::utility::vessel::array<rhi::blend_mode, gbuffer_pass_attachment_count> constexpr blends = {
                 rhi::blend_mode::opaque,
                 rhi::blend_mode::opaque,
                 rhi::blend_mode::opaque,
@@ -1486,8 +1527,7 @@ namespace deren::engine {
         //      out of the table and each meshlet culled against the camera before it emits anything. Preferred over
         //      the mesh form when it exists, and a refusal is again a log line rather than a failure.
         if (!meshlet_vertex_shader_code.empty()) {
-            auto meshlet_result = build_gbuffer(meshlet_vertex_shader_code);
-            if (meshlet_result) {
+            if (auto meshlet_result = build_gbuffer(meshlet_vertex_shader_code); meshlet_result) {
                 this->gbuffer_pipeline_meshlet = std::move(meshlet_result).value();
                 deren::utility::log("SUCCESS: G-buffer MESHLET pipeline created (one workgroup per meshlet, camera-culled)");
             } else {
@@ -1570,7 +1610,7 @@ namespace deren::engine {
             // into the runtime every frame (see main.cpp), so resetting unconditionally here would
             // invalidate the history on every frame: the resolve would fall back to the current
             // (jittered, aliased) frame forever, which looks like TAA running while doing nothing.
-            std::size_t const image_count = static_cast<std::size_t>(rhi::max_swapchain_images);
+            std::size_t constexpr image_count = static_cast<std::size_t>(rhi::max_swapchain_images);
             this->image_view_proj.assign(image_count, this->current_ubo.view_proj_unjittered);
             this->taa_jitter_index = 0;
         }
@@ -1719,14 +1759,16 @@ namespace deren::engine {
         auto referenced = [](rhi::shared_object<rhi::sampler> const& resource) {
             return static_cast<rhi::sampler*>(resource.get());
         };
-        return {.gbuffer = referenced(this->gbuffer_sampler),
-                .taa = referenced(this->taa_sampler),
-                .post = referenced(this->post_sampler),
-                .nearest = referenced(this->post_nearest_sampler),
-                .shadow = referenced(this->shadow_sampler),
-                // The bindless texture array's sampler, which only hand-written set code used until the MASK
-                // bake had to write the scene layout's binding 1 itself (see sampler_set's doc).
-                .textures = referenced(this->texture_sampler)};
+        return {
+            .gbuffer = referenced(this->gbuffer_sampler),
+            .taa = referenced(this->taa_sampler),
+            .post = referenced(this->post_sampler),
+            .nearest = referenced(this->post_nearest_sampler),
+            .shadow = referenced(this->shadow_sampler),
+            // The bindless texture array's sampler, which only hand-written set code used until the MASK
+            // bake had to write the scene layout's binding 1 itself (see sampler_set's doc).
+            .textures = referenced(this->texture_sampler),
+        };
     }
 
     std::span<uint8_t const> runtime::registered_shader(std::string_view const name) const noexcept {
@@ -1888,7 +1930,7 @@ namespace deren::engine {
         // Every other per-image group is engine-created and published instance by instance (`family`).
         // One resource that exists once (a device-wide image): the instance is still the schema's (0 for
         // device-wide, the slot for a per-frame-slot buffer that happens to exist once).
-        auto const single = [&table](render_resource::resource_id const id, uint32_t const element, uint32_t const instance, pass::resolved_binding const binding) {
+        auto const single = [&table](render_resource::resource_id const id, uint32_t const element, uint32_t const instance, pass::resolved_binding const& binding) {
             table.publish(id, element, instance, binding);
         };
         // One buffer: the RAII wrapper carries a handle and the descriptor needs the VkBuffer behind it, so the
@@ -1982,7 +2024,7 @@ namespace deren::engine {
         // after A1.4: the single entries below are the whole of what this id publishes.)
         // THE COUNT IS THE GENERATION'S: every per-image group is an engine-created fixed-size array now, so
         // the swapchain's image count is the one authority for how many images exist.
-        std::size_t const scene_images = static_cast<std::size_t>(rhi::max_swapchain_images);
+        std::size_t constexpr scene_images = static_cast<std::size_t>(rhi::max_swapchain_images);
         for (std::size_t i = 0; i < scene_images; ++i) {
             // THE CONTRACT LANES RIDE BESIDE THE RAW ONES, and here they are the reason the frame renders at
             // all: the scene pass's FIVE colour attachments take `view_handle` (its rendering scope is refused
@@ -2183,7 +2225,7 @@ namespace deren::engine {
         // check, which is what tells a reader which resolvers the table has been proven against and which ones a
         // different scenario has to exercise.
         if (this->resource_check_frames < 3 && checked > 0 &&
-            std::find(this->resource_check_passes.begin(), this->resource_check_passes.end(), &pass) == this->resource_check_passes.end()) {
+            std::ranges::find(this->resource_check_passes, &pass) == this->resource_check_passes.end()) {
             this->resource_check_passes.push_back(&pass);
             deren::utility::log("resource table: verified {} declaration handle(s) for pass '{}'", checked, decl.name);
         }
@@ -2286,14 +2328,22 @@ namespace deren::engine {
         // decision is the SESSION's rather than the draw's, because the G-buffer pass draws every leaf with this
         // one pipeline - and a mesh session feeds its leaves differently (see the endpoints below), which is why
         // the two facts travel together here.
-        bool gbuffer_mesh = false;
-        bool gbuffer_meshlet = false;
-        {
+        struct gbuffer_selection {
+            std::string_view default_name;
+            bool mesh;
+            bool meshlet;
+        };
+        gbuffer_selection const selection = [&self, gbuffer] {
             std::shared_lock const lock(self.access_mutex);
-            env.default_name = gbuffer ? gbuffer_pipeline_name : self.default_pipeline_name;
-            gbuffer_mesh = gbuffer && self.gbuffer_pipeline_mesh.has_value();
-            gbuffer_meshlet = gbuffer && self.meshlet_table_complete && self.gbuffer_pipeline_meshlet.has_value();
-        }
+            return gbuffer_selection{
+                .default_name = gbuffer ? gbuffer_pipeline_name : self.default_pipeline_name,
+                .mesh = gbuffer && self.gbuffer_pipeline_mesh.has_value(),
+                .meshlet = gbuffer && self.meshlet_table_complete && self.gbuffer_pipeline_meshlet.has_value(),
+            };
+        }();
+        env.default_name = selection.default_name;
+        bool const gbuffer_mesh = selection.mesh;
+        bool const gbuffer_meshlet = selection.meshlet;
         env.bind = [&self, &env, gbuffer, gbuffer_mesh, gbuffer_meshlet](recording_target const& session, std::string_view const name) {
             // NO NATIVE HANDLE IS DERIVED HERE ANY MORE (this batch): the bind and the stored viewport/scissor are
             // the record series' verbs (`pipeline_handle::begin_pipeline`), and the session IS the contract
@@ -2615,11 +2665,10 @@ namespace deren::engine {
         // that is about to discover a build failure it should simply not draw through. So the frame hands over an
         // EMPTY name when the pipeline is absent, and the pass reads that as "draw no overlay" - the documented
         // contract on `character_forward_frame::overlay_pipeline_name`.
-        bool overlay_ready = false;
-        {
+        bool const overlay_ready = [&] {
             std::shared_lock const lock(this->access_mutex);
-            overlay_ready = this->mesh_pipelines.contains(overlay_pipeline_name) || this->meshlet_pipelines.contains(overlay_pipeline_name);
-        }
+            return this->mesh_pipelines.contains(overlay_pipeline_name) || this->meshlet_pipelines.contains(overlay_pipeline_name);
+        }();
         // ---- WHICH SHADING MODEL THIS FRAME DRAWS WITH (see runtime::set_goo_toon / set_game_toon) ----
         //
         // THE ONE PLACE THE NAMES ARE CHOSEN BETWEEN, and it is here rather than in the pass for the reason
@@ -2633,22 +2682,20 @@ namespace deren::engine {
         // PRECEDENCE WHEN BOTH MODEL KNOBS ARE ON: `game_toon` wins, and the choice is written as an explicit
         // three-way rather than a fold so a reader can see that the two knobs are not silently combined. A run
         // asks for one model at a time; both-on is therefore a precedence rule, not a second feature.
-        bool game_toon_ready = false;
-        {
+        bool const game_toon_ready = [&] {
             std::shared_lock const lock(this->access_mutex);
-            game_toon_ready = this->mesh_pipelines.contains(game_toon_pipeline_name) || this->meshlet_pipelines.contains(game_toon_pipeline_name);
-        }
+            return this->mesh_pipelines.contains(game_toon_pipeline_name) || this->meshlet_pipelines.contains(game_toon_pipeline_name);
+        }();
         std::string_view const toon_pipeline_name =
             (this->game_toon_on && game_toon_ready) ? game_toon_pipeline_name : character_forward_pipeline_name;
         // DOES THE OUTLINE PIPELINE EXIST? Asked on exactly the same terms as the overlay one above, and for the
         // same reason: an empty name is the pass's documented "draw no outline", whereas a name that resolves to
         // nothing would be reported by the session's bind callback as "unknown pipeline" - a log line per frame
         // for a build failure the pass should simply not draw through.
-        bool outline_ready = false;
-        {
+        bool const outline_ready = [&] {
             std::shared_lock const lock(this->access_mutex);
-            outline_ready = this->mesh_pipelines.contains(outline_pipeline_name) || this->meshlet_pipelines.contains(outline_pipeline_name);
-        }
+            return this->mesh_pipelines.contains(outline_pipeline_name) || this->meshlet_pipelines.contains(outline_pipeline_name);
+        }();
         // ---- AND THE OUTLINE LEAVES: THE PER-MATERIAL GATE, WHICH IS NOT THE MESH ----
         //
         // The article's ① 描边 is an inverted hull of a surface THIS PASS ALREADY DRAWS, so the list is a
@@ -2747,23 +2794,27 @@ namespace deren::engine {
             // shared_ptr stays this runtime's `shadow_recording`.
             this->shadow_secondaries_scratch[cascade] = this->shadow_recording[slot][cascade];
         }
-        return pass::shadow_frame{.record_cascade = &runtime::record_shadow_cascade,
-                                  .run_tasks = &runtime::run_shadow_tasks,
-                                  .parent = this,
-                                  .cascades = std::span<rhi::mergeable_command_buffer_ref const>(this->shadow_secondaries_scratch.data(), cascades),
-                                  .map_size = this->shadow_map_size,
-                                  .allow_meshlets = this->meshlet_table_complete};
+        return pass::shadow_frame{
+            .record_cascade = &runtime::record_shadow_cascade,
+            .run_tasks = &runtime::run_shadow_tasks,
+            .parent = this,
+            .cascades = std::span<rhi::mergeable_command_buffer_ref const>(this->shadow_secondaries_scratch.data(), cascades),
+            .map_size = this->shadow_map_size,
+            .allow_meshlets = this->meshlet_table_complete,
+        };
     }
 
     pass::draw_callback runtime::overlay_draw() const noexcept {
         // The trampoline takes the parent as an ARGUMENT rather than using `this`, so the address is a plain
         // function pointer and the hook is one value (see pass::draw_callback).
-        return pass::draw_callback{.record = &runtime::draw_overlay_after,
-                                   .finish = &runtime::finish_overlay_after,
-                                   .parent = const_cast<runtime*>(this),
-                                   .has_recording = [](void* parent) noexcept {
-                                       return bool(static_cast<runtime*>(parent)->overlay_segment);
-                                   }};
+        return pass::draw_callback{
+            .record = &runtime::draw_overlay_after,
+            .finish = &runtime::finish_overlay_after,
+            .parent = const_cast<runtime*>(this),
+            .has_recording = [](void* parent) noexcept {
+                return static_cast<bool>(static_cast<runtime*>(parent)->overlay_segment);
+            },
+        };
     }
 
     pass::frame_facts runtime::make_frame_facts() const noexcept {
@@ -2790,11 +2841,14 @@ namespace deren::engine {
             .make_character_forward_frame = [](void* parent) { return static_cast<runtime*>(parent)->make_character_forward_frame(); },
             .make_gaussian_frame = [](void* parent) { return static_cast<runtime*>(parent)->make_gaussian_frame(); },
             .make_gaussian_gpu_frame = [](void* parent, bool ready) { return static_cast<runtime*>(parent)->make_gaussian_gpu_frame(ready); },
-            .gaussian_timing = [](void* parent) { return gaussian_splatting::gpu_frame_timing{parent, [](void* context, std::uint32_t phase) {
-                                                                                                  if (phase < 3u) {
-                                                                                                      static_cast<runtime*>(context)->gpu_mark(static_cast<gpu_mark_id>(static_cast<std::uint32_t>(gpu_mark_id::gaussian_prepare_end) + phase));
-                                                                                                  }
-                                                                                              }}; },
+            .gaussian_timing = [](void* parent) { return gaussian_splatting::gpu_frame_timing{
+                                                      parent,
+                                                      [](void* context, std::uint32_t phase) {
+                                                          if (phase < 3u) {
+                                                              static_cast<runtime*>(context)->gpu_mark(static_cast<gpu_mark_id>(static_cast<std::uint32_t>(gpu_mark_id::gaussian_prepare_end) + phase));
+                                                          }
+                                                      },
+                                                  }; },
         };
     }
 
@@ -2826,10 +2880,12 @@ namespace deren::engine {
         this->gbuffer_debug_stage = {at("gbuffer-debug")};
         this->rt_shadow_pass = {at("rt_shadow")};
         this->rt_reflection_pass = {at("rt_reflection")};
-        this->reflection_denoise_pass = {static_cast<pass::reflection_denoise_pass*>(at("reflection reproject")),
-                                         static_cast<pass::reflection_denoise_pass*>(at("reflection prefilter")),
-                                         static_cast<pass::reflection_denoise_pass*>(at("reflection resolve")),
-                                         static_cast<pass::reflection_denoise_pass*>(at("reflection history copy"))};
+        this->reflection_denoise_pass = {
+            static_cast<pass::reflection_denoise_pass*>(at("reflection reproject")),
+            static_cast<pass::reflection_denoise_pass*>(at("reflection prefilter")),
+            static_cast<pass::reflection_denoise_pass*>(at("reflection resolve")),
+            static_cast<pass::reflection_denoise_pass*>(at("reflection history copy")),
+        };
         this->deferred_pass = {at("deferred")};
         this->taa_pass = {at("taa")};
         // REPLAY THE SAMPLE COUNT. `set_rt_reflection_samples` may run before the chain exists (the application
@@ -2850,14 +2906,14 @@ namespace deren::engine {
         // first sampler of - and a frame rule cannot run from inside a chain.
     }
 
-    void runtime::set_pass_chain(pass::pass_chain& chain, chain_wiring const wiring) noexcept {
+    void runtime::set_pass_chain(pass::pass_chain& chain, chain_wiring const& wiring) noexcept {
         // THE HANDOVER: the parent's chain, bound into the frame loop's structure, plus the wiring that supplies
         // everything the renderer does not know about those passes (see chain_wiring).
         this->bind_frame_chain(chain);
         this->set_chain_wiring(wiring);
     }
 
-    void runtime::set_chain_wiring(chain_wiring const wiring) noexcept {
+    void runtime::set_chain_wiring(chain_wiring const& wiring) noexcept {
         this->frame_wiring = wiring;
     }
 
@@ -3019,7 +3075,9 @@ namespace deren::engine {
             .push_block = {.parent = this, .push = &runtime::push_pass_stage_block},
             .context = this,
             .resolve = [](void* context, pass::frame_pass const& pass, pass::resolved_io& out) { return static_cast<runtime*>(context)->resolve_pass(pass, out); },
-            .apply_behaviour = [](void* context, pass::frame_pass const& pass, pass::resolved_io const& io) { static_cast<runtime*>(context)->apply_pass_behaviour(pass, io); },
+            .apply_behaviour = [](void* context, pass::frame_pass const& pass, pass::resolved_io const& io) {
+                (void)context;
+                runtime::apply_pass_behaviour(pass, io); },
         };
     }
 
@@ -3219,7 +3277,7 @@ namespace deren::engine {
     // the command stream, because the separate stages carry no marks (`make_pass_host` leaves the mark pair
     // null), so nothing is emitted between them.
 
-    void runtime::record_overlay_if_enabled(rhi::command_buffer& commands,
+    void runtime::record_overlay_if_enabled(rhi::command_buffer const& commands,
                                             rhi::command_buffer_begin_info const& begin) {
         (void)commands;
         this->overlay_segment = {};
@@ -3329,7 +3387,7 @@ namespace deren::engine {
         return self.finish_overlay_if_enabled(commands, rendering);
     }
 
-    void runtime::draw_overlay_after(void* const parent, deren::promise::rhi::command_buffer& commands,
+    void runtime::draw_overlay_after(void* const parent, rhi::command_buffer& commands,
                                      deren::promise::rhi::command_buffer_begin_info const& begin) {
         // The composite's frame carries this as a plain function pointer (a pass records into what it is given and
         // knows nothing about this class), so the member is reached through the context that frame also has.
@@ -3353,7 +3411,7 @@ namespace deren::engine {
     // transitions, which stay in the frame loop as they were: the HDR target's move to a colour attachment has to
     // happen even on a frame the pass cannot draw, because the post chain samples that image.
 
-    void runtime::clear_hdr_for_missing_gbuffer_set() {
+    void runtime::clear_hdr_for_missing_gbuffer_set() const {
         // The debug view did not record - its pipeline is missing (a startup failure), or the frame has no target
         // for it. The pass cannot do this itself, because a pass records nothing when its declaration does not
         // resolve - so the frame's
@@ -3375,11 +3433,13 @@ namespace deren::engine {
         if (frame_commands == nullptr) {
             return; // no frame is in flight: there is no recording buffer to clear through
         }
-        rhi::subresource_range const one_layer{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u};
-        if (frame_commands->barrier(rhi::image_barrier{.resource = this->hdr_images[index].get(),
-                                                       .from = rhi::image_use::undefined,
-                                                       .to = rhi::image_use::color_attachment,
-                                                       .range = one_layer}) != rhi::error::ok) {
+        rhi::subresource_range constexpr one_layer{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u};
+        if (frame_commands->barrier(rhi::image_barrier{
+                .resource = this->hdr_images[index].get(),
+                .from = rhi::image_use::undefined,
+                .to = rhi::image_use::color_attachment,
+                .range = one_layer,
+            }) != rhi::error::ok) {
             deren::utility::log("runtime: the fallback HDR-target transition was refused through the contract");
             return;
         }
@@ -3406,7 +3466,7 @@ namespace deren::engine {
             }
             auto* const commands = this->frame_command_buffer();
             auto* const image = this->rhi_face().frames->frame_image();
-            rhi::subresource_range const whole{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u};
+            rhi::subresource_range constexpr whole{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u};
             if (commands == nullptr || image == nullptr) {
                 return false;
             }
@@ -3536,10 +3596,12 @@ namespace deren::engine {
                 return frame_status::end_recording_failed;
             }
         } else {
-            (void)this->frame_command_buffer()->barrier(rhi::image_barrier{.resource = this->rhi_face().frames->frame_image(),
-                                                                           .from = post_wrote_swapchain ? rhi::image_use::color_attachment : rhi::image_use::undefined,
-                                                                           .to = (this->create_options.native_window == nullptr) ? rhi::image_use::shader_read : rhi::image_use::present,
-                                                                           .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}});
+            (void)this->frame_command_buffer()->barrier(rhi::image_barrier{
+                .resource = this->rhi_face().frames->frame_image(),
+                .from = post_wrote_swapchain ? rhi::image_use::color_attachment : rhi::image_use::undefined,
+                .to = (this->create_options.native_window == nullptr) ? rhi::image_use::shader_read : rhi::image_use::present,
+                .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u},
+            });
         }
         // GPU timing: last mark of the frame. The interval it closes is everything after the FXAA
         // (or composite) pass - the screenshot read-back copy and the present barrier.

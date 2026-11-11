@@ -102,7 +102,7 @@ namespace deren::engine::pass {
         counts.type = managed::kind::buffer;
         counts.life = managed::lifetime::frame_scratch;
         counts.scope = render_resource::resource_scope::per_frame_slot;
-        counts.buffer.size = uint64_t(deren::engine::max_cluster_count) * sizeof(uint32_t);
+        counts.buffer.size = static_cast<uint64_t>(deren::engine::max_cluster_count) * sizeof(uint32_t);
         counts.buffer.usage = rhi::buffer_usage::storage_coherent;
         counts.buffer.flags = rhi::to_bits(rhi::buffer_flag::device_address);
         counts.zero_on_create = true;

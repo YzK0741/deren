@@ -136,10 +136,10 @@ namespace deren::vulkan {
                     return rhi::error::unsupported;
                 }
                 if (command.completion_timeline == VK_NULL_HANDLE) {
-                    VkSemaphoreTypeCreateInfo const type = make_timeline_semaphore_type_info();
+                    constexpr VkSemaphoreTypeCreateInfo type = make_timeline_semaphore_type_info();
                     VkSemaphoreCreateInfo create = make_binary_semaphore_info();
                     create.pNext = &type;
-                    auto created = vkCreateSemaphore(this->device.logical_device, &create, nullptr, &command.completion_timeline);
+                    auto const created = vkCreateSemaphore(this->device.logical_device, &create, nullptr, &command.completion_timeline);
                     if (created != VK_SUCCESS) {
                         return generic_error(created);
                     }
@@ -147,8 +147,8 @@ namespace deren::vulkan {
                 submission->timeline = command.completion_timeline;
                 submission->value = command.completion_sequence + 1;
             } else {
-                VkFenceCreateInfo const fence_info = make_fence_info();
-                auto created = vkCreateFence(this->device.logical_device, &fence_info, nullptr, &submission->fence);
+                constexpr VkFenceCreateInfo fence_info = make_fence_info();
+                auto const created = vkCreateFence(this->device.logical_device, &fence_info, nullptr, &submission->fence);
                 if (created != VK_SUCCESS) {
                     return generic_error(created);
                 }
@@ -352,7 +352,7 @@ namespace deren::vulkan {
 
     void core::reset_time_profiling_window() {
         std::lock_guard lock(this->time_profiling_mutex);
-        for (auto& [name, info] : this->time_profiling) {
+        for (auto& info : this->time_profiling | std::views::values) {
             info.reset_window();
         }
     }

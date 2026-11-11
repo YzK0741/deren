@@ -29,7 +29,7 @@ export namespace deren::engine::pass {
         /// frame snapshot's private buffers (no other pass touches them) and it emits their barriers itself, so the
         /// graph's boundary for this pass is exactly the raster's target write and depth read.
         void record(resolved_io const& io);
-        deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
+        deren::promise::rhi::error record_content(resolved_io const& io) noexcept override; // NOLINT
         /// \brief the one body both entries run: local_barriers is the only difference between them
         deren::promise::rhi::error record_impl(resolved_io const& io, bool local_barriers) noexcept;
         [[nodiscard]] bool ready() const noexcept override {

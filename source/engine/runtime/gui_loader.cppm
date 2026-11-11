@@ -15,18 +15,13 @@
 // ============================================================================
 module;
 
-#include <cstdint>
-#include <memory> // gui_entry.hpp is included in the module purview; pre-include its system headers
-
 export module deren.engine.gui_loader;
 export import deren.utility.shared;
-
+export import deren.vstd;
 export import deren.promise.gui;
 
 import deren.utility;              // executable_directory() + the named-diagnosis channel
 import deren.utility.dynamic_link; // the mechanism: open the image, resolve the symbol
-
-#include "../../promise/gui/gui_entry.hpp"
 
 namespace {
     /// The ONE symbol a GUI plugin exports (source/promise/gui/gui_entry.hpp).

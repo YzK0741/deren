@@ -10,8 +10,7 @@
 module;
 
 #include <cstdint>
-#include <new> // ::operator new's aligned overloads must be VISIBLE here: the deferred
-               // __libcpp_allocate codegen crashes without them (clang 22, measured this session)
+
 module deren.engine.pass.game_toon_depth_rim;
 import deren.vstd;
 import deren.utility.shared;
@@ -61,9 +60,9 @@ namespace deren::engine::pass {
         }
         // ONE colour target and it is the HDR one, because this pass runs INSIDE the HDR chain (after the
         // character-forward stage, before the resolve) - a rim written to the swapchain would be tonemapped twice.
-        deren::utility::vessel::array<rhi::image_format, 1> const formats = {rhi::image_format::r16g16b16a16_sfloat};
+        constexpr deren::utility::vessel::array formats = {rhi::image_format::r16g16b16a16_sfloat};
         // ADDITIVE: the rim is a contribution to the frame, not a replacement for it.
-        deren::utility::vessel::array<rhi::blend_mode, 1> const blends = {rhi::blend_mode::additive};
+        constexpr deren::utility::vessel::array blends = {rhi::blend_mode::additive};
         auto built = pipelines::make_graphics_pipeline(*context.face,
                                                        std::span<rhi::image_format const>(formats),
                                                        rhi::image_format::unknown, // NO depth attachment: the depth is sampled, not tested
@@ -119,7 +118,7 @@ namespace deren::engine::pass {
         this->rim_colour[2] = b;
     }
 
-    void game_toon_depth_rim_pass::record_impl(resolved_io const& io) {
+    void game_toon_depth_rim_pass::record_impl(resolved_io const& io) const {
         if (!this->pipeline_ready() || io.targets.empty() || io.extent.width == 0 || io.extent.height == 0) {
             return; // the record step resolves all of this or skips the pass (see frame_pass::resolve)
         }

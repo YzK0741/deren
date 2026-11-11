@@ -58,9 +58,11 @@ namespace {
     }
 
     void test_draw_item_layout() {
-        static_assert(draw_item_bytes == 112u);
+        static_assert(draw_item_bytes == 128u);
         static_assert(draw_item_model_offset == 48u);
-        static_assert(sizeof(draw_item) == 112u);
+        static_assert(sizeof(draw_item) == 128u);
+        static_assert(offsetof(draw_item, page_table) == 112u);
+        static_assert(offsetof(draw_item, page_arena) == 120u);
         static_assert(offsetof(draw_item, vertex_address_low) == 0u);
         static_assert(offsetof(draw_item, vertex_address_high) == 4u);
         static_assert(offsetof(draw_item, index_address_low) == 8u);
@@ -168,9 +170,7 @@ namespace {
             }
             return false;
         };
-        CHECK_MSG(contains("visibility_id_meshlet_shift = 7u"), "the shader's meshlet shift must stay 7");
-        CHECK_MSG(contains("visibility_id_item_shift = visibility_id_meshlet_shift + 12u"), "the shader's item shift must stay meshlet_shift + 12");
-        CHECK_MSG(contains("visibility_id_valid = 1u << 31u"), "the shader's valid bit must stay bit 31");
+        CHECK_MSG(contains("#include \"common/mesh_fetch.slang\""), "the raster must share the resolve's ID and draw-item layout");
     }
 } // namespace
 
@@ -323,10 +323,24 @@ namespace {
             }
             break;
         }
-        std::vector<std::string> const expected{"vertex_address_low", "vertex_address_high", "index_address_low", "index_address_high",
-                                                "first_index", "base_vertex", "index_width", "meshlet_base",
-                                                "meshlet_table", "material_index", "motion_index", "flags", "model"};
-        CHECK_MSG(fields.size() == expected.size(), "the shared VisibilityDrawItem must declare 12 lanes + model");
+        std::vector<std::string> const expected{
+            "vertex_address_low",
+            "vertex_address_high",
+            "index_address_low",
+            "index_address_high",
+            "first_index",
+            "base_vertex",
+            "index_width",
+            "meshlet_base",
+            "meshlet_table",
+            "material_index",
+            "motion_index",
+            "flags",
+            "model",
+            "page_table",
+            "page_arena",
+        };
+        CHECK_MSG(fields.size() == expected.size(), "the shared VisibilityDrawItem must declare draw lanes, model, and page addresses");
         for (std::size_t i = 0; i < fields.size() && i < expected.size(); ++i) {
             CHECK_MSG(fields[i] == expected[i], (std::string("the resolve shader's draw-item field ") + std::to_string(i) + " is '" + fields[i] + "', expected '" + expected[i] + "'").c_str());
         }
@@ -345,6 +359,8 @@ namespace {
         static_assert(id_item_capacity == 4096u);
         CHECK_MSG(text_contains(fetch_code, "visibility_item_capacity = 4096u"), "the shared fetch's per-frame item stride must stay 4096 rows");
         CHECK_MSG(text_contains(code, "push.frame_slot * visibility_item_capacity + id_item"), "the resolve must index the item table by frame-slot lane, not by heap slot");
+        CHECK_MSG(text_contains(code, "meshlet_index_page(meshlet, item.page_table, item.page_arena)"),
+                  "the resolve must read pages from the same draw and frame as the raster");
         CHECK_MSG(!text_contains(code, "heap_slots_visibility_items + heap_frame_slot"), "the item table is ONE descriptor with per-frame rows, not a per-frame array of descriptors");
         // ---- the COMPUTE rules: no fragment-only statement, and the shared bodies are INCLUDED, not copied
         CHECK_MSG(!text_contains(code, "discard;"), "a compute stage cannot discard: the MASK rule must be the eligibility check's");
@@ -416,7 +432,12 @@ namespace {
         CHECK_MSG(!text_contains(decode, "ddx(") && !text_contains(decode, "ddy("), "the shared decode must not use derivatives: the frame is an argument");
         // ---- the visibility mesh entry fetches the MESHLET's window, not the geometry lanes' run base/count
         std::string const visibility = strip_comments(shader_lines("scene/visibility.slang"));
-        CHECK_MSG(text_contains(visibility, "meshlet.first_index + t * mesh_indices_per_triangle"), "the id raster must fetch the meshlet record's index window");
+        CHECK_MSG(text_contains(visibility, "meshlet_index_at(geometry, meshlet, t * mesh_indices_per_triangle + corner, page)"),
+                  "the id raster must fetch the meshlet record's index window");
+        CHECK_MSG(text_contains(visibility, "push.frame_slot * visibility_item_capacity + push.item_index"),
+                  "the id raster must select the current frame's draw row for streamed indices");
+        CHECK_MSG(text_contains(visibility, "meshlet_index_page(meshlet, item.page_table, item.page_arena)"),
+                  "the id raster must read pages from the same draw and frame as the cut");
         CHECK_MSG(text_contains(visibility, "meshlet.base_vertex"), "the id raster must use the meshlet record's base vertex");
         CHECK_MSG(!text_contains(visibility, "geometry.first_index + (first_triangle + t)"), "the id raster must not use the run window as a mesh window (the v0.3a bug)");
     }
@@ -485,9 +506,21 @@ namespace {
         // admitted frame with the switch off records it too - the two inputs are independent, the answer is one lane.
         CHECK(choose_opaque_lane(true, admission::admitted) == opaque_lane::visibility);
         CHECK(choose_opaque_lane(false, admission::admitted) == opaque_lane::geometry);
-        std::array const refusals{admission::disabled, admission::no_pipeline, admission::no_scene, admission::no_draws, admission::depth_equal_stage,
-                                  admission::custom_pipeline, admission::instanced, admission::deforming, admission::missing_geometry, admission::no_meshlet_run,
-                                  admission::missing_material, admission::meshlet_overflow, admission::item_overflow};
+        std::array const refusals{
+            admission::disabled,
+            admission::no_pipeline,
+            admission::no_scene,
+            admission::no_draws,
+            admission::depth_equal_stage,
+            admission::custom_pipeline,
+            admission::instanced,
+            admission::deforming,
+            admission::missing_geometry,
+            admission::no_meshlet_run,
+            admission::missing_material,
+            admission::meshlet_overflow,
+            admission::item_overflow,
+        };
         for (admission const refusal : refusals) {
             CHECK_MSG(choose_opaque_lane(true, refusal) == opaque_lane::geometry, "a refusal must record the geometry lane");
             CHECK_MSG(!describe(refusal).empty(), "every refusal has a name for the one fallback line");

@@ -7,21 +7,9 @@
 // the creation logic here; the root keeps thin forwarders for its callers.
 // ============================================================================
 module;
-#include "../vma/texture_upload_layout.h"
-
-#include <algorithm>
-#include <bit>
-#include <cstddef>
-#include <cstdint>
-#include <limits>
-#include <memory>
-#include <mutex>
-#include <new>
-#include <optional>
-#include <span>
-#include <vector>
 #include <vulkan/vulkan.h>
 module deren.vulkan.core;
+import deren.vulkan.core.vma.texture_upload_layout;
 import deren.vstd;
 import deren.utility.shared;
 import deren.promise.rhi;
@@ -41,7 +29,7 @@ namespace deren::vulkan {
             using rhi_buffer_desc = deren::promise::rhi::buffer_desc;
 
             uint32_t const declared = desc.struct_size;
-            uint32_t const known = static_cast<uint32_t>(sizeof(rhi_buffer_desc));
+            constexpr uint32_t known = static_cast<uint32_t>(sizeof(rhi_buffer_desc));
             if (declared != known) {
                 deren::utility::log("core: the RHI buffer_desc is {} B here and {} B in the caller -> the caller's structure is treated as TOO SHORT: "
                                     "a field whose whole extent is not inside those {} B keeps this build's default",
@@ -138,7 +126,7 @@ namespace deren::vulkan {
             using rhi_image_desc = deren::promise::rhi::image_desc;
 
             uint32_t const declared = desc.struct_size;
-            uint32_t const known = static_cast<uint32_t>(sizeof(rhi_image_desc));
+            constexpr uint32_t known = sizeof(rhi_image_desc);
             if (declared != known) {
                 deren::utility::log("core: the RHI image_desc is {} B here and {} B in the caller -> only the caller's declared prefix is read",
                                     known, declared);
@@ -174,7 +162,7 @@ namespace deren::vulkan {
             using rhi_shader_desc = deren::promise::rhi::shader_desc;
 
             uint32_t const declared = desc.struct_size;
-            uint32_t const known = static_cast<uint32_t>(sizeof(rhi_shader_desc));
+            constexpr uint32_t known = sizeof(rhi_shader_desc);
             if (declared != known) {
                 deren::utility::log("core: the RHI shader_desc is {} B here and {} B in the caller -> only the caller's declared prefix is read",
                                     known, declared);
@@ -198,7 +186,7 @@ namespace deren::vulkan {
             using rhi_pipeline_desc = deren::promise::rhi::pipeline_desc;
 
             uint32_t const declared = desc.struct_size;
-            uint32_t const known = static_cast<uint32_t>(sizeof(rhi_pipeline_desc));
+            constexpr uint32_t known = sizeof(rhi_pipeline_desc);
             if (declared != known) {
                 deren::utility::log("core: the RHI pipeline_desc is {} B here and {} B in the caller -> only the caller's declared prefix is read",
                                     known, declared);
@@ -278,7 +266,7 @@ namespace deren::vulkan {
             using rhi_sampler_desc = deren::promise::rhi::sampler_desc;
 
             uint32_t const declared = desc.struct_size;
-            uint32_t const known = static_cast<uint32_t>(sizeof(rhi_sampler_desc));
+            constexpr uint32_t known = sizeof(rhi_sampler_desc);
             if (declared != known) {
                 deren::utility::log("core: the RHI sampler_desc is {} B here and {} B in the caller -> only the caller's declared prefix is read",
                                     known, declared);
@@ -785,7 +773,7 @@ namespace deren::vulkan {
         answer->native_object.emplace(std::move(pipeline.value()));
         answer->group_binding = desc.texture_group;
         answer->resource_layout.assign(desc.resource_group.begin(), desc.resource_group.end());
-        std::sort(answer->resource_layout.begin(), answer->resource_layout.end(), [](auto const& a, auto const& b) { return a.binding < b.binding; });
+        std::ranges::sort(answer->resource_layout, [](auto const& a, auto const& b) { return a.binding < b.binding; });
         answer->native_handle = answer->native_object->get_pipeline();
         return rhi::unique_object<rhi::pipeline>{answer};
     }
@@ -868,7 +856,8 @@ namespace deren::vulkan {
             rhi::buffer* const buffer = this->full_core.create_buffer_raw(rhi::buffer_desc{
                 .size = static_cast<std::uint64_t>(bytes.size()) + address_alignment,
                 .usage = rhi::buffer_usage::storage_coherent,
-                .flags = setup_flags});
+                .flags = setup_flags,
+            });
             if (buffer == nullptr) {
                 return nullptr;
             }
@@ -911,7 +900,8 @@ namespace deren::vulkan {
         out->storage = this->full_core.create_buffer_raw(rhi::buffer_desc{
             .size = sizes.micromapSize,
             .usage = rhi::buffer_usage::storage_gpu_only,
-            .flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::micromap_storage)});
+            .flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::micromap_storage),
+        });
         if (out->storage == nullptr) {
             deren::utility::log("rhi: create_micromap refused: the micromap storage could not be allocated");
             delete out;
@@ -922,7 +912,8 @@ namespace deren::vulkan {
             out->scratch = this->full_core.create_buffer_raw(rhi::buffer_desc{
                 .size = sizes.buildScratchSize,
                 .usage = rhi::buffer_usage::storage_gpu_only,
-                .flags = rhi::to_bits(rhi::buffer_flag::device_address)});
+                .flags = rhi::to_bits(rhi::buffer_flag::device_address),
+            });
             if (out->scratch == nullptr) {
                 deren::utility::log("rhi: create_micromap refused: the micromap scratch could not be allocated");
                 delete out;
@@ -932,7 +923,7 @@ namespace deren::vulkan {
         }
 
         auto const* const storage_buffer = rhi::do_concrete<core::buffer>(*out->storage, concrete::buffer);
-        VkMicromapCreateInfoEXT create_info{};
+        VkMicromapCreateInfoEXT create_info;
         create_info.sType = VK_STRUCTURE_TYPE_MICROMAP_CREATE_INFO_EXT;
         create_info.pNext = nullptr;
         create_info.createFlags = 0;
@@ -990,7 +981,7 @@ namespace deren::vulkan {
         if (covered_by(declared, offsetof(rhi::acceleration_structure_desc, flags), sizeof(rhi::acceleration_structure_desc::flags))) {
             flags = declared_desc.flags;
         }
-        if (covered_by(declared, offsetof(rhi::acceleration_structure_desc, geometries), sizeof(rhi::acceleration_structure_desc::geometries))) {
+        if (covered_by(declared, offsetof(rhi::acceleration_structure_desc, geometries), sizeof(decltype(rhi::acceleration_structure_desc::geometries)))) { // decltype for avoid missing warning
             geometries = declared_desc.geometries;
         }
         if (covered_by(declared, offsetof(rhi::acceleration_structure_desc, geometry_count), sizeof(rhi::acceleration_structure_desc::geometry_count))) {
@@ -1021,7 +1012,8 @@ namespace deren::vulkan {
             rhi::buffer* const records = this->full_core.create_buffer_raw(rhi::buffer_desc{
                 .size = static_cast<std::uint64_t>(instance_capacity) * sizeof(rhi::acceleration_structure_instance),
                 .usage = rhi::buffer_usage::storage_coherent,
-                .flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::acceleration_structure_input)});
+                .flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::acceleration_structure_input),
+            });
             if (records == nullptr || records->mapped().data() == nullptr) {
                 deren::utility::log("rhi: create_acceleration_structure refused: the instance buffer could not be allocated");
                 delete structure;
@@ -1148,9 +1140,11 @@ namespace deren::vulkan {
         std::uint64_t const scratch_size = std::max(sizes.buildScratchSize, structure->refittable ? sizes.updateScratchSize : 0u);
         if (scratch_size != 0) {
             std::uint64_t const alignment = std::max<std::uint64_t>(this->full_core.device.acceleration_structure_properties.minAccelerationStructureScratchOffsetAlignment, 1u);
-            structure->scratch = this->full_core.create_buffer_raw(rhi::buffer_desc{.size = scratch_size + alignment - 1u,
-                                                                                    .usage = rhi::buffer_usage::acceleration_structure_scratch,
-                                                                                    .flags = rhi::to_bits(rhi::buffer_flag::device_address)});
+            structure->scratch = this->full_core.create_buffer_raw(rhi::buffer_desc{
+                .size = scratch_size + alignment - 1u,
+                .usage = rhi::buffer_usage::acceleration_structure_scratch,
+                .flags = rhi::to_bits(rhi::buffer_flag::device_address),
+            });
             if (structure->scratch == nullptr) {
                 deren::utility::log("rhi: create_acceleration_structure refused: the build scratch could not be allocated ({} bytes)", scratch_size);
                 delete structure;
@@ -1214,7 +1208,7 @@ namespace deren::vulkan {
         if (desc.flags & ~allowed) {
             return std::unexpected(rhi::error::unsupported);
         }
-        auto value = std::unique_ptr<core::buffer>(new (std::nothrow) core::buffer);
+        auto value = std::make_unique_for_overwrite<buffer>();
         if (!value) {
             return std::unexpected(rhi::error::out_of_host_memory);
         }
@@ -1245,9 +1239,8 @@ namespace deren::vulkan {
         }
         auto desc = request.resource;
         auto const format = this->full_core.resolve_format(desc.format);
-        auto const allowed = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::cube_compatible);
-        if (!rhi::has_flag(desc.flags, rhi::image_flag::sampled) || (desc.flags & ~allowed) ||
-            desc.format == rhi::image_format::depth || format == VK_FORMAT_UNDEFINED) {
+        if (constexpr auto allowed = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::cube_compatible); !rhi::has_flag(desc.flags, rhi::image_flag::sampled) || (desc.flags & ~allowed) ||
+                                                                                                                              desc.format == rhi::image_format::depth || format == VK_FORMAT_UNDEFINED) {
             return std::unexpected(rhi::error::unsupported);
         }
         if (!desc.extent.width || !desc.extent.height || desc.extent.depth != 1 || !desc.array_layers ||
@@ -1278,7 +1271,7 @@ namespace deren::vulkan {
             desc.array_layers > properties.maxArrayLayers || desc.mip_levels > properties.maxMipLevels) {
             return std::unexpected(rhi::error::invalid_argument);
         }
-        auto value = std::unique_ptr<core::image>(new (std::nothrow) core::image);
+        auto value = std::make_unique_for_overwrite<image>();
         if (!value) {
             return std::unexpected(rhi::error::out_of_host_memory);
         }
@@ -1313,13 +1306,13 @@ namespace deren::vulkan {
         if (!this->descriptor_heaps.ready() || this->heap_grid_offset == VK_WHOLE_SIZE) {
             return fail(rhi::error::unsupported);
         }
-        auto group = std::unique_ptr<core::resource_group>(new (std::nothrow) core::resource_group);
+        auto group = std::make_unique_for_overwrite<core::resource_group>();
         if (!group) {
             return fail(rhi::error::out_of_host_memory);
         }
         group->parent = &this->full_core;
         group->entries.assign(desc.entries.begin(), desc.entries.end());
-        std::sort(group->entries.begin(), group->entries.end(), [](auto const& a, auto const& b) { return a.binding < b.binding; });
+        std::ranges::sort(group->entries, [](auto const& a, auto const& b) { return a.binding < b.binding; });
         VkPhysicalDeviceProperties properties{};
         vkGetPhysicalDeviceProperties(this->full_core.device.physical_device, &properties);
         for (auto const& entry : group->entries) {
@@ -1328,7 +1321,7 @@ namespace deren::vulkan {
             }
             if (entry.kind == rhi::resource_kind::uniform_buffer || entry.kind == rhi::resource_kind::storage_buffer) {
                 std::unique_lock lock(this->contract_buffers_mutex);
-                auto found = std::find_if(this->contract_buffers.begin(), this->contract_buffers.end(), [&](auto* p) { return static_cast<rhi::object const*>(p) == entry.resource.get(); });
+                auto found = std::ranges::find_if(this->contract_buffers, [&](auto* p) { return static_cast<rhi::object const*>(p) == entry.resource.get(); });
                 if (found == this->contract_buffers.end()) {
                     return fail(rhi::error::invalid_argument);
                 }
@@ -1340,7 +1333,7 @@ namespace deren::vulkan {
                 }
             } else if (entry.kind == rhi::resource_kind::sampled_image || entry.kind == rhi::resource_kind::storage_image) {
                 std::unique_lock lock(this->contract_images_mutex);
-                auto found = std::find_if(this->contract_images.begin(), this->contract_images.end(), [&](auto* p) { return static_cast<rhi::object const*>(p) == entry.resource.get(); });
+                auto found = std::ranges::find_if(this->contract_images, [&](auto* p) { return static_cast<rhi::object const*>(p) == entry.resource.get(); });
                 if (found == this->contract_images.end()) {
                     return fail(rhi::error::invalid_argument);
                 }
@@ -1356,7 +1349,7 @@ namespace deren::vulkan {
                     return fail(rhi::error::invalid_argument);
                 }
                 auto const& value = *static_cast<core::texture_group const*>(entry.resource.get());
-                group->deferred |= std::any_of(value.deferred_images.begin(), value.deferred_images.end(), [](auto const& p) { return bool(p); });
+                group->deferred |= std::ranges::any_of(value.deferred_images, [](auto const& p) { return static_cast<bool>(p); });
             }
         }
         for (std::size_t index = 0; index < group->entries.size(); ++index) {
@@ -1368,22 +1361,23 @@ namespace deren::vulkan {
             auto const* entry_resource = entry.resource.get();
             if (entry.kind == rhi::resource_kind::texture_group) {
                 std::lock_guard lock(this->texture_groups.mutex);
-                auto found = std::find_if(this->texture_groups.tokens_by_group.begin(), this->texture_groups.tokens_by_group.end(),
-                                          [entry_resource](auto const& item) { return static_cast<rhi::object const*>(item.first) == entry_resource; });
+                auto found = std::ranges::find_if(this->texture_groups.tokens_by_group,
+                                                  [entry_resource](auto const& item) { return static_cast<rhi::object const*>(item.first) == entry_resource; });
                 if (found == this->texture_groups.tokens_by_group.end()) {
                     return fail(rhi::error::invalid_argument);
                 }
                 group->values.push_back(found->second);
                 continue;
             }
-            VkDeviceSize address = 0, size = 0;
+            VkDeviceSize address = 0;
+            VkDeviceSize size = 0;
             VkDescriptorType type = VK_DESCRIPTOR_TYPE_MAX_ENUM;
             switch (entry.kind) {
             case rhi::resource_kind::uniform_buffer:
             case rhi::resource_kind::storage_buffer: {
                 std::lock_guard lock(this->contract_buffers_mutex);
-                auto found = std::find_if(this->contract_buffers.begin(), this->contract_buffers.end(),
-                                          [entry_resource](auto* item) { return static_cast<rhi::object const*>(item) == entry_resource; });
+                auto found = std::ranges::find_if(this->contract_buffers,
+                                                  [entry_resource](auto* item) { return static_cast<rhi::object const*>(item) == entry_resource; });
                 if (found == this->contract_buffers.end()) {
                     return fail(rhi::error::invalid_argument);
                 }
@@ -1418,8 +1412,8 @@ namespace deren::vulkan {
             case rhi::resource_kind::sampled_image:
             case rhi::resource_kind::storage_image: {
                 std::lock_guard lock(this->contract_images_mutex);
-                if (std::none_of(this->contract_images.begin(), this->contract_images.end(),
-                                 [entry_resource](auto* item) { return static_cast<rhi::object const*>(item) == entry_resource; })) {
+                if (std::ranges::none_of(this->contract_images,
+                                         [entry_resource](auto* item) { return static_cast<rhi::object const*>(item) == entry_resource; })) {
                     return fail(rhi::error::invalid_argument);
                 }
                 auto const& image = *static_cast<core::image const*>(entry_resource);
@@ -1479,7 +1473,7 @@ namespace deren::vulkan {
                     if (!this->next_sampler) {
                         this->next_sampler = heap_sampler_base + static_cast<std::uint32_t>(this->shared_sampler_infos.size());
                     }
-                    offset = VkDeviceSize(this->next_sampler) * 32u;
+                    offset = static_cast<VkDeviceSize>(this->next_sampler) * 32u;
                     if (offset + 32u > this->descriptor_heaps.sampler_size()) {
                         return fail(rhi::error::out_of_device_memory);
                     }
@@ -1498,9 +1492,9 @@ namespace deren::vulkan {
                     return fail(rhi::error::operation_failed);
                 }
             } else if (entry.kind == rhi::resource_kind::sampled_image || entry.kind == rhi::resource_kind::storage_image) {
-                auto type = entry.kind == rhi::resource_kind::sampled_image ? rhi::descriptor_type::sampled_image : rhi::descriptor_type::storage_image;
-                rhi::heap_image_write_info info{.offset = offset, .resource = static_cast<rhi::image const*>(entry_resource), .view = &entry.view, .type = type};
-                auto status = this->heap_view.write_image_native(info, true);
+                auto const descriptor = entry.kind == rhi::resource_kind::sampled_image ? rhi::descriptor_type::sampled_image : rhi::descriptor_type::storage_image;
+                rhi::heap_image_write_info info{.offset = offset, .resource = static_cast<rhi::image const*>(entry_resource), .view = &entry.view, .type = descriptor};
+                auto const status = this->heap_view.write_image_native(info, true);
                 if (status != rhi::error::ok) {
                     return fail(status);
                 }
@@ -1567,7 +1561,7 @@ namespace deren::vulkan {
         if (initialized != rhi::error::ok) {
             return fail(initialized);
         }
-        auto answer = std::unique_ptr<core::texture_group>(new (std::nothrow) core::texture_group);
+        auto answer = std::make_unique_for_overwrite<core::texture_group>();
         if (!answer) {
             return fail(rhi::error::out_of_host_memory);
         }
@@ -1576,7 +1570,7 @@ namespace deren::vulkan {
         {
             std::lock_guard lock(this->texture_groups.mutex);
             std::erase_if(this->texture_groups.cache, [](auto const& item) { return item.second.expired(); });
-            if (std::any_of(images.begin(), images.end(), [](auto const& image) { return bool(image); })) {
+            if (std::ranges::any_of(images, [](auto const& image) { return static_cast<bool>(image); })) {
                 answer->allocation = this->texture_groups.first_free_group();
                 if (answer->allocation == texture_group_state::group_capacity) {
                     status = rhi::error::out_of_device_memory;

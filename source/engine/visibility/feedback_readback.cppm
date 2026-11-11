@@ -1,7 +1,15 @@
-#pragma once
+module;
 
-// Internal RHI recording helpers. Include after importing deren.promise.rhi.
-namespace deren::engine::feedback_readback {
+#include <array>
+#include <cstdint>
+#include <span>
+
+export module deren.engine.visibility.feedback_readback;
+
+import deren.promise.rhi;
+
+// Internal RHI recording helpers.
+export namespace deren::engine::feedback_readback {
     inline promise::rhi::error clear(promise::rhi::command_recorder& commands, promise::rhi::buffer& gpu,
                                      promise::rhi::buffer const& zero, std::uint64_t bytes) {
         namespace rhi = promise::rhi;
@@ -21,8 +29,12 @@ namespace deren::engine::feedback_readback {
     inline promise::rhi::error publish(promise::rhi::command_recorder& commands, promise::rhi::buffer& host,
                                        promise::rhi::buffer& gpu, std::uint64_t bytes) {
         namespace rhi = promise::rhi;
-        std::array<rhi::buffer_barrier, 2> copy{{{.resource = &gpu, .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::transfer_source},
-                                                 {.resource = &host, .from = rhi::buffer_use::host_read, .to = rhi::buffer_use::transfer_destination}}};
+        std::array<rhi::buffer_barrier, 2> copy{
+            {
+                {.resource = &gpu, .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::transfer_source},
+                {.resource = &host, .from = rhi::buffer_use::host_read, .to = rhi::buffer_use::transfer_destination},
+            },
+        };
         auto status = commands.barrier({.buffers = copy});
         if (status != rhi::error::ok) {
             return status;

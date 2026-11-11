@@ -69,8 +69,8 @@ namespace deren::engine::gaussian_splatting {
         }
         std::expected<deren::utility::vessel::array<float, 6>, foundation_error> support_bounds(deren::gaussian::particle const& p, deren::utility::vessel::array<double, 6> const& cov) {
             deren::utility::vessel::array<float, 6> result{};
-            constexpr deren::utility::vessel::array<uint32_t, 3> diagonals = {0, 3, 5};
             for (glm::length_t i = 0; i < 3; ++i) {
+                constexpr deren::utility::vessel::array<uint32_t, 3> diagonals = {0, 3, 5};
                 double const radius = 3 * std::sqrt(cov[diagonals[i]]);
                 double const low = static_cast<double>(p.center[i]) - radius;
                 double const high = static_cast<double>(p.center[i]) + radius;
@@ -248,8 +248,8 @@ namespace deren::engine::gaussian_splatting {
         for (auto const& i : instances) {
             ids.push_back(i.stable_id);
         }
-        std::sort(ids.begin(), ids.end());
-        if (std::adjacent_find(ids.begin(), ids.end()) != ids.end()) {
+        std::ranges::sort(ids);
+        if (std::ranges::adjacent_find(ids) != ids.end()) {
             return invalid("duplicate stable instance ID");
         }
         struct depth_reference {
@@ -275,7 +275,7 @@ namespace deren::engine::gaussian_splatting {
             if (begin >= end) {
                 return;
             }
-            std::size_t instance = static_cast<std::size_t>(std::upper_bound(instance_offsets.begin(), instance_offsets.end(), begin) - instance_offsets.begin()) - 1u;
+            std::size_t instance = static_cast<std::size_t>(std::ranges::upper_bound(instance_offsets, begin) - instance_offsets.begin()) - 1u;
             for (std::size_t g = begin; g < end; ++g) {
                 while (g >= instance_offsets[instance + 1u]) {
                     ++instance;
@@ -331,7 +331,7 @@ namespace deren::engine::gaussian_splatting {
                 });
             }
         } else {
-            std::sort(keyed.begin(), keyed.end(), less);
+            std::ranges::sort(keyed, less);
         }
         deren::utility::vessel::vector<draw_reference> result;
         result.reserve(static_cast<std::size_t>(total));
@@ -349,7 +349,7 @@ namespace deren::engine::gaussian_splatting {
         if (bytes > limits.max_packed_bytes) {
             return limited("packed asset exceeds byte budget");
         }
-        return bytes;
+        return bytes; // NOLINT(bugprone-narrowing-conversions): clang-tidy 24 false positive on std::expected
     }
     std::expected<packed_asset, foundation_error> pack_asset(deren::gaussian::asset const& input, foundation_limits const& limits) {
         if (input.sh_degree > 3) {

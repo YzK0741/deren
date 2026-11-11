@@ -353,8 +353,8 @@ export namespace deren::promise::rhi {
     /// Internal native bindings may be overwritten; logical recorder state is preserved for later RHI consumers.
     struct radix_sorter : object {
         radix_sorter() noexcept = default;
-        virtual ~radix_sorter() noexcept = default;
-        virtual void release() noexcept = 0;
+        ~radix_sorter() noexcept override = default;
+        void release() noexcept override = 0;
         [[nodiscard]] virtual radix_sort_requirements requirements(std::uint32_t count) const noexcept = 0;
         [[nodiscard]] virtual error record(command_recorder&, radix_sort_info const&) = 0;
     };
@@ -540,11 +540,11 @@ export namespace deren::promise::rhi {
     struct command_recorder : object {
 
         command_recorder() noexcept = default;
-        virtual ~command_recorder() noexcept = default;
+        ~command_recorder() noexcept override = default;
 
         /// RELEASE THE CALLER'S ONE HANDLE (see `buffer::release()`): the recording session and the
         /// allocation behind it die when the last caller releases, inside the backend.
-        virtual void release() noexcept = 0;
+        void release() noexcept override = 0;
 
         /// Open this buffer's recording session.
         ///

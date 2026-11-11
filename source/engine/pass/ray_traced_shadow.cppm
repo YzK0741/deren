@@ -101,7 +101,6 @@
 module;
 
 #include <cstdint>
-#include <cstring>
 #include <glm/glm.hpp>
 
 export module deren.engine.pass.ray_traced_shadow;
@@ -181,7 +180,7 @@ export namespace deren::engine::pass {
         static constexpr deren::utility::vessel::array<std::string_view, 1> pipeline_names = {"rt_shadow"};
         // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
         // would duplicate it and hide the override.
-        inline static constexpr deren::engine::pass::behaviour pass_behaviour = {
+        static constexpr deren::engine::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::ray_tracing,
             .group_size_x = group_size,
             .group_size_y = group_size,

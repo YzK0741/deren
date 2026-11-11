@@ -41,7 +41,7 @@ ITEM_CAPACITY = 4096          # hzb_cull_item_capacity: one hzb_item per possibl
 CANDIDATE_CAPACITY = 65536    # hzb_cull_candidate_capacity: the meshlet table's budget, one flags word per candidate
 ITEM_BYTES = 16               # hzb_item: {meshlet_base, candidate_count, source, pad}
 MESHLET_BYTES = 48            # deren::engine::meshlet: window + sphere + normal cone
-DRAW_ITEM_BYTES = 112         # deren::engine::visibility::draw_item (model at byte 48)
+DRAW_ITEM_ROW_SIZES = (112, 128)  # archived and current draw-item rows, both with the model at byte 48
 FLAGS_OFFSET = 0              # the per-frame word offsets of heap_slots_hzb_results
 PASS1_OFFSET = CANDIDATE_CAPACITY
 PASS2_OFFSET = PASS1_OFFSET + ITEM_CAPACITY
@@ -227,7 +227,9 @@ def main() -> int:
     checker.check(len(stats_raw) == STATS_CAPACITY * 4, f"stats file is {STATS_CAPACITY} u32")
     checker.check(len(survivors_raw) == CANDIDATE_CAPACITY * MESHLET_BYTES, f"survivors file is {CANDIDATE_CAPACITY} x {MESHLET_BYTES} B")
     checker.check(len(candidates_raw) == CANDIDATE_CAPACITY * MESHLET_BYTES, f"candidates file is {CANDIDATE_CAPACITY} x {MESHLET_BYTES} B")
-    checker.check(len(draw_items_raw) == ITEM_CAPACITY * DRAW_ITEM_BYTES, f"draw-items file is {ITEM_CAPACITY} x {DRAW_ITEM_BYTES} B")
+    draw_item_bytes, remainder = divmod(len(draw_items_raw), ITEM_CAPACITY)
+    checker.check(remainder == 0 and draw_item_bytes in DRAW_ITEM_ROW_SIZES,
+                  f"draw-items file has {ITEM_CAPACITY} rows of {DRAW_ITEM_ROW_SIZES} B")
 
     # THE PLAN IS ONLY THE LIVE PREFIX OF THE LANE. The dump always shapes the FULL 4096-row table (asserted
     # above); rows from `item_count` on are the lane's stale tail, which a previous frame with a different
@@ -379,7 +381,7 @@ def main() -> int:
                 bad_records += 1
     checker.check(bad_records == 0, f"every candidate record is a plausible meshlet ({bad_records} bad record(s))")
     for index in range(item_count):
-        model = struct.unpack_from("<16f", draw_items_raw, index * DRAW_ITEM_BYTES + 48)
+        model = struct.unpack_from("<16f", draw_items_raw, index * draw_item_bytes + 48)
         if not all(math.isfinite(value) for value in model):
             bad_models += 1
     checker.check(bad_models == 0, f"every item's model matrix is finite ({bad_models} bad item(s))")

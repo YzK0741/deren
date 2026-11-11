@@ -55,8 +55,7 @@ namespace deren::vulkan {
         }
         rhi::unique_object<rhi::image_view> result = parent->frame.frame_image_view.make_view(desc);
         if (result) {
-            auto keep = this->self.lock();
-            if (keep) {
+            if (auto const keep = this->self.lock()) {
                 static_cast<core::image_view*>(result.get())->parent_image = keep;
             }
         }

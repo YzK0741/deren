@@ -1,5 +1,12 @@
 #pragma once
-// Include after utility import; graph_backend_headers.hpp belongs in the global fragment.
+// This helper intentionally stays a header. Exporting the Boost.Graph aliases
+// through a module partition compiles and passes the tests, but CLion's module
+// indexer cannot follow adjacency_list/graph_traits back through the imported
+// partition; it then reports phantom "no matching function" errors for
+// boost::add_edge and mis-types vertex descriptors in render_graph.cpp.
+// graph_backend_headers.hpp belongs in the global fragment; include this header
+// after the utility import. The range_operations and synchronization helpers
+// have no such Boost dependency and remain module partitions.
 struct vessel_vecS {};
 struct vessel_listS {};
 namespace boost {

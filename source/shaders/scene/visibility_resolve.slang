@@ -41,7 +41,7 @@
 //
 // THE PACKING IS `deren.engine.visibility`'s C++ layout, mirrored here by hand (a shader cannot include a C++
 // header; this is the third mirror, after `visibility.slang` and the CPU reference, and `test_visibility_buffer`
-// parses all three). The DRAW ITEM RECORD is mirrored for the same reason, 112 bytes exactly.
+// parses all three). The draw-item layout is shared with visibility raster through mesh_fetch.slang.
 
 #include "common/heap_access.slang"
 #include "geometry/mesh_geometry.slang"
@@ -171,11 +171,12 @@ gbuffer_output resolve_pixel(const uint2 pixel,
     // ---- the geometry fetch: the SAME 80-byte interleaved vertex and index decode the raster lane used, through
     //      the same helpers (`mesh_geometry.slang`), with the item's addresses and the meshlet's window ----
     const MeshGeometryLanes geometry = visibility_geometry(item);
+    const uint64_t page = meshlet_index_page(meshlet, item.page_table, item.page_arena);
 
     const VR_MAT4 view_proj = mul(visibility_camera.view, visibility_camera.proj);
     visibility_triangle triangle;
     for (uint corner = 0u; corner < mesh_indices_per_triangle; ++corner) {
-        const MeshVertex v = visibility_vertex(geometry, meshlet, id_triangle, corner);
+        const MeshVertex v = visibility_vertex(geometry, meshlet, id_triangle, corner, page);
         // THE SAME TWO PRODUCTS THE RASTER STAGE COMPUTED for this vertex: object -> world by the item's model, then
         // world -> clip by the camera pair the raster configured itself with (view*proj, jitter included).
         const float4 world = visibility_world(v.position, item.model);

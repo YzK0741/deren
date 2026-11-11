@@ -16,24 +16,20 @@
 // Imports are NOT transitive: this partition imports what the moved code calls, and uses the shared vessel allocation service.
 // ============================================================================
 module;
-// Pure CPU filtering and bounded residency policy shared with the standalone tests.
-#include "../visibility/progressive_texture.h"
-
 #include <GLFW/glfw3.h>
 #define GLFW_EXPOSE_NATIVE_WIN32 // glfwGetWin32Window: the engine's window, as the native handle the
-#include "../lighting/reflection_probe.hpp"
 
-#include <GLFW/glfw3native.h> // backend's GLFW image can understand (see to_rhi_create_info)
-#include <cstddef>            // std::ptrdiff_t in the phase-B table zeroing
-#include <cstdint>            // the HZB table layout constants' arithmetic
-#include <cstdlib>            // std::getenv: the DEREN_HZB_BUILD gate (read once, at construction)
-#include <cstring>            // std::memcpy, for composing a pass's push block
+#include <GLFW/glfw3native.h>
+#include <algorithm> // std::ranges::any_of/all_of over the fallback checks
+#include <charconv>  // std::from_chars: the optional texture-level override
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <string_view>
 
 module deren.engine.runtime:constructor;
 import deren.vstd;
 import deren.utility.shared;
+import deren.engine.visibility.progressive_texture;
 
 import :declarations;
 import deren.engine.profiling;
@@ -51,7 +47,9 @@ import deren.engine.visibility.hzb;   // the pyramid layout the HZB buffers are 
 import deren.utility;
 import deren.engine.frame_constants; // one frame's shared constants (see update_frame_constants)
 import deren.engine.meshlet;         // the meshlet table's record layout and capacity (docs/mesh_shaders.md step 3)
-import deren.promise.rhi;            // the RHI creation contract: the type the new constructor below takes
+import deren.engine.lighting.radiance_capture;
+import deren.engine.lighting.reflection_probe;
+import deren.promise.rhi; // the RHI creation contract: the type the new constructor below takes
 
 namespace {
     deren::engine::runtime* runtime_from_window(GLFWwindow* window) {
@@ -149,8 +147,7 @@ namespace deren::engine {
         return space && space->write_acceleration_structure({.slot = slot, .resource = &resource}) == rhi::error::ok;
     }
     void contract_record_descriptor_bind(rhi::api_core& face, rhi::command_recorder& commands) noexcept {
-        auto* space = rhi::query_extension<rhi::descriptor_space>(face);
-        if (space) {
+        if (auto* space = rhi::query_extension<rhi::descriptor_space>(face)) {
             [[maybe_unused]] auto result = space->bind({.commands = &commands});
         }
     }
@@ -485,6 +482,19 @@ namespace deren::engine {
         // may still be executing and destroying in-use resources would violate VUIDs (~core()
         // also waits, but that runs after this body — too late for the VMA frees here).
         this->core_face.wait_idle();
+        for (auto const& source : this->subtilis_page_uploads) {
+            auto const result = source->collect_page_uploads();
+            if (result.result != rhi::error::ok) {
+                deren::utility::panic(std::source_location::current(), "subtilis: final page upload completion failed ({})", static_cast<std::uint32_t>(result.result));
+            }
+        }
+        this->subtilis_page_uploads.clear();
+        for (std::uint32_t slot = 0; slot < this->subtilis_page_frames.size(); ++slot) {
+            for (auto const& source : this->subtilis_page_frames[slot]) {
+                static_cast<void>(source->complete_page_frame(slot));
+            }
+        }
+        this->subtilis_page_frames.clear();
         if (this->pending_present.valid()) {
             rhi::error const result = this->pending_present.get();
             if (result != rhi::error::ok && result != rhi::error::out_of_date) {
@@ -620,7 +630,7 @@ namespace deren::engine {
         }
     }
 
-    std::pair<rhi::shared_object<rhi::image>, rhi::shared_object<rhi::image_view>> runtime::create_shared_image(render_resource::resource_id id, rhi::image_desc desc) {
+    std::pair<rhi::shared_object<rhi::image>, rhi::shared_object<rhi::image_view>> runtime::create_shared_image(render_resource::resource_id id, rhi::image_desc desc) const {
         namespace managed = render_resource::instances;
         auto chain = std::make_shared<pass::pass_chain>();
         auto& provider = chain->emplace<pass::resource_storage_pass>();
@@ -649,7 +659,7 @@ namespace deren::engine {
         return {rhi::shared_object<rhi::image>{chain, image}, rhi::shared_object<rhi::image_view>{chain, view}};
     }
 
-    rhi::shared_object<rhi::sampler> runtime::create_shared_sampler(render_resource::resource_id id, rhi::sampler_desc const& desc) {
+    rhi::shared_object<rhi::sampler> runtime::create_shared_sampler(render_resource::resource_id id, rhi::sampler_desc const& desc) const {
         namespace managed = render_resource::instances;
         auto chain = std::make_shared<pass::pass_chain>();
         auto& provider = chain->emplace<pass::resource_storage_pass>();
@@ -666,7 +676,7 @@ namespace deren::engine {
         return rhi::shared_object<rhi::sampler>{chain, generation->objects[0].sampler.get()};
     }
 
-    rhi::shared_object<rhi::buffer> runtime::create_shared_upload(std::span<std::byte const> bytes, rhi::buffer_flags flags) {
+    rhi::shared_object<rhi::buffer> runtime::create_shared_upload(std::span<std::byte const> bytes, rhi::buffer_flags flags) const {
         if (bytes.empty()) {
             return {};
         }
@@ -734,7 +744,7 @@ namespace deren::engine {
             // so the descriptor is an `image_view_desc` - all remaining layers and mips, which is the view those
             // lines made. The hand-built `VkImageViewCreateInfo` and the `native_image` read that fed it are gone
             // with it: this was the last escape use in this function.
-            rhi::image_view_desc const white_heap_view{};
+            constexpr rhi::image_view_desc white_heap_view{};
             std::uint32_t const white_slot = deren::engine::render_layout::heap_slots::textures + this->white_texture_index;
             if (!contract_write_descriptor_image(this->rhi_face(), white_slot, *this->scene_textures.back(), white_heap_view, rhi::descriptor_type::sampled_image)) {
                 deren::utility::log("descriptor heap: the white fallback texture did not reach grid slot {}", deren::engine::render_layout::heap_slots::textures + this->white_texture_index);
@@ -842,10 +852,12 @@ namespace deren::engine {
                     glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
                 neutral_colours[material * static_cast<size_t>(deren::engine::toon_colour_lane::count) + static_cast<size_t>(deren::engine::toon_colour_lane::goo_direct_occlusion)] =
                     glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-                for (uint32_t lane : {static_cast<uint32_t>(deren::engine::toon_colour_lane::goo_diffuse_a),
-                                      static_cast<uint32_t>(deren::engine::toon_colour_lane::goo_diffuse_b),
-                                      static_cast<uint32_t>(deren::engine::toon_colour_lane::goo_fresnel_inside),
-                                      static_cast<uint32_t>(deren::engine::toon_colour_lane::goo_fresnel_outside)}) {
+                for (uint32_t lane : {
+                         static_cast<uint32_t>(deren::engine::toon_colour_lane::goo_diffuse_a),
+                         static_cast<uint32_t>(deren::engine::toon_colour_lane::goo_diffuse_b),
+                         static_cast<uint32_t>(deren::engine::toon_colour_lane::goo_fresnel_inside),
+                         static_cast<uint32_t>(deren::engine::toon_colour_lane::goo_fresnel_outside),
+                     }) {
                     neutral_colours[material * static_cast<size_t>(deren::engine::toon_colour_lane::count) + lane] =
                         glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f);
                 }
@@ -881,8 +893,10 @@ namespace deren::engine {
                 //     `Front R`'s colour multiplies a term that is otherwise the albedo itself. A material that
                 //     states neither row therefore gets the reference's defaults, which is what a material
                 //     calling the group without stating them gets in Goo.
-                for (uint32_t lane : {static_cast<uint32_t>(deren::engine::toon_colour_lane::goo_face_scalars_a),
-                                      static_cast<uint32_t>(deren::engine::toon_colour_lane::goo_face_scalars_b)}) {
+                for (uint32_t lane : {
+                         static_cast<uint32_t>(deren::engine::toon_colour_lane::goo_face_scalars_a),
+                         static_cast<uint32_t>(deren::engine::toon_colour_lane::goo_face_scalars_b),
+                     }) {
                     neutral_colours[material * static_cast<size_t>(deren::engine::toon_colour_lane::count) + lane] =
                         glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f);
                 }
@@ -1269,7 +1283,7 @@ namespace deren::engine {
         // THE GENERATION'S COUNT COMES FROM THE SWAPCHAIN (③-D/E A1.4): the per-image groups are engine-created
         // fixed-size arrays now, so their `size()` is the contract's bound rather than the number of images
         // this generation actually has - `swap_chain_images` is the one that still answers that.
-        std::size_t const image_count = static_cast<std::size_t>(rhi::max_swapchain_images);
+        constexpr std::size_t image_count = static_cast<std::size_t>(rhi::max_swapchain_images);
         // The motion-vector images died with the generation as well: clear the layout flag so the first
         // frame of the new generation takes the attachment -> sampled transition (see
         // ensure_velocity_sampled).
@@ -1376,7 +1390,7 @@ namespace deren::engine {
         for (size_t i = 0; i < missing_tables.size(); ++i) {
             missing_tables[i] = !primary.find(pass::scene_tables_pass::ids[i]);
         }
-        if (std::any_of(missing_tables.begin(), missing_tables.end(), [](bool missing) { return missing; })) {
+        if (std::ranges::any_of(missing_tables, [](bool missing) { return missing; })) {
             if (this->fallback_tables_provider == nullptr) {
                 this->fallback_tables_provider = &fallback.emplace<pass::scene_tables_pass>();
             } else {
@@ -1390,7 +1404,7 @@ namespace deren::engine {
         for (size_t i = 0; i < missing_deformation.size(); ++i) {
             missing_deformation[i] = !primary.find(pass::scene_deformation_pass::ids[i]);
         }
-        if (std::any_of(missing_deformation.begin(), missing_deformation.end(), [](bool missing) { return missing; })) {
+        if (std::ranges::any_of(missing_deformation, [](bool missing) { return missing; })) {
             if (this->fallback_deformation_provider == nullptr) {
                 this->fallback_deformation_provider = &fallback.emplace<pass::scene_deformation_pass>();
             } else {
@@ -1435,7 +1449,7 @@ namespace deren::engine {
         for (size_t i = 0; i < missing_output.size(); ++i) {
             missing_output[i] = ((i != 15u && i != 16u) || software_resources_wanted) && !primary.find(pass::output_targets_pass::ids[i]);
         }
-        if (std::any_of(missing_output.begin(), missing_output.end(), [](bool missing) { return missing; })) {
+        if (std::ranges::any_of(missing_output, [](bool missing) { return missing; })) {
             if (this->fallback_output_provider == nullptr) {
                 this->fallback_output_provider = &fallback.emplace<pass::output_targets_pass>();
             } else {
@@ -1461,7 +1475,7 @@ namespace deren::engine {
         auto const shadow = shadow_view.find(resource_id::shadow_map);
         auto const counts = cluster_view.find(resource_id::cluster_counts);
         auto const indices = cluster_view.find(resource_id::cluster_indices);
-        uint64_t const count_bytes = uint64_t(deren::engine::max_cluster_count) * sizeof(uint32_t);
+        constexpr std::uint64_t count_bytes = static_cast<std::uint64_t>(deren::engine::max_cluster_count) * sizeof(std::uint32_t);
         auto const valid_buffer = [&](std::shared_ptr<managed::generation const> const& value, uint64_t bytes) {
             return value && value->description.type == managed::kind::buffer &&
                    value->description.scope == render_resource::resource_scope::per_frame_slot &&
@@ -1469,7 +1483,7 @@ namespace deren::engine {
                    value->description.buffer.usage == rhi::buffer_usage::storage_coherent &&
                    (value->description.buffer.flags & rhi::to_bits(rhi::buffer_flag::device_address)) != 0 &&
                    value->description.zero_on_create &&
-                   std::all_of(value->objects.begin(), value->objects.end(), [bytes](auto const& object) { return object.buffer->mapped().size() >= bytes; });
+                   std::ranges::all_of(value->objects, [bytes](auto const& object) { return object.buffer->mapped().size() >= bytes; });
         };
         auto const valid_constant = [&](std::shared_ptr<managed::generation const> const& value, uint64_t bytes) {
             return value && value->description.type == managed::kind::buffer &&
@@ -1479,7 +1493,7 @@ namespace deren::engine {
                      (value->description.buffer.flags & rhi::to_bits(rhi::buffer_flag::storage)) != 0) ||
                     value->description.buffer.usage == rhi::buffer_usage::storage_coherent) &&
                    (value->description.buffer.flags & rhi::to_bits(rhi::buffer_flag::device_address)) != 0 &&
-                   std::all_of(value->objects.begin(), value->objects.end(), [bytes](auto const& object) { return object.buffer->mapped().size() >= bytes; });
+                   std::ranges::all_of(value->objects, [bytes](auto const& object) { return object.buffer->mapped().size() >= bytes; });
         };
         if (!valid_constant(camera, sizeof(camera_ubo))) {
             return rhi::error::invalid_argument;
@@ -1569,17 +1583,37 @@ namespace deren::engine {
         if ((shadow_changed && !this->shadow_images.empty()) || (cluster_changed && !this->cluster_count_buffers.empty()) ||
             (light_changed && !this->light_buffers.empty()) || (head_changed && !this->head_buffers.empty()) ||
             (camera_changed && !this->camera_buffers.empty()) || (tables_changed && static_cast<bool>(this->material_buffer)) ||
-            (std::any_of(deformation_changed.begin(), deformation_changed.end(), [](bool changed) { return changed; }) && !this->motion_buffers.empty()) ||
+            (std::ranges::any_of(deformation_changed, [](bool changed) { return changed; }) && !this->motion_buffers.empty()) ||
             (outputs_changed && static_cast<bool>(this->hdr_images[0]))) {
             this->rhi_face().wait_idle();
         }
         if (tables_changed) {
-            deren::utility::vessel::array<decltype(&this->material_buffer), 11> const handles{&this->material_buffer, &this->instance_buffer, &this->toon_colour_buffer, &this->toon_lane_buffer, &this->toon_rig_buffer,
-                                                                                              &this->meshlet_buffer, &this->mesh_indirect_buffer, &this->meshlet_stats_buffer, &this->meshlet_culled_buffer,
-                                                                                              &this->visibility_items_buffer, &this->subtilis_cut_items_buffer};
-            deren::utility::vessel::array<decltype(&this->material_mapped), 11> const mappings{&this->material_mapped, &this->instance_mapped, &this->toon_colour_mapped, &this->toon_lane_mapped, &this->toon_rig_mapped,
-                                                                                               &this->meshlet_mapped, &this->mesh_indirect_mapped, &this->meshlet_stats_mapped, &this->meshlet_culled_mapped,
-                                                                                               &this->visibility_items_mapped, &this->subtilis_cut_items_mapped};
+            deren::utility::vessel::array<decltype(&this->material_buffer), 11> const handles{
+                &this->material_buffer,
+                &this->instance_buffer,
+                &this->toon_colour_buffer,
+                &this->toon_lane_buffer,
+                &this->toon_rig_buffer,
+                &this->meshlet_buffer,
+                &this->mesh_indirect_buffer,
+                &this->meshlet_stats_buffer,
+                &this->meshlet_culled_buffer,
+                &this->visibility_items_buffer,
+                &this->subtilis_cut_items_buffer,
+            };
+            deren::utility::vessel::array<decltype(&this->material_mapped), 11> const mappings{
+                &this->material_mapped,
+                &this->instance_mapped,
+                &this->toon_colour_mapped,
+                &this->toon_lane_mapped,
+                &this->toon_rig_mapped,
+                &this->meshlet_mapped,
+                &this->mesh_indirect_mapped,
+                &this->meshlet_stats_mapped,
+                &this->meshlet_culled_mapped,
+                &this->visibility_items_mapped,
+                &this->subtilis_cut_items_mapped,
+            };
             for (size_t i = 0; i < tables.size(); ++i) {
                 if (this->scene_table_resource_views[i].find(required_tables[i].id) == tables[i]) {
                     continue;
@@ -1616,7 +1650,7 @@ namespace deren::engine {
         adopt_deformation(1, this->skin_buffers, this->skin_mapped);
         adopt_deformation(2, this->skin_buffers_previous, this->skin_previous_mapped);
         adopt_deformation(3, this->morph_buffers, this->morph_mapped);
-        if (std::any_of(deformation_changed.begin(), deformation_changed.end(), [](bool changed) { return changed; })) {
+        if (std::ranges::any_of(deformation_changed, [](bool changed) { return changed; })) {
             this->publish_deformation_bindings();
         }
         if (camera_changed) {
@@ -1759,8 +1793,7 @@ namespace deren::engine {
             this->software_tiles_mapped = nullptr;
             this->software_raster_resources_ready = false;
         } else {
-            bool const tile_generation_changed = this->software_tiles_resource_view.find(resource_id::software_tiles) != software_tiles_generation;
-            if (tile_generation_changed) {
+            if (this->software_tiles_resource_view.find(resource_id::software_tiles) != software_tiles_generation) {
                 this->software_tiles_resource_view = software_tiles_view;
                 this->software_tiles_buffer = {software_tiles_generation->objects[0].buffer.get()};
                 this->software_tiles_mapped = software_tiles_generation->objects[0].buffer->mapped().data();
@@ -1815,7 +1848,9 @@ namespace deren::engine {
         // ---- THE LAST FRAMES' PENDING STATS ARE FOLDED IN HERE ----
         // Each slot's stats hold its LAST culling frame's numbers; every earlier frame was accumulated when the slot
         // was reused (`reset_hzb_cull_stats`). So at shutdown each slot is pending exactly once - add them all.
-        std::uint64_t last_candidates = 0u, last_culled = 0u, last_survivors = 0u;
+        std::uint64_t last_candidates = 0u;
+        std::uint64_t last_culled = 0u;
+        std::uint64_t last_survivors = 0u;
         for (std::uint64_t slot = 0u; slot < this->frame_ring().slot_count(); ++slot) {
             std::uint32_t const* const stats = results + static_cast<std::size_t>(slot) * pass::hzb_results_words_per_lane + pass::hzb_results_stats_offset;
             std::uint64_t const candidates = stats[pass::hzb_stat_candidates];
@@ -1919,12 +1954,12 @@ namespace deren::engine {
         }
     } // namespace
 
-    void runtime::publish_camera_bindings() {
+    void runtime::publish_camera_bindings() const {
         write_heap_scene_buffer(this->core_face, this->camera_buffers, deren::engine::render_layout::heap_slots::scene_camera,
                                 sizeof(camera_ubo), rhi::descriptor_type::storage_buffer);
     }
 
-    void runtime::publish_deformation_bindings() {
+    void runtime::publish_deformation_bindings() const {
         write_heap_scene_buffer(this->core_face, this->motion_buffers, deren::engine::render_layout::heap_slots::previous_transforms, pass::scene_deformation_pass::sizes[0], rhi::descriptor_type::storage_buffer);
         write_heap_scene_buffer(this->core_face, this->skin_buffers, deren::engine::render_layout::heap_slots::skin_matrices, pass::scene_deformation_pass::sizes[1], rhi::descriptor_type::storage_buffer);
         write_heap_scene_buffer(this->core_face, this->skin_buffers_previous, deren::engine::render_layout::heap_slots::skin_matrices_previous, pass::scene_deformation_pass::sizes[2], rhi::descriptor_type::storage_buffer);
@@ -1932,9 +1967,19 @@ namespace deren::engine {
     }
 
     void runtime::publish_scene_table_bindings() {
-        deren::utility::vessel::array<decltype(this->material_buffer), 11> const handles{this->material_buffer, this->instance_buffer, this->toon_colour_buffer, this->toon_lane_buffer, this->toon_rig_buffer,
-                                                                                         this->meshlet_buffer, this->mesh_indirect_buffer, this->meshlet_stats_buffer, this->meshlet_culled_buffer,
-                                                                                         this->visibility_items_buffer, this->subtilis_cut_items_buffer};
+        deren::utility::vessel::array<decltype(this->material_buffer), 11> const handles{
+            this->material_buffer,
+            this->instance_buffer,
+            this->toon_colour_buffer,
+            this->toon_lane_buffer,
+            this->toon_rig_buffer,
+            this->meshlet_buffer,
+            this->mesh_indirect_buffer,
+            this->meshlet_stats_buffer,
+            this->meshlet_culled_buffer,
+            this->visibility_items_buffer,
+            this->subtilis_cut_items_buffer,
+        };
         auto const required = pass::scene_tables_pass::descriptions(render_resource::instances::resource_context{.frame_slots = this->frame_ring().slot_count()});
         if (!contract_descriptor_ready(this->rhi_face())) {
             return;
@@ -2211,8 +2256,8 @@ namespace deren::engine {
             deren::utility::log("hzb: the cull lane is unavailable (its host-visible tables are not mapped)");
             return;
         }
-        std::fill(items_bytes_mapped.begin(), items_bytes_mapped.begin() + static_cast<std::ptrdiff_t>(items_bytes), std::byte{0});
-        std::fill(results_bytes_mapped.begin(), results_bytes_mapped.begin() + static_cast<std::ptrdiff_t>(results_bytes), std::byte{0});
+        std::fill_n(items_bytes_mapped.begin(), items_bytes, std::byte{0});
+        std::fill_n(results_bytes_mapped.begin(), results_bytes, std::byte{0});
         this->hzb_items_mapped = items_bytes_mapped.data();
         this->hzb_results_mapped = results_bytes_mapped.data();
         this->hzb_cull_resources_ready = true;
@@ -2232,7 +2277,7 @@ namespace deren::engine {
                             frame_slots);
     }
 
-    void runtime::publish_cluster_bindings() {
+    void runtime::publish_cluster_bindings() const {
         write_heap_scene_buffer(this->core_face, this->cluster_count_buffers, deren::engine::render_layout::heap_slots::cluster_counts, static_cast<std::uint64_t>(deren::engine::max_cluster_count) * sizeof(uint32_t), rhi::descriptor_type::storage_buffer);
         write_heap_scene_buffer(this->core_face, this->cluster_index_buffers, deren::engine::render_layout::heap_slots::cluster_indices, static_cast<std::uint64_t>(deren::engine::max_cluster_count) * deren::engine::cluster_light_capacity * sizeof(uint32_t), rhi::descriptor_type::storage_buffer);
     }
@@ -2284,7 +2329,7 @@ namespace deren::engine {
         this->write_light_and_shadow_bindings();
     }
 
-    void runtime::write_light_and_shadow_bindings() {
+    void runtime::write_light_and_shadow_bindings() const {
         // binding 7 (light UBO) + binding 8 (shadow map): BOTH point at THIS slot's
         // resources (per-slot light buffers like the camera UBO, per-slot shadow images), so no
         // per-frame re-pointing is needed and an in-flight frame never shares a buffer the next
@@ -2331,7 +2376,7 @@ namespace deren::engine {
         }
     }
 
-    bool runtime::set_local_probe(std::span<uint8_t const> half, uint32_t size, uint32_t mips, glm::vec3 position, glm::vec3 minimum, glm::vec3 maximum, float fade, float gain) {
+    bool runtime::set_local_probe(std::span<uint8_t const> half, uint32_t size, uint32_t mips, glm::vec3 position, glm::vec3 minimum, glm::vec3 maximum, float fade, float gain) const {
         if (!probe_detail::valid({position, minimum, maximum, fade, gain}) || size < 16 || size > 512 || (size & (size - 1))) {
             return false;
         }
@@ -2341,13 +2386,13 @@ namespace deren::engine {
             ++expected_mips;
         }
         for (uint32_t l = 0; l < expected_mips; ++l) {
-            bytes += uint64_t(6) * (size >> l) * (size >> l) * 8;
+            bytes += static_cast<std::uint64_t>(6) * (size >> l) * (size >> l) * 8;
         }
         if (mips != expected_mips || half.size() != bytes) {
             return false;
         }
         for (size_t i = 0; i < half.size(); i += 2) {
-            float v = radiance_detail::decode_binary16(uint16_t(half[i]) | (uint16_t(half[i + 1]) << 8));
+            float v = radiance_detail::decode_binary16(static_cast<std::uint16_t>(half[i]) | (static_cast<std::uint16_t>(half[i + 1]) << 8));
             if (!std::isfinite(v) || v < 0 || ((i % 8) == 6 && v != 1)) {
                 return false;
             }
@@ -2364,16 +2409,8 @@ namespace deren::engine {
             return false;
         }
         this->rhi_face().wait_idle();
-        if (!contract_write_descriptor_image(this->rhi_face(), render_layout::heap_slots::local_probe, *created.first,
-                                             rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image)) {
-            return false;
-        }
-        probe_image = std::move(created.first);
-        probe_view = std::move(created.second);
-        light_state->probe_position_gain = {position, gain};
-        light_state->probe_min_fade = {minimum, fade};
-        light_state->probe_max_enabled = {maximum, 1};
-        return true;
+        return contract_write_descriptor_image(this->rhi_face(), render_layout::heap_slots::local_probe, *created.first,
+                                               rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image);
     }
     bool runtime::set_ibl(ibl_input const& info) {
         return this->set_ibl(0u, info);
@@ -2399,7 +2436,7 @@ namespace deren::engine {
             desc.initial_bytes = std::as_bytes(data);
             auto created = create_shared_image(id, desc);
             if (!created.first || !created.second) {
-                return false;
+                return false; // NOLINT(readability-simplify-boolean-expr): side effects follow, so the lambda cannot be reduced to a boolean expression.
             }
             images.push_back(std::move(created.first));
             views.push_back(std::move(created.second));
@@ -2415,8 +2452,10 @@ namespace deren::engine {
                 return false;
             }
             auto& stored = this->custom_ibl_slots[environment_slot - 1u];
-            deren::utility::vessel::array<uint32_t, 2> const slots{layout::heap_slots::custom_env_cube + environment_slot - 1u,
-                                                                   layout::heap_slots::custom_irradiance_cube + environment_slot - 1u};
+            deren::utility::vessel::array<uint32_t, 2> const slots{
+                layout::heap_slots::custom_env_cube + environment_slot - 1u,
+                layout::heap_slots::custom_irradiance_cube + environment_slot - 1u,
+            };
             auto const write = [&](size_t index, rhi::image const& image) {
                 return contract_write_descriptor_image(this->rhi_face(), slots[index], image,
                                                        rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image);
@@ -2466,8 +2505,11 @@ namespace deren::engine {
             return false;
         }
         this->rhi_face().wait_idle();
-        deren::utility::vessel::array<uint32_t, 3> const slots{deren::engine::render_layout::heap_slots::env_cube,
-                                                               deren::engine::render_layout::heap_slots::irradiance_cube, deren::engine::render_layout::heap_slots::brdf_lut};
+        constexpr deren::utility::vessel::array<uint32_t, 3> slots{
+            deren::engine::render_layout::heap_slots::env_cube,
+            deren::engine::render_layout::heap_slots::irradiance_cube,
+            deren::engine::render_layout::heap_slots::brdf_lut,
+        };
         auto const write = [&](size_t index, rhi::image const& image) {
             return contract_write_descriptor_image(this->rhi_face(), slots[index], image,
                                                    rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image);
@@ -2701,11 +2743,14 @@ namespace deren::engine {
             auto const texture_format = tex.override_format ? tex.format : slots[i].second;
             // Capture probe for imported single/partial-mip sources. Ordinary sessions leave it unset.
             if (auto* limit_text = std::getenv("DEREN_BENCH_TEXTURE_LEVELS")) {
-                auto limit = std::atoi(limit_text);
-                if (limit > 0 && std::uint32_t(limit) < tex.mip_levels) {
-                    auto range = progressive_texture::mip_range(tex.width, tex.height, std::uint32_t(limit), 0);
+                std::string_view const text{limit_text};
+                std::uint32_t limit = 0;
+                auto const parsed = std::from_chars(limit_text, limit_text + text.size(), limit);
+                if (parsed.ec == std::errc{} && parsed.ptr == limit_text + text.size() &&
+                    limit > 0 && limit < tex.mip_levels) {
+                    auto range = progressive_texture::mip_range(tex.width, tex.height, limit, 0);
                     if (range && range->bytes <= tex.data.size_bytes()) {
-                        tex.mip_levels = std::uint32_t(limit);
+                        tex.mip_levels = limit;
                         tex.data = tex.data.first(range->bytes);
                     }
                 }
@@ -3285,7 +3330,7 @@ namespace deren::engine {
         return material_id{material_index};
     }
 
-    void runtime::update_material_override(material_id const target, material_id const source, glm::vec3 const tint, float const metallic_scale, float const roughness_scale, float const emissive_scale, bool const unlit, uint32_t const environment_slot) {
+    void runtime::update_material_override(material_id const target, material_id const source, glm::vec3 const tint, float const metallic_scale, float const roughness_scale, float const emissive_scale, bool const unlit, uint32_t const environment_slot) const {
         if (this->material_mapped == nullptr || target.value >= this->material_count || source.value >= this->material_count) {
             return;
         }

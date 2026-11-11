@@ -1,15 +1,14 @@
 module;
-#include "../visibility/progressive_texture.h"
 
-#include <array>
-#include <chrono>
-#include <cstring>
-#include <span>
+#include <cstdint>
+
 module deren.engine.runtime;
+import deren.vstd;
 import deren.engine.texture_residency;
 import deren.promise.rhi;
 import deren.utility.shared;
-#include "../visibility/feedback_readback.h"
+import deren.engine.visibility.progressive_texture;
+import deren.engine.visibility.feedback_readback;
 
 namespace deren::engine {
     namespace rhi = deren::promise::rhi;
@@ -33,9 +32,11 @@ namespace deren::engine {
             // attempt leaves the pipeline empty so the next call retries initialization safely.
             auto feedback_pipeline = rhi_face().resources->create_pipeline(desc);
             auto make_feedback = [&](std::uint64_t bytes, rhi::shared_object<rhi::buffer>& gpu, rhi::shared_object<rhi::buffer>& host) {
-                gpu = rhi_face().resources->create_buffer({.size = bytes,
-                                                           .usage = progressive_textures ? rhi::buffer_usage::storage_gpu_only : rhi::buffer_usage::storage_coherent,
-                                                           .flags = rhi::to_bits(rhi::buffer_flag::device_address) | (progressive_textures ? rhi::to_bits(rhi::buffer_flag::transfer_source) | rhi::to_bits(rhi::buffer_flag::transfer_destination) : 0u)});
+                gpu = rhi_face().resources->create_buffer({
+                    .size = bytes,
+                    .usage = progressive_textures ? rhi::buffer_usage::storage_gpu_only : rhi::buffer_usage::storage_coherent,
+                    .flags = rhi::to_bits(rhi::buffer_flag::device_address) | (progressive_textures ? rhi::to_bits(rhi::buffer_flag::transfer_source) | rhi::to_bits(rhi::buffer_flag::transfer_destination) : 0u),
+                });
                 if (progressive_textures) {
                     host = rhi_face().resources->create_buffer({.size = bytes, .usage = rhi::buffer_usage::uniform_cached, .flags = rhi::to_bits(rhi::buffer_flag::transfer_destination)});
                 }
@@ -231,7 +232,7 @@ namespace deren::engine {
             if (bank[i].get() == selected.get()) {
                 continue;
             }
-            auto result = descriptors->write_image({.slot = render_layout::heap_slots::textures + slot * render_layout::heap_texture_bank_stride + std::uint32_t(i), .resource = selected.get(), .view = &view});
+            auto result = descriptors->write_image({.slot = render_layout::heap_slots::textures + slot * render_layout::heap_texture_bank_stride + static_cast<std::uint32_t>(i), .resource = selected.get(), .view = &view});
             if (result != rhi::error::ok) {
                 return result;
             }
@@ -306,9 +307,17 @@ namespace deren::engine {
             auto target = progressive_mips && !all ? progressive_texture::target_mip(desc.extent.width, desc.extent.height, requested[i]) : 0;
             targets[i] = std::min(entry.fallback_mip, target);
             auto resident = entry.high ? entry.resident_mip : entry.fallback_mip;
-            candidates[i] = {entry.bytes, entry.last_used, bool(entry.high) || entry.upload.valid(), visible && !entry.failed};
-            mip_candidates[i] = {desc.extent.width, desc.extent.height, desc.mip_levels, entry.fallback_mip,
-                                 entry.failed ? resident : targets[i], resident, entry.last_used, visible};
+            candidates[i] = {entry.bytes, entry.last_used, static_cast<bool>(entry.high) || entry.upload.valid(), visible && !entry.failed};
+            mip_candidates[i] = {
+                desc.extent.width,
+                desc.extent.height,
+                desc.mip_levels,
+                entry.fallback_mip,
+                entry.failed ? resident : targets[i],
+                resident,
+                entry.last_used,
+                visible,
+            };
             if (entry.failed) {
                 ++failures;
             }
@@ -362,9 +371,7 @@ namespace deren::engine {
             entry.upload_mip = first;
             entry.upload_bytes = bytes;
             entry.upload = std::async(std::launch::async, [factory, description, source, first]() mutable {
-                auto suffix = progressive_texture::mip_range(description.extent.width, description.extent.height, description.mip_levels, first);
-                std::optional<progressive_texture::fallback_image> generated;
-                if (suffix) {
+                if (auto suffix = progressive_texture::mip_range(description.extent.width, description.extent.height, description.mip_levels, first)) {
                     if (suffix->offset + suffix->bytes > source->size()) {
                         return rhi::shared_object<rhi::image>{};
                     }
@@ -373,10 +380,10 @@ namespace deren::engine {
                     description.mip_levels = suffix->levels;
                     description.initial_bytes = std::as_bytes(std::span(*source)).subspan(suffix->offset, suffix->bytes);
                 } else {
-                    generated = progressive_texture::resample(std::span(source->data(), source->size()),
-                                                              description.extent.width, description.extent.height,
-                                                              std::max(1u, description.extent.width >> first), std::max(1u, description.extent.height >> first),
-                                                              description.format == rhi::image_format::rgba8_srgb);
+                    std::optional<progressive_texture::fallback_image> generated = progressive_texture::resample(std::span(source->data(), source->size()),
+                                                                                                                 description.extent.width, description.extent.height,
+                                                                                                                 std::max(1u, description.extent.width >> first), std::max(1u, description.extent.height >> first),
+                                                                                                                 description.format == rhi::image_format::rgba8_srgb);
                     if (!generated) {
                         return rhi::shared_object<rhi::image>{};
                     }

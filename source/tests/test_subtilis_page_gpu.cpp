@@ -19,6 +19,7 @@ import deren.engine.subtilis;
 import deren.engine.subtilis.builder;
 import deren.engine.subtilis.dag_import;
 import deren.engine.subtilis.page_streaming;
+import deren.engine.subtilis.residency;
 import deren.engine.subtilis.upload;
 import deren.asset.subtilis.dag;
 import deren.asset.subtilis.pages;
@@ -32,6 +33,70 @@ namespace engine = deren::engine;
 namespace wire = deren::asset::subtilis;
 
 namespace {
+    // Real buffers/copies with deterministic completion observation. Holding back
+    // poll must never make the production pager call wait or publish a mapping.
+    struct controlled_submission : rhi::command_submission {
+        std::string_view get_tag() const noexcept override {
+            return "test.page_completion";
+        }
+        rhi::command_submission* native = nullptr;
+        bool ready = false, reject = false, fail_poll = false;
+        unsigned submits = 0, waits = 0;
+        std::expected<rhi::submission_token, rhi::error> submit(rhi::command_buffer& commands) override {
+            ++submits;
+            return reject ? std::unexpected(rhi::error::operation_failed) : native->submit(commands);
+        }
+        std::expected<rhi::submission_token, rhi::error> submit(std::span<rhi::shared_object<rhi::mergeable_command_buffer> const> commands) override {
+            ++submits;
+            return reject ? std::unexpected(rhi::error::operation_failed) : native->submit(commands);
+        }
+        rhi::error poll(rhi::submission_token token) noexcept override {
+            return fail_poll ? rhi::error::operation_failed : ready ? native->poll(token)
+                                                                    : rhi::error::not_ready;
+        }
+        rhi::error wait(rhi::submission_token token, std::uint64_t timeout) noexcept override {
+            ++waits;
+            return native->wait(token, timeout);
+        }
+    };
+    struct controlled_core : rhi::api_core {
+        std::string_view get_tag() const noexcept override {
+            return "test.page_core";
+        }
+        rhi::shared_object<rhi::api_core> native;
+        controlled_submission completion;
+        unsigned idles = 0;
+        explicit controlled_core(rhi::shared_object<rhi::api_core> core)
+            : native(std::move(core)) {
+            bind_views(*native->resources.get(), *native->commands.get(), *native->frames.get());
+            completion.native = rhi::query_extension<rhi::command_submission>(*native);
+        }
+        void release() noexcept override {
+            delete this;
+        }
+        rhi::ability_bits abilities() const noexcept override {
+            return native->abilities();
+        }
+        rhi::extension* query_extension(rhi::extension_kind kind) noexcept override {
+            return kind == rhi::extension_kind::command_submission ? &completion : native->query_extension(kind);
+        }
+        void wait_idle() override {
+            ++idles;
+            native->wait_idle();
+        }
+        std::uint32_t api_version() const noexcept override {
+            return native->api_version();
+        }
+        rhi::stage_time_map get_time_profiling() const override {
+            return native->get_time_profiling();
+        }
+        void record_stage_time(std::string_view name, double time) override {
+            native->record_stage_time(name, time);
+        }
+        void reset_time_profiling_window() override {
+            native->reset_time_profiling_window();
+        }
+    };
     struct wire_page_cluster {
         std::uint32_t first_index = 0;
         std::uint32_t index_count = 0;
@@ -51,10 +116,16 @@ namespace {
     };
     static_assert(sizeof(wire_page_group) == 48u);
 
-    std::shared_ptr<sub::built_geometry const> make_paged_geometry() {
+    std::shared_ptr<sub::built_geometry const> make_paged_geometry(bool padded = false, bool pin_first_index_page = false) {
         auto fixture = subtilis_fixture::cross_dag();
+        if (padded) {
+            fixture.data.indices.insert(fixture.data.indices.end(), 20000, 0u);
+        }
         if (!wire::compute_pages(fixture.data, {})) {
             return nullptr;
+        }
+        if (pin_first_index_page) {
+            fixture.data.pages.front().flags = static_cast<std::uint16_t>(wire::page_flags::always_resident);
         }
         auto validated = wire::make_asset(fixture.source, fixture.data, {});
         if (!validated) {
@@ -228,12 +299,15 @@ int main() {
 
             auto const queued = image.install_requested_pages(0, 7);
             CHECK(queued.requests == 1 && queued.installed == 0 && queued.pending == 1);
-            CHECK(header->count == 1 && header->frame == 7);
+            CHECK(header->count == 0 && header->frame == 0);
             CHECK(reinterpret_cast<sub::gpu_page_table_entry const*>(table_bytes.data())[target].state ==
                   static_cast<std::uint32_t>(sub::gpu_page_state::requested));
 
             auto const installed = image.install_requested_pages(1ull << 30, 8);
-            CHECK(installed.requests == 1 && installed.installed >= 1 && installed.pending == 0);
+            CHECK(installed.requests == 0 && installed.installed == 0 && installed.submitted >= 1);
+            core->wait_idle();
+            CHECK(image.collect_page_uploads().installed >= 1);
+            CHECK(image.install_requested_pages(0, 8).pending == 0);
             CHECK(header->count == 0);
             auto const& installed_row = reinterpret_cast<sub::gpu_page_table_entry const*>(table_bytes.data())[target];
             CHECK(installed_row.state == static_cast<std::uint32_t>(sub::gpu_page_state::resident));
@@ -246,6 +320,240 @@ int main() {
             }
         }
     }
+    CHECK(image.configure_page_frames(3) == rhi::error::ok);
+    CHECK(image.page_requests(0) != image.page_requests(1));
+    CHECK(image.page_requests(1) != image.page_requests(2));
+    CHECK(image.page_table(0) != image.page_table(2));
+    CHECK(image.page_table(3) == nullptr);
+    CHECK(image.complete_page_frame(3) == rhi::error::invalid_argument);
+    CHECK(image.publish_page_frame(0) == rhi::error::ok);
+    CHECK(image.configure_page_frames(4) == rhi::error::not_ready);
+    CHECK(image.install_requested_pages(0, 9, 3).result == rhi::error::invalid_argument);
+    auto snapshot = image.page_table(0)->mapped();
+    std::vector<std::byte> preserved(snapshot.begin(), snapshot.end());
+    CHECK(image.publish_page_frame(0) == rhi::error::not_ready);
+    CHECK(image.install_requested_pages(0, 9, 0).result == rhi::error::not_ready);
+    CHECK(image.install_requested_pages(0, 9, 1).result == rhi::error::ok);
+    CHECK(std::memcmp(snapshot.data(), preserved.data(), snapshot.size()) == 0);
+    CHECK(image.complete_page_frame(0) == rhi::error::ok);
+    auto large = make_paged_geometry(true);
+    CHECK(large);
+    if (large) {
+        auto manager = sub::make_page_manager(large->pages(), large->page_dependencies());
+        CHECK(manager);
+        if (manager) {
+            std::vector<std::uint32_t> candidates;
+            for (std::uint32_t i = 0; i < large->pages().size(); ++i) {
+                auto plan = manager->plan_request(i);
+                if (plan && plan->installs.size() == 1) {
+                    candidates.push_back(i);
+                }
+            }
+            CHECK(candidates.size() >= 2);
+            auto bounded = sub::upload_geometry(core, large, rhi::to_bits(rhi::buffer_flag::device_address),
+                                                sub::geometry_upload_mode::synchronous,
+                                                (manager->stats().resident_pages + 1ull) * wire::page_bytes);
+            CHECK(bounded);
+            if (bounded && candidates.size() >= 2) {
+                auto const& pages = **bounded;
+                CHECK(pages.configure_page_frames(3) == rhi::error::ok);
+                auto queue = [&](std::uint32_t slot, std::uint32_t page) {
+                    auto bytes = pages.page_requests(slot)->mapped();
+                    sub::gpu_page_request_header header{1, pages.page_request_capacity(), 0, 0};
+                    sub::gpu_page_request request{page, 0, 0, 0};
+                    std::memcpy(bytes.data(), &header, sizeof(header));
+                    std::memcpy(bytes.data() + sizeof(header), &request, sizeof(request));
+                };
+                auto row = [&](std::uint32_t slot, std::uint32_t page) {
+                    sub::gpu_page_table_entry out{};
+                    auto bytes = pages.page_table(slot)->mapped();
+                    std::memcpy(&out, bytes.data() + page * sizeof(out), sizeof(out));
+                    return out;
+                };
+                queue(0, candidates[0]);
+                CHECK(pages.install_requested_pages(1ull << 20, 1, 0).submitted == 1);
+                core->wait_idle();
+                CHECK(pages.collect_page_uploads().installed == 1);
+                CHECK(pages.install_requested_pages(0, 1, 0).pending == 0);
+                CHECK(pages.publish_page_frame(0) == rhi::error::ok);
+                CHECK(pages.publish_page_frame(2) == rhi::error::ok);
+                auto old_row = row(0, candidates[0]);
+                auto arena = pages.page_arena()->mapped();
+                std::vector<std::byte> old_bytes(arena.begin() + old_row.offset, arena.begin() + old_row.offset + old_row.bytes);
+                queue(1, candidates[1]);
+                auto deferred = pages.install_requested_pages(1ull << 20, 2, 1);
+                CHECK(deferred.result == rhi::error::ok && deferred.installed == 0 && deferred.pending == 1);
+                CHECK(row(0, candidates[0]).state == static_cast<std::uint32_t>(sub::gpu_page_state::resident));
+                CHECK(row(1, candidates[0]).state == static_cast<std::uint32_t>(sub::gpu_page_state::absent));
+                CHECK(std::memcmp(old_bytes.data(), arena.data() + old_row.offset, old_bytes.size()) == 0);
+                CHECK(pages.publish_page_frame(1) == rhi::error::ok);
+                CHECK(pages.complete_page_frame(0) == rhi::error::ok);
+                auto still_referenced = pages.install_requested_pages(1ull << 20, 3, 0);
+                CHECK(still_referenced.installed == 0 && still_referenced.pending == 1);
+                CHECK(std::memcmp(old_bytes.data(), arena.data() + old_row.offset, old_bytes.size()) == 0);
+                CHECK(pages.complete_page_frame(2) == rhi::error::ok);
+                auto admitted = pages.install_requested_pages(1ull << 20, 3, 0);
+                CHECK(admitted.result == rhi::error::ok && admitted.submitted == 1 && admitted.pending == 1);
+                core->wait_idle();
+                CHECK(pages.collect_page_uploads().installed == 1);
+                CHECK(pages.install_requested_pages(0, 3, 0).pending == 0);
+                CHECK(row(0, candidates[1]).offset == old_row.offset);
+                CHECK(pages.complete_page_frame(1) == rhi::error::ok);
+                // Completed GPU queues can contain duplicates, invalid pages or
+                // an overflowing count. CPU ingestion remains bounded and deduplicated.
+                auto input = pages.page_requests(2)->mapped();
+                sub::gpu_page_request_header overflow{pages.page_request_capacity() + 1, pages.page_request_capacity(), 1, 4};
+                std::memset(input.data(), 0xff, input.size());
+                std::memcpy(input.data(), &overflow, sizeof(overflow));
+                sub::gpu_page_request duplicate{candidates[0], 0, 0, 4};
+                std::memcpy(input.data() + sizeof(overflow), &duplicate, sizeof(duplicate));
+                std::memcpy(input.data() + sizeof(overflow) + sizeof(duplicate), &duplicate, sizeof(duplicate));
+                auto queued = pages.install_requested_pages(0, 4, 2);
+                CHECK(queued.result == rhi::error::ok && queued.pending == 1 && queued.overflow == 1 && queued.page_misses == 4);
+                CHECK(pages.complete_page_frame(2) == rhi::error::ok);
+                CHECK(pages.install_requested_pages(1ull << 20, 5, 2).submitted == 1);
+                core->wait_idle();
+                CHECK(pages.collect_page_uploads().installed == 1);
+            }
+        }
+    }
+    CHECK(image.publish_page_frame(0) == rhi::error::ok);
+    CHECK(image.complete_page_frame(0) == rhi::error::ok);
     deren::vk_test::write_line("page image: {} pages, {} arena bytes, table {} bytes", image.page_count(), arena_bytes.size(), table_bytes.size());
+    {
+        auto pool = sub::page_arena_pool::create(core, 3ull * sub::page_arena_pool::slot_bytes);
+        CHECK(pool);
+        if (pool) {
+            deren::utility::vessel::vector<std::uint32_t> occupied, replacement;
+            CHECK((*pool)->acquire(3, occupied));
+            for (auto slot : occupied) {
+                (*pool)->set_owner(slot, pool->get(), [](void* context, std::uint32_t victim) {
+                    auto& arena = *static_cast<sub::page_arena_pool*>(context);
+                    arena.clear_owner(victim);
+                    arena.release(victim);
+                    return true;
+                });
+            }
+            std::uint32_t evicted = 0;
+            CHECK((*pool)->acquire(1, replacement, nullptr, &evicted));
+            CHECK(evicted == 1);
+        }
+    }
+    {
+        auto pinned = make_paged_geometry(false, true);
+        auto pool = sub::page_arena_pool::create(core, sub::page_arena_pool::slot_bytes);
+        CHECK(pinned && pool);
+        if (pinned && pool) {
+            auto upload = [&] {
+                return sub::upload_geometry(core, pinned, rhi::to_bits(rhi::buffer_flag::device_address),
+                                            sub::geometry_upload_mode::synchronous, sub::page_arena_pool::slot_bytes, *pool);
+            };
+            auto first = upload();
+            CHECK(first && (*first)->page_table() != nullptr);
+            auto second = upload();
+            CHECK(second && (*second)->page_table() == nullptr && (*second)->cut_groups() != nullptr);
+        }
+    }
+    {
+        auto adapter = std::make_shared<controlled_core>(core);
+        rhi::shared_object<rhi::api_core> wrapped{adapter, adapter.get()};
+        auto const pool_bytes = geometry->pages().size() * std::uint64_t{sub::page_arena_pool::slot_bytes};
+        auto pool = sub::page_arena_pool::create(wrapped, pool_bytes);
+        CHECK(pool);
+        if (!pool) {
+            return deren::vk_test::finish("test_subtilis_page_gpu");
+        }
+        auto async = sub::upload_geometry(wrapped, geometry, rhi::to_bits(rhi::buffer_flag::device_address),
+                                          sub::geometry_upload_mode::synchronous, pool_bytes, *pool);
+        CHECK(async);
+        if (async) {
+            auto const& pages = **async;
+            auto const startup_idles = adapter->idles;
+            CHECK(pages.configure_page_frames(2) == rhi::error::ok);
+            auto manager = sub::make_page_manager(geometry->pages(), geometry->page_dependencies());
+            std::vector<std::uint32_t> targets;
+            for (std::uint32_t i = 0; i < geometry->pages().size(); ++i) {
+                if (manager && !manager->resident(i)) {
+                    targets.push_back(i);
+                }
+            }
+            CHECK(targets.size() >= 2);
+            auto queue = [&](sub::uploaded_geometry const& destination, std::uint32_t slot) {
+                auto bytes = destination.page_requests(slot)->mapped();
+                sub::gpu_page_request_header header{static_cast<std::uint32_t>(targets.size()), destination.page_request_capacity(), 0, 0};
+                std::memcpy(bytes.data(), &header, sizeof(header));
+                for (std::size_t i = 0; i < targets.size(); ++i) {
+                    sub::gpu_page_request request{targets[i], 0, 0, 0};
+                    std::memcpy(bytes.data() + sizeof(header) + i * sizeof(request), &request, sizeof(request));
+                }
+            };
+            queue(pages, 0);
+            auto submitted = pages.install_requested_pages(1ull << 20, 1, 0);
+            CHECK(submitted.result == rhi::error::ok && submitted.installed == 0 && submitted.submitted == targets.size());
+            CHECK(pages.has_pending_page_upload());
+            CHECK(submitted.in_flight_bytes == submitted.bytes && submitted.bytes > 0);
+            CHECK(adapter->completion.waits == 0 && adapter->completion.submits == 1);
+            CHECK(pages.publish_page_frame(0) == rhi::error::ok);
+            auto frozen = pages.page_table(0)->mapped();
+            std::vector<std::byte> before(frozen.begin(), frozen.end());
+            queue(pages, 1);
+            auto duplicate = pages.install_requested_pages(1ull << 20, 2, 1);
+            CHECK(duplicate.submitted == 0 && duplicate.bytes == 0 && adapter->completion.submits == 1);
+            CHECK(duplicate.in_flight_bytes == submitted.bytes);
+            core->wait_idle(); // Test setup only: the pager must still observe pending until allowed.
+            adapter->completion.fail_poll = true;
+            for (int i = 0; i < 3; ++i) {
+                auto const failed = pages.collect_page_uploads();
+                CHECK(failed.result == rhi::error::operation_failed);
+                CHECK(failed.in_flight_bytes == submitted.bytes);
+            }
+            CHECK(pages.has_pending_page_upload());
+            deren::utility::vessel::vector<std::uint32_t> competing;
+            bool const reused = (*pool)->acquire(1, competing);
+            CHECK(!reused);
+            if (reused) {
+                (*pool)->release(competing);
+            }
+            CHECK(std::memcmp(before.data(), frozen.data(), frozen.size()) == 0);
+            adapter->completion.fail_poll = false;
+            adapter->completion.ready = true;
+            auto completed = pages.collect_page_uploads();
+            CHECK(completed.result == rhi::error::ok && completed.installed == targets.size() && completed.bytes == 0);
+            CHECK(!pages.has_pending_page_upload());
+            CHECK(completed.in_flight_bytes == 0);
+            CHECK(std::memcmp(before.data(), frozen.data(), frozen.size()) == 0);
+            CHECK(pages.install_requested_pages(0, 3, 1).bytes == 0);
+            CHECK(pages.publish_page_frame(1) == rhi::error::ok);
+            for (auto id : targets) {
+                auto rows = reinterpret_cast<sub::gpu_page_table_entry const*>(pages.page_table(1)->mapped().data());
+                CHECK(rows[id].state == static_cast<std::uint32_t>(sub::gpu_page_state::resident));
+            }
+            CHECK(adapter->completion.waits == 0);
+            CHECK(adapter->idles == startup_idles);
+            CHECK(pages.complete_page_frame(0) == rhi::error::ok);
+            CHECK(pages.complete_page_frame(1) == rhi::error::ok);
+            // A rejected native submit must release its reservations and leave
+            // demand retryable, without exposing partially copied pages.
+            auto retry = sub::upload_geometry(wrapped, geometry, rhi::to_bits(rhi::buffer_flag::device_address), sub::geometry_upload_mode::synchronous);
+            CHECK(retry);
+            if (retry) {
+                CHECK((*retry)->configure_page_frames(2) == rhi::error::ok);
+                adapter->completion.reject = true;
+                queue(**retry, 0);
+                auto rejected = (*retry)->install_requested_pages(1ull << 20, 4, 0);
+                CHECK(rejected.result == rhi::error::operation_failed && rejected.bytes == 0);
+                CHECK(!(*retry)->has_pending_page_upload());
+                adapter->completion.reject = false;
+                adapter->completion.ready = false;
+                auto resubmitted = (*retry)->install_requested_pages(1ull << 20, 5, 0);
+                CHECK(resubmitted.result == rhi::error::ok && resubmitted.submitted == targets.size());
+                CHECK((*retry)->collect_page_uploads().in_flight == targets.size());
+                core->wait_idle();
+                adapter->completion.ready = true;
+                CHECK((*retry)->collect_page_uploads().installed == targets.size());
+                CHECK(adapter->completion.waits == 0);
+            }
+        }
+    }
     return deren::vk_test::finish("test_subtilis_page_gpu");
 }

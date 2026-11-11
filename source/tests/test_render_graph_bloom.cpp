@@ -112,15 +112,18 @@ int main() {
         io.targets = target;
         io.pipelines = pipelines;
         io.extent = {8U >> level, 8U >> level, 1};
-        io.push_block = {&calls, [](void* parent, rhi::command_buffer&, std::span<std::byte const> bytes, uint32_t lane) {
-                             auto& count = *static_cast<unsigned*>(parent);
-                             pass::post_push_constants push{};
-                             CHECK(bytes.size() == sizeof(push));
-                             std::memcpy(&push, bytes.data(), sizeof(push));
-                             CHECK(lane == count && push.mode == (lane == 0 ? 0.0f : 1.0f));
-                             ++count;
-                             return true;
-                         }};
+        io.push_block = {
+            &calls,
+            [](void* parent, rhi::command_buffer&, std::span<std::byte const> bytes, uint32_t lane) {
+                auto& count = *static_cast<unsigned*>(parent);
+                pass::post_push_constants push{};
+                CHECK(bytes.size() == sizeof(push));
+                std::memcpy(&push, bytes.data(), sizeof(push));
+                CHECK(lane == count && push.mode == (lane == 0 ? 0.0f : 1.0f));
+                ++count;
+                return true;
+            },
+        };
         return stage.record_content(io);
     });
     CHECK(result == rhi::error::ok && calls == 4);

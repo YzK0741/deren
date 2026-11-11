@@ -7,7 +7,8 @@ export import deren.engine.render_graph.execute;
 export namespace deren::engine::render_graph::post {
     enum class resolve { none,
                          fxaa,
-                         upscale };
+                         upscale,
+    };
     struct bloom_parameters {
         texture_read source;
         texture_discard_write target;
@@ -78,8 +79,8 @@ export namespace deren::engine::render_graph::post {
         outputs out{.color = in.frame, .bloom = {}, .composite = {}, .resolve = {}};
         constexpr access_scope sampled{resource_usage::sampled, pipeline_stage::fragment_shader};
         constexpr access_scope attachment{resource_usage::color_attachment, pipeline_stage::color_output};
-        constexpr std::array names{"bloom prefilter", "bloom downsample 1", "bloom downsample 2", "bloom downsample 3"};
         for (uint32_t i = 0; i < 4; ++i) {
+            constexpr std::array names{"bloom prefilter", "bloom downsample 1", "bloom downsample 2", "bloom downsample 3"};
             auto added = settings.bloom_enabled
                              ? graph.add_pass(names[i], bloom_parameters{{i ? in.bloom[i - 1] : in.hdr, {}, sampled}, {in.bloom[i], {}, attachment}})
                              : graph.add_pass(names[i], clear_parameters{{in.bloom[i], {}, attachment}});

@@ -15,12 +15,14 @@ export namespace deren::engine::render_resource::instances {
                           output_size,
                           frame_slot,
                           frame_scratch,
-                          history };
+                          history,
+    };
     enum class kind { image,
                       buffer,
                       acceleration_structure,
                       micromap,
-                      sampler };
+                      sampler,
+    };
     struct micromap_upload {
         deren::utility::vessel::vector<std::byte> data;
         deren::utility::vessel::vector<rhi::micromap_triangle> triangles;

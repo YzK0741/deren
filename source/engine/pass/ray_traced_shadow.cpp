@@ -143,8 +143,10 @@ namespace deren::engine::pass {
         // valid, and writes the device address through the out-parameter - so this file names no Vulkan type for
         // any of it, which is why it no longer includes a Vulkan header at all.
         deren::promise::rhi::buffer* const table_buffer = context.create_upload_buffer(context.parent, table.data(), static_cast<uint64_t>(table.size()),
-                                                                                       deren::promise::rhi::buffer_flags{deren::promise::rhi::to_bits(
-                                                                                           deren::promise::rhi::buffer_flag::shader_binding_table)},
+                                                                                       deren::promise::rhi::buffer_flags{
+                                                                                           deren::promise::rhi::to_bits(
+                                                                                               deren::promise::rhi::buffer_flag::shader_binding_table),
+                                                                                       },
                                                                                        &address);
         if (table_buffer == nullptr || address == 0) {
             deren::utility::log("ray-traced shadows unavailable: the shader binding table buffer could not be created");

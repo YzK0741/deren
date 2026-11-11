@@ -181,17 +181,17 @@ export namespace deren::promise::rhi {
     struct shader : object {
 
         shader() noexcept = default;
-        virtual ~shader() noexcept = default;
+        ~shader() noexcept override = default;
         /// see `buffer::release()`
-        virtual void release() noexcept = 0;
+        void release() noexcept override = 0;
     };
 
     struct pipeline : object {
 
         pipeline() noexcept = default;
-        virtual ~pipeline() noexcept = default;
+        ~pipeline() noexcept override = default;
         /// see `buffer::release()`
-        virtual void release() noexcept = 0;
+        void release() noexcept override = 0;
     };
 
 } // namespace deren::promise::rhi

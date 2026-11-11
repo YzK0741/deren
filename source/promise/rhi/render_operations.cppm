@@ -26,7 +26,8 @@ export namespace deren::promise::rhi::recording {
                                                draw_indirect,
                                                dispatch_indirect,
                                                mesh_indirect,
-                                               count };
+                                               count,
+    };
     using words = deren::utility::vessel::array<std::uint64_t, 16>;
     inline constexpr std::uint64_t bit(operation_kind kind) noexcept {
         return 1ull << static_cast<unsigned>(kind);

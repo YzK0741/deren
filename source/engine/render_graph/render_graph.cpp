@@ -1,18 +1,14 @@
 module;
 #include "graph_backend_headers.hpp"
 
-#include <algorithm>
-#include <array>
-#include <atomic>
-#include <limits>
-#include <optional>
-#include <variant>
 module deren.engine.render_graph;
+import :range_operations;
+import :synchronization;
 namespace mem = deren::utility::memory;
 namespace vessel = deren::utility::vessel;
+// Kept as a header: see the rationale in graph_backend.hpp (CLion cannot index
+// Boost.Graph's template aliases through this module partition).
 #include "graph_backend.hpp"
-#include "range_operations.hpp"
-#include "synchronization.hpp"
 namespace deren::engine::render_graph {
     namespace {
         std::atomic_uint64_t next_incarnation{1};
@@ -178,7 +174,7 @@ namespace deren::engine::render_graph {
             return std::unexpected(std::move(diagnostic));
         }
         resource_export output{index, *normalized};
-        if (std::find(exports.begin(), exports.end(), output) == exports.end()) {
+        if (std::ranges::find(exports, output) == exports.end()) {
             exports.push_back(std::move(output));
         }
         return {};
@@ -203,7 +199,7 @@ namespace deren::engine::render_graph {
             return std::unexpected(error(error_code::invalid_ref));
         }
         auto edge = std::pair{predecessor.index_, pass.index_};
-        if (std::find(orders.begin(), orders.end(), edge) == orders.end()) {
+        if (std::ranges::find(orders, edge) == orders.end()) {
             orders.push_back(edge);
         }
         return {};
@@ -260,7 +256,7 @@ namespace deren::engine::render_graph {
             }
         }
         for (auto& resource : result.resources) {
-            resource.defined = std::all_of(resource.final_ranges.begin(), resource.final_ranges.end(), [](auto const& state) { return state.defined; });
+            resource.defined = std::ranges::all_of(resource.final_ranges, [](auto const& state) { return state.defined; });
             resource.last_producer = resource.final_ranges.front().producer;
             for (auto const& state : resource.final_ranges) {
                 if (state.producer != resource.last_producer) {

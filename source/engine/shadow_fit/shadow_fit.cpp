@@ -51,7 +51,7 @@ namespace deren::engine::shadow_fit {
 
         float const map_size = static_cast<float>(params.map_size);
         glm::vec3 const light_dir = glm::normalize(glm::vec3(params.light_dir));
-        glm::vec3 const up(0.0f, 1.0f, 0.0f);
+        constexpr glm::vec3 up(0.0f, 1.0f, 0.0f);
         glm::mat4 const light_rotation = light_rotation_of(light_dir);
 
         // ---- the camera's usable depth range, then the cascade splits over it ----
@@ -123,8 +123,8 @@ namespace deren::engine::shadow_fit {
                     for (int32_t xi = 0; xi < 2; ++xi) {
                         glm::vec4 const clip(xi == 0 ? -1.0f : 1.0f, yi == 0 ? -1.0f : 1.0f, zi == 0 ? 0.0f : 1.0f, 1.0f);
                         glm::vec4 const view_corner = inverse_fit_proj * clip;
-                        view_corners[count / 2] = glm::vec3(view_corner) / view_corner.w;
-                        center_view += view_corners[count / 2];
+                        view_corners[static_cast<int32_t>(count / 2)] = glm::vec3(view_corner) / view_corner.w;
+                        center_view += view_corners[static_cast<int32_t>(count / 2)];
                         glm::vec4 const world = inverse_view_proj * clip;
                         glm::vec3 const corner = glm::vec3(world) / world.w;
                         points[count++] = corner;

@@ -60,7 +60,7 @@ namespace deren::engine::pass {
         auto const halves = [](std::uint64_t const address) {
             return glm::uvec2(static_cast<uint32_t>(address & 0xFFFFFFFFu), static_cast<uint32_t>(address >> 32u));
         };
-        mask_bake_push_constants bake = {};
+        mask_bake_push_constants bake;
         bake.source_vertices = halves(request.source_vertices);
         bake.source_indices = halves(request.source_indices);
         bake.destination = halves(request.destination);

@@ -1,16 +1,22 @@
-#pragma once
-#include "radiance_capture.hpp"
-
+module;
 #include <algorithm>
 #include <array>
+#include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <glm/glm.hpp>
 #include <limits>
 #include <optional>
+#include <span>
 #include <vector>
-namespace deren::engine::probe_detail {
+
+export module deren.engine.lighting.reflection_probe;
+import deren.engine.lighting.radiance_capture;
+
+export namespace deren::engine::probe_detail {
+    using vec3 = glm::vec3;
     struct box {
-        glm::vec3 position{}, minimum{}, maximum{};
+        vec3 position{}, minimum{}, maximum{};
         float fade = .5f, gain = 1;
     };
     inline bool valid(box const& b) {
@@ -25,10 +31,10 @@ namespace deren::engine::probe_detail {
         return true;
     }
     struct sample {
-        glm::vec3 direction{};
+        vec3 direction{};
         float weight = 0;
     };
-    inline sample lookup(box const& b, glm::vec3 p, glm::vec3 r) {
+    inline sample lookup(box const& b, vec3 p, vec3 r) {
         if (!valid(b)) {
             return {};
         }
@@ -61,9 +67,14 @@ namespace deren::engine::probe_detail {
         std::vector<uint8_t> half;
     };
     inline std::optional<asset> decode(std::span<std::byte const> bytes) {
-        auto u32 = [&](size_t o) {uint32_t v=0;for(uint32_t i=0;i<4;++i){v|=uint32_t(std::to_integer<uint8_t>(bytes[o+i]))<<(i*8);
-}return v; };
-        auto u64 = [&](size_t o) { return uint64_t(u32(o)) | (uint64_t(u32(o + 4)) << 32); };
+        auto u32 = [&](size_t o) {
+            uint32_t v = 0;
+            for (uint32_t i = 0; i < 4; ++i) {
+                v |= static_cast<uint32_t>(std::to_integer<uint8_t>(bytes[o + i])) << (i * 8);
+            }
+            return v;
+        };
+        auto u64 = [&](size_t o) { return static_cast<uint64_t>(u32(o)) | (static_cast<uint64_t>(u32(o + 4)) << 32); };
         if (bytes.size() < 32 || u32(0) != 0x31425244 || u32(4) != 1) {
             return {};
         }
@@ -82,7 +93,7 @@ namespace deren::engine::probe_detail {
         }
         uint64_t count = 0;
         for (uint32_t l = 0; l < m; ++l) {
-            count += uint64_t(6) * (a.size >> l) * (a.size >> l) * 8;
+            count += static_cast<uint64_t>(6) * (a.size >> l) * (a.size >> l) * 8;
         }
         if (u64(16) != count || bytes.size() != 32 + count) {
             return {};
@@ -97,7 +108,7 @@ namespace deren::engine::probe_detail {
         }
         a.half.reserve(count);
         for (size_t i = 32; i < bytes.size(); i += 2) {
-            uint16_t bits = std::to_integer<uint8_t>(bytes[i]) | (uint16_t(std::to_integer<uint8_t>(bytes[i + 1])) << 8);
+            uint16_t bits = std::to_integer<uint8_t>(bytes[i]) | (static_cast<uint16_t>(std::to_integer<uint8_t>(bytes[i + 1])) << 8);
             float v = radiance_detail::decode_binary16(bits);
             if (!std::isfinite(v) || v < 0 || ((i - 32) % 8 == 6 && v != 1)) {
                 return {};

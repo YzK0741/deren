@@ -84,6 +84,7 @@ if(VR_BUILD_TESTS)
     endforeach()
 
     target_link_libraries(test_morton boost_int128_headers)
+    target_link_libraries(test_progressive_texture engine_visibility_support)
     target_link_libraries(test_rhi_resource_lifetime promise vulkan_core_support)
     # The injection test's single entry point carries the local objects for every child mode; Debug+ASan
     # builds that frame above the Windows default 1 MiB reserve. Give this test executable room to run.
@@ -110,7 +111,7 @@ if(VR_BUILD_TESTS)
     target_include_directories(test_texture_upload_layout PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/source/backends/vulkan/core/vma" "${Vulkan_INCLUDE_DIRS}" "${CMAKE_CURRENT_BINARY_DIR}/test-generated")
     target_sources(test_texture_upload_layout PRIVATE "${VR_TEXTURE_REGIONS_FIXTURE}")
-    target_link_libraries(test_texture_upload_layout vulkan_constant_init)
+    target_link_libraries(test_texture_upload_layout vulkan_constant_init vulkan_core_support)
 
     # source root for fixture/model paths (tests no longer assume the repo root is the cwd)
     target_compile_definitions(test_app_config PRIVATE VR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
@@ -286,7 +287,7 @@ if(VR_BUILD_TESTS)
     target_link_libraries(test_render_graph_parameters render_graph_core)
     target_link_libraries(test_render_graph_sync render_graph_core)
     target_link_libraries(test_render_graph_execute render_graph_execute probe_backend_static)
-    target_link_libraries(test_render_graph_frame render_graph_execute probe_backend_static backend_loader)
+    target_link_libraries(test_render_graph_frame render_graph_execute probe_backend_static backend_loader vulkan_core_support)
     target_link_libraries(test_render_graph_frame deren_engine)
 
     target_link_libraries(test_render_graph_compose render_graph_compose probe_backend_static)

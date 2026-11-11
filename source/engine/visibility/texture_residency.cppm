@@ -45,7 +45,8 @@ export namespace deren::engine::texture_residency {
     }
     using material_textures = utility::vessel::vector<utility::vessel::vector<std::uint32_t>>;
     enum class error { invalid_feedback,
-                       invalid_texture };
+                       invalid_texture,
+    };
     inline std::expected<utility::vessel::vector<std::uint8_t>, error> demand(
         feedback const& visible, material_textures const& edges, std::span<std::uint8_t const> pinned) {
         if (visible.invalid) {

@@ -16,10 +16,10 @@ namespace deren::asset::subtilis {
             return std::isfinite(s.x) && std::isfinite(s.y) && std::isfinite(s.z) && std::isfinite(s.radius) && s.radius >= 0;
         }
         double distance(sphere a, sphere b) {
-            return std::hypot(double(a.x) - b.x, double(a.y) - b.y, double(a.z) - b.z);
+            return std::hypot(static_cast<double>(a.x) - b.x, static_cast<double>(a.y) - b.y, static_cast<double>(a.z) - b.z);
         }
         bool inside(sphere s, array<float, 3> const& p) {
-            return std::hypot(double(p[0]) - s.x, double(p[1]) - s.y, double(p[2]) - s.z) <= double(s.radius);
+            return std::hypot(static_cast<double>(p[0]) - s.x, static_cast<double>(p[1]) - s.y, static_cast<double>(p[2]) - s.z) <= static_cast<double>(s.radius);
         }
         std::span<uint32_t const> fine(payload const& p, group_record const& g) {
             return std::span(p.references).subspan(g.fine_first, g.fine_count);
@@ -177,8 +177,8 @@ namespace deren::asset::subtilis {
                 auto a = s.positions[ids[i]], b = s.positions[ids[i + 1]], c = s.positions[ids[i + 2]];
                 array<double, 3> ab{}, ac{};
                 for (unsigned k = 0; k < 3; ++k) {
-                    ab[k] = double(b[k]) - a[k];
-                    ac[k] = double(c[k]) - a[k];
+                    ab[k] = static_cast<double>(b[k]) - a[k];
+                    ac[k] = static_cast<double>(c[k]) - a[k];
                 }
                 if (std::hypot(ab[1] * ac[2] - ab[2] * ac[1], ab[2] * ac[0] - ab[0] * ac[2], ab[0] * ac[1] - ab[1] * ac[0]) == 0) {
                     return fail("degenerate reduction triangle");
@@ -207,7 +207,7 @@ namespace deren::asset::subtilis {
             if (counts[i] > lim.max_records || counts[i] > UINT32_MAX || ((i == 1 || i == 2) && counts[i] == none)) {
                 return std::unexpected(error{error_code::capacity, "record limit", {}, {}});
             }
-            bytes += (counts[i] * strides[i] + 7) & ~uint64_t(7);
+            bytes += (counts[i] * strides[i] + 7) & ~static_cast<uint64_t>(7);
         }
         if (bytes > lim.max_payload_bytes) {
             return std::unexpected(error{error_code::capacity, "payload byte limit", {}, {}});
@@ -240,7 +240,7 @@ namespace deren::asset::subtilis {
                     return fail("invalid or repeated fine reference", id);
                 }
                 auto dependency = p.clusters[c].producer;
-                if (dependency != none && (dependency >= id || p.groups[dependency].error > g.error || distance(g.lod, p.groups[dependency].lod) + p.groups[dependency].lod.radius > double(g.lod.radius))) {
+                if (dependency != none && (dependency >= id || p.groups[dependency].error > g.error || distance(g.lod, p.groups[dependency].lod) + p.groups[dependency].lod.radius > static_cast<double>(g.lod.radius))) {
                     return fail("nonmonotone dependency metric", id);
                 }
                 consumer[c] = id;
@@ -291,7 +291,7 @@ namespace deren::asset::subtilis {
         if (!structure) {
             return std::unexpected(structure.error());
         }
-        if (source.positions.size() > lim.max_records || source.indices.size() > lim.max_records || uint64_t(source.positions.size()) * 32 + uint64_t(source.indices.size()) * 4 > lim.max_input_bytes) {
+        if (source.positions.size() > lim.max_records || source.indices.size() > lim.max_records || static_cast<uint64_t>(source.positions.size()) * 32 + static_cast<uint64_t>(source.indices.size()) * 4 > lim.max_input_bytes) {
             return std::unexpected(error{error_code::capacity, "source geometry exceeds limits", {}, {}});
         }
         auto hash = source_digest(source);
@@ -313,7 +313,7 @@ namespace deren::asset::subtilis {
                 }
             }
         }
-        auto leaves = gather(data, data.leaves, std::min(lim.max_records, uint64_t(source.indices.size())));
+        auto leaves = gather(data, data.leaves, std::min(lim.max_records, static_cast<uint64_t>(source.indices.size())));
         if (!leaves) {
             return std::unexpected(leaves.error());
         }

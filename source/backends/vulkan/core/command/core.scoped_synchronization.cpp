@@ -16,7 +16,7 @@ namespace deren::vulkan {
         constexpr uint32_t bit(scopes::usage value) noexcept {
             return static_cast<uint32_t>(value);
         }
-        constexpr scopes::aspect format_aspects(VkFormat format) noexcept {
+        constexpr scopes::aspect format_aspects(VkFormat const format) noexcept {
             switch (format) {
             case VK_FORMAT_D16_UNORM:
             case VK_FORMAT_X8_D24_UNORM_PACK32:
@@ -32,10 +32,10 @@ namespace deren::vulkan {
                 return scopes::aspect::color;
             }
         }
-        constexpr bool state_usage(scopes::image_state state, uint32_t usage) noexcept {
+        constexpr bool state_usage(scopes::image_state const state, uint32_t const usage) noexcept {
             switch (state.layout) {
             case scopes::image_layout::undefined:
-                return true;
+                [[fallthrough]];
             case scopes::image_layout::general:
                 return true;
             case scopes::image_layout::shader_read_only:
@@ -65,7 +65,7 @@ namespace deren::vulkan {
         if (!parent) {
             return scopes::stage::none;
         }
-        auto flags = parent->command.synchronization_queue_flags;
+        auto const flags = parent->command.synchronization_queue_flags;
         uint32_t result = 0;
         if (flags & VK_QUEUE_GRAPHICS_BIT) {
             result |= 1U | 2U | 8U | 16U | 64U;
@@ -120,7 +120,7 @@ namespace deren::vulkan {
             return rhi::error::invalid_argument;
         }
         uint32_t usage = 0;
-        auto add = [&](rhi::image_flag flag, scopes::usage target) noexcept { if (rhi::has_flag(image.declared_flags, flag)) { usage |= bit(target); 
+        auto add = [&](rhi::image_flag const flag, scopes::usage const target) noexcept { if (rhi::has_flag(image.declared_flags, flag)) { usage |= bit(target);
 } };
         add(rhi::image_flag::sampled, scopes::usage::sampled);
         add(rhi::image_flag::storage, scopes::usage::storage);
@@ -137,7 +137,7 @@ namespace deren::vulkan {
         if (!detail) {
             return rhi::error::invalid_argument;
         }
-        output = {image.mip_levels, image.array_layers, format_aspects(image.resolved_format), usage, reinterpret_cast<std::uintptr_t>(detail)};
+        output = {.mip_levels = image.mip_levels, .array_layers = image.array_layers, .aspects = format_aspects(image.resolved_format), .usage_mask = usage, .canonical_object = reinterpret_cast<std::uintptr_t>(detail)};
         return rhi::error::ok;
     }
 
@@ -208,20 +208,20 @@ namespace deren::vulkan {
             return rhi::error::invalid_argument;
         }
         auto supported = static_cast<uint32_t>(supported_stages());
-        for (auto const& one : images) {
-            if (!one.resource) {
+        for (auto const& [resource, transition] : images) {
+            if (!resource) {
                 return rhi::error::invalid_argument;
             }
             rhi::scoped_image_info info;
-            auto error = describe(*one.resource, info);
+            auto error = describe(*resource, info);
             if (error != rhi::error::ok) {
                 return error;
             }
-            auto mapped = native_sync::map_image(one.transition);
+            auto mapped = native_sync::map_image(transition);
             if (!mapped) {
                 return mapped_error(mapped.error());
             }
-            auto const& range = one.transition.range;
+            auto const& range = transition.range;
             if (range.base_mip >= info.mip_levels || range.mip_count > info.mip_levels - range.base_mip || range.base_layer >= info.array_layers || range.layer_count > info.array_layers - range.base_layer || (static_cast<uint32_t>(range.aspects) & ~static_cast<uint32_t>(info.aspects))) {
                 return rhi::error::invalid_argument;
             }
@@ -229,31 +229,30 @@ namespace deren::vulkan {
             if (static_cast<uint32_t>(info.aspects) == 6U && range.aspects != info.aspects) {
                 return rhi::error::unsupported;
             }
-            auto stages = static_cast<uint32_t>(one.transition.before.scope.stages) | static_cast<uint32_t>(one.transition.after.scope.stages);
+            auto stages = static_cast<uint32_t>(transition.before.scope.stages) | static_cast<uint32_t>(transition.after.scope.stages);
             if (stages & ~supported) {
                 return rhi::error::unsupported;
             }
-            if (!state_usage(one.transition.before, info.usage_mask) || !state_usage(one.transition.after, info.usage_mask)) {
+            if (!state_usage(transition.before, info.usage_mask) || !state_usage(transition.after, info.usage_mask)) {
                 return rhi::error::invalid_argument;
             }
         }
-        for (auto const& one : buffers) {
-            if (!one.resource) {
+        for (auto const& [resource, transition] : buffers) {
+            if (!resource) {
                 return rhi::error::invalid_argument;
             }
             rhi::scoped_buffer_info info;
-            auto error = describe(*one.resource, info);
+            auto const error = describe(*resource, info);
             if (error != rhi::error::ok) {
                 return error;
             }
-            auto mapped = native_sync::map_buffer(one.transition);
-            if (!mapped) {
+            if (auto mapped = native_sync::map_buffer(transition); !mapped) {
                 return mapped_error(mapped.error());
             }
-            if (one.transition.offset >= info.byte_size || one.transition.size > info.byte_size - one.transition.offset) {
+            if (transition.offset >= info.byte_size || transition.size > info.byte_size - transition.offset) {
                 return rhi::error::invalid_argument;
             }
-            auto stages = static_cast<uint32_t>(one.transition.before.stages) | static_cast<uint32_t>(one.transition.after.stages);
+            auto stages = static_cast<uint32_t>(transition.before.stages) | static_cast<uint32_t>(transition.after.stages);
             if (stages & ~supported) {
                 return rhi::error::unsupported;
             }
@@ -261,12 +260,12 @@ namespace deren::vulkan {
         return rhi::error::ok;
     }
 
-    rhi::error core::scoped_sync_view::record(rhi::command_recorder& commands, std::span<rhi::scoped_image_barrier const> images, std::span<rhi::scoped_buffer_barrier const> buffers) const noexcept {
+    rhi::error core::scoped_sync_view::record(rhi::command_recorder& recorder, std::span<rhi::scoped_image_barrier const> images, std::span<rhi::scoped_buffer_barrier const> buffers) const noexcept {
         if (!parent) {
             return rhi::error::not_ready;
         }
         rhi::error resolved{};
-        frame_commands* const list = parent->resolve_recorder(&commands, resolved);
+        frame_commands* const list = parent->resolve_recorder(&recorder, resolved);
         if (resolved != rhi::error::ok) {
             return resolved;
         }
@@ -289,21 +288,21 @@ namespace deren::vulkan {
         if (images.empty() && buffers.empty()) {
             return rhi::error::ok;
         }
-        for (auto const& one : images) {
+        for (auto const& [resource, transition] : images) {
             bool registered;
             {
                 std::lock_guard lock(parent->resource.contract_images_mutex);
-                registered = parent->resource.contract_images.contains(one.resource);
+                registered = parent->resource.contract_images.contains(resource);
             }
             if (registered) {
-                auto loaded = list->demand(*one.resource);
+                auto loaded = list->demand(*resource);
                 if (loaded != rhi::error::ok) {
                     return loaded;
                 }
             }
         }
-        for (auto const& one : buffers) {
-            auto loaded = list->demand(*one.resource);
+        for (auto const& [resource, transition] : buffers) {
+            auto const loaded = list->demand(*resource);
             if (loaded != rhi::error::ok) {
                 return loaded;
             }

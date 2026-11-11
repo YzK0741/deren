@@ -55,7 +55,8 @@ export namespace deren::engine::visibility::software {
     }
 
     enum class candidate_source : std::uint8_t { hardware,
-                                                 software };
+                                                 software,
+    };
 
     /// the resolve's choice for one pixel: which producer's id it decodes and which depth it reconstructs with
     struct resolved_candidate {

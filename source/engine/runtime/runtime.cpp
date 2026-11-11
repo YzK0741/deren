@@ -1,26 +1,8 @@
 module;
-#include "../lighting/environment_controls.hpp"
 
 #include <GLFW/glfw3.h>
-#include <algorithm> // std::min in the resource publication
-#include <bit>       // std::bit_cast for the caster world-matrix hash
-#include <cstddef>
-#include <cstdint>
-#include <cstdio> // std::snprintf: the software-raster workload probe's JSON floats (%.9g round-trips float32)
-#include <cstdlib>
-#include <cstring>    // std::memcpy, for composing a pass's push block
-#include <functional> // std::function: the per-item planning tasks a worker pool runs
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <iterator>        // std::prev: the ordered publication table's predecessor lookup
-#include <memory>          // std::shared_ptr: the frame's referenced command buffer (see frame_command_buffer)
-#include <source_location> // the panic sites of the graphics-queue-family derivation
-#include <span>            // the byte spans the contract's buffer descriptors and the push endpoints take
-#include <string>          // the software-raster workload probe's dump path
-#include <string_view>     // the phase-B gate's closed-reason vocabulary (the once-per-session log line)
-#include <thread>          // std::this_thread::yield in the frame limiter
-#include <utility>         // std::move for the whitelist's name list
-#include <vector>          // the queue-family list the graphics-queue derivation walks
 
 // THE GUI PLUGIN'S BOUNDARY (plan X2): `create_info`, `api_type` and `overlay` live in a header the plugin
 // and the host share. In the GLOBAL MODULE FRAGMENT because the header declares `GLFWwindow` itself and pulls
@@ -46,9 +28,10 @@ import deren.engine.pass.toon_screen_rim;
 import deren.engine.pass.game_toon_depth_rim; // the game chain's depth rim (see set_toon_screen_rim)
 
 import deren.utility;
-import deren.engine.frame_constants;     // one frame's shared constants (see update_frame_constants)
-import deren.engine.pipelines;           // make_graphics_pipeline: the contract factory the named pipelines build through
-import deren.engine.meshlet;             // the meshlet split (docs/mesh_shaders.md step 3): pure CPU, built at upload
+import deren.engine.frame_constants; // one frame's shared constants (see update_frame_constants)
+import deren.engine.pipelines;       // make_graphics_pipeline: the contract factory the named pipelines build through
+import deren.engine.meshlet;         // the meshlet split (docs/mesh_shaders.md step 3): pure CPU, built at upload
+import deren.engine.lighting.environment_controls;
 import deren.engine.gui_loader;          // load_gui: resolves deren_gui_<api>.dll by name (plan X2)
 import deren.engine.visibility;          // the draw-item record the visibility lane writes (the cull reads its model)
 import deren.engine.visibility.software; // M4 Task 1: the CPU subpixel criterion/tile binning (capture-only probe)
@@ -80,7 +63,7 @@ namespace deren::engine {
         }
     } // namespace runtime_detail
 
-    void runtime::write_rt_structure_binding(deren::promise::rhi::acceleration_structure* const tlas, uint32_t const frame_slot) {
+    void runtime::write_rt_structure_binding(rhi::acceleration_structure const* const tlas, uint32_t const frame_slot) const {
         // Publish this frame slot's structure object. The descriptor space validates its provenance
         // and resolves the native address/range; runtime knows only the shader-facing slot.
         if (!contract_descriptor_ready(this->rhi_face()) || tlas == nullptr) {
@@ -271,7 +254,7 @@ namespace deren::engine {
         // changed): forget the matrices, so the next frame for each image starts a new accumulation
         // instead of blending in a misaligned one. (WHETHER a history has anything in it is the TAA pass's
         // state, and the call above is what cleared it.)
-        std::size_t const image_count = static_cast<std::size_t>(rhi::max_swapchain_images);
+        constexpr std::size_t image_count = static_cast<std::size_t>(rhi::max_swapchain_images);
         this->image_view_proj.assign(image_count, this->current_ubo.view_proj_unjittered);
         // The per-image first-use state of the passes in a chain is the PASS's, and the recreate_stage call
         // above is what told each of them its first-use batch - which is why there is no host flag for it any
@@ -306,7 +289,8 @@ namespace deren::engine {
         // is an invalid one, so every axis clamps to at least one - the same formula `core::render_extent()`
         // applied while the engine named it.
         auto const scaled = [this](uint32_t const axis) {
-            uint32_t const value = static_cast<uint32_t>(static_cast<float>(axis) * this->render_scale + 0.5f);
+            uint32_t const value = static_cast<uint32_t>(
+                std::llround(static_cast<double>(axis) * static_cast<double>(this->render_scale)));
             return value == 0u ? 1u : value; // a zero extent is not a small frame, it is an invalid one
         };
         this->render_extent_value = rhi::image_extent{scaled(output.width), scaled(output.height)};
@@ -535,7 +519,7 @@ namespace deren::engine {
         return this->debug_gui_shown && this->debug_overlay != nullptr && this->debug_overlay->is_active() && this->debug_overlay->wants_mouse();
     }
 
-    deren::gui::overlay& runtime::debug_gui() noexcept {
+    deren::gui::overlay& runtime::debug_gui() noexcept { // NOLINT(readability-make-member-function-const): returns the mutable overlay handle.
         // A DEFAULT-CONSTRUCTED PLACEHOLDER WOULD BE A LIE: `enable_debug_gui()` is the one creator, and a
         // caller that reaches this WITHOUT it has a bug the contract cannot paper over - so a null plugin is a
         // named panic (the app's order guarantees it, and `debug_gui_wants_mouse` above is the guarded path
@@ -578,7 +562,7 @@ namespace deren::engine {
         // reduces the blend math to the source colour), while the span-based form's default is "overwrite".
         // Omitting it is not a no-op - the gate caught it as a changed scenario, and this is why the conversion
         // is a re-expression rather than a rewrite.
-        deren::utility::vessel::array<rhi::blend_mode, 1> const blend_attachments = {rhi::blend_mode::alpha};
+        constexpr deren::utility::vessel::array<rhi::blend_mode, 1> blend_attachments = {rhi::blend_mode::alpha};
         // ---- THE MESH FORM, which IS the pipeline now (docs/mesh_shaders.md step 4): built before the registry
         //      insert, cached with the same two viewport values its draws need (begin_pipeline re-emits them and
         //      update_pass_geometry resyncs every registered pipeline once per frame), and a failure is the CALLER's
@@ -667,7 +651,7 @@ namespace deren::engine {
         // visibility buffer itself), the shared depth image, NO blending (integer targets cannot blend), the
         // depth test ON, and LESS_OR_EQUAL - the comparison the G-buffer pass uses, so an equal-depth tie
         // resolves to the same triangle the old path would have kept.
-        deren::utility::vessel::array<rhi::image_format, 1> const color_formats = {deren::engine::render_layout::visibility_format};
+        constexpr deren::utility::vessel::array<rhi::image_format, 1> color_formats = {deren::engine::render_layout::visibility_format};
         auto built = pipelines::make_graphics_pipeline(this->rhi_face(),
                                                        std::span<rhi::image_format const>(color_formats),
                                                        rhi::image_format::depth,
@@ -692,11 +676,11 @@ namespace deren::engine {
 
     std::expected<pipelines::pipeline_handle, deren::utility::vessel::string> runtime::build_toon_family_pipeline(
         std::span<uint8_t const> const first_stage_code, std::span<uint8_t const> const fragment_code,
-        rhi::blend_mode const mode, rhi::depth_compare const compare, char const* const what) {
+        rhi::blend_mode const mode, rhi::depth_compare const compare, char const* const what) const {
         // ONE HDR colour target, the depth ROLE (the backend picks the device's format), the depth TEST
         // with the WRITE left as per-draw dynamic state, single-sampled, and the caller's blend mode and
         // compare operator - the recipes the three former core members carried, now at one call.
-        deren::utility::vessel::array<rhi::image_format, 1> const formats = {rhi::image_format::r16g16b16a16_sfloat};
+        constexpr deren::utility::vessel::array<rhi::image_format, 1> formats = {rhi::image_format::r16g16b16a16_sfloat};
         deren::utility::vessel::array<rhi::blend_mode, 1> const blends = {mode};
         auto built = pipelines::make_graphics_pipeline(this->rhi_face(),
                                                        std::span<rhi::image_format const>(formats),
@@ -1132,7 +1116,7 @@ namespace deren::engine {
     }
 
     void runtime::set_toon_screen_rim(float const width, float const scale, float const strength,
-                                      float const r, float const g, float const b) noexcept {
+                                      float const r, float const g, float const b) const noexcept {
         // THE GAME CHAIN'S DEPTH RIM IS THE TARGET, not the article's contour: this setter is the captured
         // GameToon profile-on chain's knob (its only caller is main's `[render] game_toon` block), and that chain
         // draws its rim pass (`deren.engine.pass.game_toon_depth_rim`). The article's contour
@@ -1425,7 +1409,7 @@ namespace deren::engine {
 
     void runtime::set_rt_reflection_whitelist(bool const cloth, float const strength, deren::utility::vessel::string materials) {
         this->rt_reflection_cloth = cloth;
-        this->rt_reflection_strength = strength < 0.0f ? 0.0f : (strength > 1.0f ? 1.0f : strength);
+        this->rt_reflection_strength = std::clamp(strength, 0.0f, 1.0f);
         this->rt_reflection_materials = std::move(materials);
         if (this->deferred_pass[0] != nullptr) {
             this->deferred_pass[0]->set_rt_reflection_strength(this->rt_reflection_strength);
@@ -1513,6 +1497,12 @@ namespace deren::engine {
     void runtime::set_subtilis_gpu_cut(bool enabled) noexcept {
         this->subtilis_gpu_cut = enabled;
     }
+    void runtime::set_subtilis_page_upload_bytes(std::uint64_t const value) noexcept {
+        this->subtilis_page_upload_budget = std::max<std::uint64_t>(value, 1u);
+    }
+    void runtime::set_subtilis_resident_page_bytes(std::uint64_t const value) noexcept {
+        this->subtilis_resident_page_budget = std::max<std::uint64_t>(value, 1u);
+    }
 
     void runtime::set_software_raster(bool const enabled) noexcept {
         this->software_raster_on = enabled;
@@ -1559,11 +1549,13 @@ namespace deren::engine {
             .materials = materials != nullptr ? std::span<material_record const>(materials, this->material_count) : std::span<material_record const>{},
             .mask_bake = this->rt_mask_bake,
             .skin_bake = this->rt_skin_bake,
-            .hooks = ray_tracing::bake_hooks{.parent = const_cast<runtime*>(this),
-                                             .mask_ready = &runtime::structure_mask_ready,
-                                             .record_mask_bake = &runtime::structure_record_mask_bake,
-                                             .skin_ready = &runtime::structure_skin_ready,
-                                             .record_skin = &runtime::structure_record_skin},
+            .hooks = ray_tracing::bake_hooks{
+                .parent = const_cast<runtime*>(this),
+                .mask_ready = &runtime::structure_mask_ready,
+                .record_mask_bake = &runtime::structure_record_mask_bake,
+                .skin_ready = &runtime::structure_skin_ready,
+                .record_skin = &runtime::structure_record_skin,
+            },
         };
     }
 
@@ -1701,7 +1693,7 @@ namespace deren::engine {
     // buffer never bound) went unnoticed for a whole round.
     bool runtime::draw_mesh_tasks_indirect(void* const parent, recording_target const& target, uint32_t const command_slot, uint32_t const groups_x, uint32_t const groups_y, uint32_t const groups_z) {
         runtime* const self = static_cast<runtime*>(parent);
-        auto const direct = [&]() {
+        auto const direct = [&] {
             self->mesh_indirect_direct_fallbacks.fetch_add(1u, std::memory_order_relaxed);
             return runtime::draw_mesh_tasks(parent, target, groups_x, groups_y, groups_z);
         };
@@ -2111,9 +2103,13 @@ namespace deren::engine {
         // probe's pair was write -> source; here the last use is the dispatch's read) and the survivor lane was
         // just WRITTEN by it. One barrier group for all three, then the three copies, then the hand-back, then the
         // host-read publication - the same shape the depth/HZB probes use, one resource class over.
-        std::array<rhi::buffer_barrier, 3> const to_source{{{.resource = levels, .from = rhi::buffer_use::shader_read, .to = rhi::buffer_use::transfer_source},
-                                                            {.resource = header, .from = rhi::buffer_use::shader_read, .to = rhi::buffer_use::transfer_source},
-                                                            {.resource = survivors, .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::transfer_source}}};
+        std::array<rhi::buffer_barrier, 3> const to_source{
+            {
+                {.resource = levels, .from = rhi::buffer_use::shader_read, .to = rhi::buffer_use::transfer_source},
+                {.resource = header, .from = rhi::buffer_use::shader_read, .to = rhi::buffer_use::transfer_source},
+                {.resource = survivors, .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::transfer_source},
+            },
+        };
         if (commands.barrier(rhi::barrier_group{.buffers = std::span<rhi::buffer_barrier const>(to_source)}) != rhi::error::ok) {
             deren::utility::log("hzb cull probe capture: FAIL copy entry barrier");
             this->hzb_cull_probe_active = false;
@@ -2122,17 +2118,25 @@ namespace deren::engine {
         auto const pyramid_copied = commands.copy_buffer(*this->hzb_cull_probe_pyramid_readback, *levels, levels_bytes, slot * levels_bytes, 0u);
         auto const header_copied = commands.copy_buffer(*this->hzb_cull_probe_header_readback, *header, header_bytes, slot * header_bytes, 0u);
         auto const survivors_copied = this->hzb_recovery_probe_enabled ? rhi::error::ok : commands.copy_buffer(*this->hzb_cull_probe_survivors_readback, *survivors, survivors_bytes, slot * survivors_bytes, 0u);
-        std::array<rhi::buffer_barrier, 3> const restored{{{.resource = levels, .from = rhi::buffer_use::transfer_source, .to = rhi::buffer_use::shader_read},
-                                                           {.resource = header, .from = rhi::buffer_use::transfer_source, .to = rhi::buffer_use::shader_read},
-                                                           {.resource = survivors, .from = rhi::buffer_use::transfer_source, .to = rhi::buffer_use::shader_write}}};
+        std::array<rhi::buffer_barrier, 3> const restored{
+            {
+                {.resource = levels, .from = rhi::buffer_use::transfer_source, .to = rhi::buffer_use::shader_read},
+                {.resource = header, .from = rhi::buffer_use::transfer_source, .to = rhi::buffer_use::shader_read},
+                {.resource = survivors, .from = rhi::buffer_use::transfer_source, .to = rhi::buffer_use::shader_write},
+            },
+        };
         auto const left = commands.barrier(rhi::barrier_group{.buffers = std::span<rhi::buffer_barrier const>(restored)});
-        std::array<rhi::buffer_barrier, 5> const host_reads{{{.resource = this->hzb_cull_probe_pyramid_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read},
-                                                             {.resource = this->hzb_cull_probe_header_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read},
-                                                             {.resource = this->hzb_cull_probe_survivors_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read},
-                                                             // These coherent tables are read directly after device idle. Completion alone
-                                                             // does not publish shader writes into the host memory domain.
-                                                             {.resource = this->mesh_indirect_buffer.get(), .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::host_read},
-                                                             {.resource = this->hzb_results_buffer.get(), .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::host_read}}};
+        std::array<rhi::buffer_barrier, 5> const host_reads{
+            {
+                {.resource = this->hzb_cull_probe_pyramid_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read},
+                {.resource = this->hzb_cull_probe_header_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read},
+                {.resource = this->hzb_cull_probe_survivors_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read},
+                // These coherent tables are read directly after device idle. Completion alone
+                // does not publish shader writes into the host memory domain.
+                {.resource = this->mesh_indirect_buffer.get(), .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::host_read},
+                {.resource = this->hzb_results_buffer.get(), .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::host_read},
+            },
+        };
         auto const published = commands.barrier(rhi::barrier_group{.buffers = std::span<rhi::buffer_barrier const>(host_reads)});
         if (pyramid_copied != rhi::error::ok || header_copied != rhi::error::ok || survivors_copied != rhi::error::ok || left != rhi::error::ok || published != rhi::error::ok) {
             deren::utility::log("hzb cull probe capture: FAIL copy or publication");
@@ -2156,9 +2160,13 @@ namespace deren::engine {
         std::uint64_t const levels_bytes = hzb_lane_bytes(*levels, slots);
         std::uint64_t const header_bytes = hzb_lane_bytes(*header, slots);
         std::uint64_t const survivors_bytes = hzb_lane_bytes(*survivors, slots);
-        std::array<rhi::buffer_barrier, 3> const entry{{{.resource = levels, .from = rhi::buffer_use::shader_read, .to = rhi::buffer_use::transfer_source},
-                                                        {.resource = header, .from = rhi::buffer_use::shader_read, .to = rhi::buffer_use::transfer_source},
-                                                        {.resource = survivors, .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::transfer_source}}};
+        std::array<rhi::buffer_barrier, 3> const entry{
+            {
+                {.resource = levels, .from = rhi::buffer_use::shader_read, .to = rhi::buffer_use::transfer_source},
+                {.resource = header, .from = rhi::buffer_use::shader_read, .to = rhi::buffer_use::transfer_source},
+                {.resource = survivors, .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::transfer_source},
+            },
+        };
         if (commands.barrier(rhi::barrier_group{.buffers = entry}) != rhi::error::ok) {
             this->hzb_cull_probe_active = false;
             return;
@@ -2166,15 +2174,23 @@ namespace deren::engine {
         auto a = commands.copy_buffer(*this->hzb_recovery_probe_pyramid_readback, *levels, levels_bytes, slot * levels_bytes, 0u);
         auto b = commands.copy_buffer(*this->hzb_recovery_probe_header_readback, *header, header_bytes, slot * header_bytes, 0u);
         auto c = commands.copy_buffer(*this->hzb_cull_probe_survivors_readback, *survivors, survivors_bytes, slot * survivors_bytes, 0u);
-        std::array<rhi::buffer_barrier, 3> const restore{{{.resource = levels, .from = rhi::buffer_use::transfer_source, .to = rhi::buffer_use::shader_read},
-                                                          {.resource = header, .from = rhi::buffer_use::transfer_source, .to = rhi::buffer_use::shader_read},
-                                                          {.resource = survivors, .from = rhi::buffer_use::transfer_source, .to = rhi::buffer_use::shader_write}}};
+        std::array<rhi::buffer_barrier, 3> const restore{
+            {
+                {.resource = levels, .from = rhi::buffer_use::transfer_source, .to = rhi::buffer_use::shader_read},
+                {.resource = header, .from = rhi::buffer_use::transfer_source, .to = rhi::buffer_use::shader_read},
+                {.resource = survivors, .from = rhi::buffer_use::transfer_source, .to = rhi::buffer_use::shader_write},
+            },
+        };
         auto d = commands.barrier(rhi::barrier_group{.buffers = restore});
-        std::array<rhi::buffer_barrier, 5> const host{{{.resource = this->hzb_recovery_probe_pyramid_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read},
-                                                       {.resource = this->hzb_recovery_probe_header_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read},
-                                                       {.resource = this->hzb_cull_probe_survivors_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read},
-                                                       {.resource = this->mesh_indirect_buffer.get(), .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::host_read},
-                                                       {.resource = this->hzb_results_buffer.get(), .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::host_read}}};
+        std::array<rhi::buffer_barrier, 5> const host{
+            {
+                {.resource = this->hzb_recovery_probe_pyramid_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read},
+                {.resource = this->hzb_recovery_probe_header_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read},
+                {.resource = this->hzb_cull_probe_survivors_readback.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::host_read},
+                {.resource = this->mesh_indirect_buffer.get(), .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::host_read},
+                {.resource = this->hzb_results_buffer.get(), .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::host_read},
+            },
+        };
         auto e = commands.barrier(rhi::barrier_group{.buffers = host});
         this->hzb_recovery_probe_copied = a == rhi::error::ok && b == rhi::error::ok && c == rhi::error::ok && d == rhi::error::ok && e == rhi::error::ok;
         if (!this->hzb_recovery_probe_copied) {
@@ -2206,10 +2222,13 @@ namespace deren::engine {
             subtilis::reservation space = {};
             std::uint32_t item_index = 0;
             bool gpu_cut = false;
-            subtilis::uploaded_geometry const* cut_source = nullptr;
-            uint32_t input_count = 0, selected_count = 0, fallback_count = 0;
+            std::shared_ptr<subtilis::uploaded_geometry const> cut_source;
+            uint32_t input_count = 0;
+            uint32_t selected_count = 0;
+            uint32_t fallback_count = 0;
             std::uint32_t lod0_count = 0;
-            std::uint64_t input_triangles = 0, selected_triangles = 0;
+            std::uint64_t input_triangles = 0;
+            std::uint64_t selected_triangles = 0;
             double cut_us = 0;
             // M4 Task 1's capture-only workload probe: this item's split at 1.0 px (only touched while the env probe is
             // armed). The capture frame also keeps this item's selected records as a HOST copy, because the serial dump
@@ -2237,7 +2256,7 @@ namespace deren::engine {
         auto const extent = this->render_extent();
         auto* const commands = static_cast<rhi::mesh_task_command*>(this->mesh_indirect_mapped);
         std::uint32_t const frame_slot = this->frame_ring().position();
-        std::uint32_t const capacity = runtime::visibility_item_capacity;
+        constexpr std::uint32_t capacity = runtime::visibility_item_capacity;
         std::uint32_t const count = static_cast<std::uint32_t>(this->frame_visible.size());
         if (count == 0u || count > capacity) {
             return false; // the candidate run does not fit the item table
@@ -2461,15 +2480,14 @@ namespace deren::engine {
                     leaf.subtilis_geometry->cut_groups() != nullptr && leaf.subtilis_geometry->cut_references() != nullptr &&
                     leaf.subtilis_geometry->cut_clusters() != nullptr && leaf.subtilis_geometry->cut_group_count() != 0u &&
                     leaf.subtilis_geometry->cut_group_count() <= subtilis::cut_max_groups &&
-                    leaf.subtilis_geometry->source().hierarchy_dag()->maximum_selected_bound() <= leaf.subtilis_geometry->cut_cluster_count() &&
-                    leaf.subtilis_geometry->source().hierarchy_dag()->maximum_selected_bound() <= plan.space.count;
+                    leaf.subtilis_geometry->source().hierarchy_dag()->maximum_selected_bound() <= leaf.subtilis_geometry->cut_cluster_count();
                 if (cut_eligible) {
                     // A page-miss frame must still draw the WHOLE item as LOD0: the cut shader can only
                     // write a contiguous meshlet run, so the host preloads the LOD0 records where the
                     // visibility path already expects `space.base`. If that write fails, use the CPU cut
                     // instead of publishing a run that reads unrelated records.
                     auto const lod0 = leaf.subtilis_geometry->source().lod0_clusters();
-                    if (lod0.empty() || lod0.size() > plan.space.count ||
+                    if (lod0.empty() || subtilis::check_reservation(plan.space, lod0.size(), published) != subtilis::fallback_reason::none ||
                         !runtime::meshlet_culled_write(this, plan.space.base, std::as_bytes(lod0))) {
                         cut_eligible = false;
                     } else {
@@ -2479,7 +2497,7 @@ namespace deren::engine {
                 if (cut_eligible) {
                     plan.run = subtilis::visible_run{plan.space.base, 0u, subtilis::run_source::visible, subtilis::fallback_reason::none};
                     plan.gpu_cut = true;
-                    plan.cut_source = leaf.subtilis_geometry.get();
+                    plan.cut_source = leaf.subtilis_geometry;
                     plan.input_count = plan.space.count;
                     plan.input_triangles = leaf.draw_index_count / 3;
                     plan.selected_triangles = 0u;
@@ -2528,10 +2546,12 @@ namespace deren::engine {
                                                                               triangle_edge_routing && leaf.subtilis_geometry ? leaf.subtilis_geometry->triangle_edge(selected[record]) : std::numeric_limits<double>::infinity()));
                     }
                 }
-                software::item_records const probe_item{.item_index = index,
-                                                        .model = model,
-                                                        .records = std::span<meshlet const>(selected.data(), plan.run.count),
-                                                        .cached_projections = plan.software_projections};
+                software::item_records const probe_item{
+                    .item_index = index,
+                    .model = model,
+                    .records = std::span<meshlet const>(selected.data(), plan.run.count),
+                    .cached_projections = plan.software_projections,
+                };
                 auto const threshold = software_raster_frame_active ? this->software_raster_threshold_px : software::threshold_px_default;
                 auto const split = software::split_records(probe_item, *software_probe_camera, threshold, probe_order, software_metric);
                 if (software_raster_frame_active && this->software_visibility->triangles_active()) {
@@ -2577,14 +2597,22 @@ namespace deren::engine {
             for (std::uint32_t index = 0; index < count; ++index) {
                 order[index] = index;
             }
-            std::sort(order.begin(), order.end(), [&](std::uint32_t a, std::uint32_t b) { return plans[a].space.base < plans[b].space.base; });
-            for (std::uint32_t position = 1; position < count; ++position) {
-                visibility_item_plan const& previous = plans[order[position - 1u]];
-                visibility_item_plan const& current = plans[order[position]];
-                if (previous.space.count != 0u && current.space.count != 0u &&
-                    std::uint64_t(previous.space.base) + previous.space.count > std::uint64_t(current.space.base)) {
-                    ordered_planning[order[position - 1u]] = true;
-                    ordered_planning[order[position]] = true;
+            std::ranges::sort(order, [&](std::uint32_t a, std::uint32_t b) { return plans[a].space.base < plans[b].space.base; });
+            std::uint32_t furthest = 0u;
+            std::uint64_t furthest_end = 0u;
+            for (auto index : order) {
+                auto const space = plans[index].space;
+                if (space.count == 0u) {
+                    continue;
+                }
+                if (space.base < furthest_end) {
+                    ordered_planning[furthest] = true;
+                    ordered_planning[index] = true;
+                }
+                auto const end = static_cast<std::uint64_t>(space.base) + space.count;
+                if (end > furthest_end) {
+                    furthest = index;
+                    furthest_end = end;
                 }
             }
         }
@@ -2642,7 +2670,7 @@ namespace deren::engine {
                     }
                     plan_item(index, std::span<subtilis::reservation const>(published_snapshot), selected, probe_order);
                 }
-                if (plan.run.source == subtilis::run_source::visible && plan.run.count != 0u && space.count != 0u) {
+                if (plan.run.source == subtilis::run_source::visible && (plan.gpu_cut || plan.run.count != 0u) && space.count != 0u) {
                     published.emplace(space.base, space.base + space.count);
                 }
             }
@@ -2680,7 +2708,6 @@ namespace deren::engine {
                 logged = true;
             }
         } else if (software_raster_frame_active) {
-            namespace software = deren::engine::visibility::software;
             software::camera_parameters parameters{};
             std::memcpy(parameters.view.data(), &this->current_ubo.view, 16u * sizeof(float));
             std::memcpy(parameters.proj.data(), &this->current_ubo.proj, 16u * sizeof(float));
@@ -2699,10 +2726,12 @@ namespace deren::engine {
                 }
                 std::array<float, 16> model{};
                 std::memcpy(model.data(), &leaves[index]->push.model, sizeof(model));
-                items.push_back(software::item_records{.item_index = index,
-                                                       .model = model,
-                                                       .records = std::span<meshlet const>(plan.probe_records.data(), plan.probe_records.size()),
-                                                       .cached_projections = plan.software_projections});
+                items.push_back(software::item_records{
+                    .item_index = index,
+                    .model = model,
+                    .records = std::span<meshlet const>(plan.probe_records.data(), plan.probe_records.size()),
+                    .cached_projections = plan.software_projections,
+                });
             }
             bool const triangles = this->software_visibility->triangles_active();
             std::expected<software::software_tile_lists, software::software_error> lists = std::unexpected(software::software_error::invalid_reference);
@@ -2785,7 +2814,7 @@ namespace deren::engine {
                                      : std::expected<software::software_image, software::software_error>{std::unexpected(software::software_error::invalid_reference)};
                 if (!reference) {
                     for (auto const& entry : lists->entries) {
-                        auto const found = std::find_if(references.begin(), references.end(), [&](auto const& candidate) { return candidate.item_index == entry.item_index; });
+                        auto const found = std::ranges::find_if(references, [&](auto const& candidate) { return candidate.item_index == entry.item_index; });
                         if (found == references.end() || entry.meshlet_id >= found->records.size()) {
                             deren::utility::log("software CPU diagnostic: missing item {} record {}", entry.item_index, entry.meshlet_id);
                             break;
@@ -2830,7 +2859,7 @@ namespace deren::engine {
                     if (lane_bytes_base != nullptr && plan.probe_records.size() == plan.run.count) {
                         auto* const records = reinterpret_cast<meshlet*>(lane_bytes_base +
                                                                          (static_cast<std::size_t>(frame_slot) * deren::engine::meshlet_capacity + plan.run.base) * sizeof(meshlet));
-                        std::copy(plan.probe_records.begin(), plan.probe_records.end(), records);
+                        std::ranges::copy(plan.probe_records, records);
                     }
                     plan.block.geometry.index_count = plan.run.count;
                 }
@@ -2887,7 +2916,7 @@ namespace deren::engine {
             this->subtilis_cut_items += count;
             ++this->subtilis_cut_frames;
             if (this->subtilis_cut_frames % 120 == 0) {
-                deren::utility::log("subtilis CPU cut: frames {}, work {} us/frame, wall {} us/frame, {} us/item", this->subtilis_cut_frames, this->subtilis_cut_work_us / this->subtilis_cut_frames, this->subtilis_cut_wall_us / this->subtilis_cut_frames, this->subtilis_cut_work_us / this->subtilis_cut_items);
+                deren::utility::log("subtilis CPU cut: frames {}, work {} us/frame, wall {} us/frame, {} us/item", this->subtilis_cut_frames, this->subtilis_cut_work_us / static_cast<double>(this->subtilis_cut_frames), this->subtilis_cut_wall_us / static_cast<double>(this->subtilis_cut_frames), this->subtilis_cut_work_us / static_cast<double>(this->subtilis_cut_items));
             }
         }
         // the per-frame classification work is accumulated EVERY probe frame (not only the capture frame), so the JSON
@@ -2928,7 +2957,8 @@ namespace deren::engine {
                 probe_items.push_back(software::item_records{
                     .item_index = index,
                     .model = model,
-                    .records = std::span<meshlet const>(plan.probe_records.data(), plan.probe_records.size())});
+                    .records = std::span<meshlet const>(plan.probe_records.data(), plan.probe_records.size()),
+                });
             }
             auto const items_built = std::chrono::steady_clock::now();
             auto const primary = software::build_tile_lists_measure(probe_items, probe_parameters, software::threshold_px_default,
@@ -2975,9 +3005,14 @@ namespace deren::engine {
                                     mismatch_item);
             }
             // ---- the deterministic JSON ----
-            std::uint32_t hardware_clusters = 0u, software_clusters = 0u, software_clusters_secondary = 0u;
-            std::uint64_t hardware_triangles = 0u, software_triangles = 0u, software_triangles_secondary = 0u;
-            std::uint64_t total_clusters = 0u, total_triangles = 0u;
+            std::uint32_t hardware_clusters = 0u;
+            std::uint32_t software_clusters = 0u;
+            std::uint32_t software_clusters_secondary = 0u;
+            std::uint64_t hardware_triangles = 0u;
+            std::uint64_t software_triangles = 0u;
+            std::uint64_t software_triangles_secondary = 0u;
+            std::uint64_t total_clusters = 0u;
+            std::uint64_t total_triangles = 0u;
             std::uint32_t classified_items = 0u;
             for (std::size_t position = 0u; position < probe_items.size(); ++position) {
                 software::item_split const& one = primary.items[position];
@@ -3004,7 +3039,8 @@ namespace deren::engine {
                 output << text;
             };
             auto const write_capacity = [&output](software::software_tile_plan const& plan, char const* const band) {
-                std::uint32_t overflow_32 = 0u, overflow_64 = 0u;
+                std::uint32_t overflow_32 = 0u;
+                std::uint32_t overflow_64 = 0u;
                 for (std::uint32_t const count : plan.counts) {
                     if (count > 32u) {
                         ++overflow_32;
@@ -3138,12 +3174,12 @@ namespace deren::engine {
                 write(run.count);
                 auto records = std::span<meshlet const>(leaves[index]->meshlets).first(run.count);
                 if (run.source == subtilis::run_source::visible) {
-                    auto* base = static_cast<std::byte const*>(this->meshlet_culled_mapped);
-                    auto offset = (size_t(frame_slot) * meshlet_capacity + run.base) * sizeof(meshlet);
+                    auto const* base = static_cast<std::byte const*>(this->meshlet_culled_mapped);
+                    auto offset = (static_cast<std::size_t>(frame_slot) * meshlet_capacity + run.base) * sizeof(meshlet);
                     records = {reinterpret_cast<meshlet const*>(base + offset), run.count};
                 }
                 for (auto const& record : records) {
-                    std::array<float, 5> row{record.center_x, record.center_y, record.center_z, record.radius, float(record.index_count)};
+                    std::array<float, 5> row{record.center_x, record.center_y, record.center_z, record.radius, static_cast<float>(record.index_count)};
                     dump.write(reinterpret_cast<char const*>(row.data()), sizeof(row));
                 }
             }
@@ -3160,13 +3196,19 @@ namespace deren::engine {
             this->visibility_recovery_draws.reserve(count);
         }
         struct range_totals {
-            uint32_t input_count = 0, selected_count = 0, fallback_count = 0;
-            std::uint64_t input_triangles = 0, selected_triangles = 0;
+            uint32_t input_count = 0;
+            uint32_t selected_count = 0;
+            uint32_t fallback_count = 0;
+            std::uint64_t input_triangles = 0;
+            std::uint64_t selected_triangles = 0;
             std::uint32_t candidates = 0;
             deren::utility::vessel::vector<visibility_recovery_draw> recovery;
         };
-        uint32_t input_count = 0, selected_count = 0, fallback_count = 0;
-        std::uint64_t input_triangles = 0, selected_triangles = 0;
+        uint32_t input_count = 0;
+        uint32_t selected_count = 0;
+        uint32_t fallback_count = 0;
+        std::uint64_t input_triangles = 0;
+        std::uint64_t selected_triangles = 0;
         auto record_range = [&](rhi::command_recorder& target, std::uint32_t const begin, std::uint32_t const end,
                                 range_totals& totals) -> bool {
             std::optional<rhi::cull_mode> recorded_cull;
@@ -3229,7 +3271,7 @@ namespace deren::engine {
             }
         };
         // ---- THE GPU CUT (M2) ----
-        // One thread per GPU-cut item selects its run and writes its command; this dispatch must precede every
+        // One workgroup per GPU-cut item selects its run and writes its command; this dispatch must precede every
         // segment that draws those items. The item table is host-mapped and copied per frame, so no descriptor
         // is needed: item/group/reference/cluster/output/command addresses all travel as buffer device addresses.
         std::uint32_t gpu_cut_items = 0u;
@@ -3238,6 +3280,7 @@ namespace deren::engine {
                 ++gpu_cut_items;
             }
         }
+        std::uint32_t gpu_cut_paged_items = 0u;
         if (gpu_cut_items != 0u) {
             if (gpu_cut_items > subtilis::cut_item_capacity) {
                 return false;
@@ -3257,20 +3300,99 @@ namespace deren::engine {
             frame->item_capacity = subtilis::cut_item_capacity;
             auto* const items = reinterpret_cast<subtilis::cut_item*>(frame_bytes + sizeof(subtilis::cut_frame));
             std::uint32_t item = 0u;
-            constexpr std::uint64_t page_install_budget = 8ull << 20;
-            for (auto const& plan : plans) {
+            auto const log_page_stats = [&](subtilis::page_install_stats const& page_stats) {
+                if (page_stats.overflow != 0u) {
+                    deren::utility::log("subtilis pages: request buffer overflowed at frame {} ({} requests, {} installed, {} pending)", frame_slot,
+                                        page_stats.requests, page_stats.installed, page_stats.pending);
+                }
+                if (page_stats.abandoned != 0u) {
+                    deren::utility::log("subtilis pages: abandoned {} failed page upload(s), returning them to absent at frame {}",
+                                        page_stats.abandoned, frame_slot);
+                }
+                if (page_stats.page_misses != 0u) {
+                    deren::utility::log("subtilis pages: {} item(s) fell back to LOD0 on a page miss at frame {}", page_stats.page_misses, frame_slot);
+                }
+                if (page_stats.evicted != 0u) {
+                    deren::utility::log("subtilis pages: evicted {} page(s) to install a request at frame {}", page_stats.evicted, frame_slot);
+                }
+                if (page_stats.submitted != 0u) {
+                    deren::utility::log("subtilis pages: queued {} page(s), {} bytes, {} pending at frame {}", page_stats.submitted, page_stats.bytes,
+                                        page_stats.pending, frame_slot);
+                }
+                if (page_stats.installed != 0u) {
+                    deren::utility::log("subtilis pages: installed {} page(s) at frame {}", page_stats.installed, frame_slot);
+                }
+            };
+            // INSTALL IN A ROTATED ORDER: one source may not consume the whole global budget
+            // every frame. Each source gets a fair byte slice (at least one page-sized floor),
+            // and the starting point advances so a source at the front of the plan list cannot
+            // starve the rest. The item list below is still built in plan order.
+            deren::utility::vessel::vector<std::size_t> page_install_order;
+            deren::utility::vessel::vector<subtilis::uploaded_geometry const*> seen_sources;
+            for (std::size_t index = 0; index < plans.size(); ++index) {
+                auto const& plan = plans[index];
                 if (!plan.gpu_cut) {
                     continue;
                 }
                 auto const& source = *plan.cut_source;
-                auto const page_stats = source.install_requested_pages(page_install_budget, static_cast<std::uint32_t>(frame_slot));
-                if (page_stats.overflow != 0u) {
-                    deren::utility::log("subtilis pages: request buffer overflowed at frame {} ({} requests, {} installed, {} pending)", frame_slot,
-                                        page_stats.requests, page_stats.installed, page_stats.pending);
-                } else if (page_stats.installed != 0u) {
-                    deren::utility::log("subtilis pages: installed {} page(s), {} bytes, {} pending at frame {}", page_stats.installed, page_stats.bytes,
-                                        page_stats.pending, frame_slot);
+                auto& retained = this->subtilis_page_frames[frame_slot];
+                bool const prepared = std::ranges::any_of(retained, [&](auto const& value) { return value.get() == &source; });
+                bool const seen = std::ranges::any_of(seen_sources, [&](auto const* value) { return value == &source; });
+                if (!prepared && !seen) {
+                    seen_sources.push_back(&source);
+                    page_install_order.push_back(index);
                 }
+            }
+            constexpr std::uint64_t fair_page_floor = 64ull << 10;
+            std::uint64_t remaining_budget = this->subtilis_page_budget_left;
+            std::size_t const install_count = page_install_order.size();
+            std::size_t const install_start = install_count == 0 ? 0 : this->subtilis_page_install_cursor % install_count;
+            std::size_t first_unserved = install_count;
+            for (std::size_t round = 0; round < install_count; ++round) {
+                if (remaining_budget == 0) {
+                    first_unserved = std::min(first_unserved, round);
+                }
+                auto const plan_index = page_install_order[(install_start + round) % install_count];
+                auto& plan = plans[plan_index];
+                auto& source = *plan.cut_source;
+                auto const configured = source.configure_page_frames(this->frame_ring().slot_count());
+                if (configured != rhi::error::ok) {
+                    deren::utility::log("subtilis pages: frame-buffer configuration failed ({})", static_cast<std::uint32_t>(configured));
+                    return false;
+                }
+                std::uint64_t const fair_bytes = std::max<std::uint64_t>(remaining_budget / (install_count - round), fair_page_floor);
+                std::uint64_t const install_budget = std::min(remaining_budget, fair_bytes);
+                std::uint32_t const max_pages = static_cast<std::uint32_t>(std::min<std::uint64_t>(
+                    std::max<std::uint64_t>(fair_bytes / fair_page_floor, 1u), 1024u));
+                auto const page_stats = source.install_requested_pages(install_budget, static_cast<std::uint32_t>(this->subtilis_page_sequence),
+                                                                       frame_slot, max_pages);
+                if (source.has_pending_page_upload() && std::ranges::none_of(this->subtilis_page_uploads,
+                                                                             [&](auto const& value) { return value.get() == &source; })) {
+                    this->subtilis_page_uploads.push_back(plan.cut_source);
+                }
+                if (page_stats.result != rhi::error::ok) {
+                    deren::utility::log("subtilis pages: frame preparation failed ({})", static_cast<std::uint32_t>(page_stats.result));
+                    return false;
+                }
+                auto const published = source.publish_page_frame(frame_slot);
+                if (published != rhi::error::ok) {
+                    deren::utility::log("subtilis pages: snapshot publication failed ({})", static_cast<std::uint32_t>(published));
+                    return false;
+                }
+                remaining_budget -= page_stats.bytes;
+                this->subtilis_page_budget_left = remaining_budget;
+                this->subtilis_page_upload_bytes += page_stats.bytes;
+                this->subtilis_page_frames[frame_slot].push_back(plan.cut_source);
+                log_page_stats(page_stats);
+            }
+            if (install_count != 0) {
+                this->subtilis_page_install_cursor = (install_start + first_unserved) % install_count;
+            }
+            for (auto& plan : plans) {
+                if (!plan.gpu_cut) {
+                    continue;
+                }
+                auto const& source = *plan.cut_source;
                 auto& cut = items[item++];
                 std::memcpy(cut.model, plan.block.model.data(), sizeof(cut.model));
                 cut.groups = runtime::buffer_address(*source.cut_groups());
@@ -3287,11 +3409,14 @@ namespace deren::engine {
                 cut.command_index = runtime::visibility_command_run + plan.item_index;
                 cut.flags = 0u;
                 cut.page_arena = source.page_arena() != nullptr ? runtime::buffer_address(*source.page_arena()) : 0u;
-                cut.page_table = source.page_table() != nullptr ? runtime::buffer_address(*source.page_table()) : 0u;
-                cut.page_requests = source.page_requests() != nullptr ? runtime::buffer_address(*source.page_requests()) : 0u;
+                cut.page_table = source.page_table(frame_slot) != nullptr ? runtime::buffer_address(*source.page_table(frame_slot)) : 0u;
+                cut.page_requests = source.page_requests(frame_slot) != nullptr ? runtime::buffer_address(*source.page_requests(frame_slot)) : 0u;
                 cut.page_count = cut.page_table != 0u ? source.page_count() : 0u;
+                plan.row.page_table = cut.page_table;
+                plan.row.page_arena = cut.page_arena;
+                gpu_cut_paged_items += cut.page_count != 0u ? 1u : 0u;
                 cut.request_capacity = cut.page_requests != 0u ? source.page_request_capacity() : 0u;
-                cut.request_frame = static_cast<std::uint32_t>(frame_slot);
+                cut.request_frame = static_cast<std::uint32_t>(this->subtilis_page_sequence);
                 cut.lod0_count = plan.lod0_count;
             }
             std::uint64_t const items_address = runtime::buffer_address(*this->subtilis_cut_items_buffer) +
@@ -3300,14 +3425,14 @@ namespace deren::engine {
                 return false;
             }
             // Publish the GPU request writes to the host domain before a later
-            // install_requested_pages() drains submissions and reads the queue.
+            // completed frame slot is collected and its queue is read.
             // Coherent mapping removes invalidation, not this memory dependency.
             for (auto const& plan : plans) {
-                if (!plan.gpu_cut || plan.cut_source->page_requests() == nullptr) {
+                if (!plan.gpu_cut || plan.cut_source->page_requests(frame_slot) == nullptr) {
                     continue;
                 }
                 rhi::buffer_barrier const requests{
-                    .resource = plan.cut_source->page_requests(),
+                    .resource = plan.cut_source->page_requests(frame_slot),
                     .from = rhi::buffer_use::shader_write,
                     .to = rhi::buffer_use::host_read,
                 };
@@ -3371,6 +3496,9 @@ namespace deren::engine {
             deren::utility::log("subtilis capacity: items {} peak {}, table {}/{}, max run {}, refused frames {}, error {} px, hysteresis {}", count, this->subtilis_peak_items, this->meshlet_total, meshlet_capacity, this->subtilis_max_run, this->subtilis_capacity_frames, this->subtilis_error_px, this->subtilis_hysteresis);
             deren::utility::log("subtilis: cut run publication: {} -> {} records, {} -> {} triangles, {} fallback item(s)",
                                 input_count, selected_count, input_triangles, selected_triangles, fallback_count);
+            if (this->subtilis_gpu_cut) {
+                deren::utility::log("subtilis GPU cut: dispatched {} items ({} paged)", gpu_cut_items, gpu_cut_paged_items);
+            }
         }
         recorded = count;
         visibility_recorded_item_count = count;
@@ -3411,7 +3539,7 @@ namespace deren::engine {
             return false;
         }
         uint32_t const count = static_cast<uint32_t>(records.size_bytes() / sizeof(draw_item));
-        uint32_t const capacity = runtime::visibility_item_capacity;
+        uint32_t constexpr capacity = runtime::visibility_item_capacity;
         if (base > capacity || count > capacity - base) {
             static bool logged = false;
             if (!logged) {
@@ -3451,7 +3579,7 @@ namespace deren::engine {
     //  descriptor heaps from the BACKEND, which derives them from the heaps it holds; this filled two raw
     //  `VkBindHeapInfoEXT` for a hook the pass layer stopped calling at abi 20.)
 
-    void runtime::structure_record_mask_bake(void* const parent, rhi::command_buffer& command_buffer, pass::mask_bake_request const& request) {
+    void runtime::structure_record_mask_bake(void* const parent, rhi::command_buffer const& command_buffer, pass::mask_bake_request const& request) {
         // Bake and structure commands must target this frame's same contract buffer.
         runtime& self = *static_cast<runtime*>(parent);
         rhi::command_buffer* const commands = self.frame_command_buffer();
@@ -3466,7 +3594,7 @@ namespace deren::engine {
         return static_cast<runtime*>(parent)->compute_skin.ready();
     }
 
-    bool runtime::structure_record_skin(void* const parent, rhi::command_buffer& command_buffer, std::span<ray_tracing::caster_level const> const casters) {
+    bool runtime::structure_record_skin(void* const parent, rhi::command_buffer const& command_buffer, std::span<ray_tracing::caster_level const> const casters) {
         // Skin dispatches must share the structure build's recording target.
         runtime& self = *static_cast<runtime*>(parent);
         rhi::command_buffer* const commands = self.frame_command_buffer();
@@ -3496,18 +3624,18 @@ namespace deren::engine {
         deren::utility::log("shadow pass {}", enabled ? "enabled" : "disabled");
     }
 
-    void runtime::set_brdf_model(int32_t const model) noexcept {
+    void runtime::set_brdf_model(int32_t const model) const noexcept {
         // CPU-side only, like set_shadow_enabled: pace_and_acquire() copies light_state (which
         // carries the selected models in the UBO's std140 padding) into the paced slot's light
         // buffer every frame, so flipping the model mid-run never races an in-flight frame.
         this->light_state->brdf_model = static_cast<float>(std::clamp(model, 0, 3));
     }
 
-    void runtime::set_diffuse_model(int32_t const model) noexcept {
+    void runtime::set_diffuse_model(int32_t const model) const noexcept {
         this->light_state->diffuse_model = static_cast<float>(std::clamp(model, 0, 1));
     }
 
-    void runtime::set_toon_rig(toon_rig const& rig) noexcept {
+    void runtime::set_toon_rig(toon_rig const& rig) const noexcept {
         // A PLAIN COPY INTO THE MAPPED BLOCK, and it is safe for the reason every other once-written table here
         // is (see deren::engine::render_layout::heap_slots::toon_rig): the frame path never rewrites this block, so there is no frame in
         // flight that could read it half-written. The contract that follows from that is the caller's - write it
@@ -3562,7 +3690,7 @@ namespace deren::engine {
     void runtime::set_tone_mapping(int32_t mode) noexcept {
         this->tone_mapping = mode >= 0 && mode <= 2 ? static_cast<float>(mode) : 0.0f;
     }
-    void runtime::set_environment(float rotation_degrees, float strength, int32_t background, glm::vec3 color, float blur) noexcept {
+    void runtime::set_environment(float rotation_degrees, float strength, int32_t background, glm::vec3 color, float blur) const noexcept {
         auto e = environment_detail::pack_environment(rotation_degrees, strength, background);
         auto b = environment_detail::pack_background({color.x, color.y, color.z}, blur);
         this->light_state->environment = {e[0], e[1], e[2], e[3]};
@@ -3609,7 +3737,7 @@ namespace deren::engine {
         this->shadow_frustum_valid = false;
     }
 
-    void runtime::set_area_light(glm::vec3 const& centre, float const half, bool const irradiance, glm::vec3 const& axis, float const penumbra) noexcept {
+    void runtime::set_area_light(glm::vec3 const& centre, float const half, bool const irradiance, glm::vec3 const& axis, float const penumbra) const noexcept {
         if (!(half > 0.0f)) {
             // NO AREA LIGHT: both lanes are written as a LITERAL zero. `glm::vec4(0.0f)` rather than a
             // computed expression because the shader's "is there an emitter" test is a comparison against
@@ -3665,7 +3793,7 @@ namespace deren::engine {
         this->fxaa_edge_threshold = std::clamp(edge_threshold, 0.05f, 0.5f);
     }
 
-    void runtime::set_point_lights(std::span<punctual_light const> lights) noexcept {
+    void runtime::set_point_lights(std::span<punctual_light const> lights) const noexcept {
         // CPU-side only (same rule as set_brdf_model): encode into light_state's GPU-layout
         // array; pace_and_acquire() copies the whole light UBO into the paced slot's buffer.
         uint32_t count = 0;
@@ -3804,7 +3932,16 @@ namespace deren::engine {
                                                  (runtime_detail::ray_query_available_of(this->rhi_face()) ? rhi::to_bits(rhi::buffer_flag::acceleration_structure_input) : rhi::no_buffer_flags);
         if (geometry_source) {
             if (!shared_generation) {
-                auto uploaded = subtilis::upload_geometry(this->core_lifetime, geometry_source, geometry_flags);
+                if (!geometry_source->pages().empty() && !this->subtilis_page_arena_pool) {
+                    auto pool = subtilis::page_arena_pool::create(this->core_lifetime, this->subtilis_resident_page_budget);
+                    if (!pool) {
+                        return nullptr;
+                    }
+                    this->subtilis_page_arena_pool = std::move(*pool);
+                }
+                auto uploaded = subtilis::upload_geometry(this->core_lifetime, geometry_source, geometry_flags,
+                                                          subtilis::geometry_upload_mode::automatic,
+                                                          this->subtilis_resident_page_budget, this->subtilis_page_arena_pool);
                 if (!uploaded) {
                     return nullptr;
                 }
@@ -3816,22 +3953,6 @@ namespace deren::engine {
             }
             if (!result->bind_subtilis_geometry(shared_generation)) {
                 return nullptr;
-            }
-            if (auto* const page_table = shared_generation->page_table(); page_table != nullptr) {
-                if (!this->write_heap_buffer(*page_table, deren::engine::render_layout::heap_slots::subtilis_page_table, page_table->size(),
-                                             rhi::descriptor_type::storage_buffer)) {
-                    deren::utility::log("descriptor heap: the subtilis page table did not reach grid slot {}",
-                                        deren::engine::render_layout::heap_slots::subtilis_page_table);
-                    return nullptr;
-                }
-            }
-            if (auto* const page_arena = shared_generation->page_arena(); page_arena != nullptr) {
-                if (!this->write_heap_buffer(*page_arena, deren::engine::render_layout::heap_slots::subtilis_page_arena, page_arena->size(),
-                                             rhi::descriptor_type::storage_buffer)) {
-                    deren::utility::log("descriptor heap: the subtilis page arena did not reach grid slot {}",
-                                        deren::engine::render_layout::heap_slots::subtilis_page_arena);
-                    return nullptr;
-                }
             }
         } else {
             namespace managed = render_resource::instances;
@@ -4120,7 +4241,7 @@ namespace deren::engine {
         if (slot >= this->skin_mapped.size() || slot >= this->skin_current.size() || this->skin_mapped[slot] == nullptr) {
             return;
         }
-        std::size_t const capacity = static_cast<std::size_t>(deren::engine::scene_skin_capacity);
+        std::size_t constexpr capacity = static_cast<std::size_t>(deren::engine::scene_skin_capacity);
         if (base >= capacity) {
             return;
         }

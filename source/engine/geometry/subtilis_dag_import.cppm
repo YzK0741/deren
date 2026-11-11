@@ -16,7 +16,8 @@ export namespace deren::engine::subtilis {
                                 lod0_only,
                                 capacity_item,
                                 capacity_table,
-                                count };
+                                count,
+    };
     /// The payload format only bounds each section by `limits::max_records` (16M records), which a
     /// crafted payload can reach before the leaf admission budget rejects it. Every legal hierarchy's
     /// cluster, group and reference tables stay proportional to its leaves, so import caps them at

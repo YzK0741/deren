@@ -1,4 +1,3 @@
-#include "../engine/geometry/subtilis_dag_cut_closure.hpp"
 #include "vk_test.h"
 
 #include <bit>
@@ -7,6 +6,7 @@
 #include <limits>
 #include <yyjson.h>
 import deren.asset.subtilis.dag;
+import deren.engine.subtilis.dag_cut_closure;
 import deren.engine.subtilis.dag_lod;
 #include "subtilis_dag_fixtures.hpp"
 namespace wire = deren::asset::subtilis;

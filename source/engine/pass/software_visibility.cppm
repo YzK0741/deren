@@ -62,19 +62,21 @@ export namespace deren::engine::pass {
             // NO BINDINGS, NO TARGETS, NO PUSH BLOCK DECLARED: the resources arrive through the frame's heap and the
             // graph's software lane records the ordering. An empty declaration is the accurate one for a heap-native
             // compute pass - the clustered-light sort and the visibility resolve are the precedents.
-            static constinit render_resource::pass_io const value{.name = "software visibility"};
+            static constexpr render_resource::pass_io value{.name = "software visibility"};
             return value;
         }
 
         [[nodiscard]] deren::engine::pass::behaviour const& behaviour() const noexcept override {
             // ONE 8x8 GROUP PER 16x16 TILE over the whole render extent: the shader's [numthreads(8, 8, 1)] is the same
             // number, and the record step dispatches one group per tile - so a resize needs no state here.
-            static deren::engine::pass::behaviour const value{.kind = behaviour_kind::compute,
-                                                              .group_size_x = group_size,
-                                                              .group_size_y = group_size,
-                                                              .group_size_z = 1u,
-                                                              .extent = extent_rule::full,
-                                                              .resync_viewport = false};
+            static constexpr deren::engine::pass::behaviour value{
+                .kind = behaviour_kind::compute,
+                .group_size_x = group_size,
+                .group_size_y = group_size,
+                .group_size_z = 1u,
+                .extent = extent_rule::full,
+                .resync_viewport = false,
+            };
             return value;
         }
 
@@ -107,7 +109,7 @@ export namespace deren::engine::pass {
 
         /// Called after this frame slot's fence, before hardware runs are shortened.
         [[nodiscard]] bool prepare_triangles(std::uint32_t frame_slot, std::uint32_t width, std::uint32_t height);
-        [[nodiscard]] bool prepare_gpu_route(std::uint32_t slot, std::uint32_t width, std::uint32_t height, gpu_route_parameters parameters);
+        [[nodiscard]] bool prepare_gpu_route(std::uint32_t slot, std::uint32_t width, std::uint32_t height, gpu_route_parameters const& parameters);
         void disable_gpu_route() noexcept {
             this->gpu_route_ready = false;
         }

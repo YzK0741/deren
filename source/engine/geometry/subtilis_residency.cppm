@@ -79,6 +79,8 @@ export namespace deren::engine::subtilis {
         // set. The plan can be applied by a later async completion; a plan computed against an older
         // resident set is rejected by apply().
         [[nodiscard]] std::expected<residency_plan, residency_error> plan_request(std::uint32_t page) const;
+        /// Union the targets' dependency closures; duplicate/shared pages install once.
+        [[nodiscard]] std::expected<residency_plan, residency_error> plan_requests(std::span<std::uint32_t const> targets) const;
         // Applies a plan atomically: validates page identities, the dependency closure, eviction
         // safety and the byte budget before changing resident state. Returns invalid_page on a stale
         // or malformed plan and capacity when the plan no longer fits.

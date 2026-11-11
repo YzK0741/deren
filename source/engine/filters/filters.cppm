@@ -139,7 +139,7 @@ export namespace deren::engine {
         pass_filter() noexcept = default;
 
         /// @brief publish one of the runtime's resources, by the DECLARATION's identity (resource + element)
-        void register_resource(render_resource::resource_id id, uint32_t element, resource_handles handles) noexcept;
+        void register_resource(render_resource::resource_id id, uint32_t element, resource_handles const& handles) noexcept;
         /**
          * @brief what this pass declared, if it was registered: session-stable handles, or all-null
          * @param id the resource, from the same `resource_id` vocabulary the declaration uses

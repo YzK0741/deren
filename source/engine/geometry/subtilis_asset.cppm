@@ -114,22 +114,16 @@ export namespace deren::engine::subtilis {
                 if (!std::isfinite(g.error) || g.error < 0 || (!g.children.count && g.error != 0)) {
                     return std::unexpected(asset_error::invalid_error);
                 }
-                std::array<double, 3> lo{};
-                std::array<double, 3> hi{};
-                bool first = true;
+                constexpr double infinity = std::numeric_limits<double>::infinity();
+                std::array<double, 3> lo{infinity, infinity, infinity};
+                std::array<double, 3> hi{-infinity, -infinity, -infinity};
                 auto extend = [&](bounding_sphere const& b) {
                     for (uint32_t axis = 0; axis < 3; ++axis) {
-                        double min = b.center[axis] - b.radius;
-                        double max = b.center[axis] + b.radius;
-                        if (first) {
-                            lo[axis] = min;
-                            hi[axis] = max;
-                        } else {
-                            lo[axis] = std::min(lo[axis], min);
-                            hi[axis] = std::max(hi[axis], max);
-                        }
+                        double const min = b.center[axis] - b.radius;
+                        double const max = b.center[axis] + b.radius;
+                        lo[axis] = std::min(lo[axis], min);
+                        hi[axis] = std::max(hi[axis], max);
                     }
-                    first = false;
                 };
                 for (std::uint32_t j = 0; j < g.coarse.count; ++j) {
                     auto index = g.coarse.first + j;
@@ -181,7 +175,7 @@ export namespace deren::engine::subtilis {
                 }
                 result.groups_.push_back(node);
             }
-            if (std::find(cluster_handle.begin(), cluster_handle.end(), 0) != cluster_handle.end()) {
+            if (std::ranges::find(cluster_handle, 0) != cluster_handle.end()) {
                 return std::unexpected(asset_error::invalid_cluster_range);
             }
             for (auto root : input.roots) {
@@ -195,7 +189,7 @@ export namespace deren::engine::subtilis {
                     return std::unexpected(asset_error::invalid_hierarchy);
                 }
             }
-            std::sort(finest.begin(), finest.end(), [](auto a, auto b) { return a.first < b.first; });
+            std::ranges::sort(finest, [](auto a, auto b) { return a.first < b.first; });
             std::uint64_t cursor = 0;
             for (auto r : finest) {
                 if (r.first != cursor) {

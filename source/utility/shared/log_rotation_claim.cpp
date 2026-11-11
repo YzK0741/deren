@@ -8,7 +8,7 @@
 
 #include <cstdint>
 
-#if defined(_WIN32)
+#ifdef _WIN32
 
 // THE `#ifndef` IS LOAD-BEARING, not decoration: libstdc++'s `c++config.h` already defines NOMINMAX
 // when it pulls in a Windows header - so an unguarded `#define` here is a REDEFINITION, which the

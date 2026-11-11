@@ -90,8 +90,8 @@ export namespace deren::engine::subtilis {
         }
         double stretch = std::sqrt(norm_squared);
         auto const& p = view.projection;
-        double projection_scale = std::max(std::hypot(double(p[0]), double(p[4]), double(p[8])) * view.width / 2,
-                                           std::hypot(double(p[1]), double(p[5]), double(p[9])) * view.height / 2);
+        double projection_scale = std::max(std::hypot(static_cast<double>(p[0]), static_cast<double>(p[4]), static_cast<double>(p[8])) * view.width / 2,
+                                           std::hypot(static_cast<double>(p[1]), static_cast<double>(p[5]), static_cast<double>(p[9])) * view.height / 2);
         struct pending_group {
             std::uint32_t index;
             bool force_finest;

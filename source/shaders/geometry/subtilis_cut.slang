@@ -193,6 +193,19 @@ bool cut_cluster_selected(CutCluster c)
     return producer_open && consumer_closed;
 }
 
+// A page inherits the largest projected error among the selected clusters that request it.
+// The host keeps the maximum when several clusters request the same page.
+uint cut_page_priority(const CutItem item, const CutCluster c)
+{
+    if (c.producer == cut_none || c.producer >= item.group_count)
+        return 0u;
+    CutGroup* groups = (CutGroup*)item.groups;
+    const float error = groups[c.producer].error;
+    if (!cut_finite(error) || error <= 0.0f)
+        return 0u;
+    return uint(min(error, 1000000.0f) * 1024.0f);
+}
+
 // The scene page table is ordered by (section, first) and the index section is 1. The cut only consumes
 // index pages; the full cut buffers still provide the group/cluster/hierarchy data, because a 32-byte wire
 // cluster carries neither the normal-cone axis nor the cone cosine a 48-byte output record needs.
@@ -237,9 +250,17 @@ bool cut_page_lookup(const CutItem item, const uint index, out uint page_index, 
     return true;
 }
 
-void cut_request_page(const CutItem item, const uint item_index, const uint page_index, const uint state)
+void cut_request_page(const CutItem item, const uint item_index, const uint page_index, const uint state, const uint priority)
 {
-    if (item.page_requests == 0ull || item.request_capacity == 0u || state != cut_page_state_absent)
+    if (item.page_requests == 0ull || item.request_capacity == 0u || state != cut_page_state_absent || item.page_table == 0ull)
+        return;
+
+    // The page table is the per-page claim word. Several selected clusters can reference the same
+    // page, and several items can share a table; only the first caller may append a request.
+    uint* page_state = (uint*)item.page_table + page_index * 8u + 6u;
+    uint observed = 0u;
+    InterlockedCompareExchange(*page_state, cut_page_state_absent, cut_page_state_requested, observed);
+    if (observed != cut_page_state_absent)
         return;
 
     uint* header = (uint*)item.page_requests;
@@ -247,14 +268,24 @@ void cut_request_page(const CutItem item, const uint item_index, const uint page
     InterlockedAdd(header[0], 1u, slot);
     if (slot >= item.request_capacity)
     {
-        header[2] = 1u; // overflow: the host reports it as a page-miss metric, never as a silent drop
+        // No slot means no request. Return the page to absent so a later frame can claim it again.
+        InterlockedExchange(*page_state, cut_page_state_absent);
+        InterlockedOr(header[2], 1u); // report overflow to the host
         return;
     }
     uint* request = header + 4u + slot * 4u;
     request[0] = page_index;
-    request[1] = 0u;
+    request[1] = priority;
     request[2] = item_index;
     request[3] = item.request_frame;
+}
+
+void cut_count_page_miss(const CutItem item)
+{
+    if (item.page_requests == 0ull)
+        return;
+    uint* header = (uint*)item.page_requests;
+    InterlockedAdd(header[3], 1u);
 }
 
 groupshared uint cut_page_fallback;
@@ -401,11 +432,10 @@ void comp_main(uint3 group : SV_GroupID, uint3 lane : SV_GroupThreadID)
     const uint selected = cut_cluster_offsets[cut_group_size];
     if (selected > item.output_capacity)
     {
-        // The host only enables the GPU path when the DAG's maximum selected bound fits the item's
-        // capacity. Reaching this is a host bug; refuse the run rather than truncate it.
+        // The exact cut can exceed the reservation. Leave the preloaded LOD0 run intact.
         if (lane.x == 0u)
         {
-            command[0] = 0u;
+            command[0] = item.lod0_count <= item.output_capacity ? item.lod0_count : 0u;
             command[1] = 1u;
             command[2] = 1u;
         }
@@ -416,8 +446,10 @@ void comp_main(uint3 group : SV_GroupID, uint3 lane : SV_GroupThreadID)
     // inside ONE resident index page. Anything else falls the WHOLE item back to the LOD0 records the host
     // preloaded at `item.meshlets`: a partially streamed item cannot be mixed with LOD0 records because the
     // visibility path treats the item's command count as one contiguous run.
-    cut_page_fallback = 0u;
+    if (lane.x == 0u)
+        cut_page_fallback = 0u;
     GroupMemoryBarrierWithGroupSync();
+    bool missing_page = false;
     if (item.page_table != 0ull && item.page_count != 0u)
     {
         for (uint i = begin; i < end; ++i)
@@ -425,6 +457,7 @@ void comp_main(uint3 group : SV_GroupID, uint3 lane : SV_GroupThreadID)
             CutCluster c = clusters[i];
             if (!cut_cluster_selected(c))
                 continue;
+            const uint request_priority = cut_page_priority(item, c);
             const uint first = c.record.first_index;
             const uint count = c.record.index_count;
             const uint last = first + count - 1u;
@@ -434,7 +467,7 @@ void comp_main(uint3 group : SV_GroupID, uint3 lane : SV_GroupThreadID)
             uint page_state = cut_page_state_absent;
             if (!cut_page_lookup(item, first, page_index, page_first, page_span, page_state))
             {
-                cut_page_fallback = 1u;
+                missing_page = true;
                 continue;
             }
 
@@ -443,29 +476,32 @@ void comp_main(uint3 group : SV_GroupID, uint3 lane : SV_GroupThreadID)
             {
                 // The cluster crosses a page boundary. Request both ends (the host installs by page) and
                 // fall back this frame; a later frame can only succeed if one page covers the whole window.
-                cut_page_fallback = 1u;
-                cut_request_page(item, group.x, page_index, page_state);
+                missing_page = true;
+                cut_request_page(item, group.x, page_index, page_state, request_priority);
                 uint last_page = cut_none;
                 uint last_first = 0u;
                 uint last_span = 0u;
                 uint last_state = cut_page_state_absent;
                 if (cut_page_lookup(item, last, last_page, last_first, last_span, last_state))
-                    cut_request_page(item, group.x, last_page, last_state);
+                    cut_request_page(item, group.x, last_page, last_state, request_priority);
                 continue;
             }
 
             if (page_state != cut_page_state_resident)
             {
-                cut_request_page(item, group.x, page_index, page_state);
-                cut_page_fallback = 1u;
+                cut_request_page(item, group.x, page_index, page_state, request_priority);
+                missing_page = true;
             }
         }
     }
+    if (missing_page)
+        InterlockedOr(cut_page_fallback, 1u);
     GroupMemoryBarrierWithGroupSync();
     if (cut_page_fallback != 0u)
     {
         if (lane.x == 0u)
         {
+            cut_count_page_miss(item);
             command[0] = item.lod0_count;
             command[1] = 1u;
             command[2] = 1u;

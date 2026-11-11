@@ -1297,8 +1297,10 @@ namespace {
         }
         void register_group(rhi::texture_group const& group) noexcept {
             std::lock_guard lock(mutex);
-            live.push_back({.group = &group,
-                            .position = {.space = 0u, .base = ++next_token, .count = rhi::texture_group_capacity, .generation = ++next_generation}});
+            live.push_back({
+                .group = &group,
+                .position = {.space = 0u, .base = ++next_token, .count = rhi::texture_group_capacity, .generation = ++next_generation},
+            });
         }
         void forget_group(rhi::texture_group const& group) noexcept {
             std::lock_guard lock(mutex);
@@ -1358,10 +1360,14 @@ namespace {
                 if (!image.current()) {
                     return rhi::error::invalid_argument;
                 }
-                info = {1, 1, rhi_sync::aspect::color,
-                        usage_bit(rhi_sync::usage::color_attachment) | usage_bit(rhi_sync::usage::present) |
-                            usage_bit(rhi_sync::usage::sampled) | usage_bit(rhi_sync::usage::transfer_source),
-                        reinterpret_cast<std::uintptr_t>(&resource)};
+                info = {
+                    1,
+                    1,
+                    rhi_sync::aspect::color,
+                    usage_bit(rhi_sync::usage::color_attachment) | usage_bit(rhi_sync::usage::present) |
+                        usage_bit(rhi_sync::usage::sampled) | usage_bit(rhi_sync::usage::transfer_source),
+                    reinterpret_cast<std::uintptr_t>(&resource),
+                };
                 return rhi::error::ok;
             }
             if (std::find(registry->images.begin(), registry->images.end(), &resource) == registry->images.end()) {
@@ -2154,10 +2160,12 @@ deren_make_api_core(std::uint32_t abi_version, deren::promise::rhi::create_info 
             // abi 13 channel is the whole story, not a bare number. THE BACKEND'S NUMBER travels in
             // `native_code` since abi 18: `deren_abi_version()` is gone, so this is where a host reads
             // the number it disagrees with.
-            *out_error_info = rhi::error_info{.code = rhi::error::abi_mismatch,
-                                              .native_code = static_cast<std::int32_t>(rhi::abi_version),
-                                              .message = "probe: the caller's abi_version is not this backend's",
-                                              .where = std::source_location::current()};
+            *out_error_info = rhi::error_info{
+                .code = rhi::error::abi_mismatch,
+                .native_code = static_cast<std::int32_t>(rhi::abi_version),
+                .message = "probe: the caller's abi_version is not this backend's",
+                .where = std::source_location::current(),
+            };
         }
         return {};
     }
@@ -2165,9 +2173,11 @@ deren_make_api_core(std::uint32_t abi_version, deren::promise::rhi::create_info 
     // `create_info{}` is how that is spelled (see backend_entry.hpp).
     if (desc == nullptr) {
         if (out_error_info != nullptr) {
-            *out_error_info = rhi::error_info{.code = rhi::error::invalid_argument,
-                                              .message = "probe: the creation descriptor is null",
-                                              .where = std::source_location::current()};
+            *out_error_info = rhi::error_info{
+                .code = rhi::error::invalid_argument,
+                .message = "probe: the creation descriptor is null",
+                .where = std::source_location::current(),
+            };
         }
         return {};
     }

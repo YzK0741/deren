@@ -237,17 +237,21 @@ int32_t main() {
             good_binding, // the pass's binding 0
             // One of the SCENE's resources, reached through the frame's heap rather than created here - deliberately
             // numbered 4, which would be a contiguity error if it were an `separate` binding
-            {.binding = 4,
-             .parent = rr::binding_scope::shared,
-             .kind = rr::binding_kind::sampled_image,
-             .resource = rr::resource_id::scene_textures,
-             .access = rr::binding_access::read,
-             .sampler = rr::sampler_hint::post},
+            {
+                .binding = 4,
+                .parent = rr::binding_scope::shared,
+                .kind = rr::binding_kind::sampled_image,
+                .resource = rr::resource_id::scene_textures,
+                .access = rr::binding_access::read,
+                .sampler = rr::sampler_hint::post,
+            },
         };
-        rr::pass_io const io = {.name = "shared-like",
-                                .bindings = mixed,
-                                .targets = {},
-                                .push = rr::push_block{.offset = 0, .size = 56, .stages = rr::stage_flag::compute}};
+        rr::pass_io const io = {
+            .name = "shared-like",
+            .bindings = mixed,
+            .targets = {},
+            .push = rr::push_block{.offset = 0, .size = 56, .stages = rr::stage_flag::compute},
+        };
         CHECK(rr::validate(io).has_value());
         // ... and the SAME pair with the shared binding marked `separate` is refused, because 0,4 is not contiguous
         deren::utility::vessel::array<rr::pass_binding, 2> const not_contiguous = {good_binding, {.binding = 4, .parent = rr::binding_scope::local, .kind = rr::binding_kind::sampled_image, .resource = rr::resource_id::scene_textures, .access = rr::binding_access::read, .sampler = rr::sampler_hint::post}};
@@ -445,8 +449,10 @@ int32_t main() {
         // The two cases that stood here - a set declared as both its and a shared one, and the same shared
         // set declared twice - went with the set vocabulary. Their surviving subject is covered: `binding_scope`
         // exemption from contiguity above, and duplicate binding numbers just below.
-        deren::utility::vessel::array<rr::pass_binding, 2> const twice = {rr::pass_binding{.binding = 2, .parent = rr::binding_scope::shared, .kind = rr::binding_kind::storage_buffer, .resource = rr::resource_id::cluster_counts, .access = rr::binding_access::write},
-                                                                          rr::pass_binding{.binding = 2, .parent = rr::binding_scope::shared, .kind = rr::binding_kind::storage_buffer, .resource = rr::resource_id::cluster_indices, .access = rr::binding_access::write}};
+        deren::utility::vessel::array<rr::pass_binding, 2> const twice = {
+            rr::pass_binding{.binding = 2, .parent = rr::binding_scope::shared, .kind = rr::binding_kind::storage_buffer, .resource = rr::resource_id::cluster_counts, .access = rr::binding_access::write},
+            rr::pass_binding{.binding = 2, .parent = rr::binding_scope::shared, .kind = rr::binding_kind::storage_buffer, .resource = rr::resource_id::cluster_indices, .access = rr::binding_access::write},
+        };
         rr::pass_io const io = {.name = "scene", .bindings = twice, .targets = {}, .push = std::nullopt};
         CHECK(!rr::validate(io).has_value()); // two bindings may not share a number, whatever their parent
     }
@@ -459,8 +465,10 @@ int32_t main() {
         deren::utility::vessel::array<rr::barrier_image, 1> const barrier_not_an_image = {rr::barrier_image{.resource = rr::resource_id::camera_ubo, .element = 0}};
         rr::pass_io const io = {.name = "barrier-like", .bindings = {}, .targets = {}, .barrier_images = barrier_not_an_image, .push = std::nullopt};
         CHECK(!rr::validate(io).has_value());
-        deren::utility::vessel::array<rr::barrier_image, 2> const twice = {rr::barrier_image{.resource = rr::resource_id::hdr, .element = 0},
-                                                                           rr::barrier_image{.resource = rr::resource_id::hdr, .element = 0}};
+        deren::utility::vessel::array<rr::barrier_image, 2> const twice = {
+            rr::barrier_image{.resource = rr::resource_id::hdr, .element = 0},
+            rr::barrier_image{.resource = rr::resource_id::hdr, .element = 0},
+        };
         rr::pass_io const dup = {.name = "barrier-like", .bindings = {}, .targets = {}, .barrier_images = twice, .push = std::nullopt};
         CHECK(!rr::validate(dup).has_value());
     }
@@ -515,8 +523,10 @@ int32_t main() {
         deren::utility::vessel::array<rr::barrier_buffer, 1> const not_a_buffer = {rr::barrier_buffer{.resource = rr::resource_id::hdr, .element = 0}};
         rr::pass_io const io = {.name = "cluster", .bindings = {}, .targets = {}, .barrier_buffers = not_a_buffer, .push = std::nullopt};
         CHECK(!rr::validate(io).has_value());
-        deren::utility::vessel::array<rr::barrier_buffer, 2> const twice = {rr::barrier_buffer{.resource = rr::resource_id::cluster_counts, .element = 0},
-                                                                            rr::barrier_buffer{.resource = rr::resource_id::cluster_counts, .element = 0}};
+        deren::utility::vessel::array<rr::barrier_buffer, 2> const twice = {
+            rr::barrier_buffer{.resource = rr::resource_id::cluster_counts, .element = 0},
+            rr::barrier_buffer{.resource = rr::resource_id::cluster_counts, .element = 0},
+        };
         rr::pass_io const dup = {.name = "cluster", .bindings = {}, .targets = {}, .barrier_buffers = twice, .push = std::nullopt};
         CHECK(!rr::validate(dup).has_value());
         // ... and an element the family does not hold is rejected too (the schema's count is the contract)
@@ -659,14 +669,18 @@ int32_t main() {
         CHECK(!rr::validate(no_run).has_value());
         // ... and two runs of ONE resource may not overlap, which is "rendering into one image twice" one layer
         // out. (Two depth runs would be refused by the one-depth rule first, so this case is a colour family's.)
-        deren::utility::vessel::array<rr::render_target, 2> const overlapping = {rr::render_target{.resource = rr::resource_id::bloom, .element = 0, .count = 3},
-                                                                                 rr::render_target{.resource = rr::resource_id::bloom, .element = 2, .count = 2}};
+        deren::utility::vessel::array<rr::render_target, 2> const overlapping = {
+            rr::render_target{.resource = rr::resource_id::bloom, .element = 0, .count = 3},
+            rr::render_target{.resource = rr::resource_id::bloom, .element = 2, .count = 2},
+        };
         rr::pass_io const overlap = {.name = "post_hdr", .bindings = {}, .targets = overlapping, .push = std::nullopt};
         CHECK(!rr::validate(overlap).has_value());
         // ... while two runs that TOUCH but do not overlap are legal, which keeps the rule about the IMAGES a
         // declaration names rather than about adjacency
-        deren::utility::vessel::array<rr::render_target, 2> const adjacent = {rr::render_target{.resource = rr::resource_id::bloom, .element = 0, .count = 2},
-                                                                              rr::render_target{.resource = rr::resource_id::bloom, .element = 2, .count = 2}};
+        deren::utility::vessel::array<rr::render_target, 2> const adjacent = {
+            rr::render_target{.resource = rr::resource_id::bloom, .element = 0, .count = 2},
+            rr::render_target{.resource = rr::resource_id::bloom, .element = 2, .count = 2},
+        };
         rr::pass_io const touching = {.name = "post_hdr", .bindings = {}, .targets = adjacent, .push = std::nullopt};
         CHECK(rr::validate(touching).has_value());
     }
@@ -930,9 +944,9 @@ int32_t main() {
         // whatever the heap happened to contain - silently, which is the failure mode this whole file exists to
         // catch. The host side is text too (runtime.cpp, core.cpp and the initialisation partition that now
         // carries core's render-target heap writes are where every heap write lives), so the check is the same
-        // kind as the one above, with ONE documented exception: the bloom chain writes its levels with
-        // arithmetic (`bloom_l0 + level * heap_image_capacity`), so l1..l3 are named in the header and never
-        // spelled out in the host. Every other exception is a BUG, not a style choice.
+        // kind as the one above. The bloom chain writes l1..l3 with arithmetic
+        // (`bloom_l0 + level * heap_image_capacity`). The old subtilis slots stay reserved after
+        // the switch to per-draw page addresses.
         //
         // THIS SCANS THE RENDERER'S SOURCES INSTEAD OF NAMING THEM, and that is the fix for a real
         // history: the explicit list broke three times, once per partition that took heap writes
@@ -946,8 +960,10 @@ int32_t main() {
         // out of `source/backends/vulkan/` in S1, while the copy left behind inside `source/engine/runtime/` was still the file
         // this walk found. S5 deleted that copy, so the walk must name the runtime's real home or the
         // needles below would be looked for in a directory that no longer holds them.
-        deren::utility::vessel::array<deren::utility::vessel::string, 2> const source_roots = {deren::utility::vessel::string(VR_TEST_SOURCE_DIR) + "/source/backends/vulkan",
-                                                                                               deren::utility::vessel::string(VR_TEST_SOURCE_DIR) + "/source/engine"};
+        deren::utility::vessel::array<deren::utility::vessel::string, 2> const source_roots = {
+            deren::utility::vessel::string(VR_TEST_SOURCE_DIR) + "/source/backends/vulkan",
+            deren::utility::vessel::string(VR_TEST_SOURCE_DIR) + "/source/engine",
+        };
         for (deren::utility::vessel::string const& root : source_roots) {
             for (auto const& entry : std::filesystem::recursive_directory_iterator(root)) {
                 if (!entry.is_regular_file()) {
@@ -963,10 +979,16 @@ int32_t main() {
                 }
             }
         }
-        deren::utility::vessel::array<std::string_view, 3> const written_by_arithmetic = {"bloom_l1", "bloom_l2", "bloom_l3"};
+        constexpr deren::utility::vessel::array<std::string_view, 5> not_written_by_name = {
+            "bloom_l1",
+            "bloom_l2",
+            "bloom_l3",
+            "subtilis_page_table",
+            "subtilis_page_arena",
+        };
         uint32_t covered = 0;
         for (auto const& [name, value] : shader_slots) {
-            if (std::find(written_by_arithmetic.begin(), written_by_arithmetic.end(), name) != written_by_arithmetic.end()) {
+            if (std::ranges::find(not_written_by_name, name) != not_written_by_name.end()) {
                 continue;
             }
             deren::utility::vessel::string const needle = "heap_slots::" + name;

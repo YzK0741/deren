@@ -46,7 +46,17 @@ namespace deren::engine::profiling {
 
     /// phase names in cpu_phase order; the trailing '*' marks a sub-phase (see cpu_phase)
     export constexpr deren::utility::vessel::array<std::string_view, static_cast<std::size_t>(cpu_phase::count)> cpu_phase_names = {
-        "pace", "begin", "cull*", "scene", "cluster*", "shadow*", "post", "submit", "submit-queue*", "present*"};
+        "pace",
+        "begin",
+        "cull*",
+        "scene",
+        "cluster*",
+        "shadow*",
+        "post",
+        "submit",
+        "submit-queue*",
+        "present*",
+    };
 
     /**
      * @brief the rolling window of measured CPU frame phases
@@ -92,7 +102,7 @@ namespace deren::engine::profiling {
             if (index >= this->frame.size()) {
                 return;
             }
-            double const elapsed_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+            double const elapsed_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count(); // NOLINT
             this->frame[index] += elapsed_ms;
             if (this->stage_sink != nullptr) {
                 this->stage_sink(this->stage_context, cpu_phase_names[index], elapsed_ms);

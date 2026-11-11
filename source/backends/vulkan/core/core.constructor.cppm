@@ -83,8 +83,7 @@ namespace {
         using rhi_create_info = deren::promise::rhi::create_info;
 
         uint32_t const declared = desc.struct_size;
-        uint32_t const known = static_cast<uint32_t>(sizeof(rhi_create_info));
-        if (declared != known) {
+        if (constexpr uint32_t known = sizeof(rhi_create_info); declared != known) {
             deren::utility::log("core: the RHI create_info is {} B here and {} B in the caller -> the caller's structure is treated as TOO SHORT: a field whose whole extent is not inside those {} B keeps this build's default",
                                 known, declared, declared);
         }
@@ -207,8 +206,8 @@ namespace deren::vulkan {
                 //      is reserved first - alignment-1 bookkeeping inside this allocator, not an API constraint -
                 //      and the grid is then reserved with the stride as its alignment, which is what a descriptor
                 //      write needs.
-                VkDeviceSize const grid_base_bytes = static_cast<VkDeviceSize>(heap_slot_base) * heap_slot_stride;
-                VkDeviceSize const grid_bytes = static_cast<VkDeviceSize>(heap_slot_count) * heap_slot_stride;
+                constexpr VkDeviceSize grid_base_bytes = static_cast<VkDeviceSize>(heap_slot_base) * heap_slot_stride;
+                constexpr VkDeviceSize grid_bytes = static_cast<VkDeviceSize>(heap_slot_count) * heap_slot_stride;
                 // The RESOURCE grid needs the 64 B stride; the SAMPLER grid is a separate heap with its fixed
                 // base (64 KiB - the API caps that heap at 128 KiB, so it cannot use the resource grid's 1 MiB)
                 // and the device's sampler stride. Both are CHECKED rather than assumed, because a device
@@ -257,9 +256,8 @@ namespace deren::vulkan {
                 // The one way this design has of being wrong without anything saying so.
                 // Reserve the private texture-group range before any dynamic descriptors.
                 if (resource.heap_grid_offset != VK_WHOLE_SIZE) {
-                    VkDeviceSize const base = VkDeviceSize(texture_group_state::table_slot) * 64u;
-                    auto const offset = resource.descriptor_heaps.reserve_bytes(2049u * 64u, base);
-                    if (offset == base) {
+                    constexpr VkDeviceSize base = static_cast<VkDeviceSize>(texture_group_state::table_slot) * 64u;
+                    if (auto const offset = resource.descriptor_heaps.reserve_bytes(2049u * 64u, base); offset == base) {
                         resource.texture_groups.reserved_offset = offset;
                     }
                 }
@@ -273,7 +271,7 @@ namespace deren::vulkan {
                 // heap, exactly as it creates a view inside a heap image descriptor. Six of them, on the SAMPLER
                 // heap's grid, in the order source/shaders/heap_slots.glsl names them.
                 if (descriptors_fit) {
-                    VkDeviceSize const sampler_grid = static_cast<VkDeviceSize>(heap_sampler_base) * heap_sampler_stride;
+                    constexpr VkDeviceSize sampler_grid = static_cast<VkDeviceSize>(heap_sampler_base) * heap_sampler_stride;
                     uint32_t written = 0;
                     for (uint32_t index = 0; index < this->resource.shared_sampler_infos.size(); ++index) {
                         VkSamplerCreateInfo const& info = this->resource.shared_sampler_infos[index];
@@ -352,8 +350,8 @@ namespace deren::vulkan {
         // that kind (see core.api_core.cpp) - a bit without its object refuses to start.
         // The test half of the same gate is check_core_contract() in source/tests/test_dynamic_link.cpp.
         for (deren::promise::rhi::extension_kind const kind : deren::promise::rhi::all_extension_kinds()) {
-            bool const announced = deren::promise::rhi::has_ability(this->abilities(), kind);
-            deren::promise::rhi::extension* const ability = this->query_extension(kind);
+            bool const announced = deren::promise::rhi::has_ability(this->core::abilities(), kind);
+            deren::promise::rhi::extension const* ability = this->core::query_extension(kind);
             bool const serves = ability != nullptr && ability->kind() == kind;
             if (announced != serves) {
                 deren::utility::log("rhi: abilities() and query_extension() disagree about extension_kind {} (announced {}, answers {})",
@@ -366,7 +364,7 @@ namespace deren::vulkan {
     };
 
     core::~core() {
-        this->wait_idle();
+        this->core::wait_idle();
         this->frame.present_worker.reset();
         if (command.completion_timeline != VK_NULL_HANDLE) {
             vkDestroySemaphore(this->device.logical_device, command.completion_timeline, nullptr);
@@ -574,7 +572,7 @@ namespace deren::vulkan {
         subgroup.pNext = &push;
         VkPhysicalDeviceProperties2 sort_properties = make_properties_2(&subgroup);
         vkGetPhysicalDeviceProperties2(this->device.physical_device, &sort_properties);
-        VkSubgroupFeatureFlags const required_ops = VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_BALLOT_BIT | VK_SUBGROUP_FEATURE_ARITHMETIC_BIT | VK_SUBGROUP_FEATURE_SHUFFLE_BIT;
+        constexpr VkSubgroupFeatureFlags required_ops = VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_BALLOT_BIT | VK_SUBGROUP_FEATURE_ARITHMETIC_BIT | VK_SUBGROUP_FEATURE_SHUFFLE_BIT;
         this->resource.gpu_sorting_available = check_device_extension_support(this->device.physical_device, deren::utility::vessel::vector<char const*>{VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME}) &&
                                                capabilities.features_1_3.synchronization2 && push.maxPushDescriptors >= 7u &&
                                                (subgroup.subgroupSize == 32u || subgroup.subgroupSize == 64u) &&
@@ -598,12 +596,12 @@ namespace deren::vulkan {
         // the capabilities query - query() leaves them out when either feature is missing, so
         // "enabled" and "available" cannot disagree. A device without them runs the raster paths
         // exactly as before, with ray_query_available false and the RT features refusing to turn on.
-        constexpr deren::utility::vessel::array<char const*, 3> ray_tracing_extensions = {
-            VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
-            VK_KHR_RAY_QUERY_EXTENSION_NAME,
-            VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME, // required by the AS extension itself
-        };
         if (capabilities.ray_query_available) {
+            constexpr deren::utility::vessel::array<char const*, 3> ray_tracing_extensions = {
+                VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
+                VK_KHR_RAY_QUERY_EXTENSION_NAME,
+                VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME, // required by the AS extension itself
+            };
             for (char const* extension : ray_tracing_extensions) {
                 creation_info.extensions.push_back(extension);
             }
@@ -611,11 +609,11 @@ namespace deren::vulkan {
         // The RT pipeline and its maintenance1 features, then the micromap: each name is pushed only when
         // the capability query proved BOTH the extension and its feature, so an enabled extension and an
         // available feature cannot disagree (the rule the ray-query block above follows).
-        constexpr deren::utility::vessel::array<char const*, 2> ray_tracing_pipeline_extensions = {
-            VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
-            VK_KHR_RAY_TRACING_MAINTENANCE_1_EXTENSION_NAME,
-        };
         if (capabilities.ray_tracing_pipeline_available) {
+            constexpr deren::utility::vessel::array<char const*, 2> ray_tracing_pipeline_extensions = {
+                VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
+                VK_KHR_RAY_TRACING_MAINTENANCE_1_EXTENSION_NAME,
+            };
             for (char const* extension : ray_tracing_pipeline_extensions) {
                 creation_info.extensions.push_back(extension);
             }
@@ -1150,7 +1148,7 @@ namespace deren::vulkan {
             return;
         }
 
-        VkQueryPoolCreateInfo const pool_info = make_query_pool_info(VK_QUERY_TYPE_TIMESTAMP, static_cast<uint32_t>(frame.frames_in_flight) * gpu_timing_mark_capacity);
+        VkQueryPoolCreateInfo const pool_info = make_query_pool_info(VK_QUERY_TYPE_TIMESTAMP, static_cast<uint32_t>(frame.frames_in_flight) * gpu_timing_mark_capacity); // NOLINT
         if (vkCreateQueryPool(this->device.logical_device, &pool_info, nullptr, &this->frame.timestamp_query_pool) != VK_SUCCESS) {
             deren::utility::log("gpu timing: timestamp query pool creation failed - pass timings are off");
             this->frame.timestamp_query_pool = VK_NULL_HANDLE;

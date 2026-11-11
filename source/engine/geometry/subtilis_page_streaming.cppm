@@ -94,6 +94,8 @@ export namespace deren::engine::subtilis {
     };
     static_assert(sizeof(gpu_page_request) == 16u);
     /// Header at offset 0 of the request buffer, followed by `capacity` gpu_page_request records.
+    /// `frame` is not part of the cut ABI: the cut writes it as the number of items that fell back to
+    /// LOD0 because an index page was absent, and the host consumes it as the page-miss count.
     struct gpu_page_request_header {
         std::uint32_t count = 0;
         std::uint32_t capacity = 0;

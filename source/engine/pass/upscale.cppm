@@ -43,7 +43,6 @@
 module;
 
 #include <cstdint>
-#include <cstring>
 
 export module deren.engine.pass.upscale;
 export import deren.vstd;
@@ -100,9 +99,10 @@ export namespace deren::engine::pass {
 
     /**
      * @brief `FsrEasuCon` (AMD's, v1.20210629): the constants EASU's kernel needs, from two extents
-     * @param render_width/height the RENDER chain's extent - AMD's `inputViewportInPixels` AND
-     *        `inputSizeInPixels`, equal here because this renderer has no dynamic-resolution offset region
-     * @param output_width/height the swapchain's extent, i.e. `outputSizeInPixels`
+     * @param render_width
+     * @param render_height
+     * @param output_width
+     * @param output_height
      */
     [[nodiscard]] easu_constants make_easu_constants(uint32_t render_width, uint32_t render_height, uint32_t output_width, uint32_t output_height) noexcept;
 
@@ -150,7 +150,7 @@ export namespace deren::engine::pass {
         [[nodiscard]] deren::promise::rhi::pipeline* pipeline_handle() const noexcept override;
 
         /// @brief install the host's overlay hook (this pass is the frame's last writer whenever it runs)
-        void set_overlay(draw_callback overlay) noexcept;
+        void set_overlay(draw_callback const& overlay) noexcept;
         /// @brief which filter to resolve with; a STARTUP value the runtime sets from the config, because it
         ///        selects a shader path rather than a per-frame quantity
         void set_filter(upscale_filter filter) noexcept;
@@ -169,7 +169,7 @@ export namespace deren::engine::pass {
         static constexpr deren::utility::vessel::array<std::string_view, 1> pipeline_names = {"upscale"};
         // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
         // would duplicate it and hide the override.
-        inline static constexpr deren::engine::pass::behaviour pass_behaviour = {
+        static constexpr deren::engine::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::fullscreen,
             // THE ONE PASS IN THE FRAME WHOSE EXTENT IS NOT THE FRAME'S: the resource rule over the swapchain
             // image resolves to the OUTPUT extent (see runtime::resolve_resource_extent), which is what makes

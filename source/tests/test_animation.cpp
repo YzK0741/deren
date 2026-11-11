@@ -87,18 +87,20 @@ namespace {
         std::size_t slot = 0;
         std::size_t scene_changes = 0;
         backend callbacks() {
-            return {.scene = &tree,
-                    .morph_scratch_active = [this] { return scratch[slot].data(); },
-                    .set_skin_matrices_active = [this](std::span<glm::mat4 const> m, uint32_t base) {
+            return {
+                .scene = &tree,
+                .morph_scratch_active = [this] { return scratch[slot].data(); },
+                .set_skin_matrices_active = [this](std::span<glm::mat4 const> m, uint32_t base) {
                         if (matrices.size() < base + m.size()){ matrices.resize(base + m.size(), glm::mat4(0.0f));
 }
                         std::ranges::copy(m, matrices.begin() + base); },
-                    .morph_scratch_slot = [this](uint32_t s) { return scratch[s].data(); },
-                    .set_skin_matrices_slot = [](std::span<glm::mat4 const>, uint32_t) {},
-                    .scene_changed = [this] { ++scene_changes; },
-                    .run_tasks = [](std::span<std::function<void()>> tasks) { for (auto& task : tasks){ task();
+                .morph_scratch_slot = [this](uint32_t s) { return scratch[s].data(); },
+                .set_skin_matrices_slot = [](std::span<glm::mat4 const>, uint32_t) {},
+                .scene_changed = [this] { ++scene_changes; },
+                .run_tasks = [](std::span<std::function<void()>> tasks) { for (auto& task : tasks){ task();
 } },
-                    .task_worker_count = [] { return 1; }};
+                .task_worker_count = [] { return 1; },
+            };
         }
         void add_node(std::size_t index, float x, bool leaf = false) {
             auto& n = tree.add_root();
@@ -363,10 +365,12 @@ namespace {
 
     void test_rotation_linear_slerps_and_normalizes() {
         // keyframe values are stored (x, y, z, w): identity -> +90 degrees around Y
-        sampler const s = {.times = {0.0f, 1.0f},
-                           .values = {0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.70710678f, 0.0f, 0.70710678f},
-                           .per_key = 4,
-                           .interp = interpolation::linear};
+        sampler const s = {
+            .times = {0.0f, 1.0f},
+            .values = {0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.70710678f, 0.0f, 0.70710678f},
+            .per_key = 4,
+            .interp = interpolation::linear,
+        };
         channel_sample const q0 = sample_channel(s, channel_path::rotation, 0.0f);
         CHECK(approx(q0.quat, glm::quat(1.0f, 0.0f, 0.0f, 0.0f)));
         // half-way = 45 degrees around Y: y = sin(22.5), w = cos(22.5)
@@ -389,20 +393,42 @@ namespace {
 
     void test_cubic_translation_matches_lerp_for_zero_tangents() {
         // per cubic key: [in tangent (3), value (3), out tangent (3)]
-        sampler const s = {.times = {0.0f, 1.0f},
-                           .values = {0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
-                                      0.0f, 0.0f, 0.0f, 5.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
-                           .per_key = 3,
-                           .interp = interpolation::cubic_spline};
+        sampler const s = {
+            .times = {0.0f, 1.0f},
+            .values = {
+                0.0f,
+                0.0f,
+                0.0f,
+                2.0f,
+                0.0f,
+                0.0f,
+                0.0f,
+                0.0f,
+                0.0f,
+                0.0f,
+                0.0f,
+                0.0f,
+                5.0f,
+                0.0f,
+                0.0f,
+                0.0f,
+                0.0f,
+                0.0f,
+            },
+            .per_key = 3,
+            .interp = interpolation::cubic_spline,
+        };
         channel_sample const mid = sample_channel(s, channel_path::translation, 0.5f);
         CHECK(mid.valid);
         CHECK(approx(mid.vec3.x, 3.5f)); // zero tangents reduce the Hermite spline to a lerp
     }
 
     void test_sample_node_merges_channels_onto_base_pose() {
-        clip const c = {.name = "test",
-                        .samplers = {sampler{.times = {0.0f, 1.0f}, .values = {0.0f, 0.0f, 0.0f, 4.0f, 0.0f, 0.0f}, .per_key = 3, .interp = interpolation::linear}},
-                        .channels = {channel{.path = channel_path::translation, .sampler = 0, .target_node = 0}}};
+        clip const c = {
+            .name = "test",
+            .samplers = {sampler{.times = {0.0f, 1.0f}, .values = {0.0f, 0.0f, 0.0f, 4.0f, 0.0f, 0.0f}, .per_key = 3, .interp = interpolation::linear}},
+            .channels = {channel{.path = channel_path::translation, .sampler = 0, .target_node = 0}},
+        };
         node_pose const base = {.translation = glm::vec3(1.0f, 2.0f, 3.0f)};
 
         node_pose const posed = sample_node(c, 0, base, 0.5f);

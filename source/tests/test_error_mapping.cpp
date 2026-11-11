@@ -89,8 +89,15 @@ namespace {
     void test_zone_of_total_mapping() {
         CHECK(rhi::zone_of(rhi::error::unsupported) == rhi::error_zone::resource);
         CHECK(rhi::zone_of(rhi::error::invalid_argument) == rhi::error_zone::argument);
-        for (rhi::error const code : {rhi::error::not_ready, rhi::error::device_lost, rhi::error::out_of_date, rhi::error::surface_lost,
-                                      rhi::error::timeout, rhi::error::out_of_device_memory, rhi::error::out_of_host_memory}) {
+        for (rhi::error const code : {
+                 rhi::error::not_ready,
+                 rhi::error::device_lost,
+                 rhi::error::out_of_date,
+                 rhi::error::surface_lost,
+                 rhi::error::timeout,
+                 rhi::error::out_of_device_memory,
+                 rhi::error::out_of_host_memory,
+             }) {
             CHECK_MSG(rhi::zone_of(code) == rhi::error_zone::api, "the retry/rebuild/degrade family is the api zone");
         }
         for (rhi::error const code : {rhi::error::ok, rhi::error::abi_mismatch, rhi::error::operation_failed, rhi::error::initialization_failed}) {

@@ -66,9 +66,14 @@ export namespace deren::engine::pass {
          */
         /// @return whether the secondary was recorded: a begin that FAILED must not be executed (that is a VUID
         ///         and can wedge the frame slot), so the answer travels back rather than being assumed
+        /// @param parent
+        /// @param secondary
+        /// @param cascade_index
+        /// @param pipeline
         /// @param mesh_stage whether @p pipeline is a MESH pipeline, i.e. whether the casters must be drawn as
         ///        dispatches (vkCmdDrawMeshTasksEXT) instead of indexed draws - the pipeline and the way to feed
         ///        it are one fact, so they travel together (see docs/mesh_shaders.md step 1)
+        /// @param meshlets
         bool (*record_cascade)(void* parent, deren::promise::rhi::mergeable_command_buffer_ref const& secondary, uint32_t cascade_index, deren::promise::rhi::pipeline* pipeline, bool mesh_stage, bool meshlets) = nullptr;
         /// the frame loop's scheduler: one task per cascade, each recording into its secondary
         void (*run_tasks)(void* parent, std::span<std::function<void()>> tasks) = nullptr;
@@ -113,6 +118,7 @@ export namespace deren::engine::pass {
         /// rendering it (see its comment). A graph-recorded frame declares the shadow map as a written graph
         /// resource instead, and the graph emits the transitions AND the hand-back that the runtime issues for
         /// of the removed legacy path - so its recorder calls THIS entry: the two barrier paths must never both run.
+        // NOLINTNEXTLINE(bugprone-derived-method-shadowing-base-method): CLion's module index does not connect this exact override.
         deren::promise::rhi::error record_content(resolved_io const& io) noexcept override;
 
         /// @brief whether the pass built the pipeline it records with (the renderer gates its feature on this)
@@ -124,6 +130,7 @@ export namespace deren::engine::pass {
         }
         /// @brief the pipeline the record step binds before this pass records: the MESHLET form when it exists, the
         ///        MESH form otherwise (the contract handle - see `frame_pass::pipeline_handle`)
+        // NOLINTNEXTLINE(bugprone-derived-method-shadowing-base-method): same CLion module-index false positive.
         [[nodiscard]] deren::promise::rhi::pipeline* pipeline_handle() const noexcept override;
 
         void set_frame(shadow_frame const& frame) noexcept;
@@ -131,7 +138,7 @@ export namespace deren::engine::pass {
     private:
         /// @brief the one cascade-recording body, parameterised by who records the per-layer transitions
         ///        false for a graph-recorded frame (the graph declares the writes and emits them)
-        void record_impl(resolved_io const& io);
+        void record_impl(resolved_io const& io) const;
         static constexpr std::string_view vertex_shader_name = "shadow.vert.spv";
         static constexpr std::string_view fragment_shader_name = "shadow.frag.spv";
         /// THE MESH STAGE'S MODULE, from the same shader file's `mesh_main` entry (docs/mesh_shaders.md step
@@ -151,7 +158,7 @@ export namespace deren::engine::pass {
         static constexpr deren::utility::vessel::array<std::string_view, 1> pipeline_names = {"shadow"};
         // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
         // would duplicate it and hide the override.
-        inline static constexpr deren::engine::pass::behaviour pass_behaviour = {
+        static constexpr deren::engine::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::graphics, // a draw per caster, not one fullscreen triangle
             .extent = extent_rule::none,      // the map's edge is the pass's, not the frame's (see the field below)
             .extent_of = resource_id::none,

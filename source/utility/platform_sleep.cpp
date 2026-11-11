@@ -13,7 +13,7 @@
 
 #include <cstdint>
 
-#if defined(_WIN32)
+#ifdef _WIN32
 // THE `#ifndef` IS LOAD-BEARING, not decoration: libstdc++'s `c++config.h`, reached through <cstdint> above,
 // already defines NOMINMAX when it pulls in a Windows header - so an unguarded `#define` here is a REdefinition,
 // which the project's `-Werror` turns into a build failure (measured with GCC 16.2 on MinGW; libc++'s
@@ -34,7 +34,7 @@ extern "C" void utility_platform_sleep_ns(std::int64_t const nanoseconds) {
     if (nanoseconds <= 0) {
         return;
     }
-#if defined(_WIN32)
+#ifdef _WIN32
     // A high-resolution waitable timer (Windows 10 1803+) waits to within microseconds without calling
     // timeBeginPeriod, which would change the timer resolution for every process on the machine. One
     // timer per process, created on first use.
@@ -43,7 +43,7 @@ extern "C" void utility_platform_sleep_ns(std::int64_t const nanoseconds) {
         Sleep(static_cast<DWORD>(nanoseconds / 1000000));
         return;
     }
-    LARGE_INTEGER due = {};
+    LARGE_INTEGER due;
     due.QuadPart = -nanoseconds / 100; // 100 ns units, negative = relative
     if (due.QuadPart == 0) {
         due.QuadPart = -1;

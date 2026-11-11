@@ -70,24 +70,28 @@ namespace {
     /// primitive.cpp/shadow_fit.cpp build it - clip z maps [near, far] to [0, 1]
     [[nodiscard]] matrix perspective_matrix(double const near_plane, double const far_plane, double const fov_y, double const aspect) {
         double const tan_half = std::tan(fov_y * 0.5);
-        return from_rows({{
-            {1.0 / (aspect * tan_half), 0.0, 0.0, 0.0},
-            {0.0, -1.0 / tan_half, 0.0, 0.0},
-            {0.0, 0.0, far_plane / (near_plane - far_plane), -(far_plane * near_plane) / (far_plane - near_plane)},
-            {0.0, 0.0, -1.0, 0.0},
-        }});
+        return from_rows({
+            {
+                {1.0 / (aspect * tan_half), 0.0, 0.0, 0.0},
+                {0.0, -1.0 / tan_half, 0.0, 0.0},
+                {0.0, 0.0, far_plane / (near_plane - far_plane), -(far_plane * near_plane) / (far_plane - near_plane)},
+                {0.0, 0.0, -1.0, 0.0},
+            },
+        });
     }
 
     /// T * R_y(radians) * uniform_scale: exercises the radius bound with a rotation and a scale
     [[nodiscard]] matrix rotated_scaled_translation(double const scale, double const radians, std::array<double, 3> const& t) {
         double const c = std::cos(radians);
         double const s = std::sin(radians);
-        return from_rows({{
-            {scale * c, 0.0, scale * s, t[0]},
-            {0.0, scale, 0.0, t[1]},
-            {-scale * s, 0.0, scale * c, t[2]},
-            {0.0, 0.0, 0.0, 1.0},
-        }});
+        return from_rows({
+            {
+                {scale * c, 0.0, scale * s, t[0]},
+                {0.0, scale, 0.0, t[1]},
+                {-scale * s, 0.0, scale * c, t[2]},
+                {0.0, 0.0, 0.0, 1.0},
+            },
+        });
     }
 
     [[nodiscard]] std::array<double, 4> transform(matrix const& m, std::array<double, 4> const& v) {

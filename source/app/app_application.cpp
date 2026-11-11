@@ -3,9 +3,6 @@ module;
 #include <cstddef>
 #include <cstdint>
 #define GLFW_INCLUDE_NONE // glfw3.h must not pull <GL/gl.h>: we link no OpenGL, and this states it instead of relying on the environment
-#include "../engine/lighting/environment_controls.hpp"
-#include "../engine/lighting/radiance_capture.hpp"
-#include "../engine/lighting/reflection_probe.hpp"
 #include "radiance_cube_capture.hpp"
 #include "startup_splash.hpp"
 
@@ -47,6 +44,9 @@ import deren.utility;                          // re-exports deren.utility:frame
 import deren.engine.animation;
 import deren.engine.animation.mmd_motion; // VMD (MMD motion) parsing, retargeting and clip baking      // animation::controller: glTF playback / skinning / morphs on the runtime tree
 import deren.engine.math;
+import deren.engine.lighting.environment_controls;
+import deren.engine.lighting.radiance_capture;
+import deren.engine.lighting.reflection_probe;
 import deren.engine.scene_tree; // scene storage + GPU primitives (was vulkan.model)
 import deren.engine.primitive;  // per-object pipeline / shadow / material-override fields on a leaf
 // the backend-creation contract (create_info): what this app hands the runtime below
@@ -664,6 +664,8 @@ namespace deren::app {
         runtime.set_subtilis_error_px(settings.render.subtilis_error_px);
         runtime.set_subtilis_hysteresis(settings.render.subtilis_hysteresis);
         runtime.set_subtilis_gpu_cut(settings.render.subtilis_gpu_cut);
+        runtime.set_subtilis_page_upload_bytes(settings.render.subtilis_page_upload_bytes);
+        runtime.set_subtilis_resident_page_bytes(settings.render.subtilis_resident_page_bytes);
         runtime.set_software_raster(settings.render.software_raster);
         runtime.set_software_raster_threshold_px(settings.render.software_raster_threshold_px);
 
@@ -1524,10 +1526,12 @@ namespace deren::app {
             deren::gltf::scene_node_iterator const copy_node_last;
             deren::gltf::drawable_iterator const copy_first(*asset.scenes, *asset.materials);
             deren::gltf::drawable_iterator const copy_scene_last;
-            runtime.set_toon_lookup(deren::engine::runtime::toon_lookup{.parent = &asset.lookup,
-                                                                        .texture = toon_texture_callback,
-                                                                        .colour = toon_colour_callback,
-                                                                        .scalar = toon_scalar_callback});
+            runtime.set_toon_lookup(deren::engine::runtime::toon_lookup{
+                .parent = &asset.lookup,
+                .texture = toon_texture_callback,
+                .colour = toon_colour_callback,
+                .scalar = toon_scalar_callback,
+            });
             deren::engine::scene_import_result const copy_result = runtime.import_scene(copy_node_first, copy_node_last, copy_first, copy_scene_last, copy_shift, false, character_index);
             if (!use_scene_objects) {
                 for (std::size_t root = first_root; root < scene.roots.size(); ++root) {
@@ -2848,7 +2852,12 @@ namespace deren::app {
                     pending.environment_index = -1;
                     std::uint32_t const environment_slot = static_cast<std::uint32_t>(slot + 1u);
                     bool const published = prepared.error.empty() && runtime.set_ibl(environment_slot, deren::engine::ibl_input{
-                                                                                                           .prefiltered_env = prepared.environment, .irradiance = prepared.irradiance, .env_size = uint32_t(env_size), .env_mip_count = uint32_t(env_mip_count), .irr_size = uint32_t(irr_size)});
+                                                                                                           .prefiltered_env = prepared.environment,
+                                                                                                           .irradiance = prepared.irradiance,
+                                                                                                           .env_size = uint32_t(env_size),
+                                                                                                           .env_mip_count = uint32_t(env_mip_count),
+                                                                                                           .irr_size = uint32_t(irr_size),
+                                                                                                       });
                     if (!published) {
                         custom_environment_indices[slot] = -1;
                         if (std::ranges::find(failed_custom_environments, environment_index) == failed_custom_environments.end()) {
@@ -2931,7 +2940,14 @@ namespace deren::app {
                 auto prepared = environment_job.get();
                 if (requested_environment == gui.environment_index) {
                     bool published = prepared.error.empty() && runtime.set_ibl(deren::engine::ibl_input{
-                                                                   .prefiltered_env = prepared.environment, .irradiance = prepared.irradiance, .brdf_lut = lut_bytes, .env_size = uint32_t(env_size), .env_mip_count = uint32_t(env_mip_count), .irr_size = uint32_t(irr_size), .lut_size = uint32_t(lut_size)});
+                                                                   .prefiltered_env = prepared.environment,
+                                                                   .irradiance = prepared.irradiance,
+                                                                   .brdf_lut = lut_bytes,
+                                                                   .env_size = uint32_t(env_size),
+                                                                   .env_mip_count = uint32_t(env_mip_count),
+                                                                   .irr_size = uint32_t(irr_size),
+                                                                   .lut_size = uint32_t(lut_size),
+                                                               });
                     if (published) {
                         app_renderer.reset_temporal_history();
                         applied_environment = requested_environment;
@@ -3076,7 +3092,8 @@ namespace deren::app {
                                                                                 .front = glm::vec4(world_forward, 1.0f),
                                                                                 .right = glm::vec4(world_right, 0.0f),
                                                                                 .up = glm::vec4(glm::normalize(glm::cross(world_right, world_forward)), 0.0f),
-                                                                                .center = glm::vec4(center, has_center ? 1.0f : 0.0f)});
+                                                                                .center = glm::vec4(center, has_center ? 1.0f : 0.0f),
+                                                                            });
                     } else if (object_stage.head_joint.has_value()) {
                         if (std::optional<glm::mat4> const bone = controller.joint_world(object_stage.head_rig, *object_stage.head_joint); bone.has_value()) {
                             glm::mat4 const& joint = *bone;
@@ -3089,7 +3106,8 @@ namespace deren::app {
                                                                                     .front = glm::vec4(world_forward, 0.0f),
                                                                                     .right = glm::vec4(world_right, 0.0f),
                                                                                     .up = glm::vec4(glm::normalize(glm::cross(world_right, world_forward)), 0.0f),
-                                                                                    .center = glm::vec4(world_point(glm::vec3(joint[3])), 1.0f)});
+                                                                                    .center = glm::vec4(world_point(glm::vec3(joint[3])), 1.0f),
+                                                                                });
                         }
                     } else {
                         deren::gltf::head_basis const local = deren::gltf::head_basis_fallback();
@@ -3099,7 +3117,8 @@ namespace deren::app {
                                                                                 .front = glm::vec4(world_forward, 0.0f),
                                                                                 .right = glm::vec4(world_right, 0.0f),
                                                                                 .up = glm::vec4(glm::normalize(glm::cross(world_right, world_forward)), 0.0f),
-                                                                                .center = glm::vec4(0.0f)});
+                                                                                .center = glm::vec4(0.0f),
+                                                                            });
                     }
                 }
             } else if (stage.captured_face_frame.has_value()) {
@@ -3119,7 +3138,8 @@ namespace deren::app {
                     .front = glm::vec4(world_forward, 1.0f),
                     .right = glm::vec4(world_right, 0.0f),
                     .up = glm::vec4(glm::normalize(glm::cross(world_right, world_forward)), 0.0f),
-                    .center = glm::vec4(center, has_center ? 1.0f : 0.0f)});
+                    .center = glm::vec4(center, has_center ? 1.0f : 0.0f),
+                });
             } else if (stage.head_joint.has_value()) {
                 if (std::optional<glm::mat4> const bone = animation.joint_world(stage.head_rig, *stage.head_joint); bone.has_value()) {
                     glm::mat4 const& joint = *bone;
@@ -3505,7 +3525,8 @@ namespace {
                     .right = glm::vec4(world_right, 0.0f),
                     .up = glm::vec4(up, 0.0f),
                     .center = glm::vec4(has_head_position ? captured_face_frame->world_center : glm::vec3(0.0f),
-                                        has_head_position ? 1.0f : 0.0f)});
+                                        has_head_position ? 1.0f : 0.0f),
+                });
             } else {
                 runtime.set_head_basis(deren::engine::head_ubo{.front = glm::vec4(head.front, 0.0f), .right = glm::vec4(head.right, 0.0f), .up = glm::vec4(head.up, 0.0f), .center = glm::vec4(0.0f)});
             }

@@ -105,7 +105,8 @@ int main(int argc, char** argv) {
         rhi::resource_group_binding{40, kind::storage_image, 12, 4},
         rhi::resource_group_binding{50, kind::sampler, 16, 4},
         rhi::resource_group_binding{60, kind::texture_group, 20, 4},
-        rhi::resource_group_binding{70, kind::uniform_buffer, 24, 4}};
+        rhi::resource_group_binding{70, kind::uniform_buffer, 24, 4},
+    };
     CHECK(rhi::validate_resource_group_layout(layout) == rhi::error::ok);
     auto invalid = layout;
     invalid[1].binding = 10;
@@ -322,7 +323,8 @@ int main(int argc, char** argv) {
         CHECK(warmup->begin_recording({}) == rhi::error::ok);
         std::array initial_buffers{
             rhi::buffer_barrier{.resource = input.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::shader_read},
-            rhi::buffer_barrier{.resource = uniform.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::shader_read}};
+            rhi::buffer_barrier{.resource = uniform.get(), .from = rhi::buffer_use::transfer_destination, .to = rhi::buffer_use::shader_read},
+        };
         CHECK(warmup->barrier({.buffers = initial_buffers}) == rhi::error::ok);
         CHECK(warmup->barrier(rhi::image_barrier{.resource = image.get(), .from = rhi::image_use::shader_write, .to = rhi::image_use::shader_read}) == rhi::error::ok);
         CHECK(warmup->end_recording() == rhi::error::ok);
@@ -349,7 +351,8 @@ int main(int argc, char** argv) {
         rhi::resource_group_entry{.binding = 40, .kind = kind::storage_image, .resource = storage, .view = {.role = rhi::view_role::storage}},
         rhi::resource_group_entry{.binding = 50, .kind = kind::sampler, .resource = sampler},
         rhi::resource_group_entry{.binding = 60, .kind = kind::texture_group, .resource = texture_group},
-        rhi::resource_group_entry{.binding = 10, .kind = kind::storage_buffer, .resource = input}};
+        rhi::resource_group_entry{.binding = 10, .kind = kind::storage_buffer, .resource = input},
+    };
     auto create = [&] { return core->resources->create_resource_group({.entries = entries}); };
     CHECK(!core->resources->create_resource_group({}));
     auto bad = entries;

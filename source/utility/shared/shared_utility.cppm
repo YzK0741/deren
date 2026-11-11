@@ -160,7 +160,8 @@ export namespace deren::utility::memory {
     [[nodiscard]] allocation_statistics statistics() noexcept;
     enum class allocation_error { invalid_alignment,
                                   size_overflow,
-                                  out_of_memory };
+                                  out_of_memory,
+    };
 
     [[nodiscard]] std::expected<void*, allocation_error> try_allocate(
         std::size_t bytes, std::size_t alignment = alignof(std::max_align_t)) noexcept;
@@ -185,7 +186,7 @@ export namespace deren::utility::memory {
         [[nodiscard]] static constexpr std::size_t max_size() noexcept {
             return static_cast<std::size_t>(std::numeric_limits<std::ptrdiff_t>::max()) / sizeof(T);
         }
-        [[nodiscard]] T* allocate(std::size_t count) noexcept {
+        [[nodiscard]] static T* allocate(std::size_t count) noexcept {
             if (count > max_size()) {
                 constexpr auto limit = std::numeric_limits<std::size_t>::max();
                 auto const bytes = count > limit / sizeof(T) ? limit : count * sizeof(T);
@@ -193,7 +194,7 @@ export namespace deren::utility::memory {
             }
             return static_cast<T*>(memory::allocate(count * sizeof(T), alignof(T)));
         }
-        void deallocate(T* pointer, std::size_t _) noexcept {
+        static void deallocate(T* pointer, std::size_t _) noexcept {
             memory::deallocate(pointer);
         }
         template <typename U>
@@ -296,7 +297,8 @@ export namespace deren::utility::diagnostics {
                                    unavailable,
                                    timeout,
                                    output_limit,
-                                   failed };
+                                   failed,
+    };
     struct symbolizer_options {
         std::string_view executable{};                                                 // Empty uses CMake's configured absolute tool path; "off" disables it.
         std::uint32_t timeout_ms = 1000;                                               // Total child-process budget, clamped to 10 seconds.

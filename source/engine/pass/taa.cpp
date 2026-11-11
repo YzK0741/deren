@@ -5,7 +5,6 @@
 
 module;
 #include <cstdint>
-#include <cstring>
 module deren.engine.pass.taa;
 import deren.vstd;
 import deren.utility.shared;
@@ -184,10 +183,12 @@ namespace deren::engine::pass {
         // copy and is only ever read as a texture, so it needs no barrier once it is valid.
         if (local_transitions) {
             deren::utility::vessel::array<rhi::image_barrier, 2> barriers = {};
-            barriers[0] = rhi::image_barrier{.resource = io.local[0].image_handle,
-                                             .from = rhi::image_use::color_attachment,
-                                             .to = rhi::image_use::shader_read,
-                                             .range = {}}; // scene_color: COLOR_ATTACHMENT -> SHADER_READ
+            barriers[0] = rhi::image_barrier{
+                .resource = io.local[0].image_handle,
+                .from = rhi::image_use::color_attachment,
+                .to = rhi::image_use::shader_read,
+                .range = {},
+            }; // scene_color: COLOR_ATTACHMENT -> SHADER_READ
             // THE MOTION VECTORS ARE NOT THIS PASS'S BARRIER ANY MORE, and they were the bug: this batch used to
             // transition io.local[2] unconditionally, on the assumption that the TAA resolve is the frame's first
             // sampler of the velocity (the assumption `require_velocity_publish`'s call site documents). Once an
@@ -199,10 +200,12 @@ namespace deren::engine::pass {
             // consumes it, so the first sampler in the frame publishes and the rest are no-ops.
             uint32_t barrier_count = 1;
             if (!history_valid) {
-                barriers[barrier_count] = rhi::image_barrier{.resource = io.local[1].image_handle,
-                                                             .from = rhi::image_use::undefined,
-                                                             .to = rhi::image_use::shader_read,
-                                                             .range = {}}; // the history's first use: UNDEFINED -> SHADER_READ
+                barriers[barrier_count] = rhi::image_barrier{
+                    .resource = io.local[1].image_handle,
+                    .from = rhi::image_use::undefined,
+                    .to = rhi::image_use::shader_read,
+                    .range = {},
+                }; // the history's first use: UNDEFINED -> SHADER_READ
                 ++barrier_count;
             }
             // THE PAIR RIDES THE CONTRACT NOW (abi 20): the backend derives the masks and the layouts from the
@@ -217,10 +220,12 @@ namespace deren::engine::pass {
             // draw - the barrier commands are independent of this batch, so the host places them first.
             // THE TARGET'S PAIR, also the contract's (abi 20): UNDEFINED -> COLOR_ATTACHMENT, the shipped
             // `color_attachment_transition` recipe the raw spelling used.
-            if (io.list->barrier(rhi::image_barrier{.resource = io.targets[0].image_handle,
-                                                    .from = rhi::image_use::undefined,
-                                                    .to = rhi::image_use::color_attachment,
-                                                    .range = {}}) != rhi::error::ok) {
+            if (io.list->barrier(rhi::image_barrier{
+                    .resource = io.targets[0].image_handle,
+                    .from = rhi::image_use::undefined,
+                    .to = rhi::image_use::color_attachment,
+                    .range = {},
+                }) != rhi::error::ok) {
                 return false; // a refused barrier would leave the target in a state nobody declared
             }
         }
@@ -272,16 +277,20 @@ namespace deren::engine::pass {
         // the history has to be a separate image, and copying into it keeps every heap slot in the frame
         // stable (no per-frame descriptor rewrites). The barriers move the HDR target out to TRANSFER_SRC and back - the
         // post chain still finds it in GENERAL, exactly where it expects it.
-        if (local_transitions) {
+        if (local_transitions) { // NOLINT
             deren::utility::vessel::array<rhi::image_barrier, 2> const copy_barriers = {
-                rhi::image_barrier{.resource = io.targets[0].image_handle,
-                                   .from = rhi::image_use::color_attachment,
-                                   .to = rhi::image_use::transfer_source,
-                                   .range = {}}, // HDR -> TRANSFER_SRC
-                rhi::image_barrier{.resource = io.local[1].image_handle,
-                                   .from = rhi::image_use::shader_read,
-                                   .to = rhi::image_use::transfer_destination,
-                                   .range = {}}, // history: SHADER_READ -> TRANSFER_DST
+                rhi::image_barrier{
+                    .resource = io.targets[0].image_handle,
+                    .from = rhi::image_use::color_attachment,
+                    .to = rhi::image_use::transfer_source,
+                    .range = {},
+                }, // HDR -> TRANSFER_SRC
+                rhi::image_barrier{
+                    .resource = io.local[1].image_handle,
+                    .from = rhi::image_use::shader_read,
+                    .to = rhi::image_use::transfer_destination,
+                    .range = {},
+                }, // history: SHADER_READ -> TRANSFER_DST
             };
             if (io.list->barrier(rhi::barrier_group{.images = copy_barriers}) != rhi::error::ok) {
                 return false; // a refused barrier would leave an operand of the copy in a state nobody declared
@@ -289,25 +298,31 @@ namespace deren::engine::pass {
         }
 
         rhi::image_copy_region const region = {.extent = {io.extent.width, io.extent.height, 1}};
-        if (io.list->copy_image(rhi::image_copy{.source = io.targets[0].image_handle,
-                                                .destination = io.local[1].image_handle,
-                                                .source_region = region,
-                                                .destination_region = region}) != rhi::error::ok) {
+        if (io.list->copy_image(rhi::image_copy{
+                .source = io.targets[0].image_handle,
+                .destination = io.local[1].image_handle,
+                .source_region = region,
+                .destination_region = region,
+            }) != rhi::error::ok) {
             return false; // the history was not written, so this frame's resolve must not claim one
         }
 
         // hand both images on: the HDR target back to the post chain, the history copy to the next frame's
         // resolve (which will find it in TRANSFER_DST and transition it from there)
-        if (local_transitions) {
+        if (local_transitions) { // NOLINT
             deren::utility::vessel::array<rhi::image_barrier, 2> const hand_back = {
-                rhi::image_barrier{.resource = io.targets[0].image_handle,
-                                   .from = rhi::image_use::transfer_source,
-                                   .to = rhi::image_use::color_attachment,
-                                   .range = {}}, // HDR -> COLOR_ATTACHMENT
-                rhi::image_barrier{.resource = io.local[1].image_handle,
-                                   .from = rhi::image_use::transfer_destination,
-                                   .to = rhi::image_use::shader_read,
-                                   .range = {}}, // history -> SHADER_READ
+                rhi::image_barrier{
+                    .resource = io.targets[0].image_handle,
+                    .from = rhi::image_use::transfer_source,
+                    .to = rhi::image_use::color_attachment,
+                    .range = {},
+                }, // HDR -> COLOR_ATTACHMENT
+                rhi::image_barrier{
+                    .resource = io.local[1].image_handle,
+                    .from = rhi::image_use::transfer_destination,
+                    .to = rhi::image_use::shader_read,
+                    .range = {},
+                }, // history -> SHADER_READ
             };
             if (io.list->barrier(rhi::barrier_group{.images = hand_back}) != rhi::error::ok) {
                 return false; // a refused hand-back would leave both images in a state nobody declared

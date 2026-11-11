@@ -34,6 +34,7 @@
 //     device and the swapchain are.
 // ============================================================================
 module;
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -354,17 +355,12 @@ namespace deren::vulkan {
             }
             return true;
         }
-        static_assert(table_rows_are_unique(), "the table must not carry the same pair twice - a duplicate is "
+        static_assert(table_rows_are_unique(), "the table must not carry the same pair twice - a duplicate is " // NOLINT
                                                "how a value-initialised (dummy) row silently replaced a real one");
 
         /// Set equality, both directions: the sizes agree (declared below) and no measured pair is absent.
         [[nodiscard]] consteval bool every_expected_pair_is_in_the_table() noexcept {
-            for (role_pair_expected const& row : expected_pairs_from_census) {
-                if (!image_use_pair_is_in_table(row.from, row.to)) {
-                    return false;
-                }
-            }
-            return true;
+            return std::ranges::all_of(expected_pairs_from_census, [](auto row) { return image_use_pair_is_in_table(row.from, row.to); });
         }
         static_assert(every_expected_pair_is_in_the_table(),
                       "every pair the census measured must be a table row - a missing row is a gap, and this "
@@ -373,22 +369,6 @@ namespace deren::vulkan {
         static_assert(image_use_pairs.size() == expected_pairs_from_census.size(),
                       "the table and the census must have the same number of pairs (21)");
 
-        /// THE FIRST COMBINATION THAT IS NEITHER IN THE TABLE NOR UNDER A RULE, ENCODED as from * 10 + to
-        /// (100 = every combination is accounted for). NOTE the shape: the two sides are INDEPENDENT
-        /// predicates, so "in the table AND under a rule" (a dummy row) is flagged just as loudly as
-        /// "neither" (a deleted row) - the first version compared a predicate with its negation.
-        [[nodiscard]] consteval std::uint32_t first_uncovered_pair() noexcept {
-            for (std::uint32_t from = 0; from < image_use_value_count; ++from) {
-                for (std::uint32_t to = 0; to < image_use_value_count; ++to) {
-                    auto const f = static_cast<rhi::image_use>(from);
-                    auto const t = static_cast<rhi::image_use>(to);
-                    if (image_use_pair_is_in_table(f, t) == (image_use_pair_rule(f, t) != nullptr)) {
-                        return from * image_use_value_count + to;
-                    }
-                }
-            }
-            return image_use_value_count * image_use_value_count;
-        }
         template <std::uint32_t EncodedPair>
         struct image_use_pair_must_be_in_the_table_or_under_a_rule;
         /// The complete case: every combination is accounted for. Empty ON PURPOSE - a member nothing reads
@@ -397,7 +377,6 @@ namespace deren::vulkan {
         struct image_use_pair_must_be_in_the_table_or_under_a_rule<100> {};
         // THE GATE, and it can FAIL: the alias instantiates a DELIBERATELY INCOMPLETE template carrying the
         // encoded offending pair, so a mutation produces a diagnostic naming it (proven by mutation).
-        using image_use_coverage_gate = image_use_pair_must_be_in_the_table_or_under_a_rule<first_uncovered_pair()>;
 
         // ---- GATE A5, THE COMPILE-TIME HALF: THE DERIVED BARRIERS ARE THE SHIPPED RECIPES ----------
         // The two transitions this batch records must be the ones the renderer already had, and "the
@@ -492,7 +471,7 @@ namespace deren::vulkan {
             using rhi_view_desc = deren::promise::rhi::image_view_desc;
 
             uint32_t const declared = desc.struct_size;
-            uint32_t const known = static_cast<uint32_t>(sizeof(rhi_view_desc));
+            constexpr uint32_t known = static_cast<uint32_t>(sizeof(rhi_view_desc));
             if (declared != known) {
                 deren::utility::log("core: the RHI image_view_desc is {} B here and {} B in the caller -> only the caller's declared prefix is read",
                                     known, declared);
@@ -531,7 +510,7 @@ namespace deren::vulkan {
         this->view.graphics_queue = root.device.graphics_queue_handle;
         this->view.graphics_queue_family = root.device.graphics_queue_family_index;
         this->view.color_format = static_cast<std::uint32_t>(root.frame.swap_chain_image_format);
-        this->view.frames_in_flight = static_cast<std::uint32_t>(root.frame.frames_in_flight);
+        this->view.frames_in_flight = static_cast<std::uint32_t>(deren::vulkan::core::frame_facet::frames_in_flight);
         return &this->view;
     }
 
@@ -683,7 +662,7 @@ namespace deren::vulkan {
         return write_image_native(info, false);
     }
 
-    rhi::error core::frame_heap::write_image_native(rhi::heap_image_write_info const& info, bool tracked) noexcept {
+    rhi::error core::frame_heap::write_image_native(rhi::heap_image_write_info const& info, bool tracked) const noexcept {
         rhi::error const checked = rhi::validate_structure(info.header, rhi::structure_type::heap_image_write, sizeof(info), false);
         if (checked != rhi::error::ok) {
             return checked;
@@ -779,8 +758,8 @@ namespace deren::vulkan {
         if (result != rhi::error::ok) {
             return result;
         }
-        if (auto result = recorded->apply_operations(); result != rhi::error::ok) {
-            return result;
+        if (auto const apply_result = recorded->apply_operations(); apply_result != rhi::error::ok) {
+            return apply_result;
         }
         if (auto prepared = this->parent->prepare_lazy_descriptors(*recorded); prepared != rhi::error::ok) {
             return prepared;
@@ -1119,7 +1098,7 @@ namespace deren::vulkan {
         // VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT while layout is VK_NULL_HANDLE"
         // (VUID-VkComputePipelineCreateInfo-None-11367). The bit lives past the classic 32-bit `flags` field,
         // so it rides VkPipelineCreateFlags2CreateInfo - the shape the engine's raw builders used.
-        VkPipelineCreateFlags2CreateInfo const heap_flags = {
+        constexpr VkPipelineCreateFlags2CreateInfo heap_flags = {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO,
             .pNext = nullptr,
             .flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT,
@@ -1153,7 +1132,7 @@ namespace deren::vulkan {
         answer->bind_point = VK_PIPELINE_BIND_POINT_COMPUTE;
         answer->group_binding = desc.texture_group;
         answer->resource_layout.assign(desc.resource_group.begin(), desc.resource_group.end());
-        std::sort(answer->resource_layout.begin(), answer->resource_layout.end(), [](auto const& a, auto const& b) { return a.binding < b.binding; });
+        std::ranges::sort(answer->resource_layout, [](auto const& a, auto const& b) { return a.binding < b.binding; });
         return answer;
     }
 
@@ -1263,13 +1242,15 @@ namespace deren::vulkan {
                 deren::utility::log("rhi: create_pipeline {} refused: vkCreateShaderModule failed for ray-tracing stage {}", what, index);
                 return nullptr;
             }
-            stages.push_back(VkPipelineShaderStageCreateInfo{.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                                                             .pNext = mappings[index].empty() ? nullptr : &mapping_infos[index],
-                                                             .flags = 0,
-                                                             .stage = kind.value(),
-                                                             .module = modules[index]->get(),
-                                                             .pName = "main", // every entry point this renderer builds is "main"
-                                                             .pSpecializationInfo = nullptr});
+            stages.push_back(VkPipelineShaderStageCreateInfo{
+                .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                .pNext = mappings[index].empty() ? nullptr : &mapping_infos[index],
+                .flags = 0,
+                .stage = kind.value(),
+                .module = modules[index]->get(),
+                .pName = "main", // every entry point this renderer builds is "main"
+                .pSpecializationInfo = nullptr,
+            });
         }
         // THE GROUP TABLE, with the kind following from WHICH SLOTS ARE FILLED (the descriptor's rule):
         // any hit slot makes it a hit group, and `triangles` says whether its geometry is triangles. This is the
@@ -1283,36 +1264,40 @@ namespace deren::vulkan {
                 group_type = group.triangles ? VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR
                                              : VK_RAY_TRACING_SHADER_GROUP_TYPE_PROCEDURAL_HIT_GROUP_KHR;
             }
-            groups.push_back(VkRayTracingShaderGroupCreateInfoKHR{.sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR,
-                                                                  .pNext = nullptr,
-                                                                  .type = group_type,
-                                                                  .generalShader = group.general,
-                                                                  .closestHitShader = group.closest_hit,
-                                                                  .anyHitShader = group.any_hit,
-                                                                  .intersectionShader = group.intersection,
-                                                                  .pShaderGroupCaptureReplayHandle = nullptr});
+            groups.push_back(VkRayTracingShaderGroupCreateInfoKHR{
+                .sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR,
+                .pNext = nullptr,
+                .type = group_type,
+                .generalShader = group.general,
+                .closestHitShader = group.closest_hit,
+                .anyHitShader = group.any_hit,
+                .intersectionShader = group.intersection,
+                .pShaderGroupCaptureReplayHandle = nullptr,
+            });
         }
         // THE HEAP FLAG IS NOT OPTIONAL WHEN THE LAYOUT IS NULL (VUID-VkRayTracingPipelineCreateInfoKHR-...):
         // the same "both or neither" rule the compute path states, through the same flags2 structure.
-        VkPipelineCreateFlags2CreateInfo const heap_flags = {
+        constexpr VkPipelineCreateFlags2CreateInfo heap_flags = {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO,
             .pNext = nullptr,
             .flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT,
         };
-        VkRayTracingPipelineCreateInfoKHR const info = {.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR,
-                                                        .pNext = &heap_flags,
-                                                        .flags = 0,
-                                                        .stageCount = static_cast<std::uint32_t>(stages.size()),
-                                                        .pStages = stages.data(),
-                                                        .groupCount = static_cast<std::uint32_t>(groups.size()),
-                                                        .pGroups = groups.data(),
-                                                        .maxPipelineRayRecursionDepth = desc.max_ray_recursion == 0u ? 1u : desc.max_ray_recursion,
-                                                        .pLibraryInfo = nullptr,
-                                                        .pLibraryInterface = nullptr,
-                                                        .pDynamicState = nullptr,
-                                                        .layout = VK_NULL_HANDLE, // heap-native stages: a layout would contradict them
-                                                        .basePipelineHandle = VK_NULL_HANDLE,
-                                                        .basePipelineIndex = -1};
+        VkRayTracingPipelineCreateInfoKHR const info = {
+            .sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR,
+            .pNext = &heap_flags,
+            .flags = 0,
+            .stageCount = static_cast<std::uint32_t>(stages.size()),
+            .pStages = stages.data(),
+            .groupCount = static_cast<std::uint32_t>(groups.size()),
+            .pGroups = groups.data(),
+            .maxPipelineRayRecursionDepth = desc.max_ray_recursion == 0u ? 1u : desc.max_ray_recursion,
+            .pLibraryInfo = nullptr,
+            .pLibraryInterface = nullptr,
+            .pDynamicState = nullptr,
+            .layout = VK_NULL_HANDLE, // heap-native stages: a layout would contradict them
+            .basePipelineHandle = VK_NULL_HANDLE,
+            .basePipelineIndex = -1,
+        };
         VkPipeline pipeline = VK_NULL_HANDLE;
         if (create_ray_tracing(this->device.logical_device, VK_NULL_HANDLE, VK_NULL_HANDLE, 1, &info, nullptr, &pipeline) != VK_SUCCESS) {
             deren::utility::log("rhi: create_pipeline {} refused: vkCreateRayTracingPipelinesKHR failed", what);
@@ -1475,7 +1460,7 @@ namespace deren::vulkan {
         // eight is this backend's ceiling for inherited attachments, and a larger declaration is refused.
         deren::utility::vessel::array<VkFormat, 8> native_color_formats = {};
         VkCommandBufferInheritanceRenderingInfo rendering = make_inheritance_rendering_info(false, nullptr, VK_FORMAT_UNDEFINED, VK_SAMPLE_COUNT_1_BIT);
-        VkCommandBufferInheritanceDescriptorHeapInfoEXT heap_inheritance = {};
+        VkCommandBufferInheritanceDescriptorHeapInfoEXT heap_inheritance;
         VkBindHeapInfoEXT resource_bind = {};
         VkBindHeapInfoEXT sampler_bind = {};
         VkCommandBufferInheritanceInfo inheritance = make_inheritance_info(nullptr);
@@ -2657,7 +2642,7 @@ namespace deren::vulkan {
         }
         // THE BARRIER IS THE BACKEND'S, as it is for an acceleration structure build: the setup buffers were
         // written by the HOST through their mappings, and the micromap itself is written.
-        VkMemoryBarrier2 const barrier{
+        constexpr VkMemoryBarrier2 barrier{
             .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
             .pNext = nullptr,
             .srcStageMask = VK_PIPELINE_STAGE_2_HOST_BIT | VK_PIPELINE_STAGE_2_TRANSFER_BIT,
@@ -2724,7 +2709,7 @@ namespace deren::vulkan {
         // THE BARRIER IS THE BACKEND'S NOW (the engine's module used to record its): everything the build
         // READS was written by the host (the caller's vertex/index/instance writes, and this frame's transfers)
         // and the structure itself is written - one conservative memory barrier covers both.
-        VkMemoryBarrier2 const barrier{
+        constexpr VkMemoryBarrier2 barrier{
             .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
             .pNext = nullptr,
             .srcStageMask = VK_PIPELINE_STAGE_2_HOST_BIT | VK_PIPELINE_STAGE_2_TRANSFER_BIT | VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
@@ -2777,7 +2762,7 @@ namespace deren::vulkan {
             // and a "refit" that silently rebuilt it would be a different operation than the caller asked for.
             return rhi::error::unsupported;
         }
-        VkMemoryBarrier2 const barrier{
+        constexpr VkMemoryBarrier2 barrier{
             .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
             .pNext = nullptr,
             .srcStageMask = VK_PIPELINE_STAGE_2_HOST_BIT | VK_PIPELINE_STAGE_2_TRANSFER_BIT | VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
@@ -2965,10 +2950,10 @@ namespace deren::vulkan {
         if (self == nullptr || command_buffer == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
         }
-        VkImage source_native = VK_NULL_HANDLE;
-        VkFormat source_format = VK_FORMAT_UNDEFINED;
-        VkImage destination_native = VK_NULL_HANDLE;
-        VkFormat destination_format = VK_FORMAT_UNDEFINED;
+        VkImage source_native;
+        VkFormat source_format;
+        VkImage destination_native;
+        VkFormat destination_format;
         {
             std::lock_guard const lock(self->resource.contract_images_mutex);
             if (copy.source == nullptr || copy.destination == nullptr || (!rhi::is_concrete(*copy.source, concrete::image) && !rhi::is_concrete(*copy.source, concrete::frame_image)) ||
@@ -3134,7 +3119,7 @@ namespace deren::vulkan {
     // command and no submission - so both build the same `VkImageToMemoryCopy` through this helper. A
     // device fact (`host_image_copy_available`) gates both, which is what keeps them from disagreeing.
     namespace {
-        [[nodiscard]] rhi::error host_copy_image_out(core& self, VkImage const source, std::span<std::byte> const destination,
+        [[nodiscard]] rhi::error host_copy_image_out(core const& self, VkImage const source, std::span<std::byte> const destination,
                                                      rhi::image_copy_region const& region) noexcept {
             if (!self.device.host_image_copy_available || source == VK_NULL_HANDLE) {
                 return rhi::error::unsupported;
@@ -3204,9 +3189,11 @@ namespace deren::vulkan {
             return {};
         }
         auto const& properties = this->parent->device.ray_tracing_pipeline_properties;
-        return rhi::shader_binding_table_properties{.handle_size = properties.shaderGroupHandleSize,
-                                                    .handle_alignment = properties.shaderGroupHandleAlignment,
-                                                    .base_alignment = properties.shaderGroupBaseAlignment};
+        return rhi::shader_binding_table_properties{
+            .handle_size = properties.shaderGroupHandleSize,
+            .handle_alignment = properties.shaderGroupHandleAlignment,
+            .base_alignment = properties.shaderGroupBaseAlignment,
+        };
     }
 
     std::uint64_t core::frame_device_capabilities::acceleration_structure_scratch_alignment() const noexcept {

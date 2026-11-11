@@ -80,7 +80,7 @@ export struct device_capabilities {
     //      about partially-initialized designated initializers at /W4, so there is nothing to suppress
     //      there. This is the only first-party use of a clang-specific pragma/attribute/builtin in the
     //      tree (everything else lives under source/third_party/, which is compiled with /external:W0).
-#if defined(__clang__)
+#ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
 #endif
@@ -249,7 +249,7 @@ export struct device_capabilities {
     VkPhysicalDeviceSubgroupProperties subgroup_properties = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES};
     VkPhysicalDeviceDescriptorIndexingProperties descriptor_indexing_properties = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES};
     VkPhysicalDeviceMaintenance4Properties maintenance4_properties = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_PROPERTIES};
-#if defined(__clang__)
+#ifdef __clang__
 #pragma clang diagnostic pop
 #endif
 
@@ -542,7 +542,7 @@ void device_capabilities::query(VkPhysicalDevice const physical_device, uint32_t
     deren::utility::vessel::vector<VkExtensionProperties> available_extensions(extension_count);
     vkEnumerateDeviceExtensionProperties(physical_device, nullptr, &extension_count, available_extensions.data());
     auto const has_extension = [&available_extensions](char const* name) {
-        return std::any_of(available_extensions.begin(), available_extensions.end(), [name](VkExtensionProperties const& entry) {
+        return std::ranges::any_of(available_extensions, [name](VkExtensionProperties const& entry) {
             return std::string_view(entry.extensionName) == name;
         });
     };

@@ -7,7 +7,6 @@
 module;
 
 #include <cstdint>
-#include <cstring>
 module deren.engine.pass.geometry_buffer_debug;
 import deren.vstd;
 import deren.utility.shared;
@@ -94,7 +93,7 @@ namespace deren::engine::pass {
         return this->debug_channel;
     }
 
-    rhi::error gbuffer_debug_pass::record_content(resolved_io const& io) noexcept {
+    rhi::error gbuffer_debug_pass::record_content(resolved_io const& io) noexcept { // NOLINT
         if (!this->pipeline_ready() || io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == nullptr ||
             io.extent.width == 0 || io.extent.height == 0 || io.list == nullptr || io.targets[0].view_handle == nullptr) {
             return rhi::error::invalid_argument; // the record step resolves this or does not record the pass at all

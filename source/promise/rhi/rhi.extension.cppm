@@ -253,7 +253,7 @@ export namespace deren::promise::rhi {
         extension() noexcept = default;
 
     public:
-        virtual ~extension() noexcept = default;
+        ~extension() noexcept override = default;
         /// A core or frame keeps its extensions valid; the object contract's release is a no-op.
         void release() noexcept override {
         }

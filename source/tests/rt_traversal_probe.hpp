@@ -116,16 +116,16 @@ static void check_rt_traversal(deren::promise::rhi::api_core& core,
         .size = 3u * stride + properties.base_alignment - 1u,
         .usage = rhi::buffer_usage::storage_coherent,
         .flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::shader_binding_table),
-    })};
+    }),};
     rhi::unique_object<rhi::buffer> output{core.resources->create_buffer({
         .size = 6u * sizeof(std::uint32_t),
         .usage = rhi::buffer_usage::storage_coherent,
         .flags = rhi::to_bits(rhi::buffer_flag::device_address),
-    })};
+    }),};
     rhi::unique_object<rhi::acceleration_structure> second_tlas{core.resources->create_acceleration_structure({
         .type = rhi::acceleration_structure_type::top_level,
         .instance_capacity = 1,
-    })};
+    }),};
     CHECK(table && output && second_tlas);
     if (!table || !output || !second_tlas) {
         return;

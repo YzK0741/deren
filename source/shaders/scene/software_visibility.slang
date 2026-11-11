@@ -55,7 +55,7 @@ SoftwareTriangleData software_prepare_triangle(uint triangle_index, VisibilityDr
     [unroll]
     for (uint corner = 0u; corner < 3u; ++corner)
     {
-        const MeshVertex vertex = visibility_vertex(geometry, record, triangle_index, corner);
+        const MeshVertex vertex = visibility_vertex(geometry, record, triangle_index, corner, 0ull);
         const float4 clip = visibility_clip(visibility_world(vertex.position, item.model), view_proj);
         if (!all(isfinite(clip)) || clip.w <= 0.0)
             return result;

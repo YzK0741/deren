@@ -236,17 +236,19 @@ namespace {
         // the nearest ray, and clamp to the shader's 1..4 loop bound. The clamp is applied in DOUBLE space,
         // before the rounding, so an enormous float cannot overflow `std::lround`'s integer conversion; a
         // non-finite float keeps the default either way.
-        for (auto const [value, expected] : {std::pair<std::string_view, std::uint32_t>{"2", 2u},
-                                             {"2.0", 2u},
-                                             {"2.6", 3u},
-                                             {"9", 4u},
-                                             {"0", 1u},
-                                             {"1e300", 4u},
-                                             {"-1e300", 1u},
-                                             {"1e-300", 1u},
-                                             {"nan", 1u},
-                                             {"inf", 1u},
-                                             {"-inf", 1u}}) {
+        for (auto const [value, expected] : {
+                 std::pair<std::string_view, std::uint32_t>{"2", 2u},
+                 {"2.0", 2u},
+                 {"2.6", 3u},
+                 {"9", 4u},
+                 {"0", 1u},
+                 {"1e300", 4u},
+                 {"-1e300", 1u},
+                 {"1e-300", 1u},
+                 {"nan", 1u},
+                 {"inf", 1u},
+                 {"-inf", 1u},
+             }) {
             std::ofstream("rt-reflection-samples.toml") << "[render]\nrt_reflection_samples=" << value << '\n';
             auto const samples = deren::app_config::load_settings("rt-reflection-samples.toml").render.rt_reflection_samples;
             CHECK(samples == expected);

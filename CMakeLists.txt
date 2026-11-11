@@ -547,7 +547,7 @@ if(CLANG_FORMAT_EXECUTABLE)
             ${CMAKE_CURRENT_SOURCE_DIR}/source/backends/vulkan/*.cpp*
             ${CMAKE_CURRENT_SOURCE_DIR}/source/engine/*.cpp*
             ${CMAKE_CURRENT_SOURCE_DIR}/source/engine/runtime/*.cpp*
-            ${CMAKE_CURRENT_SOURCE_DIR}/source/backends/vulkan/core/vma/texture_upload_layout.h
+            ${CMAKE_CURRENT_SOURCE_DIR}/source/backends/vulkan/core/vma/texture_upload_layout.cppm
             ${CMAKE_CURRENT_SOURCE_DIR}/source/tests/*.cpp*
             ${CMAKE_CURRENT_SOURCE_DIR}/source/promise/rhi/*.cppm
             ${CMAKE_CURRENT_SOURCE_DIR}/source/promise/rhi/*.hpp
@@ -1052,7 +1052,7 @@ target_link_libraries(test_render_operations promise vulkan_core_support)
 
 # Buffer transfer service probe; the device lane passes --with-device explicitly.
 add_executable(test_buffer_transfer source/tests/test_buffer_transfer.cpp)
-target_link_libraries(test_buffer_transfer buffer_transfer_core backend_loader static_utility vstd_lib vulkan_main_context Vulkan::Vulkan)
+target_link_libraries(test_buffer_transfer buffer_transfer_core engine_visibility_support backend_loader static_utility vstd_lib vulkan_main_context Vulkan::Vulkan)
 add_dependencies(test_buffer_transfer deren_vulkan)
 
 add_executable(test_subtilis_transfer source/tests/test_subtilis_transfer.cpp)
@@ -1103,7 +1103,7 @@ if(VR_BUILD_TESTS)
         target_link_libraries(bench_ibl_cpu PRIVATE deren_engine vstd_lib)
     endif()
     target_include_directories(bench_image_upload PRIVATE source/third_party source/backends/vulkan/core/vma)
-    target_link_libraries(bench_image_upload PRIVATE backend_loader promise static_utility vstd_lib vulkan_main_context Vulkan::Vulkan)
+    target_link_libraries(bench_image_upload PRIVATE backend_loader promise static_utility vstd_lib vulkan_main_context vulkan_core_support Vulkan::Vulkan)
     add_dependencies(bench_image_upload deren_vulkan)
     if(MSVC)
         set_source_files_properties(source/tests/image_upload_bench_vma.cpp PROPERTIES COMPILE_OPTIONS "/w")

@@ -32,7 +32,7 @@ namespace deren::engine::gaussian_splatting {
         }
         deren::utility::vessel::vector<std::uint32_t> order(inputs.size());
         std::iota(order.begin(), order.end(), 0u);
-        std::sort(order.begin(), order.end(), [&](auto a, auto b) { return inputs[a].stable_id < inputs[b].stable_id; });
+        std::ranges::sort(order, [&](auto a, auto b) { return inputs[a].stable_id < inputs[b].stable_id; });
         deren::utility::vessel::vector<instance_record> records(inputs.size());
         deren::utility::vessel::vector<gpu_instance_range> range_data;
         deren::utility::vessel::vector<std::shared_ptr<raster_asset const>> cached_assets;
@@ -119,7 +119,7 @@ namespace deren::engine::gaussian_splatting {
             resource_id::gaussian_projected,
         };
         deren::utility::vessel::array<managed::request, gpu_frame::buffer_count> requests;
-        auto const flags = rhi::to_bits(rhi::buffer_flag::storage) | rhi::to_bits(rhi::buffer_flag::device_address);
+        constexpr auto flags = rhi::to_bits(rhi::buffer_flag::storage) | rhi::to_bits(rhi::buffer_flag::device_address);
         bool rebuild = false;
         for (std::size_t i = 0; i < sizes.size(); ++i) {
             auto& request = requests[i];
@@ -164,8 +164,8 @@ namespace deren::engine::gaussian_splatting {
                     return rhi::error::unsupported;
                 }
                 bytes += capacity;
-                addresses[i] = address->buffer_address(*candidates[i], 0);
-                if (!addresses[i] || addresses[i] % 16u) {
+                addresses[i] = address->buffer_address(*candidates[i], 0); // NOLINT(bugprone-pointer-arithmetic-on-polymorphic-object): false positive on pointer-array
+                if (!addresses[i] || addresses[i] % 16u) {                 // NOLINT(bugprone-pointer-arithmetic-on-polymorphic-object): false positive on integer array subscript
                     admission_code = error_code::invalid_address;
                     admission_message = "GPU frame buffer address is not aligned";
                     return rhi::error::unsupported;
@@ -248,9 +248,8 @@ namespace deren::engine::gaussian_splatting {
         if (!pipelines.ready() || !push_block.push || !sorter) {
             return rhi::error::not_ready;
         }
-        auto launch = [&](rhi::pipeline& pipeline, std::uint32_t groups) {
-            auto error = list.bind_pipeline(pipeline);
-            if (error != rhi::error::ok) {
+        auto launch = [&](rhi::pipeline const& pipeline, std::uint32_t const groups) {
+            if (auto const error = list.bind_pipeline(pipeline); error != rhi::error::ok) {
                 return error;
             }
             if (!push_block(list, std::as_bytes(std::span{&parameter_address, 1}))) {

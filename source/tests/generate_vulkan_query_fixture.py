@@ -54,7 +54,7 @@ def main() -> None:
     # Run the actual host-copy region builder; barriers/device calls stay outside
     # this pure CPU test. The fixture supplies only the image description/payload.
     args.regions_output.write_text(
-        '#pragma once\n#include "texture_upload_layout.h"\n#include <vector>\n'
+        '#pragma once\n#include <cstdint>\n#include <vulkan/vulkan.h>\n#include <vector>\n'
         "namespace deren::vulkan {\n"
         "struct upload_fixture_info { uint32_t width, height, array_layers, mip_levels; VkFormat format; };\n"
         "inline deren::utility::vessel::vector<VkMemoryToImageCopyEXT> host_copy_regions(void const* data, upload_fixture_info const& info) {\n"

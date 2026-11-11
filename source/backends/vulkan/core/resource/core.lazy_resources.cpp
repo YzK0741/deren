@@ -1,10 +1,7 @@
 module;
-#include "../vma/texture_upload_layout.h"
-
-#include <cstddef>
-#include <cstdint>
 #include <vulkan/vulkan.h>
 module deren.vulkan.core;
+import deren.vulkan.core.vma.texture_upload_layout;
 import deren.vstd;
 import deren.utility.shared;
 import deren.vulkan.constant_init;
@@ -183,10 +180,12 @@ namespace deren::vulkan {
             if (binding.image) {
                 status = recorder.demand(*binding.image_write.resource);
                 if (status == rhi::error::ok && !binding.published) {
-                    status = resource.heap_view.write_image_native({.offset = static_cast<std::uint64_t>(slot) * heap_slot_stride,
-                                                                    .resource = binding.image_write.resource,
-                                                                    .view = &binding.view,
-                                                                    .type = binding.image_write.type},
+                    status = resource.heap_view.write_image_native({
+                                                                       .offset = static_cast<std::uint64_t>(slot) * heap_slot_stride,
+                                                                       .resource = binding.image_write.resource,
+                                                                       .view = &binding.view,
+                                                                       .type = binding.image_write.type,
+                                                                   },
                                                                    true);
                 }
             } else {
@@ -194,10 +193,12 @@ namespace deren::vulkan {
                 if (status == rhi::error::ok && !binding.published) {
                     auto const& info = binding.buffer_write;
                     auto address = internal_address(*static_cast<core::buffer const*>(info.resource), info.offset);
-                    status = address ? resource.heap_view.write_buffer({.offset = static_cast<std::uint64_t>(slot) * heap_slot_stride,
-                                                                        .address = address,
-                                                                        .size = info.size,
-                                                                        .type = rhi::descriptor_type::storage_buffer})
+                    status = address ? resource.heap_view.write_buffer({
+                                           .offset = static_cast<std::uint64_t>(slot) * heap_slot_stride,
+                                           .address = address,
+                                           .size = info.size,
+                                           .type = rhi::descriptor_type::storage_buffer,
+                                       })
                                      : rhi::error::operation_failed;
                 }
             }
@@ -255,13 +256,13 @@ namespace deren::vulkan {
     }
 
     void core::frame_commands::reference_lazy(core::buffer const& resource) {
-        if (!resource.source || std::any_of(lazy_refs.begin(), lazy_refs.end(), [&resource](auto const& ref) { return ref.get() == &resource; })) {
+        if (!resource.source || std::ranges::any_of(lazy_refs, [&resource](auto const& ref) { return ref.get() == &resource; })) {
             return;
         }
         lazy_refs.push_back(parent->depend_on(resource));
     }
     void core::frame_commands::reference_lazy(core::image const& resource) {
-        if (!resource.source || std::any_of(lazy_refs.begin(), lazy_refs.end(), [&resource](auto const& ref) { return ref.get() == &resource; })) {
+        if (!resource.source || std::ranges::any_of(lazy_refs, [&resource](auto const& ref) { return ref.get() == &resource; })) {
             return;
         }
         lazy_refs.push_back(parent->depend_on(resource));
