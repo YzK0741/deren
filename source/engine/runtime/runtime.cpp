@@ -3932,9 +3932,16 @@ namespace deren::engine {
                                                  (runtime_detail::ray_query_available_of(this->rhi_face()) ? rhi::to_bits(rhi::buffer_flag::acceleration_structure_input) : rhi::no_buffer_flags);
         if (geometry_source) {
             if (!shared_generation) {
+                if (!geometry_source->pages().empty() && !this->subtilis_page_arena_pool) {
+                    auto pool = subtilis::page_arena_pool::create(this->core_lifetime, this->subtilis_resident_page_budget);
+                    if (!pool) {
+                        return nullptr;
+                    }
+                    this->subtilis_page_arena_pool = std::move(*pool);
+                }
                 auto uploaded = subtilis::upload_geometry(this->core_lifetime, geometry_source, geometry_flags,
                                                           subtilis::geometry_upload_mode::automatic,
-                                                          this->subtilis_resident_page_budget);
+                                                          this->subtilis_resident_page_budget, this->subtilis_page_arena_pool);
                 if (!uploaded) {
                     return nullptr;
                 }

@@ -74,12 +74,48 @@ export namespace deren::engine::subtilis {
     /// synchronous creation. Forced batched mode refuses missing capabilities; failures are propagated.
     /// Separate batched uploads do not share the backend's initial-content cache: reuse the returned uploaded_geometry.
     /// @details The feature overview, the measured numbers and the document index are in @ref md_docs_2subtilis.
+    /// One device-wide pool of fixed-size subtilis page slots. Passing the same pool to every
+    /// upload makes `resident_page_bytes` a real global budget instead of a per-source allowance.
+    class page_arena_pool {
+        struct state;
+        std::shared_ptr<state> state_;
+
+        explicit page_arena_pool(std::shared_ptr<state> state) noexcept;
+
+    public:
+        static constexpr std::uint32_t slot_bytes = 64u << 10;
+
+        [[nodiscard]] static std::expected<std::shared_ptr<page_arena_pool>, upload_rhi::error>
+        create(upload_rhi::shared_object<upload_rhi::api_core> const& device, std::uint64_t bytes);
+        ~page_arena_pool();
+        page_arena_pool(page_arena_pool const&) = delete ("page_arena_pool owns one shared GPU arena; share the handle instead");
+        page_arena_pool& operator=(page_arena_pool const&) = delete ("page_arena_pool owns one shared GPU arena; share the handle instead");
+
+        [[nodiscard]] std::uint32_t capacity_slots() const noexcept;
+        [[nodiscard]] std::shared_ptr<render_resource::instances::generation const> const& arena() const noexcept;
+        using slot_evict_fn = bool (*)(void*, std::uint32_t);
+
+        /// Removes `count` free slots from the pool. When the pool is full, owners of unreferenced
+        /// slots are asked to evict one page; `skip_owner` keeps the requesting source out of that
+        /// search because its residency plan is already in flight.
+        [[nodiscard]] bool acquire(std::uint32_t count, deren::utility::vessel::vector<std::uint32_t>& out, void const* skip_owner = nullptr, std::uint32_t* evicted = nullptr);
+        void set_owner(std::uint32_t slot, void* context, slot_evict_fn evict);
+        void clear_owner(std::uint32_t slot);
+        void release(std::uint32_t slot);
+        void release(std::span<std::uint32_t const> slots);
+        void retain(std::uint32_t slot);
+        void drop(std::uint32_t slot);
+        /// Copies initial bytes into a slot. The arena is host-visible/coherent.
+        [[nodiscard]] bool write(std::uint32_t slot, std::span<std::byte const> bytes);
+    };
+
     [[nodiscard]] std::expected<std::shared_ptr<uploaded_geometry const>, upload_rhi::error>
     upload_geometry(upload_rhi::shared_object<upload_rhi::api_core> const& device,
                     std::shared_ptr<built_geometry const> source,
                     upload_rhi::buffer_flags flags = upload_rhi::to_bits(upload_rhi::buffer_flag::device_address),
                     geometry_upload_mode mode = geometry_upload_mode::automatic,
-                    std::uint64_t resident_page_bytes = 64ull << 20);
+                    std::uint64_t resident_page_bytes = 64ull << 20,
+                    std::shared_ptr<page_arena_pool> arena_pool = {});
     /// One immutable CPU hierarchy and its complete GPU payload. Buffers reachable through it
     /// are valid while this generation, or a view that shares it, still exists.
     class uploaded_geometry {
@@ -97,7 +133,7 @@ export namespace deren::engine::subtilis {
         std::shared_ptr<page_state> page_state_;
         friend std::expected<std::shared_ptr<uploaded_geometry const>, upload_rhi::error>
         upload_geometry(upload_rhi::shared_object<upload_rhi::api_core> const&, std::shared_ptr<built_geometry const>, upload_rhi::buffer_flags,
-                        geometry_upload_mode, std::uint64_t);
+                        geometry_upload_mode, std::uint64_t, std::shared_ptr<page_arena_pool>);
 
     public:
         uploaded_geometry(construction_key /*unused*/, std::shared_ptr<void const> resources, std::shared_ptr<built_geometry const> source,

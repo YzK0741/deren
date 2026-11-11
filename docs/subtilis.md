@@ -14,14 +14,19 @@ and its arena references are released. Each geometry is prepared once per frame 
 when several items share it; all geometries share `[render] subtilis_page_upload_bytes`
 (default 8 MiB) per frame. Sources are served round-robin with a fair byte share, so one
 source cannot consume the whole budget. Total in-flight upload payload is limited to that
-budget times the frame-ring slot count. Each source's page arena is sized by
-`[render] subtilis_resident_page_bytes` (default 64 MiB).
+budget times the frame-ring slot count. All sources share one page arena sized by
+`[render] subtilis_resident_page_bytes` (default 64 MiB). The arena is split into
+fixed 64 KiB slots, so the budget is a real global limit rather than a per-source
+allowance. If a geometry's pinned set cannot fit, that geometry keeps using its full index
+buffer without paging.
 
 An eviction removes the canonical mapping from future snapshots. The physical slot
 remains protected while any older snapshot references it, including when its object
-has been hidden or removed. If no physical slot is safe, installation is deferred and
-the cut can use its existing whole-item LOD0 fallback. Retired and reserved slots remain
-inside the bounded arena. Page preparation never waits for device idle or upload tickets.
+has been hidden or removed. When the shared arena is full, unpinned unreferenced slots
+may be reclaimed to cover the allocation shortfall. A source with an accepted upload
+keeps its slots until completion is confirmed. If no physical slot is safe, installation is deferred and the cut
+can use its existing whole-item LOD0 fallback. Retired and reserved slots remain inside
+the bounded arena. Page preparation never waits for device idle or upload tickets.
 
 Each geometry coalesces requests and their shared dependencies into one upload batch,
 with at most one batch in flight. Its slots stay reserved and its pages stay unavailable
@@ -32,7 +37,8 @@ uploads are retained by the runtime independently of frame snapshots and scene o
 so hiding or removing an object does not force a synchronous upload drain.
 
 Visibility raster and resolve read the same page-table snapshot and arena addresses from the
-current frame's draw item. Each geometry can therefore use its own arena. The GPU cut checks
+current frame's draw item. Page tables remain per geometry, while every geometry addresses
+the same shared arena. The GPU cut checks
 the selected run against its reservation and emits the preloaded LOD0 command if it exceeds
 capacity or needs an absent page. Overlapping reservations follow the same publication order
 as CPU cuts.

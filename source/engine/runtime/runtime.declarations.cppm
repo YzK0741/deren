@@ -2461,6 +2461,7 @@ namespace deren::engine {
         uint64_t subtilis_cut_frames = 0, subtilis_cut_items = 0;
         std::mutex subtilis_upload_mutex;
         deren::utility::vessel::map<subtilis::import_key, std::weak_ptr<subtilis::uploaded_geometry const>> subtilis_upload_cache;
+        std::shared_ptr<subtilis::page_arena_pool> subtilis_page_arena_pool;
         bool subtilis_active_frame = false;
         bool subtilis_logged = false;
         /// why this frame was or was not admitted (the record step's lane decision, and the log's vocabulary)

@@ -116,13 +116,16 @@ namespace {
     };
     static_assert(sizeof(wire_page_group) == 48u);
 
-    std::shared_ptr<sub::built_geometry const> make_paged_geometry(bool padded = false) {
+    std::shared_ptr<sub::built_geometry const> make_paged_geometry(bool padded = false, bool pin_first_index_page = false) {
         auto fixture = subtilis_fixture::cross_dag();
         if (padded) {
             fixture.data.indices.insert(fixture.data.indices.end(), 20000, 0u);
         }
         if (!wire::compute_pages(fixture.data, {})) {
             return nullptr;
+        }
+        if (pin_first_index_page) {
+            fixture.data.pages.front().flags = static_cast<std::uint16_t>(wire::page_flags::always_resident);
         }
         auto validated = wire::make_asset(fixture.source, fixture.data, {});
         if (!validated) {
@@ -418,9 +421,50 @@ int main() {
     CHECK(image.complete_page_frame(0) == rhi::error::ok);
     deren::vk_test::write_line("page image: {} pages, {} arena bytes, table {} bytes", image.page_count(), arena_bytes.size(), table_bytes.size());
     {
+        auto pool = sub::page_arena_pool::create(core, 3ull * sub::page_arena_pool::slot_bytes);
+        CHECK(pool);
+        if (pool) {
+            deren::utility::vessel::vector<std::uint32_t> occupied, replacement;
+            CHECK((*pool)->acquire(3, occupied));
+            for (auto slot : occupied) {
+                (*pool)->set_owner(slot, pool->get(), [](void* context, std::uint32_t victim) {
+                    auto& arena = *static_cast<sub::page_arena_pool*>(context);
+                    arena.clear_owner(victim);
+                    arena.release(victim);
+                    return true;
+                });
+            }
+            std::uint32_t evicted = 0;
+            CHECK((*pool)->acquire(1, replacement, nullptr, &evicted));
+            CHECK(evicted == 1);
+        }
+    }
+    {
+        auto pinned = make_paged_geometry(false, true);
+        auto pool = sub::page_arena_pool::create(core, sub::page_arena_pool::slot_bytes);
+        CHECK(pinned && pool);
+        if (pinned && pool) {
+            auto upload = [&] {
+                return sub::upload_geometry(core, pinned, rhi::to_bits(rhi::buffer_flag::device_address),
+                                            sub::geometry_upload_mode::synchronous, sub::page_arena_pool::slot_bytes, *pool);
+            };
+            auto first = upload();
+            CHECK(first && (*first)->page_table() != nullptr);
+            auto second = upload();
+            CHECK(second && (*second)->page_table() == nullptr && (*second)->cut_groups() != nullptr);
+        }
+    }
+    {
         auto adapter = std::make_shared<controlled_core>(core);
         rhi::shared_object<rhi::api_core> wrapped{adapter, adapter.get()};
-        auto async = sub::upload_geometry(wrapped, geometry, rhi::to_bits(rhi::buffer_flag::device_address), sub::geometry_upload_mode::synchronous);
+        auto const pool_bytes = geometry->pages().size() * std::uint64_t{sub::page_arena_pool::slot_bytes};
+        auto pool = sub::page_arena_pool::create(wrapped, pool_bytes);
+        CHECK(pool);
+        if (!pool) {
+            return deren::vk_test::finish("test_subtilis_page_gpu");
+        }
+        auto async = sub::upload_geometry(wrapped, geometry, rhi::to_bits(rhi::buffer_flag::device_address),
+                                          sub::geometry_upload_mode::synchronous, pool_bytes, *pool);
         CHECK(async);
         if (async) {
             auto const& pages = **async;
@@ -458,8 +502,18 @@ int main() {
             CHECK(duplicate.in_flight_bytes == submitted.bytes);
             core->wait_idle(); // Test setup only: the pager must still observe pending until allowed.
             adapter->completion.fail_poll = true;
-            CHECK(pages.collect_page_uploads().result == rhi::error::operation_failed);
+            for (int i = 0; i < 3; ++i) {
+                auto const failed = pages.collect_page_uploads();
+                CHECK(failed.result == rhi::error::operation_failed);
+                CHECK(failed.in_flight_bytes == submitted.bytes);
+            }
             CHECK(pages.has_pending_page_upload());
+            deren::utility::vessel::vector<std::uint32_t> competing;
+            bool const reused = (*pool)->acquire(1, competing);
+            CHECK(!reused);
+            if (reused) {
+                (*pool)->release(competing);
+            }
             CHECK(std::memcmp(before.data(), frozen.data(), frozen.size()) == 0);
             adapter->completion.fail_poll = false;
             adapter->completion.ready = true;
