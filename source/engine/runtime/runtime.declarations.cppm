@@ -3901,7 +3901,7 @@ namespace deren::engine {
         void set_subtilis_gpu_cut(bool enabled) noexcept;
         /// Per-frame page upload budget, shared by every source. Takes effect next frame.
         void set_subtilis_page_upload_bytes(std::uint64_t value) noexcept;
-        /// Per-source page-slot arena budget, used when a source is uploaded.
+        /// Resident page-slot arena budget, shared by every uploaded source.
         void set_subtilis_resident_page_bytes(std::uint64_t value) noexcept;
         void set_software_raster(bool enabled) noexcept;
         void set_software_raster_threshold_px(float value) noexcept;

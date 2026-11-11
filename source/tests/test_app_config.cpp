@@ -142,6 +142,8 @@ namespace {
         // default: the GEOMETRY lane is the opaque path - the frame every recorded reference was made from
         CHECK(!settings.render.subtilis);
         CHECK(settings.render.subtilis_error_px == 1.f && !settings.render.subtilis_hysteresis);
+        CHECK(settings.render.subtilis_page_upload_bytes == 8ull << 20);
+        CHECK(settings.render.subtilis_resident_page_bytes == 64ull << 20);
         CHECK(!settings.render.visibility_buffer);
         CHECK(!settings.render.visibility_texture_streaming);
         CHECK(!settings.render.software_raster);
@@ -182,6 +184,8 @@ namespace {
         CHECK(settings.render.ssao_samples == 8);
         CHECK(!settings.render.taa);
         CHECK(!settings.render.subtilis);
+        CHECK(settings.render.subtilis_page_upload_bytes == 8ull << 20);
+        CHECK(settings.render.subtilis_resident_page_bytes == 64ull << 20);
         CHECK(!settings.render.visibility_buffer); // the example ships the switch OFF (the historic frame)
         CHECK(!settings.render.software_raster);
         CHECK(settings.lighting.demo_lights == 0);
@@ -861,6 +865,19 @@ int32_t main() {
         auto const settings = deren::app_config::load_settings(file.string());
         CHECK(settings.render.subtilis_page_upload_bytes == 4294967296ull);
         CHECK(settings.render.subtilis_resident_page_bytes == 65536ull);
+        std::filesystem::remove(file);
+    }
+    {
+        auto file = std::filesystem::path("subtilis-page-budget-valid.toml");
+        {
+            std::ofstream out(file);
+            out << "[render]\n"
+                   "subtilis_page_upload_bytes = 131072\n"
+                   "subtilis_resident_page_bytes = 262144\n";
+        }
+        auto const settings = deren::app_config::load_settings(file.string());
+        CHECK(settings.render.subtilis_page_upload_bytes == 131072ull);
+        CHECK(settings.render.subtilis_resident_page_bytes == 262144ull);
         std::filesystem::remove(file);
     }
     test_load_settings_applies_toml();

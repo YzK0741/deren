@@ -319,8 +319,8 @@ namespace deren::app_config {
         bool subtilis_hysteresis = false;
         bool subtilis_gpu_cut = false; // M2 GPU cut; requires subtilis and visibility_buffer
         // Streaming-page budgets. The upload budget is shared by every cut source in one frame;
-        // the resident budget caps the page-slot arena of each uploaded source. Both default to
-        // the values the engine shipped with: 8 MiB per frame and 64 MiB per source.
+        // the resident budget caps the one page-slot arena shared by every uploaded source. Both
+        // default to the values the engine shipped with: 8 MiB per frame and 64 MiB resident.
         std::uint64_t subtilis_page_upload_bytes = 8ull << 20;
         std::uint64_t subtilis_resident_page_bytes = 64ull << 20;
         bool software_raster = false; // M4 hybrid raster; requires visibility_buffer + subtilis

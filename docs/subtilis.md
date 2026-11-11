@@ -48,7 +48,9 @@ The dated phase records below describe earlier milestones.
 > **Phase closed (2026-10-23).** The subtilis phase is closed. DAG+HZB is the accepted shipping path
 > (textured Bistro 10.44/5.64 ms far/near); the software-raster lane remains optional/default-off and will
 > not be optimized further (negative result; the supporting maintainer records are not distributed with
-> this repository). M2 (GPU cut selection) and M5 (geometry streaming/paging) are deferred and not started.
+> this repository). M2 (GPU cut selection) and M5 (geometry streaming/paging) were deferred at that date.
+> M5 page streaming/paging was implemented afterwards (2026-11-10); see the frame-isolated asynchronous
+> pages section above.
 
 > **GPU survivor routing (2026-10-23):** the opt-in `DEREN_SOFTWARE_RASTER_GPU=1` prototype is implemented and
 > now validated on one final build: HZB compaction classifies/reserves/emits the software list on the GPU, the
@@ -104,9 +106,10 @@ can produce material and screen-footprint feedback that amnis consumes to schedu
 Sharing a pass or resource does not transfer the other subsystem's policy into subtilis.
 amnis can run without subtilis DAG LOD, and subtilis can use fully resident textures without amnis streaming.
 
-LOD cut selection currently runs on the CPU; HZB runs on the GPU. M2 GPU cut selection is deferred.
-M4 software raster remains experimental/default-off. M5 means **geometry page streaming/paging**,
-which is deferred and unimplemented; it does not refer to amnis texture streaming.
+LOD cut selection currently runs on the CPU; HZB runs on the GPU. M2 GPU cut selection is not
+implemented. M4 software raster remains experimental/default-off. M5 means **geometry page
+streaming/paging**; it is implemented for imported payloads (see "Frame-isolated asynchronous pages"),
+and it does not refer to amnis texture streaming.
 Future geometry-page selection belongs to subtilis, texture-mip selection to amnis, and reusable
 allocation/transfer/lifetime mechanisms remain shared infrastructure.
 
@@ -115,7 +118,8 @@ allocation/transfer/lifetime mechanisms remain shared infrastructure.
 > glTF path, share immutable CPU/GPU generations, and feed the CPU cut into the existing visibility/HZB lanes;
 > DAG+HZB is the shipping path. M4 was closed as an experimental/default-off negative result: headroom and
 > subpixel-share sweeps found no stable whole-frame win, and no further software-raster optimization is planned.
-> M2 (GPU select/finalize) and M5 (geometry streaming/paging) are deferred and not implemented.
+> M2 (GPU select/finalize) is not implemented. M5 (geometry streaming/paging) was implemented after this
+> status note (2026-11-10); see the frame-isolated asynchronous pages section.
 > **Default OFF**: `[render] subtilis=true` opts into payload extraction/adoption at startup and requires
 > `visibility_buffer=true` plus frame admission. Unsupported assets/items keep complete LOD0.
 >
@@ -338,8 +342,10 @@ is summarized here; its raw records are not distributed with this repository.
    establish a net hybrid win on the measured scene,
    and the full-stage manifest/CSR/hardware/resolve/merge verifier is still not implemented - the capture-only
    checks validate the software producer/partition, not the resolve/merge chain.
-5. **M5 geometry streaming/paging** is not started. The DAG probe finds 23.28% of far and 5.37% of near selected clusters
-   below 1px; this alone does not establish software-raster ROI.
+5. **M5 geometry streaming/paging** is implemented (2026-11-10): imported payloads use the shared
+   64 KiB page arena, per-source page tables and the GPU cut's request feedback. The DAG probe finds
+   23.28% of far and 5.37% of near selected clusters below 1px; this alone does not establish
+   software-raster ROI.
 6. The screen-error cut is a heuristic with a recorded conservative bound, not a strict per-pixel error
    guarantee; image differences and tiny near-view OFF variation are quantified in the runtime report.
 7. Optional imported-DAG hysteresis defaults off; toon exact-depth redraw, unsupported strategies,
@@ -368,7 +374,8 @@ the consumer lanes are documented in the [visibility-buffer lane](visibility_buf
   correctness evidence, but same-build matrices show no stable whole-frame net win and the HZB-configuration
   headroom sweep was unresolved. No further software-raster optimization is planned; the headroom and
   final-closeout records are maintainer material and are not distributed with this repository.
-- M5 - streaming/paging: **not started**.
+- M5 - streaming/paging: **implemented** 2026-11-10 (shared 64 KiB page arena, per-source page
+  tables and GPU-cut request feedback).
 - asset pipeline - automatic import-time build + on-disk cache: **not implemented** (explicit legacy builder and offline payload import are available).
 - offline glTF cluster-DAG converter (`tools/subtilis`, `DEREN_subtilis` extension): **implemented and
   accepted as an independent CPU tool** 2026-10-21; runtime consumption added 2026-10-22.
