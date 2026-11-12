@@ -244,6 +244,18 @@ For this example, copy the existing `asset/DamagedHelmet` directory, including i
 
 Capture a project with `deren run /path/to/MyGame --capture-frames 120`. Preview a single library asset with `deren --asset-library /path/to/MyGame/assets --asset damaged-helmet`.
 
+#### C# scripts
+
+On Windows x64, configure with `-DDEREN_ENABLE_CSHARP=ON` and build with the .NET 10 SDK installed. With `VR_BUILD_TESTS=ON`, the build includes a demo with two independently rotating helmets:
+
+```powershell
+cmake -S . -B build -G Ninja -DDEREN_ENABLE_CSHARP=ON
+cmake --build build --target deren test_managed_host
+./build/deren.exe run ./build/source/scripting/test_game
+```
+
+For your own project, reference `Deren.Managed.dll` when building your scripts. Set `[scripts] assembly` in `deren.toml` to the built DLL path relative to the project root. Add `script = "game.rotate"` to an entry in `[[scene.objects]]` to bind that class. Derive scripts from `deren.behaviour` and override `on_create`, `on_update`, or `on_destroy` as needed. See the [demo script](source/scripting/test_game/rotate.cs). Running a scripted project requires the .NET 10 runtime.
+
 ### Startup configuration
 
 Startup is driven by a TOML file: copy `config.example.toml` to `config.toml`, or point at one explicitly:

@@ -28,6 +28,7 @@ namespace {
         CHECK(result.has_value());
         if (result) {
             CHECK(result->name == "Test Game");
+            CHECK(result->script_assembly.empty());
             auto const& settings = result->settings;
             CHECK(fs::path(settings.config_file) == scene);
             CHECK(fs::path(settings.paths.asset_library) == root / "assets");
@@ -38,6 +39,21 @@ namespace {
                 CHECK(fs::path(settings.scene.objects[1].model) == root / "models" / "prop.gltf");
             }
         }
+        std::ofstream(scene) << "[[scene.objects]]\nmodel = \"models/prop.gltf\"\nscript = \"game.rotate\"\n";
+        CHECK(!deren::app_config::load_project_settings(root));
+        std::ofstream(manifest) << "[project]\nname = \"Test Game\"\nmain_scene = \"scenes/main.toml\"\n"
+                                   "[scripts]\nassembly = \"Game.dll\"\n";
+        CHECK(!deren::app_config::load_project_settings(root));
+        std::ofstream(root / "Game.dll").put('x');
+        auto const scripted = deren::app_config::load_project_settings(root);
+        CHECK(scripted.has_value());
+        if (scripted) {
+            CHECK(scripted->script_assembly == root / "Game.dll");
+            CHECK(scripted->settings.scene.objects[0].script == "game.rotate");
+        }
+        std::ofstream(scene) << "[[scene.objects]]\nmodel = \"models/prop.gltf\"\nscript = 42\n";
+        CHECK(!deren::app_config::load_project_settings(root));
+        fs::remove(root / "Game.dll");
         std::ofstream(scene) << "[scene]\nobjects = []\n";
         CHECK(!deren::app_config::load_project_settings(root));
         std::ofstream(manifest) << "[project]\nname = \"Test Game\"\n";

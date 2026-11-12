@@ -768,6 +768,9 @@ namespace deren::app_config {
                             object.asset = *value;
                         }
                     }
+                    if (toml::node const* node = source->get("script")) {
+                        object.script.emplace(node->value<std::string_view>().value_or(""));
+                    }
                     read_vec3(*source, "position", object.position);
                     read_vec3(*source, "rotation", object.rotation);
                     read_vec3(*source, "scale", object.scale);
@@ -1188,6 +1191,17 @@ namespace deren::app_config {
             }
             settings.paths.asset_library = *path;
         }
+        fs::path script_assembly;
+        if (auto const scripts = manifest.table()["scripts"]; scripts) {
+            auto const assembly = scripts["assembly"].value<std::string_view>();
+            if (!assembly || assembly->empty()) {
+                return std::unexpected(std::format("project manifest '{}' needs a non-empty [scripts] assembly string", manifest_path));
+            }
+            script_assembly = (root / fs::path(*assembly)).lexically_normal();
+            if (!fs::is_regular_file(script_assembly, error)) {
+                return std::unexpected("project script assembly does not exist: " + script_assembly.string());
+            }
+        }
 
         if (wants_model_dialog(settings)) {
             return std::unexpected("project entry scene needs a fixed model or asset: " + scene_path.string());
@@ -1207,6 +1221,10 @@ namespace deren::app_config {
             }
         };
         for (auto& object : settings.scene.objects) {
+            if (object.script && (object.script->empty() || script_assembly.empty())) {
+                return std::unexpected(std::format("scene object '{}' needs a non-empty script type and [scripts] assembly",
+                                                   std::string_view(object.name)));
+            }
             if (!object.asset.empty() && !object.model.empty()) {
                 return std::unexpected(std::format("scene object '{}' must specify only one of asset or model", std::string_view(object.name)));
             }
@@ -1227,7 +1245,7 @@ namespace deren::app_config {
         resolve(settings.render.background_glb);
         resolve(settings.lighting.environment_hdr);
         resolve(settings.reflection_probe.asset);
-        return project_launch_settings{std::string(*name), std::move(settings)};
+        return project_launch_settings{std::string(*name), std::move(settings), std::move(script_assembly)};
     }
 
     app_settings resolve_from_argv(std::int32_t const argc, char const* const* const argv, deren::utility::vessel::string const& default_config_path) {

@@ -673,6 +673,7 @@ namespace deren::app_config {
         // asset is resolved and imported once, and a config edit takes effect on the next run.
         deren::utility::vessel::string model = {};
         deren::utility::vessel::string asset = {};
+        std::optional<deren::utility::vessel::string> script;
         deren::utility::vessel::array<float, 3> position = {0.0f, 0.0f, 0.0f};
         deren::utility::vessel::array<float, 3> rotation = {0.0f, 0.0f, 0.0f}; // degrees, Y then X then Z
         deren::utility::vessel::array<float, 3> scale = {1.0f, 1.0f, 1.0f};
@@ -801,6 +802,7 @@ namespace deren::app_config {
     export struct project_launch_settings {
         std::string name;
         app_settings settings;
+        std::filesystem::path script_assembly;
     };
 
     /// Read deren.toml and its entry scene. Resolve relative resource paths from the project root.
