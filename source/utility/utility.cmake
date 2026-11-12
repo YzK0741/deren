@@ -133,6 +133,7 @@ target_sources(static_utility
         ${DEREN_REPO_ROOT}/source/utility/frame_clock/frame_clock.cppm
         ${DEREN_REPO_ROOT}/source/utility/frame_stats/frame_stats.cppm
         ${DEREN_REPO_ROOT}/source/utility/thread_pool/thread_pool.cppm
+        ${DEREN_REPO_ROOT}/source/utility/ecs/ecs.cppm
         # The loader the RHI boundary is built on: the only place in the tree that
         # asks the platform for a library. It is A separate module rather than a `utility:` partition
         # because a partition cannot be imported by another target's module without dragging `deren.utility`
