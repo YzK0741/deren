@@ -6,6 +6,8 @@ Both use shared renderer and resource infrastructure; neither name denotes the w
 The feature name is lowercase `subtilis`, including user-facing log prefixes, tool messages and
 archived records.
 
+See the [Bistro paging benchmark](subtilis_bistro_benchmark.md) for measurements and per-run results.
+
 ## Frame-isolated asynchronous pages (2026-11-10)
 
 The optional GPU cut uses a request buffer and page-table snapshot per frame-ring slot.

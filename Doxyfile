@@ -1107,6 +1107,7 @@ INPUT                  = ./docs/managed_resources.md \
 				./docs/mesh_shaders.md \
 				./docs/visibility_buffer.md \
 ./docs/subtilis.md \
+./docs/subtilis_bistro_benchmark.md \
 ./docs/subtilis_m2_m5_plan.md \
 				./docs/deformation_motion_vectors.md \
 				./docs/gltf_loader_usage.md \
