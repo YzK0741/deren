@@ -37,7 +37,7 @@ add_custom_command(OUTPUT ${bridge_files}
         --configuration Release --artifacts-path "${CMAKE_CURRENT_BINARY_DIR}/dotnet"
         --output "${bridge_output}"
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${host_native}/nethost.dll" "${bridge_output}/nethost.dll"
-    DEPENDS "${bridge_project}" managed/managed_bootstrap.cs managed/behaviour.cs managed/scene_scripts.cs
+    DEPENDS "${bridge_project}" managed/managed_bootstrap.cs managed/behaviour.cs managed/scene_scripts.cs managed/input.cs managed/scene_access.cs
         "${CMAKE_CURRENT_SOURCE_DIR}/../../.editorconfig" "${host_native}/nethost.dll"
     VERBATIM)
 add_custom_target(deren_managed_bridge ALL DEPENDS ${bridge_files})
@@ -61,7 +61,7 @@ add_custom_command(OUTPUT "${game_assembly}"
     COMMAND "${DOTNET_EXECUTABLE}" build "${game_project}"
         --configuration Release --artifacts-path "${CMAKE_CURRENT_BINARY_DIR}/dotnet"
         --output "${game_output}"
-    DEPENDS "${game_project}" test_game/rotate.cs ${bridge_files}
+    DEPENDS "${game_project}" test_game/rotate.cs test_game/helmet_controls.cs ${bridge_files}
     VERBATIM)
 add_custom_target(deren_managed_test_game DEPENDS "${game_assembly}")
 add_dependencies(deren_managed_test_game deren_managed_bridge)
@@ -70,6 +70,6 @@ enable_testing()
 add_executable(test_managed_host ../tests/test_managed_host.cpp)
 target_link_libraries(test_managed_host PRIVATE deren_managed_host)
 add_dependencies(test_managed_host deren_managed_test_game)
-foreach(scenario IN ITEMS round_trip missing_assembly missing_runtime abi_mismatch abi_table_too_small managed_table_too_small scene_lifecycle)
+foreach(scenario IN ITEMS round_trip missing_assembly missing_runtime abi_mismatch abi_table_too_small managed_table_too_small scene_lifecycle scene_input)
     add_test(NAME managed_host_${scenario} COMMAND test_managed_host "${bridge_output}" "${scenario}" "${game_assembly}")
 endforeach()

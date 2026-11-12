@@ -2,6 +2,7 @@
 screenshot_dir = "captures"
 
 [render]
+window_title = "deren C# input demo"
 window_width = 640
 window_height = 360
 taa = false
@@ -14,11 +15,17 @@ name = "Left Helmet"
 asset = "damaged-helmet"
 pipeline = "pbr"
 position = [-1.2, 0.0, 0.0]
-script = "game.rotate"
+script = "game.move_helmet"
 
 [[scene.objects]]
 name = "Right Helmet"
 asset = "damaged-helmet"
 pipeline = "pbr"
 position = [1.2, 0.0, 0.0]
-script = "game.rotate"
+script = "game.spin_helmet"
+
+[[scene.objects]]
+name = "Spawned Helmet"
+asset = "damaged-helmet"
+pipeline = "pbr"
+spawn_slot = true

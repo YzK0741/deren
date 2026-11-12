@@ -26,6 +26,8 @@ namespace deren {
         private int scene_thread;
         internal bool updates_enabled = true;
 
+        protected scene_access scene => new(this);
+
         public virtual void on_create() {
         }
 
@@ -64,9 +66,9 @@ namespace deren {
             callbacks = null;
         }
 
-        private native_api bound_api() {
+        internal native_api bound_api() {
             if (Environment.CurrentManagedThreadId != scene_thread || callbacks is not { } api) {
-                throw new InvalidOperationException("Transform access requires an attached script on its scene thread.");
+                throw new InvalidOperationException("Scene access requires an attached script on its scene thread.");
             }
             return api;
         }

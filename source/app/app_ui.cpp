@@ -270,6 +270,9 @@ namespace deren::app {
             auto const mark_dirty = [&bindings] { bindings.scene_object_transform_dirty = true; };
             for (std::size_t i = 0; i < bindings.scene_objects->size(); ++i) {
                 deren::app_config::scene_object_settings& object = (*bindings.scene_objects)[i];
+                if (object.spawn_slot) {
+                    continue;
+                }
                 auto const selected = [&bindings, i] { return bindings.selected_object == static_cast<std::int32_t>(i); };
                 // The splat stage carries a cloud's look; environment/material and skeletal-animation
                 // widgets would edit state that path never reads. Treat an unpopulated flag as mesh

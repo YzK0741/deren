@@ -771,6 +771,9 @@ namespace deren::app_config {
                     if (toml::node const* node = source->get("script")) {
                         object.script.emplace(node->value<std::string_view>().value_or(""));
                     }
+                    if (toml::node const* node = source->get("spawn_slot")) {
+                        object.spawn_slot = node->value<bool>().value_or(false);
+                    }
                     read_vec3(*source, "position", object.position);
                     read_vec3(*source, "rotation", object.rotation);
                     read_vec3(*source, "scale", object.scale);
@@ -910,6 +913,13 @@ namespace deren::app_config {
                     }
                     object.animation = std::clamp(object.animation, 0, 255);
                     object.pipeline = std::clamp(object.pipeline, 0, 4);
+                    if (object.spawn_slot) {
+                        object.visible = false;
+                        // The RT geometry set is built from the initial scene visibility.
+                        // Keep reusable slots out of the RT instance masks.
+                        object.ray_tracing_shadow = false;
+                        object.ray_tracing_reflection = false;
+                    }
                     if (sanitised) {
                         deren::utility::log("app_config: [[scene.objects]] entry {} had non-finite/out-of-range transform components, sanitised", settings.scene.objects.size());
                     }
@@ -1221,6 +1231,13 @@ namespace deren::app_config {
             }
         };
         for (auto& object : settings.scene.objects) {
+            if (object.spawn_slot) {
+                if (script_assembly.empty() || object.asset.empty() || object.script ||
+                    object.pipeline != scene_object_pipeline_pbr) {
+                    return std::unexpected(std::format("spawn slot '{}' needs a script assembly, an asset ID and the pbr pipeline",
+                                                       std::string_view(object.name)));
+                }
+            }
             if (object.script && (object.script->empty() || script_assembly.empty())) {
                 return std::unexpected(std::format("scene object '{}' needs a non-empty script type and [scripts] assembly",
                                                    std::string_view(object.name)));
@@ -1245,7 +1262,34 @@ namespace deren::app_config {
         resolve(settings.render.background_glb);
         resolve(settings.lighting.environment_hdr);
         resolve(settings.reflection_probe.asset);
-        return project_launch_settings{std::string(*name), std::move(settings), std::move(script_assembly)};
+        deren::utility::vessel::vector<deren::input::action_binding> input_actions;
+        auto const input = manifest.table()["input"];
+        if (input && !input.is_table()) {
+            return std::unexpected(std::format("project manifest '{}' needs an [input] table", manifest_path));
+        }
+        if (auto const actions = input["actions"]; actions) {
+            auto const* action_table = actions.as_table();
+            if (action_table == nullptr) {
+                return std::unexpected(std::format("project manifest '{}' needs an [input.actions] table", manifest_path));
+            }
+            for (auto const& [action, value] : *action_table) {
+                auto const* keys = value.as_array();
+                if (action.str().empty() || keys == nullptr || keys->empty()) {
+                    return std::unexpected(std::format("input action '{}' needs a non-empty key array", action.str()));
+                }
+                auto& binding = input_actions.emplace_back();
+                binding.name = action.str();
+                for (auto const& entry : *keys) {
+                    auto const name = entry.value<std::string_view>().value_or("");
+                    auto const key = deren::input::key_from_name(name);
+                    if (key == deren::input::unknown) {
+                        return std::unexpected(std::format("input action '{}' has an unknown key '{}'", action.str(), name));
+                    }
+                    binding.keys.push_back(key);
+                }
+            }
+        }
+        return project_launch_settings{std::string(*name), std::move(settings), std::move(script_assembly), std::move(input_actions)};
     }
 
     app_settings resolve_from_argv(std::int32_t const argc, char const* const* const argv, deren::utility::vessel::string const& default_config_path) {

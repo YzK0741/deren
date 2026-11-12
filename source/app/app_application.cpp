@@ -62,6 +62,78 @@ import deren.app.scripting;
 
 namespace {
 
+#ifdef DEREN_ENABLE_CSHARP
+    deren::input::key action_key(int code) {
+        using namespace deren::input;
+        if (code >= GLFW_KEY_A && code <= GLFW_KEY_Z) {
+            return static_cast<key>('a' + code - GLFW_KEY_A);
+        }
+        if (code >= GLFW_KEY_0 && code <= GLFW_KEY_9) {
+            return static_cast<key>('0' + code - GLFW_KEY_0);
+        }
+        switch (code) {
+        case GLFW_KEY_SPACE:
+            return space;
+        case GLFW_KEY_LEFT:
+            return left;
+        case GLFW_KEY_RIGHT:
+            return right;
+        case GLFW_KEY_UP:
+            return up;
+        case GLFW_KEY_DOWN:
+            return down_arrow;
+        case GLFW_KEY_ENTER:
+            return enter;
+        case GLFW_KEY_TAB:
+            return tab;
+        case GLFW_KEY_LEFT_SHIFT:
+            return left_shift;
+        case GLFW_KEY_RIGHT_SHIFT:
+            return right_shift;
+        case GLFW_KEY_LEFT_CONTROL:
+            return left_control;
+        case GLFW_KEY_RIGHT_CONTROL:
+            return right_control;
+        default:
+            return unknown;
+        }
+    }
+
+    // The app owns one GLFW window. The GUI chains these callbacks and restores them on teardown.
+    struct glfw_action_input {
+        glfw_action_input(GLFWwindow* window, deren::input::action_state& state)
+            : window(window)
+            , state(state) {
+            if (window == nullptr) {
+                return;
+            }
+            active = this;
+            glfwSetKeyCallback(window, [](GLFWwindow* event_window, int code, int, int action, int) {
+                if (active->window == event_window && (action == GLFW_PRESS || action == GLFW_RELEASE)) {
+                    active->state.set_key(action_key(code), action == GLFW_PRESS);
+                }
+            });
+            glfwSetWindowFocusCallback(window, [](GLFWwindow* event_window, int focused) {
+                if (active->window == event_window && focused == GLFW_FALSE) {
+                    active->state.release_keys();
+                }
+            });
+        }
+
+        ~glfw_action_input() {
+            if (window != nullptr) {
+                glfwSetKeyCallback(window, nullptr);
+                glfwSetWindowFocusCallback(window, nullptr);
+                active = nullptr;
+            }
+        }
+
+        GLFWwindow* window;
+        deren::input::action_state& state;
+        static inline glfw_action_input* active = nullptr;
+    };
+#endif
+
     // ---- THE APPLICATION'S WINDOW, AND GLFW'S LIFETIME (the window moved out of the backend) ----
     //
     // THE WINDOW BELONGS TO THE APPLICATION NOW: this type initialises GLFW, creates the window the frame
@@ -379,6 +451,9 @@ namespace deren::app {
         }
         deren::app_config::app_settings launch_settings;
         std::filesystem::path script_assembly;
+#ifdef DEREN_ENABLE_CSHARP
+        deren::utility::vessel::vector<deren::input::action_binding> project_actions;
+#endif
         if (filtered_argv.size() > 1 && std::string_view(filtered_argv[1]) == "run") {
             auto const fail_project = [](std::string_view message) {
                 deren::utility::println(stderr, "{}", message);
@@ -395,7 +470,9 @@ namespace deren::app {
             }
             deren::utility::log("project: launching '{}' ({})", project->name, project->settings.config_file);
             script_assembly = std::move(project->script_assembly);
-#ifndef DEREN_ENABLE_CSHARP
+#ifdef DEREN_ENABLE_CSHARP
+            project_actions = std::move(project->input_actions);
+#else
             if (!script_assembly.empty()) {
                 return fail_project("This deren build needs DEREN_ENABLE_CSHARP=ON to run this project's scripts.");
             }
@@ -423,6 +500,11 @@ namespace deren::app {
         bool const offscreen = settings.render.offscreen || (capture.frames > 0 && !capture.windowed);
         glfw_window_host const window{settings.render.window_width, settings.render.window_height,
                                       settings.render.window_title.c_str(), capture.frames == 0, offscreen};
+#ifdef DEREN_ENABLE_CSHARP
+        std::span<deren::input::action_binding const> const actions{project_actions.data(), project_actions.size()};
+        deren::input::action_state action_state{actions};
+        glfw_action_input const action_input{actions.empty() || script_assembly.empty() ? nullptr : window.window, action_state};
+#endif
         deren::app::startup_splash splash{capture.frames == 0 && !settings.render.offscreen};
         splash.attach_window(window.window);
 
@@ -884,6 +966,9 @@ namespace deren::app {
         deren::gltf::scene_bounds reference_bounds = bounds;
         if (use_scene_objects) {
             for (std::size_t index = 0; index < settings.scene.objects.size(); ++index) {
+                if (settings.scene.objects[index].spawn_slot) {
+                    continue;
+                }
                 deren::gltf::scene_bounds const& asset_bounds = scene_assets[object_asset_slot[index]].bounds;
                 if (asset_bounds.valid) {
                     reference_bounds = asset_bounds;
@@ -1049,13 +1134,16 @@ namespace deren::app {
             }
         }
         if (use_scene_objects) {
-            // Fit the camera and the shadow frustum around ALL placements, not the source asset alone. The
+            // Fit the camera and shadow frustum around the initial placements. The
             // transformed AABB is deliberately conservative (eight corners of the source world AABB per
             // placement); it only has to be large enough, and an exact box would not change the framing.
             glm::vec3 minimum = {};
             glm::vec3 maximum = {};
             bool first_corner = true;
             for (std::size_t index = 0; index < object_transforms.size(); ++index) {
+                if (settings.scene.objects[index].spawn_slot) {
+                    continue;
+                }
                 glm::mat4 const& transform = object_transforms[index];
                 scene_asset_entry const& asset = scene_assets[object_asset_slot[index]];
                 for (std::int32_t corner = 0; corner < 8; ++corner) {
@@ -1079,13 +1167,14 @@ namespace deren::app {
                     }
                 }
             }
-            scene_focus = (minimum + maximum) * 0.5f;
-            scene_fit_radius = std::max(glm::length(maximum - minimum) * 0.5f, 1.0e-3f);
-            deren::utility::log("scene: {} object placement(s), fitted bounds [{:.3f}, {:.3f}, {:.3f}] .. [{:.3f}, {:.3f}, {:.3f}] (fit radius {:.3f})",
-                                settings.scene.objects.size(),
-                                minimum.x, minimum.y, minimum.z,
-                                maximum.x, maximum.y, maximum.z,
-                                scene_fit_radius);
+            if (!first_corner) {
+                scene_focus = (minimum + maximum) * 0.5f;
+                scene_fit_radius = std::max(glm::length(maximum - minimum) * 0.5f, 1.0e-3f);
+                deren::utility::log("scene: fitted bounds [{:.3f}, {:.3f}, {:.3f}] .. [{:.3f}, {:.3f}, {:.3f}] (fit radius {:.3f})",
+                                    minimum.x, minimum.y, minimum.z,
+                                    maximum.x, maximum.y, maximum.z,
+                                    scene_fit_radius);
+            }
         }
         runtime.camera.target = scene_focus;
 
@@ -1173,6 +1262,14 @@ namespace deren::app {
         // An explicit `pipeline = "game_toon"` object must have its sidecar: falling back to another
         // asset's material table by name would be a guess, and the character would shade with the wrong lanes.
         for (std::size_t index = 0; index < settings.scene.objects.size(); ++index) {
+            auto const& object = settings.scene.objects[index];
+            if (object.spawn_slot) {
+                auto const& asset = scene_assets[object_asset_slot[index]];
+                if (asset.is_gaussian() || !asset.scenes || !asset.scenes->animations.empty() || !asset.scenes->skins.empty()) {
+                    deren::utility::error("spawn slot '{}' requires a static PBR mesh", object.name);
+                    return 2;
+                }
+            }
             if (settings.scene.objects[index].pipeline != 3) {
                 continue;
             }
@@ -1633,6 +1730,7 @@ namespace deren::app {
         auto const apply_object_transform = [&](std::size_t index) {
             auto& wrapper = scene.roots[object_root_indices[index]];
             wrapper.local = make_object_transform(editable_objects[index]);
+            wrapper.visible = editable_objects[index].visible;
             // Gaussian placement reads the same transform from the app's cache.
             object_transforms[index] = wrapper.local;
         };
@@ -1661,9 +1759,7 @@ namespace deren::app {
                                         index, asset.path);
                     object.pipeline = 0;
                 }
-                deren::engine::scene_tree::scene_node& wrapper = scene.roots[object_root_indices[index]];
                 apply_object_transform(index);
-                wrapper.visible = object.visible;
                 deren::utility::vessel::vector<deren::engine::primitive*>& leaves = object_leaves[index];
                 deren::utility::vessel::vector<deren::engine::material_id>& bases = object_base_materials[index];
                 deren::utility::vessel::vector<deren::engine::material_id>& overrides = object_override_materials[index];
@@ -1746,7 +1842,7 @@ namespace deren::app {
 #ifdef DEREN_ENABLE_CSHARP
         std::optional<deren::app::script_scene> script_scene;
         if (!script_assembly.empty()) {
-            auto const started = script_scene.emplace().start(script_assembly, {editable_objects.data(), editable_objects.size()});
+            auto const started = script_scene.emplace().start(script_assembly, {editable_objects.data(), editable_objects.size()}, actions);
             if (!started) {
                 deren::utility::println(stderr, "{}", started.error());
                 deren::utility::error(started.error());
@@ -2847,9 +2943,6 @@ namespace deren::app {
             probe_pixels.resize(std::size_t(6) * probe.size * probe.size * 4);
             app_renderer.set_radiance_capture(true);
         }
-#ifdef DEREN_ENABLE_CSHARP
-        bool scripts_ticked = false;
-#endif
         while (true) {
             if (probe.enabled) {
                 if (std::chrono::steady_clock::now() - probe_started > std::chrono::minutes(5)) {
@@ -2941,11 +3034,8 @@ namespace deren::app {
                 }
                 // The pose must be published before acquire, but an acquire/present retry
                 // must reuse that pose instead of advancing the script again.
-                if (!scripts_ticked) {
-                    if (!script_scene->update(dt)) {
-                        return 2;
-                    }
-                    scripts_ticked = true;
+                if (auto const input_frame = action_state.begin_frame(); input_frame && !script_scene->update(dt, *input_frame)) {
+                    return 2;
                 }
                 if (script_scene->publish_transforms() && !gui.scene_object_transform_dirty && !object_environment_changed) {
                     for (std::size_t index = 0; index < object_root_indices.size(); ++index) {
@@ -3270,7 +3360,7 @@ namespace deren::app {
                 continue;
             }
 #ifdef DEREN_ENABLE_CSHARP
-            scripts_ticked = false;
+            action_state.finish_frame();
 #endif
 
             if (probe.enabled && ++probe_frames == 9) {

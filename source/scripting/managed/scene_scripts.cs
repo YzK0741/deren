@@ -10,15 +10,18 @@ namespace deren.scripting {
     internal static unsafe class scene_scripts {
         private sealed class scene_state(native_api callbacks) {
             public readonly native_api api = callbacks;
-            public readonly List<(entity_handle entity, behaviour script)> instances = new();
+            public readonly List<(entity_handle entity, behaviour script)> instances = [];
+            public readonly Dictionary<string, int> actions = new(StringComparer.Ordinal);
         }
 
-        private static readonly Dictionary<ulong, scene_state> scenes = new();
+        private static readonly Dictionary<ulong, scene_state> scenes = [];
 
         [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-        public static script_status start_scene(native_api* api, ulong scene, utf8_view assembly_path, script_binding* bindings, uint count) {
+        public static script_status start_scene(native_api* api, ulong scene, utf8_view assembly_path, script_binding* bindings, uint count,
+            utf8_view* action_names, uint action_count) {
             if (api == null || !api->is_valid() || scene == 0 || assembly_path.data == null ||
-                assembly_path.length == 0 || (bindings == null && count != 0) || count > int.MaxValue) {
+                assembly_path.length == 0 || (bindings == null && count != 0) || count > int.MaxValue ||
+                (action_names == null && action_count != 0) || action_count > int.MaxValue) {
                 return script_status.invalid_argument;
             }
             if (scenes.ContainsKey(scene)) {
@@ -27,6 +30,12 @@ namespace deren.scripting {
 
             var state = new scene_state(*api);
             try {
+                for (var index = 0; index < (int)action_count; ++index) {
+                    var name = action_names[index];
+                    if (name.data == null || name.length == 0 || !state.actions.TryAdd(name.decode(), index)) {
+                        return script_status.invalid_argument;
+                    }
+                }
                 var path = Path.GetFullPath(assembly_path.decode());
                 var context = AssemblyLoadContext.GetLoadContext(typeof(behaviour).Assembly)!;
                 var assembly = context.LoadFromAssemblyPath(path);
@@ -71,33 +80,38 @@ namespace deren.scripting {
         }
 
         [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-        public static script_status update_scene(ulong scene, float delta_time) {
+        public static script_status update_scene(ulong scene, float delta_time, byte* input_frame, uint input_count) {
             if (!float.IsFinite(delta_time)) {
                 return script_status.invalid_argument;
             }
             if (!scenes.TryGetValue(scene, out var state)) {
                 return script_status.scene_not_found;
             }
-            foreach (var (entity, script) in state.instances) {
-                if (!script.updates_enabled) {
-                    continue;
+            if (input_count != state.actions.Count || (input_count != 0 && input_frame == null)) {
+                return script_status.invalid_argument;
+            }
+            input.begin_frame(state.actions, input_frame);
+            try {
+                foreach (var (entity, script) in state.instances) {
+                    if (!script.updates_enabled) {
+                        continue;
+                    }
+                    try {
+                        script.on_update(delta_time);
+                    } catch (Exception error) {
+                        script.updates_enabled = false;
+                        log_exception(state.api, entity, script.GetType(), "on_update", error);
+                    }
                 }
-                try {
-                    script.on_update(delta_time);
-                } catch (Exception error) {
-                    script.updates_enabled = false;
-                    log_exception(state.api, entity, script.GetType(), "on_update", error);
-                }
+            } finally {
+                input.end_frame();
             }
             return script_status.success;
         }
 
         [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
         public static script_status stop_scene(ulong scene) {
-            if (!scenes.Remove(scene, out var state)) {
-                return script_status.scene_not_found;
-            }
-            return destroy(state);
+            return !scenes.Remove(scene, out var state) ? script_status.scene_not_found : destroy(state);
         }
 
         private static script_status destroy(scene_state state) {

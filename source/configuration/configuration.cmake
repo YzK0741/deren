@@ -17,6 +17,7 @@ target_sources(app_config
         FILE_SET CXX_MODULES
         FILES
         source/configuration/configuration.cppm
+        source/configuration/input_actions.cppm
 
     PRIVATE
         source/configuration/configuration.cpp

@@ -9,6 +9,34 @@ import deren.utility.shared;
 import deren.application_configuration;
 
 namespace {
+    void test_input_actions() {
+        using namespace deren::input;
+        action_binding const actions[]{{"move", {'a', 'd'}}};
+        action_state state{actions};
+        state.set_key('a', true);
+        state.set_key('d', true);
+        state.set_key('a', false);
+        auto const first = state.begin_frame();
+        CHECK(first && (*first)[0] == (down | pressed));
+        state.set_key('d', false);
+        CHECK(!state.begin_frame());
+        state.finish_frame();
+        auto const second = state.begin_frame();
+        CHECK(second && (*second)[0] == released);
+        state.finish_frame();
+        state.set_key('a', true);
+        state.set_key('a', false);
+        auto const tap = state.begin_frame();
+        CHECK(tap && (*tap)[0] == (pressed | released));
+        state.finish_frame();
+        state.set_key('d', true);
+        CHECK(state.begin_frame().has_value());
+        state.finish_frame();
+        state.release_keys();
+        auto const unfocused = state.begin_frame();
+        CHECK(unfocused && (*unfocused)[0] == released);
+    }
+
     void test_project_launch_settings() {
         namespace fs = std::filesystem;
         auto const root = fs::absolute("test-game");
@@ -42,7 +70,8 @@ namespace {
         std::ofstream(scene) << "[[scene.objects]]\nmodel = \"models/prop.gltf\"\nscript = \"game.rotate\"\n";
         CHECK(!deren::app_config::load_project_settings(root));
         std::ofstream(manifest) << "[project]\nname = \"Test Game\"\nmain_scene = \"scenes/main.toml\"\n"
-                                   "[scripts]\nassembly = \"Game.dll\"\n";
+                                   "[scripts]\nassembly = \"Game.dll\"\n"
+                                   "[input.actions]\nmove_left = [\"a\", \"left\"]\n";
         CHECK(!deren::app_config::load_project_settings(root));
         std::ofstream(root / "Game.dll").put('x');
         auto const scripted = deren::app_config::load_project_settings(root);
@@ -50,8 +79,26 @@ namespace {
         if (scripted) {
             CHECK(scripted->script_assembly == root / "Game.dll");
             CHECK(scripted->settings.scene.objects[0].script == "game.rotate");
+            CHECK(scripted->input_actions.size() == 1);
         }
         std::ofstream(scene) << "[[scene.objects]]\nmodel = \"models/prop.gltf\"\nscript = 42\n";
+        CHECK(!deren::app_config::load_project_settings(root));
+        std::ofstream(scene) << "[[scene.objects]]\nmodel = \"models/prop.gltf\"\nscript = \"game.rotate\"\n";
+        std::ofstream(manifest, std::ios::app) << "toggle_spin = [\"not_a_key\"]\n";
+        auto const bad_key = deren::app_config::load_project_settings(root);
+        CHECK(!bad_key && bad_key.error().find("not_a_key") != std::string::npos);
+        std::ofstream(manifest) << "[project]\nname = \"Test Game\"\nmain_scene = \"scenes/main.toml\"\n"
+                                   "[scripts]\nassembly = \"Game.dll\"\n[paths]\nasset_library = \"assets\"\n";
+        std::ofstream(scene) << "[[scene.objects]]\nasset = \"helmet\"\npipeline = \"pbr\"\nspawn_slot = true\n"
+                                "ray_tracing_shadow = true\nray_tracing_reflection = true\n";
+        auto const spawnable = deren::app_config::load_project_settings(root);
+        CHECK(spawnable && spawnable->settings.scene.objects[0].spawn_slot && !spawnable->settings.scene.objects[0].visible);
+        if (spawnable) {
+            CHECK(!spawnable->settings.scene.objects[0].ray_tracing_shadow);
+            CHECK(!spawnable->settings.scene.objects[0].ray_tracing_reflection);
+            CHECK(spawnable->settings.scene.objects[0].cast_shadow);
+        }
+        std::ofstream(scene, std::ios::app) << "script = \"game.rotate\"\n";
         CHECK(!deren::app_config::load_project_settings(root));
         fs::remove(root / "Game.dll");
         std::ofstream(scene) << "[scene]\nobjects = []\n";
@@ -947,5 +994,6 @@ std::int32_t main() {
     test_model_format_follows_the_extension();
     test_scene_objects_parse_and_sanitise();
     test_project_launch_settings();
+    test_input_actions();
     return deren::vk_test::finish("test_app_config");
 }
