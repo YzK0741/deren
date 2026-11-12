@@ -1,8 +1,8 @@
 // ============================================================================
 // module: utility
-// module version: 3.1.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 3.2.0  (independent of the app version in CMakeLists project(VERSION))
 //
-// Pure-CPU toolkit: data_block, BVH, thread_pool, frame_clock / frame_stats,
+// Pure-CPU toolkit: data_block, BVH, ECS, thread_pool, frame_clock / frame_stats,
 // content hashing, the platform entry points, and the loader. Standalone - no Vulkan
 // or app dependency, link it into any host.
 //
@@ -21,6 +21,8 @@
 //     caller's instantiation and the result is handed over as a std::string_view to the shared sink,
 //     so no template needs exporting. `panic` itself, `log_text` / `error_text` / `wait_log_all` and
 //     the memory allocation service come from deren.utility.shared - one per process.
+// 3.2.0: add the ECS template (entity / component_pool / registry).
+// 3.1.0: split the process-wide shared utility from the per-half static utility.
 // 3.0.0: binary file reads require explicit bounds and return expected/file_error.
 // 2.0.0: RHI outcome policy moved out of utility (the engine module that carried it was later deleted; see docs/error_handling.md).
 // 1.0.0: project containers use utility::vessel and PMR startup hooks are removed.
@@ -46,6 +48,7 @@ export import :bvh;
 export import :frame_clock;
 export import :frame_stats;
 export import :thread_pool;
+export import :ecs;
 
 /**
  * @file utility.cppm

@@ -195,6 +195,11 @@ include(source/assets/assets.cmake)
 include(source/engine/engine.cmake)
 
 
+option(VR_BUILD_TESTS "Build the headless unit tests" ON)
+option(DEREN_ENABLE_CSHARP "Build the Windows x64 .NET scripting host" OFF)
+if(DEREN_ENABLE_CSHARP)
+    add_subdirectory(source/scripting)
+endif()
 include(source/app/app.cmake)
 
 
@@ -265,9 +270,6 @@ endif()
 # per-build scratch directory (module logging writes deren-debug.log there, not into the source
 # tree); tests that open fixtures/models receive the source root via VR_TEST_SOURCE_DIR.
 # ---------------------------------------------------------------------------------------------
-option(VR_BUILD_TESTS "Build the headless unit tests" ON)
-
-
 include(source/engine/render_graph/render_graph.cmake)
 
 

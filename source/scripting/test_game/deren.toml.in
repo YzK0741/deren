@@ -1,0 +1,9 @@
+[project]
+name = "C# Helmet Demo"
+main_scene = "main.toml"
+
+[paths]
+asset_library = "@DEREN_REPO_ROOT@/asset"
+
+[scripts]
+assembly = "Game.dll"

@@ -95,6 +95,20 @@ target_link_libraries(app_support
         backend_loader   # deren.app.application calls load_api_core(): the app holds the acquisition (batch ⑥)
 )
 
+if(DEREN_ENABLE_CSHARP)
+    target_sources(app_support PRIVATE FILE_SET app_scripting_modules TYPE CXX_MODULES FILES source/app/app_scripting.cppm)
+    target_sources(app_support PRIVATE source/app/app_scripting.cpp)
+    target_compile_definitions(app_support PRIVATE DEREN_ENABLE_CSHARP)
+    target_link_libraries(app_support deren_managed_host)
+    get_property(managed_runtime_dir TARGET deren_managed_bridge PROPERTY DEREN_MANAGED_RUNTIME_DIR)
+    add_custom_target(deren_managed_runtime
+        COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
+            "${managed_runtime_dir}" "$<TARGET_FILE_DIR:deren>/managed"
+        DEPENDS deren_managed_bridge
+        VERBATIM)
+    add_dependencies(deren deren_managed_runtime)
+endif()
+
 target_link_libraries(${PROJECT_NAME}
         static_utility
         deren_engine

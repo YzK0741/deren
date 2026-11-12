@@ -87,3 +87,9 @@ source/third_party/boost/bcp.log
 # local release package output (model archives are build artifacts, not sources)
 /dist/
 /build-release-nodebug/
+
+# Managed bridge SDK output when building the project directly.
+/source/scripting/managed/bin/
+/source/scripting/managed/obj/
+/source/scripting/test_game/bin/
+/source/scripting/test_game/obj/

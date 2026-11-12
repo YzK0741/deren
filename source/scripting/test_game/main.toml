@@ -1,0 +1,24 @@
+[paths]
+screenshot_dir = "captures"
+
+[render]
+window_width = 640
+window_height = 360
+taa = false
+
+[gui]
+show = false
+
+[[scene.objects]]
+name = "Left Helmet"
+asset = "damaged-helmet"
+pipeline = "pbr"
+position = [-1.2, 0.0, 0.0]
+script = "game.rotate"
+
+[[scene.objects]]
+name = "Right Helmet"
+asset = "damaged-helmet"
+pipeline = "pbr"
+position = [1.2, 0.0, 0.0]
+script = "game.rotate"

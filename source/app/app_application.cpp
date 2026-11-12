@@ -53,6 +53,9 @@ import deren.engine.runtime;
 import deren.engine.backend_loader; // load_api_core(): the app performs the acquisition (batch ⑥)
 import deren.app.renderer;          // this application's pass wiring, kept outside the renderer
 import deren.app.toon;              // the toon material lookup callbacks and procedural bakes, moved out of main
+#ifdef DEREN_ENABLE_CSHARP
+import deren.app.scripting;
+#endif
 
 // Private helper: it uses the engine and vessel declarations above, so it belongs after the imports.
 #include "environment_loader.hpp"
@@ -278,7 +281,7 @@ namespace {
             }
             if (std::optional<std::string_view> const value = take_value(i, arg, "--capture-animation-sweep")) {
                 // seconds of animation time per presented frame - see capture_options::animation_seconds_per_frame
-                if (std::optional<float> const number = parse_number(*value)) {
+                if (auto const number = parse_number(*value); number && std::isfinite(*number)) {
                     options.animation_seconds_per_frame = *number;
                 } else {
                     deren::utility::log("capture: ignoring '--capture-animation-sweep {}' (expected seconds per frame)", *value);
@@ -375,6 +378,7 @@ namespace deren::app {
             return 2;
         }
         deren::app_config::app_settings launch_settings;
+        std::filesystem::path script_assembly;
         if (filtered_argv.size() > 1 && std::string_view(filtered_argv[1]) == "run") {
             auto const fail_project = [](std::string_view message) {
                 deren::utility::println(stderr, "{}", message);
@@ -390,6 +394,12 @@ namespace deren::app {
                 return fail_project(project.error());
             }
             deren::utility::log("project: launching '{}' ({})", project->name, project->settings.config_file);
+            script_assembly = std::move(project->script_assembly);
+#ifndef DEREN_ENABLE_CSHARP
+            if (!script_assembly.empty()) {
+                return fail_project("This deren build needs DEREN_ENABLE_CSHARP=ON to run this project's scripts.");
+            }
+#endif
             launch_settings = std::move(project->settings);
         } else {
             launch_settings = deren::app_config::resolve_from_argv(static_cast<std::int32_t>(filtered_argv.size()), filtered_argv.data());
@@ -1620,6 +1630,12 @@ namespace deren::app {
         // LIVE GUI EDITS: rewrite only the wrapper's local matrix and re-dirty the scene. The children
         // (the imported model) are untouched, so materials, skinning and each object's animation keep
         // running exactly as before. main calls this after a widget raised the dirty flag.
+        auto const apply_object_transform = [&](std::size_t index) {
+            auto& wrapper = scene.roots[object_root_indices[index]];
+            wrapper.local = make_object_transform(editable_objects[index]);
+            // Gaussian placement reads the same transform from the app's cache.
+            object_transforms[index] = wrapper.local;
+        };
         auto const apply_scene_object_settings = [&] {
             std::size_t const count = std::min({object_root_indices.size(), object_leaves.size(), editable_objects.size(), editable_asset_slots.size()});
             for (std::size_t index = 0; index < count; ++index) {
@@ -1646,11 +1662,7 @@ namespace deren::app {
                     object.pipeline = 0;
                 }
                 deren::engine::scene_tree::scene_node& wrapper = scene.roots[object_root_indices[index]];
-                wrapper.local = make_object_transform(object);
-                // A cloud has no mesh node to follow: stage_gaussian_clouds() reads object_transforms.
-                // Keep that cached matrix in step with the wrapper so GUI position/rotation/scale edits
-                // affect splats as well as mesh leaves.
-                object_transforms[index] = wrapper.local;
+                apply_object_transform(index);
                 wrapper.visible = object.visible;
                 deren::utility::vessel::vector<deren::engine::primitive*>& leaves = object_leaves[index];
                 deren::utility::vessel::vector<deren::engine::material_id>& bases = object_base_materials[index];
@@ -1731,6 +1743,19 @@ namespace deren::app {
                 runtime.add_gaussian_asset(asset.cloud, model, static_cast<std::uint64_t>(index) + 1u);
             }
         };
+#ifdef DEREN_ENABLE_CSHARP
+        std::optional<deren::app::script_scene> script_scene;
+        if (!script_assembly.empty()) {
+            auto const started = script_scene.emplace().start(script_assembly, {editable_objects.data(), editable_objects.size()});
+            if (!started) {
+                deren::utility::println(stderr, "{}", started.error());
+                deren::utility::error(started.error());
+                deren::utility::wait_log_all();
+                return 2;
+            }
+            static_cast<void>(script_scene->publish_transforms());
+        }
+#endif
         if (!editable_objects.empty()) {
             apply_scene_object_settings();
         }
@@ -2822,6 +2847,9 @@ namespace deren::app {
             probe_pixels.resize(std::size_t(6) * probe.size * probe.size * 4);
             app_renderer.set_radiance_capture(true);
         }
+#ifdef DEREN_ENABLE_CSHARP
+        bool scripts_ticked = false;
+#endif
         while (true) {
             if (probe.enabled) {
                 if (std::chrono::steady_clock::now() - probe_started > std::chrono::minutes(5)) {
@@ -2903,6 +2931,30 @@ namespace deren::app {
             // each object lives under. This runs BEFORE pace_and_acquire(), whose update_world walk
             // publishes the locals into the draw list, and scene_changed() re-dirties the BVH/culling
             // that a moved object invalidates.
+            float const dt = capture.animation_seconds_per_frame != 0.0f
+                                 ? capture.animation_seconds_per_frame
+                                 : static_cast<float>(std::min(frame_clock.delta_seconds(), 0.25));
+#ifdef DEREN_ENABLE_CSHARP
+            if (script_scene) {
+                if (gui.scene_object_transform_dirty) {
+                    script_scene->read_object_edits();
+                }
+                // The pose must be published before acquire, but an acquire/present retry
+                // must reuse that pose instead of advancing the script again.
+                if (!scripts_ticked) {
+                    if (!script_scene->update(dt)) {
+                        return 2;
+                    }
+                    scripts_ticked = true;
+                }
+                if (script_scene->publish_transforms() && !gui.scene_object_transform_dirty && !object_environment_changed) {
+                    for (std::size_t index = 0; index < object_root_indices.size(); ++index) {
+                        apply_object_transform(index);
+                    }
+                    runtime.scene_changed();
+                }
+            }
+#endif
             if (!editable_objects.empty() && (gui.scene_object_transform_dirty || object_environment_changed)) {
                 apply_scene_object_settings();
                 if (use_scene_objects) {
@@ -3041,9 +3093,6 @@ namespace deren::app {
             // playback resumes where it paused - UNLESS --capture-animation-sweep asked for a
             // frame-indexed clock instead, which is the only form a capture of a deforming mesh can
             // be gated on (see capture_options::animation_seconds_per_frame).
-            float const dt = capture.animation_seconds_per_frame != 0.0f
-                                 ? capture.animation_seconds_per_frame
-                                 : static_cast<float>(std::min(frame_clock.delta_seconds(), 0.25));
             for (deren::engine::animation::controller* const controller : object_animations) {
                 controller->update(dt);
             }
@@ -3220,6 +3269,9 @@ namespace deren::app {
                 std::this_thread::yield();
                 continue;
             }
+#ifdef DEREN_ENABLE_CSHARP
+            scripts_ticked = false;
+#endif
 
             if (probe.enabled && ++probe_frames == 9) {
                 auto image = runtime.acquire_radiance_image();
