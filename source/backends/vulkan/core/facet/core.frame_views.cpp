@@ -166,6 +166,7 @@ namespace deren::vulkan {
             std::lock_guard queue_lock(this->device.vma.queue_access());
             auto const submitted = vkQueueSubmit(this->device.graphics_queue_handle, 1, &one_shot, submission->fence);
             if (submitted == VK_SUCCESS) {
+                concrete.submission_timestamp_submitted = true;
                 concrete.pending.fetch_add(1, std::memory_order_release);
                 if (concrete.one_time_submit) {
                     concrete.executable = false;

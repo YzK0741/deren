@@ -557,7 +557,8 @@ namespace deren::vulkan {
                // ANSWERS false - that is an answer, not an unserved ability), which is why this bit carries no
                // device condition while the two above it do.
                rhi::to_bits(rhi::extension_kind::device_capabilities) |
-               (this->device.ray_tracing_pipeline_available ? rhi::to_bits(rhi::extension_kind::shader_group_access) : 0u);
+               (this->device.ray_tracing_pipeline_available ? rhi::to_bits(rhi::extension_kind::shader_group_access) : 0u) |
+               (this->frame.gpu_timing_supported ? rhi::to_bits(rhi::extension_kind::submission_timing) : 0u);
     }
 
     bool core::frame_heap::ready() const noexcept {
@@ -825,6 +826,9 @@ namespace deren::vulkan {
     }
 
     rhi::extension* core::query_extension(rhi::extension_kind const kind) noexcept {
+        if (kind == rhi::extension_kind::submission_timing) {
+            return this->frame.gpu_timing_supported ? &this->command.timing_view : nullptr;
+        }
         if (kind == rhi::extension_kind::frame_checkpoint) {
             return &command.checkpoint_view;
         }
@@ -1428,6 +1432,9 @@ namespace deren::vulkan {
             std::lock_guard const lock(this->parent->command.contract_command_buffers_mutex);
             this->parent->command.contract_command_buffers.erase(this);
         }
+        if (submission_timestamps != VK_NULL_HANDLE) {
+            vkDestroyQueryPool(this->parent->device.logical_device, submission_timestamps, nullptr);
+        }
         // `delete this`: the destructor releases the `vk_command_buffer`, whose release DESTROYS THE
         // COMMAND POOL it created - the contract's single count is the whole lifetime rule here (there
         // is no allocator registry behind this resource, unlike a buffer or an image).
@@ -1565,6 +1572,8 @@ namespace deren::vulkan {
         auto const result = generic_error(vkBeginCommandBuffer(*this->buffer, &begin));
         if (result == rhi::error::ok) {
             secondary_refs.clear();
+            submission_timestamp_marks = 0;
+            submission_timestamp_submitted = false;
             group_refs.clear();
             resource_refs.clear();
             lazy_refs.clear();

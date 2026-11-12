@@ -22,6 +22,8 @@ namespace deren::engine::transfer_detail {
         deren::utility::vessel::vector<resource_handle<rhi::buffer>> outputs;
         rhi::shared_object<rhi::command_buffer> commands;
         rhi::submission_token token{};
+        rhi::submission_timing* timing = nullptr;
+        std::optional<std::uint64_t> gpu_duration_ns;
         bool completed = false;
         explicit submission(rhi::shared_object<rhi::api_core> device)
             : core(std::move(device)) {
@@ -36,6 +38,11 @@ namespace deren::engine::transfer_detail {
             }
             auto result = wait ? completion->wait(token, timeout) : completion->poll(token);
             if (result == rhi::error::ok) {
+                if (timing) {
+                    if (auto elapsed = timing->elapsed_ns(*commands)) {
+                        gpu_duration_ns = *elapsed;
+                    }
+                }
                 completed = true;
                 commands.reset();
                 operations.clear();
@@ -70,6 +77,10 @@ export namespace deren::engine {
         }
         [[nodiscard]] transfer_rhi::error wait(std::uint64_t timeout_ns) const {
             return value ? value->observe(true, timeout_ns) : transfer_rhi::error::invalid_argument;
+        }
+        /// Available after a successful poll or wait on a timed submission.
+        [[nodiscard]] std::optional<std::uint64_t> gpu_duration_ns() const noexcept {
+            return value ? value->gpu_duration_ns : std::nullopt;
         }
         [[nodiscard]] std::expected<std::span<std::byte const>, transfer_rhi::error> readback(std::size_t index) const {
             namespace rhi = transfer_rhi;
@@ -184,7 +195,7 @@ export namespace deren::engine {
         [[nodiscard]] std::size_t pending_count() const noexcept {
             return std::ranges::count_if(pending, [](auto const& state) { return !state->completed; });
         }
-        [[nodiscard]] std::expected<buffer_transfer_ticket, transfer_rhi::error> submit(buffer_transfer_batch&& batch) {
+        [[nodiscard]] std::expected<buffer_transfer_ticket, transfer_rhi::error> submit(buffer_transfer_batch&& batch, bool time_on_gpu = false) {
             namespace rhi = transfer_rhi;
             if (!core || !batch.value) {
                 return std::unexpected(rhi::error::not_ready);
@@ -207,6 +218,12 @@ export namespace deren::engine {
             if (result != rhi::error::ok) {
                 return std::unexpected(result);
             }
+            if (time_on_gpu) {
+                auto* timing = rhi::query_extension<rhi::submission_timing>(*core);
+                if (timing && timing->begin(commands) == rhi::error::ok) {
+                    state->timing = timing;
+                }
+            }
             for (auto const& op : state->operations) {
                 auto pre = transfer_detail::transition(op, false), post = transfer_detail::transition(op, true);
                 result = scopes->record(commands, {}, std::span(&pre, 1));
@@ -225,6 +242,9 @@ export namespace deren::engine {
                     static_cast<void>(commands.end_recording());
                     return std::unexpected(result);
                 }
+            }
+            if (state->timing && state->timing->end(commands) != rhi::error::ok) {
+                state->timing = nullptr;
             }
             result = commands.end_recording();
             if (result != rhi::error::ok) {

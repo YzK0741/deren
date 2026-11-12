@@ -535,6 +535,9 @@ namespace deren::vulkan {
             std::atomic<std::uint32_t> references{1};
             std::atomic<std::uint32_t> recording_users{0};
             std::atomic<std::uint32_t> pending{0};
+            VkQueryPool submission_timestamps = VK_NULL_HANDLE;
+            std::uint32_t submission_timestamp_marks = 0;
+            bool submission_timestamp_submitted = false;
 
             /// one log per buffer, not one per call: a begin that repeats a refusal must not flood the log
             bool refused_chain_logged = false;
@@ -1498,6 +1501,15 @@ namespace deren::vulkan {
             core* parent = nullptr;
             [[nodiscard]] deren::promise::rhi::error checkpoint_and_wait() override;
         };
+        struct submission_timing_view final : deren::promise::rhi::submission_timing {
+            core* parent = nullptr;
+            [[nodiscard]] std::string_view get_tag() const noexcept override {
+                return "deren_submission_timing_vulkan";
+            }
+            [[nodiscard]] deren::promise::rhi::error begin(deren::promise::rhi::command_buffer&) noexcept override;
+            [[nodiscard]] deren::promise::rhi::error end(deren::promise::rhi::command_buffer&) noexcept override;
+            [[nodiscard]] std::expected<std::uint64_t, deren::promise::rhi::error> elapsed_ns(deren::promise::rhi::command_buffer&) noexcept override;
+        };
         [[nodiscard]] deren::promise::rhi::error submit_commands(deren::promise::rhi::command_buffer&, deren::promise::rhi::submission_token*);
         [[nodiscard]] deren::promise::rhi::error submit_batch(std::span<deren::promise::rhi::mergeable_command_buffer_ref const>, deren::promise::rhi::submission_token*);
         [[nodiscard]] deren::promise::rhi::error check_completion(deren::promise::rhi::submission_token, bool wait, std::uint64_t timeout_ns) noexcept;
@@ -2152,6 +2164,7 @@ namespace deren::vulkan {
 
             // ---- SUBMISSION COMPLETION AND THE TIMELINE ----
             command_submission_view completion_view;
+            submission_timing_view timing_view;
             frame_checkpoint_view checkpoint_view;
             std::uint64_t const completion_device_id = deren::utility::allocate_identity();
             VkSemaphore completion_timeline = VK_NULL_HANDLE;

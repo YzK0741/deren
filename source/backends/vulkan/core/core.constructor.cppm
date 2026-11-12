@@ -311,6 +311,7 @@ namespace deren::vulkan {
         this->resource.address_view.parent = this;
         this->resource.sorting_view.parent = this;
         this->command.completion_view.parent = this;
+        this->command.timing_view.parent = this;
         this->command.checkpoint_view.parent = this;
         this->frame.async_presentation_view.parent = this;
         this->resource.host_copy_view.parent = this;

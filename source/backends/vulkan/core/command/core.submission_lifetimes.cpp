@@ -23,6 +23,75 @@ namespace deren::vulkan {
 
     namespace rhi = deren::promise::rhi;
 
+    rhi::error core::submission_timing_view::begin(rhi::command_buffer& commands) noexcept {
+        rhi::error result{};
+        auto* recorder = parent->resolve_recorder(&commands, result);
+        if (!recorder) {
+            return result;
+        }
+        if (recorder->target == VK_NULL_HANDLE || recorder->rendering_active || recorder->simultaneous_use) {
+            return rhi::error::invalid_argument;
+        }
+        auto& primary = static_cast<core::command_buffer&>(*recorder);
+        if (primary.kind != rhi::command_buffer_kind::primary || primary.submission_timestamp_marks != 0) {
+            return rhi::error::invalid_argument;
+        }
+        if (auto applied = primary.apply_operations(); applied != rhi::error::ok) {
+            return applied;
+        }
+        if (primary.submission_timestamps == VK_NULL_HANDLE) {
+            VkQueryPoolCreateInfo const info = make_query_pool_info(VK_QUERY_TYPE_TIMESTAMP, 2);
+            if (vkCreateQueryPool(parent->device.logical_device, &info, nullptr, &primary.submission_timestamps) != VK_SUCCESS) {
+                return rhi::error::operation_failed;
+            }
+        }
+        vkCmdResetQueryPool(primary.native(), primary.submission_timestamps, 0, 2);
+        vkCmdWriteTimestamp(primary.native(), VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, primary.submission_timestamps, 0);
+        primary.submission_timestamp_marks = 1;
+        return rhi::error::ok;
+    }
+
+    rhi::error core::submission_timing_view::end(rhi::command_buffer& commands) noexcept {
+        rhi::error result{};
+        auto* recorder = parent->resolve_recorder(&commands, result);
+        if (!recorder) {
+            return result;
+        }
+        if (recorder->target == VK_NULL_HANDLE || recorder->rendering_active) {
+            return rhi::error::invalid_argument;
+        }
+        auto& primary = static_cast<core::command_buffer&>(*recorder);
+        if (primary.submission_timestamp_marks != 1) {
+            return rhi::error::not_ready;
+        }
+        if (auto applied = primary.apply_operations(); applied != rhi::error::ok) {
+            return applied;
+        }
+        vkCmdWriteTimestamp(primary.native(), VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, primary.submission_timestamps, 1);
+        primary.submission_timestamp_marks = 2;
+        return rhi::error::ok;
+    }
+
+    std::expected<std::uint64_t, rhi::error> core::submission_timing_view::elapsed_ns(rhi::command_buffer& commands) noexcept {
+        std::lock_guard lock(parent->command.contract_command_buffers_mutex);
+        if (!parent->command.contract_command_buffers.contains(&commands)) {
+            return std::unexpected(rhi::error::invalid_argument);
+        }
+        auto& primary = static_cast<core::command_buffer&>(commands);
+        if (primary.submission_timestamp_marks != 2 || !primary.submission_timestamp_submitted || primary.pending.load(std::memory_order_acquire) != 0) {
+            return std::unexpected(rhi::error::not_ready);
+        }
+        std::uint64_t ticks[2]{};
+        VkResult const result = vkGetQueryPoolResults(parent->device.logical_device, primary.submission_timestamps, 0, 2,
+                                                      sizeof(ticks), ticks, sizeof(ticks[0]), VK_QUERY_RESULT_64_BIT);
+        if (result != VK_SUCCESS) {
+            return std::unexpected(result == VK_NOT_READY ? rhi::error::not_ready : rhi::error::operation_failed);
+        }
+        auto const bits = parent->frame.timestamp_valid_bits;
+        std::uint64_t const mask = bits >= 64 ? ~std::uint64_t{0} : (std::uint64_t{1} << bits) - 1;
+        return static_cast<std::uint64_t>(static_cast<double>((ticks[1] - ticks[0]) & mask) * parent->frame.timestamp_period_ns);
+    }
+
     std::expected<deren::promise::rhi::submission_token, deren::promise::rhi::error>
     core::command_submission_view::submit(deren::promise::rhi::command_buffer& commands) {
         if (!parent) {

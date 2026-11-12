@@ -184,6 +184,7 @@ export namespace deren::promise::rhi {
         descriptor_space = 1u << 12,
         frame_checkpoint = 1u << 14,   ///< synchronous frame prefix completion and continuation
         command_submission = 1u << 13, ///< independent graphics submission completion tokens
+        submission_timing = 1u << 15,  ///< timestamps for an independent graphics primary
     };
 
     /// What `api_core::abilities()` returns: a set of `extension_kind` bits.
@@ -210,7 +211,7 @@ export namespace deren::promise::rhi {
         // set is no longer "every enumerator" - the note on that enumerator says so.
         return to_bits(extension_kind::device_address) | to_bits(extension_kind::descriptor_heap) |
                to_bits(extension_kind::host_image_copy) |
-               to_bits(extension_kind::device_capabilities) | to_bits(extension_kind::shader_group_access) | to_bits(extension_kind::gpu_sorting) | to_bits(extension_kind::async_presentation) | to_bits(extension_kind::scoped_synchronization) | to_bits(extension_kind::frame_resources) | to_bits(extension_kind::descriptor_space) | to_bits(extension_kind::command_submission) | to_bits(extension_kind::frame_checkpoint);
+               to_bits(extension_kind::device_capabilities) | to_bits(extension_kind::shader_group_access) | to_bits(extension_kind::gpu_sorting) | to_bits(extension_kind::async_presentation) | to_bits(extension_kind::scoped_synchronization) | to_bits(extension_kind::frame_resources) | to_bits(extension_kind::descriptor_space) | to_bits(extension_kind::command_submission) | to_bits(extension_kind::frame_checkpoint) | to_bits(extension_kind::submission_timing);
     }
 
     /// The active abilities, as a LIST: what a gate walks to check one bit at a time.
@@ -218,7 +219,7 @@ export namespace deren::promise::rhi {
     /// `all_abilities()` is the set as a bitmask; this is the enumeration the consistency gates and
     /// the tests iterate (`abilities()` set => `query_extension()` non-null, and the reverse), so the
     /// list is spelled in ONE place instead of per caller.
-    [[nodiscard]] constexpr auto all_extension_kinds() noexcept -> deren::utility::vessel::array<extension_kind, 12> {
+    [[nodiscard]] constexpr auto all_extension_kinds() noexcept -> deren::utility::vessel::array<extension_kind, 13> {
         return {
             extension_kind::device_address,
             extension_kind::descriptor_heap,
@@ -232,11 +233,12 @@ export namespace deren::promise::rhi {
             extension_kind::descriptor_space,
             extension_kind::command_submission,
             extension_kind::frame_checkpoint,
+            extension_kind::submission_timing,
         };
     }
 
     static_assert(to_bits(extension_kind::device_address) == 0x1u, "the ability bits are ABI: they do not move");
-    static_assert(all_abilities() == 0x7FD3u, "twelve active abilities; retired bits are never reused");
+    static_assert(all_abilities() == 0xFFD3u, "thirteen active abilities; retired bits are never reused");
 
     /// The common root of the tier-2 abilities.
     ///
@@ -367,6 +369,18 @@ export namespace deren::promise::rhi {
         /// timeout_ns=0 checks without waiting (pending returns timeout). std::numeric_limits<std::uint64_t>::max() waits indefinitely.
         /// Waits only for this submission; does not hold queue locks while waiting.
         [[nodiscard]] virtual error wait(submission_token token, std::uint64_t timeout_ns) noexcept = 0;
+    };
+
+    /// One timestamp interval on a caller-owned independent primary, outside rendering.
+    struct submission_timing : extension {
+        static constexpr extension_kind extension_id = extension_kind::submission_timing;
+        [[nodiscard]] extension_kind kind() const noexcept final {
+            return extension_id;
+        }
+        [[nodiscard]] virtual error begin(command_buffer&) noexcept = 0;
+        [[nodiscard]] virtual error end(command_buffer&) noexcept = 0;
+        /// Call after observing that this recording's submission completed. Never waits.
+        [[nodiscard]] virtual std::expected<std::uint64_t, error> elapsed_ns(command_buffer&) noexcept = 0;
     };
 
     struct gpu_sorting : extension {

@@ -2212,6 +2212,7 @@ namespace deren::engine {
             return false;
         }
         static bool const visibility_trace = std::getenv("DEREN_RECORD_TRACE") != nullptr;
+        static bool const time_page_copies = std::getenv("DEREN_SUBTILIS_COPY_TIMINGS") != nullptr;
         auto const visibility_phase1_started = std::chrono::steady_clock::now();
         // ONE FRAME'S PER-ITEM PLAN. Everything a plan contains is either pure CPU or a write into the item's
         // slice of the host-culled meshlet lane - there is no cross-item order in it. That is what lets the
@@ -3368,7 +3369,7 @@ namespace deren::engine {
                 std::uint32_t const max_pages = static_cast<std::uint32_t>(std::min<std::uint64_t>(
                     std::max<std::uint64_t>(fair_bytes / fair_page_floor, 1u), 1024u));
                 auto const page_stats = source.install_requested_pages(install_budget, static_cast<std::uint32_t>(this->subtilis_page_sequence),
-                                                                       frame_slot, max_pages);
+                                                                       frame_slot, max_pages, this->gpu_timings_enabled && time_page_copies);
                 if (page_stats.abandoned != 0) {
                     deren::utility::log("subtilis pages: abandoned {} failed page upload(s) at frame {}; returning them to absent for a new request",
                                         page_stats.abandoned, frame_slot);
@@ -3428,6 +3429,7 @@ namespace deren::engine {
             }
             std::uint64_t const items_address = runtime::buffer_address(*this->subtilis_cut_items_buffer) +
                                                 static_cast<std::size_t>(frame_slot) * subtilis::cut_frame_bytes();
+            this->gpu_mark_through(gpu_mark_id::subtilis_cut_begin);
             if (!this->cut_job.record(command_buffer, items_address, gpu_cut_items, *this->mesh_indirect_buffer, *this->meshlet_culled_buffer)) {
                 return false;
             }
@@ -3448,6 +3450,7 @@ namespace deren::engine {
                 }
             }
         }
+        this->gpu_mark_through(gpu_mark_id::subtilis_cut_end);
         std::size_t const workers = segments.size();
         bool ok = true;
         if (workers == 0u) {
