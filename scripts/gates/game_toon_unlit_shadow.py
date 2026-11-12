@@ -15,7 +15,7 @@ import tempfile
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--build-dir", default="build-release")
+    parser.add_argument("--build-dir", default="build")
     cases = ("unlit-toon", "pure-unlit", "toon-taa-off", "shadow-disabled")
     parser.add_argument("--case", choices=("all", *cases), default="all")
     args = parser.parse_args()

@@ -36,6 +36,11 @@ while an error observing accepted work preserves the ticket and its resources. P
 uploads are retained by the runtime independently of frame snapshots and scene objects,
 so hiding or removing an object does not force a synchronous upload drain.
 
+With `[render] gpu_timings` enabled, the graphics report separates `subtilis cut`
+from `visibility raster`. Set `DEREN_SUBTILIS_COPY_TIMINGS=1` to also log the GPU
+duration and byte count of each completed paging copy batch. The copy interval
+includes its barriers and is reported separately from the graphics frame total.
+
 Visibility raster and resolve read the same page-table snapshot and arena addresses from the
 current frame's draw item. Page tables remain per geometry, while every geometry addresses
 the same shared arena. The GPU cut checks

@@ -723,9 +723,9 @@ namespace deren::engine {
             hzb_cull_end,          // after the HZB CULL lane (M3 phase B1): the per-item conservative cull dispatch,
                                    // recorded BEFORE the raster lane and AFTER the shadow pass. Inserted (not
                                    // appended) because the report walks the marks positionally: the interval
-                                   // shadow_end -> here is the cull alone, and here -> visibility_raster_end is
-                                   // the raster alone - folding the cull into either pass would make the B2 A/B
-                                   // unable to say which of the two bought the GPU time (§10.5).
+                                   // shadow_end -> here is the cull alone.
+            subtilis_cut_begin,    // after visibility preparation, before recording the cut dispatch
+            subtilis_cut_end,      // after cut outputs and page feedback are published, before mesh draws
             visibility_raster_end, // after the VISIBILITY RASTER lane (the mesh-task id dispatch). Written by BOTH
                                    // opaque paths so the labels stay path-independent: a visibility frame writes it
                                    // after the raster lane (so shadow_end -> here is the raster alone and here ->
@@ -788,6 +788,8 @@ namespace deren::engine {
                 {"rt", false},
                 {"shadow", false},
                 {"hzb cull", false},
+                {"visibility setup", false},
+                {"subtilis cut", false},
                 {"visibility raster", false},
                 {"hzb build", false},
                 {"hzb recovery", false},

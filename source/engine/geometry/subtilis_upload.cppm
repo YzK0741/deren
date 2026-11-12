@@ -246,6 +246,7 @@ export namespace deren::engine::subtilis {
         /// before recording GPU use.
         [[nodiscard]] page_install_stats install_requested_pages(std::uint64_t budget_bytes, std::uint32_t sequence = 0,
                                                                  std::uint32_t slot = 0,
-                                                                 std::uint32_t max_install_pages = 0xFFFFFFFFu) const noexcept;
+                                                                 std::uint32_t max_install_pages = 0xFFFFFFFFu,
+                                                                 bool time_copy = false) const noexcept;
     };
 } // namespace deren::engine::subtilis

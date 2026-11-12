@@ -120,11 +120,12 @@ int main(int argc, char** argv) {
     }
     {
         queue_gate gate(native.device, native.graphics_queue);
-        auto submitted = service.submit(std::move(batch));
+        auto submitted = service.submit(std::move(batch), true);
         CHECK(submitted);
         if (submitted) {
             CHECK(submitted->receipt().sequence == 1);
             CHECK(submitted->poll() == rhi::error::not_ready);
+            CHECK(!submitted->gpu_duration_ns());
             CHECK(submitted->wait(0) == rhi::error::timeout);
             CHECK(!submitted->readback(0) && submitted->readback(0).error() == rhi::error::not_ready);
             CHECK(!submitted->readback(1));
@@ -136,6 +137,11 @@ int main(int argc, char** argv) {
             cluster.reset(); // the ticket releases the submitted work when it completes.
             gate.release();
             CHECK(submitted->wait(2000000000) == rhi::error::ok);
+            if (rhi::query_extension<rhi::submission_timing>(*core)) {
+                auto const elapsed = submitted->gpu_duration_ns();
+                CHECK(elapsed.has_value());
+                CHECK(submitted->gpu_duration_ns() == elapsed);
+            }
             auto result = submitted->readback(0);
             CHECK(result && result->size() == expected.size());
             if (result && result->size() == expected.size()) {

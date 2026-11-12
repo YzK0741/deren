@@ -1148,11 +1148,8 @@ namespace deren::engine {
                         if (error != rhi::error::ok) {
                             return error;
                         }
-                        // shadow_end -> hzb_cull_end is the cull lane; hzb_cull_end -> here is the MESH-TASK RASTER
-                        // ALONE; here -> scene_end (written by the resolve lane below) is the resolve. BOTH paths
-                        // write this mark, so the labels never lie per-path (the geometry callback writes it
-                        // immediately before its pass).
-                        this->gpu_mark(gpu_mark_id::visibility_raster_end);
+                        // The item recorder places the cut boundaries before the mesh-task draws.
+                        this->gpu_mark_through(gpu_mark_id::visibility_raster_end);
                         return rhi::error::ok;
                     });
                 if (!visibility_bound) {
@@ -1511,7 +1508,7 @@ namespace deren::engine {
                                                                                        this->gpu_mark_through(gpu_mark_id::hzb_cull_end);
                                                                                        // THE SPLIT MARK, before the pass: the geometry lane keeps the interval it
                                                                                        // always had ("scene" = this mark -> scene_end); the visibility slot reads ~0
-                                                                                       this->gpu_mark(gpu_mark_id::visibility_raster_end);
+                                                                                       this->gpu_mark_through(gpu_mark_id::visibility_raster_end);
                                                                                        this->gpu_mark_through(gpu_mark_id::software_raster_end);
                                                                                        auto error = payload->record(lane::scene);
                                                                                        if (error != rhi::error::ok) {

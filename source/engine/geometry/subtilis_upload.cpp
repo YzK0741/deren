@@ -4,6 +4,7 @@ module;
 
 module deren.engine.subtilis.upload;
 import deren.vstd;
+import deren.utility;
 import deren.engine.pass.chain;
 import deren.engine.pass.buffer_storage;
 import deren.engine.render_resource;
@@ -905,6 +906,9 @@ namespace deren::engine::subtilis {
             if (result == upload_rhi::error::device_lost) {
                 stats.result = result;
             } else if (result == upload_rhi::error::ok) {
+                if (auto const duration = upload.ticket.gpu_duration_ns()) {
+                    deren::utility::log("subtilis pages: copy GPU {} ns, {} bytes", *duration, upload.plan.installed_bytes);
+                }
                 auto const installs = upload.plan.installs;
                 if (!state->payload->manager.apply(std::move(upload.plan))) {
                     abandon(installs, upload.assigned);
@@ -948,7 +952,8 @@ namespace deren::engine::subtilis {
     }
 
     page_install_stats uploaded_geometry::install_requested_pages(std::uint64_t budget_bytes, std::uint32_t sequence,
-                                                                  std::uint32_t slot, std::uint32_t max_install_pages) const noexcept {
+                                                                  std::uint32_t slot, std::uint32_t max_install_pages,
+                                                                  bool time_copy) const noexcept {
         (void)sequence; // The request header's fourth word carries page misses, not the frame sequence.
         page_install_stats stats;
         auto* state = page_state_.get();
@@ -1093,7 +1098,7 @@ namespace deren::engine::subtilis {
                         }
                         // Store bookkeeping before native submit can accept work.
                         state->uploading.emplace(page_state::upload{{}, std::move(*plan), std::move(assigned)});
-                        auto ticket = state->transfers->submit(std::move(batch));
+                        auto ticket = state->transfers->submit(std::move(batch), time_copy);
                         if (!ticket) {
                             stats.result = ticket.error();
                             for (auto physical : state->uploading->assigned) {

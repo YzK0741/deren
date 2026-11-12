@@ -22,7 +22,7 @@ def replace_once(text, old, new):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--build-dir", default="build-release")
+    parser.add_argument("--build-dir", default="build")
     parser.add_argument("--case", choices=("diffuse", "punctual", "all"), default="all")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[2]
@@ -76,7 +76,7 @@ def main():
         subprocess.run(command, check=True, capture_output=True)
         discard = case_dir / "discard.slang"
         discard.write_text('[shader("fragment")] float4 main():SV_Target { discard; return float4(0); }')
-        for filename in ("outline.frag.spv", "overlay.frag.spv", "game_toon_eye_through_hair.frag.spv"):
+        for filename in ("outline.frag.spv", "overlay.frag.spv"):
             subprocess.run([compiler, str(discard), "-target", "spirv", "-profile", "spirv_1_6",
                             "-entry", "main", "-stage", "fragment", "-o", str(outputs / filename)],
                            check=True, capture_output=True)
