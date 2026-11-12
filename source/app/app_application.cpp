@@ -366,11 +366,7 @@ namespace deren::app {
             }
         }
 
-        // 1-3. Resolve the startup config in one step (app modules): merge the config file (config.toml
-        // by default, --config <path> to override) with positional argv overrides (argv[1] = model,
-        // argv[2] = grid side (numeric)), then locate the source/shaders/ dir and pick the model file.
-        // Panics on any missing configured/located resource. The dev-tool capture flags are removed
-        // from argv first (see parse_capture_options) so they cannot land in the positional slots.
+        // Capture flags are common to project launches and asset previews.
         deren::utility::vessel::vector<char*> filtered_argv;
         capture_options const capture = parse_capture_options(argc, argv, filtered_argv);
         auto const& probe = capture.radiance;
@@ -378,7 +374,27 @@ namespace deren::app {
             deren::utility::error("invalid or conflicting radiance capture arguments");
             return 2;
         }
-        deren::app::startup_config config = deren::app::analyse_config(static_cast<std::int32_t>(filtered_argv.size()), filtered_argv.data());
+        deren::app_config::app_settings launch_settings;
+        if (filtered_argv.size() > 1 && std::string_view(filtered_argv[1]) == "run") {
+            auto const fail_project = [](std::string_view message) {
+                deren::utility::println(stderr, "{}", message);
+                deren::utility::error(message);
+                deren::utility::wait_log_all();
+                return 2;
+            };
+            if (filtered_argv.size() != 3) {
+                return fail_project("usage: deren run <project-directory>");
+            }
+            auto project = deren::app_config::load_project_settings(filtered_argv[2]);
+            if (!project) {
+                return fail_project(project.error());
+            }
+            deren::utility::log("project: launching '{}' ({})", project->name, project->settings.config_file);
+            launch_settings = std::move(project->settings);
+        } else {
+            launch_settings = deren::app_config::resolve_from_argv(static_cast<std::int32_t>(filtered_argv.size()), filtered_argv.data());
+        }
+        deren::app::startup_config config = deren::app::analyse_config(launch_settings);
         auto& settings = config.settings;
         if (probe.enabled) {
             if (settings.render.character_forward || settings.render.game_toon || settings.render.subtilis || settings.render.software_raster || !settings.render.background_glb.empty() || std::getenv("DEREN_HZB_CULL") || std::getenv("DEREN_PROGRESSIVE_TEXTURES")) {

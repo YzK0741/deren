@@ -798,6 +798,14 @@ namespace deren::app_config {
      */
     export app_settings load_settings(std::string_view path);
 
+    export struct project_launch_settings {
+        std::string name;
+        app_settings settings;
+    };
+
+    /// Read deren.toml and its entry scene. Resolve relative resource paths from the project root.
+    export std::expected<project_launch_settings, std::string> load_project_settings(std::filesystem::path const& directory);
+
     /**
      * @ingroup app_config
      * @brief resolve the effective startup settings from argv: a `--config <path>` argument picks

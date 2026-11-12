@@ -33,14 +33,11 @@ export namespace deren::app {
 
     /**
      * @ingroup app_startup
-     * @brief resolve the startup config in one step: merge the config file + argv into the
-     *        app settings, then locate the source/shaders/ directory and pick the model file
+     * @brief locate shaders and pick model files from resolved project or preview settings
      *        (configured path, model_dir default, or auto-located gltf_model/). Panics when a
      *        configured or located resource is missing.
-     * @param argc argv argument count (as received by main)
-     * @param argv argv argument vector (as received by main)
      */
-    startup_config analyse_config(std::int32_t argc, char** argv);
+    startup_config analyse_config(deren::app_config::app_settings const& settings);
 
     /**
      * @ingroup app_startup

@@ -1154,6 +1154,82 @@ namespace deren::app_config {
         return settings.model == model_ask;
     }
 
+    std::expected<project_launch_settings, std::string> load_project_settings(std::filesystem::path const& directory) {
+        namespace fs = std::filesystem;
+        std::error_code error;
+        auto const root = fs::absolute(directory, error).lexically_normal();
+        if (directory.empty() || error || !fs::is_directory(root, error)) {
+            return std::unexpected("project directory does not exist: " + directory.string());
+        }
+        auto const manifest_path = (root / "deren.toml").string();
+        auto const manifest = toml::parse_file(manifest_path);
+        if (!manifest) {
+            return std::unexpected(std::format("cannot load project manifest '{}': {}", manifest_path, manifest.error().description()));
+        }
+        auto const project = manifest.table()["project"];
+        auto const name = project["name"].value<std::string_view>();
+        auto const scene = project["main_scene"].value<std::string_view>();
+        if (!name || name->empty() || !scene || scene->empty()) {
+            return std::unexpected(std::format("project manifest '{}' needs [project] name and main_scene", manifest_path));
+        }
+
+        auto const scene_path = (root / fs::path(*scene)).lexically_normal();
+        if (!fs::is_regular_file(scene_path, error)) {
+            return std::unexpected("project entry scene does not exist: " + scene_path.string());
+        }
+        auto settings = load_settings(scene_path.string());
+        if (settings.config_file.empty()) {
+            return std::unexpected("cannot read project entry scene: " + scene_path.string());
+        }
+        if (auto const library = manifest.table()["paths"]["asset_library"]; library) {
+            auto const path = library.value<std::string_view>();
+            if (!path || path->empty()) {
+                return std::unexpected(std::format("project manifest '{}' needs a non-empty [paths] asset_library string", manifest_path));
+            }
+            settings.paths.asset_library = *path;
+        }
+
+        if (wants_model_dialog(settings)) {
+            return std::unexpected("project entry scene needs a fixed model or asset: " + scene_path.string());
+        }
+        bool const has_default = !settings.model.empty() || !settings.asset.empty();
+        bool const has_library = !settings.paths.asset_library.empty();
+        if (!has_default && settings.scene.objects.empty()) {
+            return std::unexpected("project entry scene has no model, asset, or scene objects: " + scene_path.string());
+        }
+        if (settings.model.empty() && !settings.asset.empty() && !has_library) {
+            return std::unexpected("project entry scene references an asset ID without [paths] asset_library: " + scene_path.string());
+        }
+
+        auto const resolve = [&](deren::utility::vessel::string& path) {
+            if (!path.empty()) {
+                path = (root / fs::path(path)).lexically_normal().string();
+            }
+        };
+        for (auto& object : settings.scene.objects) {
+            if (!object.asset.empty() && !object.model.empty()) {
+                return std::unexpected(std::format("scene object '{}' must specify only one of asset or model", std::string_view(object.name)));
+            }
+            if (!object.asset.empty() && !has_library) {
+                return std::unexpected(std::format("scene object '{}' references an asset ID without [paths] asset_library", std::string_view(object.name)));
+            }
+            if (object.asset.empty() && object.model.empty() && !has_default && !has_library) {
+                return std::unexpected(std::format("scene object '{}' has no model or asset to load", std::string_view(object.name)));
+            }
+            resolve(object.model);
+            resolve(object.environment);
+        }
+        resolve(settings.model);
+        resolve(settings.paths.asset_library);
+        resolve(settings.paths.model_dir);
+        resolve(settings.paths.shaders_dir);
+        resolve(settings.paths.screenshot_dir);
+        resolve(settings.render.background_glb);
+        resolve(settings.lighting.environment_hdr);
+        resolve(settings.reflection_probe.asset);
+        return project_launch_settings{std::string(*name), std::move(settings)};
+    }
+
     app_settings resolve_from_argv(std::int32_t const argc, char const* const* const argv, deren::utility::vessel::string const& default_config_path) {
         // 1. Collect the non-option positional arguments (--config <path> / --config=<path>,
         //    --asset-library <dir> / --asset-library=<dir> and --asset <id> / --asset=<id> are
