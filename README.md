@@ -218,6 +218,32 @@ Run from the project root or a build directory (the program walks upward to loca
 
 By default it loads `asset/DamagedHelmet/DamagedHelmet.gltf` with PBR + IBL. Controls: **left-drag** orbit, **wheel** zoom, **arrow keys** pan (SHIFT for 4x), **drag the window border** to resize, **F1** debug overlay, **F12** screenshot, **ESC** quit. Keyframe animations play on a loop.
 
+### Launch a project
+
+Run `deren run /path/to/MyGame` from any working directory. Put a `deren.toml` in the project root:
+
+```toml
+[project]
+name = "Helmet Demo"
+main_scene = "scenes/main.toml"
+
+[paths]
+asset_library = "assets"
+```
+
+Put the entry scene in `scenes/main.toml` using the existing scene settings:
+
+```toml
+[[scene.objects]]
+name = "Helmet"
+asset = "damaged-helmet"
+pipeline = "pbr"
+```
+
+For this example, copy the existing `asset/DamagedHelmet` directory, including its `asset.toml`, into `MyGame/assets`. The scene resolves `asset` IDs through the same [asset library](asset/README.md) as the preview command. Use `model = "models/helmet.gltf"` on an object to reference a file directly. Relative paths are based on the project root, including those in the entry scene. The manifest's asset-library path takes precedence over the scene's path if both are set.
+
+Capture a project with `deren run /path/to/MyGame --capture-frames 120`. Preview a single library asset with `deren --asset-library /path/to/MyGame/assets --asset damaged-helmet`.
+
 ### Startup configuration
 
 Startup is driven by a TOML file: copy `config.example.toml` to `config.toml`, or point at one explicitly:

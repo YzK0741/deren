@@ -47,13 +47,7 @@ namespace deren::app {
         }
     } // namespace
 
-    // Resolve the startup config in one step: merge config file + argv into the app settings,
-    // then locate the source/shaders/ dir and pick the model file. Panics when a resource is missing.
-    startup_config analyse_config(std::int32_t argc, char** argv) {
-        // 1. Resolve startup settings first: config file (config.toml by default, --config <path>
-        //    to override) merged with positional argv overrides. argv[1] = model, argv[2] = grid
-        //    side (numeric).
-        deren::app_config::app_settings const settings = deren::app_config::resolve_from_argv(argc, argv);
+    startup_config analyse_config(deren::app_config::app_settings const& settings) {
         require_existing_directory(settings.paths.asset_library, "[paths] asset_library");
         require_existing_directory(settings.paths.model_dir, "[paths] model_dir");
         if (!settings.config_file.empty()) {

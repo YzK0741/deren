@@ -9,6 +9,45 @@ import deren.utility.shared;
 import deren.application_configuration;
 
 namespace {
+    void test_project_launch_settings() {
+        namespace fs = std::filesystem;
+        auto const root = fs::absolute("test-game");
+        fs::create_directories(root / "scenes");
+        CHECK(!deren::app_config::load_project_settings(root));
+        auto const manifest = root / "deren.toml";
+        auto const scene = root / "scenes" / "main.toml";
+        std::ofstream(manifest) << "[project]\nname = \"Test Game\"\nmain_scene = \"scenes/main.toml\"\n"
+                                   "[paths]\nasset_library = \"assets\"\n";
+        CHECK(!deren::app_config::load_project_settings(root));
+        std::ofstream(scene) << "[scene\n";
+        CHECK(!deren::app_config::load_project_settings(root));
+        std::ofstream(scene) << "[paths]\nasset_library = \"unused\"\nscreenshot_dir = \"captures\"\n"
+                                "[[scene.objects]]\nname = \"Player\"\nasset = \"helmet\"\n"
+                                "[[scene.objects]]\nname = \"Prop\"\nmodel = \"models/prop.gltf\"\n";
+        auto const result = deren::app_config::load_project_settings(root);
+        CHECK(result.has_value());
+        if (result) {
+            CHECK(result->name == "Test Game");
+            auto const& settings = result->settings;
+            CHECK(fs::path(settings.config_file) == scene);
+            CHECK(fs::path(settings.paths.asset_library) == root / "assets");
+            CHECK(fs::path(settings.paths.screenshot_dir) == root / "captures");
+            CHECK(settings.scene.objects.size() == 2);
+            if (settings.scene.objects.size() == 2) {
+                CHECK(settings.scene.objects[0].asset == "helmet");
+                CHECK(fs::path(settings.scene.objects[1].model) == root / "models" / "prop.gltf");
+            }
+        }
+        std::ofstream(scene) << "[scene]\nobjects = []\n";
+        CHECK(!deren::app_config::load_project_settings(root));
+        std::ofstream(manifest) << "[project]\nname = \"Test Game\"\n";
+        CHECK(!deren::app_config::load_project_settings(root));
+        fs::remove(manifest);
+        fs::remove(scene);
+        fs::remove(root / "scenes");
+        fs::remove(root);
+    }
+
     template <typename Settings>
     void check_environment_controls(Settings const& s) {
         if constexpr (requires { s.lighting.environment_rotation; s.lighting.environment_strength; s.lighting.environment_background; s.render.tone_mapping; s.render.exposure; }) {
@@ -891,5 +930,6 @@ std::int32_t main() {
     test_resolve_from_argv_game_toon_copies();
     test_model_format_follows_the_extension();
     test_scene_objects_parse_and_sanitise();
+    test_project_launch_settings();
     return deren::vk_test::finish("test_app_config");
 }
