@@ -10,6 +10,8 @@ namespace {
         transform_value poses[2]{};
         bool second_alive = true;
         unsigned errors = 0;
+        unsigned spawned = 0;
+        unsigned despawned = 0;
     };
 
     void __cdecl scene_log(void* context, char const* message, std::uint32_t length) {
@@ -41,11 +43,30 @@ namespace {
         return script_status::success;
     }
 
-    bool run_scene(host_paths const& paths, std::filesystem::path const& game_path) {
+    script_status __cdecl spawn_helmet(void* context, utf8_view asset, transform_value const* pose, entity_handle* entity) {
+        auto& state = *static_cast<scene_fixture*>(context);
+        if (std::string_view{asset.data, asset.length} != "damaged-helmet" || pose->position.x != 0.0F) {
+            return script_status::spawn_unavailable;
+        }
+        *entity = {7, 2, ++state.spawned};
+        return script_status::success;
+    }
+
+    script_status __cdecl despawn_helmet(void* context, entity_handle entity) {
+        auto& state = *static_cast<scene_fixture*>(context);
+        if (entity.scene != 7 || entity.index != 2 || entity.generation != state.spawned ||
+            state.spawned == state.despawned) {
+            return script_status::invalid_entity;
+        }
+        ++state.despawned;
+        return script_status::success;
+    }
+
+    bool run_scene(host_paths const& paths, std::filesystem::path const& game_path, bool test_input) {
         scene_fixture scene;
         scene.poses[0].position.x = -1.0F;
         scene.poses[1].position.x = 1.0F;
-        native_api const api{.context = &scene, .log = scene_log, .get_transform = get_pose, .set_transform = set_pose};
+        native_api const api{.context = &scene, .log = scene_log, .get_transform = get_pose, .set_transform = set_pose, .try_spawn = spawn_helmet, .try_despawn = despawn_helmet};
         managed_api scripts;
         if (initialize_managed_host(paths, api, scripts).status != host_status::success) {
             return false;
@@ -53,30 +74,47 @@ namespace {
 
         auto const assembly = game_path.u8string();
         utf8_view const path{reinterpret_cast<char const*>(assembly.data()), static_cast<std::uint32_t>(assembly.size())};
+        if (test_input) {
+            script_binding const controls[]{{{7, 0, 1}, {"game.move_helmet", 16}}, {{7, 1, 1}, {"game.spin_helmet", 16}}};
+            utf8_view const actions[]{{"move_left", 9}, {"move_right", 10}, {"toggle_spin", 11}, {"spawn_helmet", 12}};
+            std::uint8_t const pressed[]{0, 3, 3, 3};
+            std::uint8_t const held[]{0, 1, 1, 1};
+            std::uint8_t const tapped[]{0, 4, 6, 6};
+            return scripts.start_scene(&api, 7, path, controls, 2, actions, 4) == script_status::success &&
+                   scripts.update_scene(7, 0.5F, nullptr, 0) == script_status::invalid_argument &&
+                   scripts.update_scene(7, 0.5F, pressed, 4) == script_status::success &&
+                   scripts.update_scene(7, 0.5F, held, 4) == script_status::success &&
+                   scene.spawned == 1 && scene.despawned == 0 &&
+                   scene.poses[0].position.x == 1.0F && scene.poses[1].rotation_degrees.y == 0.0F &&
+                   scripts.update_scene(7, 0.5F, tapped, 4) == script_status::success &&
+                   scene.spawned == 1 && scene.despawned == 1 &&
+                   scene.poses[0].position.x == 1.0F && scene.poses[1].rotation_degrees.y == 30.0F &&
+                   scene.errors == 0 && scripts.stop_scene(7) == script_status::success;
+        }
         script_binding const bindings[]{{{7, 0, 1}, {"game.rotate", 11}}, {{7, 1, 1}, {"game.rotate", 11}}};
         script_binding const invalid_binding{{7, 0, 1}, {"game.missing", 12}};
-        if (scripts.start_scene(&api, 7, path, &invalid_binding, 1) != script_status::script_failure ||
-            scripts.start_scene(&api, 7, path, bindings, 2) != script_status::success ||
-            scripts.start_scene(&api, 7, path, bindings, 2) != script_status::scene_exists ||
-            scripts.update_scene(7, 0.5F) != script_status::success ||
+        if (scripts.start_scene(&api, 7, path, &invalid_binding, 1, nullptr, 0) != script_status::script_failure ||
+            scripts.start_scene(&api, 7, path, bindings, 2, nullptr, 0) != script_status::success ||
+            scripts.start_scene(&api, 7, path, bindings, 2, nullptr, 0) != script_status::scene_exists ||
+            scripts.update_scene(7, 0.5F, nullptr, 0) != script_status::success ||
             scene.poses[0].rotation_degrees.y != 15.0F || scene.poses[1].rotation_degrees.y != 30.0F) {
             return false;
         }
 
         scene.second_alive = false;
-        if (scripts.update_scene(7, 0.5F) != script_status::success ||
-            scripts.update_scene(7, 0.5F) != script_status::success ||
+        if (scripts.update_scene(7, 0.5F, nullptr, 0) != script_status::success ||
+            scripts.update_scene(7, 0.5F, nullptr, 0) != script_status::success ||
             scene.poses[0].rotation_degrees.y != 45.0F || scene.poses[1].rotation_degrees.y != 30.0F ||
             scene.errors != 1) {
             return false;
         }
 
         scene.second_alive = true;
-        return scripts.update_scene(7, -0.5F) == script_status::success &&
+        return scripts.update_scene(7, -0.5F, nullptr, 0) == script_status::success &&
                scene.poses[0].rotation_degrees.y == 30.0F && scene.poses[1].rotation_degrees.y == 30.0F &&
                scripts.stop_scene(7) == script_status::success &&
                scene.poses[0].position.z == 1.0F && scene.poses[1].position.z == 1.0F &&
-               scripts.update_scene(7, 0.5F) == script_status::scene_not_found &&
+               scripts.update_scene(7, 0.5F, nullptr, 0) == script_status::scene_not_found &&
                scripts.stop_scene(7) == script_status::scene_not_found;
     }
 
@@ -98,8 +136,8 @@ int main(int argc, char** argv) {
         .assembly = bridge_directory / "Deren.Managed.dll",
         .runtime_config = bridge_directory / "Deren.Managed.runtimeconfig.json",
         .nethost = bridge_directory / "nethost.dll"};
-    if (scenario == "scene_lifecycle") {
-        if (!run_scene(paths, std::filesystem::path{argv[3]})) {
+    if (scenario == "scene_lifecycle" || scenario == "scene_input") {
+        if (!run_scene(paths, std::filesystem::path{argv[3]}, scenario == "scene_input")) {
             std::fputs("Managed scene lifecycle or transform round trip failed\n", stderr);
             return 1;
         }
@@ -107,7 +145,7 @@ int main(int argc, char** argv) {
     }
     auto expected = host_status::success;
     bool received = false;
-    auto api = deren::scripting::native_api{.context = &received, .log = log_message, .get_transform = get_pose, .set_transform = set_pose};
+    auto api = deren::scripting::native_api{.context = &received, .log = log_message, .get_transform = get_pose, .set_transform = set_pose, .try_spawn = spawn_helmet, .try_despawn = despawn_helmet};
     managed_api scripts;
 
     if (scenario == "missing_assembly") {

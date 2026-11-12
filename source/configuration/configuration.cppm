@@ -23,6 +23,7 @@ module;
 export module deren.application_configuration;
 export import deren.utility.shared;
 export import deren.vstd;
+export import deren.input_actions;
 import deren.utility;
 
 /**
@@ -644,6 +645,7 @@ namespace deren::app_config {
         float fade = .5f, gain = 1;
     };
     /// @brief the `pipeline = "gaussian"` value: a .ply cloud drawn by the shared splat stage
+    export inline constexpr std::int32_t scene_object_pipeline_pbr = 1;
     export inline constexpr std::int32_t scene_object_pipeline_gaussian = 4;
 
     /**
@@ -674,6 +676,7 @@ namespace deren::app_config {
         deren::utility::vessel::string model = {};
         deren::utility::vessel::string asset = {};
         std::optional<deren::utility::vessel::string> script;
+        bool spawn_slot = false;
         deren::utility::vessel::array<float, 3> position = {0.0f, 0.0f, 0.0f};
         deren::utility::vessel::array<float, 3> rotation = {0.0f, 0.0f, 0.0f}; // degrees, Y then X then Z
         deren::utility::vessel::array<float, 3> scale = {1.0f, 1.0f, 1.0f};
@@ -803,6 +806,7 @@ namespace deren::app_config {
         std::string name;
         app_settings settings;
         std::filesystem::path script_assembly;
+        deren::utility::vessel::vector<deren::input::action_binding> input_actions;
     };
 
     /// Read deren.toml and its entry scene. Resolve relative resource paths from the project root.

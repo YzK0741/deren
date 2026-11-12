@@ -3,7 +3,7 @@ export import deren.vstd;
 
 export namespace deren::scripting {
 
-    inline constexpr std::uint32_t managed_abi_version = 2;
+    inline constexpr std::uint32_t managed_abi_version = 4;
 
     struct entity_handle {
         std::uint64_t scene;
@@ -37,7 +37,8 @@ export namespace deren::scripting {
         invalid_entity = 2,
         scene_exists = 3,
         scene_not_found = 4,
-        script_failure = 5
+        script_failure = 5,
+        spawn_unavailable = 6
     };
 
     // Keep layouts and calling conventions in sync with managed_bootstrap.cs.
@@ -48,6 +49,8 @@ export namespace deren::scripting {
         void(__cdecl* log)(void* context, char const* utf8, std::uint32_t length) = nullptr;
         script_status(__cdecl* get_transform)(void* context, entity_handle entity, transform_value* value) = nullptr;
         script_status(__cdecl* set_transform)(void* context, entity_handle entity, transform_value const* value) = nullptr;
+        script_status(__cdecl* try_spawn)(void* context, utf8_view asset, transform_value const* value, entity_handle* entity) = nullptr;
+        script_status(__cdecl* try_despawn)(void* context, entity_handle entity) = nullptr;
     };
 
     struct managed_api {
@@ -56,8 +59,11 @@ export namespace deren::scripting {
         // Call on the scene thread. Use a fresh nonzero scene ID for each scene
         // lifetime. The callbacks are copied, and their context must outlive stop_scene.
         script_status(__cdecl* start_scene)(native_api const*, std::uint64_t scene, utf8_view assembly,
-                                            script_binding const* bindings, std::uint32_t count) = nullptr;
-        script_status(__cdecl* update_scene)(std::uint64_t scene, float delta_time) = nullptr;
+                                            script_binding const* bindings, std::uint32_t count,
+                                            utf8_view const* action_names, std::uint32_t action_count) = nullptr;
+        // One byte per action in start_scene order. The frame is borrowed only during the update.
+        script_status(__cdecl* update_scene)(std::uint64_t scene, float delta_time,
+                                             std::uint8_t const* input, std::uint32_t input_count) = nullptr;
         script_status(__cdecl* stop_scene)(std::uint64_t scene) = nullptr;
     };
 

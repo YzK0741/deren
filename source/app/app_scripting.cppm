@@ -14,9 +14,10 @@ export namespace deren::app {
         script_scene& operator=(script_scene const&) = delete;
 
         [[nodiscard]] std::expected<void, std::string> start(
-            std::filesystem::path const& assembly, std::span<app_config::scene_object_settings> objects);
+            std::filesystem::path const& assembly, std::span<app_config::scene_object_settings> objects,
+            std::span<input::action_binding const> actions);
         void read_object_edits();
-        [[nodiscard]] bool update(float dt);
+        [[nodiscard]] bool update(float dt, std::span<std::uint8_t const> input_frame);
         [[nodiscard]] bool publish_transforms();
 
     private:
@@ -34,6 +35,8 @@ export namespace deren::app {
         static void __cdecl log(void*, char const* text, std::uint32_t length);
         static scripting::script_status __cdecl get_transform(void* context, scripting::entity_handle entity, scripting::transform_value* value);
         static scripting::script_status __cdecl set_transform(void* context, scripting::entity_handle entity, scripting::transform_value const* value);
+        static scripting::script_status __cdecl try_spawn(void* context, scripting::utf8_view asset, scripting::transform_value const* value, scripting::entity_handle* entity);
+        static scripting::script_status __cdecl try_despawn(void* context, scripting::entity_handle entity);
 
         scripting::managed_api scripts;
         utility::ecs::registry entities;
@@ -41,5 +44,6 @@ export namespace deren::app {
         std::span<app_config::scene_object_settings> scene_objects;
         std::uint64_t scene_id = 0;
         bool running = false;
+        bool closing = false;
     };
 } // namespace deren::app

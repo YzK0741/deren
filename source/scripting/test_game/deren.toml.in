@@ -7,3 +7,9 @@ asset_library = "@DEREN_REPO_ROOT@/asset"
 
 [scripts]
 assembly = "Game.dll"
+
+[input.actions]
+move_left = ["a"]
+move_right = ["d"]
+toggle_spin = ["space"]
+spawn_helmet = ["e"]

@@ -246,7 +246,7 @@ Capture a project with `deren run /path/to/MyGame --capture-frames 120`. Preview
 
 #### C# scripts
 
-On Windows x64, configure with `-DDEREN_ENABLE_CSHARP=ON` and build with the .NET 10 SDK installed. With `VR_BUILD_TESTS=ON`, the build includes a demo with two independently rotating helmets:
+On Windows x64, configure with `-DDEREN_ENABLE_CSHARP=ON` and build with the .NET 10 SDK installed. With `VR_BUILD_TESTS=ON`, the build includes a two-helmet demo. Hold A or D to move the left helmet, press Space to toggle the right helmet's rotation, or press E to spawn and remove a third helmet.
 
 ```powershell
 cmake -S . -B build -G Ninja -DDEREN_ENABLE_CSHARP=ON
@@ -254,7 +254,29 @@ cmake --build build --target deren test_managed_host
 ./build/deren.exe run ./build/source/scripting/test_game
 ```
 
-For your own project, reference `Deren.Managed.dll` when building your scripts. Set `[scripts] assembly` in `deren.toml` to the built DLL path relative to the project root. Add `script = "game.rotate"` to an entry in `[[scene.objects]]` to bind that class. Derive scripts from `deren.behaviour` and override `on_create`, `on_update`, or `on_destroy` as needed. See the [demo script](source/scripting/test_game/rotate.cs). Running a scripted project requires the .NET 10 runtime.
+For your own project, reference `Deren.Managed.dll` when building your scripts. Set `[scripts] assembly` in `deren.toml` to the built DLL path relative to the project root. Add `script = "game.move_helmet"` to an entry in `[[scene.objects]]` to bind that class. Derive scripts from `deren.behaviour` and override `on_create`, `on_update`, or `on_destroy` as needed. See the [demo scripts](source/scripting/test_game/helmet_controls.cs). Running a scripted project requires the .NET 10 runtime.
+
+Bind named actions to one or more keys in `deren.toml`:
+
+```toml
+[input.actions]
+move_left = ["a"]
+move_right = ["d"]
+toggle_spin = ["space"]
+```
+
+Use `input.is_down`, `input.was_pressed`, and `input.was_released` in `on_update()`. All scripts in a frame read the same snapshot. A quick tap can report both edges. Key names include lowercase letters, digits, `space`, `left`, `right`, `up`, `down`, `enter`, `tab`, and left/right variants of `shift` and `control`.
+
+To let scripts instantiate a static PBR asset, reserve a slot in the entry scene:
+
+```toml
+[[scene.objects]]
+asset = "damaged-helmet"
+pipeline = "pbr"
+spawn_slot = true
+```
+
+Each slot starts hidden and can hold one live instance. Use `scene.try_spawn("damaged-helmet", pose, out var entity)` and `scene.try_despawn(entity)` from a behaviour. Spawning returns `false` when the asset has no free slot or the transform is invalid. Removing an instance invalidates its handle and frees its slot for reuse. The slot's render resources stay preloaded. Spawn slots participate in raster rendering and raster shadows. Their ray-traced shadow and reflection masks are disabled.
 
 ### Startup configuration
 

@@ -11,13 +11,14 @@ namespace deren.scripting {
         public uint generation;
     }
 
-    internal enum script_status : int {
+    internal enum script_status {
         success = 0,
         invalid_argument = 1,
         invalid_entity = 2,
         scene_exists = 3,
         scene_not_found = 4,
-        script_failure = 5
+        script_failure = 5,
+        spawn_unavailable = 6
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -44,10 +45,12 @@ namespace deren.scripting {
         public delegate* unmanaged[Cdecl]<void*, byte*, uint, void> log;
         public delegate* unmanaged[Cdecl]<void*, entity_handle, transform_value*, script_status> get_transform;
         public delegate* unmanaged[Cdecl]<void*, entity_handle, transform_value*, script_status> set_transform;
+        public delegate* unmanaged[Cdecl]<void*, utf8_view, transform_value*, entity_handle*, script_status> try_spawn;
+        public delegate* unmanaged[Cdecl]<void*, entity_handle, script_status> try_despawn;
 
         public readonly bool is_valid() {
             return size >= sizeof(native_api) && version == managed_bootstrap.abi_version &&
-                log != null && get_transform != null && set_transform != null;
+                log != null && get_transform != null && set_transform != null && try_spawn != null && try_despawn != null;
         }
 
         public readonly void write_log(ReadOnlySpan<byte> message) {
@@ -61,13 +64,13 @@ namespace deren.scripting {
     internal unsafe struct managed_api {
         public uint size;
         public uint version;
-        public delegate* unmanaged[Cdecl]<native_api*, ulong, utf8_view, script_binding*, uint, script_status> start_scene;
-        public delegate* unmanaged[Cdecl]<ulong, float, script_status> update_scene;
+        public delegate* unmanaged[Cdecl]<native_api*, ulong, utf8_view, script_binding*, uint, utf8_view*, uint, script_status> start_scene;
+        public delegate* unmanaged[Cdecl]<ulong, float, byte*, uint, script_status> update_scene;
         public delegate* unmanaged[Cdecl]<ulong, script_status> stop_scene;
     }
 
     internal static unsafe class managed_bootstrap {
-        internal const uint abi_version = 2;
+        internal const uint abi_version = 4;
         private const int abi_mismatch = 1;
         private const int invalid_api = 2;
 

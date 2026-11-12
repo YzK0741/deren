@@ -15,19 +15,25 @@ namespace deren::app {
     } // namespace
 
     script_scene::~script_scene() {
+        closing = true;
         if (running && scripts.stop_scene(scene_id) != scripting::script_status::success) {
             utility::log("scripts: scene {} stopped with script errors", scene_id);
         }
     }
 
     std::expected<void, std::string> script_scene::start(
-        std::filesystem::path const& assembly, std::span<app_config::scene_object_settings> objects) {
+        std::filesystem::path const& assembly, std::span<app_config::scene_object_settings> objects,
+        std::span<input::action_binding const> actions) {
         static std::uint64_t next_scene_id = 1;
         scene_id = next_scene_id++;
         scene_objects = objects;
         utility::vessel::vector<scripting::script_binding> bindings;
         for (std::size_t index = 0; index < objects.size(); ++index) {
             auto const& object = objects[index];
+            if (object.spawn_slot) {
+                slots.push_back(object_slot{index, utility::ecs::null_entity});
+                continue;
+            }
             if (!object.script) {
                 continue;
             }
@@ -40,7 +46,8 @@ namespace deren::app {
         }
 
         auto const runtime_dir = utility::executable_directory() / "managed";
-        scripting::native_api const api{.context = this, .log = log, .get_transform = get_transform, .set_transform = set_transform};
+        scripting::native_api const api{
+            .context = this, .log = log, .get_transform = get_transform, .set_transform = set_transform, .try_spawn = try_spawn, .try_despawn = try_despawn};
         auto const result = scripting::initialize_managed_host(
             {.assembly = runtime_dir / "Deren.Managed.dll",
              .runtime_config = runtime_dir / "Deren.Managed.runtimeconfig.json",
@@ -56,10 +63,16 @@ namespace deren::app {
                                                runtime_dir.string(), static_cast<int>(result.status), static_cast<std::uint32_t>(result.detail)));
         }
         auto const path = assembly.u8string();
+        utility::vessel::vector<scripting::utf8_view> action_names;
+        action_names.reserve(actions.size());
+        for (auto const& action : actions) {
+            action_names.push_back(scripting::utf8_view{action.name.data(), static_cast<std::uint32_t>(action.name.size())});
+        }
         auto const status = scripts.start_scene(
             &api,
             scene_id, {reinterpret_cast<char const*>(path.data()), static_cast<std::uint32_t>(path.size())},
-            bindings.data(), static_cast<std::uint32_t>(bindings.size()));
+            bindings.data(), static_cast<std::uint32_t>(bindings.size()),
+            action_names.data(), static_cast<std::uint32_t>(action_names.size()));
         if (status != scripting::script_status::success) {
             return std::unexpected(std::format("Cannot start scripts from '{}' (script status {}). See the preceding script diagnostics.",
                                                assembly.string(), static_cast<int>(status)));
@@ -77,8 +90,8 @@ namespace deren::app {
         }
     }
 
-    bool script_scene::update(float dt) {
-        if (scripts.update_scene(scene_id, dt) != scripting::script_status::success) {
+    bool script_scene::update(float dt, std::span<std::uint8_t const> input_frame) {
+        if (scripts.update_scene(scene_id, dt, input_frame.data(), static_cast<std::uint32_t>(input_frame.size())) != scripting::script_status::success) {
             utility::error("scripts: could not update scene {}", scene_id);
             return false;
         }
@@ -89,10 +102,14 @@ namespace deren::app {
         bool changed = false;
         for (auto const& slot : slots) {
             auto* value = entities.try_get<placement>(slot.entity);
+            auto& object = scene_objects[slot.index];
+            if (object.spawn_slot && object.visible != (value != nullptr)) {
+                object.visible = value != nullptr;
+                changed = true;
+            }
             if (value == nullptr || !value->dirty) {
                 continue;
             }
-            auto& object = scene_objects[slot.index];
             auto const& pose = value->transform;
             object.position = {pose.position.x, pose.position.y, pose.position.z};
             object.rotation = {pose.rotation_degrees.x, pose.rotation_degrees.y, pose.rotation_degrees.z};
@@ -131,5 +148,44 @@ namespace deren::app {
         placement->transform = *value;
         placement->dirty = true;
         return scripting::script_status::success;
+    }
+
+    scripting::script_status __cdecl script_scene::try_spawn(void* context, scripting::utf8_view asset,
+                                                             scripting::transform_value const* value, scripting::entity_handle* entity) {
+        auto& owner = *static_cast<script_scene*>(context);
+        if (asset.data == nullptr || asset.length == 0 || value == nullptr || entity == nullptr ||
+            !is_finite(value->position) || !is_finite(value->rotation_degrees) || !is_finite(value->scale) ||
+            value->scale.x == 0.0f || value->scale.y == 0.0f || value->scale.z == 0.0f) {
+            return scripting::script_status::invalid_argument;
+        }
+        if (owner.closing) {
+            return scripting::script_status::spawn_unavailable;
+        }
+        auto const id = std::string_view{asset.data, asset.length};
+        for (auto& slot : owner.slots) {
+            auto const& object = owner.scene_objects[slot.index];
+            if (object.spawn_slot && !slot.entity.valid() && std::string_view{object.asset} == id) {
+                slot.entity = owner.entities.create();
+                owner.entities.try_emplace<placement>(slot.entity, placement{*value, true});
+                *entity = {owner.scene_id, slot.entity.index, slot.entity.generation};
+                return scripting::script_status::success;
+            }
+        }
+        return scripting::script_status::spawn_unavailable;
+    }
+
+    scripting::script_status __cdecl script_scene::try_despawn(void* context, scripting::entity_handle entity) {
+        auto& owner = *static_cast<script_scene*>(context);
+        if (entity.scene == owner.scene_id) {
+            utility::ecs::entity const handle{entity.index, entity.generation};
+            for (auto& slot : owner.slots) {
+                if (handle.valid() && slot.entity == handle && owner.scene_objects[slot.index].spawn_slot &&
+                    owner.entities.destroy(handle)) {
+                    slot.entity = utility::ecs::null_entity;
+                    return scripting::script_status::success;
+                }
+            }
+        }
+        return scripting::script_status::invalid_entity;
     }
 } // namespace deren::app
