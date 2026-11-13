@@ -8,6 +8,39 @@ import deren.vstd;
 import deren.utility.shared;
 
 namespace deren::engine::scene_tree {
+    namespace {
+        void destroy_node_components(scene_node& node) {
+            for (scene_node& child : node.children) {
+                destroy_node_components(child);
+            }
+            if (node.node_id.valid()) {
+                (void)components().destroy(node.node_id);
+            }
+            node.node_id = deren::utility::ecs::null_entity;
+            node.owner_scene = nullptr;
+        }
+
+        template <class Nodes>
+        bool erase_node_by_id(Nodes& nodes, deren::utility::ecs::entity id) {
+            for (auto it = nodes.begin(); it != nodes.end(); ++it) {
+                if (it->node_id == id) {
+                    destroy_node_components(*it);
+                    nodes.erase(it);
+                    return true;
+                }
+                if (erase_node_by_id(it->children, id)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    } // namespace
+
+    deren::utility::ecs::registry& components() noexcept {
+        static deren::utility::ecs::registry registry;
+        return registry;
+    }
+
     void update_world(scene_node& node, glm::mat4 const& parent_world) {
         glm::mat4 const world = parent_world * node.local;
         if (node.primitive_leaf) {
@@ -58,6 +91,9 @@ namespace deren::engine::scene_tree {
         copy.source_index = this->source_index;
         copy.import_instance = this->import_instance;
         copy.visible = this->visible;
+        // A clone is a detached subtree: it gets fresh identities when a scene adopts it.
+        copy.node_id = deren::utility::ecs::null_entity;
+        copy.owner_scene = nullptr;
         copy.children.reserve(this->children.size());
         for (scene_node const& child : this->children) {
             copy.children.push_back(child.clone());
@@ -69,12 +105,20 @@ namespace deren::engine::scene_tree {
 
     scene_node& scene_node::add_child() {
         this->children.emplace_back();
-        return this->children.back();
+        scene_node& child = this->children.back();
+        if (this->owner_scene != nullptr) {
+            this->owner_scene->register_subtree(child);
+        }
+        return child;
     }
 
     scene_node& scene_node::add_child(scene_node child) {
         this->children.push_back(std::move(child));
-        return this->children.back();
+        scene_node& added = this->children.back();
+        if (this->owner_scene != nullptr) {
+            this->owner_scene->register_subtree(added);
+        }
+        return added;
     }
 
     primitive* scene_node::attach(std::unique_ptr<primitive> leaf) {
@@ -127,14 +171,34 @@ namespace deren::engine::scene_tree {
         return nullptr;
     }
 
+    void scene::register_subtree(scene_node& node) {
+        scene* const previous = node.owner_scene;
+        node.owner_scene = this;
+        if (previous != this) {
+            // Adopting a detached subtree (or moving one between scenes) releases any previous
+            // component entity and gives every node a fresh process-wide handle.
+            if (node.node_id.valid()) {
+                (void)components().destroy(node.node_id);
+            }
+            node.node_id = components().create();
+        }
+        for (scene_node& child : node.children) {
+            this->register_subtree(child);
+        }
+    }
+
     scene_node& scene::add_root() {
         this->roots.emplace_back();
-        return this->roots.back();
+        scene_node& root = this->roots.back();
+        this->register_subtree(root);
+        return root;
     }
 
     scene_node& scene::add_root(scene_node root) {
         this->roots.push_back(std::move(root));
-        return this->roots.back();
+        scene_node& added = this->roots.back();
+        this->register_subtree(added);
+        return added;
     }
 
     scene_node* scene::find_node(std::string_view const name) noexcept {
@@ -154,6 +218,67 @@ namespace deren::engine::scene_tree {
         }
         return nullptr;
     }
+
+    scene_node* scene::find_node(deren::utility::ecs::entity const id) noexcept {
+        if (!id.valid()) {
+            return nullptr;
+        }
+        deren::utility::vessel::vector<scene_node*> stack;
+        for (auto it = this->roots.rbegin(); it != this->roots.rend(); ++it) {
+            stack.push_back(&*it);
+        }
+        while (!stack.empty()) {
+            scene_node* const current = stack.back();
+            stack.pop_back();
+            if (current->node_id == id) {
+                return current;
+            }
+            for (auto it = current->children.rbegin(); it != current->children.rend(); ++it) {
+                stack.push_back(&*it);
+            }
+        }
+        return nullptr;
+    }
+
+    scene_node const* scene::find_node(deren::utility::ecs::entity const id) const noexcept {
+        if (!id.valid()) {
+            return nullptr;
+        }
+        deren::utility::vessel::vector<scene_node const*> stack;
+        for (auto it = this->roots.rbegin(); it != this->roots.rend(); ++it) {
+            stack.push_back(&*it);
+        }
+        while (!stack.empty()) {
+            scene_node const* const current = stack.back();
+            stack.pop_back();
+            if (current->node_id == id) {
+                return current;
+            }
+            for (auto it = current->children.rbegin(); it != current->children.rend(); ++it) {
+                stack.push_back(&*it);
+            }
+        }
+        return nullptr;
+    }
+
+    scene::~scene() {
+        this->clear();
+    }
+
+    bool scene::destroy_node(deren::utility::ecs::entity const id) {
+        if (!id.valid()) {
+            return false;
+        }
+        return erase_node_by_id(this->roots, id);
+    }
+
+    void scene::clear() {
+        for (scene_node& root : this->roots) {
+            destroy_node_components(root);
+        }
+        this->roots.clear();
+    }
+
     bool find_world(scene const& parent, std::uint64_t const import_instance, std::size_t const source_index, glm::mat4& output) {
         auto const visit = [&](auto&& self, scene_node const& node, glm::mat4 const& parent_world) -> bool {
             glm::mat4 const world = parent_world * node.local;
