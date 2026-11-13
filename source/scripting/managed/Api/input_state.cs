@@ -2,9 +2,7 @@ using System;
 using System.Collections.Generic;
 
 namespace deren {
-#pragma warning disable CS8981
-    public static unsafe class input {
-#pragma warning restore CS8981
+    public static unsafe class input_state {
         // Match action_flag in the native input module.
         private const byte down = 1;
         private const byte pressed = 2;

@@ -1582,10 +1582,10 @@ namespace deren::app {
             wrapper.local = placement;
             wrapper.children.reserve(scene.roots.size() - first_root);
             for (std::size_t index = first_root; index < scene.roots.size(); ++index) {
-                wrapper.children.push_back(std::move(scene.roots[index]));
+                wrapper.add_child(std::move(scene.roots[index]));
             }
             scene.roots.resize(first_root);
-            scene.roots.push_back(std::move(wrapper));
+            scene.add_root(std::move(wrapper));
         };
         std::size_t const import_count = use_scene_objects ? settings.scene.objects.size() : static_cast<std::size_t>(game_toon_copies);
         std::size_t character_count = 0;
@@ -1842,7 +1842,14 @@ namespace deren::app {
 #ifdef DEREN_ENABLE_CSHARP
         std::optional<deren::app::script_scene> script_scene;
         if (!script_assembly.empty()) {
-            auto const started = script_scene.emplace().start(script_assembly, {editable_objects.data(), editable_objects.size()}, actions);
+            deren::utility::vessel::vector<deren::utility::ecs::entity> object_node_ids;
+            object_node_ids.reserve(editable_objects.size());
+            for (std::size_t index = 0; index < editable_objects.size(); ++index) {
+                object_node_ids.push_back(index < object_root_indices.size() ? scene.roots[object_root_indices[index]].node_id
+                                                                             : deren::utility::ecs::null_entity);
+            }
+            auto const started = script_scene.emplace().start(script_assembly, scene, {editable_objects.data(), editable_objects.size()},
+                                                              {object_node_ids.data(), object_node_ids.size()}, actions);
             if (!started) {
                 deren::utility::println(stderr, "{}", started.error());
                 deren::utility::error(started.error());

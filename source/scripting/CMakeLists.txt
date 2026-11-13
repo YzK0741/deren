@@ -26,6 +26,8 @@ list(GET host_packs 0 host_pack)
 set(host_native "${host_pack}/runtimes/win-x64/native")
 
 set(bridge_project "${CMAKE_CURRENT_SOURCE_DIR}/managed/Deren.Managed.csproj")
+file(GLOB_RECURSE bridge_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/managed/*.cs")
+list(FILTER bridge_sources EXCLUDE REGEX "[/\\\\](obj|bin)[/\\\\]")
 set(bridge_output "${CMAKE_CURRENT_BINARY_DIR}/bridge")
 set(bridge_files
     "${bridge_output}/Deren.Managed.dll"
@@ -37,7 +39,7 @@ add_custom_command(OUTPUT ${bridge_files}
         --configuration Release --artifacts-path "${CMAKE_CURRENT_BINARY_DIR}/dotnet"
         --output "${bridge_output}"
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${host_native}/nethost.dll" "${bridge_output}/nethost.dll"
-    DEPENDS "${bridge_project}" managed/managed_bootstrap.cs managed/behaviour.cs managed/scene_scripts.cs managed/input.cs managed/scene_access.cs
+    DEPENDS "${bridge_project}" ${bridge_sources}
         "${CMAKE_CURRENT_SOURCE_DIR}/../../.editorconfig" "${host_native}/nethost.dll"
     VERBATIM)
 add_custom_target(deren_managed_bridge ALL DEPENDS ${bridge_files})
@@ -61,7 +63,7 @@ add_custom_command(OUTPUT "${game_assembly}"
     COMMAND "${DOTNET_EXECUTABLE}" build "${game_project}"
         --configuration Release --artifacts-path "${CMAKE_CURRENT_BINARY_DIR}/dotnet"
         --output "${game_output}"
-    DEPENDS "${game_project}" test_game/rotate.cs test_game/helmet_controls.cs ${bridge_files}
+    DEPENDS "${game_project}" test_game/rotate_behaviour.cs test_game/helmet_controls.cs ${bridge_files}
     VERBATIM)
 add_custom_target(deren_managed_test_game DEPENDS "${game_assembly}")
 add_dependencies(deren_managed_test_game deren_managed_bridge)

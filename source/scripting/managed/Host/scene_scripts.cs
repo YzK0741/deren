@@ -10,7 +10,7 @@ namespace deren.scripting {
     internal static unsafe class scene_scripts {
         private sealed class scene_state(native_api callbacks) {
             public readonly native_api api = callbacks;
-            public readonly List<(entity_handle entity, behaviour script)> instances = [];
+            public readonly List<(node_handle node, script_behaviour script)> instances = [];
             public readonly Dictionary<string, int> actions = new(StringComparer.Ordinal);
         }
 
@@ -37,35 +37,35 @@ namespace deren.scripting {
                     }
                 }
                 var path = Path.GetFullPath(assembly_path.decode());
-                var context = AssemblyLoadContext.GetLoadContext(typeof(behaviour).Assembly)!;
+                var context = AssemblyLoadContext.GetLoadContext(typeof(script_behaviour).Assembly)!;
                 var assembly = context.LoadFromAssemblyPath(path);
                 var types = new Type[(int)count];
-                var entities = new HashSet<(uint index, uint generation)>();
+                var nodes = new HashSet<(uint index, uint generation)>();
                 for (var index = 0; index < types.Length; ++index) {
                     var binding = bindings[index];
-                    if (binding.entity.scene != scene || binding.type.data == null || binding.type.length == 0 ||
-                        !entities.Add((binding.entity.index, binding.entity.generation))) {
+                    if (binding.node.scene != scene || binding.type.data == null || binding.type.length == 0 ||
+                        !nodes.Add((binding.node.index, binding.node.generation))) {
                         return script_status.invalid_argument;
                     }
                     var name = binding.type.decode();
                     var type = assembly.GetType(name);
-                    if (type == null || !typeof(behaviour).IsAssignableFrom(type) ||
+                    if (type == null || !typeof(script_behaviour).IsAssignableFrom(type) ||
                         type.IsAbstract || type.ContainsGenericParameters || type.GetConstructor(Type.EmptyTypes) == null) {
-                        throw new InvalidOperationException($"'{name}' is not a concrete behaviour with a public parameterless constructor.");
+                        throw new InvalidOperationException($"'{name}' is not a concrete script_behaviour with a public parameterless constructor.");
                     }
                     types[index] = type;
                 }
 
                 for (var index = 0; index < types.Length; ++index) {
-                    var entity = bindings[index].entity;
+                    var node = bindings[index].node;
                     var type = types[index];
                     try {
-                        var script = (behaviour)Activator.CreateInstance(type)!;
-                        script.attach(state.api, entity);
-                        state.instances.Add((entity, script));
+                        var script = (script_behaviour)Activator.CreateInstance(type)!;
+                        script.attach(state.api, node);
+                        state.instances.Add((node, script));
                         script.on_create();
                     } catch (Exception error) {
-                        log_exception(state.api, entity, type, "on_create", error);
+                        log_exception(state.api, node, type, "on_create", error);
                         destroy(state);
                         return script_status.script_failure;
                     }
@@ -90,9 +90,9 @@ namespace deren.scripting {
             if (input_count != state.actions.Count || (input_count != 0 && input_frame == null)) {
                 return script_status.invalid_argument;
             }
-            input.begin_frame(state.actions, input_frame);
+            input_state.begin_frame(state.actions, input_frame);
             try {
-                foreach (var (entity, script) in state.instances) {
+                foreach (var (node, script) in state.instances) {
                     if (!script.updates_enabled) {
                         continue;
                     }
@@ -100,11 +100,11 @@ namespace deren.scripting {
                         script.on_update(delta_time);
                     } catch (Exception error) {
                         script.updates_enabled = false;
-                        log_exception(state.api, entity, script.GetType(), "on_update", error);
+                        log_exception(state.api, node, script.GetType(), "on_update", error);
                     }
                 }
             } finally {
-                input.end_frame();
+                input_state.end_frame();
             }
             return script_status.success;
         }
@@ -117,11 +117,11 @@ namespace deren.scripting {
         private static script_status destroy(scene_state state) {
             var status = script_status.success;
             for (var index = state.instances.Count - 1; index >= 0; --index) {
-                var (entity, script) = state.instances[index];
+                var (node, script) = state.instances[index];
                 try {
                     script.on_destroy();
                 } catch (Exception error) {
-                    log_exception(state.api, entity, script.GetType(), "on_destroy", error);
+                    log_exception(state.api, node, script.GetType(), "on_destroy", error);
                     status = script_status.script_failure;
                 } finally {
                     script.detach();
@@ -131,8 +131,8 @@ namespace deren.scripting {
             return status;
         }
 
-        private static void log_exception(native_api api, entity_handle entity, Type type, string phase, Exception error) {
-            var message = $"Scene {entity.scene}, entity {entity.index}:{entity.generation}, {type.FullName}.{phase}: {error.GetBaseException().Message}";
+        private static void log_exception(native_api api, node_handle node, Type type, string phase, Exception error) {
+            var message = $"Scene {node.scene}, node {node.index}:{node.generation}, {type.FullName}.{phase}: {error.GetBaseException().Message}";
             api.write_log(Encoding.UTF8.GetBytes(message));
         }
     }

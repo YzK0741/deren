@@ -5104,7 +5104,7 @@ namespace deren::engine {
                     extra.node_name = node.node_name + "/prim";
                     extra.import_instance = node.import_instance;
                     extra.primitive_leaf = std::move(created);
-                    node.children.push_back(std::move(extra));
+                    node.add_child(std::move(extra));
                 }
                 return static_cast<primitive*>(node.primitive_leaf ? node.primitive_leaf.get() : node.children.back().primitive_leaf.get());
             };
@@ -5130,14 +5130,14 @@ namespace deren::engine {
                 }
                 // attach under the parent (depth-1) or as a new scene root
                 if (depth == 0) {
-                    this->bound_scene->roots.push_back(std::move(node));
+                    this->bound_scene->add_root(std::move(node));
                     ancestors.assign(1, &this->bound_scene->roots.back());
                 } else {
                     if (ancestors.size() != depth) {
                         deren::utility::panic(std::source_location::current(), "internal invariant: node tree stream: broken ancestor stack");
                     }
                     scene_tree::scene_node* const parent = ancestors[depth - 1];
-                    parent->children.push_back(std::move(node));
+                    parent->add_child(std::move(node));
                     ancestors.resize(depth + 1);
                     ancestors[depth] = &parent->children.back();
                 }

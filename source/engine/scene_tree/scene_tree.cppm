@@ -2,12 +2,14 @@
 // module: deren.engine.scene_tree  (peer of deren.engine.runtime - the scene tree the
 //         frame facade renders; versioned in lock-step with deren.engine.runtime,
 //         see that module's banner: they share the scene / draw interface)
-// module version: 1.0.1  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.1.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // Scene storage + the abstract leaf interface the GPU primitives implement
-// (pure CPU - glm + vstd only):
+// (pure CPU - glm + vstd + the generation-checked ECS handles):
 //   - scene / scene_node { name, local, children, primitive_leaf } with the
 //     node tree API (add_root / add_child / attach / clone / find)
+//   - every attached node owns one ecs::entity (node_id); the scene owns the
+//     component registry, so gameplay state is keyed by the stable node handle
 //   - the abstract leaf interface scene_tree::primitive (pure virtual
 //     set_world); the CPU-side walkers update_world() / visit_primitives()
 //     accumulate world transforms every frame
@@ -24,7 +26,7 @@ module;
 #include <glm/glm.hpp>
 
 export module deren.engine.scene_tree;
-export import deren.utility.shared;
+export import deren.utility;
 export import deren.vstd;
 
 /**
@@ -35,8 +37,10 @@ export import deren.vstd;
  *        scene_tree::primitive interface (set_world).
  *
  * @details
- *   - storage: scene / scene_node { name, local, children, primitive_leaf };
- *     the CPU-side walkers update_world() / visit_primitives() accumulate
+ *   - storage: scene / scene_node { name, local, children, primitive_leaf, node_id };
+ *     scene owns the ECS registry keyed by scene_node::node_id, while structural
+ *     state stays inline on the node
+ *   - the CPU-side walkers update_world() / visit_primitives() accumulate
  *     world transforms every frame
  *   - the abstract leaf interface scene_tree::primitive (pure virtual
  *     set_world) - GPU drawables implement it (deren.engine.primitive)
@@ -89,6 +93,8 @@ namespace deren::engine::scene_tree {
         }
     };
 
+    export struct scene;
+
     /**
      * @ingroup engine_scene_tree
      * @brief one node of the scene tree: a local transform, child nodes and an
@@ -106,6 +112,13 @@ namespace deren::engine::scene_tree {
         std::size_t source_index = no_source_index;
         // Zero is reserved for manually assembled scenes; each import has a distinct identity.
         std::uint64_t import_instance = 0;
+        // Stable gameplay handle for this node. It is assigned when the node is attached to a
+        // scene and is the key of the scene's ECS component registry. The node keeps its
+        // structural data (transform, children, leaf) inline; components hold only extension state.
+        deren::utility::ecs::entity node_id = deren::utility::ecs::null_entity;
+        // Back-pointer used to register a child that is added after this node is already attached.
+        // Null for a detached subtree; scene::add_root()/add_child() adopt the whole subtree.
+        scene* owner_scene = nullptr;
         // runtime draw filter: a hidden node's primitive leaf and its whole subtree are skipped by
         // visit_primitives(), so it disappears from both the visible pass and shadow-caster collection.
         bool visible = true;
@@ -168,11 +181,21 @@ namespace deren::engine::scene_tree {
      * @brief a named scene: a list of root nodes (mirrors deren::gltf::scene's shape)
      */
     export struct scene {
+        // Component storage for every attached node, keyed by scene_node::node_id. Declared before
+        // `roots` so the node tree is destroyed before the registry during scene destruction.
+        deren::utility::ecs::registry components = {};
         // NOT `name`: find_node takes a parameter of that name, and a parameter would hide the
         // member - MSVC /W4 reports C4458, which /WX turns into an error (clang's -Wshadow is off).
         deren::utility::vessel::string scene_name = {};
         deren::utility::vessel::vector<scene_node> roots = {};
         std::uint64_t next_import_instance = 1;
+
+        scene() = default;
+        scene(scene const&) = delete;
+        scene& operator=(scene const&) = delete;
+        // A moved scene would leave every scene_node::owner_scene pointing at the old address.
+        scene(scene&&) = delete;
+        scene& operator=(scene&&) = delete;
 
         /**
          * @ingroup engine_scene_tree
@@ -196,6 +219,31 @@ namespace deren::engine::scene_tree {
          */
         [[nodiscard]] scene_node* find_node(std::string_view name) noexcept;
         [[nodiscard]] scene_node const* find_node(std::string_view name) const noexcept;
+
+        /**
+         * @brief find the attached node whose stable node_id is @p id (pre-order)
+         * @return nullptr when the handle is null, stale, or belongs to another scene
+         */
+        [[nodiscard]] scene_node* find_node(deren::utility::ecs::entity id) noexcept;
+        [[nodiscard]] scene_node const* find_node(deren::utility::ecs::entity id) const noexcept;
+
+        /**
+         * @brief remove the node with @p id and its whole subtree, destroying every node entity
+         *        (and therefore every component) in that subtree
+         * @return false when @p id is null, stale, or not in this scene
+         * @note erasing a node invalidates references/iterators into the affected parent's
+         *       children vector, exactly like add_child()
+         */
+        bool destroy_node(deren::utility::ecs::entity id);
+
+        /** @brief destroy every node entity and remove all roots; keeps the scene usable */
+        void clear();
+
+    private:
+        friend struct scene_node;
+
+        /** @brief assign owner_scene and node_id recursively to a node moved into this scene */
+        void register_subtree(scene_node& node);
     };
 
     /**

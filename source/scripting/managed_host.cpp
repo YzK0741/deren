@@ -19,10 +19,10 @@ namespace deren::scripting {
     host_result initialize_managed_host(host_paths const& paths, native_api const& api, managed_api& scripts) {
         std::error_code error;
         if (!std::filesystem::is_regular_file(paths.assembly, error)) {
-            return {host_status::assembly_missing, error.value()};
+            return {.status = host_status::assembly_missing, .detail = error.value()};
         }
         if (!std::filesystem::is_regular_file(paths.runtime_config, error)) {
-            return {host_status::runtime_config_missing, error.value()};
+            return {.status = host_status::runtime_config_missing, .detail = error.value()};
         }
 
         auto const nethost = load_library(std::filesystem::absolute(paths.nethost).c_str());
@@ -98,7 +98,7 @@ namespace deren::scripting {
         }
 
         using initialize_bridge_fn = std::int32_t(__cdecl*)(native_api const*, managed_api*);
-        auto const initialize_bridge = reinterpret_cast<initialize_bridge_fn>(initialize_bridge_address);
+        auto *const initialize_bridge = reinterpret_cast<initialize_bridge_fn>(initialize_bridge_address);
         status = initialize_bridge(&api, &scripts);
         switch (static_cast<host_status>(status)) {
         case host_status::success:
@@ -106,7 +106,7 @@ namespace deren::scripting {
         case host_status::invalid_api:
             return {static_cast<host_status>(status)};
         default:
-            return {host_status::bridge_initialization_failed, status};
+            return {.status = host_status::bridge_initialization_failed, .detail = status};
         }
     }
 } // namespace deren::scripting

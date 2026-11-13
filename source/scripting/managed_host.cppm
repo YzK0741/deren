@@ -5,7 +5,7 @@ export namespace deren::scripting {
 
     inline constexpr std::uint32_t managed_abi_version = 4;
 
-    struct entity_handle {
+    struct node_handle {
         std::uint64_t scene;
         std::uint32_t index;
         std::uint32_t generation;
@@ -27,14 +27,14 @@ export namespace deren::scripting {
     };
 
     struct script_binding {
-        entity_handle entity;
+        node_handle node;
         utf8_view type;
     };
 
     enum class script_status : std::int32_t {
         success = 0,
         invalid_argument = 1,
-        invalid_entity = 2,
+        invalid_node = 2,
         scene_exists = 3,
         scene_not_found = 4,
         script_failure = 5,
@@ -47,10 +47,10 @@ export namespace deren::scripting {
         std::uint32_t version = managed_abi_version;
         void* context = nullptr;
         void(__cdecl* log)(void* context, char const* utf8, std::uint32_t length) = nullptr;
-        script_status(__cdecl* get_transform)(void* context, entity_handle entity, transform_value* value) = nullptr;
-        script_status(__cdecl* set_transform)(void* context, entity_handle entity, transform_value const* value) = nullptr;
-        script_status(__cdecl* try_spawn)(void* context, utf8_view asset, transform_value const* value, entity_handle* entity) = nullptr;
-        script_status(__cdecl* try_despawn)(void* context, entity_handle entity) = nullptr;
+        script_status(__cdecl* get_transform)(void* context, node_handle node, transform_value* value) = nullptr;
+        script_status(__cdecl* set_transform)(void* context, node_handle node, transform_value const* value) = nullptr;
+        script_status(__cdecl* try_spawn)(void* context, utf8_view asset, transform_value const* value, node_handle* node) = nullptr;
+        script_status(__cdecl* try_despawn)(void* context, node_handle node) = nullptr;
     };
 
     struct managed_api {

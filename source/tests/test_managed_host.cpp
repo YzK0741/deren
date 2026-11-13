@@ -20,30 +20,33 @@ namespace {
         }
     }
 
-    bool is_alive(scene_fixture const& scene, entity_handle entity) {
+    bool is_alive(scene_fixture const& scene, node_handle entity) {
         return entity.scene == 7 && entity.generation == 1 &&
                (entity.index == 0 || (entity.index == 1 && scene.second_alive));
     }
 
-    script_status __cdecl get_pose(void* context, entity_handle entity, transform_value* pose) {
+    script_status __cdecl get_pose(void* context, node_handle entity, transform_value* pose) {
         auto const& scene = *static_cast<scene_fixture*>(context);
         if (!is_alive(scene, entity)) {
-            return script_status::invalid_entity;
+            return script_status::invalid_node;
         }
         *pose = scene.poses[entity.index];
         return script_status::success;
     }
 
-    script_status __cdecl set_pose(void* context, entity_handle entity, transform_value const* pose) {
+    script_status __cdecl set_pose(void* context, node_handle entity, transform_value const* pose) {
         auto& scene = *static_cast<scene_fixture*>(context);
         if (!is_alive(scene, entity)) {
-            return script_status::invalid_entity;
+            return script_status::invalid_node;
+        }
+        if (pose == nullptr || pose->scale.x == 0.0F || pose->scale.y == 0.0F || pose->scale.z == 0.0F) {
+            return script_status::invalid_argument;
         }
         scene.poses[entity.index] = *pose;
         return script_status::success;
     }
 
-    script_status __cdecl spawn_helmet(void* context, utf8_view asset, transform_value const* pose, entity_handle* entity) {
+    script_status __cdecl spawn_helmet(void* context, utf8_view asset, transform_value const* pose, node_handle* entity) {
         auto& state = *static_cast<scene_fixture*>(context);
         if (std::string_view{asset.data, asset.length} != "damaged-helmet" || pose->position.x != 0.0F) {
             return script_status::spawn_unavailable;
@@ -52,11 +55,11 @@ namespace {
         return script_status::success;
     }
 
-    script_status __cdecl despawn_helmet(void* context, entity_handle entity) {
+    script_status __cdecl despawn_helmet(void* context, node_handle entity) {
         auto& state = *static_cast<scene_fixture*>(context);
         if (entity.scene != 7 || entity.index != 2 || entity.generation != state.spawned ||
             state.spawned == state.despawned) {
-            return script_status::invalid_entity;
+            return script_status::invalid_node;
         }
         ++state.despawned;
         return script_status::success;
@@ -65,7 +68,9 @@ namespace {
     bool run_scene(host_paths const& paths, std::filesystem::path const& game_path, bool test_input) {
         scene_fixture scene;
         scene.poses[0].position.x = -1.0F;
+        scene.poses[0].scale = {1.0F, 1.0F, 1.0F};
         scene.poses[1].position.x = 1.0F;
+        scene.poses[1].scale = {1.0F, 1.0F, 1.0F};
         native_api const api{.context = &scene, .log = scene_log, .get_transform = get_pose, .set_transform = set_pose, .try_spawn = spawn_helmet, .try_despawn = despawn_helmet};
         managed_api scripts;
         if (initialize_managed_host(paths, api, scripts).status != host_status::success) {
@@ -91,7 +96,7 @@ namespace {
                    scene.poses[0].position.x == 1.0F && scene.poses[1].rotation_degrees.y == 30.0F &&
                    scene.errors == 0 && scripts.stop_scene(7) == script_status::success;
         }
-        script_binding const bindings[]{{{7, 0, 1}, {"game.rotate", 11}}, {{7, 1, 1}, {"game.rotate", 11}}};
+        script_binding const bindings[]{{{7, 0, 1}, {"game.rotate_behaviour", 21}}, {{7, 1, 1}, {"game.rotate_behaviour", 21}}};
         script_binding const invalid_binding{{7, 0, 1}, {"game.missing", 12}};
         if (scripts.start_scene(&api, 7, path, &invalid_binding, 1, nullptr, 0) != script_status::script_failure ||
             scripts.start_scene(&api, 7, path, bindings, 2, nullptr, 0) != script_status::success ||
