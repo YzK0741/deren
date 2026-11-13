@@ -1,3 +1,6 @@
+// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
+// The managed ABI itself is tracked by managed_abi_version.
+
 export module deren.scripting.managed_host;
 export import deren.vstd;
 

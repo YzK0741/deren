@@ -2,7 +2,7 @@
 // module: deren.engine.scene_tree  (peer of deren.engine.runtime - the scene tree the
 //         frame facade renders; versioned in lock-step with deren.engine.runtime,
 //         see that module's banner: they share the scene / draw interface)
-// module version: 1.1.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 2.0.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // Scene storage + the abstract leaf interface the GPU primitives implement
 // (pure CPU - glm + vstd + the generation-checked ECS handles):

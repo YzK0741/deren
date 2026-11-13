@@ -7,7 +7,7 @@
 // ============================================================================
 // ============================================================================
 // module: deren.engine.runtime
-// module version: 1.2.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.3.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // The renderer core: per-frame-slot frame facade (pace/record/submit phases,
 // scene resources, parallel secondary-CB recording). It re-exports its peer

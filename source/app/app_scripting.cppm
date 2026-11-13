@@ -1,3 +1,5 @@
+// module version: 0.2.0  (independent of the app version in CMakeLists project(VERSION))
+
 export module deren.app.scripting;
 
 import deren.vstd;
