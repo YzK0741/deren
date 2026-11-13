@@ -3,18 +3,19 @@ using deren.scripting;
 
 namespace deren {
     // Single-word lowercase type names are part of deren's public naming convention.
-    public abstract class script_behaviour {
-        private native_api? callbacks;
+    public abstract class script_base {
         private node_handle node;
         private int scene_thread;
         internal bool updates_enabled = true;
 
         protected scene_access scene => new(this);
 
-        /// <summary>The scene node this script_behaviour instance is attached to.</summary>
+        /// <summary>The scene node this script_base instance is attached to.</summary>
         protected node_id self => new(node, this);
 
         internal node_handle self_handle => node;
+
+        internal ulong scene_id { get; private set; }
 
         public virtual void on_create() {
         }
@@ -39,21 +40,21 @@ namespace deren {
             }
         }
 
-        internal void attach(native_api api, node_handle handle) {
-            callbacks = api;
+        internal void attach(ulong id, node_handle handle) {
+            scene_id = id;
             node = handle;
             scene_thread = Environment.CurrentManagedThreadId;
         }
 
         internal void detach() {
-            callbacks = null;
+            node = default;
+            scene_id = 0;
         }
 
-        internal native_api bound_api() {
-            if (Environment.CurrentManagedThreadId != scene_thread || callbacks is not { } api) {
+        internal void ensure_bound() {
+            if (Environment.CurrentManagedThreadId != scene_thread || node.value == 0) {
                 throw new InvalidOperationException("Scene access requires an attached script on its scene thread.");
             }
-            return api;
         }
     }
 }

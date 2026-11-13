@@ -4956,6 +4956,9 @@ namespace deren::engine {
          *        left out of the shadow casters, while the scene pass draws it as usual. Default false,
          *        i.e. the subject's import is untouched. See `primitive_create_info::environment`.
          * @param character_index
+         * @param destination_parent optional node in the bound scene that receives the imported scene roots
+         *        as children instead of the scene root list. The import still creates leaves and registers
+         *        materials; the caller owns the parent's lifetime.
          * @return counts of imported primitives and materials
          * @note call before the first frame, or only while the runtime is idle (no frame in
          *       flight): importing registers materials, which appends texture entries to the heap's
@@ -4966,7 +4969,8 @@ namespace deren::engine {
         template <class NI, class DI>
             requires scene_node_iterator<NI> && scene_drawable_iterator<DI>
         scene_import_result import_scene(NI nfirst, NI nlast, DI dfirst, DI dlast, glm::vec3 const& offset, bool const environment = false,
-                                         std::uint32_t const character_index = 0u) {
+                                         std::uint32_t const character_index = 0u,
+                                         scene_tree::scene_node* const destination_parent = nullptr) {
             if (this->bound_scene == nullptr) {
                 deren::utility::panic("contract violation: runtime::import_scene() called before set_scene() bound a scene");
             }
@@ -5128,10 +5132,15 @@ namespace deren::engine {
                 if (depth == 0) {
                     node.local = glm::translate(glm::mat4(1.0f), offset) * node.local; // scene root gets the offset
                 }
-                // attach under the parent (depth-1) or as a new scene root
+                // attach under the parent (depth-1), the requested destination parent, or as a new scene root
                 if (depth == 0) {
-                    this->bound_scene->add_root(std::move(node));
-                    ancestors.assign(1, &this->bound_scene->roots.back());
+                    if (destination_parent != nullptr) {
+                        destination_parent->add_child(std::move(node));
+                        ancestors.assign(1, &destination_parent->children.back());
+                    } else {
+                        this->bound_scene->add_root(std::move(node));
+                        ancestors.assign(1, &this->bound_scene->roots.back());
+                    }
                 } else {
                     if (ancestors.size() != depth) {
                         deren::utility::panic(std::source_location::current(), "internal invariant: node tree stream: broken ancestor stack");

@@ -16,13 +16,18 @@ namespace deren::scripting {
         }
     } // namespace
 
-    host_result initialize_managed_host(host_paths const& paths, native_api const& api, managed_api& scripts) {
+    host_result initialize_managed_host(host_paths const& paths, native_api const& api, managed_api& scripts,
+                                       std::uint32_t const abi_version) {
+        auto const game_assembly_path = std::filesystem::absolute(paths.game_assembly);
         std::error_code error;
         if (!std::filesystem::is_regular_file(paths.assembly, error)) {
             return {.status = host_status::assembly_missing, .detail = error.value()};
         }
         if (!std::filesystem::is_regular_file(paths.runtime_config, error)) {
             return {.status = host_status::runtime_config_missing, .detail = error.value()};
+        }
+        if (!std::filesystem::is_regular_file(paths.game_assembly, error)) {
+            return {.status = host_status::game_assembly_missing, .detail = error.value()};
         }
 
         auto const nethost = load_library(std::filesystem::absolute(paths.nethost).c_str());
@@ -97,11 +102,21 @@ namespace deren::scripting {
             return {host_status::bridge_load_failed, status};
         }
 
-        using initialize_bridge_fn = std::int32_t(__cdecl*)(native_api const*, managed_api*);
+        using initialize_bridge_fn = std::int32_t(__cdecl*)(native_api const*, managed_api*, std::uint32_t, utf8_view);
         auto *const initialize_bridge = reinterpret_cast<initialize_bridge_fn>(initialize_bridge_address);
-        status = initialize_bridge(&api, &scripts);
+        auto const game_assembly = game_assembly_path.u8string();
+        utf8_view const game_assembly_view{
+            reinterpret_cast<char const*>(game_assembly.data()), static_cast<std::uint32_t>(game_assembly.size())};
+        status = initialize_bridge(&api, &scripts, abi_version, game_assembly_view);
+        if (status == static_cast<std::int32_t>(script_status::module_unavailable)) {
+            return {host_status::scene_module_unavailable, status};
+        }
+        if (status == static_cast<std::int32_t>(script_status::module_invalid)) {
+            return {host_status::scene_module_invalid, status};
+        }
         switch (static_cast<host_status>(status)) {
         case host_status::success:
+            return {host_status::success};
         case host_status::abi_mismatch:
         case host_status::invalid_api:
             return {static_cast<host_status>(status)};

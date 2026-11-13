@@ -25,8 +25,8 @@ int main() {
         scene world;
         scene_node& root = world.add_root();
         CHECK(root.node_id.valid());
-        CHECK(world.components.alive(root.node_id));
-        CHECK(world.components.size() == 1);
+        CHECK(components().alive(root.node_id));
+        CHECK(components().size() == 1);
         CHECK(world.find_node(root.node_id) == &root);
     }
 
@@ -36,7 +36,7 @@ int main() {
         scene_node& root = world.add_root();
         scene_node& child = root.add_child();
         CHECK(child.node_id.valid());
-        CHECK(world.components.alive(child.node_id));
+        CHECK(components().alive(child.node_id));
         CHECK(world.find_node(child.node_id) == &child);
         CHECK(child.node_id != root.node_id);
     }
@@ -53,7 +53,7 @@ int main() {
         CHECK(adopted.node_id.valid());
         CHECK(adopted.children.size() == 1);
         CHECK(adopted.children[0].node_id.valid());
-        CHECK(world.components.size() == 2);
+        CHECK(components().size() == 2);
 
         scene_node copy = adopted.clone();
         CHECK(!copy.node_id.valid());
@@ -67,7 +67,7 @@ int main() {
         CHECK(cloned.node_id != original_root_id);
         CHECK(cloned.children[0].node_id.valid());
         CHECK(cloned.children[0].node_id != original_child_id);
-        CHECK(world.components.size() == 4);
+        CHECK(components().size() == 4);
     }
 
     // A detached subtree moved under an attached parent is adopted there.
@@ -82,25 +82,25 @@ int main() {
         CHECK(world.find_node(moved.node_id) == &moved);
     }
 
-    // Components live in the scene registry and cascade with the subtree.
+    // Components live in the process-wide registry and cascade with the subtree.
     {
         scene world;
         scene_node& root = world.add_root();
         scene_node& child = root.add_child();
-        marker* const value = world.components.try_emplace<marker>(child.node_id, 7);
+        marker* const value = components().try_emplace<marker>(child.node_id, 7);
         CHECK(value != nullptr);
         CHECK(value != nullptr && value->value == 7);
-        CHECK(world.components.has<marker>(child.node_id));
+        CHECK(components().has<marker>(child.node_id));
 
         entity const root_id = root.node_id;
         entity const child_id = child.node_id;
         CHECK(world.destroy_node(root_id));
-        CHECK(!world.components.alive(root_id));
-        CHECK(!world.components.alive(child_id));
+        CHECK(!components().alive(root_id));
+        CHECK(!components().alive(child_id));
         CHECK(world.find_node(root_id) == nullptr);
         CHECK(world.find_node(child_id) == nullptr);
         CHECK(world.roots.empty());
-        CHECK(world.components.size() == 0);
+        CHECK(components().size() == 0);
     }
 
     // Destroying a child leaves its parent and the parent's components alive.
@@ -108,17 +108,17 @@ int main() {
         scene world;
         scene_node& root = world.add_root();
         scene_node& child = root.add_child();
-        CHECK(world.components.try_emplace<marker>(root.node_id, 1) != nullptr);
-        CHECK(world.components.try_emplace<marker>(child.node_id, 2) != nullptr);
+        CHECK(components().try_emplace<marker>(root.node_id, 1) != nullptr);
+        CHECK(components().try_emplace<marker>(child.node_id, 2) != nullptr);
 
         entity const root_id = root.node_id;
         entity const child_id = child.node_id;
         CHECK(world.destroy_node(child_id));
         CHECK(root.children.empty());
-        CHECK(world.components.alive(root_id));
-        CHECK(!world.components.alive(child_id));
-        CHECK(world.components.try_get<marker>(root_id) != nullptr);
-        CHECK(world.components.try_get<marker>(child_id) == nullptr);
+        CHECK(components().alive(root_id));
+        CHECK(!components().alive(child_id));
+        CHECK(components().try_get<marker>(root_id) != nullptr);
+        CHECK(components().try_get<marker>(child_id) == nullptr);
     }
 
     // clear() destroys every node entity and leaves the scene reusable.
@@ -126,14 +126,14 @@ int main() {
         scene world;
         world.add_root().add_child();
         world.add_root();
-        CHECK(world.components.size() == 3);
+        CHECK(components().size() == 3);
         world.clear();
         CHECK(world.roots.empty());
-        CHECK(world.components.size() == 0);
+        CHECK(components().size() == 0);
 
         scene_node& fresh = world.add_root();
         CHECK(fresh.node_id.valid());
-        CHECK(world.components.alive(fresh.node_id));
+        CHECK(components().alive(fresh.node_id));
     }
 
     // Rejecting null / stale handles is a safe false/null, not a panic.

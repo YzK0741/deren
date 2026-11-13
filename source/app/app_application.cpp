@@ -27,6 +27,7 @@ module deren.app.application;
 
 import deren.utility.shared;
 import deren.vstd;
+import deren.asset_library;
 import deren.application_configuration;
 import deren.app.config;     // startup config and shader-file location
 import deren.app.pipelines;  // shader loading and the standard pipeline set
@@ -451,6 +452,7 @@ namespace deren::app {
         }
         deren::app_config::app_settings launch_settings;
         std::filesystem::path script_assembly;
+        bool managed_scene = false;
 #ifdef DEREN_ENABLE_CSHARP
         deren::utility::vessel::vector<deren::input::action_binding> project_actions;
 #endif
@@ -483,6 +485,7 @@ namespace deren::app {
         }
         deren::app::startup_config config = deren::app::analyse_config(launch_settings);
         auto& settings = config.settings;
+        managed_scene = !script_assembly.empty();
         if (probe.enabled) {
             if (settings.render.character_forward || settings.render.game_toon || settings.render.subtilis || settings.render.software_raster || !settings.render.background_glb.empty() || std::getenv("DEREN_HZB_CULL") || std::getenv("DEREN_PROGRESSIVE_TEXTURES")) {
                 deren::utility::error("radiance capture requires ordinary static PBR without background models or experimental culling");
@@ -1482,7 +1485,9 @@ namespace deren::app {
         //     through the runtime's vma allocator while it is still valid) and binds it with
         //     set_scene() before any import.
         deren::engine::scene_tree::scene scene;
-        runtime.set_scene(scene);
+        if (!managed_scene) {
+            runtime.set_scene(scene);
+        }
         // Initial camera framing ([render] camera_fit). "exterior" is the historic fit: 2.75 scene radii
         // frames a compact object, and for that it stays the default. It is also useless for a building -
         // the camera ends up well outside its walls, so the frame is a facade with no interior to
@@ -1606,30 +1611,88 @@ namespace deren::app {
         bool const has_game_toon_object = use_scene_objects && character_count > 0;
         std::vector<glm::vec3> character_head_offsets;
         character_head_offsets.reserve(use_scene_objects ? settings.scene.objects.size() : game_toon_copies);
-        for (std::size_t index = 0; index < import_count; ++index) {
-            scene_asset_entry& asset = use_scene_objects ? scene_assets[object_asset_slot[index]] : scene_assets[0];
-            glm::vec3 copy_shift = asset.import_shift;
-            std::uint32_t character_index = 0;
-            if (!use_scene_objects) {
-                copy_shift += glm::vec3(game_toon_copy_offsets[index], 0.0f, 0.0f);
-                character_index = static_cast<std::uint32_t>(index);
-            } else {
-                // Every placement gets a head slot, not only the GameToon ones: the object panel can switch
-                // `pipeline` at runtime, and a slot assigned only at import would otherwise leave a newly
-                // switched object reading another character's head frame.
-                character_index = static_cast<std::uint32_t>(index);
-                character_head_offsets.push_back(glm::vec3(settings.scene.objects[index].position[0],
-                                                           settings.scene.objects[index].position[1],
-                                                           settings.scene.objects[index].position[2]));
-            }
-            std::size_t const first_root = scene.roots.size();
-            if (asset.is_gaussian()) {
-                // A cloud contributes no mesh scene, so it is not imported. It still gets an empty wrapper
-                // in the object list: the panel, picking and the live transform all key off that slot.
-                if (index == 0) {
-                    imported = {};
-                }
+        if (managed_scene) {
+            // The managed scene builder owns every root, including spawn slots. The C++ side only
+            // keeps the object metadata and resolves the managed node ids after startup.
+            std::size_t const no_root = static_cast<std::size_t>(-1);
+            for (std::size_t index = 0; index < settings.scene.objects.size(); ++index) {
+                deren::app_config::scene_object_settings const& object = settings.scene.objects[index];
+                deren::utility::vessel::string const wrapper_name = object.name.empty() ? deren::utility::vessel::string("object") : object.name;
+                character_head_offsets.push_back(glm::vec3(object.position[0], object.position[1], object.position[2]));
+                object_root_indices.push_back(no_root);
+                object_leaves.emplace_back();
+                object_base_materials.emplace_back();
+                object_override_materials.emplace_back();
                 object_import_instances.push_back(0);
+                if (object.spawn_slot) {
+                    settings.scene.objects[index].visible = false;
+                }
+                deren::utility::log("scene: object {} '{}' is owned by the managed scene", index, wrapper_name);
+            }
+        } else {
+            for (std::size_t index = 0; index < import_count; ++index) {
+                scene_asset_entry& asset = use_scene_objects ? scene_assets[object_asset_slot[index]] : scene_assets[0];
+                glm::vec3 copy_shift = asset.import_shift;
+                std::uint32_t character_index = 0;
+                if (!use_scene_objects) {
+                    copy_shift += glm::vec3(game_toon_copy_offsets[index], 0.0f, 0.0f);
+                    character_index = static_cast<std::uint32_t>(index);
+                } else {
+                    // Every placement gets a head slot, not only the GameToon ones: the object panel can switch
+                    // `pipeline` at runtime, and a slot assigned only at import would otherwise leave a newly
+                    // switched object reading another character's head frame.
+                    character_index = static_cast<std::uint32_t>(index);
+                    character_head_offsets.push_back(glm::vec3(settings.scene.objects[index].position[0],
+                                                               settings.scene.objects[index].position[1],
+                                                               settings.scene.objects[index].position[2]));
+                }
+                std::size_t const first_root = scene.roots.size();
+                if (asset.is_gaussian()) {
+                    // A cloud contributes no mesh scene, so it is not imported. It still gets an empty wrapper
+                    // in the object list: the panel, picking and the live transform all key off that slot.
+                    if (index == 0) {
+                        imported = {};
+                    }
+                    object_import_instances.push_back(0);
+                    if (use_scene_objects) {
+                        deren::app_config::scene_object_settings const& object = settings.scene.objects[index];
+                        deren::utility::vessel::string const wrapper_name = object.name.empty() ? deren::utility::vessel::string("object") : object.name;
+                        wrap_imported_roots(first_root, wrapper_name, object_transforms[index]);
+                        object_root_indices.push_back(scene.roots.size() - 1);
+                        object_leaves.emplace_back();
+                        object_base_materials.emplace_back();
+                        object_override_materials.emplace_back();
+                        deren::utility::log("scene: object {} '{}' staged as a gaussian cloud ({} splats, no mesh import)",
+                                            index, wrapper_name, asset.cloud->source().particles.size());
+                    }
+                    continue;
+                }
+                deren::gltf::scene_node_iterator const copy_node_first = asset.scenes->nodes_begin();
+                deren::gltf::scene_node_iterator const copy_node_last;
+                deren::gltf::drawable_iterator const copy_first(*asset.scenes, *asset.materials);
+                deren::gltf::drawable_iterator const copy_scene_last;
+                runtime.set_toon_lookup(deren::engine::runtime::toon_lookup{
+                    .parent = &asset.lookup,
+                    .texture = toon_texture_callback,
+                    .colour = toon_colour_callback,
+                    .scalar = toon_scalar_callback,
+                });
+                deren::engine::scene_import_result const copy_result = runtime.import_scene(copy_node_first, copy_node_last, copy_first, copy_scene_last, copy_shift, false, character_index);
+                if (!use_scene_objects) {
+                    for (std::size_t root = first_root; root < scene.roots.size(); ++root) {
+                        deren::engine::scene_tree::visit_primitives(scene.roots[root], glm::mat4(1.0f),
+                                                                    [](deren::engine::scene_tree::scene_node const& node, glm::mat4 const&) {
+                                                                        static_cast<deren::engine::primitive*>(node.primitive_leaf.get())->path =
+                                                                            deren::engine::shading_path::character;
+                                                                    });
+                    }
+                }
+                if (index == 0) {
+                    imported = copy_result;
+                }
+                total_primitive_count += copy_result.primitive_count;
+                total_material_count += copy_result.material_count;
+                object_import_instances.push_back(copy_result.import_instance);
                 if (use_scene_objects) {
                     deren::app_config::scene_object_settings const& object = settings.scene.objects[index];
                     deren::utility::vessel::string const wrapper_name = object.name.empty() ? deren::utility::vessel::string("object") : object.name;
@@ -1638,82 +1701,44 @@ namespace deren::app {
                     object_leaves.emplace_back();
                     object_base_materials.emplace_back();
                     object_override_materials.emplace_back();
-                    deren::utility::log("scene: object {} '{}' staged as a gaussian cloud ({} splats, no mesh import)",
-                                        index, wrapper_name, asset.cloud->source().particles.size());
+                    deren::utility::vessel::vector<deren::engine::primitive*>& leaves = object_leaves.back();
+                    deren::engine::scene_tree::visit_primitives(scene.roots.back(), glm::mat4(1.0f), [&leaves](deren::engine::scene_tree::scene_node const& node, glm::mat4 const&) {
+                        // import_scene creates every drawable through runtime::create_primitive(), whose
+                        // implementation is deren::engine::primitive; the cast states that contract once here.
+                        leaves.push_back(static_cast<deren::engine::primitive*>(node.primitive_leaf.get()));
+                    });
+                    object_base_materials.back().reserve(leaves.size());
+                    for (deren::engine::primitive const* leaf : leaves) {
+                        object_base_materials.back().push_back(leaf->push.material_index);
+                    }
+                    object_override_materials.back().resize(leaves.size(), deren::engine::material_id{});
+                    deren::utility::log("scene: object {} '{}' imported - {} primitives, {} new materials (import instance {})",
+                                        index, wrapper_name, copy_result.primitive_count, copy_result.material_count, copy_result.import_instance);
+                } else if (!single_object_settings.empty() && index == 0) {
+                    // The historic model is wrapped too, at the identity placement, so the object panel can
+                    // move it without changing how the model was imported or shaded.
+                    deren::app_config::scene_object_settings const& object = single_object_settings[0];
+                    deren::utility::vessel::string const wrapper_name = object.name.empty() ? deren::utility::vessel::string("model") : object.name;
+                    wrap_imported_roots(first_root, wrapper_name, object_transforms[0]);
+                    object_root_indices.push_back(scene.roots.size() - 1);
+                    object_leaves.emplace_back();
+                    object_base_materials.emplace_back();
+                    object_override_materials.emplace_back();
+                    deren::utility::vessel::vector<deren::engine::primitive*>& leaves = object_leaves.back();
+                    deren::engine::scene_tree::visit_primitives(scene.roots.back(), glm::mat4(1.0f), [&leaves](deren::engine::scene_tree::scene_node const& node, glm::mat4 const&) {
+                        leaves.push_back(static_cast<deren::engine::primitive*>(node.primitive_leaf.get()));
+                    });
+                    object_base_materials.back().reserve(leaves.size());
+                    for (deren::engine::primitive const* leaf : leaves) {
+                        object_base_materials.back().push_back(leaf->push.material_index);
+                    }
+                    object_override_materials.back().resize(leaves.size(), deren::engine::material_id{});
+                    deren::utility::log("scene: single model '{}' imported with an editable wrapper ({} primitives, {} new materials)",
+                                        wrapper_name, copy_result.primitive_count, copy_result.material_count);
+                } else if (game_toon_copies > 1) {
+                    deren::utility::log("game_toon: copy {} (character index {}) imported at X {:.3f} - {} primitives, {} new materials",
+                                        index, character_index, game_toon_copy_offsets[index], copy_result.primitive_count, copy_result.material_count);
                 }
-                continue;
-            }
-            deren::gltf::scene_node_iterator const copy_node_first = asset.scenes->nodes_begin();
-            deren::gltf::scene_node_iterator const copy_node_last;
-            deren::gltf::drawable_iterator const copy_first(*asset.scenes, *asset.materials);
-            deren::gltf::drawable_iterator const copy_scene_last;
-            runtime.set_toon_lookup(deren::engine::runtime::toon_lookup{
-                .parent = &asset.lookup,
-                .texture = toon_texture_callback,
-                .colour = toon_colour_callback,
-                .scalar = toon_scalar_callback,
-            });
-            deren::engine::scene_import_result const copy_result = runtime.import_scene(copy_node_first, copy_node_last, copy_first, copy_scene_last, copy_shift, false, character_index);
-            if (!use_scene_objects) {
-                for (std::size_t root = first_root; root < scene.roots.size(); ++root) {
-                    deren::engine::scene_tree::visit_primitives(scene.roots[root], glm::mat4(1.0f),
-                                                                [](deren::engine::scene_tree::scene_node const& node, glm::mat4 const&) {
-                                                                    static_cast<deren::engine::primitive*>(node.primitive_leaf.get())->path =
-                                                                        deren::engine::shading_path::character;
-                                                                });
-                }
-            }
-            if (index == 0) {
-                imported = copy_result;
-            }
-            total_primitive_count += copy_result.primitive_count;
-            total_material_count += copy_result.material_count;
-            object_import_instances.push_back(copy_result.import_instance);
-            if (use_scene_objects) {
-                deren::app_config::scene_object_settings const& object = settings.scene.objects[index];
-                deren::utility::vessel::string const wrapper_name = object.name.empty() ? deren::utility::vessel::string("object") : object.name;
-                wrap_imported_roots(first_root, wrapper_name, object_transforms[index]);
-                object_root_indices.push_back(scene.roots.size() - 1);
-                object_leaves.emplace_back();
-                object_base_materials.emplace_back();
-                object_override_materials.emplace_back();
-                deren::utility::vessel::vector<deren::engine::primitive*>& leaves = object_leaves.back();
-                deren::engine::scene_tree::visit_primitives(scene.roots.back(), glm::mat4(1.0f), [&leaves](deren::engine::scene_tree::scene_node const& node, glm::mat4 const&) {
-                    // import_scene creates every drawable through runtime::create_primitive(), whose
-                    // implementation is deren::engine::primitive; the cast states that contract once here.
-                    leaves.push_back(static_cast<deren::engine::primitive*>(node.primitive_leaf.get()));
-                });
-                object_base_materials.back().reserve(leaves.size());
-                for (deren::engine::primitive const* leaf : leaves) {
-                    object_base_materials.back().push_back(leaf->push.material_index);
-                }
-                object_override_materials.back().resize(leaves.size(), deren::engine::material_id{});
-                deren::utility::log("scene: object {} '{}' imported - {} primitives, {} new materials (import instance {})",
-                                    index, wrapper_name, copy_result.primitive_count, copy_result.material_count, copy_result.import_instance);
-            } else if (!single_object_settings.empty() && index == 0) {
-                // The historic model is wrapped too, at the identity placement, so the object panel can
-                // move it without changing how the model was imported or shaded.
-                deren::app_config::scene_object_settings const& object = single_object_settings[0];
-                deren::utility::vessel::string const wrapper_name = object.name.empty() ? deren::utility::vessel::string("model") : object.name;
-                wrap_imported_roots(first_root, wrapper_name, object_transforms[0]);
-                object_root_indices.push_back(scene.roots.size() - 1);
-                object_leaves.emplace_back();
-                object_base_materials.emplace_back();
-                object_override_materials.emplace_back();
-                deren::utility::vessel::vector<deren::engine::primitive*>& leaves = object_leaves.back();
-                deren::engine::scene_tree::visit_primitives(scene.roots.back(), glm::mat4(1.0f), [&leaves](deren::engine::scene_tree::scene_node const& node, glm::mat4 const&) {
-                    leaves.push_back(static_cast<deren::engine::primitive*>(node.primitive_leaf.get()));
-                });
-                object_base_materials.back().reserve(leaves.size());
-                for (deren::engine::primitive const* leaf : leaves) {
-                    object_base_materials.back().push_back(leaf->push.material_index);
-                }
-                object_override_materials.back().resize(leaves.size(), deren::engine::material_id{});
-                deren::utility::log("scene: single model '{}' imported with an editable wrapper ({} primitives, {} new materials)",
-                                    wrapper_name, copy_result.primitive_count, copy_result.material_count);
-            } else if (game_toon_copies > 1) {
-                deren::utility::log("game_toon: copy {} (character index {}) imported at X {:.3f} - {} primitives, {} new materials",
-                                    index, character_index, game_toon_copy_offsets[index], copy_result.primitive_count, copy_result.material_count);
             }
         }
         // The lookup belongs to the asset whose materials are being registered; the background import below
@@ -1728,6 +1753,9 @@ namespace deren::app {
         // (the imported model) are untouched, so materials, skinning and each object's animation keep
         // running exactly as before. main calls this after a widget raised the dirty flag.
         auto const apply_object_transform = [&](std::size_t index) {
+            if (index >= object_root_indices.size() || object_root_indices[index] == static_cast<std::size_t>(-1)) {
+                return;
+            }
             auto& wrapper = scene.roots[object_root_indices[index]];
             wrapper.local = make_object_transform(editable_objects[index]);
             wrapper.visible = editable_objects[index].visible;
@@ -1737,6 +1765,9 @@ namespace deren::app {
         auto const apply_scene_object_settings = [&] {
             std::size_t const count = std::min({object_root_indices.size(), object_leaves.size(), editable_objects.size(), editable_asset_slots.size()});
             for (std::size_t index = 0; index < count; ++index) {
+                if (object_root_indices[index] == static_cast<std::size_t>(-1)) {
+                    continue;
+                }
                 deren::app_config::scene_object_settings& object = editable_objects[index];
                 scene_asset_entry const& asset = scene_assets[editable_asset_slots[index]];
                 // A cloud has no mesh pipeline and a mesh asset has no splats. The object panel now offers
@@ -1842,21 +1873,45 @@ namespace deren::app {
 #ifdef DEREN_ENABLE_CSHARP
         std::optional<deren::app::script_scene> script_scene;
         if (!script_assembly.empty()) {
-            deren::utility::vessel::vector<deren::utility::ecs::entity> object_node_ids;
-            object_node_ids.reserve(editable_objects.size());
-            for (std::size_t index = 0; index < editable_objects.size(); ++index) {
-                object_node_ids.push_back(index < object_root_indices.size() ? scene.roots[object_root_indices[index]].node_id
-                                                                             : deren::utility::ecs::null_entity);
-            }
-            auto const started = script_scene.emplace().start(script_assembly, scene, {editable_objects.data(), editable_objects.size()},
-                                                              {object_node_ids.data(), object_node_ids.size()}, actions);
+            auto const bind_managed_asset = +[](void* opaque, deren::engine::scene_tree::scene_node& parent,
+                                                std::string_view, deren::app::managed_asset_source const& source) -> bool {
+                auto& runtime = *static_cast<deren::engine::runtime*>(opaque);
+                if (source.scenes == nullptr || source.materials.empty()) {
+                    return false;
+                }
+                deren::gltf::scene_node_iterator const node_first = source.scenes->nodes_begin();
+                deren::gltf::scene_node_iterator const node_last;
+                deren::gltf::drawable_iterator const drawable_first(*source.scenes, source.materials);
+                deren::gltf::drawable_iterator const drawable_last;
+                glm::vec3 const import_shift{source.import_shift[0], source.import_shift[1], source.import_shift[2]};
+                runtime.set_toon_lookup(deren::engine::runtime::toon_lookup{});
+                deren::engine::scene_import_result const result =
+                    runtime.import_scene(node_first, node_last, drawable_first, drawable_last, import_shift,
+                                         false, 0u, &parent);
+                if (result.primitive_count == 0) {
+                    return false;
+                }
+                runtime.scene_changed();
+                return true;
+            };
+            auto const install_managed_scene = +[](void* opaque, deren::engine::scene_tree::scene& managed) -> bool {
+                auto* render_runtime = static_cast<deren::engine::runtime*>(opaque);
+                render_runtime->set_scene(managed);
+                render_runtime->scene_changed();
+                return true;
+            };
+            auto const started = script_scene.emplace().start(
+                script_assembly,
+                deren::app::managed_scene_host{.context = &runtime, .set_scene = install_managed_scene},
+                settings.paths.asset_library,
+                deren::app::managed_asset_binder{.context = &runtime, .bind = bind_managed_asset});
             if (!started) {
                 deren::utility::println(stderr, "{}", started.error());
                 deren::utility::error(started.error());
                 deren::utility::wait_log_all();
                 return 2;
             }
-            static_cast<void>(script_scene->publish_transforms());
+            script_scene->clear_asset_binder();
         }
 #endif
         if (!editable_objects.empty()) {
@@ -3036,19 +3091,10 @@ namespace deren::app {
                                  : static_cast<float>(std::min(frame_clock.delta_seconds(), 0.25));
 #ifdef DEREN_ENABLE_CSHARP
             if (script_scene) {
-                if (gui.scene_object_transform_dirty) {
-                    script_scene->read_object_edits();
-                }
                 // The pose must be published before acquire, but an acquire/present retry
                 // must reuse that pose instead of advancing the script again.
                 if (auto const input_frame = action_state.begin_frame(); input_frame && !script_scene->update(dt, *input_frame)) {
                     return 2;
-                }
-                if (script_scene->publish_transforms() && !gui.scene_object_transform_dirty && !object_environment_changed) {
-                    for (std::size_t index = 0; index < object_root_indices.size(); ++index) {
-                        apply_object_transform(index);
-                    }
-                    runtime.scene_changed();
                 }
             }
 #endif

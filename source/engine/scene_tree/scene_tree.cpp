@@ -9,32 +9,37 @@ import deren.utility.shared;
 
 namespace deren::engine::scene_tree {
     namespace {
-        void destroy_node_components(scene_node& node, deren::utility::ecs::registry& components) {
+        void destroy_node_components(scene_node& node) {
             for (scene_node& child : node.children) {
-                destroy_node_components(child, components);
+                destroy_node_components(child);
             }
             if (node.node_id.valid()) {
-                (void)components.destroy(node.node_id);
+                (void)components().destroy(node.node_id);
             }
             node.node_id = deren::utility::ecs::null_entity;
             node.owner_scene = nullptr;
         }
 
         template <class Nodes>
-        bool erase_node_by_id(Nodes& nodes, deren::utility::ecs::entity id, deren::utility::ecs::registry& components) {
+        bool erase_node_by_id(Nodes& nodes, deren::utility::ecs::entity id) {
             for (auto it = nodes.begin(); it != nodes.end(); ++it) {
                 if (it->node_id == id) {
-                    destroy_node_components(*it, components);
+                    destroy_node_components(*it);
                     nodes.erase(it);
                     return true;
                 }
-                if (erase_node_by_id(it->children, id, components)) {
+                if (erase_node_by_id(it->children, id)) {
                     return true;
                 }
             }
             return false;
         }
     } // namespace
+
+    deren::utility::ecs::registry& components() noexcept {
+        static deren::utility::ecs::registry registry;
+        return registry;
+    }
 
     void update_world(scene_node& node, glm::mat4 const& parent_world) {
         glm::mat4 const world = parent_world * node.local;
@@ -170,9 +175,12 @@ namespace deren::engine::scene_tree {
         scene* const previous = node.owner_scene;
         node.owner_scene = this;
         if (previous != this) {
-            // Adopting a detached subtree (or moving one between scenes) gives every node a fresh
-            // handle in this scene's registry. Nodes already owned here keep their handle.
-            node.node_id = this->components.create();
+            // Adopting a detached subtree (or moving one between scenes) releases any previous
+            // component entity and gives every node a fresh process-wide handle.
+            if (node.node_id.valid()) {
+                (void)components().destroy(node.node_id);
+            }
+            node.node_id = components().create();
         }
         for (scene_node& child : node.children) {
             this->register_subtree(child);
@@ -253,19 +261,22 @@ namespace deren::engine::scene_tree {
         return nullptr;
     }
 
+    scene::~scene() {
+        this->clear();
+    }
+
     bool scene::destroy_node(deren::utility::ecs::entity const id) {
         if (!id.valid()) {
             return false;
         }
-        return erase_node_by_id(this->roots, id, this->components);
+        return erase_node_by_id(this->roots, id);
     }
 
     void scene::clear() {
         for (scene_node& root : this->roots) {
-            destroy_node_components(root, this->components);
+            destroy_node_components(root);
         }
         this->roots.clear();
-        this->components.clear();
     }
 
     bool find_world(scene const& parent, std::uint64_t const import_instance, std::size_t const source_index, glm::mat4& output) {

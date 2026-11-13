@@ -61,6 +61,15 @@ namespace deren::engine::scene_tree {
     export constexpr std::size_t no_source_index = std::numeric_limits<std::size_t>::max();
 
     /**
+     * @brief process-wide component registry keyed by scene_node::node_id
+     *
+     * The registry is shared by every scene so a node handle stays meaningful across the
+     * scene tree without putting scene ownership into the handle. Scenes still own their
+     * node trees and destroy only the entities in their own subtrees.
+     */
+    export [[nodiscard]] deren::utility::ecs::registry& components() noexcept;
+
+    /**
      * @ingroup engine_scene_tree
      * @brief abstract primitive leaf of a scene node (the interface the GPU primitives
      *        below implement: normal_draw_primitive / instanced_draw_primitive)
@@ -113,7 +122,7 @@ namespace deren::engine::scene_tree {
         // Zero is reserved for manually assembled scenes; each import has a distinct identity.
         std::uint64_t import_instance = 0;
         // Stable gameplay handle for this node. It is assigned when the node is attached to a
-        // scene and is the key of the scene's ECS component registry. The node keeps its
+        // scene and is the key of the process-wide component registry. The node keeps its
         // structural data (transform, children, leaf) inline; components hold only extension state.
         deren::utility::ecs::entity node_id = deren::utility::ecs::null_entity;
         // Back-pointer used to register a child that is added after this node is already attached.
@@ -181,9 +190,6 @@ namespace deren::engine::scene_tree {
      * @brief a named scene: a list of root nodes (mirrors deren::gltf::scene's shape)
      */
     export struct scene {
-        // Component storage for every attached node, keyed by scene_node::node_id. Declared before
-        // `roots` so the node tree is destroyed before the registry during scene destruction.
-        deren::utility::ecs::registry components = {};
         // NOT `name`: find_node takes a parameter of that name, and a parameter would hide the
         // member - MSVC /W4 reports C4458, which /WX turns into an error (clang's -Wshadow is off).
         deren::utility::vessel::string scene_name = {};
@@ -191,6 +197,7 @@ namespace deren::engine::scene_tree {
         std::uint64_t next_import_instance = 1;
 
         scene() = default;
+        ~scene();
         scene(scene const&) = delete;
         scene& operator=(scene const&) = delete;
         // A moved scene would leave every scene_node::owner_scene pointing at the old address.

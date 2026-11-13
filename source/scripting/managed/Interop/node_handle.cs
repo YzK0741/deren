@@ -1,12 +1,10 @@
 using System.Runtime.InteropServices;
 
 namespace deren.scripting {
-    // The native node identity is a scene_tree::scene_node ECS entity (index + generation); the scene
-    // field scopes it to one live script_scene, so the existing ABI layout already carries a node id.
+    // The native node identity is a process-wide scene_tree node id packed as a 64-bit value.
+    // The managed side treats it as opaque and only checks that it is non-zero.
     [StructLayout(LayoutKind.Sequential)]
     internal struct node_handle {
-        public ulong scene;
-        public uint index;
-        public uint generation;
+        public ulong value;
     }
 }
