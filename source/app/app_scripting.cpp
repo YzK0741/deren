@@ -8,6 +8,7 @@ import deren.vstd;
 import deren.app.toon;
 import deren.asset_library;
 import deren.engine.primitive;
+import deren.engine.render_layout;
 import deren.gaussian_loader;
 import deren.gltf_loader;
 import deren.toon_material_sidecar;
@@ -448,9 +449,15 @@ namespace deren::app {
                    : scripting::script_status::script_failure;
     }
 
-    scripting::script_status script_scene::set_global_environment_hdr(scripting::utf8_view const path) {
+    scripting::script_status script_scene::set_environment_hdr(scripting::utf8_view const path,
+                                                               std::uint32_t const environment_slot) {
         constexpr std::uint32_t max_path_bytes = 4096;
         if (path.length > max_path_bytes || (path.length != 0 && path.data == nullptr)) {
+            return scripting::script_status::invalid_argument;
+        }
+        // The slot index is the engine's, not this module's: 0 is the scene-wide lane and 1..3 are the
+        // per-material lanes, so the capacity comes from the layout that owns the heap slots.
+        if (environment_slot >= deren::engine::render_layout::heap_environment_capacity) {
             return scripting::script_status::invalid_argument;
         }
         script_scene* owner = starting_scene;
@@ -458,11 +465,11 @@ namespace deren::app {
             auto& scenes = active_scenes();
             owner = scenes.empty() ? nullptr : scenes.back();
         }
-        if (owner == nullptr || owner->host.set_global_environment_hdr == nullptr) {
+        if (owner == nullptr || owner->host.set_environment_hdr == nullptr) {
             return scripting::script_status::scene_not_found;
         }
-        return owner->host.set_global_environment_hdr(owner->host.context,
-                                                      std::string_view{path.data, path.length})
+        return owner->host.set_environment_hdr(owner->host.context, std::string_view{path.data, path.length},
+                                               environment_slot)
                    ? scripting::script_status::success
                    : scripting::script_status::asset_not_found;
     }
@@ -1191,7 +1198,7 @@ namespace deren::app {
             .bind_asset = bind_asset,
             .get_camera = get_camera,
             .set_camera = set_camera,
-            .set_global_environment_hdr = set_global_environment_hdr,
+            .set_environment_hdr = set_environment_hdr,
             .asset_pipeline_count = asset_pipeline_count,
             .asset_pipeline = asset_pipeline,
             .asset_default_pipeline = asset_default_pipeline,

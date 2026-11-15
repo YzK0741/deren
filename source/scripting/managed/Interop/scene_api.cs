@@ -87,7 +87,7 @@ namespace deren.scripting {
             public delegate* unmanaged[Cdecl]<ulong, node_handle, ulong, transform_value*, node_handle*, script_status> bind_asset;
             public delegate* unmanaged<camera*, script_status> get_camera;
             public delegate* unmanaged<camera*, script_status> set_camera;
-            public delegate* unmanaged<utf8_view, script_status> set_global_environment_hdr;
+            public delegate* unmanaged<utf8_view, uint, script_status> set_environment_hdr;
             public delegate* unmanaged<ulong, uint*, script_status> asset_pipeline_count;
             public delegate* unmanaged<ulong, uint, utf8_view*, script_status> asset_pipeline;
             public delegate* unmanaged<ulong, utf8_view*, script_status> asset_default_pipeline;
@@ -151,8 +151,9 @@ namespace deren.scripting {
         private static delegate* unmanaged<camera*, script_status> get_camera;
         private static delegate* unmanaged<camera*, script_status> set_camera;
         // Optional like the camera entries: a host that predates this pointer still works, and the
-        // wrapper reports module_unavailable instead of dereferencing null.
-        private static delegate* unmanaged<utf8_view, script_status> set_global_environment_hdr;
+        // wrapper reports module_unavailable instead of dereferencing null. ABI 32 made it slot-aware:
+        // 0 is the scene-wide environment, 1..3 are the per-material lanes.
+        private static delegate* unmanaged<utf8_view, uint, script_status> set_environment_hdr;
         // Optional too: the per-asset pipeline queries arrived with ABI 23.
         private static delegate* unmanaged<ulong, uint*, script_status> asset_pipeline_count;
         private static delegate* unmanaged<ulong, uint, utf8_view*, script_status> asset_pipeline;
@@ -216,7 +217,7 @@ namespace deren.scripting {
             bind_asset = null;
             get_camera = null;
             set_camera = null;
-            set_global_environment_hdr = null;
+            set_environment_hdr = null;
             asset_pipeline_count = null;
             asset_pipeline = null;
             asset_default_pipeline = null;
@@ -278,7 +279,7 @@ namespace deren.scripting {
             bind_asset = resolved.bind_asset;
             get_camera = resolved.get_camera;
             set_camera = resolved.set_camera;
-            set_global_environment_hdr = resolved.set_global_environment_hdr;
+            set_environment_hdr = resolved.set_environment_hdr;
             asset_pipeline_count = resolved.asset_pipeline_count;
             asset_pipeline = resolved.asset_pipeline;
             asset_default_pipeline = resolved.asset_default_pipeline;
@@ -392,9 +393,9 @@ namespace deren.scripting {
             return is_ready() && set_camera != null ? set_camera(value) : script_status.module_unavailable;
         }
 
-        internal static script_status set_global_environment(utf8_view path) {
-            return is_ready() && set_global_environment_hdr != null
-                ? set_global_environment_hdr(path)
+        internal static script_status assign_environment_hdr(utf8_view path, uint environment_slot) {
+            return is_ready() && set_environment_hdr != null
+                ? set_environment_hdr(path, environment_slot)
                 : script_status.module_unavailable;
         }
 

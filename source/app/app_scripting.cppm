@@ -98,13 +98,18 @@ export namespace deren::app {
         bool (*set_camera)(void* context, scripting::camera_state const* value) = nullptr;
         bool (*request_screenshot)(void* context) = nullptr;
         /**
-         * @brief Queues a new GLOBAL IBL from the named environment file; empty means procedural.
+         * @brief Queues a new IBL for ONE environment slot from the named environment file; empty
+         *        means the procedural sky in that slot.
          *
-         * The callback runs on the render thread but must not touch the device: it validates and
-         * stores the request, and the host applies it between frames. Returning false rejects the
-         * path (missing or unreadable file) and leaves the current environment untouched.
+         * Slot 0 is the scene-wide environment, slots 1..3 are the per-material lanes a material
+         * record can name (`material_override.environment_slot`). The callback runs on the render
+         * thread but must not touch the device: it validates the slot and the path, stores the
+         * request, and the host prepares and uploads it between frames. Returning false rejects an
+         * out-of-range slot or a missing/unreadable file in the slot that named the path (relative
+         * paths resolve against the executable directory) and leaves that slot's environment
+         * untouched.
          */
-        bool (*set_global_environment_hdr)(void* context, std::string_view path) = nullptr;
+        bool (*set_environment_hdr)(void* context, std::string_view path, std::uint32_t environment_slot) = nullptr;
         /**
          * @brief Switches the primitives under a bound asset root to another supported pipeline.
          *
@@ -293,7 +298,7 @@ export namespace deren::app {
 
         static scripting::script_status request_screenshot();
 
-        static scripting::script_status set_global_environment_hdr(scripting::utf8_view path);
+        static scripting::script_status set_environment_hdr(scripting::utf8_view path, std::uint32_t environment_slot);
         static scripting::script_status asset_pipeline_count(scripting::asset_handle asset, std::uint32_t* count);
         static scripting::script_status asset_pipeline(scripting::asset_handle asset, std::uint32_t index,
                                                        scripting::utf8_view* name);

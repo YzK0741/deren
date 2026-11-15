@@ -30,6 +30,7 @@ import deren.engine.lighting.radiance_capture;
 import deren.engine.lighting.reflection_probe;
 import deren.engine.math;
 import deren.engine.primitive;
+import deren.engine.render_layout;
 
 import deren.engine.gaussian_splatting;
 import deren.engine.gaussian_splatting.raster;
@@ -408,9 +409,11 @@ namespace deren::app {
             deren::engine::runtime* render_runtime = nullptr;
             // TAA/SSAO live on this application's renderer, not on the runtime.
             deren::app::app_renderer* renderer = nullptr;
-            // A managed set_global_environment_hdr() request is validated here and applied between
-            // frames (the upload waits for the GPU, which must never happen inside the callback).
+            // A managed set_environment_hdr() request is validated here and applied between frames
+            // (the upload waits for the GPU, which must never happen inside the callback). The slot
+            // travels with the path: 0 is the scene-wide environment, 1..3 the per-material lanes.
             std::filesystem::path pending_environment;
+            std::uint32_t pending_environment_slot = 0;
             bool environment_pending = false;
             // Clone sources for leaves currently shaded by the unlit pipeline, keyed by the
             // leaf's lifetime id (pointer identity alone would reuse a freed leaf's entry).
@@ -450,6 +453,7 @@ namespace deren::app {
         managed_bind_context managed_binding{.render_runtime = &runtime,
                                             .renderer = &app_renderer,
                                             .pending_environment = {},
+                                            .pending_environment_slot = 0,
                                             .environment_pending = false,
                                             .pipeline_bases = {},
                                             .shadow_scene_radius = 0.0f,
@@ -598,11 +602,16 @@ namespace deren::app {
             context->render_runtime->request_screenshot();
             return true;
         };
-        // The managed side names the GLOBAL environment; an empty path asks for the procedural sky.
-        // This only validates and records the newest request - the device work happens in the loop.
-        auto const set_managed_environment_hdr = +[](void* opaque, std::string_view path) -> bool {
+        // The managed side names an environment slot; an empty path loads the procedural sky into it.
+        // This only validates and records the newest request - the device work happens in the loop
+        // (one request in flight: a newer one replaces the queued one, whatever slot it names).
+        auto const set_managed_environment_hdr = +[](void* opaque, std::string_view path,
+                                                     std::uint32_t environment_slot) -> bool {
             auto* context = static_cast<managed_bind_context*>(opaque);
             if (context == nullptr || context->render_runtime == nullptr) {
+                return false;
+            }
+            if (environment_slot >= deren::engine::render_layout::heap_environment_capacity) {
                 return false;
             }
             std::filesystem::path request{std::string(path)};
@@ -617,6 +626,7 @@ namespace deren::app {
                 }
             }
             context->pending_environment = std::move(request);
+            context->pending_environment_slot = environment_slot;
             context->environment_pending = true;
             return true;
         };
@@ -1178,7 +1188,7 @@ namespace deren::app {
                                            .get_camera = get_managed_camera,
                                            .set_camera = set_managed_camera,
                                            .request_screenshot = request_managed_screenshot,
-                                           .set_global_environment_hdr = set_managed_environment_hdr,
+                                           .set_environment_hdr = set_managed_environment_hdr,
                                            .apply_pipeline = apply_managed_pipeline,
                                            .set_exposure = set_managed_exposure,
                                            .set_tone_mapping = set_managed_tone_mapping,
@@ -1313,30 +1323,49 @@ namespace deren::app {
             }
             // A managed environment change is applied between frames: preparing the IBL is CPU work
             // and set_ibl waits for the GPU, so neither may run inside the managed callback. The
-            // newest request wins, and a request that fails to decode keeps the current environment.
+            // newest request wins (whatever slot it names), and a request that fails to decode keeps
+            // that slot's current environment.
             if (managed_binding.environment_pending) {
+                std::uint32_t const environment_slot = managed_binding.pending_environment_slot;
                 std::filesystem::path request = std::move(managed_binding.pending_environment);
                 managed_binding.pending_environment.clear();
+                managed_binding.pending_environment_slot = 0;
                 managed_binding.environment_pending = false;
                 auto const prepare_start = std::chrono::steady_clock::now();
                 auto prepared = prepare_environment(request, sun_direction, env_size, env_mip_count, irr_size, 1.0f);
                 if (!prepared.error.empty()) {
-                    deren::utility::log("environment: '{}' rejected: {} (keeping the current IBL)",
-                                        request.empty() ? "procedural sky" : request.string(), prepared.error.c_str());
+                    deren::utility::log("environment slot {}: '{}' rejected: {} (keeping the slot's current IBL)",
+                                        environment_slot, request.empty() ? "procedural sky" : request.string(), prepared.error.c_str());
                 } else {
-                    auto const lut = deren::engine::generate_brdf_lut(lut_size);
-                    auto const applied = runtime.set_ibl(deren::engine::ibl_input{
-                        .prefiltered_env = std::move(prepared.environment),
-                        .irradiance = std::move(prepared.irradiance),
-                        .brdf_lut = deren::engine::to_half_rg(lut),
-                        .env_size = static_cast<std::uint32_t>(env_size),
-                        .env_mip_count = static_cast<std::uint32_t>(env_mip_count),
-                        .irr_size = static_cast<std::uint32_t>(irr_size),
-                        .lut_size = static_cast<std::uint32_t>(lut_size)});
+                    // Slot 0 owns the BRDF LUT; the custom slots reuse it, so they upload none
+                    // (`set_ibl(slot != 0, ...)` only needs the environment pair). The LUT bytes stay
+                    // alive for the whole call: `ibl_input` holds spans, not containers.
+                    bool applied = false;
+                    if (environment_slot == 0u) {
+                        auto const lut = deren::engine::generate_brdf_lut(lut_size);
+                        auto const lut_bytes = deren::engine::to_half_rg(lut);
+                        applied = runtime.set_ibl(0u, deren::engine::ibl_input{
+                                                          .prefiltered_env = prepared.environment,
+                                                          .irradiance = prepared.irradiance,
+                                                          .brdf_lut = lut_bytes,
+                                                          .env_size = static_cast<std::uint32_t>(env_size),
+                                                          .env_mip_count = static_cast<std::uint32_t>(env_mip_count),
+                                                          .irr_size = static_cast<std::uint32_t>(irr_size),
+                                                          .lut_size = static_cast<std::uint32_t>(lut_size),
+                                                      });
+                    } else {
+                        applied = runtime.set_ibl(environment_slot, deren::engine::ibl_input{
+                                                                       .prefiltered_env = prepared.environment,
+                                                                       .irradiance = prepared.irradiance,
+                                                                       .env_size = static_cast<std::uint32_t>(env_size),
+                                                                       .env_mip_count = static_cast<std::uint32_t>(env_mip_count),
+                                                                       .irr_size = static_cast<std::uint32_t>(irr_size),
+                                                                   });
+                    }
                     // the history holds the old radiance; a new environment invalidates every pixel
                     app_renderer.reset_temporal_history();
-                    deren::utility::log("environment: switched to '{}' in {:.1f} ms ({})",
-                                        request.empty() ? "procedural sky" : request.string(),
+                    deren::utility::log("environment slot {}: switched to '{}' in {:.1f} ms ({})",
+                                        environment_slot, request.empty() ? "procedural sky" : request.string(),
                                         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - prepare_start).count(),
                                         applied ? "uploaded" : "upload failed");
                 }

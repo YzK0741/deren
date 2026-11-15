@@ -52,6 +52,7 @@ namespace {
     std::uint32_t screenshot_requests = 0;
     std::uint32_t environment_requests = 0;
     bool environment_path_is_empty = false;
+    std::uint32_t environment_slot = ~0u; // the slot the last environment request named
     std::uint32_t pipeline_queries = 0;
     std::uint32_t pipeline_assignments = 0;
     std::uint32_t post_processing_requests = 0;
@@ -444,7 +445,7 @@ namespace {
         return script_status::success;
     }
 
-    script_status set_environment_hdr(utf8_view path);
+    script_status set_environment_hdr(utf8_view path, std::uint32_t requested_slot);
 
     bool known_asset(asset_handle asset) {
         if (module_context == nullptr) {
@@ -997,7 +998,7 @@ namespace {
             .bind_asset = bind_asset,
             .get_camera = get_camera,
             .set_camera = set_camera,
-            .set_global_environment_hdr = set_environment_hdr,
+            .set_environment_hdr = set_environment_hdr,
             .asset_pipeline_count = asset_pipeline_count,
             .asset_pipeline = asset_pipeline,
             .asset_default_pipeline = asset_default_pipeline,
@@ -1035,14 +1036,20 @@ namespace {
         return script_status::success;
     }
 
-    script_status set_environment_hdr(utf8_view path) {
+    script_status set_environment_hdr(utf8_view path, std::uint32_t requested_slot) {
         // The demo game asks for whatever `[lighting] environment_hdr` (or the procedural sky, encoded
         // as an empty path) says: both spellings are legal, so the fake records the request instead of
-        // dictating one. The host itself validates the path - this fake only counts the round trip.
+        // dictating one. The host itself validates the slot and the path - this fake only counts the
+        // round trip and remembers the slot, so the scenario can prove slot 0 is what a project that
+        // never names a slot actually asks for.
         if (path.length != 0 && path.data == nullptr) {
             return script_status::invalid_argument;
         }
+        if (requested_slot >= 4u) {
+            return script_status::invalid_argument;
+        }
         environment_path_is_empty = path.length == 0;
+        environment_slot = requested_slot;
         ++environment_requests;
         return script_status::success;
     }
@@ -1133,6 +1140,14 @@ namespace {
         if (screenshot_requests != 1 || environment_requests == 0) {
             std::fprintf(stderr, "frame: screenshot requests=%u environment requests=%u\n", screenshot_requests,
                          environment_requests);
+            return false;
+        }
+        // ... and every one of them named the scene-wide slot: both call sites use the one-argument
+        // `global_environment.try_set_hdr`, which is slot 0 by definition. A non-zero slot here would
+        // mean a project path silently wrote into a per-material lane.
+        if (environment_slot != 0) {
+            std::fprintf(stderr, "frame: environment request named slot %u, expected the scene-wide slot 0\n",
+                         environment_slot);
             return false;
         }
         // The project light rig is project data pushed only on the demo's `--asset` path; this

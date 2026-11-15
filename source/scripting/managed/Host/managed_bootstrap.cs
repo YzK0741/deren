@@ -7,7 +7,7 @@ using System.Text;
 
 namespace deren.scripting {
     internal static unsafe class managed_bootstrap {
-        private const uint abi_version = 31;
+        private const uint abi_version = 32;
         internal static native_api core;
         internal static Assembly? game_assembly;
 

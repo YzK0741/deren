@@ -1,6 +1,6 @@
 # C# Module ABI
 
-Status: implemented for the `scene` and `ui` modules; managed ABI v31.
+Status: implemented for the `scene` and `ui` modules; managed ABI v32.
 
 Baseline: `feature/csharp-scene-tree`. Native code owns rendering, the Vulkan runtime, the
 module resolver, and primitive/scene import. Managed code owns scene construction, asset
@@ -121,14 +121,21 @@ to capture the next frame recorded after the request, which is then saved under
 `deren.screenshot.try_request()`; there is no path argument and the call is a request, not a
 synchronous save.
 
-`scene_api.set_global_environment_hdr` replaces the global image-based lighting every rendered
-scene shares. The path names a baked `.ibl` or an equirectangular `.hdr`; a relative path is
-resolved against the executable directory, and an empty path restores the procedural sky. The
-call only validates and queues the request: the host prepares and uploads the IBL between
-frames, so a success means the path was accepted, and a later decode failure keeps the current
-environment. The `global` in the name leaves room for future per-scene-tree or per-primitive
-variants; there is no per-tree override yet. C# projects call
-`deren.global_environment.try_set_hdr(string? path)`.
+`scene_api.set_environment_hdr(path, slot)` replaces ONE image-based-lighting slot. The path names
+a baked `.ibl` or an equirectangular `.hdr`; a relative path is resolved against the executable
+directory, and an empty path loads the procedural sky into that slot. The call only validates and
+queues the request: the host prepares and uploads the IBL between frames, so a success means the
+slot and the path were accepted, and a later decode failure keeps that slot's current environment.
+
+Slot 0 is the scene-wide environment every rendered scene shares, and it is the only slot with a
+BRDF LUT (the LUT is shared, so the custom slots upload none). Slots 1..3 are the per-material
+lanes: a material record carries the slot number in its flags (`material_override.environment_slot`
+on the C# side), and the shaders sample that slot's cubemap pair out of the descriptor heap. The
+engine's `layout::heap_environment_capacity` is the bound; a larger slot is rejected with
+`invalid_argument`. There is still no per-scene-tree override - the lanes are selected per material
+- and one request is in flight at a time: a newer call replaces a queued one, whatever slot it names.
+C# projects call `deren.global_environment.try_set_hdr(string? path)` for slot 0 and
+`deren.global_environment.try_set_slot_hdr(int slot, string? path)` for any slot.
 
 Each asset's `asset.toml` may declare the renderer pipelines it supports and the one a bind starts
 on (`default_pipeline`, `pipelines`). `bind_asset` applies the declared default to the imported
@@ -201,7 +208,7 @@ struct scene_api {
     bind_asset;
     get_camera;
     set_camera;
-    set_global_environment_hdr;
+    set_environment_hdr;
     asset_pipeline_count;
     asset_pipeline;
     asset_default_pipeline;
@@ -555,7 +562,7 @@ Status values are returned through the ABI; no exception crosses the native boun
 
 ## 8. Layout and versioning
 
-- One global `managed_abi_version`, currently 31.
+- One global `managed_abi_version`, currently 32.
 - No `context` parameter and no per-module version.
 - No `size` fields; one version means one exact layout.
 - A field addition, removal, reorder, or signature change bumps the global version.
@@ -630,4 +637,13 @@ Status values are returned through the ABI; no exception crosses the native boun
   capture is taken at the render extent, so a probe needs a square window at the probe size, and the
   readback alpha is normalized to 1 by the engine's own face canonicalization instead of being
   trusted from the copy.
+- v32 made the environment entry slot-aware: `set_global_environment_hdr(utf8_view path)` became
+  `set_environment_hdr(utf8_view path, uint32 slot)`, and the C# side gained
+  `global_environment.try_set_slot_hdr(int slot, string? path)` beside `try_set_hdr` (which is slot
+  0). Slots 1..3 are the per-material lanes the engine already sampled - a material record carries
+  the slot in its flags bits 10..11 and the shaders pick `custom_env_cube + slot - 1` out of the
+  heap - so this closes the last gap: before it, nothing could load an environment into those
+  slots, and every material had to sample the scene-wide one. A custom slot uploads only the
+  environment pair (slot 0's BRDF LUT is shared), an out-of-range slot is `invalid_argument`, and a
+  decode failure keeps that slot's previous environment.
 

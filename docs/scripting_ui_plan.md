@@ -1,7 +1,7 @@
 # C# Scripting and Scene UI Plan
 
 Status: implemented for the managed scene path and the managed debug panel; editor panel work
-remains. Managed ABI v31, the `scene` module and the `ui` module are in place. A project `game_entry` owns startup parsing, scene construction,
+remains. Managed ABI v32, the `scene` module and the `ui` module are in place. A project `game_entry` owns startup parsing, scene construction,
 activation, asset binding, scripts, and the frame/shutdown callbacks.
 
 Baseline: `feature/csharp-scene-tree`.
