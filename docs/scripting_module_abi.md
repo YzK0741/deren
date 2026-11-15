@@ -377,6 +377,13 @@ call the `deren.ui` facade and `deren.ui_value`.
 
 ## 5. Managed API
 
+Every wrapper that can fail has two forms. The short form returns `bool` and logs the reason; the
+same name with a trailing `out script_status status` hands the native answer back, so a game can
+tell `asset_not_found` from `module_unavailable` from `invalid_argument` and react instead of
+logging. The short form is exactly `=> name(args, out _)`, so the two cannot drift. `script_status`
+is public for this reason; a wrapper that rejects its own arguments reports `invalid_argument`, and
+a managed exception caught at the boundary is reported as `script_failure`.
+
 ```csharp
 public sealed class scene_tree : IDisposable {
     public static bool try_create(out scene_tree? tree);

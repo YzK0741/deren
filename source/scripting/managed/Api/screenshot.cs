@@ -19,13 +19,20 @@ namespace deren {
         /// expose screenshots or no scene is active.
         /// </summary>
         public static bool try_request() {
+            return try_request(out _);
+        }
+
+        public static bool try_request(out script_status status) {
             var request = api.request_screenshot;
             if (request == null) {
+                status = script_status.module_unavailable;
                 return false;
             }
             try {
-                return request() == script_status.success;
+                status = request();
+                return status == script_status.success;
             } catch (Exception error) {
+                status = script_status.script_failure;
                 managed_bootstrap.core.write_log(Encoding.UTF8.GetBytes(
                     $"Game: screenshot request failed: {error.GetBaseException().Message}"));
                 return false;

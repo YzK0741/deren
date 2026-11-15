@@ -13,19 +13,30 @@ namespace deren {
         public vector_3 target;
 
         /// <summary>
-        /// Applies this pose to the active scene. Returns false when no scene is active.
+        /// Applies this pose to the active scene. Returns false when no scene is active; the
+        /// overload with an <c>out script_status</c> says which.
         /// </summary>
         public unsafe bool try_apply() {
+            return try_apply(out _);
+        }
+
+        public unsafe bool try_apply(out script_status status) {
             var copy = this;
-            return scene_api.assign_camera(&copy) == script_status.success;
+            status = scene_api.assign_camera(&copy);
+            return status == script_status.success;
         }
 
         /// <summary>
         /// Reads the active scene's camera pose. Returns false when no scene is active.
         /// </summary>
         public static unsafe bool try_get(out camera value) {
+            return try_get(out value, out _);
+        }
+
+        public static unsafe bool try_get(out camera value, out script_status status) {
             camera result;
-            if (scene_api.query_camera(&result) != script_status.success) {
+            status = scene_api.query_camera(&result);
+            if (status != script_status.success) {
                 value = default;
                 return false;
             }

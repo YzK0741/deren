@@ -16,7 +16,11 @@ namespace deren.scripting {
         /// value paces the loop. The host rejects a negative or non-finite value instead of clamping.
         /// </summary>
         public static bool try_set_max_fps(double fps) {
-            var status = scene_api.assign_max_fps(fps);
+            return try_set_max_fps(fps, out _);
+        }
+
+        public static bool try_set_max_fps(double fps, out script_status status) {
+            status = scene_api.assign_max_fps(fps);
             write_log(status == script_status.success
                 ? $"Game: max fps: {(fps > 0.0 ? fps.ToString("0.##") : "uncapped")}"
                 : $"Game: max fps {fps} rejected ({status})");

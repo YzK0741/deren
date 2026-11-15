@@ -22,7 +22,11 @@ namespace deren {
         /// relative. An empty path returns that slot to the procedural sky.
         /// </summary>
         public static bool try_set_hdr(string? path) {
-            return try_set_slot_hdr(0, path);
+            return try_set_hdr(path, out _);
+        }
+
+        public static bool try_set_hdr(string? path, out script_status status) {
+            return try_set_slot_hdr(0, path, out status);
         }
 
         /// <summary>
@@ -33,10 +37,16 @@ namespace deren {
         /// The host applies the change between frames, so a successful call only means the slot and
         /// the path were accepted; if the later decode fails, that slot's current environment stays.
         /// Returns false for an out-of-range slot, a host without the environment entry, a missing
-        /// scene, or a file that is not there.
+        /// scene, or a file that is not there; the overload with an <c>out script_status</c> says
+        /// which of those it was.
         /// </summary>
         public static bool try_set_slot_hdr(int environment_slot, string? path) {
+            return try_set_slot_hdr(environment_slot, path, out _);
+        }
+
+        public static bool try_set_slot_hdr(int environment_slot, string? path, out script_status status) {
             if (environment_slot < 0 || environment_slot >= slot_count) {
+                status = script_status.invalid_argument;
                 managed_bootstrap.core.write_log(Encoding.UTF8.GetBytes(
                     $"Game: environment slot {environment_slot} is out of range (0..{slot_count - 1})"));
                 return false;
@@ -44,7 +54,7 @@ namespace deren {
             path ??= string.Empty;
             try {
                 using var text = native_string.create(path);
-                var status = scene_api.assign_environment_hdr(text.view, (uint)environment_slot);
+                status = scene_api.assign_environment_hdr(text.view, (uint)environment_slot);
                 if (status == script_status.success) {
                     return true;
                 }
@@ -52,6 +62,7 @@ namespace deren {
                     $"Game: cannot set the environment of slot {environment_slot} '{path}' ({status})"));
                 return false;
             } catch (Exception error) {
+                status = script_status.script_failure;
                 managed_bootstrap.core.write_log(Encoding.UTF8.GetBytes(
                     $"Game: environment slot {environment_slot} request failed: {error.GetBaseException().Message}"));
                 return false;
