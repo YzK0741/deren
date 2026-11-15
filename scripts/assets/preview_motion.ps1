@@ -39,7 +39,6 @@ show=true
 [lighting]
 sun_direction=[0.0,0.25,1.0]
 $environmentSetting
-environment_intensity=1.0
 environment_background=1
 environment_color=[0.18,0.18,0.18]
 "@ | Set-Content -LiteralPath $configPath -Encoding utf8

@@ -40,11 +40,10 @@ environment_hdr = "environments/neutral.ibl" # relative to the executable
 profile = "preview-lighting.toml" # environment calibration; relative to this file's directory
 ```
 
-The calibration file carries the IBL/background keys (`environment_intensity`, `environment_strength`,
+The calibration file carries the IBL/background keys (`environment_strength`,
 `environment_rotation`, `environment_background`, `environment_color`, `environment_blur`):
 
 ```toml
-environment_intensity = 1.0 # bake-time multiplier; must match the .ibl header
 environment_strength = 1.0 # live relative gain on the baked IBL
 environment_rotation = 0.0 # degrees about world Y
 environment_background = 1 # 0 legacy procedural sky; 1 solid; 2 environment; 3 blurred environment
@@ -57,8 +56,12 @@ allows detailed environment reflections. Rotation changes the directions sampled
 specular IBL and environment backgrounds together: positive 90 degrees makes world +X sample the
 environment's +Z. The manually authored sun and punctual lights keep their directions.
 Strength scales the two IBL lobes and environment background; it does not scale emissive/direct
-lights or the solid/legacy background. Existing `environment_intensity` keeps its startup-bake
-semantics, including the historical 0.35 default; the new relative strength defaults to 1.
+lights or the solid/legacy background.
+
+`environment_intensity` is gone: it was a multiplier applied while BAKING an equirectangular `.hdr`
+into a `.ibl`, and the bake is no longer part of the app, so nothing read the value. A profile that
+still carries the key parses without error - the key is ignored. Use `environment_strength` to turn
+the environment up or down at sampling time.
 
 In a scripted project, `Deren.Managed` reads the same `[lighting] profile` before the project's
 `initialize` (exposed as `project_config.lighting`) and applies it through the runtime setters, so

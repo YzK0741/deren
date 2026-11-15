@@ -14,11 +14,6 @@ environment_background = 0 # 0 existing sky, 1 solid, 2 environment, 3 blurred e
 environment_color = [0.18, 0.18, 0.18] # linear RGB; exposure/tone mapping still apply
 environment_blur = 0.5 # roughness-mip fraction for background mode 3 only
 
-# environment_intensity: a plain multiplier on every texel while BAKING a `.hdr`; the resulting level
-# is stored in the `.ibl`. 1.0 = the file's raw radiance. It has no effect on a `.ibl` or while
-# `environment_hdr` is empty (the procedural sky is not scaled by it).
-environment_intensity = 1.0
-
 # ---- the reference package's rectangular soft box ----
 # area_light_*: the reference package's RECTANGULAR SOFT BOX, which its manifest
 # (build/deren-ab/bg/endfield-background/manifest.json) names as the main light of the shot:

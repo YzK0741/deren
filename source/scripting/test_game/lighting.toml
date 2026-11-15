@@ -1,7 +1,6 @@
 # The demo's lighting calibration, named by main.toml's `[lighting] profile` when the project opts
 # into a non-default environment. Left at the demo's original values: a dim procedural-sky IBL with
 # the sky itself as the background.
-environment_intensity = 0.35
 environment_strength = 1.0
 environment_rotation = 0.0
 environment_background = 0

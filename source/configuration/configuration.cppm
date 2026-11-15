@@ -416,14 +416,13 @@ namespace deren::app_config {
          * `collect_unknown_scene_keys`) and no field for its value.
          */
         /**
-         * `environment_intensity`: a linear multiplier applied to every texel of that image - the same
-         * degree of freedom the reference package calls its world's `world_strength`.
-         *
-         * THE DEFAULT IS THE REFERENCE'S NUMBER (0.35, from that package's manifest.json): pointing
-         * `environment_hdr` at its image and changing nothing else is meant to reproduce the reference's
-         * ambience. 1.0 is the file's raw radiance, which for a studio HDRI is a good deal brighter.
+         * `environment_intensity` USED TO LIVE HERE AND IS GONE. It was a linear multiplier applied
+         * while BAKING an equirectangular `.hdr` into a `.ibl` (the reference package's
+         * `world_strength`); the bake left the app, so nothing read the value any more. It is no
+         * longer parsed and no longer stored, and a profile that still carries the key is ignored by
+         * the profile reader. `environment_strength` below is the live knob: it scales the two IBL
+         * lobes and the environment background at sampling time, which is what a project wants to turn.
          */
-        float environment_intensity = 0.35f;
         float environment_rotation = 0.0f;
         float environment_strength = 1.0f;
         std::int32_t environment_background = 0;

@@ -1,8 +1,4 @@
 # The lighting profile named by `config_bad_lighting.toml`, every value out of range.
-# environment_intensity is a multiplier on the loaded HDR, so anything below 0 (or a NaN, which is what a bad
-# arithmetic expression in a hand-written config produces) must fall back rather than scale the environment by
-# a negative number - a negative IBL is not a dimmer, it is a sign flip on every texel.
-environment_intensity = -1.0
 # area_light_*: a negative size/power means "no such emitter" rather than a negative one, a negative multiplier
 # is a light that sucks photons out of the frame, and `nan` is what a hand-written arithmetic expression
 # produces - all four must fall back (0 / 0 / 1 / 0) instead of reaching the light UBO and then every pixel, and
