@@ -168,3 +168,25 @@ generated table against `abi_layout` at bind time, so the generator cannot pass 
 - Where does P6's `is_valid` live: on the host (one check per call) or on the managed `node_id`
   (a cached generation)? The host check is authoritative; the cached one saves a call but can lie
   after a destruction the managed side did not see.
+
+## 7. Folder layout
+
+The managed sources are grouped by role, not kept flat; `file(GLOB_RECURSE)` in
+`source/scripting/CMakeLists.txt` picks up whatever lives under `source/scripting/managed/`.
+
+| Folder | Holds |
+| --- | --- |
+| `Api/scene/` | scene tree, camera, lighting, materials, post chain, environment, probes, and the value types they exchange |
+| `Api/assets/` | the asset manager and its handle |
+| `Api/input/` | input events and the held-key state |
+| `Api/runtime/` | the script base class, pacing, and the project configuration |
+| `Api/ui/` | the panel API |
+| `Api/diagnostics/` | `log` and `nothrow_log` |
+| `Interop/tables/` | the function-pointer tables the host publishes, and the module handles |
+| `Interop/types/` | the value structs, the layout mirror, and the UTF-8 helper |
+| `Host/` | bootstrap, ABI manifest, frame dispatcher, game host |
+| `Config/` | the TOML reader and the settings it produces |
+
+Namespaces do not follow the folders: what a project scripts against stays in `deren`, everything
+that only the host uses stays in `deren.scripting`.
+
