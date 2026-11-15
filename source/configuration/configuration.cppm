@@ -134,13 +134,6 @@ namespace deren::app_config {
         // See the log's "initial camera" line for the numbers this resolves to, and use
         // --capture-camera to pin an exact pose.
         deren::utility::vessel::string camera_fit = "exterior";
-        // A PINNED initial camera pose: yaw (deg), pitch (deg), distance, target x, y, z - the same six
-        // numbers `--capture-camera` takes and the same six the log prints (`camera pose: ...`), so a view
-        // can be reproduced from a config, pasted between the two, or reported by a user. ABSENT by
-        // default, which leaves `camera_fit` in charge; when present it wins over the fit and is itself
-        // overridden by `--capture-camera`.
-        deren::utility::vessel::array<float, 6> camera_pose = {};
-        bool camera_pose_set = false;
         // Cascaded shadow maps ([render] shadow_cascades / shadow_cascade_blend): how many cascades the
         // shadow pass fits, renders and samples (1 = one box over the whole visible range, the historic
         // single-map behavior) and the fraction of a cascade's range over which the shader blends into
@@ -416,25 +409,12 @@ namespace deren::app_config {
         // elevation is what moves the shadows off a face and onto the ground behind it.
         deren::utility::vessel::array<float, 3> sun_direction = {0.3f, 1.0f, 0.5f};
         /**
-         * THE ENVIRONMENT IMAGE, i.e. the reference package's way of describing its world.
-         *
-         * `environment_hdr`: path to an EQUIRECTANGULAR (lat-long) HDR image - in practice the reference
-         * package's `lighting/studio_01_1k.exr`, converted once, offline, into the one float format the
-         * engine's decoder reads (Radiance `.hdr`, which is what `stb_image` handles; the conversion
-         * and its measurements are in `deren-ab/bg/_hdr_convert.py`). It REPLACES the procedural sky above as
-         * the environment cubemap.
-         *
-         * EMPTY (THE DEFAULT) IS THE CONTRACT: with no image every path renders exactly what it rendered
-         * before this key existed, byte for byte. Relative paths resolve against the executable's
-         * directory, the same rule [render] background_glb follows.
-         *
-         * WHEN IT IS SET the procedural gradient AND its baked sun disc are both gone from the IBL - the
-         * image is the whole environment. The DIRECT light is untouched: `sun_direction` still drives the
-         * shadow cascades, the shading and the visible disc the sky draws, so the image is never asked to
-         * double as a sun. (The visible sky itself is still analytic; with the reference's backdrop dome
-         * present - see [render] background_glb - it is occluded anyway.)
+         * THE ENVIRONMENT IMAGE IS NOT PARSED HERE. `[lighting] environment_hdr` (an equirectangular
+         * Radiance `.hdr`, empty = the procedural sky) is a project convention the MANAGED host reads for
+         * itself: `source/scripting/managed/Api/project_config.cs` loads it and reaches the renderer through
+         * `global_environment.try_set_hdr`, so this module keeps only the key acceptable in the schema (see
+         * `collect_unknown_scene_keys`) and no field for its value.
          */
-        deren::utility::vessel::string environment_hdr = {};
         /**
          * `environment_intensity`: a linear multiplier applied to every texel of that image - the same
          * degree of freedom the reference package calls its world's `world_strength`.

@@ -1269,11 +1269,17 @@ namespace deren::app {
             resource_trace.reserve(128);
             sample_resources();
         }
-        // ONE place that turns the live pose into the six numbers the config takes: the screenshot
+        // ONE place that turns the live pose into the six numbers `--capture-camera` takes: the screenshot
         // prints it (so a bug report carries its camera) and so does the exit below.
         auto const log_camera_pose = [&runtime](char const* const why) {
-            deren::utility::log("camera pose ({}): {:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f}   -> [render] camera_pose = [...]",
+            deren::utility::log("camera pose ({}): {:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f}   -> --capture-camera {:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f}",
                                 why,
+                                glm::degrees(runtime.camera.yaw),
+                                glm::degrees(runtime.camera.pitch),
+                                runtime.camera.distance,
+                                runtime.camera.target.x,
+                                runtime.camera.target.y,
+                                runtime.camera.target.z,
                                 glm::degrees(runtime.camera.yaw),
                                 glm::degrees(runtime.camera.pitch),
                                 runtime.camera.distance,

@@ -79,7 +79,7 @@ namespace deren::app_config {
                                     {"window_width", "window_height", "window_title", "vsync", "max_fps", "clear_color",
                                      "exposure", "tone_mapping", "sun_intensity", "rt_shadows", "rt_reflections",
                                      "rt_reflection_cloth", "rt_reflection_strength", "rt_reflection_samples", "rt_reflection_materials",
-                                     "animation_time", "camera_pose", "camera_fit",
+                                     "animation_time", "camera_fit",
                                      "shadow_cascades", "shadow_cascade_blend", "toon_shadow_softness", "shadow_bias_constant",
                                      "shadow_bias_slope", "clustered_lights", "shadow_map_size", "ssao", "ssao_radius", "ssao_intensity",
                                      "ssao_samples", "fxaa", "bloom", "render_scale", "upscale", "taa", "taa_blend_static",
@@ -94,6 +94,9 @@ namespace deren::app_config {
                 append_unknown_keys(*probe, "reflection_probe", {"enabled", "asset", "position", "box_min", "box_max", "fade", "gain"}, unknown);
             }
             if (auto const* lighting = table.get_as<toml::table>("lighting")) {
+                // `environment_hdr` is accepted but NOT parsed here: its value belongs to the managed host
+                // (`source/scripting/managed/Api/project_config.cs` reads it and calls
+                // `global_environment.try_set_hdr`), so this module only keeps the key legal in the schema.
                 append_unknown_keys(*lighting, "lighting", {"sun_direction", "environment_hdr", "profile"}, unknown);
             }
             if (auto const* debug = table.get_as<toml::table>("debug")) {
@@ -364,22 +367,6 @@ namespace deren::app_config {
             if (toml::node const* node = render->get("animation_time")) {
                 if (std::optional<double> const value = node->value<double>()) {
                     settings.render.animation_time = static_cast<float>(*value);
-                }
-            }
-            if (toml::node const* node = render->get("camera_pose")) {
-                if (toml::array const* pose = node->as_array()) {
-                    std::size_t value_index = 0;
-                    for (toml::node const& element : *pose) {
-                        if (value_index >= settings.render.camera_pose.size()) {
-                            break;
-                        }
-                        if (std::optional<double> const number = element.value<double>()) {
-                            settings.render.camera_pose[value_index++] = static_cast<float>(*number);
-                        }
-                    }
-                    // All six are required: a partial pose is not a pose, and silently keeping half of it
-                    // would pin a view nobody asked for.
-                    settings.render.camera_pose_set = value_index == settings.render.camera_pose.size();
                 }
             }
             if (toml::node const* node = render->get("camera_fit")) {
@@ -741,22 +728,15 @@ namespace deren::app_config {
         }
         // THE ENVIRONMENT AND AREA-LIGHT PROFILE ([lighting] profile): the numeric IBL knobs and the reference
         // package's area light are calibrated together, so they live in a TOML file named by one key. `[lighting]`
-        // itself keeps only what IDENTIFIES the environment - sun_direction and environment_hdr - while every
-        // numeric knob below comes from the profile and NOT from the table: the strict schema accepts exactly
-        // those two keys plus `profile`, so the parser and the schema now agree on one layout.
+        // itself keeps only what IDENTIFIES the environment - sun_direction and the key `environment_hdr`, whose
+        // VALUE belongs to the managed host (see `collect_unknown_scene_keys`) - while every numeric knob below
+        // comes from the profile and NOT from the table: the strict schema accepts exactly those keys plus
+        // `profile`, so the parser and the schema now agree on one layout.
         toml::table const* const lighting_section = table.get_as<toml::table>("lighting");
         if (lighting_section != nullptr) {
             // Three numbers or nothing (see `read_finite_vec3`): a partly-specified direction would silently mix
             // this config's components with the default's, which is a light nobody asked for and no way to see it.
             read_finite_vec3(*lighting_section, "sun_direction", settings.lighting.sun_direction);
-            // The environment image (see the struct's note). The path is taken VERBATIM and left relative here;
-            // the host resolves it against the executable's directory, because that is where the assets live and
-            // this module has no business guessing.
-            if (toml::node const* node = lighting_section->get("environment_hdr")) {
-                if (std::optional<std::string_view> const value = node->value<std::string_view>()) {
-                    settings.lighting.environment_hdr = *value;
-                }
-            }
         }
         std::optional<toml::table> lighting_table;
         if (lighting_section != nullptr) {
@@ -1360,7 +1340,6 @@ namespace deren::app_config {
         resolve(settings.paths.shaders_dir);
         resolve(settings.paths.screenshot_dir);
         resolve(settings.render.background_glb);
-        resolve(settings.lighting.environment_hdr);
         resolve(settings.reflection_probe.asset);
         deren::utility::vessel::vector<deren::input::action_binding> input_actions;
         auto const input = manifest.table()["input"];

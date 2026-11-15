@@ -224,7 +224,6 @@ namespace {
         CHECK(settings.render.shadow_map_size == 1024);
         CHECK(!settings.render.clustered_lights); // fixture turns the M5 cluster pass off
         CHECK(settings.lighting.demo_lights == 3);
-        CHECK(settings.lighting.environment_hdr == "hdr/test-environment.hdr"); // the fixture's path, taken verbatim
         CHECK(settings.lighting.environment_intensity > 0.79f && settings.lighting.environment_intensity < 0.81f);
         CHECK(!settings.render.ssao); // fixture turns the M6 screen-space AO off
         CHECK(settings.render.ssao_radius > 1.49f && settings.render.ssao_radius < 1.51f);
@@ -341,10 +340,9 @@ namespace {
         CHECK(!settings.render.visibility_buffer); // the example ships the switch OFF (the historic frame)
         CHECK(!settings.render.software_raster);
         CHECK(settings.lighting.demo_lights == 0);
-        // The example ships the baked Studio Neutral IBL as its default environment. This is a deliberate
-        // exception to the historic byte-identical contract: the preset replaces the procedural sky, while
-        // the empty key still means "procedural sky" for configurations that never set it.
-        CHECK(settings.lighting.environment_hdr == "environments/neutral.ibl");
+        // The example ships the baked Studio Neutral IBL as its default environment: `[lighting] environment_hdr`
+        // is a key the MANAGED host reads for itself (see `collect_unknown_scene_keys`), so this module accepts
+        // it and stores nothing - what the parser still proves here is the numeric knob beside it.
         CHECK(settings.lighting.environment_intensity > 0.99f && settings.lighting.environment_intensity < 1.01f);
         // [lighting] area_light_*: the example DOCUMENTS the reference package's soft box but ships it OFF
         // (`area_light_size = 0`), which is the byte-identical contract - a config copied from this file
@@ -493,7 +491,6 @@ namespace {
         CHECK(settings.gui.panel_width > 379.0f && settings.gui.panel_width < 381.0f);
         CHECK(settings.gui.panel_height > 139.0f && settings.gui.panel_height < 141.0f);
         // [lighting]: the loader's clamps must leave every generator default untouched
-        CHECK(settings.lighting.environment_hdr.empty()); // the generator's default: the procedural sky
         CHECK(settings.lighting.environment_intensity > 0.349f && settings.lighting.environment_intensity < 0.351f);
         // [lighting] area_light_*: OFF by default, and the generator writes all eight keys out, so this is
         // also the check that the two files (generator + fixture) have not drifted apart.
