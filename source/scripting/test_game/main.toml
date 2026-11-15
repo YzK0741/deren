@@ -7,13 +7,15 @@ window_width = 640
 window_height = 360
 # The runtime knobs below are parsed and applied by the managed framework (project_config) before
 # the project's initialize; the native host only reads the creation parameters above.
-taa = false
+taa = true
 taa_blend_static = 0.9
 taa_blend_min = 0.5
+fxaa = true
 # The laevatain look as it was first restored: the toon character stage ON (character_forward)
 # drawing with the game-shader toon model (game_toon), the Khronos PBR Neutral tone curve at the
-# exposure that look was tuned at. Everything else stays at its default (procedural sky, the
-# demo's own sun, bloom on, fxaa off, ssao on).
+# exposure that look was tuned at. Both anti-aliasing lanes are on for this run (fxaa after the
+# post chain, taa over the deferred path). Everything else stays at its default (procedural sky,
+# the demo's own sun, bloom on, ssao on).
 character_forward = true
 game_toon = true
 exposure = 0.92
