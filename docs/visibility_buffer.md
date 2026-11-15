@@ -13,7 +13,7 @@ visible-material and screen-footprint demand for [amnis](amnis.md) texture strea
 that feedback without subtilis DAG LOD, and subtilis can use fully resident textures without amnis streaming.
 Geometry selection and texture residency keep separate policies and configuration gates.
 
-An additional experimental mode, `[render] software_raster=true`, moves conservatively classified sub-pixel
+An additional experimental mode, `[experimental] software_raster=true`, moves conservatively classified sub-pixel
 clusters from the hardware mesh-task prefix into a tiled CSR software raster. It requires both the visibility lane
 and subtilis and is default-off. It composes with HZB culling and recovery: HZB evaluates both the hardware prefix
 and software suffix, while software raster filters its suffix using the final HZB visibility/recovery flags. The
@@ -41,7 +41,7 @@ The deferred scene path has two interchangeable opaque producers:
 
 Everything after the opaque handoff is identical: the depth is the frame's G-buffer depth, the lighting
 stage samples the same targets, and the toon re-shading stage tests the same depth. The switch is
-`[render] visibility_buffer` (`false` by default, `source/configuration/configuration.cppm`).
+`[experimental] visibility_buffer` (`false` by default, `source/configuration/configuration.cppm`).
 
 ```
 [mesh] visibility raster   ->  R32_UINT id  +  shared gbuffer_depth
@@ -95,7 +95,7 @@ depth. The compute resolve does not re-run the cut-out test; a pixel with a vali
 
 ## Configuration and gate
 
-- `[render] visibility_buffer = false` - off by default; when off, the lane does not record and the frozen
+- `[experimental] visibility_buffer = false` - off by default; when off, the lane does not record and the frozen
   off-path references are byte-for-byte unchanged.
 - A/B capture: run the capture harness with the switch appended, e.g.
   `pwsh scripts/gates/check_render.ps1 -Only deferred -ExtraConfig 'visibility_buffer = true'`.
@@ -124,7 +124,7 @@ depth. The compute resolve does not re-run the cut-out test; a pixel with a vali
 
 ## Same-frame texture residency (experimental)
 
-`[render] visibility_texture_streaming = true` opts in alongside `visibility_buffer = true`. Geometry
+`[experimental] visibility_texture_streaming = true` opts in alongside `visibility_buffer = true`. Geometry
 remains resident. Scene registration keeps whole decoded images in shared CPU storage and initially
 publishes ordinary placeholders for unneeded textures. A full-resolution compute scan identifies this
 frame's visible materials, including the shared hardware/software winner rule and HZB recovery output.

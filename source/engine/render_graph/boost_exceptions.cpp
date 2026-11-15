@@ -1,7 +1,8 @@
 #include <boost/throw_exception.hpp>
-#include <cstdio>
 
 import deren.utility.shared;
+import deren.vstd;
+
 namespace boost {
     BOOST_NORETURN void throw_exception(std::exception const&) {
         deren::utility::fast_panic("internal invariant: unexpected Boost exception");

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using deren;
@@ -22,6 +23,152 @@ namespace game {
         private static game_host? instance;
         private readonly List<script_base> scripts = [];
         private scene_tree? tree;
+        private bool camera_checked;
+        private bool frame_signal_scheduled;
+        private bool frame_signal_ran;
+        private bool screenshot_requested;
+        private bool environment_requested;
+        private reflect_probe_session? probe;
+        private bool probe_active => probe != null && probe.active;
+        // --asset <library-id> replaces the helmet demo with ONE bound asset, and --pipeline <name>
+        // picks the pipeline it is drawn with (the asset's declared default otherwise). A developer
+        // check for a real library asset, e.g. --asset laevatain --pipeline pbr.
+        private static string? requested_asset;
+        private static string? requested_pipeline;
+        // --probe <file> captures an offscreen reflection probe of the scene and writes an IBL1 cube.
+        // --probe-size sets the square face, which must match the window because the capture copies the
+        // frame the window already renders; --probe-position sets the eye (x,y,z). The whole six-face
+        // loop is managed: the host only installs the camera and runs the readback.
+        private static string? requested_probe;
+        private static uint requested_probe_size = 256;
+        private static vector_3 requested_probe_position;
+        private static bool requested_probe_position_set;
+        // THE DEBUG PANEL IS THE GAME'S OWN WIDGETS, drawn by the host: this demo binds a handful of
+        // runtime knobs so the panel proves the round trip (widget -> cell -> game -> runtime -> picture).
+        // The cells live in unmanaged memory because the overlay reads them after update() returns.
+        private static readonly ui_value exposure_cell = new(0.92f);
+        private static readonly ui_value sun_cell = new(0.0f, 0.25f, 1.0f);
+        private static readonly ui_value bloom_cell = new(false);
+        private static readonly ui_value fxaa_cell = new(true);
+        private static readonly ui_value tone_cell = new(1);
+        private static readonly ui_value shot_cell = new(false);
+        private static readonly string[] tone_names = ["linear", "reinhard", "aces"];
+        private bool input_registered;
+        private float last_exposure = 0.92f;
+        private float last_sun_x;
+        private float last_sun_y = 0.25f;
+        private float last_sun_z = 1.0f;
+        private bool last_bloom;
+        private bool last_fxaa = true;
+        private int tone_applied = 1;
+        private bool left_down;
+        private float orbit_dx;
+        private static bool input_reported;
+
+        public script_status preinit(startup_options* options, int argc, byte** argv) {
+            if (options == null || argc < 0 || (argc > 0 && argv == null)) {
+                return script_status.invalid_argument;
+            }
+            var args = new string[argc];
+            for (var i = 0; i < argc; ++i) {
+                args[i] = argv[i] == null ? string.Empty : Marshal.PtrToStringUTF8((IntPtr)argv[i]) ?? string.Empty;
+            }
+            for (var i = 1; i < args.Length; ++i) {
+                var argument = args[i];
+                if (argument == "--capture-windowed") {
+                    options->capture_windowed = 1;
+                    continue;
+                }
+                var separator = argument.IndexOf('=');
+                var name = separator < 0 ? argument : argument[..separator];
+                if (name == "--asset" || name == "--pipeline") {
+                    var chosen = separator < 0
+                        ? (i + 1 < args.Length ? args[++i] : string.Empty)
+                        : argument[(separator + 1)..];
+                    if (name == "--asset") {
+                        requested_asset = chosen;
+                    } else {
+                        requested_pipeline = chosen;
+                    }
+                    continue;
+                }
+                if (name == "--probe" || name == "--probe-size" || name == "--probe-position") {
+                    var chosen = separator < 0
+                        ? (i + 1 < args.Length ? args[++i] : string.Empty)
+                        : argument[(separator + 1)..];
+                    if (name == "--probe") {
+                        requested_probe = chosen;
+                    } else if (name == "--probe-size") {
+                        if (uint.TryParse(chosen, NumberStyles.Integer, CultureInfo.InvariantCulture, out var face)) {
+                            requested_probe_size = face;
+                        }
+                    } else {
+                        requested_probe_position = parse_vector(chosen, requested_probe_position);
+                        requested_probe_position_set = true;
+                    }
+                    continue;
+                }
+                if (name != "--capture-frames" && name != "--capture-sweep" &&
+                    name != "--capture-animation-sweep" && name != "--capture-camera") {
+                    continue;
+                }
+                var value = separator < 0 ? (i + 1 < args.Length ? args[++i] : string.Empty) : argument[(separator + 1)..];
+                if (name == "--capture-frames") {
+                    if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var frames)) {
+                        options->capture_frames = Math.Max(0, frames);
+                    }
+                } else if (name == "--capture-sweep") {
+                    if (float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var sweep)) {
+                        options->sweep_yaw_deg_per_frame = sweep;
+                    }
+                } else if (name == "--capture-animation-sweep") {
+                    if (float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var animation)) {
+                        options->animation_seconds_per_frame = animation;
+                    }
+                } else {
+                    parse_camera(options, value);
+                }
+            }
+            return script_status.success;
+        }
+
+        private static vector_3 parse_vector(string text, vector_3 fallback) {
+            var parts = text.Split(',');
+            if (parts.Length != 3) {
+                return fallback;
+            }
+            var numbers = new float[3];
+            for (var index = 0; index < 3; ++index) {
+                if (!float.TryParse(parts[index], NumberStyles.Float, CultureInfo.InvariantCulture,
+                                    out numbers[index])) {
+                    return fallback;
+                }
+            }
+            return new vector_3 { x = numbers[0], y = numbers[1], z = numbers[2] };
+        }
+
+        private static void parse_camera(startup_options* options, string text) {
+            var parts = text.Split(',');
+            if (parts.Length != 3 && parts.Length != 6) {
+                return;
+            }
+            var numbers = new float[parts.Length];
+            for (var i = 0; i < parts.Length; ++i) {
+                if (!float.TryParse(parts[i], NumberStyles.Float, CultureInfo.InvariantCulture, out numbers[i])) {
+                    return;
+                }
+            }
+            options->camera_set = 1;
+            options->camera_yaw_degrees = numbers[0];
+            options->camera_pitch_degrees = numbers[1];
+            options->camera_distance = numbers[2];
+            if (parts.Length == 6) {
+                options->target_set = 1;
+                options->target.x = numbers[3];
+                options->target.y = numbers[4];
+                options->target.z = numbers[5];
+            }
+        }
 
         public script_status initialize(native_api* api, managed_api* scripts) {
             if (api == null || scripts == null || instance != null) {
@@ -31,10 +178,35 @@ namespace game {
             if (module_status != script_status.success) {
                 return module_status;
             }
+            if (!camera.try_get(out var pose)) {
+                return script_status.script_failure;
+            }
+            pose.yaw_degrees = 0.0f;
+            pose.pitch_degrees = 0.0f;
+            pose.distance = 4.4f;
+            pose.target = new vector_3 { x = 0.0f, y = -0.8f, z = 0.0f };
+            if (!pose.try_apply()) {
+                return script_status.script_failure;
+            }
             if (!scene_tree.try_create(out var created) || created == null) {
                 return script_status.script_failure;
             }
             tree = created;
+            if (requested_asset != null) {
+                try {
+                    build_asset_scene(api, requested_asset);
+                } catch (Exception error) {
+                    api->write_log(System.Text.Encoding.UTF8.GetBytes(
+                        $"Game: asset scene initialization failed: {error.GetBaseException().Message}"));
+                    cleanup();
+                    return script_status.script_failure;
+                }
+                instance = this;
+                scripts->update = &update;
+                scripts->stop = &stop;
+                api->write_log("Game: asset scene ready"u8);
+                return script_status.success;
+            }
             try {
                 if (!asset_manager.try_load("damaged-helmet", out var helmet) || !helmet.is_valid) {
                     throw new InvalidOperationException("cannot load 'damaged-helmet'");
@@ -46,9 +218,12 @@ namespace game {
                     if (!tree.try_activate()) {
                         throw new InvalidOperationException("cannot activate the managed scene");
                     }
-                    bind_helmet(left, helmet);
+                    var left_bound = bind_helmet(left, helmet);
                     bind_helmet(right, helmet);
                     bind_helmet(spawned, helmet);
+                    exercise_pipelines(api, helmet, left_bound);
+                    exercise_post_processing(api);
+                    exercise_lighting(api);
                     if (!tree.try_set_visible(spawned, false)) {
                         throw new InvalidOperationException("cannot hide the spawn root");
                     }
@@ -73,6 +248,72 @@ namespace game {
             return script_status.success;
         }
 
+        /// <summary>
+        /// ONE library asset, bound at the origin and drawn with the requested pipeline (the asset's
+        /// declared default when no --pipeline was given). This is the developer path for checking a
+        /// real asset end to end without the helmet demo's three roots.
+        /// </summary>
+        private void build_asset_scene(native_api* api, string asset_id) {
+            if (!asset_manager.try_load(asset_id, out var asset) || !asset.is_valid) {
+                throw new InvalidOperationException($"cannot load '{asset_id}'");
+            }
+            try {
+                var root = create_root(asset_id, 0.0f);
+                if (!tree!.try_activate()) {
+                    throw new InvalidOperationException("cannot activate the managed scene");
+                }
+                var bound = bind_helmet(root, asset);
+                // The probe is started before the gaussian early return below: a cloud is exactly the
+                // scene a reflection probe is usually captured from.
+                if (requested_probe != null) {
+                    probe = new reflect_probe_session(requested_probe_position, requested_probe_size,
+                                                      requested_probe);
+                    if (probe.begin()) {
+                        api->write_log(System.Text.Encoding.UTF8.GetBytes(
+                            $"Game: reflect probe: capturing {requested_probe_size}px cube of the scene at ({requested_probe_position.x}, {requested_probe_position.y}, {requested_probe_position.z}) into {requested_probe}"));
+                    } else {
+                        api->write_log(System.Text.Encoding.UTF8.GetBytes(
+                            $"Game: reflect probe: cannot start ({probe.failure})"));
+                        probe = null;
+                    }
+                }
+                // A GAUSSIAN ASSET DECLARES NO RENDERER PIPELINE: its splat stage is not one of the
+                // named pipelines, so the bind already staged the cloud and there are no leaves to
+                // relabel. A cloud also has no sun rig to push - the rig is a character's lighting.
+                var declared_pipelines = asset_manager.supported_pipelines(asset);
+                if (declared_pipelines.Length == 0) {
+                    api->write_log(System.Text.Encoding.UTF8.GetBytes(
+                        $"Game: gaussian cloud '{asset_id}' bound (no named pipeline; the splat stage draws it)"));
+                    return;
+                }
+                var default_pipeline = asset_manager.try_get_default_pipeline(asset, out var declared) && declared != null
+                    ? declared
+                    : "pbr";
+                var pipeline = requested_pipeline ?? default_pipeline;
+                if (!tree.try_set_pipeline(bound, pipeline)) {
+                    throw new InvalidOperationException($"cannot apply pipeline '{pipeline}' to '{asset_id}'");
+                }
+                api->write_log(System.Text.Encoding.UTF8.GetBytes(
+                    $"Game: asset '{asset_id}' bound with pipeline '{pipeline}' (declared [{string.Join(", ", asset_manager.supported_pipelines(asset))}])"));
+                // The character rig is project data (toon-light-rig.toml next to deren.toml). It is
+                // the lighting the reference render used, so pushing it is part of reproducing that
+                // render; a project without the file keeps the sun-and-environment lighting.
+                light_rig.try_load_project_rig();
+                // A toon character's face is shaded against its head frame, which is a property of the
+                // asset the loader measured. Publishing it here keeps the frame and the geometry it
+                // belongs to in one place: a project that binds several characters gets one per slot,
+                // and an asset with no face measurement (a prop, a cloud) simply keeps the fallback.
+                if (pipeline == "game_toon" && !head_basis.try_publish(asset)) {
+                    api->write_log(System.Text.Encoding.UTF8.GetBytes(
+                        $"Game: head basis for '{asset_id}' kept at the renderer fallback"));
+                }
+            } finally {
+                if (!asset_manager.release(asset)) {
+                    throw new InvalidOperationException($"cannot release '{asset_id}'");
+                }
+            }
+        }
+
         private node_id create_root(string name, float x) {
             var local = new transform_value { scale = new vector_3 { x = 1.0f, y = 1.0f, z = 1.0f } };
             local.position.x = x;
@@ -82,11 +323,173 @@ namespace game {
             return root;
         }
 
-        private void bind_helmet(node_id root, asset_handle helmet) {
+        private node_id bind_helmet(node_id root, asset_handle helmet) {
             var offset = new transform_value { scale = new vector_3 { x = 1.0f, y = 1.0f, z = 1.0f } };
             if (!tree!.try_bind_asset(root, helmet, offset, out var bound) || !bound.is_valid) {
                 throw new InvalidOperationException("cannot bind 'damaged-helmet'");
             }
+            return bound;
+        }
+
+        /// <summary>
+        /// Proves the asset-declared pipeline information reaches managed code and that a bind
+        /// root accepts its own default pipeline while a name the asset does not declare is
+        /// rejected. The default is "pbr", so the rendered image is unchanged.
+        /// </summary>
+        private void exercise_pipelines(native_api* api, asset_handle asset, node_id bound) {
+            var supported = asset_manager.supported_pipelines(asset);
+            if (supported.Length == 0) {
+                throw new InvalidOperationException("asset declares no pipeline");
+            }
+            if (!asset_manager.try_get_default_pipeline(asset, out var default_pipeline) || default_pipeline == null) {
+                throw new InvalidOperationException("asset declares no default pipeline");
+            }
+            if (Array.IndexOf(supported, default_pipeline) < 0) {
+                throw new InvalidOperationException($"default pipeline '{default_pipeline}' is not in the declared list");
+            }
+            if (!tree!.try_set_pipeline(bound, default_pipeline)) {
+                throw new InvalidOperationException($"cannot apply pipeline '{default_pipeline}'");
+            }
+            if (tree.try_set_pipeline(bound, "not-a-pipeline")) {
+                throw new InvalidOperationException("an undeclared pipeline name was accepted");
+            }
+            api->write_log(System.Text.Encoding.UTF8.GetBytes(
+                $"Game: asset pipelines [{string.Join(", ", supported)}], default '{default_pipeline}'"));
+        }
+
+        /// <summary>
+        /// Proves the startup-only post-processing/environment knobs now belong to the game: every
+        /// setter is exercised, an out-of-range value is rejected instead of clamped, and the state
+        /// is restored to the configuration defaults afterwards so the captured image is unchanged.
+        /// </summary>
+        private void exercise_post_processing(native_api* api) {
+            if (!post_processing.try_set_exposure(1.5f) || !post_processing.try_set_tone_mapping(1) ||
+                !post_processing.try_set_environment(45.0f, 2.0f, 1, 1.0f, 1.0f, 1.0f, 0.25f) ||
+                !post_processing.try_set_sun_intensity(1.5f) || !post_processing.try_set_bloom(0.5f, 0.4f) ||
+                !post_processing.try_set_fxaa(true) || !post_processing.try_set_taa(true) ||
+                !post_processing.try_set_ssao(true, 0.7f, 0.8f, 12) || !post_processing.try_set_gbuffer_debug(true)) {
+                throw new InvalidOperationException("a post-processing setter was rejected");
+            }
+            if (post_processing.try_set_exposure(50.0f) || post_processing.try_set_taa(true, 0.9f, 0.95f)) {
+                throw new InvalidOperationException("out-of-range post-processing state was accepted");
+            }
+            if (!post_processing.try_set_exposure(1.0f) || !post_processing.try_set_tone_mapping(0) ||
+                !post_processing.try_set_environment(0.0f, 1.0f, 0, 0.18f, 0.18f, 0.18f, 0.5f) ||
+                !post_processing.try_set_sun_intensity(1.0f) || !post_processing.try_set_bloom(0.0f, 0.6f) ||
+                !post_processing.try_set_fxaa(false) || !post_processing.try_set_taa(false) ||
+                !post_processing.try_set_ssao(true, 0.5f, 1.0f, 8) || !post_processing.try_set_gbuffer_debug(false)) {
+                throw new InvalidOperationException("cannot restore the startup post-processing state");
+            }
+            api->write_log("Game: post-processing round trip"u8);
+        }
+
+        /// <summary>
+        /// Proves the sun direction, the area emitter and the clustered-light switch are runtime
+        /// state: every setter is exercised, an invalid direction is rejected, and the startup state
+        /// is restored afterwards so the captured image is unchanged.
+        /// </summary>
+        private void exercise_lighting(native_api* api) {
+            var centre = new vector_3 { x = 0.0f, y = 1.0f, z = 0.0f };
+            var axis = new vector_3 { x = 0.0f, y = 1.0f, z = 0.0f };
+            if (!lighting.try_set_sun_direction(new vector_3 { x = 1.0f, y = 0.8f, z = 0.2f }) ||
+                !lighting.try_set_area_light(centre, 0.5f, false, axis, 0.3f) ||
+                !lighting.try_set_clustered_lights(false)) {
+                throw new InvalidOperationException("a lighting setter was rejected");
+            }
+            if (lighting.try_set_sun_direction(new vector_3())) {
+                throw new InvalidOperationException("an invalid sun direction was accepted");
+            }
+            if (!lighting.try_set_sun_direction(new vector_3 { x = 0.3f, y = 1.0f, z = 0.5f }) ||
+                !lighting.try_clear_area_light() || !lighting.try_set_clustered_lights(true)) {
+                throw new InvalidOperationException("cannot restore the startup lighting state");
+            }
+            api->write_log("Game: lighting round trip"u8);
+        }
+
+        /// Rebuilt every frame: the overlay draws the panel after this returns, so the widget list is the
+        /// game's description of the CURRENT state, never a cached one.
+        private void build_panel() {
+            if (!input_registered) {
+                input_registered = true;
+                // ONE HANDLER FOR THE WHOLE WINDOW STREAM. The host reports what the window produced and
+                // keeps no input state; what a wheel notch or an escape key means is the game's call.
+                if (!input_events.try_set_callback(on_input)) {
+                    managed_bootstrap.core.write_log(
+                        System.Text.Encoding.UTF8.GetBytes("Game: input events unsupported by this host"));
+                }
+            }
+            // The camera drag is applied here, on the frame after the events: a game reads the stream and
+            // decides when the pose changes.
+            if (orbit_dx != 0.0f && camera.try_get(out var pose)) {
+                pose.yaw_degrees += orbit_dx;
+                pose.try_apply();
+                orbit_dx = 0.0f;
+            }
+            // The project sizes the panel (`[gui] panel_width`, auto height); the game only names it.
+            if (!ui.begin_panel("deren demo")) {
+                return;
+            }
+            ui.text(ui.wants_mouse() ? "pointer: panel" : "pointer: scene");
+            // A knob is only written when it disagrees with its cell, so a drag costs one call per frame
+            // of movement instead of one call per frame of the session.
+            if (exposure_cell.number != last_exposure) {
+                last_exposure = exposure_cell.number;
+                post_processing.try_set_exposure(last_exposure);
+            }
+            ui.slider("exposure", exposure_cell, 0.05f, 4.0f);
+            if (bloom_cell.flag != last_bloom) {
+                last_bloom = bloom_cell.flag;
+                post_processing.try_set_bloom(last_bloom ? 0.6f : 0.0f, 0.75f);
+            }
+            ui.checkbox("bloom", bloom_cell);
+            if (fxaa_cell.flag != last_fxaa) {
+                last_fxaa = fxaa_cell.flag;
+                post_processing.try_set_fxaa(last_fxaa);
+            }
+            ui.checkbox("fxaa", fxaa_cell);
+            if (sun_cell.vector.x != last_sun_x || sun_cell.vector.y != last_sun_y || sun_cell.vector.z != last_sun_z) {
+                last_sun_x = sun_cell.vector.x;
+                last_sun_y = sun_cell.vector.y;
+                last_sun_z = sun_cell.vector.z;
+                lighting.try_set_sun_direction(sun_cell.vector);
+            }
+            ui.vec3("sun direction", sun_cell, 0.02f);
+            if (ui.combo("tone mapping", tone_names, tone_cell) && tone_cell.selected != tone_applied) {
+                tone_applied = tone_cell.selected;
+                post_processing.try_set_tone_mapping(tone_applied);
+            }
+            // A BUTTON IS A ONE-SHOT: the cell is set while the overlay draws, and read on the next update.
+            ui.button("capture screenshot", shot_cell);
+            if (shot_cell.flag) {
+                shot_cell.clear();
+                if (!screenshot.try_request()) {
+                    managed_bootstrap.core.write_log(
+                        System.Text.Encoding.UTF8.GetBytes("Game: screenshot request rejected"));
+                }
+            }
+            ui.end_panel();
+        }
+
+        /// Every window event, on the render thread. This demo orbits the camera while the left button is
+        /// held over the scene - the cheapest proof that the stream arrives with usable deltas.
+        private static void on_input(input_event value) {
+            var current = instance;
+            if (current == null) {
+                return;
+            }
+            if (!input_reported) {
+                input_reported = true;
+                managed_bootstrap.core.write_log(System.Text.Encoding.UTF8.GetBytes(
+                    $"Game: input stream live (type {(uint)value.type})"));
+            }
+            if (value.type == input_type.mouse_button && value.button == 0) {
+                current.left_down = value.down;
+                return;
+            }
+            if (value.type != input_type.mouse_move || !current.left_down || ui.wants_mouse()) {
+                return;
+            }
+            current.orbit_dx += -value.dx * 0.25f;
         }
 
         private void attach(script_base script, node_id node) {
@@ -94,11 +497,52 @@ namespace game {
             scripts.Add(script);
         }
 
-        [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+        [UnmanagedCallersOnly]
         private static script_status update(frame_info* frame) {
             if (instance == null || frame == null) {
                 return script_status.invalid_argument;
             }
+            if (!instance.frame_signal_scheduled) {
+                instance.frame_signal_scheduled = true;
+                var current = instance;
+                frame_scheduler.do_after_frame(() => {
+                    current.frame_signal_ran = true;
+                    // A probe capture outlives one frame: the scripted capture loop stops as soon as a
+                    // screenshot request is consumed, which would end the six-face loop on frame one,
+                    // so a running probe defers the screenshot instead.
+                    if (!current.probe_active) {
+                        current.screenshot_requested = screenshot.try_request();
+                    }
+                    // Exercise the managed environment path once. The project's `[lighting]
+                    // environment_hdr` wins when it names one (an empty path means the procedural sky),
+                    // so a config that asks for a studio HDR is the environment that gets published.
+                    current.environment_requested =
+                        global_environment.try_set_hdr(project_config.lighting.environment_hdr);
+                });
+            } else if (!instance.frame_signal_ran || !instance.environment_requested ||
+                       (!instance.screenshot_requested && !instance.probe_active)) {
+                return script_status.script_failure;
+            }
+            // One probe step per frame: the session owns the six-face cadence (settle, request,
+            // collect, next face) so this is all the game side of a capture looks like.
+            if (instance.probe != null && !instance.probe.step()) {
+                if (instance.probe.failure != null) {
+                    managed_bootstrap.core.write_log(System.Text.Encoding.UTF8.GetBytes(
+                        $"Game: reflect probe failed: {instance.probe.failure}"));
+                }
+                instance.probe = null;
+            }
+            // The screenshot a capture loop stops on is deferred while the probe runs (the loop ends
+            // on the frame that consumes it). Once the cube is written - or the probe gave up - the
+            // deferred screenshot is asked for here, so a scripted run still ends the way it always
+            // does instead of being reported as a failed frame.
+            if (!instance.screenshot_requested && instance.frame_signal_ran && !instance.probe_active) {
+                instance.screenshot_requested = screenshot.try_request();
+            }
+            if (!instance.camera_checked && camera.try_get(out var pose)) {
+                instance.camera_checked = pose.try_apply();
+            }
+            instance.build_panel();
             if (frame->input == null) {
                 return script_status.success;
             }
@@ -120,7 +564,7 @@ namespace game {
             }
         }
 
-        [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+        [UnmanagedCallersOnly]
         private static script_status stop() {
             if (instance == null) {
                 return script_status.success;

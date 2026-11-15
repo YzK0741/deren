@@ -41,74 +41,115 @@ namespace {
         namespace fs = std::filesystem;
         auto const root = fs::absolute("test-game");
         fs::create_directories(root / "scenes");
-        CHECK(!deren::app_config::load_project_settings(root));
         auto const manifest = root / "deren.toml";
         auto const scene = root / "scenes" / "main.toml";
+        auto const valid_scene = std::string("[paths]\nasset_library = \"unused\"\nscreenshot_dir = \"captures\"\n");
+        auto const valid_manifest = std::string("[project]\nname = \"Test Game\"\nmain_scene = \"scenes/main.toml\"\n"
+                                                "[paths]\nasset_library = \"assets\"\n"
+                                                "[scripts]\nassembly = \"Game.dll\"\n"
+                                                "[input.actions]\nmove_left = [\"a\", \"left\"]\n");
+        CHECK(!deren::app_config::load_project_settings(root));
         std::ofstream(manifest) << "[project]\nname = \"Test Game\"\nmain_scene = \"scenes/main.toml\"\n"
                                    "[paths]\nasset_library = \"assets\"\n";
         CHECK(!deren::app_config::load_project_settings(root));
         std::ofstream(scene) << "[scene\n";
         CHECK(!deren::app_config::load_project_settings(root));
-        std::ofstream(scene) << "[paths]\nasset_library = \"unused\"\nscreenshot_dir = \"captures\"\n"
-                                "[[scene.objects]]\nname = \"Player\"\nasset = \"helmet\"\n"
-                                "[[scene.objects]]\nname = \"Prop\"\nmodel = \"models/prop.gltf\"\n";
+        std::ofstream(scene) << valid_scene;
+        std::ofstream(manifest) << valid_manifest;
+        std::ofstream(root / "Game.dll").put('x');
         auto const result = deren::app_config::load_project_settings(root);
         CHECK(result.has_value());
         if (result) {
             CHECK(result->name == "Test Game");
-            CHECK(result->script_assembly.empty());
+            CHECK(result->script_assembly == root / "Game.dll");
             auto const& settings = result->settings;
             CHECK(fs::path(settings.config_file) == scene);
             CHECK(fs::path(settings.paths.asset_library) == root / "assets");
             CHECK(fs::path(settings.paths.screenshot_dir) == root / "captures");
-            CHECK(settings.scene.objects.size() == 2);
-            if (settings.scene.objects.size() == 2) {
-                CHECK(settings.scene.objects[0].asset == "helmet");
-                CHECK(fs::path(settings.scene.objects[1].model) == root / "models" / "prop.gltf");
-            }
+            CHECK(settings.scene.objects.empty());
+            CHECK(result->input_actions.size() == 1);
         }
-        std::ofstream(scene) << "[[scene.objects]]\nmodel = \"models/prop.gltf\"\nscript = \"game.rotate\"\n";
-        CHECK(!deren::app_config::load_project_settings(root));
+        std::ofstream(scene) << valid_scene << "[[scene.objects]]\nname = \"Dead\"\nasset = \"helmet\"\n";
+        auto const rejected_objects = deren::app_config::load_project_settings(root);
+        CHECK(!rejected_objects);
+        if (!rejected_objects) {
+            CHECK(rejected_objects.error().find("scene.objects") != std::string::npos);
+        }
+        std::ofstream(scene) << valid_scene;
         std::ofstream(manifest) << "[project]\nname = \"Test Game\"\nmain_scene = \"scenes/main.toml\"\n"
-                                   "[scripts]\nassembly = \"Game.dll\"\n"
-                                   "[input.actions]\nmove_left = [\"a\", \"left\"]\n";
+                                   "[paths]\nasset_library = \"assets\"\n";
+        auto const missing_scripts = deren::app_config::load_project_settings(root);
+        CHECK(!missing_scripts);
+        if (!missing_scripts) {
+            CHECK(missing_scripts.error().find("[scripts] assembly") != std::string::npos);
+        }
+        std::ofstream(manifest) << valid_manifest;
+        fs::remove(root / "Game.dll");
         CHECK(!deren::app_config::load_project_settings(root));
         std::ofstream(root / "Game.dll").put('x');
-        auto const scripted = deren::app_config::load_project_settings(root);
-        CHECK(scripted.has_value());
-        if (scripted) {
-            CHECK(scripted->script_assembly == root / "Game.dll");
-            CHECK(scripted->settings.scene.objects[0].script == "game.rotate");
-            CHECK(scripted->input_actions.size() == 1);
-        }
-        std::ofstream(scene) << "[[scene.objects]]\nmodel = \"models/prop.gltf\"\nscript = 42\n";
-        CHECK(!deren::app_config::load_project_settings(root));
-        std::ofstream(scene) << "[[scene.objects]]\nmodel = \"models/prop.gltf\"\nscript = \"game.rotate\"\n";
         std::ofstream(manifest, std::ios::app) << "toggle_spin = [\"not_a_key\"]\n";
         auto const bad_key = deren::app_config::load_project_settings(root);
         CHECK(!bad_key && bad_key.error().find("not_a_key") != std::string::npos);
-        std::ofstream(manifest) << "[project]\nname = \"Test Game\"\nmain_scene = \"scenes/main.toml\"\n"
-                                   "[scripts]\nassembly = \"Game.dll\"\n[paths]\nasset_library = \"assets\"\n";
-        std::ofstream(scene) << "[[scene.objects]]\nasset = \"helmet\"\npipeline = \"pbr\"\nspawn_slot = true\n"
-                                "ray_tracing_shadow = true\nray_tracing_reflection = true\n";
-        auto const spawnable = deren::app_config::load_project_settings(root);
-        CHECK(spawnable && spawnable->settings.scene.objects[0].spawn_slot && !spawnable->settings.scene.objects[0].visible);
-        if (spawnable) {
-            CHECK(!spawnable->settings.scene.objects[0].ray_tracing_shadow);
-            CHECK(!spawnable->settings.scene.objects[0].ray_tracing_reflection);
-            CHECK(spawnable->settings.scene.objects[0].cast_shadow);
-        }
-        std::ofstream(scene, std::ios::app) << "script = \"game.rotate\"\n";
-        CHECK(!deren::app_config::load_project_settings(root));
-        fs::remove(root / "Game.dll");
-        std::ofstream(scene) << "[scene]\nobjects = []\n";
-        CHECK(!deren::app_config::load_project_settings(root));
         std::ofstream(manifest) << "[project]\nname = \"Test Game\"\n";
         CHECK(!deren::app_config::load_project_settings(root));
-        fs::remove(manifest);
-        fs::remove(scene);
-        fs::remove(root / "scenes");
+        fs::remove_all(root);
+    }
+
+    void test_unknown_keys_are_strict_in_project_files() {
+        std::ofstream("unknown-config.toml") << "[render]\nwindow_width = 640\nwindow_widht = 1280\n"
+                                                "[[scene.objects]]\nname = \"typo\"\nasset = \"helmet\"\ntyop = 1\n";
+        auto const valid = deren::app_config::validate_settings_file("unknown-config.toml");
+        CHECK(!valid);
+        if (!valid) {
+            CHECK(valid.error().find("render.window_widht") != std::string::npos);
+            CHECK(valid.error().find("scene.objects[].tyop") != std::string::npos);
+        }
+        auto const settings = deren::app_config::load_settings("unknown-config.toml");
+        CHECK(settings.render.window_width == 640);
+        CHECK(settings.scene.objects.size() == 1);
+        std::filesystem::remove("unknown-config.toml");
+
+        auto const example = deren::app_config::validate_settings_file(VR_TEST_SOURCE_DIR "/config.example.toml");
+        CHECK_MSG(example.has_value(), "config.example.toml must satisfy the strict schema");
+        if (!example) {
+            CHECK_MSG(false, example.error().c_str());
+        }
+    }
+
+    void test_project_manifest_rejects_unknown_keys() {
+        namespace fs = std::filesystem;
+        auto const root = fs::absolute("test-project-unknown");
+        fs::create_directories(root);
+        std::ofstream(root / "deren.toml") << "[project]\nname = \"Bad\"\nmain_scene = \"main.toml\"\n"
+                                              "[scripts]\ntypo = 1\n";
+        auto const result = deren::app_config::load_project_settings(root);
+        CHECK(!result);
+        if (!result) {
+            CHECK(result.error().find("scripts.typo") != std::string::npos);
+        }
+        fs::remove(root / "deren.toml");
         fs::remove(root);
+    }
+
+    void test_project_arguments_are_explicit() {
+        char const* const valid[] = {"deren", "run", "project"};
+        CHECK(deren::app_config::validate_project_arguments(3, valid).has_value());
+        char const* const config[] = {"deren", "run", "project", "--config", "scene.toml"};
+        auto const rejected_config = deren::app_config::validate_project_arguments(5, config);
+        CHECK(!rejected_config);
+        if (!rejected_config) {
+            CHECK(rejected_config.error().find("--config") != std::string::npos);
+        }
+        char const* const asset[] = {"deren", "run", "project", "--asset", "helmet"};
+        CHECK(!deren::app_config::validate_project_arguments(5, asset));
+        char const* const extra[] = {"deren", "run", "project", "stray"};
+        auto const rejected_extra = deren::app_config::validate_project_arguments(4, extra);
+        CHECK(!rejected_extra);
+        if (!rejected_extra) {
+            CHECK(rejected_extra.error().find("stray") != std::string::npos);
+        }
+        char const* const missing[] = {"deren", "run"};
+        CHECK(!deren::app_config::validate_project_arguments(2, missing));
     }
 
     template <typename Settings>
@@ -124,15 +165,32 @@ namespace {
         }
     }
 
+    // THE RIG AND THE IBL KNOBS LIVE IN PROFILE FILES ([toon] profile / [lighting] profile): the parser reads
+    // their lanes only there and never from the section itself, so every case below writes the numbers into a
+    // profile beside the config and points one key at it. A relative profile path resolves against the config
+    // file's directory, which for these temporary files is the test's working directory.
+    std::filesystem::path write_profile(char const* config_name, char const* section, char const* suffix, std::string_view keys) {
+        std::filesystem::path const profile(std::string(config_name) + suffix);
+        std::ofstream(profile) << keys;
+        std::ofstream(config_name) << "[" << section << "]\nprofile = \"" << profile.filename().string() << "\"\n";
+        return profile;
+    }
+
     void test_environment_viewing_controls() {
-        std::ofstream("environment-viewing.toml") << "[lighting]\nenvironment_rotation=90\nenvironment_strength=2\nenvironment_background=1\n[render]\ntone_mapping=1\nexposure=1.5\n";
+        auto const profile = write_profile("environment-viewing.toml", "lighting", ".profile.toml",
+                                           "environment_rotation=90\nenvironment_strength=2\nenvironment_background=1\n");
+        std::ofstream("environment-viewing.toml", std::ios::app) << "[render]\ntone_mapping=1\nexposure=1.5\n";
         auto s = deren::app_config::load_settings("environment-viewing.toml");
         check_environment_controls(s);
         std::filesystem::remove("environment-viewing.toml");
+        std::filesystem::remove(profile);
     }
 
     void test_environment_invalid_controls() {
-        std::ofstream("environment-invalid.toml") << "[lighting]\nenvironment_rotation=nan\nenvironment_strength=inf\nenvironment_background=99\nenvironment_blur=nan\nenvironment_color=[nan, -1.0, 2.0]\nenvironment_intensity=inf\n[render]\nexposure=nan\ntone_mapping=99\n";
+        auto const profile = write_profile("environment-invalid.toml", "lighting", ".profile.toml",
+                                           "environment_rotation=nan\nenvironment_strength=inf\nenvironment_background=99\n"
+                                           "environment_blur=nan\nenvironment_color=[nan, -1.0, 2.0]\nenvironment_intensity=inf\n");
+        std::ofstream("environment-invalid.toml", std::ios::app) << "[render]\nexposure=nan\ntone_mapping=99\n";
         auto s = deren::app_config::load_settings("environment-invalid.toml");
         CHECK(s.lighting.environment_rotation == 0);
         CHECK(s.lighting.environment_strength == 1);
@@ -144,6 +202,7 @@ namespace {
         CHECK(s.lighting.environment_intensity == 0.35f);
         CHECK(s.render.exposure == 1 && s.render.tone_mapping == 0);
         std::filesystem::remove("environment-invalid.toml");
+        std::filesystem::remove(profile);
     }
     template <typename Settings>
     void check_presentation_settings(Settings const& settings, bool expected) {
@@ -159,7 +218,6 @@ namespace {
         CHECK(settings.model == "Models/tri.gltf");
         CHECK(settings.render.vsync);
         check_presentation_settings(settings, true);
-        CHECK(!settings.render.shadow);
         CHECK(settings.render.shadow_cascades == 2);
         CHECK(settings.render.shadow_cascade_blend > 0.24f && settings.render.shadow_cascade_blend < 0.26f);
         CHECK(settings.render.toon_shadow_softness == 0.0f); // the fixture omits the key: the compiled default
@@ -204,7 +262,9 @@ namespace {
         // "" and the comparison would fail
         CHECK(settings.render.background_glb == "bg/test-background.glb");
         CHECK(!settings.gui.show);
-        CHECK(settings.lighting.irr_size == 64);
+        // The IBL bake sizes are compiled constants now ([lighting] env_size/env_mip_count/irr_size/lut_size
+        // are gone): the fixture's old irr_size = 64 must be ignored, not merely defaulted, or a config could
+        // still change the bake and every measured environment with it.
         // [lighting] area_light_*: the reference package's soft box, with BOTH v1 A/B switches at their
         // NON-default value (false) - so these two CHECKs prove the parser reads the booleans instead of
         // leaving the compiled defaults (true) in place.
@@ -226,7 +286,6 @@ namespace {
         deren::app_config::app_settings const settings = deren::app_config::load_settings(VR_TEST_SOURCE_DIR "/source/tests/fixtures/does_not_exist.toml");
         check_presentation_settings(settings, false);
         CHECK(settings.model.empty());
-        CHECK(settings.render.shadow);
         CHECK(!settings.render.fxaa);
         CHECK(settings.render.bloom);       // default: the bright-pass bloom chain is on
         CHECK(settings.render.gpu_timings); // default: pass timings are collected
@@ -269,7 +328,6 @@ namespace {
         CHECK(!settings.config_file.empty()); // parsed, not rejected
         CHECK(!settings.model.empty());
         CHECK(settings.render.window_width == 1080);
-        CHECK(settings.render.shadow);
         CHECK(settings.render.shadow_cascades == 3);
         CHECK(settings.render.shadow_map_size == 2048);
         CHECK(!settings.render.unlit); // default: the lit PBR path
@@ -283,12 +341,11 @@ namespace {
         CHECK(!settings.render.visibility_buffer); // the example ships the switch OFF (the historic frame)
         CHECK(!settings.render.software_raster);
         CHECK(settings.lighting.demo_lights == 0);
-        CHECK(settings.lighting.env_size == 256);
-        // environment_hdr empty is the contract that keeps the procedural sky (and therefore every frame
-        // taken before the key existed) byte-identical; the intensity default is the reference package's
-        // its world_strength, so pointing the key at the converted studio HDR needs no second setting.
-        CHECK(settings.lighting.environment_hdr.empty());
-        CHECK(settings.lighting.environment_intensity > 0.349f && settings.lighting.environment_intensity < 0.351f);
+        // The example ships the baked Studio Neutral IBL as its default environment. This is a deliberate
+        // exception to the historic byte-identical contract: the preset replaces the procedural sky, while
+        // the empty key still means "procedural sky" for configurations that never set it.
+        CHECK(settings.lighting.environment_hdr == "environments/neutral.ibl");
+        CHECK(settings.lighting.environment_intensity > 0.99f && settings.lighting.environment_intensity < 1.01f);
         // [lighting] area_light_*: the example DOCUMENTS the reference package's soft box but ships it OFF
         // (`area_light_size = 0`), which is the byte-identical contract - a config copied from this file
         // renders what the repository rendered before the keys existed, and the block is one edit away.
@@ -362,17 +419,10 @@ namespace {
         }
     }
 
-    // The [lighting] resolutions feed the CPU IBL precompute, which runs BEFORE the runtime sees the
-    // settings - so an unclamped out-of-range value is a crash rather than a bad-looking frame:
-    // env_size = 0 reads past an empty pyramid source, a negative size becomes a huge allocation
-    // request (length_error -> terminate, exceptions are off), and env_mip_count < 2 wraps the
-    // sampler's "pyramid.size() - 1". Every one of these must land on its documented default.
-    void test_lighting_sizes_are_clamped() {
+    // The IBL resolutions are compile-time constants (environment_loader.cppm), so this fixture's
+    // env_size/irr_size lines are inert; what is still clamped here is the lighting calibration.
+    void test_lighting_values_are_clamped() {
         deren::app_config::app_settings const settings = deren::app_config::load_settings(VR_TEST_SOURCE_DIR "/source/tests/fixtures/config_bad_lighting.toml");
-        CHECK(settings.lighting.env_size == 256);
-        CHECK(settings.lighting.env_mip_count == 5);
-        CHECK(settings.lighting.irr_size == 32);
-        CHECK(settings.lighting.lut_size == 256);
         CHECK(settings.lighting.environment_intensity > 0.349f && settings.lighting.environment_intensity < 0.351f); // -1.0 -> the default
         // The area light's numbers: a negative size/power means "no such emitter" rather than a negative
         // one, `nan` on the multiplier would ride the light UBO into every pixel (clamp cannot catch a NaN),
@@ -387,7 +437,7 @@ namespace {
     // app_config can read back - including the ones whose bounds the loader clamps. This fixture is
     // that generator's full default output (one entry per key it writes); it exists because the two
     // drifted apart once already: the generator silently omitted eleven [render] keys the parser
-    // understood, and its env_mip_count default range (1..10) overlapped a value the loader rejects.
+    // understood, and one of its clamp ranges overlapped a value the loader rejects.
     // A key added to the generator without a parser (or a clamp added without the generator) shows
     // up here as a wrong value rather than as a user's surprise.
     void test_generated_config_parses() {
@@ -404,7 +454,6 @@ namespace {
         CHECK(settings.render.camera_fit == "exterior");
         CHECK(!settings.render.unlit);
         // [render] shadow mapping
-        CHECK(settings.render.shadow);
         CHECK(settings.render.shadow_cascades == 3);
         CHECK(settings.render.shadow_map_size == 2048);
         CHECK(settings.render.shadow_cascade_blend > 0.09f && settings.render.shadow_cascade_blend < 0.11f);
@@ -444,10 +493,6 @@ namespace {
         CHECK(settings.gui.panel_width > 379.0f && settings.gui.panel_width < 381.0f);
         CHECK(settings.gui.panel_height > 139.0f && settings.gui.panel_height < 141.0f);
         // [lighting]: the loader's clamps must leave every generator default untouched
-        CHECK(settings.lighting.env_size == 256);
-        CHECK(settings.lighting.env_mip_count == 5);
-        CHECK(settings.lighting.irr_size == 32);
-        CHECK(settings.lighting.lut_size == 256);
         CHECK(settings.lighting.environment_hdr.empty()); // the generator's default: the procedural sky
         CHECK(settings.lighting.environment_intensity > 0.349f && settings.lighting.environment_intensity < 0.351f);
         // [lighting] area_light_*: OFF by default, and the generator writes all eight keys out, so this is
@@ -817,42 +862,42 @@ namespace {
     // now keeps the compiled default; the blend weight is clamped in double space, before the narrowing; and
     // the expression index is held to its documented 0..3.
     void test_toon_rig_rejects_nonfinite_and_clamps() {
-        std::ofstream("toon-nonfinite.toml")
-            << "[toon]\nday_strength = nan\nhead_light_day0 = inf\nenv_strength = -inf\nemotion_type = nan\n";
-        auto const nonfinite = deren::app_config::load_settings("toon-nonfinite.toml").toon;
+        auto const profile = write_profile("toon-rig.toml", "toon", ".rig.toml",
+                                           "day_strength = nan\nhead_light_day0 = inf\nenv_strength = -inf\nemotion_type = nan\n");
+        auto const nonfinite = deren::app_config::load_settings("toon-rig.toml").toon;
         CHECK(nonfinite.day_strength == 1.0f);
         CHECK(nonfinite.head_light_day0 == 0.7f);
         CHECK(nonfinite.env_strength == 1.0f);
         CHECK(nonfinite.emotion_type == 0.0f);
-        std::filesystem::remove("toon-nonfinite.toml");
 
         // The clamp happens before the float conversion, so a finite number larger than a float can hold
         // reads as 1 rather than as the +inf a later clamp would have had to rescue.
-        std::ofstream("toon-day-strength.toml") << "[toon]\nday_strength = 1e300\n";
-        CHECK(deren::app_config::load_settings("toon-day-strength.toml").toon.day_strength == 1.0f);
-        std::ofstream("toon-day-strength.toml") << "[toon]\nday_strength = -3.0\n";
-        CHECK(deren::app_config::load_settings("toon-day-strength.toml").toon.day_strength == 0.0f);
-        std::ofstream("toon-day-strength.toml") << "[toon]\nday_strength = 0.25\n";
-        CHECK(deren::app_config::load_settings("toon-day-strength.toml").toon.day_strength == 0.25f);
-        std::filesystem::remove("toon-day-strength.toml");
+        std::ofstream(profile) << "day_strength = 1e300\n";
+        CHECK(deren::app_config::load_settings("toon-rig.toml").toon.day_strength == 1.0f);
+        std::ofstream(profile) << "day_strength = -3.0\n";
+        CHECK(deren::app_config::load_settings("toon-rig.toml").toon.day_strength == 0.0f);
+        std::ofstream(profile) << "day_strength = 0.25\n";
+        CHECK(deren::app_config::load_settings("toon-rig.toml").toon.day_strength == 0.25f);
 
         // 0 = no expression, 1..3 = the atlas' other cells. Anything outside that range is clamped, because
         // the shader's frac/floor mapping would otherwise sample outside the atlas.
-        std::ofstream("toon-emotion.toml") << "[toon]\nemotion_type = 7.0\n";
-        CHECK(deren::app_config::load_settings("toon-emotion.toml").toon.emotion_type == 3.0f);
-        std::ofstream("toon-emotion.toml") << "[toon]\nemotion_type = -2.0\n";
-        CHECK(deren::app_config::load_settings("toon-emotion.toml").toon.emotion_type == 0.0f);
-        std::ofstream("toon-emotion.toml") << "[toon]\nemotion_type = 2.0\n";
-        CHECK(deren::app_config::load_settings("toon-emotion.toml").toon.emotion_type == 2.0f);
-        std::filesystem::remove("toon-emotion.toml");
+        std::ofstream(profile) << "emotion_type = 7.0\n";
+        CHECK(deren::app_config::load_settings("toon-rig.toml").toon.emotion_type == 3.0f);
+        std::ofstream(profile) << "emotion_type = -2.0\n";
+        CHECK(deren::app_config::load_settings("toon-rig.toml").toon.emotion_type == 0.0f);
+        std::ofstream(profile) << "emotion_type = 2.0\n";
+        CHECK(deren::app_config::load_settings("toon-rig.toml").toon.emotion_type == 2.0f);
+        std::filesystem::remove("toon-rig.toml");
+        std::filesystem::remove(profile);
     }
 
     // THREE NUMBERS OR NOTHING: a vector or colour is applied only when all three components parse and are
     // finite. Committing component by component used to leave this config's first number next to the
     // default's second - a direction or colour no file asked for, and nothing in the logs to say so.
     void test_vectors_and_colours_are_three_numbers_or_nothing() {
-        std::ofstream("vec3-partial.toml") << "[toon]\nhead_light_colour = [0.1, \"bad\", 0.3]\nsun_dark_colour = [0.1, 0.2]\n"
-                                              "[lighting]\nsun_direction = [1.0, nan, 0.0]\n";
+        auto const partial_profile = write_profile("vec3-partial.toml", "toon", ".rig.toml",
+                                                   "head_light_colour = [0.1, \"bad\", 0.3]\nsun_dark_colour = [0.1, 0.2]\n");
+        std::ofstream("vec3-partial.toml", std::ios::app) << "[lighting]\nsun_direction = [1.0, nan, 0.0]\n";
         auto const partial = deren::app_config::load_settings("vec3-partial.toml");
         CHECK(partial.toon.head_light_colour[0] == 0.60f); // the whole colour stays the default
         CHECK(partial.toon.head_light_colour[1] == 0.65f);
@@ -864,15 +909,18 @@ namespace {
         CHECK(partial.lighting.sun_direction[1] == 1.0f);
         CHECK(partial.lighting.sun_direction[2] == 0.5f);
         std::filesystem::remove("vec3-partial.toml");
+        std::filesystem::remove(partial_profile);
 
         // All three, and they are taken verbatim.
-        std::ofstream("vec3-full.toml") << "[toon]\nhead_light_colour = [0.1, 0.2, 0.3]\nsun_dark_colour = [0.4, 0.5, 0.6]\n"
-                                           "[lighting]\nsun_direction = [-1.0, 0.5, 0.25]\n";
+        auto const full_profile = write_profile("vec3-full.toml", "toon", ".rig.toml",
+                                                "head_light_colour = [0.1, 0.2, 0.3]\nsun_dark_colour = [0.4, 0.5, 0.6]\n");
+        std::ofstream("vec3-full.toml", std::ios::app) << "[lighting]\nsun_direction = [-1.0, 0.5, 0.25]\n";
         auto const full = deren::app_config::load_settings("vec3-full.toml");
         CHECK(full.toon.head_light_colour[0] == 0.1f && full.toon.head_light_colour[2] == 0.3f);
         CHECK(full.toon.sun_dark_colour[1] == 0.5f);
         CHECK(full.lighting.sun_direction[0] == -1.0f && full.lighting.sun_direction[1] == 0.5f && full.lighting.sun_direction[2] == 0.25f);
         std::filesystem::remove("vec3-full.toml");
+        std::filesystem::remove(full_profile);
     }
 
     // INTEGER OPTIONS ARE VALIDATED IN 64-BIT SPACE, BEFORE THE NARROWING: `static_cast<std::int32_t>` is a
@@ -880,7 +928,7 @@ namespace {
     // used to become a plausible 5000-pixel window. Out-of-range values now saturate (and are then clamped
     // or rejected by the rule that holds the range) or keep the default - but they never wrap.
     void test_integer_options_do_not_wrap_when_narrowed() {
-        std::ofstream("narrowing.toml") << "grid_side = 4294967297\n"
+        std::ofstream("narrowing.toml") << "[debug]\ngrid_side = 4294967297\n"
                                            "[render]\nwindow_width = 4294972296\nwindow_height = 4294967996\n"
                                            "shadow_cascades = 4294967298\nssao_samples = 4294967298\n";
         auto const wrapped = deren::app_config::load_settings("narrowing.toml");
@@ -893,12 +941,12 @@ namespace {
 
         // A negative 64-bit value wraps to a plausible positive one for the same reason: -(2^32 - 1) is 1 if
         // the narrowing is allowed to truncate.
-        std::ofstream("narrowing-negative.toml") << "grid_side = -4294967295\n";
+        std::ofstream("narrowing-negative.toml") << "[debug]\ngrid_side = -4294967295\n";
         CHECK(deren::app_config::load_settings("narrowing-negative.toml").grid_side == 0);
         std::filesystem::remove("narrowing-negative.toml");
 
         // In-range values still read back unchanged.
-        std::ofstream("narrowing-valid.toml") << "grid_side = 12\n"
+        std::ofstream("narrowing-valid.toml") << "[debug]\ngrid_side = 12\n"
                                                  "[render]\nwindow_width = 800\nwindow_height = 600\n"
                                                  "shadow_cascades = 4\nssao_samples = 16\n";
         auto const valid = deren::app_config::load_settings("narrowing-valid.toml");
@@ -917,33 +965,37 @@ std::int32_t main() {
     CHECK(!std::isfinite(invalid_probe.position[0]));
     CHECK(!std::isfinite(invalid_probe.fade));
     std::filesystem::remove("probe-invalid.toml");
-    std::ofstream("toon-shape.toml") << "[toon]\nnose_shadow_reduction=0.8\nhair_highlight_width=0.3\nhair_highlight_shift=-0.2\n";
+    auto const shape_profile = write_profile("toon-shape.toml", "toon", ".rig.toml",
+                                             "nose_shadow_reduction=0.8\nhair_highlight_width=0.3\nhair_highlight_shift=-0.2\n");
     auto shape = deren::app_config::load_settings("toon-shape.toml").toon;
     CHECK(shape.nose_shadow_reduction == .8f);
     CHECK(shape.hair_highlight_width == .3f);
     CHECK(shape.hair_highlight_shift == -.2f);
-    std::ofstream("toon-shape.toml") << "[toon]\nnose_shadow_reduction=nan\nhair_highlight_width=5\nhair_highlight_shift=-5\n";
+    std::ofstream(shape_profile) << "nose_shadow_reduction=nan\nhair_highlight_width=5\nhair_highlight_shift=-5\n";
     shape = deren::app_config::load_settings("toon-shape.toml").toon;
     CHECK(shape.nose_shadow_reduction == 0);
     CHECK(shape.hair_highlight_width == 1);
     CHECK(shape.hair_highlight_shift == -1);
     std::filesystem::remove("toon-shape.toml");
+    std::filesystem::remove(shape_profile);
     CHECK(!deren::app_config::app_settings{}.toon.hair_masked_highlights);
     CHECK(!deren::app_config::app_settings{}.toon.face_angular_sdf);
-    std::ofstream("toon-modes.toml") << "[toon]\nhair_masked_highlights=true\nface_angular_sdf=true\n";
+    auto const modes_profile = write_profile("toon-modes.toml", "toon", ".rig.toml",
+                                             "hair_masked_highlights=true\nface_angular_sdf=true\n");
     auto modes = deren::app_config::load_settings("toon-modes.toml").toon;
     CHECK(modes.hair_masked_highlights && modes.face_angular_sdf);
-    std::ofstream("toon-modes.toml") << "[toon]\nhair_masked_highlights=1\nface_angular_sdf=\"true\"\n";
+    std::ofstream(modes_profile) << "hair_masked_highlights=1\nface_angular_sdf=\"true\"\n";
     modes = deren::app_config::load_settings("toon-modes.toml").toon;
     CHECK(!modes.hair_masked_highlights && !modes.face_angular_sdf);
     std::filesystem::remove("toon-modes.toml");
+    std::filesystem::remove(modes_profile);
     test_environment_viewing_controls();
     test_environment_invalid_controls();
     for (auto value : {"0", "-1", "nan", "inf", "1e100", "1e-100", "\"wrong\""}) {
         auto file = std::filesystem::path("subtilis-invalid.toml");
         {
             std::ofstream out(file);
-            out << "[render]\nsubtilis_error_px = " << value << '\n';
+            out << "[experimental]\nsubtilis_error_px = " << value << '\n';
         }
         CHECK(deren::app_config::load_settings(file.string()).render.subtilis_error_px == 1.f);
         std::filesystem::remove(file);
@@ -952,7 +1004,7 @@ std::int32_t main() {
         auto file = std::filesystem::path("subtilis-page-budget-range.toml");
         {
             std::ofstream out(file);
-            out << "[render]\n"
+            out << "[experimental]\n"
                    "subtilis_page_upload_bytes = 4294967297\n"
                    "subtilis_resident_page_bytes = 1234\n";
         }
@@ -965,7 +1017,7 @@ std::int32_t main() {
         auto file = std::filesystem::path("subtilis-page-budget-valid.toml");
         {
             std::ofstream out(file);
-            out << "[render]\n"
+            out << "[experimental]\n"
                    "subtilis_page_upload_bytes = 131072\n"
                    "subtilis_resident_page_bytes = 262144\n";
         }
@@ -983,7 +1035,7 @@ std::int32_t main() {
     test_integer_options_do_not_wrap_when_narrowed();
     test_software_raster_threshold_rejects_nonpositive_and_nonfinite();
     test_load_settings_missing_file_keeps_defaults();
-    test_lighting_sizes_are_clamped();
+    test_lighting_values_are_clamped();
     test_generated_config_parses();
     test_model_ask_sentinel_is_recognized_and_never_a_path();
     test_toon_shadow_softness_ladder_is_sanitized();
@@ -994,6 +1046,9 @@ std::int32_t main() {
     test_model_format_follows_the_extension();
     test_scene_objects_parse_and_sanitise();
     test_project_launch_settings();
+    test_unknown_keys_are_strict_in_project_files();
+    test_project_manifest_rejects_unknown_keys();
+    test_project_arguments_are_explicit();
     test_input_actions();
     return deren::vk_test::finish("test_app_config");
 }

@@ -220,7 +220,7 @@ One contract, and every graphics backend is an implementation of it.
   name and `deren_gui_vulkan.dll` exports one name. The handle is detached and the image is never
   unloaded, so a missing DLL is a named diagnosis rather than a loader error.
 - **The GUI plugin has its number and its recording targets.** `deren_gui_vulkan.dll` answers
-  `deren_make_gui`, whose first argument is `gui::gui_abi_version` (6 today). The device root crosses
+  `deren_make_gui`, whose first argument is `gui::gui_abi_version` (7 today). The device root crosses
   as the opaque `rhi::main_context_view` (abi 39), and `gui::create_info` carries two contract
   `mergeable_command_buffer_ref` targets the host created; the overlay records its ImGui segment into
   one of them and returns it, and the host executes that segment in a dedicated LOAD + secondary-contents
@@ -255,12 +255,13 @@ you are free to recombine or rewire them.
   material / camera / light UBO records of the GPU scene set
 - `deren.engine.runtime` - the frame facade (per-frame-slot scene resources, granular frame
   phases: poll_events -> recreate_if_minimized -> pace_and_acquire -> begin_recording ->
-  record_main_drawcalls -> end_recording -> submit_and_present, plus one-call
+  prepare_scene_recording -> record_graph -> end_recording -> submit_and_present, plus one-call
   render_frame()), drives the peer scene_tree / primitive modules, debug GUI overlay.
-  Shadow + main pass commands are recorded into per-slot `mergeable_command_buffer` segments and
-  merged into the frame's primary in one `command_buffer::execute(span)` batch; the main pass
-  fans its leaf recording out over the shared task pool (task_pool batches), each recording
-  worker getting its render_environment (thread-local pipeline-bind state)
+  `prepare_scene_recording` freezes the frame's graph eligibility and ray-tracing state;
+  `record_graph` then records the composed scene and post graph into the frame's command
+  buffer. The scene stage fans leaf recording out over the shared task pool (task_pool
+  batches), each recording worker getting its render_environment (thread-local
+  pipeline-bind state)
 - `deren.engine.render_environment` - per-recording-session render state: the session's command
   buffer, the available named pipelines (pointer to the runtime's stable name table), the
   session's default pipeline and a deduplicated binder (std::function, injected by the
@@ -272,10 +273,9 @@ you are free to recombine or rewire them.
 - `deren.gltf_loader` - pure-CPU glTF/GLB loading: meshes, keyframe animation, skins, morph
   targets, cameras and punctual lights (KHR_lights_punctual); world-AABB + loader
   diagnostics
-- `deren.app.config` / `deren.app.pipelines` / `deren.app.renderer` / `deren.app.ui` /
-  `deren.app.animation` / `deren.app.instancing` - the demo application split into focused modules:
-  startup config analysis and shader loading, pipeline setup, the renderer pass chain, the debug GUI,
-  the animation backend and the instancing stress grid
+- `deren.app.config` / `deren.app.pipelines` / `deren.app.renderer` / `deren.app.scripting` - the
+  application host split into focused modules: startup config analysis and shader loading, pipeline
+  setup, the renderer pass chain, and the managed C# host that owns the scene
 - `deren.utility` - log/panic, handle distribution, thread pool (deren.utility:thread_pool), BVH, data
   blocks, frame_clock, and the `vessel` containers' mimalloc-backed allocator (`memory::allocator`)
   Binary file readers require an explicit `max_bytes` payload limit and return
@@ -302,7 +302,7 @@ link only the ones you need into your project.
 
 Module reference is grouped under the `vulkan_core`, `runtime`,
 `engine_scene_tree`, `engine_render_environment`, `engine_render_resource`,
-`engine_pass`, `engine_animation`, `vulkan_gui`, `engine_math`, `gltf_loader`, `app_startup`, `app_pipelines`, `app_renderer`, `app_ui`, `app_animation`, `app_instancing`,
+`engine_pass`, `engine_animation`, `vulkan_gui`, `engine_math`, `gltf_loader`, `app_startup`, `app_pipelines`, `app_renderer`, `app_scripting`,
 `utility` and `app_config` groups; the GLSL / Slang shaders are collected under the
 `shaders` group (see the shader reference page for the pass chain, the shared scene set and
 the conventions).
@@ -310,10 +310,11 @@ the conventions).
 ## Rendering
 
 PBR (Cook-Torrance + image-based lighting), directional shadows with manual
-percentage-closer filtering, skybox, keyframe animation / skinning / morph playback, and a
-Dear ImGui debug overlay that is on by default (`[gui] show = false` in config disables it).
+percentage-closer filtering, skybox and keyframe animation / skinning / morph playback. The
+scene, its camera and its input belong to the managed C# game: the Dear ImGui debug overlay and
+the native preview that used to own them were removed together.
 
-The frame is also **measured**: with `[render] gpu_timings` (on by default) each pass
+The frame is also **measured**: with `[debug] gpu_timings` (on by default) each pass
 boundary writes a GPU timestamp into a per-frame-slot query pool, and the values are read
 back after the slot completed and averaged over one wall second (logged once per window and
 shown in the overlay); a whole-session average is logged when the runtime shuts down. Every

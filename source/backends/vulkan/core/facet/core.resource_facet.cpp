@@ -7,7 +7,6 @@
 // the creation logic here; the root keeps thin forwarders for its callers.
 // ============================================================================
 module;
-#include <cstddef>
 #include <vulkan/vulkan.h>
 module deren.vulkan.core;
 import deren.vulkan.core.vma.texture_upload_layout;

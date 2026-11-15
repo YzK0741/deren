@@ -4,6 +4,9 @@ type = "toon"
 model = "laevatain_game_toon_preview.glb"
 sidecar = "laevatain_game_toon_preview.glb.toon.tsv"
 license = "LICENSE.md"
+up_axis = "z"
+
+# Z-up: Blender's default export axes. The loader turns the skeleton upright (see deren::gltf::up_axis).
 tags = ["toon", "game-toon", "sample"]
 
 [toon]

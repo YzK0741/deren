@@ -1,7 +1,7 @@
 # Subtilis M2/M5 implementation plan
 
 Status: M2 v1 is implemented in this branch and is off by default
-(`[render] subtilis_gpu_cut`). M5a (offline page table), M5b (synchronous page
+(`[experimental] subtilis_gpu_cut`). M5a (offline page table), M5b (synchronous page
 residency manager), and M5c (cut requests, budgeted installs, raster page-id fetch,
 LOD0 fallback) are implemented on this branch; the local Release build, headless CTest,
 subtilis device tests, boundary, format, and changed-file tidy checks pass. M5c copies

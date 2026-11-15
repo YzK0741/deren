@@ -20,6 +20,9 @@
 module;
 
 #include <GLFW/glfw3.h>
+// gui_entry.hpp is included inside this module's purview and itself includes these two;
+// they must be pre-included here so the textual header does not attach STL declarations
+// to deren.vulkan.graphical_user_interface.
 #include <cstdint>
 #include <list>
 #include <memory>
@@ -89,6 +92,9 @@ namespace deren::vulkan::gui {
             }
             deren::gui::widget& add_combo(deren::utility::vessel::string label, deren::utility::vessel::vector<deren::utility::vessel::string> items, std::int32_t* current_item, std::function<void(std::int32_t)> on_change) override {
                 return this->keep(std::make_unique<combo_widget>(std::move(label), std::move(items), current_item, std::move(on_change)));
+            }
+            deren::gui::widget& add_button(deren::utility::vessel::string label, std::function<void()> on_press) override {
+                return this->keep(std::make_unique<button_widget>(std::move(label), std::move(on_press)));
             }
 
             void clear() override {

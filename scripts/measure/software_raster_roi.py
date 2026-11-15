@@ -153,25 +153,21 @@ window_width = {EXTENT[0]}
 window_height = {EXTENT[1]}
 vsync = false
 max_fps = 0
-validation_layers = {str(validation).lower()}
-visibility_buffer = true
-subtilis = true
-subtilis_error_px = 1.0
-subtilis_hysteresis = false
 character_forward = false
-shadow = false
 taa = false
 ssao = false
 bloom = false
 fxaa = false
-gpu_timings = true
 [gui]
 show = false
-[lighting]
-env_size = 128
-env_mip_count = 4
-irr_size = 16
-lut_size = 128
+[debug]
+validation_layers = {str(validation).lower()}
+gpu_timings = true
+[experimental]
+visibility_buffer = true
+subtilis = true
+subtilis_error_px = 1.0
+subtilis_hysteresis = false
 """,
         encoding="utf-8")
 

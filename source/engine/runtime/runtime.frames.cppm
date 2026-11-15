@@ -133,6 +133,8 @@ namespace deren::engine {
         this->bloom_graph_pending = false;
         this->bloom_graph_pending_generations.fill({});
         this->post_graph_drew_frame = false;
+        this->post_wrote_swapchain = false;
+        this->graph_recorded = false;
         this->main_graph_frame = false;
         this->post_graph_output = {};
         deren::engine::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::engine::profiling::cpu_phase::pace};
@@ -574,8 +576,8 @@ namespace deren::engine {
             this->furnace_cube_ready = true;
         }
         // Debug overlay: begin a fresh ImGui frame once per rendered frame (after the acquire,
-        // before any UI content is built; the actual draw is recorded at the end of
-        // record_main_drawcalls() while the main rendering instance is still open).
+        // before any UI content is built; the actual draw is recorded by record_graph() while the
+        // main rendering instance is still open).
         if (this->debug_gui_shown && this->debug_overlay != nullptr && this->debug_overlay->is_active()) {
             this->debug_overlay->new_frame();
         }
@@ -906,8 +908,8 @@ namespace deren::engine {
         return fold(fold(signature, this->skin_matrix_hash), this->morph_revision.load(std::memory_order_relaxed));
     }
 
-    void runtime::record_main_drawcalls() {
-        deren::engine::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::engine::profiling::cpu_phase::scene};
+    void runtime::prepare_scene_recording() {
+        deren::engine::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::engine::profiling::cpu_phase::prepare};
         if (!this->frame_command_buffer()) {
             return; // no frame is open (see begin_recording): there is nothing to record into
         }
@@ -966,7 +968,7 @@ namespace deren::engine {
         this->graph_rt_frame = this->main_graph_frame && this->active_features().rt_shadow && this->rt_shadow_pass[0] != nullptr;
         this->graph_rt_reflection_frame = this->main_graph_frame && this->active_features().rt_reflection && this->rt_reflection_pass[0] != nullptr;
         // THE GRAPH IS THE ONLY RECORDER NOW (cleanup after the flip): an ineligible frame records NOTHING
-        // here - no legacy cluster sort, no legacy shadow pass, no legacy scene - and record_post_process
+        // here - no legacy cluster sort, no legacy shadow pass, no legacy scene - and record_graph_content
         // reports the refusal once (see main_graph_candidate's readiness conditions).
         if (!this->main_graph_frame) {
             return;
@@ -1221,7 +1223,7 @@ namespace deren::engine {
         // chain, the overlay lanes, the ray-traced shadow's pipeline - is the graph's readiness question:
         // record_post_graph refuses a lane whose pass did not build and end_recording fails the frame on that error.
         // The one condition that leaves nothing to record is a missing G-buffer pipeline, and that frame is NOT failed:
-        // record_post_process defines it with the background colour (a pipeline that failed to build is a startup log
+        // record_graph_content defines it with the background colour (a pipeline that failed to build is a startup log
         // line, not an undefined frame - and a headless runtime with no chain at all must still advance frames). The
         // per-feature exclusions that used to live here existed only because the legacy tail could record those lanes
         // differently; that path is gone.
@@ -1550,7 +1552,7 @@ namespace deren::engine {
     // answers (the TAA input while the resolve runs, the HDR image otherwise). Its push block it composes itself
     // out of its SSAO parameters, the frame's inverse view-projection and the frame's answer to what the traced
     // chain is doing. The two per-image transitions the frame used to carry are the frame's ORDERING rule about the
-    // images the G-buffer pass wrote, so they now run in the deferred STAGE's preamble in `record_main_drawcalls` -
+    // images the G-buffer pass wrote, so they now run in the deferred STAGE's preamble in `prepare_scene_recording` -
     // the same move the ray-traced shadow stage's identical pair made, and the same command-stream position.
 
     // The G-buffer declarations' SAMPLERS: what is left of make_gbuffer_debug_pipeline in the renderer, because the
@@ -3448,7 +3450,24 @@ namespace deren::engine {
         }
     }
 
-    bool runtime::record_post_process() {
+    frame_status runtime::record_graph() {
+        deren::engine::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::engine::profiling::cpu_phase::scene};
+        if (!this->frame_command_buffer()) {
+            return frame_status::recording_failed; // no frame is open: there is nothing to record into
+        }
+        if (this->graph_recorded) {
+            return frame_status::recording_failed; // record_graph() is once per frame
+        }
+        this->graph_recorded = true;
+        this->post_wrote_swapchain = this->record_graph_content();
+        if (this->bloom_graph_error != rhi::error::ok) {
+            this->graph_recorded = false; // the graph refused this frame: end_recording() must not close it
+            return frame_status::recording_failed;
+        }
+        return frame_status::proceed;
+    }
+
+    bool runtime::record_graph_content() {
         // NO LEGACY HALF IS LEFT TO FALL BACK TO: eligibility is a READINESS question now (a missing pipeline
         // or overlay pass), and a frame that fails it is reported once and failed rather than recorded by a
         // path that no longer exists.
@@ -3501,14 +3520,13 @@ namespace deren::engine {
         if (!this->frame_command_buffer()) {
             return frame_status::end_recording_failed; // no frame is open: there is nothing to close
         }
-
-        // close the scene rendering instance and run the post-process pass (exposure/tonemap).
-        // The return value says whether a fullscreen pass actually wrote the swapchain image: only
-        // then is it in GENERAL and only then does it hold this frame's result.
-        bool const post_wrote_swapchain = this->record_post_process();
-        if (this->bloom_graph_error != rhi::error::ok) {
-            return frame_status::end_recording_failed;
+        if (!this->graph_recorded) {
+            return frame_status::recording_failed; // record_graph() must run before the frame can be closed
         }
+
+        // The graph recorded the scene and post chain in record_graph(); this phase only finalizes what it
+        // wrote. post_wrote_swapchain says whether a fullscreen pass (or the cleared-background fallback)
+        // actually wrote the swapchain image: only then is it in GENERAL and does it hold this frame's result.
         // Screenshot: while the post pass wrote the swapchain image it is still in GENERAL and still active
         // by this frame - the only point where a read-back copy is legal. Doing it here (rather than after
         // the present) also means the capture needs no extra submit, no re-acquire and no layout hand-back
@@ -3769,7 +3787,11 @@ namespace deren::engine {
         if (begin != frame_status::proceed) {
             return begin;
         }
-        this->record_main_drawcalls();
+        this->prepare_scene_recording();
+        frame_status const recorded = this->record_graph();
+        if (recorded != frame_status::proceed) {
+            return recorded;
+        }
         frame_status const end = this->end_recording();
         if (end != frame_status::proceed) {
             return end;

@@ -35,6 +35,7 @@ namespace {
     void test_phase_table() {
         CHECK(cpu_phase_names.size() == index_of(cpu_phase::count));
         CHECK(cpu_phase_names[index_of(cpu_phase::pace)] == std::string_view{"pace"});
+        CHECK(cpu_phase_names[index_of(cpu_phase::prepare)] == std::string_view{"prepare"});
         CHECK(cpu_phase_names[index_of(cpu_phase::submit)] == std::string_view{"submit"});
         // the five SUB-phases carry the marker the total's exclusion rule reads
         CHECK(cpu_phase_names[index_of(cpu_phase::cull)].ends_with("*"));
@@ -72,11 +73,13 @@ namespace {
         // add() accumulates the frame being measured, but only end(submit) folds it into the window:
         // a frame that never reaches submit keeps no partial numbers.
         phases.add(cpu_phase::pace, 1500us);
+        phases.add(cpu_phase::prepare, 500us);
         phases.add(cpu_phase::scene, 2500us);
         CHECK(phases.means()[index_of(cpu_phase::pace)] == 0.0);
         phases.end(cpu_phase::submit, std::chrono::steady_clock::now());
         auto const means = phases.means();
         CHECK(std::abs(means[index_of(cpu_phase::pace)] - 1.5) < 1e-9);
+        CHECK(std::abs(means[index_of(cpu_phase::prepare)] - 0.5) < 1e-9);
         CHECK(std::abs(means[index_of(cpu_phase::scene)] - 2.5) < 1e-9);
         CHECK(means[index_of(cpu_phase::shadow)] == 0.0);
     }

@@ -177,7 +177,7 @@ glTF-Sample-Assets model (Fox or CesiumMan for skinning, AnimatedMorphCube for m
 asset for the large-scale visual measurement, never committed.
 
 Acceptance for (b): the model loads, plays, and the **pre-change** binary renders the bug into the
-baseline - a static camera, a deforming mesh, `[render] gbuffer_debug = true` +
+baseline - a static camera, a deforming mesh, `[debug] gbuffer_debug = true` +
 `gbuffer_channel = 8`, and the deforming region reads flat olive. The channel is
 `motion * motion_gain + 0.5` with `motion_gain = width * 0.25` (`source/shaders/gbuffer_debug.frag:108-115`,
 `source/engine/pass/geometry_buffer_debug.cpp:134`), i.e. **"+0.5 bias means 'did not move' reads as flat

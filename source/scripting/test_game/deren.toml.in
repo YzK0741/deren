@@ -1,12 +1,18 @@
 [project]
 name = "C# Helmet Demo"
-main_scene = "main.toml"
+# The demo project is authored in source/scripting/test_game and REUSED in place: the entry scene
+# points at the source file, so the build tree keeps no copy of it. Everything the scene references
+# ([lighting] profile, the character light rig) resolves next to that file, i.e. in the source
+# project - editing the source TOMLs is the single way to change the demo, and no configure step can
+# overwrite authored data.
+main_scene = "@DEREN_DEMO_SCENE@"
 
 [paths]
 asset_library = "@DEREN_REPO_ROOT@/asset"
 
 [scripts]
-assembly = "Game.dll"
+# absolute: the managed assemblies are built into the build tree, not beside this manifest
+assembly = "@DEREN_DEMO_ASSEMBLY@"
 
 [input.actions]
 move_left = ["a"]

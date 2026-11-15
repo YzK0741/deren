@@ -196,10 +196,9 @@ include(source/engine/engine.cmake)
 
 
 option(VR_BUILD_TESTS "Build the headless unit tests" ON)
-option(DEREN_ENABLE_CSHARP "Build the Windows x64 .NET scripting host" OFF)
-if(DEREN_ENABLE_CSHARP)
-    add_subdirectory(source/scripting)
-endif()
+# The C# game host is a required part of the application: it owns the scene and the game objects.
+# There is no C++ scene-building fallback, so every build must provide the managed host.
+add_subdirectory(source/scripting)
 include(source/app/app.cmake)
 
 

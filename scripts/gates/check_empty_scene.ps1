@@ -24,7 +24,6 @@ $shaderSetting = (Join-Path $buildPath 'shaders').Replace('\', '/')
 $outputSetting = $workPath.Replace('\', '/')
 Set-Content -LiteralPath $configPath -Value @"
 model = "$modelSetting"
-grid_side = 0
 [paths]
 shaders_dir = "$shaderSetting"
 screenshot_dir = "$outputSetting"
@@ -33,16 +32,13 @@ window_width = 640
 window_height = 360
 vsync = false
 taa = false
-shadow = true
 shadow_cascades = $ShadowCascades
+[debug]
+grid_side = 0
 validation_layers = true
 [gui]
 show = false
 [lighting]
-env_size = 256
-env_mip_count = 5
-irr_size = 32
-lut_size = 256
 "@
 $start = [System.Diagnostics.ProcessStartInfo]::new($executable)
 $start.WorkingDirectory = $workPath

@@ -8,11 +8,12 @@ Set the top-level `model` to a trained `.ply` file. The extension selects the lo
 
 ```toml
 model = "asset/flowers/flowers_1.ply"
-grid_side = 0
 [render]
 window_width = 1280
 window_height = 720
 taa = false
+[debug]
+grid_side = 0
 [lighting]
 sun_direction = [0.0, 0.25, 1.0]
 ```
@@ -23,7 +24,7 @@ The camera is fitted to the cloud's conservative bounds. `--capture-camera` over
 
 Scripted `--capture-frames` runs render directly into ordinary images without creating a window,
 surface or swapchain. `[render] offscreen = true` selects that startup mode explicitly. Windowed
-presentation overlap is controlled by `[render] async_present` in `config.toml` (default false).
+presentation overlap is controlled by `[debug] async_present` in `config.toml` (default false).
 The resize regression helper explicitly requests `--capture-windowed` because it exercises real
 window restoration. See [the dynamic API](dynamic_runtime.md) for the null-window contract.
 

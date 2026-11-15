@@ -113,13 +113,14 @@ param(
     [string]$Camera = "35,20,7,0,-1.6,0",
     [int]$Width = 1080,
     [int]$Height = 960,
-    # THE A/B INSTRUMENT: `[render]`-section lines injected into EVERY scenario's config (e.g.
-    # @("visibility_buffer = true") for the visibility path's ON arm). They land after the pinned defaults and
-    # before the scenario's `extra` keys, so a scenario that names the same key wins (and the default line it
-    # would have duplicated is suppressed). With the same cameras, models and frame counts a normal -Full round
-    # uses, one -ExtraConfig round is one A/B arm - which is how docs/reviews/2026-10-18-visibility-buffer-ab.md
-    # was measured. Refused with -Update: an override that changes the picture must never be accepted as a
-    # reference for the round that measures base behaviour.
+    # THE A/B INSTRUMENT: config lines injected into EVERY scenario's config (e.g.
+    # @("visibility_buffer = true") for the visibility path's ON arm). A line lands in the table the parser
+    # reads its key from ([render], [debug] or [experimental]; see Write-ScenarioConfig), after the pinned
+    # defaults and before the scenario's `extra` keys, so a scenario that names the same key wins (and the
+    # default line it would have duplicated is suppressed). With the same cameras, models and frame counts a
+    # normal -Full round uses, one -ExtraConfig round is one A/B arm - which is how
+    # docs/reviews/2026-10-18-visibility-buffer-ab.md was measured. Refused with -Update: an override that
+    # changes the picture must never be accepted as a reference for the round that measures base behaviour.
     [string[]]$ExtraConfig = @()
 )
 
@@ -366,6 +367,20 @@ function Write-ScenarioConfig {
     # -ExtraConfig lines obey the same rule: the scenario's `extra` key WINS over an override of the
     # same name (a scenario that means to differ must be able to), and an override of a pinned default replaces
     # that default line rather than duplicating it.
+    # WHICH TABLE A KEY GOES IN is the parser's schema, not a preference: [debug] and [experimental] hold
+    # their own keys now, and one written in [render] is silently ignored (there is no parse error). A
+    # scenario still names a key once, in its `extra`, and this map places it.
+    $sections = @{}
+    foreach ($k in @("grid_side", "furnace", "unlit", "gbuffer_debug", "gbuffer_channel", "rt_mask_bake",
+                     "rt_skin_bake", "gpu_timings", "validation_layers", "async_present", "demo_lights",
+                     "demo_light_radius", "demo_light_range")) {
+        $sections[$k] = "debug"
+    }
+    foreach ($k in @("visibility_buffer", "visibility_texture_streaming", "subtilis", "subtilis_error_px",
+                     "subtilis_hysteresis", "subtilis_gpu_cut", "subtilis_page_upload_bytes",
+                     "subtilis_resident_page_bytes", "software_raster", "software_raster_threshold_px")) {
+        $sections[$k] = "experimental"
+    }
     $overrideKeys = [System.Collections.Generic.HashSet[string]]::new()
     foreach ($line in $ExtraConfig) {
         $eq = $line.IndexOf('=')
@@ -373,11 +388,15 @@ function Write-ScenarioConfig {
         [void]$overrideKeys.Add($line.Substring(0, $eq).Trim())
     }
     $defaults = [ordered]@{
-        "window_width"      = "$Width"
-        "window_height"     = "$Height"
-        "vsync"             = "false"
-        "max_fps"           = "240"
-        "shadow"            = "true"
+        "window_width"  = "$Width"
+        "window_height" = "$Height"
+        "vsync"         = "false"
+        "max_fps"       = "240"
+        "shadow"        = "true"
+    }
+    # The [debug] defaults every scenario pins: grid_side's old top-level home and the validation switch.
+    $debugDefaults = [ordered]@{
+        "grid_side"         = "0"
         "validation_layers" = "true"
     }
     $scenarioModel = if ($Scenario.ContainsKey('model')) { $Scenario.model } else { $Model }
@@ -386,9 +405,35 @@ function Write-ScenarioConfig {
     # doubled backslashes as two literal characters, so every scenario's config said `C:\\Users\\...` and
     # the path only resolved because Win32 collapses a repeated separator (a UNC path would not have).
     $modelLine = "model = `"$($scenarioModel.Replace('\', '\\').Replace('"', '\"'))`""
+    $renderLines = @()
+    $debugLines = @()
+    $experimentalLines = @()
+    foreach ($k in $defaults.Keys) {
+        if ($Scenario.extra.ContainsKey($k)) { continue } # the scenario's value wins (see above)
+        if ($overrideKeys.Contains($k)) { continue }     # the override replaces this default line
+        $renderLines += "$k = $($defaults[$k])"
+    }
+    foreach ($k in $debugDefaults.Keys) {
+        if ($Scenario.extra.ContainsKey($k)) { continue }
+        if ($overrideKeys.Contains($k)) { continue }
+        $debugLines += "$k = $($debugDefaults[$k])"
+    }
+    foreach ($line in $ExtraConfig) {
+        $eq = $line.IndexOf('=')
+        $key = $line.Substring(0, $eq).Trim()
+        if ($Scenario.extra.ContainsKey($key)) { continue } # the scenario's value wins
+        if ($sections.ContainsKey($key) -and $sections[$key] -eq "debug") { $debugLines += $line }
+        elseif ($sections.ContainsKey($key)) { $experimentalLines += $line }
+        else { $renderLines += $line }
+    }
+    foreach ($k in $Scenario.extra.Keys) {
+        $entry = "$k = $($Scenario.extra[$k])"
+        if ($sections.ContainsKey($k) -and $sections[$k] -eq "debug") { $debugLines += $entry }
+        elseif ($sections.ContainsKey($k)) { $experimentalLines += $entry }
+        else { $renderLines += $entry }
+    }
     $lines = @(
         $modelLine,
-        "grid_side = 0",
         "",
         "[paths]",
         "shaders_dir = ''",
@@ -397,28 +442,19 @@ function Write-ScenarioConfig {
         "",
         "[render]"
     )
-    foreach ($k in $defaults.Keys) {
-        if ($Scenario.extra.ContainsKey($k)) { continue } # the scenario's value wins (see above)
-        if ($overrideKeys.Contains($k)) { continue }     # the override replaces this default line
-        $lines += "$k = $($defaults[$k])"
+    $lines += $renderLines
+    $lines += @("", "[debug]")
+    $lines += $debugLines
+    if ($experimentalLines.Count -gt 0) {
+        $lines += @("", "[experimental]")
+        $lines += $experimentalLines
     }
-    foreach ($line in $ExtraConfig) {
-        $eq = $line.IndexOf('=')
-        $key = $line.Substring(0, $eq).Trim()
-        if ($Scenario.extra.ContainsKey($key)) { continue } # the scenario's value wins
-        $lines += $line
-    }
-    foreach ($k in $Scenario.extra.Keys) { $lines += "$k = $($Scenario.extra[$k])" }
     $lines += @(
         "",
         "[gui]",
         "show = false",
         "",
-        "[lighting]",
-        "env_size = 256",
-        "env_mip_count = 5",
-        "irr_size = 32",
-        "lut_size = 256"
+        "[lighting]"
     )
     Set-Content -Path $Path -Value ($lines -join "`n") -NoNewline
 }

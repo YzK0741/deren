@@ -6,6 +6,12 @@ default (press Enter to keep it), and validates the answer. Questions are
 asked one at a time; every key carries a short hint from config.example.toml.
 For a plain copy of the defaults, use make_default_config.py instead.
 
+The layout follows config.example.toml: [render] is the shipped surface,
+[debug] holds the switches a gate or a person flips while investigating, and
+[experimental] holds the research paths that are not part of a project's
+configuration. The toon rig and the lighting calibration are PROFILE FILES
+named by one key, so the generator does not ask for their lanes.
+
 Usage:
     python scripts/config/make_config.py
     python scripts/config/make_config.py [output_dir]     # where config.toml is written
@@ -117,26 +123,6 @@ def ask_float3(prompt: str, default: tuple[float, float, float]) -> tuple[float,
         return values  # type: ignore[return-value]
 
 
-def ask_vec3(prompt: str, default: tuple[float, float, float], hint: str = "") -> tuple[float, float, float]:
-    """Three unconstrained floats: positions and aim points are in metres, so unlike ask_float3 (colour
-    channels) there is no 0..1 rule - the area light sits 15 m away and mostly above the scene."""
-    suffix = f"  [{hint}]" if hint else ""
-    while True:
-        raw = input(f"{prompt} (3 floats, default {default[0]}, {default[1]}, {default[2]}){suffix}\n> ").strip()
-        if not raw:
-            return default
-        parts = raw.replace(",", " ").split()
-        if len(parts) != 3:
-            print("  expected three numbers, e.g. -3 15 4")
-            continue
-        try:
-            values = tuple(float(p) for p in parts)
-        except ValueError:
-            print("  expected three numbers")
-            continue
-        return values  # type: ignore[return-value]
-
-
 def fmt_toml_string(s: str) -> str:
     # TOML basic strings: escape backslashes so Windows paths survive
     return s.replace("\\", "\\\\").replace('"', '\\"')
@@ -152,15 +138,12 @@ def write_toml(path: str, cfg: dict) -> None:
         "# ---- top level: model to load ----",
         f"model = \"{fmt_toml_string(cfg['model'])}\"",
         "",
-        f"grid_side = {cfg['grid_side']}",
-        f"sun_intensity = {cfg['sun_intensity']}",
-        "",
         "# ---- [paths] resource directories (empty = auto-locate) ----",
         "[paths]",
         f"shaders_dir = \"{fmt_toml_string(cfg['shaders_dir'])}\"",
         f"model_dir = \"{fmt_toml_string(cfg['model_dir'])}\"",
         "",
-        "# ---- [render] window / presentation ----",
+        "# ---- [render] the shipped surface: window / presentation ----",
         "[render]",
         f"window_width = {cfg['window_width']}",
         f"window_height = {cfg['window_height']}",
@@ -169,8 +152,8 @@ def write_toml(path: str, cfg: dict) -> None:
         f"max_fps = {cfg['max_fps']}",
         "clear_color = [{0}, {1}, {2}]".format(*cfg["clear_color"]),
         f"camera_fit = \"{cfg['camera_fit']}\"",
-        f"shadow = {str(cfg['shadow']).lower()}",
-        f"validation_layers = {str(cfg['validation_layers']).lower()}",
+        f"offscreen = {str(cfg['offscreen']).lower()}",
+        f"sun_intensity = {cfg['sun_intensity']}",
         "",
         "# ---- [render] shadow mapping ----",
         f"shadow_cascades = {cfg['shadow_cascades']}",
@@ -178,22 +161,13 @@ def write_toml(path: str, cfg: dict) -> None:
         f"shadow_cascade_blend = {cfg['shadow_cascade_blend']}",
         f"toon_shadow_softness = {cfg['toon_shadow_softness']}",
         "",
-        "# ---- [render] shading + post-processing features ----",
-        f"unlit = {str(cfg['unlit']).lower()}",
+        "# ---- [render] antialiasing + scaling ----",
         f"taa = {str(cfg['taa']).lower()}",
         f"taa_blend_static = {cfg['taa_blend_static']}",
         f"taa_blend_min = {cfg['taa_blend_min']}",
-        f"visibility_buffer = {str(cfg['visibility_buffer']).lower()}",
-        f"visibility_texture_streaming = {str(cfg.get('visibility_texture_streaming', False)).lower()}",
-        f"subtilis = {str(cfg['subtilis']).lower()}",
         f"fxaa = {str(cfg['fxaa']).lower()}",
         f"render_scale = {cfg['render_scale']}",
         f"upscale = \"{cfg['upscale']}\"",
-        f"gbuffer_debug = {str(cfg['gbuffer_debug']).lower()}",
-        f"gbuffer_channel = {cfg['gbuffer_channel']}",
-        f"gpu_timings = {str(cfg['gpu_timings']).lower()}",
-        f"async_present = {str(cfg['async_present']).lower()}",
-        f"offscreen = {str(cfg['offscreen']).lower()}",
         "",
         "# ---- [render] punctual lights + screen-space AO ----",
         f"clustered_lights = {str(cfg['clustered_lights']).lower()}",
@@ -202,14 +176,40 @@ def write_toml(path: str, cfg: dict) -> None:
         f"ssao_intensity = {cfg['ssao_intensity']}",
         f"ssao_samples = {cfg['ssao_samples']}",
         "",
-        "# camera_pose = [yaw_deg, pitch_deg, distance, tx, ty, tz]   # a PINNED initial pose; absent\n"
-        "#   leaves camera_fit in charge. F12 and exit print one (`camera pose: ...`) to paste back.\n"
-        "# ---- [render] ray-traced effects ----",
+        "# ---- [render] ray-traced effects + animation ----",
         f"rt_shadows = {str(cfg['rt_shadows']).lower()}",
+        f"animation_time = {cfg['animation_time']}",
+        "",
+        "# ---- [debug] investigation switches: a gate or a person flips these,",
+        "# ---- not a project. They are documented in config.example.toml. ----",
+        "[debug]",
+        f"grid_side = {cfg['grid_side']}",
+        f"async_present = {str(cfg['async_present']).lower()}",
+        f"furnace = {str(cfg['furnace']).lower()}",
+        f"unlit = {str(cfg['unlit']).lower()}",
+        f"gbuffer_debug = {str(cfg['gbuffer_debug']).lower()}",
+        f"gbuffer_channel = {cfg['gbuffer_channel']}",
+        f"gpu_timings = {str(cfg['gpu_timings']).lower()}",
+        f"validation_layers = {str(cfg['validation_layers']).lower()}",
         f"rt_mask_bake = {str(cfg['rt_mask_bake']).lower()}",
         f"rt_skin_bake = {str(cfg['rt_skin_bake']).lower()}",
-        f"animation_time = {cfg['animation_time']}",
-        f"furnace = {str(cfg['furnace']).lower()}",
+        f"demo_lights = {cfg['demo_lights']}",
+        f"demo_light_radius = {cfg['demo_light_radius']}",
+        f"demo_light_range = {cfg['demo_light_range']}",
+        "",
+        "# ---- [experimental] research paths: absent from a project's config, ",
+        "# ---- present when the paper path is being measured. See config.example.toml. ----",
+        "[experimental]",
+        f"visibility_buffer = {str(cfg['visibility_buffer']).lower()}",
+        f"visibility_texture_streaming = {str(cfg['visibility_texture_streaming']).lower()}",
+        f"subtilis = {str(cfg['subtilis']).lower()}",
+        f"subtilis_error_px = {cfg['subtilis_error_px']}",
+        f"subtilis_hysteresis = {str(cfg['subtilis_hysteresis']).lower()}",
+        f"subtilis_gpu_cut = {str(cfg['subtilis_gpu_cut']).lower()}",
+        f"subtilis_page_upload_bytes = {cfg['subtilis_page_upload_bytes']}",
+        f"subtilis_resident_page_bytes = {cfg['subtilis_resident_page_bytes']}",
+        f"software_raster = {str(cfg['software_raster']).lower()}",
+        f"software_raster_threshold_px = {cfg['software_raster_threshold_px']}",
         "",
         "# ---- [gui] debug overlay ----",
         "[gui]",
@@ -217,25 +217,12 @@ def write_toml(path: str, cfg: dict) -> None:
         f"panel_width = {cfg['panel_width']}",
         f"panel_height = {cfg['panel_height']}",
         "",
-        "# ---- [lighting] IBL precompute resolutions ----",
+        "# ---- [lighting] the environment image; the numeric IBL knobs and the",
+        "# ---- area light live in a profile file named by `profile`. ----",
         "[lighting]",
-        f"env_size = {cfg['env_size']}",
-        f"env_mip_count = {cfg['env_mip_count']}",
-        f"irr_size = {cfg['irr_size']}",
-        f"lut_size = {cfg['lut_size']}",
         # QUOTED like `model` above: `fmt_toml_string` escapes the contents but the CALLER supplies the quotes,
-        # and without them the empty default wrote `environment_hdr = ` - a line no TOML parser accepts, i.e.
-        # the generator's default output was an unreadable config (found while adding area_light_*).
+        # and without them the empty default wrote `environment_hdr = ` - a line no TOML parser accepts.
         f"environment_hdr = \"{fmt_toml_string(cfg['environment_hdr'])}\"",
-        f"environment_intensity = {cfg['environment_intensity']}",
-        f"area_light_size = {cfg['area_light_size']}",
-        f"area_light_power = {cfg['area_light_power']}",
-        f"area_light_position = [{cfg['area_light_position'][0]}, {cfg['area_light_position'][1]}, {cfg['area_light_position'][2]}]",
-        f"area_light_target = [{cfg['area_light_target'][0]}, {cfg['area_light_target'][1]}, {cfg['area_light_target'][2]}]",
-        f"area_light_intensity = {cfg['area_light_intensity']}",
-        f"area_light_irradiance = {str(cfg['area_light_irradiance']).lower()}",
-        f"area_light_shadow = {str(cfg['area_light_shadow']).lower()}",
-        f"area_light_softness = {cfg['area_light_softness']}",
         "",
     ]
     with open(path, "w", encoding="utf-8", newline="\n") as fh:
@@ -246,20 +233,12 @@ def ask_all(output_dir: str) -> dict:
     print("== deren: interactive config ==")
     print("(press Enter on any question to keep its default)\n")
 
-    print("-- model + grid --")
-    sun_intensity = ask_float(
-        "render.sun_intensity",
-        1.0,
-        0.0,
-        3.0,
-        hint="a scale on the sun's radiance; 1.0 leaves the shading path's constant unchanged",
-    )
+    print("-- model --")
     model = ask_text(
         "model: glTF/GLB file to load",
         DEFAULT_MODEL,
         hint="empty = auto-locate DamagedHelmet.gltf; use forward slashes on Windows",
     )
-    grid_side = ask_int("grid_side: instancing stress grid side", 0, 0, 90, hint=">1 draws a grid; 0 = off")
 
     print("\n-- paths (empty = auto-locate) --")
     shaders_dir = ask_text(
@@ -280,9 +259,13 @@ def ask_all(output_dir: str) -> dict:
         "render.camera_fit: initial framing", ["exterior", "interior"], "exterior",
         hint="exterior = fit the whole model from outside; interior = stand inside and look down the longest axis"
     )
-    shadow = ask_bool("render.shadow", True, hint="record the directional shadow pass")
-    validation_layers = ask_bool(
-        "render.validation_layers", True, hint="Debug defaults on; Release off - override here if needed"
+    offscreen = ask_bool("render.offscreen", False, hint="render to images without a window; scripted captures enable this automatically")
+    sun_intensity = ask_float(
+        "render.sun_intensity",
+        1.0,
+        0.0,
+        3.0,
+        hint="a scale on the sun's radiance; 1.0 leaves the shading path's constant unchanged",
     )
 
     print("\n-- render (shadow mapping) --")
@@ -303,19 +286,12 @@ def ask_all(output_dir: str) -> dict:
         hint="toon chain shadow softness: 0 = shipped 3x3 PCF, 1..4 = wider kernels (softer edge, more light leak)",
     )
 
-    print("\n-- render (shading + post-processing; every one of these is also a live overlay toggle) --")
-    unlit = ask_bool("render.unlit", False, hint="flat base color instead of PBR (a shading-free reference)")
+    print("\n-- render (antialiasing + scaling; every one of these is also a live overlay toggle) --")
     taa = ask_bool(
         "render.taa", False, hint="temporal AA; the engine's anti-aliasing (a G-buffer cannot be multisampled)"
     )
     taa_blend_static = ask_float("render.taa_blend_static", 0.9, 0.0, 1.0, hint="history weight for a still pixel")
     taa_blend_min = ask_float("render.taa_blend_min", 0.5, 0.0, 1.0, hint="history weight floor under motion")
-    visibility_buffer = ask_bool(
-        "render.visibility_buffer",
-        False,
-        hint="GPU-driven opaque path (mesh-task id raster + compute resolve); a frame it cannot carry falls back whole",
-    )
-    subtilis = ask_bool("render.subtilis", False, hint="CPU-selected LOD0 runs; requires an admitted visibility-buffer frame")
     fxaa = ask_bool("render.fxaa", False, hint="final anti-aliasing pass; costs nothing when off")
     render_scale = ask_float(
         "render.render_scale", 1.0, 0.1, 1.0, hint="fraction of the window the render chain runs at (1.0 = no scaling)"
@@ -326,13 +302,6 @@ def ask_all(output_dir: str) -> dict:
         "easu",
         hint="easu = FSR 1's upscaler; linear = the bilinear reference it is measured against",
     )
-    gbuffer_debug = ask_bool("render.gbuffer_debug", False, hint="show a stored G-buffer channel")
-    gbuffer_channel = ask_int(
-        "render.gbuffer_channel", 1, 0, 8, hint="0 albedo, 1 normal, 2 roughness, 3 metallic, 4 ao, 5 id, 6 depth, 7 flags, 8 motion"
-    )
-    async_present = ask_bool("render.async_present", False, hint="overlap window presentation with frame preparation (experimental)")
-    offscreen = ask_bool("render.offscreen", False, hint="render to images without a window; scripted captures enable this automatically")
-    gpu_timings = ask_bool("render.gpu_timings", True, hint="per-pass GPU timestamps (a no-op if the device cannot)")
 
     print("\n-- render (punctual lights + screen-space AO) --")
     clustered_lights = ask_bool(
@@ -343,12 +312,7 @@ def ask_all(output_dir: str) -> dict:
     ssao_intensity = ask_float("render.ssao_intensity", 1.0, 0.0, 1.0, hint="1 = full occlusion, 0 = off")
     ssao_samples = ask_int("render.ssao_samples", 8, 1, 16, hint="samples per pixel")
 
-    print("\n-- render (ray-traced effects) --")
-    furnace = ask_bool(
-        "render.furnace",
-        False,
-        hint="VERIFICATION: sun off + a constant environment, so the correct frame is computable by hand",
-    )
+    print("\n-- render (ray-traced effects + animation) --")
     rt_shadows = ask_bool(
         "render.rt_shadows",
         False,
@@ -360,18 +324,74 @@ def ask_all(output_dir: str) -> dict:
         hint="pin a keyframe animation at N seconds (-1 = play it; playback is wall-clock driven, so only a "
              "pinned pose makes a capture of an animated scene reproducible)",
     )
+
+    print("\n-- debug (investigation switches; not a project's configuration) --")
+    grid_side = ask_int("debug.grid_side", 0, 0, 90, hint=">1 draws an instancing stress grid; 0 = off")
+    async_present = ask_bool("debug.async_present", False, hint="overlap window presentation with frame preparation (experimental)")
+    furnace = ask_bool(
+        "debug.furnace",
+        False,
+        hint="VERIFICATION: sun off + a constant environment, so the correct frame is computable by hand",
+    )
+    unlit = ask_bool("debug.unlit", False, hint="flat base color instead of PBR (a shading-free reference)")
+    gbuffer_debug = ask_bool("debug.gbuffer_debug", False, hint="show a stored G-buffer channel")
+    gbuffer_channel = ask_int(
+        "debug.gbuffer_channel", 1, 0, 8, hint="0 albedo, 1 normal, 2 roughness, 3 metallic, 4 ao, 5 id, 6 depth, 7 flags, 8 motion"
+    )
+    gpu_timings = ask_bool("debug.gpu_timings", True, hint="per-pass GPU timestamps (a no-op if the device cannot)")
+    validation_layers = ask_bool(
+        "debug.validation_layers", True, hint="Debug defaults on; Release off - override here if needed"
+    )
     rt_mask_bake = ask_bool(
-        "render.rt_mask_bake",
+        "debug.rt_mask_bake",
         False,
         hint="bake alphaMode MASK into the acceleration structures (an instrument: its per-triangle rule "
              "measured worse than the raster path, so it is off by default)",
     )
-
     rt_skin_bake = ask_bool(
-        "render.rt_skin_bake",
+        "debug.rt_skin_bake",
         False,
         hint="re-skin animated casters and refit their acceleration structures every frame, so a traced "
              "shadow follows the animation instead of the bind pose (off by default: it is the A/B knob)",
+    )
+    demo_lights = ask_int("debug.demo_lights", 0, 0, 64, hint="N moving point lights over the model (0 = none)")
+    demo_light_radius = ask_float("debug.demo_light_radius", 0.0, 0.0, hint="world radius of each demo light (0 = automatic)")
+    demo_light_range = ask_float("debug.demo_light_range", 0.0, 0.0, hint="range of each demo light (0 = automatic)")
+
+    print("\n-- experimental (research paths; not part of a project's configuration) --")
+    visibility_buffer = ask_bool(
+        "experimental.visibility_buffer",
+        False,
+        hint="GPU-driven opaque path (mesh-task id raster + compute resolve); a frame it cannot carry falls back whole",
+    )
+    visibility_texture_streaming = ask_bool(
+        "experimental.visibility_texture_streaming", False, hint="stream visibility-buffer texture pages"
+    )
+    subtilis = ask_bool("experimental.subtilis", False, hint="CPU-selected LOD0 runs; requires an admitted visibility-buffer frame")
+    subtilis_error_px = ask_float(
+        "experimental.subtilis_error_px", 1.0, hint="finite, positive screen-space error target"
+    )
+    subtilis_hysteresis = ask_bool(
+        "experimental.subtilis_hysteresis", False, hint="optional 80% coarsening threshold; refines above target"
+    )
+    subtilis_gpu_cut = ask_bool(
+        "experimental.subtilis_gpu_cut", False, hint="GPU cluster-cut for the Subtilis LOD (off: the CPU cut decides)"
+    )
+    subtilis_page_upload_bytes = ask_int(
+        "experimental.subtilis_page_upload_bytes", 8388608, 0, hint="residency budget: bytes uploaded per frame"
+    )
+    subtilis_resident_page_bytes = ask_int(
+        "experimental.subtilis_resident_page_bytes", 67108864, 0, hint="residency budget: bytes resident in total"
+    )
+    software_raster = ask_bool(
+        "experimental.software_raster",
+        False,
+        hint="experimental hybrid visibility producer; requires visibility_buffer and subtilis",
+    )
+    software_raster_threshold_px = ask_float(
+        "experimental.software_raster_threshold_px",
+        1.0,
+        hint="conservative projected-diameter cutoff for moving clusters to software",
     )
 
     print("\n-- gui (debug overlay) --")
@@ -379,61 +399,16 @@ def ask_all(output_dir: str) -> dict:
     panel_width = ask_int("gui.panel_width", 380, 0, hint="0 = ImGui auto-size")
     panel_height = ask_int("gui.panel_height", 140, 0, hint="0 = ImGui auto-size")
 
-    print("\n-- lighting (IBL precompute resolutions; lower = faster startup) --")
-    # Bounds mirror app_config::load_settings' clamps exactly: a generator that could emit a value the
-    # loader then rejects would be a trap, and these four feed the CPU bake that runs before anything
-    # validates them (env_size = 0 indexes an empty source buffer, a negative one dies on the size
-    # arithmetic, env_mip_count < 2 wraps the sampler's level math).
-    env_size = ask_int("lighting.env_size", 256, 16, 4096, hint="environment cubemap size")
-    env_mip_count = ask_int("lighting.env_mip_count", 5, 2, 12, hint="prefiltered env mip chain length")
-    irr_size = ask_int("lighting.irr_size", 32, 1, 1024, hint="irradiance cubemap size")
-    lut_size = ask_int("lighting.lut_size", 256, 1, 1024, hint="BRDF LUT size")
+    print("\n-- lighting (environment image; the numeric knobs live in a profile) --")
     # environment_hdr: an equirectangular .hdr used as the IBL instead of the procedural sky. It is a
     # PATH, so it must survive the round trip verbatim - write_toml quotes it - and a missing file is a
     # hard startup error rather than a fallback, which is why the default is the empty string (the
     # procedural sky) rather than a path that may not exist on this machine.
     environment_hdr = ask_text("lighting.environment_hdr", "", hint="equirect .hdr path ('' = the procedural sky)")
-    environment_intensity = ask_float(
-        "lighting.environment_intensity", 0.35, 0.0, hint="multiplier on the loaded HDR (the reference's world_strength)"
-    )
-    # area_light_*: the reference package's 30 m soft box, expressed through the frame's ONE directional light
-    # (see config.example.toml and app_config::derive_area_light). The DEFAULT IS SIZE 0 = off, and the
-    # generator must be able to write that off state, so 0 is a legal answer to the first question. The
-    # manifest's numbers are size 30 / power 4000 / position [-3, 15, 4] (Blender's [-3, -4, 15] turned
-    # Y-up) aiming at [0, 0, 0], and position/target are measured from the AUTHOR'S ORIGIN - the character's
-    # feet on the ground - not from the scene's bounding-box centre; `irradiance` decides whether that emitter
-    # IS the main light (its direction and radiance drive the sun) or contributes only its penumbra, `shadow`
-    # is the second A/B switch and `softness` 0 = the automatic penumbra. None of these bounds is enforced here
-    # beyond "not negative": the loader is the one place that sanitizes (an infinity or a NaN written here is
-    # caught there, like every other key).
-    area_light_size = ask_float("lighting.area_light_size", 0.0, 0.0, hint="square emitter side in metres (0 = no area light)")
-    area_light_power = ask_float("lighting.area_light_power", 0.0, 0.0, hint="total power in watts")
-    area_light_position = ask_vec3(
-        "lighting.area_light_position", (0.0, 0.0, 0.0), hint="emitter centre, RELATIVE TO THE AUTHOR ORIGIN (the feet)"
-    )
-    area_light_target = ask_vec3(
-        "lighting.area_light_target", (0.0, 0.0, 0.0), hint="aim point, same frame as the position"
-    )
-    area_light_intensity = ask_float(
-        "lighting.area_light_intensity", 1.0, 0.0, hint="multiplier on the emitter's radiance (clipped at 3.0 by sun_intensity)"
-    )
-    area_light_irradiance = ask_bool(
-        "lighting.area_light_irradiance",
-        True,
-        hint="true = the emitter takes over the main light (direction + radiance); false = penumbra only",
-    )
-    area_light_shadow = ask_bool(
-        "lighting.area_light_shadow", True, hint="give the shadow a penumbra (false = the emitter does not touch it)"
-    )
-    area_light_softness = ask_float(
-        "lighting.area_light_softness", 0.0, 0.0, hint="penumbra world radius in metres (0 = automatic)"
-    )
 
     print(f"\nwriting config.toml to: {output_dir}")
     return {
         "model": model,
-        "sun_intensity": sun_intensity,
-        "grid_side": grid_side,
         "shaders_dir": shaders_dir,
         "model_dir": model_dir,
         "window_width": window_width,
@@ -443,53 +418,52 @@ def ask_all(output_dir: str) -> dict:
         "max_fps": max_fps,
         "clear_color": clear_color,
         "camera_fit": camera_fit,
-        "shadow": shadow,
-        "validation_layers": validation_layers,
+        "offscreen": offscreen,
+        "sun_intensity": sun_intensity,
         "shadow_cascades": shadow_cascades,
         "shadow_map_size": shadow_map_size,
         "shadow_cascade_blend": shadow_cascade_blend,
         "toon_shadow_softness": toon_shadow_softness,
-        "unlit": unlit,
         "taa": taa,
         "taa_blend_static": taa_blend_static,
         "taa_blend_min": taa_blend_min,
-        "visibility_buffer": visibility_buffer,
-        "subtilis": subtilis,
         "fxaa": fxaa,
         "render_scale": render_scale,
         "upscale": upscale,
-        "gbuffer_debug": gbuffer_debug,
-        "gbuffer_channel": gbuffer_channel,
-        "gpu_timings": gpu_timings,
-        "async_present": async_present,
-        "offscreen": offscreen,
         "clustered_lights": clustered_lights,
         "ssao": ssao,
         "ssao_radius": ssao_radius,
         "ssao_intensity": ssao_intensity,
         "ssao_samples": ssao_samples,
         "rt_shadows": rt_shadows,
+        "animation_time": animation_time,
+        "grid_side": grid_side,
+        "async_present": async_present,
+        "furnace": furnace,
+        "unlit": unlit,
+        "gbuffer_debug": gbuffer_debug,
+        "gbuffer_channel": gbuffer_channel,
+        "gpu_timings": gpu_timings,
+        "validation_layers": validation_layers,
         "rt_mask_bake": rt_mask_bake,
         "rt_skin_bake": rt_skin_bake,
-        "animation_time": animation_time,
-        "furnace": furnace,
+        "demo_lights": demo_lights,
+        "demo_light_radius": demo_light_radius,
+        "demo_light_range": demo_light_range,
+        "visibility_buffer": visibility_buffer,
+        "visibility_texture_streaming": visibility_texture_streaming,
+        "subtilis": subtilis,
+        "subtilis_error_px": subtilis_error_px,
+        "subtilis_hysteresis": subtilis_hysteresis,
+        "subtilis_gpu_cut": subtilis_gpu_cut,
+        "subtilis_page_upload_bytes": subtilis_page_upload_bytes,
+        "subtilis_resident_page_bytes": subtilis_resident_page_bytes,
+        "software_raster": software_raster,
+        "software_raster_threshold_px": software_raster_threshold_px,
         "gui_show": gui_show,
         "panel_width": panel_width,
         "panel_height": panel_height,
-        "env_size": env_size,
-        "env_mip_count": env_mip_count,
-        "irr_size": irr_size,
-        "lut_size": lut_size,
         "environment_hdr": environment_hdr,
-        "environment_intensity": environment_intensity,
-        "area_light_size": area_light_size,
-        "area_light_power": area_light_power,
-        "area_light_position": area_light_position,
-        "area_light_target": area_light_target,
-        "area_light_intensity": area_light_intensity,
-        "area_light_irradiance": area_light_irradiance,
-        "area_light_shadow": area_light_shadow,
-        "area_light_softness": area_light_softness,
     }
 
 

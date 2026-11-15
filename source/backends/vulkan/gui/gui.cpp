@@ -256,7 +256,10 @@ namespace deren::vulkan::gui {
         if (this->has_default_position) {
             ImGui::SetNextWindowPos(ImVec2(this->default_x, this->default_y), ImGuiCond_FirstUseEver);
         }
-        if (this->default_width > 0.0f && this->default_height > 0.0f) {
+        // A ZERO AXIS MEANS AUTO-FIT (ImGui's own convention), so a caller can pin the width and let the
+        // height follow the content - what a panel rebuilt every frame needs, since its row count is the
+        // game's. Both axes zero keeps the panel entirely content-sized.
+        if (this->default_width > 0.0f || this->default_height > 0.0f) {
             ImGui::SetNextWindowSize(ImVec2(this->default_width, this->default_height), ImGuiCond_FirstUseEver);
         }
         if (!ImGui::Begin(this->title.c_str(), &this->is_open)) {
@@ -375,6 +378,17 @@ namespace deren::vulkan::gui {
         }
         if (before != *this->current_item && this->on_change) {
             this->on_change(*this->current_item);
+        }
+    }
+
+    button_widget::button_widget(deren::utility::vessel::string label, std::function<void()> on_press)
+        : label{std::move(label)}
+        , on_press{std::move(on_press)} {
+    }
+
+    void button_widget::draw() {
+        if (ImGui::Button(this->label.c_str()) && this->on_press) {
+            this->on_press();
         }
     }
 } // namespace deren::vulkan::gui

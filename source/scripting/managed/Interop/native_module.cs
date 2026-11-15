@@ -1,5 +1,6 @@
 namespace deren.scripting {
     internal enum native_module : uint {
-        scene = 1
+        scene = 1,
+        ui = 2
     }
 }

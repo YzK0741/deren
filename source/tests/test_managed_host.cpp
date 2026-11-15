@@ -1,5 +1,6 @@
 #include <cmath>
 #include <cstdio>
+#include <string>
 
 import deren.scripting.managed_host;
 
@@ -38,6 +39,7 @@ namespace {
         unsigned nodes_destroyed = 0;
         std::uint64_t active_tree = 0;
         std::uint64_t right_node = 0;
+        camera_state camera{};
         unsigned roots = 0;
         unsigned assets_loaded = 0;
         unsigned assets_released = 0;
@@ -48,13 +50,75 @@ namespace {
 
     scene_fixture* module_context = nullptr;
     bool* log_target = nullptr;
+    std::uint32_t screenshot_requests = 0;
+    std::uint32_t environment_requests = 0;
+    bool environment_path_is_empty = false;
+    std::uint32_t pipeline_queries = 0;
+    std::uint32_t pipeline_assignments = 0;
+    std::uint32_t post_processing_requests = 0;
+    std::uint32_t post_processing_rejections = 0;
+    std::uint32_t lighting_requests = 0;
+    std::uint32_t lighting_rejections = 0;
+    // ABI 26: the punctual light set. `engine_light_capacity` mirrors the host's own cap so the
+    // fixture rejects an over-long rig exactly where the host does.
+    // ABI 27: per-object material factors.
+    std::uint32_t material_override_requests = 0;
+    std::uint32_t material_override_rejections = 0;
+    material_override_desc material_override_last{};
+    std::uint32_t light_rig_requests = 0;
+    std::uint32_t light_rig_rejections = 0;
+    std::uint32_t light_rig_count = 0;
+    constexpr std::uint32_t engine_light_capacity = 128;
+    // ABI 31: the debug panel and the raw input stream. The demo describes a panel every frame, so the
+    // fixture counts the verbs instead of checking one call: a demo that stopped building its panel
+    // would otherwise look like a host with a perfect panel table.
+    std::uint32_t ui_panels = 0;
+    std::uint32_t ui_texts = 0;
+    std::uint32_t ui_checkboxes = 0;
+    std::uint32_t ui_sliders = 0;
+    std::uint32_t ui_vec3s = 0;
+    std::uint32_t ui_combos = 0;
+    std::uint32_t ui_buttons = 0;
+    std::uint32_t ui_wants_mouse_calls = 0;
+    std::uint32_t ui_rejections = 0;
+    constexpr std::uint32_t ui_combo_capacity = 64;
+    // The input stream: registration counter and the last sink the managed side installed.
+    std::uint32_t input_registrations = 0;
+    // The handler the managed side registered, so the test can hand it an event of its own.
+    void (*input_callback)(void* context, input_event const* event) = nullptr;
+    void* input_context = nullptr;
+    // The last line the managed side logged: how the test notices a handler ran.
+    std::string last_log;
+    std::uint32_t input_clears = 0;
+    bool input_sink_installed = false;
+    bool radiance_outstanding = false;
+    // ABI 29: the face measurement and the published head frame. The helmet scenario asks for neither
+    // (only a `game_toon` character drives them), so the assertions below keep them at zero there.
+    std::uint32_t face_frame_queries = 0;
+    std::uint32_t head_basis_requests = 0;
+    std::uint32_t head_basis_rejections = 0;
+    constexpr std::uint64_t face_frame_asset = 1;
+    constexpr std::uint32_t head_slot_capacity = 16;
+    std::uint32_t head_basis_slot = 0;
+    bool head_basis_captured = false;
+    // ABI 30: the offscreen reflection-probe capture. The helmet scenario captures nothing, so the
+    // assertions below keep every entry untouched; the counters exist so a game that started a capture
+    // without a probe request is visible here instead of only in a picture.
+    std::uint32_t capture_camera_calls = 0;
+    std::uint32_t radiance_requests = 0;
+    std::uint32_t radiance_reads = 0;
+    std::uint32_t temporal_resets = 0;
+    std::uint32_t cube_writes = 0;
+    std::uint32_t capture_rejections = 0;
+    constexpr std::uint32_t capture_face_capacity = 6;
 
     constexpr node_handle node_zero{.value = 1};
     constexpr node_handle node_one{.value = 2};
     constexpr std::uint64_t spawned_base = 0x100;
 
-    void __cdecl scene_log(char const* message, std::uint32_t length) {
+    void scene_log(char const* message, std::uint32_t length) {
         std::fprintf(stderr, "managed log: %.*s\n", static_cast<int>(length), message);
+        last_log.assign(message, length);
         if (module_context != nullptr && std::string_view{message, length}.find("on_update") != std::string_view::npos) {
             ++module_context->errors;
         }
@@ -93,7 +157,7 @@ namespace {
         return std::abs(left - right) <= 0.01F;
     }
 
-    script_status __cdecl get_pose(node_handle node, transform_value* pose) {
+    script_status get_pose(node_handle node, transform_value* pose) {
         auto& scene = *module_context;
         if (auto* found = find_tree_node_raw(scene, node.value); found != nullptr) {
             if (node.value == scene.right_node && !scene.second_alive) {
@@ -109,7 +173,7 @@ namespace {
         return script_status::success;
     }
 
-    script_status __cdecl set_pose(node_handle node, transform_value const* pose) {
+    script_status set_pose(node_handle node, transform_value const* pose) {
         auto& scene = *module_context;
         if (pose == nullptr || pose->scale.x == 0.0F || pose->scale.y == 0.0F || pose->scale.z == 0.0F) {
             return script_status::invalid_argument;
@@ -128,7 +192,7 @@ namespace {
         return script_status::success;
     }
 
-    script_status __cdecl spawn_helmet(std::uint64_t scene, utf8_view asset, transform_value const* pose, node_handle* node) {
+    script_status spawn_helmet(std::uint64_t scene, utf8_view asset, transform_value const* pose, node_handle* node) {
         if (scene != 7) {
             return script_status::scene_not_found;
         }
@@ -140,7 +204,7 @@ namespace {
         return script_status::success;
     }
 
-    script_status __cdecl despawn_helmet(std::uint64_t scene, node_handle node) {
+    script_status despawn_helmet(std::uint64_t scene, node_handle node) {
         if (scene != 7) {
             return script_status::scene_not_found;
         }
@@ -152,7 +216,7 @@ namespace {
         return script_status::success;
     }
 
-    script_status __cdecl create_tree(std::uint64_t* tree) {
+    script_status create_tree(std::uint64_t* tree) {
         if (tree == nullptr) {
             return script_status::invalid_argument;
         }
@@ -167,7 +231,7 @@ namespace {
         return script_status::success;
     }
 
-    script_status __cdecl activate_tree(std::uint64_t tree) {
+    script_status activate_tree(std::uint64_t tree) {
         auto& state = *module_context;
         if (tree == 0 || tree != state.live_tree) {
             return script_status::scene_not_found;
@@ -176,7 +240,7 @@ namespace {
         return script_status::success;
     }
 
-    script_status __cdecl get_active_tree(std::uint64_t* tree) {
+    script_status get_active_tree(std::uint64_t* tree) {
         if (tree == nullptr) {
             return script_status::invalid_argument;
         }
@@ -184,7 +248,7 @@ namespace {
         return script_status::success;
     }
 
-    script_status __cdecl deactivate_tree(std::uint64_t tree) {
+    script_status deactivate_tree(std::uint64_t tree) {
         auto& state = *module_context;
         if (tree == 0 || state.active_tree != tree) {
             return script_status::scene_not_found;
@@ -193,7 +257,23 @@ namespace {
         return script_status::success;
     }
 
-    script_status __cdecl destroy_tree(std::uint64_t tree) {
+    script_status get_camera(camera_state* value) {
+        if (value == nullptr) {
+            return script_status::invalid_argument;
+        }
+        *value = module_context->camera;
+        return script_status::success;
+    }
+
+    script_status set_camera(camera_state const* value) {
+        if (value == nullptr) {
+            return script_status::invalid_argument;
+        }
+        module_context->camera = *value;
+        return script_status::success;
+    }
+
+    script_status destroy_tree(std::uint64_t tree) {
         auto& state = *module_context;
         if (tree == 0) {
             return script_status::invalid_argument;
@@ -216,7 +296,7 @@ namespace {
         return script_status::scene_not_found;
     }
 
-    script_status __cdecl set_tree_visible(std::uint64_t tree, node_handle node, std::uint8_t visible) {
+    script_status set_tree_visible(std::uint64_t tree, node_handle node, std::uint8_t visible) {
         auto& state = *module_context;
         if (tree == 0 || tree != state.live_tree) {
             return script_status::invalid_argument;
@@ -228,8 +308,8 @@ namespace {
         return script_status::success;
     }
 
-    script_status __cdecl create_node(std::uint64_t tree, node_handle parent, utf8_view name,
-                                      transform_value const* local, node_handle* node) {
+    script_status create_node(std::uint64_t tree, node_handle parent, utf8_view name,
+                              transform_value const* local, node_handle* node) {
         auto& state = *module_context;
         if (tree == 0 || local == nullptr || node == nullptr || tree != state.live_tree) {
             return script_status::invalid_argument;
@@ -254,7 +334,7 @@ namespace {
         return script_status::success;
     }
 
-    script_status __cdecl destroy_node(std::uint64_t tree, node_handle node) {
+    script_status destroy_node(std::uint64_t tree, node_handle node) {
         auto& state = *module_context;
         if (tree == 0 || node.value == 0) {
             return script_status::invalid_argument;
@@ -271,7 +351,7 @@ namespace {
         return script_status::success;
     }
 
-    script_status __cdecl get_node_pose(std::uint64_t tree, node_handle node, transform_value* pose) {
+    script_status get_node_pose(std::uint64_t tree, node_handle node, transform_value* pose) {
         auto& state = *module_context;
         if (tree == 0 || pose == nullptr) {
             return script_status::invalid_argument;
@@ -287,7 +367,7 @@ namespace {
         return script_status::success;
     }
 
-    script_status __cdecl set_node_pose(std::uint64_t tree, node_handle node, transform_value const* pose) {
+    script_status set_node_pose(std::uint64_t tree, node_handle node, transform_value const* pose) {
         auto& state = *module_context;
         if (tree == 0 || pose == nullptr) {
             return script_status::invalid_argument;
@@ -303,7 +383,7 @@ namespace {
         return script_status::success;
     }
 
-    script_status __cdecl list_asset(std::uint32_t index, utf8_view* id) {
+    script_status list_asset(std::uint32_t index, utf8_view* id) {
         if (id == nullptr) {
             return script_status::invalid_argument;
         }
@@ -316,7 +396,7 @@ namespace {
         return script_status::success;
     }
 
-    script_status __cdecl load_asset(utf8_view id, asset_handle* asset) {
+    script_status load_asset(utf8_view id, asset_handle* asset) {
         if (asset == nullptr) {
             return script_status::invalid_argument;
         }
@@ -332,7 +412,7 @@ namespace {
         return script_status::success;
     }
 
-    script_status __cdecl release_asset(asset_handle asset) {
+    script_status release_asset(asset_handle asset) {
         auto& state = *module_context;
         for (auto& value : state.assets) {
             if (value == asset.value && value != 0) {
@@ -344,8 +424,8 @@ namespace {
         return script_status::asset_not_found;
     }
 
-    script_status __cdecl bind_asset(std::uint64_t tree, node_handle parent, asset_handle asset,
-                                     transform_value const* offset, node_handle* root) {
+    script_status bind_asset(std::uint64_t tree, node_handle parent, asset_handle asset,
+                             transform_value const* offset, node_handle* root) {
         auto& state = *module_context;
         (void)parent;
         if (tree == 0 || offset == nullptr || root == nullptr) {
@@ -365,11 +445,528 @@ namespace {
         return script_status::success;
     }
 
-    script_status __cdecl get_scene_module(std::uint32_t module, void const** table) {
+    script_status set_environment_hdr(utf8_view path);
+
+    bool known_asset(asset_handle asset) {
+        if (module_context == nullptr) {
+            return false;
+        }
+        for (auto const value : module_context->assets) {
+            if (value == asset.value && value != 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    script_status asset_pipeline_count(asset_handle asset, std::uint32_t* count) {
+        if (count == nullptr) {
+            return script_status::invalid_argument;
+        }
+        *count = 0;
+        if (!known_asset(asset)) {
+            return script_status::asset_not_found;
+        }
+        ++pipeline_queries;
+        // the demo asset declares only the derived default
+        *count = 1;
+        return script_status::success;
+    }
+
+    script_status asset_pipeline(asset_handle asset, std::uint32_t index, utf8_view* name) {
+        if (name == nullptr) {
+            return script_status::invalid_argument;
+        }
+        *name = {};
+        if (!known_asset(asset)) {
+            return script_status::asset_not_found;
+        }
+        if (index != 0) {
+            return script_status::asset_not_found;
+        }
+        ++pipeline_queries;
+        constexpr std::string_view pipeline = "pbr";
+        *name = {.data = pipeline.data(), .length = static_cast<std::uint32_t>(pipeline.size())};
+        return script_status::success;
+    }
+
+    script_status asset_default_pipeline(asset_handle asset, utf8_view* name) {
+        if (name == nullptr) {
+            return script_status::invalid_argument;
+        }
+        *name = {};
+        if (!known_asset(asset)) {
+            return script_status::asset_not_found;
+        }
+        ++pipeline_queries;
+        constexpr std::string_view pipeline = "pbr";
+        *name = {.data = pipeline.data(), .length = static_cast<std::uint32_t>(pipeline.size())};
+        return script_status::success;
+    }
+
+    script_status set_pipeline(std::uint64_t tree, node_handle node, utf8_view pipeline) {
+        if (module_context == nullptr) {
+            return script_status::scene_not_found;
+        }
+        if (tree != module_context->active_tree || tree == 0) {
+            return script_status::scene_not_found;
+        }
+        if (node.value < 0x400 || node.value > 0x400 + module_context->assets_bound) {
+            return script_status::invalid_node;
+        }
+        if (std::string_view{pipeline.data, pipeline.length} != "pbr") {
+            return script_status::invalid_argument;
+        }
+        ++pipeline_assignments;
+        return script_status::success;
+    }
+
+    bool in_range(float const value, float const low, float const high) {
+        return std::isfinite(value) && value >= low && value <= high;
+    }
+
+    // The nine runtime post-processing knobs. The real host validates in app_scripting before
+    // forwarding; the fixture keeps the same range checks so the game's out-of-range call is
+    // rejected here too, and counts the calls that were accepted.
+    script_status set_exposure(float exposure) {
+        if (!in_range(exposure, 0.05F, 20.0F)) {
+            ++post_processing_rejections;
+            return script_status::invalid_argument;
+        }
+        ++post_processing_requests;
+        return script_status::success;
+    }
+
+    script_status set_tone_mapping(std::int32_t mode) {
+        if (mode < 0 || mode > 2) {
+            ++post_processing_rejections;
+            return script_status::invalid_argument;
+        }
+        ++post_processing_requests;
+        return script_status::success;
+    }
+
+    script_status set_environment(float rotation_degrees, float strength, std::int32_t background, float color_r,
+                                  float color_g, float color_b, float blur) {
+        if (!std::isfinite(rotation_degrees) || !in_range(strength, 0.0F, 64.0F) || background < 0 ||
+            background > 3 || !in_range(color_r, 0.0F, 1.0F) || !in_range(color_g, 0.0F, 1.0F) ||
+            !in_range(color_b, 0.0F, 1.0F) || !in_range(blur, 0.0F, 1.0F)) {
+            ++post_processing_rejections;
+            return script_status::invalid_argument;
+        }
+        ++post_processing_requests;
+        return script_status::success;
+    }
+
+    script_status set_sun_intensity(float scale) {
+        if (!in_range(scale, 0.0F, 3.0F)) {
+            ++post_processing_rejections;
+            return script_status::invalid_argument;
+        }
+        ++post_processing_requests;
+        return script_status::success;
+    }
+
+    script_status set_bloom(float intensity, float threshold) {
+        if (!in_range(intensity, 0.0F, 4.0F) || !in_range(threshold, 0.0F, 0.75F)) {
+            ++post_processing_rejections;
+            return script_status::invalid_argument;
+        }
+        ++post_processing_requests;
+        return script_status::success;
+    }
+
+    script_status set_fxaa(std::uint8_t enabled, float subpixel, float edge_threshold) {
+        if (enabled > 1 || !in_range(subpixel, 0.0F, 1.0F) || !in_range(edge_threshold, 0.0F, 1.0F)) {
+            ++post_processing_rejections;
+            return script_status::invalid_argument;
+        }
+        ++post_processing_requests;
+        return script_status::success;
+    }
+
+    script_status set_taa(std::uint8_t enabled, float blend_static, float blend_min) {
+        if (enabled > 1 || !in_range(blend_static, 0.0F, 0.99F) || blend_min < 0.0F ||
+            blend_min > blend_static) {
+            ++post_processing_rejections;
+            return script_status::invalid_argument;
+        }
+        ++post_processing_requests;
+        return script_status::success;
+    }
+
+    script_status set_ssao(std::uint8_t enabled, float radius, float intensity, std::uint32_t samples) {
+        if (enabled > 1 || !std::isfinite(radius) || radius < 0.0F || !in_range(intensity, 0.0F, 1.0F) ||
+            samples > 16) {
+            ++post_processing_rejections;
+            return script_status::invalid_argument;
+        }
+        ++post_processing_requests;
+        return script_status::success;
+    }
+
+    script_status set_gbuffer_debug(std::uint8_t enabled) {
+        if (enabled > 1) {
+            ++post_processing_rejections;
+            return script_status::invalid_argument;
+        }
+        ++post_processing_requests;
+        return script_status::success;
+    }
+
+    // The three runtime lighting knobs. The real host validates in app_scripting before forwarding;
+    // the fixture keeps the same checks so the game's invalid direction is rejected here too.
+    script_status set_sun_direction(float x, float y, float z) {
+        if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z) || x * x + y * y + z * z <= 1e-12F) {
+            ++lighting_rejections;
+            return script_status::invalid_argument;
+        }
+        ++lighting_requests;
+        return script_status::success;
+    }
+
+    script_status set_area_light(float centre_x, float centre_y, float centre_z, float half, std::uint8_t irradiance,
+                                 float axis_x, float axis_y, float axis_z, float penumbra) {
+        if (!std::isfinite(centre_x) || !std::isfinite(centre_y) || !std::isfinite(centre_z) ||
+            !std::isfinite(half) || !std::isfinite(penumbra) || penumbra < 0.0F || irradiance > 1 ||
+            (half > 0.0F && (!std::isfinite(axis_x) || !std::isfinite(axis_y) || !std::isfinite(axis_z) ||
+                             axis_x * axis_x + axis_y * axis_y + axis_z * axis_z <= 1e-12F))) {
+            ++lighting_rejections;
+            return script_status::invalid_argument;
+        }
+        ++lighting_requests;
+        return script_status::success;
+    }
+
+    script_status set_clustered_lights(std::uint8_t enabled) {
+        if (enabled > 1) {
+            ++lighting_rejections;
+            return script_status::invalid_argument;
+        }
+        ++lighting_requests;
+        return script_status::success;
+    }
+
+    /// ABI 26: the punctual light set. The fixture validates the same things the host does, so a
+    /// managed caller that sent a bad record would be reported here instead of reaching a renderer.
+    /// ABI 30: the capture camera. `enabled == 0` clears it; a live camera needs a position, a face in
+    /// 0..5, a positive near plane, and a far plane beyond it.
+    script_status set_capture_camera(std::uint8_t enabled, float const position[3], std::uint32_t face,
+                                     float near_plane, float far_plane) {
+        ++capture_camera_calls;
+        if (enabled > 1) {
+            ++capture_rejections;
+            return script_status::invalid_argument;
+        }
+        if (enabled == 0) {
+            return script_status::success;
+        }
+        if (position == nullptr || face >= capture_face_capacity || !std::isfinite(position[0]) ||
+            !std::isfinite(position[1]) || !std::isfinite(position[2]) || !(near_plane > 0.0F) ||
+            !(far_plane > near_plane)) {
+            ++capture_rejections;
+            return script_status::invalid_argument;
+        }
+        return script_status::success;
+    }
+
+    /// ABI 30: one outstanding radiance request at a time.
+    script_status request_radiance_capture() {
+        ++radiance_requests;
+        if (radiance_outstanding) {
+            ++capture_rejections;
+            return script_status::invalid_argument;
+        }
+        radiance_outstanding = true;
+        return script_status::success;
+    }
+
+    /// ABI 30: the readback of the requested face, as canonicalized RGBA floats.
+    script_status acquire_radiance_image(std::uint32_t* width, std::uint32_t* height, float* rgba,
+                                         std::uint32_t float_count) {
+        ++radiance_reads;
+        if (width == nullptr || height == nullptr || rgba == nullptr || !radiance_outstanding) {
+            ++capture_rejections;
+            return script_status::invalid_argument;
+        }
+        constexpr std::uint32_t face_side = 16;
+        if (float_count != face_side * face_side * 4) {
+            ++capture_rejections;
+            return script_status::invalid_argument;
+        }
+        for (std::uint32_t index = 0; index < float_count; ++index) {
+            rgba[index] = index % 4 == 3 ? 1.0F : 0.25F;
+        }
+        *width = face_side;
+        *height = face_side;
+        radiance_outstanding = false;
+        return script_status::success;
+    }
+
+    /// ABI 30: a relight-independent helper the capture loop calls between faces.
+    script_status reset_temporal_history() {
+        ++temporal_resets;
+        return script_status::success;
+    }
+
+    /// ABI 30: the cube file. The fixture validates the same geometry and value ranges the writer does.
+    script_status write_radiance_cube(utf8_view path, std::uint32_t size, float const* pixels,
+                                      std::uint32_t float_count) {
+        ++cube_writes;
+        if (path.data == nullptr || path.length == 0 || pixels == nullptr || size < 16 || size > 512 ||
+            (size & (size - 1)) != 0 || float_count != 6u * size * size * 4) {
+            ++capture_rejections;
+            return script_status::invalid_argument;
+        }
+        for (std::uint32_t index = 0; index < float_count; ++index) {
+            if (!std::isfinite(pixels[index]) || pixels[index] < 0.0F || pixels[index] > 65504.0F ||
+                (index % 4 == 3 && pixels[index] != 1.0F)) {
+                ++capture_rejections;
+                return script_status::invalid_argument;
+            }
+        }
+        return script_status::success;
+    }
+
+    script_status set_point_lights(point_light_desc const* lights, std::uint32_t count) {
+        if (count > engine_light_capacity || (count != 0 && lights == nullptr)) {
+            ++light_rig_rejections;
+            return script_status::invalid_argument;
+        }
+        for (std::uint32_t index = 0; index < count; ++index) {
+            auto const& record = lights[index];
+            if (!std::isfinite(record.position[0]) || !std::isfinite(record.position[1]) ||
+                !std::isfinite(record.position[2]) || !std::isfinite(record.intensity) ||
+                !std::isfinite(record.range) || record.range <= 0.0F || !std::isfinite(record.outer_cos) ||
+                !std::isfinite(record.inner_cos) || !std::isfinite(record.npr_mode) || record.spot > 1 ||
+                record.has_inner_cos > 1) {
+                ++light_rig_rejections;
+                return script_status::invalid_argument;
+            }
+        }
+        ++light_rig_requests;
+        light_rig_count = count;
+        return script_status::success;
+    }
+
+    /// ABI 28: frame pacing, the toon band count, and the shadow switch.
+    std::uint32_t max_fps_requests = 0;
+    std::uint32_t toon_shading_requests = 0;
+    std::uint32_t shadow_toggles = 0;
+    double max_fps_last = 0.0;
+    float toon_steps_last = 0.0F;
+    float toon_softness_last = 0.0F;
+    bool shadow_enabled_last = true;
+    script_status set_max_fps(double fps) {
+        if (!std::isfinite(fps) || fps < 0.0) {
+            return script_status::invalid_argument;
+        }
+        ++max_fps_requests;
+        max_fps_last = fps;
+        return script_status::success;
+    }
+
+    script_status set_toon_shading(float steps, float softness) {
+        if (!std::isfinite(steps) || !std::isfinite(softness) || steps < 0.0F || steps > 32.0F ||
+            softness < 0.0F || softness > 1.0F) {
+            return script_status::invalid_argument;
+        }
+        ++toon_shading_requests;
+        toon_steps_last = steps;
+        toon_softness_last = softness;
+        return script_status::success;
+    }
+
+    script_status set_shadow_enabled(std::uint8_t enabled) {
+        if (enabled > 1) {
+            return script_status::invalid_argument;
+        }
+        ++shadow_toggles;
+        shadow_enabled_last = enabled != 0;
+        return script_status::success;
+    }
+
+    /// ABI 29: the glTF loader's face measurement, as the loader reports it. The fixture hands back a
+    /// plausible frame so a managed caller's own maths is exercised; nothing in the helmet scenario asks
+    /// for it, which is why the counters are asserted to stay zero there.
+    script_status query_face_frame(asset_handle asset, face_frame_desc* value) {
+        ++face_frame_queries;
+        if (value == nullptr || asset.value == 0) {
+            return script_status::invalid_argument;
+        }
+        if (asset.value != face_frame_asset) {
+            return script_status::asset_not_found;
+        }
+        *value = face_frame_desc{.forward = {0.0F, 0.0F, 1.0F},
+                                 .right = {-1.0F, 0.0F, 0.0F},
+                                 .world_forward = {0.0F, 0.0F, 1.0F},
+                                 .world_right = {-1.0F, 0.0F, 0.0F},
+                                 .world_center = {0.0F, 1.6F, 0.0F},
+                                 .head_joint = 0,
+                                 .skin_index = 0,
+                                 .head_relative = 1,
+                                 .valid = 1,
+                                 .padding = {}};
+        return script_status::success;
+    }
+
+    /// ABI 29: the head frame one character slot is shaded against. The fixture rejects the same
+    /// degenerate frames the host does.
+    script_status set_head_basis(std::uint32_t index, head_basis_desc const* value) {
+        ++head_basis_requests;
+        if (value == nullptr || index >= head_slot_capacity) {
+            ++head_basis_rejections;
+            return script_status::invalid_argument;
+        }
+        auto const& record = *value;
+        auto const usable = [](float const* axis) {
+            return std::isfinite(axis[0]) && std::isfinite(axis[1]) && std::isfinite(axis[2]) &&
+                   axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2] > 1.0e-12F;
+        };
+        if (!usable(record.front) || !usable(record.right) || !usable(record.up) ||
+            !std::isfinite(record.center[0]) || !std::isfinite(record.center[1]) ||
+            !std::isfinite(record.center[2]) || record.captured > 1 || record.has_center > 1) {
+            ++head_basis_rejections;
+            return script_status::invalid_argument;
+        }
+        head_basis_slot = index;
+        head_basis_captured = record.captured != 0;
+        return script_status::success;
+    }
+
+    /// ABI 27: per-object material factors. The fixture mirrors the host's validator, so a managed
+    /// caller that sent a non-finite factor or a lane above 3 is reported here.
+    script_status set_material_override(std::uint64_t tree, node_handle node,
+                                        material_override_desc const* value) {
+        if (value == nullptr) {
+            ++material_override_rejections;
+            return script_status::invalid_argument;
+        }
+        auto const& record = *value;
+        if (!std::isfinite(record.tint[0]) || !std::isfinite(record.tint[1]) ||
+            !std::isfinite(record.tint[2]) || !std::isfinite(record.metallic_scale) ||
+            !std::isfinite(record.roughness_scale) || !std::isfinite(record.emissive_scale) ||
+            record.environment_slot > 3u || record.unlit > 1 || record.enabled > 1) {
+            ++material_override_rejections;
+            return script_status::invalid_argument;
+        }
+        if (tree == 0 || node.value == 0) {
+            ++material_override_rejections;
+            return script_status::invalid_node;
+        }
+        ++material_override_requests;
+        material_override_last = record;
+        return script_status::success;
+    }
+
+    /// ABI 31 panel verbs. The fixture validates what the host validates (an empty label is not a
+    /// widget) so a managed caller cannot silently produce an empty panel.
+    script_status ui_begin_panel(utf8_view title, float default_width, float default_height) {
+        if (title.length == 0 || title.data == nullptr || !std::isfinite(default_width) ||
+            !std::isfinite(default_height) || default_width < 0.0F || default_height < 0.0F) {
+            ++ui_rejections;
+            return script_status::invalid_argument;
+        }
+        ++ui_panels;
+        return script_status::success;
+    }
+
+    script_status ui_end_panel() {
+        return script_status::success;
+    }
+
+    script_status ui_text(utf8_view) {
+        ++ui_texts;
+        return script_status::success;
+    }
+
+    script_status ui_checkbox(utf8_view label, std::uint8_t* value) {
+        if (label.length == 0 || value == nullptr) {
+            ++ui_rejections;
+            return script_status::invalid_argument;
+        }
+        ++ui_checkboxes;
+        return script_status::success;
+    }
+
+    script_status ui_slider(utf8_view label, float* value, float minimum, float maximum) {
+        if (label.length == 0 || value == nullptr || !std::isfinite(minimum) || !std::isfinite(maximum) ||
+            minimum > maximum) {
+            ++ui_rejections;
+            return script_status::invalid_argument;
+        }
+        ++ui_sliders;
+        return script_status::success;
+    }
+
+    script_status ui_vec3(utf8_view label, float* value, float speed) {
+        if (label.length == 0 || value == nullptr || !std::isfinite(speed) || speed <= 0.0F) {
+            ++ui_rejections;
+            return script_status::invalid_argument;
+        }
+        ++ui_vec3s;
+        return script_status::success;
+    }
+
+    script_status ui_combo(utf8_view label, utf8_view const* items, std::uint32_t count, std::int32_t* selected) {
+        if (label.length == 0 || items == nullptr || selected == nullptr || count == 0 ||
+            count > ui_combo_capacity) {
+            ++ui_rejections;
+            return script_status::invalid_argument;
+        }
+        ++ui_combos;
+        return script_status::success;
+    }
+
+    script_status ui_button(utf8_view label, std::uint8_t* pressed) {
+        if (label.length == 0 || pressed == nullptr) {
+            ++ui_rejections;
+            return script_status::invalid_argument;
+        }
+        ++ui_buttons;
+        return script_status::success;
+    }
+
+    script_status ui_wants_mouse(std::uint8_t* value) {
+        if (value == nullptr) {
+            ++ui_rejections;
+            return script_status::invalid_argument;
+        }
+        // The demo shows the pointer state as a label, so this answer only has to be well formed.
+        *value = 0;
+        ++ui_wants_mouse_calls;
+        return script_status::success;
+    }
+
+    void set_input_callback(void (*callback)(void* context, input_event const* event), void* context) {
+        input_callback = callback;
+        input_context = context;
+        if (callback == nullptr) {
+            ++input_clears;
+        } else {
+            ++input_registrations;
+        }
+        input_sink_installed = callback != nullptr;
+    }
+
+    script_status get_scene_module(std::uint32_t module, void const** table) {
         if (table == nullptr) {
             return script_status::invalid_argument;
         }
         *table = nullptr;
+        if (module == static_cast<std::uint32_t>(native_module::ui)) {
+            static ui_api const published_ui{.begin_panel = ui_begin_panel,
+                                             .end_panel = ui_end_panel,
+                                             .text = ui_text,
+                                             .checkbox = ui_checkbox,
+                                             .slider = ui_slider,
+                                             .vec3 = ui_vec3,
+                                             .combo = ui_combo,
+                                             .button = ui_button,
+                                             .wants_mouse = ui_wants_mouse};
+            *table = &published_ui;
+            return script_status::success;
+        }
         if (module != static_cast<std::uint32_t>(native_module::scene)) {
             return script_status::module_unavailable;
         }
@@ -398,8 +995,56 @@ namespace {
             .list_asset = list_asset,
             .load_asset = load_asset,
             .release_asset = release_asset,
-            .bind_asset = bind_asset};
+            .bind_asset = bind_asset,
+            .get_camera = get_camera,
+            .set_camera = set_camera,
+            .set_global_environment_hdr = set_environment_hdr,
+            .asset_pipeline_count = asset_pipeline_count,
+            .asset_pipeline = asset_pipeline,
+            .asset_default_pipeline = asset_default_pipeline,
+            .set_pipeline = set_pipeline,
+            .set_exposure = set_exposure,
+            .set_tone_mapping = set_tone_mapping,
+            .set_environment = set_environment,
+            .set_sun_intensity = set_sun_intensity,
+            .set_bloom = set_bloom,
+            .set_fxaa = set_fxaa,
+            .set_taa = set_taa,
+            .set_ssao = set_ssao,
+            .set_gbuffer_debug = set_gbuffer_debug,
+            .set_sun_direction = set_sun_direction,
+            .set_area_light = set_area_light,
+            .set_clustered_lights = set_clustered_lights,
+            .set_point_lights = set_point_lights,
+            .set_material_override = set_material_override,
+            .set_max_fps = set_max_fps,
+            .set_toon_shading = set_toon_shading,
+            .set_shadow_enabled = set_shadow_enabled,
+            .asset_face_frame = query_face_frame,
+            .set_head_basis = set_head_basis,
+            .set_capture_camera = set_capture_camera,
+            .request_radiance_capture = request_radiance_capture,
+            .acquire_radiance_image = acquire_radiance_image,
+            .reset_temporal_history = reset_temporal_history,
+            .write_radiance_cube = write_radiance_cube};
         *table = &published;
+        return script_status::success;
+    }
+
+    script_status request_screenshot() {
+        ++screenshot_requests;
+        return script_status::success;
+    }
+
+    script_status set_environment_hdr(utf8_view path) {
+        // The demo game asks for whatever `[lighting] environment_hdr` (or the procedural sky, encoded
+        // as an empty path) says: both spellings are legal, so the fake records the request instead of
+        // dictating one. The host itself validates the path - this fake only counts the round trip.
+        if (path.length != 0 && path.data == nullptr) {
+            return script_status::invalid_argument;
+        }
+        environment_path_is_empty = path.length == 0;
+        ++environment_requests;
         return script_status::success;
     }
 
@@ -416,10 +1061,18 @@ namespace {
     bool run_scene(host_paths const& paths, bool test_input) {
         scene_fixture scene;
         module_context = &scene;
-        native_api const api{.log = scene_log, .get_module = get_scene_module};
+        native_api const api{.log = scene_log,
+                             .get_module = get_scene_module,
+                             .request_screenshot = request_screenshot,
+                             .set_input_event_callback = set_input_callback};
         managed_api scripts;
         if (initialize_managed_host(paths, api, scripts).status != host_status::success) {
             std::fputs("startup: managed host initialization failed\n", stderr);
+            return false;
+        }
+        if (scripts.signal == nullptr ||
+            scripts.signal(static_cast<std::uint32_t>(frame_signal::after_frame)) != script_status::success) {
+            std::fputs("frame: signal callback missing or failed\n", stderr);
             return false;
         }
         if (scene.active_tree == 0 || scene.trees_created != 1 || scene.nodes_created != 3 ||
@@ -427,6 +1080,30 @@ namespace {
             std::fprintf(stderr, "startup: tree=%llu trees=%u nodes=%u assets=%u/%u/%u\n",
                          static_cast<unsigned long long>(scene.active_tree), scene.trees_created, scene.nodes_created,
                          scene.assets_loaded, scene.assets_bound, scene.assets_released);
+            return false;
+        }
+        // supported_pipelines() queries the count and one entry, then the default is queried and
+        // applied to the bind root by the demo game.
+        if (pipeline_queries != 3 || pipeline_assignments != 1) {
+            std::fprintf(stderr, "startup: pipeline queries=%u assignments=%u\n", pipeline_queries,
+                         pipeline_assignments);
+            return false;
+        }
+        // The demo sets all nine post-processing knobs, has two out-of-range calls rejected, then
+        // restores the startup values: 18 accepted calls and 2 rejections. The framework's own
+        // baseline (the project's `[lighting]` profile and `[render]` runtime knobs, applied before
+        // the demo's initialize) adds the environment, sun-intensity and seven look calls: 27.
+        if (post_processing_requests != 27 || post_processing_rejections != 2) {
+            std::fprintf(stderr, "startup: post-processing requests=%u rejections=%u\n", post_processing_requests,
+                         post_processing_rejections);
+            return false;
+        }
+        // set + set + clustered, one invalid direction, then the three restores: 6 accepted, 1 rejected.
+        // The framework baseline adds the profile's sun direction, its "no area light" clear and the
+        // clustered-lights lane: 9.
+        if (lighting_requests != 9 || lighting_rejections != 1) {
+            std::fprintf(stderr, "startup: lighting requests=%u rejections=%u\n", lighting_requests,
+                         lighting_rejections);
             return false;
         }
         if (scripts.update(nullptr) != script_status::invalid_argument) {
@@ -443,6 +1120,86 @@ namespace {
             std::fputs("frame: update failed\n", stderr);
             return false;
         }
+        auto const signal_status = scripts.signal(static_cast<std::uint32_t>(frame_signal::after_frame));
+        auto const follow_status = update_scene(scripts, 7, 0.5F);
+        if (signal_status != script_status::success || follow_status != script_status::success) {
+            std::fprintf(stderr, "frame: after-frame callback or screenshot request failed (signal %u, update %u)\n",
+                         static_cast<unsigned>(signal_status), static_cast<unsigned>(follow_status));
+            return false;
+        }
+        // The environment request is the project's `[lighting] environment_hdr` round trip. Two calls
+        // reach the host - `project_config.apply()` and the demo's own `try_set_hdr` - and the game
+        // accepts either spelling of the sky, so the contract under test is "at least one request and
+        // never a rejected one", not a hard-coded spell count.
+        if (screenshot_requests != 1 || environment_requests == 0) {
+            std::fprintf(stderr, "frame: screenshot requests=%u environment requests=%u\n", screenshot_requests,
+                         environment_requests);
+            return false;
+        }
+        // The project light rig is project data pushed only on the demo's `--asset` path; this
+        // scenario runs the helmet demo, so the punctual set must still be untouched (a helmet demo
+        // that suddenly lit itself with a character rig would be a regression, not a feature).
+        if (light_rig_requests != 0 || light_rig_rejections != 0) {
+            std::fprintf(stderr, "frame: point light requests=%u rejections=%u\n", light_rig_requests,
+                         light_rig_rejections);
+            return false;
+        }
+        // The demo builds its panel every frame: no panel, or a rejected verb, means the managed side
+        // and the published table disagree about the ABI.
+        if (ui_panels == 0 || ui_rejections != 0) {
+            std::fprintf(stderr, "frame: ui panels=%u rejections=%u\n", ui_panels, ui_rejections);
+            return false;
+        }
+        // The demo registers its handler on the first update; the registration is the proof the
+        // native_api entry reached managed code.
+        if (input_registrations != 1 || !input_sink_installed) {
+            std::fprintf(stderr, "frame: input registrations=%u installed=%d\n", input_registrations,
+                         input_sink_installed ? 1 : 0);
+            return false;
+        }
+        // DELIVERY: what the host publishes must reach the handler the game registered. The app's own
+        // forwarder only renames fields, so this is the seam that proves the managed dispatch decodes
+        // the flat record and calls the game - the demo logs the first event it ever sees.
+        if (input_callback == nullptr) {
+            std::fputs("frame: input callback missing after registration\n", stderr);
+            return false;
+        }
+        {
+            input_event press{};
+            press.type = input_event_type::mouse_button;
+            press.button = 0;
+            press.down = 1;
+            input_callback(input_context, &press);
+            if (last_log.find("input stream live") == std::string::npos) {
+                std::fprintf(stderr, "frame: input handler did not report delivery (last log: %s)\n",
+                             last_log.c_str());
+                return false;
+            }
+        }
+        // The helmet demo captures no reflection probe, so a capture entry reached here means a game
+        // started a six-face capture it never asked for.
+        if (capture_camera_calls != 0 || radiance_requests != 0 || radiance_reads != 0 || temporal_resets != 0 ||
+            cube_writes != 0 || capture_rejections != 0) {
+            std::fprintf(stderr,
+                         "frame: capture calls camera=%u requests=%u reads=%u resets=%u writes=%u rejections=%u\n",
+                         capture_camera_calls, radiance_requests, radiance_reads, temporal_resets, cube_writes,
+                         capture_rejections);
+            return false;
+        }
+        // The head frame is a character feature: the loader measures it per asset and the managed side
+        // publishes it for a `game_toon` slot. The helmet demo runs `pbr`, so neither entry may be touched.
+        if (face_frame_queries != 0 || head_basis_requests != 0 || head_basis_rejections != 0) {
+            std::fprintf(stderr, "frame: face frame queries=%u head basis requests=%u rejections=%u\n",
+                         face_frame_queries, head_basis_requests, head_basis_rejections);
+            return false;
+        }
+        // Same rule for the per-object material factors: the helmet demo has no objects that need
+        // their own material, so the whole run must never touch the override entry.
+        if (material_override_requests != 0 || material_override_rejections != 0) {
+            std::fprintf(stderr, "frame: material override requests=%u rejections=%u\n",
+                         material_override_requests, material_override_rejections);
+            return false;
+        }
         if (scripts.stop() != script_status::success || scripts.stop() != script_status::success) {
             std::fputs("shutdown: managed stop failed\n", stderr);
             return false;
@@ -457,7 +1214,7 @@ namespace {
         return true;
     }
 
-    void __cdecl log_message(char const* message, std::uint32_t length) {
+    void log_message(char const* message, std::uint32_t length) {
         *log_target = std::string_view{message, length} == "deren managed host ready";
     }
 
@@ -486,7 +1243,7 @@ int main(int argc, char** argv) {
     auto abi_version = deren::scripting::managed_abi_version;
     bool received = false;
     log_target = &received;
-    auto api = deren::scripting::native_api{.log = log_message, .get_module = get_scene_module};
+    auto api = deren::scripting::native_api{.log = log_message, .get_module = get_scene_module, .request_screenshot = request_screenshot};
     managed_api scripts;
     static scene_fixture round_trip_fixture;
     if (scenario == "round_trip") {

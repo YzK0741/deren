@@ -1360,7 +1360,17 @@ namespace deren::engine {
         // An empty scene has zero radius; give the initial CPU-side frustum a finite size.
         // Shared GPU buffers are created separately by the first frame's resource preparation.
         float const initial_radius = scene_radius > 0.0f ? scene_radius : 1.0f;
+        // THE CALIBRATION LANES ARE THE CALLER'S, NOT THE BUILDER'S - the same rule the cascade fields
+        // follow below. `make_directional_light_ubo` fills a FRESH struct, so whatever `set_environment`
+        // packed (the sky/background mode, the environment's yaw and strength, and the backdrop colour)
+        // has to be carried over: a shadow setup that runs AFTER the project calibrated the frame (the
+        // managed bind does, because the scene extent it needs only exists once an asset is imported)
+        // would otherwise silently put the frame back on the default procedural sky.
+        glm::vec4 const environment = this->light_state->environment;
+        glm::vec4 const environment_background = this->light_state->environment_background;
         *this->light_state = make_directional_light_ubo(this->sun_direction, scene_center, initial_radius, static_cast<float>(this->shadow_map_size));
+        this->light_state->environment = environment;
+        this->light_state->environment_background = environment_background;
         // the cascade settings are the runtime's, not the UBO builder's: re-apply them over the defaults
         this->light_state->cascade_count = static_cast<float>(std::clamp(this->shadow_cascades, 1u, deren::engine::max_shadow_cascades));
         this->light_state->cascade_blend = this->shadow_cascade_blend;
@@ -4271,6 +4281,24 @@ namespace deren::engine {
         // Content fingerprint of the WHOLE slot buffer: several controllers may write disjoint
         // regions, so hashing only this upload would miss another controller's movement.
         this->skin_matrix_hash = deren::utility::xxh3_64bits({reinterpret_cast<uint8_t const*>(current.data()), current.size() * sizeof(glm::mat4)});
+    }
+
+    void runtime::seed_identity_skin_palette() {
+        // Every entry the vertex path can address, not just the four-entry identity block at 0: a skinned
+        // asset whose skin_base nobody assigned still indexes its own joints from base 0 (see the
+        // declaration's note - laevatain reaches joint 117), so the rest of the palette must read as a
+        // no-op too. Deliberately the current buffer only - the previous one is history, and history stays
+        // untouched until a scene uploads a pose (that invariant keeps motion vectors honest and is what
+        // the runtime-injection skin-history probe asserts).
+        std::size_t const slots = std::min(this->skin_buffers.size(), this->skin_mapped.size());
+        for (std::size_t slot = 0; slot < slots; ++slot) {
+            auto* const mapped = static_cast<glm::mat4*>(this->skin_mapped[slot]);
+            if (mapped == nullptr) {
+                continue;
+            }
+            std::size_t const entries = this->skin_buffers[slot].get()->mapped().size() / sizeof(glm::mat4);
+            std::fill_n(mapped, entries, glm::mat4(1.0f));
+        }
     }
 
     void* runtime::morph_scratch() noexcept {

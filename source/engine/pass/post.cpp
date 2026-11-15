@@ -43,7 +43,7 @@ namespace deren::engine::pass {
 
     std::string_view post_composite_pass::feature() const noexcept {
         // NO FEATURE NAME, and that is deliberate rather than an oversight: the record step only asks a pass's feature
-        // when it has one, and this pass's gate is the HOST's - `record_post_process` returns before the chain
+        // when it has one, and this pass's gate is the HOST's - `record_graph` returns before the chain
         // when the pipelines or the frame's composite set are missing. A name here would be a second copy of that
         // question, and the deferred step measured what a pass feature name with no branch in the runtime does
         // (the record step skips the pass on every frame and the frame goes unlit).

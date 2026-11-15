@@ -7,7 +7,6 @@
 // the root keeps thin forwarders for its callers.
 // ============================================================================
 module;
-#include <cstddef>
 #include <vulkan/vulkan.h>
 module deren.vulkan.core;
 import deren.vstd;

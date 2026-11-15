@@ -193,6 +193,21 @@ namespace deren::vulkan::gui {
 
     /**
      * @ingroup vulkan_gui
+     * @brief a button: pressing it calls @p on_press. Unlike the bound widgets it points at no
+     *        external state, because the state a button switches belongs to whoever registered it.
+     */
+    export class button_widget final : public widget {
+    public:
+        button_widget(deren::utility::vessel::string label, std::function<void()> on_press = {});
+        void draw() override;
+
+    private:
+        deren::utility::vessel::string label;
+        std::function<void()> on_press;
+    };
+
+    /**
+     * @ingroup vulkan_gui
      * @brief one debug window: a title, an open flag and a stack of widgets. Widgets are stored
      *        in a stack-style vector — push_back() appends (grows the panel), pop_back() removes
      *        the last one, so add/remove only ever touch the end. draw() opens the ImGui window

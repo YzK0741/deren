@@ -25,7 +25,6 @@ foreach ($mode in @('cpu', 'gpu')) {
     $timingSetting = $Timings.ToString().ToLowerInvariant()
     Set-Content -LiteralPath $configPath -Value @"
 model = "$modelSetting"
-grid_side = 0
 [paths]
 shaders_dir = "$shaderSetting"
 screenshot_dir = "$outputSetting"
@@ -35,16 +34,13 @@ window_height = 720
 vsync = false
 max_fps = 0
 taa = false
-shadow = true
+[debug]
+grid_side = 0
 validation_layers = $validationSetting
 gpu_timings = $timingSetting
 [gui]
 show = false
 [lighting]
-env_size = 256
-env_mip_count = 5
-irr_size = 32
-lut_size = 256
 "@
     $start = [System.Diagnostics.ProcessStartInfo]::new((Join-Path $buildPath 'deren.exe'))
     $start.WorkingDirectory = $runPath

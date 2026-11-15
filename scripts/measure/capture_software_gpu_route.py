@@ -72,28 +72,24 @@ window_width = 1280
 window_height = 720
 vsync = false
 max_fps = 0
-validation_layers = {str(validation).lower()}
 main_render_graph = true
+character_forward = false
+taa = false
+ssao = false
+bloom = false
+fxaa = false
+[gui]
+show = false
+[debug]
+validation_layers = {str(validation).lower()}
+gpu_timings = true
+[experimental]
 visibility_buffer = true
 subtilis = true
 subtilis_error_px = 1.0
 subtilis_hysteresis = false
 software_raster = true
 software_raster_threshold_px = {threshold}
-character_forward = false
-shadow = false
-taa = false
-ssao = false
-bloom = false
-fxaa = false
-gpu_timings = true
-[gui]
-show = false
-[lighting]
-env_size = 128
-env_mip_count = 4
-irr_size = 16
-lut_size = 128
 ''', encoding='utf-8')
 
 

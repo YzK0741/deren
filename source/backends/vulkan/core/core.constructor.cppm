@@ -25,7 +25,6 @@ module;
 #include <GLFW/glfw3.h>
 #define GLFW_EXPOSE_NATIVE_WIN32 // HWND, and the windows.h that names it
 #include <GLFW/glfw3native.h>
-#include <cstddef>
 #include <vulkan/vulkan.h>
 
 // LOAD-BEARING, and it is the same trap app_pipelines.cpp documents at length: with -fno-exceptions and the vendored

@@ -1,10 +1,12 @@
-// module version: 0.2.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 0.4.0  (independent of the app version in CMakeLists project(VERSION))
 
 export module deren.app.scripting;
 
 import deren.vstd;
+import deren.app.toon;
 import deren.application_configuration;
 import deren.engine.scene_tree;
+import deren.gaussian_loader;
 import deren.gltf_loader;
 import deren.scripting.managed_host;
 import deren.utility;
@@ -19,8 +21,30 @@ export namespace deren::app {
      */
     struct managed_asset_source {
         gltf::scenes const* scenes = nullptr;
+        /**
+         * @brief The CPU splat cloud for a `type = "gaussian"` asset, or null for a model.
+         *
+         * A cloud has no glTF scene, no resolved materials and no toon sidecar: @ref scenes is null
+         * exactly when this is set. The binder uploads the cloud once (`runtime::create_gaussian_asset`)
+         * and stages it in the shared splat pass, whose placement is the wrapper's own transform - there
+         * is nothing to import, so @ref import_shift and the material fields do not apply.
+         */
+        deren::gaussian::asset const* cloud = nullptr;
         std::span<gltf::resolved_material const> materials;
         std::array<float, 3> import_shift{};
+        /** World-space centre of the imported bounds once @ref import_shift has been applied - the
+         *  keep-out sphere's centre the shadow fit is built around (see runtime::enable_shadows). */
+        std::array<float, 3> scene_center{};
+        /** Radius of those imported bounds, the shadow fit's radius. */
+        float scene_radius = 0.0f;
+        /** The asset's baked toon lookup state, or null for a model that carries no `.toon.tsv` beside it.
+         *  The binder installs it through `runtime::set_toon_lookup` immediately before the import, which is
+         *  how a character's sidecar maps (ramps, LUT, matcap, colours) reach the toon lanes at all. */
+        deren::app::detail::toon_lookup_state const* toon = nullptr;
+        /** The manifest's pipeline the binder should apply after import; empty means "leave it on pbr". */
+        std::string_view default_pipeline;
+        /** The manifest's supported pipelines, used to validate later try_set_pipeline calls. */
+        std::span<std::string const> pipelines;
     };
 
     /**
@@ -32,8 +56,32 @@ export namespace deren::app {
      */
     struct managed_asset_binder {
         void* context = nullptr;
-        bool(__cdecl* bind)(void* context, engine::scene_tree::scene_node& parent, std::string_view asset_id,
-                            managed_asset_source const& source) = nullptr;
+        bool (*bind)(void* context, engine::scene_tree::scene_node& parent, std::string_view asset_id,
+                     managed_asset_source const& source) = nullptr;
+    };
+
+    /**
+     * @brief Host side of one frame's debug panel (ABI 31).
+     *
+     * Managed code calls these while it fills the panel; the storage it passes addresses its own game
+     * state, so a control edits that state directly and no per-widget callback crosses the boundary.
+     * The host owns the overlay and only translates each call into the overlay plugin's widget tree.
+     * An empty host (no [gui] show, or a host that cannot draw) leaves every entry point null, and the
+     * ui module then reports module_unavailable rather than silently dropping the panel.
+     */
+    struct managed_ui_host {
+        void* context = nullptr;
+        bool (*begin_panel)(void* context, std::string_view title, float default_width, float default_height) =
+            nullptr;
+        bool (*end_panel)(void* context) = nullptr;
+        bool (*text)(void* context, std::string_view text) = nullptr;
+        bool (*checkbox)(void* context, std::string_view label, std::uint8_t* value) = nullptr;
+        bool (*slider)(void* context, std::string_view label, float* value, float minimum, float maximum) = nullptr;
+        bool (*vec3)(void* context, std::string_view label, float* value, float speed) = nullptr;
+        bool (*combo)(void* context, std::string_view label, std::string_view const* items, std::uint32_t count,
+                      std::int32_t* selected) = nullptr;
+        bool (*button)(void* context, std::string_view label, std::uint8_t* pressed) = nullptr;
+        bool (*wants_mouse)(void* context, std::uint8_t* value) = nullptr;
     };
 
     /**
@@ -45,7 +93,131 @@ export namespace deren::app {
      */
     struct managed_scene_host {
         void* context = nullptr;
-        bool(__cdecl* set_scene)(void* context, engine::scene_tree::scene& scene) = nullptr;
+        bool (*set_scene)(void* context, engine::scene_tree::scene& scene) = nullptr;
+        bool (*get_camera)(void* context, scripting::camera_state* value) = nullptr;
+        bool (*set_camera)(void* context, scripting::camera_state const* value) = nullptr;
+        bool (*request_screenshot)(void* context) = nullptr;
+        /**
+         * @brief Queues a new GLOBAL IBL from the named environment file; empty means procedural.
+         *
+         * The callback runs on the render thread but must not touch the device: it validates and
+         * stores the request, and the host applies it between frames. Returning false rejects the
+         * path (missing or unreadable file) and leaves the current environment untouched.
+         */
+        bool (*set_global_environment_hdr)(void* context, std::string_view path) = nullptr;
+        /**
+         * @brief Switches the primitives under a bound asset root to another supported pipeline.
+         *
+         * @p node is the root returned by bind_asset(). The callback runs on the render thread and
+         * rewrites the imported leaves between frames; returning false leaves the asset untouched.
+         * Asset scripts are expected to check supported_pipelines() through the asset API first.
+         */
+        bool (*apply_pipeline)(void* context, engine::scene_tree::scene_node& node, std::string_view pipeline) = nullptr;
+        /**
+         * @brief Runtime post-processing and environment calibration (the former startup-only knobs).
+         *
+         * Each callback validates the arguments and applies the value to the render state on the
+         * next frame; false rejects the call. These are global (one runtime), so they carry no tree.
+         */
+        bool (*set_exposure)(void* context, float exposure) = nullptr;
+        bool (*set_tone_mapping)(void* context, std::int32_t mode) = nullptr;
+        bool (*set_environment)(void* context, float rotation_degrees, float strength, std::int32_t background,
+                                float color_r, float color_g, float color_b, float blur) = nullptr;
+        bool (*set_sun_intensity)(void* context, float scale) = nullptr;
+        bool (*set_bloom)(void* context, float intensity, float threshold) = nullptr;
+        bool (*set_fxaa)(void* context, bool enabled, float subpixel, float edge_threshold) = nullptr;
+        bool (*set_taa)(void* context, bool enabled, float blend_static, float blend_min) = nullptr;
+        bool (*set_ssao)(void* context, bool enabled, float radius, float intensity, std::uint32_t samples) = nullptr;
+        bool (*set_gbuffer_debug)(void* context, bool enabled) = nullptr;
+        /**
+         * @brief Runtime lighting: the sun's direction, the optional square area emitter, and the
+         * clustered-light switch. Global like the post-processing knobs; false rejects the call.
+         */
+        bool (*set_sun_direction)(void* context, float x, float y, float z) = nullptr;
+        bool (*set_area_light)(void* context, float centre_x, float centre_y, float centre_z, float half,
+                               bool irradiance, float axis_x, float axis_y, float axis_z, float penumbra) = nullptr;
+        bool (*set_clustered_lights)(void* context, bool enabled) = nullptr;
+        /**
+         * @brief Replaces the whole punctual light set with @p count records from @p lights.
+         *
+         * Global like the other lighting setters. A count above the engine's
+         * `max_punctual_lights`, or a null array with a non-zero count, is the caller's error and the
+         * host rejects it; a count of zero clears every light. False means the runtime refused a
+         * record (a non-finite field, say) and the previous set stays.
+         */
+        bool (*set_point_lights)(void* context, scripting::point_light_desc const* lights, std::uint32_t count) = nullptr;
+        /**
+         * @brief Rewrites every leaf under @p node with one object's material factors.
+         *
+         * The factors live on the object, not in the imported material (one glTF slot resolves to
+         * one material), so the host clones the imported material once, rebuilds the clone from the
+         * base row on every call and points the leaves at it. `value->enabled == 0` restores the
+         * imported materials; the clone is kept for a later re-enable. False leaves the subtree
+         * untouched.
+         */
+        bool (*apply_material_override)(void* context, engine::scene_tree::scene_node& node,
+                                        scripting::material_override_desc const& value) = nullptr;
+        /** ABI 28: frame pacing policy. 0 means uncapped. */
+        bool (*set_max_fps)(void* context, double fps) = nullptr;
+        /** ABI 28: the toon stages' diffuse band count (0 disables banding) and step softness (0..1). */
+        bool (*set_toon_shading)(void* context, float steps, float softness) = nullptr;
+        /** ABI 28: the directional shadow pass on or off. */
+        bool (*set_shadow_enabled)(void* context, bool enabled) = nullptr;
+        /**
+         * @brief ABI 29: the face frame the loader measured for @p asset, or false when it has none.
+         *
+         * The measurement is taken once at load, from the asset's face-family mesh, so this call copies
+         * it rather than re-measuring. False covers a gaussian cloud, a model with no face primitive,
+         * and an unloaded handle - the managed side then keeps the renderer's fallback frame.
+         */
+        bool (*asset_face_frame)(void* context, scripting::asset_handle asset, scripting::face_frame_desc& value) = nullptr;
+        /**
+         * @brief ABI 29: publishes one game-toon character's head frame to the shaders.
+         *
+         * The values are already in world space: the managed side owns the placement and applies it to
+         * the frame it derived, so the host only validates and forwards. `index` addresses one of the
+         * renderer's `max_game_toon_characters` slots; out-of-range, a non-finite axis, or a degenerate
+         * frame is the caller's error and returns false.
+         */
+        bool (*set_head_basis)(void* context, std::uint32_t index, scripting::head_basis_desc const& value) = nullptr;
+        /**
+         * @brief ABI 30: installs (or clears) the offscreen cube-capture camera and the capture pass.
+         *
+         * enabled == 0 restores the orbit camera and turns the radiance-capture pass off; the other
+         * arguments are then ignored. Otherwise position is the world point the cube is rendered from,
+         * face is 0..5 in the engine's cube order, and near/far must be positive and ordered. The
+         * managed game owns the face loop and the frame cadence; this entry only moves the camera.
+         */
+        bool (*set_capture_camera)(void* context, std::uint8_t enabled, float const position[3], std::uint32_t face,
+                                   float near_plane, float far_plane) = nullptr;
+        /**
+         * @brief ABI 30: arms the readback of the next presented frame.
+         *
+         * False means nothing was armed: either a capture was already pending (the engine keeps one
+         * unread request) or the host has no capture path. The pixels are collected once, with
+         * acquire_radiance_image.
+         */
+        bool (*request_radiance_capture)(void* context) = nullptr;
+        /**
+         * @brief ABI 30: copies the armed frame's radiance into the caller's buffer.
+         *
+         * The buffer holds float_count floats and must match width*height*4; the host reports the
+         * image's size through @p width / @p height. False covers a capacity mismatch and a failed or
+         * absent readback; the managed side owns the six-face assembly and the file name.
+         */
+        bool (*acquire_radiance_image)(void* context, std::uint32_t& width, std::uint32_t& height, float* rgba,
+                                       std::uint32_t float_count) = nullptr;
+        /**
+         * @brief ABI 30: writes an assembled cube as the engine's IBL1 reflection-probe file.
+         *
+         * pixels is six faces in face order, each size*size*4 floats, and float_count must match.
+         * The file is written to a temporary name and renamed, so a half-written probe never appears
+         * under @p path; an existing @p path is refused rather than overwritten.
+         */
+        /** ABI 30: drops the accumulated temporal history; see managed_scene_host::reset_temporal_history. */
+        bool (*reset_temporal_history)(void* context) = nullptr;
+        bool (*write_radiance_cube)(void* context, std::string_view path, std::uint32_t size, float const* pixels,
+                                    std::uint32_t float_count) = nullptr;
     };
 
     class script_scene {
@@ -55,10 +227,22 @@ export namespace deren::app {
         script_scene(script_scene const&) = delete;
         script_scene& operator=(script_scene const&) = delete;
 
+        [[nodiscard]] std::expected<scripting::startup_options, std::string> preinit(
+            std::filesystem::path const& assembly, std::int32_t argc, char** argv);
         [[nodiscard]] std::expected<void, std::string> start(
             std::filesystem::path const& assembly, managed_scene_host host,
             std::filesystem::path const& asset_library_root = {}, managed_asset_binder binder = {});
         [[nodiscard]] bool update(float dt, std::span<std::uint8_t const> input_frame);
+        /** Emits the after-frame signal; managed code dispatches its own callables. */
+        [[nodiscard]] bool signal_after_frame();
+        /** Installs the debug panel host (ABI 31); empty when the project draws no panel. */
+        void install_ui(managed_ui_host host);
+        /// ABI 31: hands one window event to the managed game's registered handler, if it has one.
+        ///
+        /// THE HOST OWNS DELIVERY, THE GAME OWNS MEANING: the app forwards what the window produced
+        /// and keeps no input state of its own, so a game that wants a pointer-locked camera, a text
+        /// field or a hotkey reads this stream and decides. Safe to call with nobody listening.
+        static void publish_input_event(scripting::input_event const& event);
         /** Drops the startup-only asset binder; bindings after the scene started are unsupported. */
         void clear_asset_binder() noexcept;
 
@@ -70,38 +254,118 @@ export namespace deren::app {
 
         static placement* find(scripting::node_handle handle);
         static script_scene* find_scene(std::uint64_t scene);
-        static void __cdecl log(char const* text, std::uint32_t length);
-        static scripting::script_status __cdecl get_module(std::uint32_t module, void const** table);
-        static scripting::script_status __cdecl get_transform(scripting::node_handle node, scripting::transform_value* value);
-        static scripting::script_status __cdecl set_transform(scripting::node_handle node, scripting::transform_value const* value);
-        static scripting::script_status __cdecl try_spawn(std::uint64_t scene, scripting::utf8_view asset,
-                                                          scripting::transform_value const* value, scripting::node_handle* node);
-        static scripting::script_status __cdecl try_despawn(std::uint64_t scene, scripting::node_handle node);
-        static scripting::script_status __cdecl create_scene_tree(std::uint64_t* tree);
-        static scripting::script_status __cdecl activate_scene(std::uint64_t tree);
-        static scripting::script_status __cdecl get_active_scene(std::uint64_t* tree);
-        static scripting::script_status __cdecl deactivate_scene(std::uint64_t tree);
-        static scripting::script_status __cdecl destroy_scene_tree(std::uint64_t tree);
-        static scripting::script_status __cdecl create_node(std::uint64_t tree, scripting::node_handle parent,
-                                                            scripting::utf8_view name,
-                                                            scripting::transform_value const* local,
-                                                            scripting::node_handle* node);
-        static scripting::script_status __cdecl destroy_node(std::uint64_t tree, scripting::node_handle node);
-        static scripting::script_status __cdecl get_node_transform(std::uint64_t tree, scripting::node_handle node,
-                                                                   scripting::transform_value* value);
-        static scripting::script_status __cdecl set_node_transform(std::uint64_t tree, scripting::node_handle node,
-                                                                   scripting::transform_value const* value);
-        static scripting::script_status __cdecl set_node_visible(std::uint64_t tree, scripting::node_handle node,
-                                                                 std::uint8_t visible);
-        static scripting::script_status __cdecl list_asset(std::uint32_t index, scripting::utf8_view* id);
-        static scripting::script_status __cdecl load_asset(scripting::utf8_view id, scripting::asset_handle* asset);
-        static scripting::script_status __cdecl release_asset(scripting::asset_handle asset);
-        static scripting::script_status __cdecl bind_asset(std::uint64_t tree, scripting::node_handle parent,
-                                                           scripting::asset_handle asset,
-                                                           scripting::transform_value const* offset,
-                                                           scripting::node_handle* root);
+        static void log(char const* text, std::uint32_t length);
+        static scripting::script_status get_module(std::uint32_t module, void const** table);
+        static scripting::script_status get_transform(scripting::node_handle node, scripting::transform_value* value);
+        static scripting::script_status set_transform(scripting::node_handle node, scripting::transform_value const* value);
+        static scripting::script_status try_spawn(std::uint64_t scene, scripting::utf8_view asset,
+                                                  scripting::transform_value const* value, scripting::node_handle* node);
+        static scripting::script_status try_despawn(std::uint64_t scene, scripting::node_handle node);
+        static scripting::script_status create_scene_tree(std::uint64_t* tree);
+        static scripting::script_status activate_scene(std::uint64_t tree);
+        static scripting::script_status get_active_scene(std::uint64_t* tree);
+        static scripting::script_status deactivate_scene(std::uint64_t tree);
+        static scripting::script_status destroy_scene_tree(std::uint64_t tree);
+        static scripting::script_status create_node(std::uint64_t tree, scripting::node_handle parent,
+                                                    scripting::utf8_view name,
+                                                    scripting::transform_value const* local,
+                                                    scripting::node_handle* node);
+        static scripting::script_status destroy_node(std::uint64_t tree, scripting::node_handle node);
+        static scripting::script_status get_node_transform(std::uint64_t tree, scripting::node_handle node,
+                                                           scripting::transform_value* value);
+        static scripting::script_status set_node_transform(std::uint64_t tree, scripting::node_handle node,
+                                                           scripting::transform_value const* value);
+        static scripting::script_status set_node_visible(std::uint64_t tree, scripting::node_handle node,
+                                                         std::uint8_t visible);
+        static scripting::script_status list_asset(std::uint32_t index, scripting::utf8_view* id);
+        static scripting::script_status load_asset(scripting::utf8_view id, scripting::asset_handle* asset);
+        static scripting::script_status release_asset(scripting::asset_handle asset);
+        static scripting::script_status bind_asset(std::uint64_t tree, scripting::node_handle parent,
+                                                   scripting::asset_handle asset,
+                                                   scripting::transform_value const* offset,
+                                                   scripting::node_handle* root);
+        static scripting::script_status get_camera(scripting::camera_state* value);
+        static scripting::script_status set_camera(scripting::camera_state const* value);
+        /// The native_api entry: stores or clears the one handler the app forwards to. A null
+        /// callback stops the forwarding; the context is handed back untouched.
+        static void set_input_event_callback(void (*callback)(void* context, scripting::input_event const* event),
+                                             void* context);
+
+        static scripting::script_status request_screenshot();
+
+        static scripting::script_status set_global_environment_hdr(scripting::utf8_view path);
+        static scripting::script_status asset_pipeline_count(scripting::asset_handle asset, std::uint32_t* count);
+        static scripting::script_status asset_pipeline(scripting::asset_handle asset, std::uint32_t index,
+                                                       scripting::utf8_view* name);
+        static scripting::script_status asset_default_pipeline(scripting::asset_handle asset,
+                                                               scripting::utf8_view* name);
+        static scripting::script_status set_pipeline(std::uint64_t tree, scripting::node_handle node,
+                                                     scripting::utf8_view pipeline);
+        static scripting::script_status set_exposure(float exposure);
+        static scripting::script_status set_tone_mapping(std::int32_t mode);
+        static scripting::script_status set_environment(float rotation_degrees, float strength,
+                                                        std::int32_t background, float color_r, float color_g,
+                                                        float color_b, float blur);
+        static scripting::script_status set_sun_intensity(float scale);
+        static scripting::script_status set_bloom(float intensity, float threshold);
+        static scripting::script_status set_fxaa(std::uint8_t enabled, float subpixel, float edge_threshold);
+        static scripting::script_status set_taa(std::uint8_t enabled, float blend_static, float blend_min);
+        static scripting::script_status set_ssao(std::uint8_t enabled, float radius, float intensity,
+                                                 std::uint32_t samples);
+        static scripting::script_status set_gbuffer_debug(std::uint8_t enabled);
+        static scripting::script_status set_sun_direction(float x, float y, float z);
+        static scripting::script_status set_area_light(float centre_x, float centre_y, float centre_z, float half,
+                                                       std::uint8_t irradiance, float axis_x, float axis_y,
+                                                       float axis_z, float penumbra);
+        static scripting::script_status set_clustered_lights(std::uint8_t enabled);
+        /** Replaces the whole punctual light set; see managed_scene_host::set_point_lights. */
+        static scripting::script_status set_point_lights(scripting::point_light_desc const* lights, std::uint32_t count);
+        /** Rewrites one subtree's material factors; see managed_scene_host::apply_material_override. */
+        static scripting::script_status set_material_override(std::uint64_t tree, scripting::node_handle node,
+                                                              scripting::material_override_desc const* value);
+        /** ABI 28: frame pacing policy; see managed_scene_host::set_max_fps. */
+        static scripting::script_status set_max_fps(double fps);
+        /** ABI 28: toon band count and step softness; see managed_scene_host::set_toon_shading. */
+        static scripting::script_status set_toon_shading(float steps, float softness);
+        /** ABI 28: the shadow pass on or off; see managed_scene_host::set_shadow_enabled. */
+        static scripting::script_status set_shadow_enabled(std::uint8_t enabled);
+        /** ABI 29: the face frame measured for one loaded asset; see managed_scene_host::asset_face_frame. */
+        static scripting::script_status asset_face_frame(scripting::asset_handle asset, scripting::face_frame_desc* value);
+        /** ABI 29: one character's head frame; see managed_scene_host::set_head_basis. */
+        static scripting::script_status set_head_basis(std::uint32_t index, scripting::head_basis_desc const* value);
+        /** ABI 30: installs or clears the cube-capture camera; see managed_scene_host::set_capture_camera. */
+        static scripting::script_status set_capture_camera(std::uint8_t enabled, float const position[3],
+                                                           std::uint32_t face, float near_plane, float far_plane);
+        /** ABI 30: arms one frame's radiance readback; see managed_scene_host::request_radiance_capture. */
+        static scripting::script_status request_radiance_capture();
+        /** ABI 30: copies the armed image out; see managed_scene_host::acquire_radiance_image. */
+        static scripting::script_status acquire_radiance_image(std::uint32_t* width, std::uint32_t* height,
+                                                               float* rgba, std::uint32_t float_count);
+        /** ABI 30: writes an assembled cube; see managed_scene_host::write_radiance_cube. */
+        /** ABI 30: drops the accumulated temporal history; see managed_scene_host::reset_temporal_history. */
+        static scripting::script_status reset_temporal_history();
+        static scripting::script_status write_radiance_cube(scripting::utf8_view path, std::uint32_t size,
+                                                            float const* pixels, std::uint32_t float_count);
+        /** The scene whose host answers the global (tree-less) setters: the starting scene, else the newest. */
+        static script_scene* current_owner();
+
+        // ABI 31: the debug panel. Each call is one widget in the frame the managed game is drawing; the
+        // managed side pairs begin_panel with end_panel and owns the storage the controls write into.
+        static scripting::script_status ui_begin_panel(scripting::utf8_view title, float default_width,
+                                                       float default_height);
+        static scripting::script_status ui_end_panel();
+        static scripting::script_status ui_text(scripting::utf8_view text);
+        static scripting::script_status ui_checkbox(scripting::utf8_view label, std::uint8_t* value);
+        static scripting::script_status ui_slider(scripting::utf8_view label, float* value, float minimum,
+                                                  float maximum);
+        static scripting::script_status ui_vec3(scripting::utf8_view label, float* value, float speed);
+        static scripting::script_status ui_combo(scripting::utf8_view label, scripting::utf8_view const* items,
+                                                 std::uint32_t count, std::int32_t* selected);
+        static scripting::script_status ui_button(scripting::utf8_view label, std::uint8_t* pressed);
+        static scripting::script_status ui_wants_mouse(std::uint8_t* value);
 
         scripting::managed_api scripts;
+        managed_ui_host ui_host;
         engine::scene_tree::scene* tree = nullptr;
         std::uint64_t tree_id = 0;
         managed_scene_host host;

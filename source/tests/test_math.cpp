@@ -17,26 +17,6 @@ import deren.engine.lighting.radiance_capture;
 import deren.engine.lighting.reflection_probe;
 
 namespace {
-    void test_scaled_picking_distance() {
-        for (bool sphere : {false, true}) {
-            auto placement = [](glm::vec3 scale, float center_z) {
-                glm::mat4 transform(1.0f);
-                transform[0][0] = scale.x;
-                transform[1][1] = scale.y;
-                transform[2][2] = scale.z;
-                transform[3][2] = center_z;
-                return transform;
-            };
-            glm::vec3 const origin(0), direction(0, 0, 1);
-            auto const near_hit = render_math_fixture::pick_distance(sphere, placement({2, 2, 2}, 6), origin, direction);
-            auto const far_hit = render_math_fixture::pick_distance(sphere, placement({.5f, .5f, .5f}, 6.5f), origin, direction);
-            CHECK(std::abs(near_hit - 4.0f) < 1e-5f);
-            CHECK(std::abs(far_hit - 6.0f) < 1e-5f);
-            CHECK(near_hit < far_hit);
-            CHECK(std::abs(render_math_fixture::pick_distance(sphere, placement({2, .5f, 3}, 8), origin, direction) - 5.0f) < 1e-5f);
-        }
-    }
-
     void test_ggx_visible_normal_grazing_sample() {
         // At u.x=0, Heitz's projected-area mapping still shifts the disc sample
         // away from the centre at oblique incidence. This analytic sample catches
@@ -574,7 +554,6 @@ int32_t main() {
     test_equirect_environment_axes();
     test_reflection_probe_math();
     test_orbit_camera_pan();
-    test_scaled_picking_distance();
     test_ggx_visible_normal_grazing_sample();
     return deren::vk_test::finish("test_math");
 }

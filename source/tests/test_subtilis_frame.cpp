@@ -203,7 +203,8 @@ int exercise(bool adopted) {
     auto record = [&] {
         CHECK(runtime.pace_and_acquire() == deren::engine::frame_status::proceed);
         CHECK(runtime.begin_recording() == deren::engine::frame_status::proceed);
-        runtime.record_main_drawcalls();
+        runtime.prepare_scene_recording();
+        CHECK(runtime.record_graph() == deren::engine::frame_status::proceed);
         CHECK(runtime.end_recording() == deren::engine::frame_status::proceed);
         auto pushed = deren::vk_test::probe_last_push(*core, sizeof(vis::push_block));
         CHECK(pushed.size() == sizeof(vis::push_block));
@@ -265,7 +266,8 @@ int exercise(bool adopted) {
     runtime.set_software_raster(true);
     CHECK(runtime.pace_and_acquire() == deren::engine::frame_status::proceed);
     CHECK(runtime.begin_recording() == deren::engine::frame_status::proceed);
-    runtime.record_main_drawcalls();
+    runtime.prepare_scene_recording();
+    CHECK(runtime.record_graph() == deren::engine::frame_status::proceed);
     CHECK(runtime.end_recording() == deren::engine::frame_status::proceed);
     auto tiles = deren::vk_test::probe_heap_buffer(*core, layout::heap_slot_offset(layout::heap_slots::software_tiles));
     auto const software_lane = (1u - masked.frame_slot) * deren::engine::visibility::software::software_tiles_bytes(32u, 32u);
@@ -400,7 +402,8 @@ int exercise(bool adopted) {
         std::fill(visibility_table.begin(), visibility_table.end(), std::byte{0xA5});
         CHECK(runtime.pace_and_acquire() == deren::engine::frame_status::proceed);
         CHECK(runtime.begin_recording() == deren::engine::frame_status::proceed);
-        runtime.record_main_drawcalls();
+        runtime.prepare_scene_recording();
+        CHECK(runtime.record_graph() == deren::engine::frame_status::proceed);
         CHECK(runtime.end_recording() == deren::engine::frame_status::proceed);
         CHECK(std::all_of(visibility_table.begin(), visibility_table.end(), [](auto b) { return b == std::byte{0xA5}; }));
         // The small chain stubs lighting, so inspect the actual fallback draw
@@ -444,7 +447,8 @@ int exercise(bool adopted) {
         std::fill(table.begin(), table.end(), std::byte{0xA5});
         CHECK(runtime.pace_and_acquire() == deren::engine::frame_status::proceed);
         CHECK(runtime.begin_recording() == deren::engine::frame_status::proceed);
-        runtime.record_main_drawcalls();
+        runtime.prepare_scene_recording();
+        CHECK(runtime.record_graph() == deren::engine::frame_status::proceed);
         CHECK(runtime.end_recording() == deren::engine::frame_status::proceed);
         CHECK(std::all_of(table.begin(), table.end(), [](auto b) { return b == std::byte{0xA5}; }));
         CHECK(runtime.submit_and_present() == deren::engine::frame_status::proceed);

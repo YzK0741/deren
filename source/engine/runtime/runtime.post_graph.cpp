@@ -863,7 +863,7 @@ namespace deren::engine {
             // lighting, transparent and toon stages read the depth THIS lane wrote), and the resolve lane reads that
             // pair back and reconstructs the five colour targets. The geometry lane is then NOT recorded at all.
             //
-            // THE LANE DECISION IS THE RUNTIME'S, FROZEN ONCE PER FRAME in record_main_drawcalls (`visibility_lane_frame`,
+            // THE LANE DECISION IS THE RUNTIME'S, FROZEN ONCE PER FRAME in prepare_scene_recording (`visibility_lane_frame`,
             // see deren::engine::visibility::choose_opaque_lane): the switch, the pipelines, the frame's scene and every
             // leaf's admission clause. A frame that is off OR cannot be carried records the geometry lane for every
             // leaf and the fallback line names the reason - a frame with two G-buffer authors is the failure the gate

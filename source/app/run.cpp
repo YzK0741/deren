@@ -1,0 +1,1477 @@
+module;
+
+// GLFW is confined to the deren.app.glfw module; this translation unit only names its wrapper types.
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+// The reflect-probe cube writer (IBL1) lives outside the module: it is a file format helper, not a
+// module interface. Included in the GLOBAL fragment so its std headers do not join the module.
+#include "radiance_cube_capture.hpp"
+module deren.app.application;
+
+import :capture;
+import :environment_loader;
+import :startup_splash;
+
+import deren.vstd;
+import deren.utility.shared;
+import deren.utility; // re-exports frame_clock / frame_stats / bvh / vessel / thread_pool / data_block
+import deren.asset_library;
+import deren.application_configuration;
+
+import deren.app.config;
+import deren.app.glfw;
+import deren.app.pipelines;
+import deren.app.renderer;
+import deren.app.scripting;
+import deren.app.toon;
+
+import deren.engine.backend_loader;
+import deren.engine.lighting.radiance_capture;
+import deren.engine.lighting.reflection_probe;
+import deren.engine.math;
+import deren.engine.primitive;
+
+import deren.engine.gaussian_splatting;
+import deren.engine.gaussian_splatting.raster;
+import deren.engine.runtime;
+import deren.engine.scene_tree;
+import deren.gltf_loader;
+import deren.promise.gui;
+import deren.promise.rhi;
+import deren.scripting.managed_host;
+
+namespace deren::app {
+    namespace {
+        using pipeline_material_bases = std::unordered_map<std::uint64_t, deren::engine::material_id>;
+
+        /// Rewrites every imported leaf under @p node to @p pipeline. The walk never consults
+        /// `visible`, because a hidden asset subtree must still switch so it renders correctly when
+        /// shown again. `unlit` replaces the leaf's material with a cloned unlit variant (recording
+        /// the clone source in @p bases so leaving unlit restores the original); `game_toon` and
+        /// `pbr` only choose the shading path. Unknown names return false and touch nothing.
+        bool apply_pipeline_to_subtree(deren::engine::runtime& runtime, pipeline_material_bases& bases,
+                                       deren::engine::scene_tree::scene_node& node, std::string_view const pipeline) {
+            if (node.primitive_leaf != nullptr) {
+                // Imported leaves always come from runtime::create_primitive(), i.e. they are
+                // deren::engine::primitive; RTTI is off, so this is the documented downcast.
+                auto& leaf = *static_cast<deren::engine::primitive*>(node.primitive_leaf.get());
+                if (pipeline == "pbr") {
+                    if (auto const found = bases.find(leaf.lifetime_id); found != bases.end()) {
+                        leaf.push.material_index = found->second;
+                    }
+                    leaf.pipeline_name = {};
+                    leaf.path = deren::engine::shading_path::deferred;
+                } else if (pipeline == "unlit") {
+                    auto const inserted = bases.try_emplace(leaf.lifetime_id, leaf.push.material_index);
+                    leaf.pipeline_name = {};
+                    leaf.path = deren::engine::shading_path::deferred;
+                    leaf.push.material_index =
+                        runtime.clone_material(inserted.first->second, glm::vec3(1.0f), 1.0f, 1.0f, 1.0f, true);
+                } else if (pipeline == "game_toon") {
+                    if (auto const found = bases.find(leaf.lifetime_id); found != bases.end()) {
+                        leaf.push.material_index = found->second;
+                    }
+                    leaf.pipeline_name = {};
+                    leaf.path = deren::engine::shading_path::character;
+                } else {
+                    return false;
+                }
+            }
+            for (auto& child : node.children) {
+                if (!apply_pipeline_to_subtree(runtime, bases, child, pipeline)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+    } // namespace
+
+    int run(int argc, char** argv) {
+        static_cast<void>(deren::utility::diagnostics::install_crash_handler());
+        // CPU-only authoring/verification commands run without a window or Vulkan.
+        if (argc == 4 && std::string_view(argv[1]) == "--bake-environment") {
+            std::string error;
+            if (!bake_environment_ibl(argv[2], argv[3], environment_cubemap_size, environment_mip_count,
+                                      environment_irradiance_size, environment_brdf_lut_size, 1.0f, error)) {
+                deren::utility::println(stderr, "environment bake failed: {}", error);
+                return 2;
+            }
+            deren::utility::println("baked environment written to '{}'", argv[3]);
+            return 0;
+        }
+        if (argc == 3 && std::string_view(argv[1]) == "--skeleton-hash") {
+            auto model = deren::gltf::load_model(argv[2]);
+            if (!model) {
+                deren::utility::println("cannot load skeleton model");
+                return 2;
+            }
+            auto hash = deren::gltf::skeleton_fingerprint(*model);
+            if (!hash) {
+                deren::utility::println("{}", hash.error());
+                return 2;
+            }
+            deren::utility::println("skeleton_hash={}", *hash);
+            return 0;
+        }
+        if (argc == 4 && std::string_view(argv[1]) == "--verify-motion") {
+            auto model = deren::gltf::load_model(argv[2]);
+            if (!model) {
+                deren::utility::println("cannot load skeleton model");
+                return 2;
+            }
+            auto result = deren::gltf::load_motion(*model, argv[3]);
+            if (!result) {
+                deren::utility::println("motion verification failed: {}", result.error());
+                return 2;
+            }
+            deren::utility::println("motion verified: {} clip(s)", *result);
+            return 0;
+        }
+        // --version: print the version (single source: project(VERSION) in CMakeLists.txt, injected
+        // as DEREN_VERSION_*) and exit before any config / Vulkan init.
+        for (std::int32_t i = 1; i < argc; ++i) {
+            if (std::string_view(argv[i]) == "--version") {
+                deren::utility::println("deren {}.{}.{}", DEREN_VERSION_MAJOR, DEREN_VERSION_MINOR, DEREN_VERSION_PATCH);
+                return 0;
+            }
+        }
+
+        // A project launch owns every startup option: `deren run <project>` is the ONLY entry. The
+        // engine locates the subcommand and passes the untouched argv to the project's preinit; the
+        // native preview mode and its capture CLI are gone, so a launch without a managed project is
+        // a usage error rather than a second startup path.
+        auto const fail_project = [](std::string_view message) {
+            deren::utility::println(stderr, "{}", message);
+            deren::utility::error(message);
+            deren::utility::wait_log_all();
+            return 2;
+        };
+        std::int32_t run_index = -1;
+        for (std::int32_t i = 1; i < argc; ++i) {
+            if (std::string_view(argv[i]) == "run") {
+                run_index = i;
+                break;
+            }
+        }
+        if (run_index < 0) {
+            return fail_project("usage: deren run <project-directory>");
+        }
+        if (run_index + 1 >= argc) {
+            return fail_project("usage: deren run <project-directory>");
+        }
+        auto project = deren::app_config::load_project_settings(argv[run_index + 1]);
+        if (!project) {
+            return fail_project(project.error());
+        }
+        deren::utility::log("project: launching '{}' ({})", project->name, project->settings.config_file);
+        std::filesystem::path const script_assembly = std::move(project->script_assembly);
+        if (script_assembly.empty()) {
+            return fail_project("the project names no managed assembly; every launch needs one ([scripts] assembly)");
+        }
+        deren::utility::vessel::vector<deren::input::action_binding> project_actions = std::move(project->input_actions);
+        deren::app_config::app_settings launch_settings = std::move(project->settings);
+        deren::app::script_scene script_scene;
+        capture::options capture{};
+        auto startup = script_scene.preinit(script_assembly, argc, argv);
+        if (!startup) {
+            deren::utility::error("{}", startup.error());
+            deren::utility::wait_log_all();
+            return 2;
+        }
+        capture.frames = startup->capture_frames;
+        capture.windowed = startup->capture_windowed != 0;
+        if (startup->camera_set != 0) {
+            capture.camera = deren::utility::vessel::array<float, 3>{
+                startup->camera_yaw_degrees, startup->camera_pitch_degrees, startup->camera_distance};
+            if (startup->target_set != 0) {
+                capture.target = glm::vec3{startup->target.x, startup->target.y, startup->target.z};
+            }
+        }
+        capture.sweep_yaw_deg_per_frame = startup->sweep_yaw_deg_per_frame;
+        capture.animation_seconds_per_frame = startup->animation_seconds_per_frame;
+        deren::app::startup_config config = deren::app::analyse_config(launch_settings);
+        auto& settings = config.settings;
+        std::filesystem::path const& shaders_dir = config.shaders_dir;
+        // Keep the splash younger than its GLFW window, including early-exit teardown.
+        bool const offscreen = settings.render.offscreen || (capture.frames > 0 && !capture.windowed);
+        glfw_window window{settings.render.window_width, settings.render.window_height,
+                           settings.render.window_title.c_str(), capture.frames == 0, offscreen};
+        std::span<deren::input::action_binding const> const actions{project_actions.data(), project_actions.size()};
+        deren::input::action_state action_state{actions};
+        glfw_action_input action_input{&window, action_state};
+        deren::app::startup_splash splash{capture.frames == 0 && !settings.render.offscreen};
+        splash.attach_window(window.native_handle());
+
+        // startup banner: version (single source: project(VERSION) in CMakeLists.txt)
+        deren::utility::log("deren {}.{}.{}", DEREN_VERSION_MAJOR, DEREN_VERSION_MINOR, DEREN_VERSION_PATCH);
+
+        // 4. Kick off the runtime-independent heavy CPU stage BEFORE constructing the (heavy) Vulkan
+        //    runtime, so window/instance/device/swapchain init overlaps the base environment cubemap
+        //    generation. The IBL resolutions are compiled in (environment_loader.cppm): nothing
+        //    re-shapes them.
+        constexpr std::int32_t env_size = environment_cubemap_size;
+        constexpr std::int32_t env_mip_count = environment_mip_count;
+        constexpr std::int32_t irr_size = environment_irradiance_size;
+        constexpr std::int32_t lut_size = environment_brdf_lut_size;
+        auto const startup_start = std::chrono::steady_clock::now();
+
+        // THE SUN, AS ONE VECTOR FOR EVERYTHING THAT HAS TO AGREE ABOUT IT: the light UBO built from it
+        // (the shading's `light_dir` and the shadow cascades) and the disc the sky draws - which reads
+        // that UBO's `light_dir`, so the sky cannot put its sun where the shadows do not fall.
+        auto const& sun_direction = settings.lighting.sun_direction;
+        auto env_future = deren::engine::generate_environment_cubemap_async(env_size, sun_direction);
+
+        // 5. THE APPLICATION ACQUIRES THE DEVICE ROOT, THEN BUILDS THE RENDERER FROM IT. The loader is
+        //    the app's decision (which backend, from where, with which search rules, and what a
+        //    failure means for startup) and the runtime is the renderer, which loads nothing and
+        //    refuses an empty root loudly. THE TYPE IS THE RHI CONTRACT'S, and it is the ONLY creation
+        //    structure there is: the program fills `deren::promise::rhi::create_info`, hands it to
+        //    `deren::engine::load_api_core()` and then hands BOTH the root and the same structure to
+        //    the runtime.
+        deren::promise::rhi::create_info core_options = {};
+        core_options.window_width = settings.render.window_width;
+        core_options.window_height = settings.render.window_height;
+        // the title is a REFERENCED `char const*`: it has to outlive the core's construction, and
+        // `settings` lives to the end of main, so this `.c_str()` is valid for the whole run.
+        core_options.window_title = settings.render.window_title.c_str();
+        core_options.vsync = settings.render.vsync;
+        core_options.validation_layers = settings.render.validation_layers;
+        // the render scale is a CREATION option and not a runtime setter, because it decides the extent
+        // every render target is created with (see create_info::render_scale).
+        core_options.render_scale = settings.render.render_scale;
+        // A scripted capture gets no visible window: the screenshot is a read-back of the swapchain
+        // image, not a capture of the window.
+        core_options.window_visible = capture.frames == 0;
+        // the pointer the application created above (and keeps valid for the whole run) selects the
+        // core's caller-window branch: it binds to that window and destroys none.
+        core_options.native_window = window.native_handle();
+        deren::promise::rhi::shared_object<deren::promise::rhi::api_core> core = deren::engine::load_api_core(core_options);
+        if (core == nullptr) {
+            deren::utility::error("startup: no device root was acquired, so there is no renderer to run "
+                                  "(see the backend_loader diagnosis above)");
+            return 1;
+        }
+        deren::engine::runtime runtime{std::move(core), core_options};
+        runtime.background_color = glm::vec3(settings.render.clear_color[0], settings.render.clear_color[1], settings.render.clear_color[2]);
+        runtime.set_gpu_timings(settings.render.gpu_timings);
+        runtime.set_async_present(settings.render.async_present);
+        // [render] max_fps: 0 keeps the loop uncapped (what a throughput measurement needs). The key has
+        // been parsed all along; without this call the frame pacing ignored it.
+        runtime.set_max_fps(settings.render.max_fps);
+        // Shadow cascades: applied BEFORE the first scene set binds the layered image.
+        runtime.set_shadow_cascades(static_cast<std::uint32_t>(settings.render.shadow_cascades));
+        runtime.set_shadow_cascade_blend(settings.render.shadow_cascade_blend);
+        runtime.set_shadow_depth_bias(settings.render.shadow_bias_constant, settings.render.shadow_bias_slope, 0.0f);
+        runtime.set_shadow_map_size(static_cast<std::uint32_t>(settings.render.shadow_map_size));
+        auto const runtime_ready = std::chrono::steady_clock::now();
+        deren::utility::log("vulkan runtime initialized: {:.1f} ms (environment generation running in background)", std::chrono::duration<double, std::milli>(runtime_ready - startup_start).count());
+
+        // 6. Pipelines up front (deren::app::setup_pipeline): the standard PBR pipeline and the
+        //    directional shadow pass.
+        deren::app::setup_pipeline(runtime, shaders_dir);
+        // THIS APPLICATION'S WIRING: its passes are fed by `deren.app.renderer`, which finds them in
+        // the chain the runtime keeps and answers the frame's per-stage questions.
+        deren::app::app_renderer app_renderer;
+        static_cast<void>(app_renderer.attach(runtime)); // builds this app's chain and hands it over
+        // ... and the CREATE step runs over that chain (the shaders above are registered by now).
+        runtime.create_passes();
+        runtime.set_furnace(settings.render.furnace);
+        runtime.set_rt_shadows(settings.render.rt_shadows);
+        runtime.set_rt_reflections(settings.render.rt_reflections);
+        runtime.set_rt_reflection_whitelist(settings.render.rt_reflection_cloth,
+                                            settings.render.rt_reflection_strength,
+                                            settings.render.rt_reflection_materials);
+        runtime.set_rt_reflection_samples(settings.render.rt_reflection_samples);
+        runtime.set_rt_mask_bake(settings.render.rt_mask_bake);
+        runtime.set_rt_skin_bake(settings.render.rt_skin_bake);
+        runtime.set_visibility_buffer(settings.render.visibility_buffer);
+        runtime.set_visibility_texture_streaming(settings.render.visibility_texture_streaming);
+        runtime.set_subtilis(settings.render.subtilis);
+        runtime.set_subtilis_error_px(settings.render.subtilis_error_px);
+        runtime.set_subtilis_hysteresis(settings.render.subtilis_hysteresis);
+        runtime.set_subtilis_gpu_cut(settings.render.subtilis_gpu_cut);
+        runtime.set_subtilis_page_upload_bytes(settings.render.subtilis_page_upload_bytes);
+        runtime.set_subtilis_resident_page_bytes(settings.render.subtilis_resident_page_bytes);
+        runtime.set_software_raster(settings.render.software_raster);
+        runtime.set_software_raster_threshold_px(settings.render.software_raster_threshold_px);
+
+        // 7. Collect the async startup result: the analytic sky's cubemap, then its IBL convolutions.
+        deren::utility::vessel::vector<float> environment_cube = env_future.get();
+        auto prefilter_future = deren::engine::prefilter_environment_async(environment_cube, env_size, env_mip_count);
+        auto irradiance_future = deren::engine::generate_irradiance_map_async(environment_cube, env_size, irr_size);
+        auto lut_future = deren::engine::generate_brdf_lut_async(lut_size);
+        deren::utility::vessel::vector<float> const prefiltered = prefilter_future.get();
+        deren::utility::vessel::vector<float> const irradiance = irradiance_future.get();
+        deren::utility::vessel::vector<float> const brdf_lut = lut_future.get();
+        deren::utility::vessel::vector<std::uint8_t> const env_bytes = deren::engine::to_half_rgba(prefiltered);
+        deren::utility::vessel::vector<std::uint8_t> const irr_bytes = deren::engine::to_half_rgba(irradiance);
+        deren::utility::vessel::vector<std::uint8_t> const lut_bytes = deren::engine::to_half_rg(brdf_lut);
+        runtime.set_ibl(deren::engine::ibl_input{.prefiltered_env = env_bytes, .irradiance = irr_bytes, .brdf_lut = lut_bytes,
+                                                 .env_size = static_cast<std::uint32_t>(env_size),
+                                                 .env_mip_count = static_cast<std::uint32_t>(env_mip_count),
+                                                 .irr_size = static_cast<std::uint32_t>(irr_size),
+                                                 .lut_size = static_cast<std::uint32_t>(lut_size)});
+        // THE LOOK OF THE FRAME IS THE MANAGED PROJECT'S: the environment, sun, exposure, tone
+        // mapping, bloom, FXAA, TAA, SSAO, the G-buffer debug view and clustered light culling are
+        // parsed by the managed framework from the same project files and applied before the
+        // project's initialize (see deren::project_config), so the C# game owns them and can move
+        // them any frame. What stays native is what must exist before the project's scripts run:
+        // the swapchain and its creation parameters, the shadow cascade/map sizing, the GPU-driven
+        // paths, the render scale, and the pipeline / toon stage selection below.
+        runtime.set_default_pipeline(settings.render.unlit ? "unlit" : "pbr");
+        app_renderer.set_unlit(settings.render.unlit);
+        app_renderer.set_gbuffer_channel(settings.render.gbuffer_channel);
+        runtime.set_character_forward(settings.render.character_forward);
+        runtime.set_game_toon(settings.render.game_toon);
+
+        // THE CAPTURED CHAIN'S DEPTH RIM (HEAD app_application's per-frame mirror, `set_toon_screen_rim`):
+        // width 0.368, gain 10, modest strength, near-white colour. The pass it shapes has its own defaults,
+        // and a frame drawn with those instead of these numbers draws a contour the reference capture never
+        // had - the rim is the only stage that reaches the hair's silhouette, so leaving it out is visible as
+        // bright edges on exactly that part. Published for the same "before the first frame" reason the rig
+        // above is, and gated the way HEAD gates it: only the effective game-toon selection draws it.
+        if (settings.render.game_toon && settings.render.character_forward) {
+            runtime.set_toon_screen_rim(0.368f, 10.0f, 0.25f, 1.0f, 0.85f, 0.95f);
+        }
+
+        // THE TOON LIGHT RIG ([toon] profile -> deren::engine::toon_rig), published ONCE before the
+        // first frame: nothing rewrites that block while a frame is in flight (see
+        // core::heap_slots::toon_rig), which is the contract that makes a write from here safe - and
+        // the reason it cannot move into the frame loop. Without this block every lane keeps the
+        // struct's construction value, and the character stage's day/head/rim/environment shading
+        // (plus the shadow softness ladder and the face/hair shaping switches) is flat.
+        {
+            deren::engine::toon_rig rig = {};
+            rig.day.x = settings.toon.day_strength;
+            rig.other_light.x = settings.toon.head_light_day0;
+            rig.other_light.y = settings.toon.head_light_day1;
+            rig.other_colour = glm::vec4(settings.toon.head_light_colour[0], settings.toon.head_light_colour[1],
+                                         settings.toon.head_light_colour[2], 0.0f);
+            rig.reference_modes.x = settings.toon.hair_masked_highlights ? 1.0f : 0.0f;
+            rig.reference_modes.y = settings.toon.face_angular_sdf ? 1.0f : 0.0f;
+            rig.main_dark.x = settings.toon.sun_dark_colour[0];
+            rig.main_dark.y = settings.toon.sun_dark_colour[1];
+            rig.main_dark.z = settings.toon.sun_dark_colour[2];
+            rig.env.x = settings.toon.env_strength;
+            rig.env.y = settings.toon.env_rotation;
+            rig.env.z = settings.toon.specular_strength;
+            rig.env.w = settings.toon.diffuse_blend_effect;
+            rig.rim.x = settings.toon.rim_area;
+            rig.rim.y = settings.toon.rim_strength;
+            rig.rim.z = settings.toon.rim_nolxz_strength;
+            rig.misc.x = settings.toon.backlight_strength;
+            // the face's expression index rides the head light's colour block's fourth lane
+            rig.other_colour.w = settings.toon.emotion_type;
+            // the shadow softness ladder ([render] toon_shadow_softness) plus the three shape lanes
+            rig.shadow_softness.x = settings.render.toon_shadow_softness;
+            rig.shadow_softness.y = settings.toon.nose_shadow_reduction;
+            rig.shadow_softness.z = settings.toon.hair_highlight_width;
+            rig.shadow_softness.w = settings.toon.hair_highlight_shift;
+            runtime.set_toon_rig(rig);
+            deren::utility::log("toon: light rig published - day strength {:.3f}, head light {:.2f} at day 1 of {:.2f} at day 0, env strength {:.2f}, shadow softness {}",
+                                rig.day.x, rig.other_light.y, rig.other_light.x, rig.env.x,
+                                static_cast<int>(rig.shadow_softness.x));
+        }
+
+        // 8. The local reflection probe, when the config names one (a scene-authored calibration; the
+        //    probe is uploaded once, before the first frame, and the global IBL is used when it fails).
+        if (settings.reflection_probe.enabled) {
+            auto const& r = settings.reflection_probe;
+            auto vec = [](auto const& a) { return glm::vec3(a[0], a[1], a[2]); };
+            auto path = std::filesystem::path(r.asset.c_str());
+            if (path.is_relative()) {
+                path = deren::utility::executable_directory() / path;
+            }
+            std::error_code ec;
+            auto const length = std::filesystem::file_size(path, ec);
+            std::optional<deren::engine::probe_detail::asset> asset;
+            if (!ec && length <= 32 + std::uint64_t(6) * 512 * 512 * 8 * 2) {
+                std::vector<std::byte> bytes(length);
+                std::ifstream file(path, std::ios::binary);
+                if (file.read(reinterpret_cast<char*>(bytes.data()), bytes.size())) {
+                    asset = deren::engine::probe_detail::decode(bytes);
+                }
+            }
+            if (!asset || !runtime.set_local_probe(asset->half, asset->size, asset->mips, vec(r.position), vec(r.minimum), vec(r.maximum), r.fade, r.gain)) {
+                deren::utility::log("local probe: invalid asset/config/upload; using global IBL ({})", path.string());
+            } else {
+                deren::utility::log("local probe loaded: {} ({}px, {} mips), position ({},{},{})", path.string(), asset->size, asset->mips, r.position[0], r.position[1], r.position[2]);
+            }
+        }
+        auto const startup_done = std::chrono::steady_clock::now();
+        deren::utility::log("environment cubemap + IBL (startup window incl. runtime init): {:.1f} ms", std::chrono::duration<double, std::milli>(startup_done - startup_start).count());
+
+        // 9. THE MANAGED PROJECT: the C# game owns the scene. The engine hands it three native services
+        //    (import a glTF asset into a scene node, read/write the camera, request a screenshot) and
+        //    receives nothing but the scoped handlers below.
+        struct managed_bind_context {
+            deren::engine::runtime* render_runtime = nullptr;
+            // TAA/SSAO live on this application's renderer, not on the runtime.
+            deren::app::app_renderer* renderer = nullptr;
+            // A managed set_global_environment_hdr() request is validated here and applied between
+            // frames (the upload waits for the GPU, which must never happen inside the callback).
+            std::filesystem::path pending_environment;
+            bool environment_pending = false;
+            // Clone sources for leaves currently shaded by the unlit pipeline, keyed by the
+            // leaf's lifetime id (pointer identity alone would reuse a freed leaf's entry).
+            pipeline_material_bases pipeline_bases;
+            // The radius of the largest scene bound so far: `enable_shadows` remembers the extent
+            // the camera's far plane needs, so it is re-run only when a later bind is bigger.
+            float shadow_scene_radius = 0.0f;
+            // THE UPLOADED SPLAT CLOUDS, keyed by library id. A cloud is a device asset (its static
+            // tables are built once), so a second placement of the same asset reuses it instead of
+            // re-reading and re-uploading the `.ply`. `next_cloud_id` is the per-instance stable id the
+            // splat sort needs as its deterministic tie-break.
+            deren::utility::vessel::vector<std::pair<std::string, std::shared_ptr<deren::engine::gaussian_splatting::raster_asset const>>> clouds;
+            std::uint64_t next_cloud_id = 1;
+            // THE MANAGED OBJECT OVERRIDES, keyed by the leaf's lifetime id (pointer identity alone
+            // would reuse a freed leaf's entry). `base` is the row the leaf pointed at when the
+            // override first appeared, `clone` is the engine row that carries the factors, and the
+            // factors themselves are rebuilt from `base` on every call so they never compound.
+            struct material_override_row {
+                deren::engine::material_id base{};
+                deren::engine::material_id clone{};
+                bool base_recorded = false;
+            };
+            std::unordered_map<std::uint64_t, material_override_row> material_overrides;
+            // ABI 31: THE MANAGED DEBUG PANEL. `overlay::add_panel()` builds a new panel object per call,
+            // so the host keeps the registration (and the title it was made under) and empties the widget
+            // list each managed frame instead of asking for another panel. `ui_available` is the one flag
+            // that says the plugin came up; every verb checks it before touching `runtime::debug_gui()`,
+            // which panics on a session that never enabled the overlay.
+            deren::gui::panel* ui_panel = nullptr;
+            std::string ui_panel_title;
+            bool ui_panel_open = false;
+            bool ui_available = false;
+            // The size a panel falls back to when the game names none (`[gui] panel_width/panel_height`).
+            float ui_default_width = 380.0F;
+            float ui_default_height = 140.0F;
+        };
+        managed_bind_context managed_binding{.render_runtime = &runtime,
+                                            .renderer = &app_renderer,
+                                            .pending_environment = {},
+                                            .environment_pending = false,
+                                            .pipeline_bases = {},
+                                            .shadow_scene_radius = 0.0f,
+                                            .clouds = {},
+                                            .next_cloud_id = 1,
+                                            .material_overrides = {},
+                                            .ui_panel = nullptr,
+                                            .ui_panel_title = {},
+                                            .ui_panel_open = false,
+                                            .ui_available = false,
+        .ui_default_width = 380.0F,
+        .ui_default_height = 140.0F};
+        auto const bind_managed_asset = +[](void* opaque, deren::engine::scene_tree::scene_node& parent,
+                                            std::string_view asset_id, deren::app::managed_asset_source const& source) -> bool {
+            auto& context = *static_cast<managed_bind_context*>(opaque);
+            auto& runtime = *context.render_runtime;
+            // A CLOUD IS STAGED, NOT IMPORTED: it has no scene graph, no materials and no toon lookup, so
+            // the whole import path below does not apply. The upload happens once per library id (the
+            // static tables are expensive), and every placement of that asset becomes one instance in the
+            // shared splat pass, placed by the wrapper node's own transform.
+            if (source.cloud != nullptr) {
+                std::shared_ptr<deren::engine::gaussian_splatting::raster_asset const> uploaded;
+                for (auto const& [id, cloud] : context.clouds) {
+                    if (id == asset_id) {
+                        uploaded = cloud;
+                        break;
+                    }
+                }
+                if (uploaded == nullptr) {
+                    auto created = runtime.create_gaussian_asset(*source.cloud);
+                    if (!created) {
+                        deren::utility::error("gaussian: the host refused to upload '{}' (error {})", asset_id,
+                                              static_cast<std::int32_t>(created.error().code));
+                        return false;
+                    }
+                    uploaded = *created;
+                    context.clouds.emplace_back(std::string{asset_id}, uploaded);
+                    deren::utility::log("gaussian: '{}' uploaded - {} splats, SH degree {}", asset_id,
+                                        uploaded->source().particles.size(), uploaded->source().sh_degree);
+                }
+                runtime.add_gaussian_asset(uploaded, parent.local, context.next_cloud_id++);
+                runtime.scene_changed();
+                return true;
+            }
+            if (source.scenes == nullptr || source.materials.empty()) {
+                return false;
+            }
+            deren::gltf::scene_node_iterator const node_first = source.scenes->nodes_begin();
+            deren::gltf::scene_node_iterator const node_last;
+            deren::gltf::drawable_iterator const drawable_first(*source.scenes, source.materials);
+            deren::gltf::drawable_iterator const drawable_last;
+            glm::vec3 const import_shift{source.import_shift[0], source.import_shift[1], source.import_shift[2]};
+            // THE TOON MATERIAL LOOKUP, installed for the duration of this import. The runtime asks it,
+            // by material name, for the maps and colours a `.toon.tsv` declares - the application layer
+            // is the only layer that has read that file. A model without a sidecar gets the empty lookup,
+            // which the import reads as "no lane is switched on" rather than as a block of white.
+            if (source.toon != nullptr) {
+                runtime.set_toon_lookup(deren::engine::runtime::toon_lookup{
+                    .parent = const_cast<deren::app::detail::toon_lookup_state*>(source.toon),
+                    .texture = deren::app::detail::toon_texture_callback,
+                    .colour = deren::app::detail::toon_colour_callback,
+                    .scalar = deren::app::detail::toon_scalar_callback});
+            } else {
+                runtime.set_toon_lookup(deren::engine::runtime::toon_lookup{});
+            }
+            deren::engine::scene_import_result const result =
+                runtime.import_scene(node_first, node_last, drawable_first, drawable_last, import_shift,
+                                     false, 0u, &parent);
+            if (result.primitive_count == 0) {
+                return false;
+            }
+            // THE SHADOW FIT: the frame's directional shadow maps frame the sphere the imported
+            // primitives occupy, which is what makes the sun cast a shadow at all. `enable_shadows`
+            // also remembers the extent the camera's far plane needs, so it is re-run only when a
+            // later bind grows the bound (`[render] shadow_cascades`/bias/size are already applied
+            // above, before the first scene set binds the layered image).
+            if (source.scene_radius > context.shadow_scene_radius) {
+                context.shadow_scene_radius = source.scene_radius;
+                glm::vec3 const shadow_center{source.scene_center[0], source.scene_center[1], source.scene_center[2]};
+                runtime.enable_shadows(shadow_center, source.scene_radius);
+            }
+            // The manifest's default pipeline takes effect at bind, so the asset looks as authored
+            // from the first frame instead of after the script's first update.
+            if (!source.default_pipeline.empty() && source.default_pipeline != "pbr" &&
+                !apply_pipeline_to_subtree(runtime, context.pipeline_bases, parent, source.default_pipeline)) {
+                return false;
+            }
+            runtime.scene_changed();
+            return true;
+        };
+        auto const apply_managed_pipeline = +[](void* opaque, deren::engine::scene_tree::scene_node& node,
+                                                std::string_view pipeline) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->render_runtime == nullptr ||
+                !apply_pipeline_to_subtree(*context->render_runtime, context->pipeline_bases, node, pipeline)) {
+                return false;
+            }
+            context->render_runtime->scene_changed();
+            return true;
+        };
+        auto const install_managed_scene = +[](void* opaque, deren::engine::scene_tree::scene& managed) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->render_runtime == nullptr) {
+                return false;
+            }
+            // A NEW SCENE STARTS WITH NO CLOUDS: the staged set belongs to the tree that staged it, so a
+            // replacement tree must not inherit the previous one's splats. The cached uploads stay valid
+            // (their device tables outlive the staging) and are reused when the new tree places them again.
+            context->render_runtime->clear_gaussian_assets();
+            context->render_runtime->set_scene(managed);
+            context->render_runtime->scene_changed();
+            return true;
+        };
+        auto const get_managed_camera = +[](void* opaque, deren::scripting::camera_state* value) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->render_runtime == nullptr || value == nullptr) {
+                return false;
+            }
+            auto const& camera = context->render_runtime->camera;
+            value->yaw_degrees = glm::degrees(camera.yaw);
+            value->pitch_degrees = glm::degrees(camera.pitch);
+            value->distance = camera.distance;
+            value->target = {.x = camera.target.x, .y = camera.target.y, .z = camera.target.z};
+            return true;
+        };
+        auto const set_managed_camera = +[](void* opaque, deren::scripting::camera_state const* value) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->render_runtime == nullptr || value == nullptr ||
+                !std::isfinite(value->yaw_degrees) || !std::isfinite(value->pitch_degrees) ||
+                !std::isfinite(value->distance) || value->distance <= 0.0F || !std::isfinite(value->target.x) ||
+                !std::isfinite(value->target.y) || !std::isfinite(value->target.z)) {
+                return false;
+            }
+            auto& camera = context->render_runtime->camera;
+            camera.yaw = glm::radians(value->yaw_degrees);
+            camera.pitch = glm::radians(value->pitch_degrees);
+            camera.distance = value->distance;
+            camera.target = glm::vec3(value->target.x, value->target.y, value->target.z);
+            return true;
+        };
+        auto const request_managed_screenshot = +[](void* opaque) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->render_runtime == nullptr) {
+                return false;
+            }
+            context->render_runtime->request_screenshot();
+            return true;
+        };
+        // The managed side names the GLOBAL environment; an empty path asks for the procedural sky.
+        // This only validates and records the newest request - the device work happens in the loop.
+        auto const set_managed_environment_hdr = +[](void* opaque, std::string_view path) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->render_runtime == nullptr) {
+                return false;
+            }
+            std::filesystem::path request{std::string(path)};
+            if (!request.empty()) {
+                // relative paths resolve against the executable, like the reflective probe asset
+                if (request.is_relative()) {
+                    request = deren::utility::executable_directory() / request;
+                }
+                std::error_code ec;
+                if (!std::filesystem::is_regular_file(request, ec) || ec) {
+                    return false;
+                }
+            }
+            context->pending_environment = std::move(request);
+            context->environment_pending = true;
+            return true;
+        };
+        // The former startup-only [render]/[lighting] knobs, now runtime state owned by the managed
+        // game. The validation lives in der::app::scripting; these lambdas only forward.
+        auto const set_managed_exposure = +[](void* opaque, float exposure) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->render_runtime == nullptr) {
+                return false;
+            }
+            context->render_runtime->set_exposure(exposure);
+            return true;
+        };
+        auto const set_managed_tone_mapping = +[](void* opaque, std::int32_t mode) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->render_runtime == nullptr) {
+                return false;
+            }
+            context->render_runtime->set_tone_mapping(mode);
+            return true;
+        };
+        // A calibration change invalidates TAA's accumulated history for the same reason an
+        // environment switch does: the history was lit by the old rotation/strength.
+        auto const set_managed_environment = +[](void* opaque, float rotation_degrees, float strength,
+                                                 std::int32_t background, float color_r, float color_g, float color_b,
+                                                 float blur) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->render_runtime == nullptr) {
+                return false;
+            }
+            context->render_runtime->set_environment(rotation_degrees, strength, background,
+                                                     glm::vec3(color_r, color_g, color_b), blur);
+            if (context->renderer != nullptr) {
+                context->renderer->reset_temporal_history();
+            }
+            return true;
+        };
+        auto const set_managed_sun_intensity = +[](void* opaque, float scale) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->render_runtime == nullptr) {
+                return false;
+            }
+            context->render_runtime->set_sun_intensity(scale);
+            return true;
+        };
+        auto const set_managed_bloom = +[](void* opaque, float intensity, float threshold) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->render_runtime == nullptr) {
+                return false;
+            }
+            context->render_runtime->set_bloom(intensity, threshold);
+            return true;
+        };
+        auto const set_managed_fxaa = +[](void* opaque, bool enabled, float subpixel, float edge_threshold) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->render_runtime == nullptr) {
+                return false;
+            }
+            context->render_runtime->set_fxaa(enabled, subpixel, edge_threshold);
+            return true;
+        };
+        auto const set_managed_taa = +[](void* opaque, bool enabled, float blend_static, float blend_min) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->renderer == nullptr) {
+                return false;
+            }
+            context->renderer->set_taa(enabled, blend_static, blend_min);
+            return true;
+        };
+        auto const set_managed_ssao = +[](void* opaque, bool enabled, float radius, float intensity,
+                                          std::uint32_t samples) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->renderer == nullptr) {
+                return false;
+            }
+            context->renderer->set_ssao(enabled, radius, intensity, samples);
+            return true;
+        };
+        auto const set_managed_gbuffer_debug = +[](void* opaque, bool enabled) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->render_runtime == nullptr) {
+                return false;
+            }
+            context->render_runtime->set_gbuffer_debug(enabled);
+            return true;
+        };
+        // Lighting changes relight the previous frame's samples, so TAA's history goes the way of the
+        // environment switch: forward to the runtime, then drop the accumulated history.
+        auto const set_managed_sun_direction = +[](void* opaque, float x, float y, float z) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->render_runtime == nullptr) {
+                return false;
+            }
+            context->render_runtime->set_sun_direction(glm::vec3(x, y, z));
+            if (context->renderer != nullptr) {
+                context->renderer->reset_temporal_history();
+            }
+            return true;
+        };
+        auto const set_managed_area_light = +[](void* opaque, float centre_x, float centre_y, float centre_z,
+                                                float half, bool irradiance, float axis_x, float axis_y,
+                                                float axis_z, float penumbra) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->render_runtime == nullptr) {
+                return false;
+            }
+            context->render_runtime->set_area_light(glm::vec3(centre_x, centre_y, centre_z), half, irradiance,
+                                                    glm::vec3(axis_x, axis_y, axis_z), penumbra);
+            if (context->renderer != nullptr) {
+                context->renderer->reset_temporal_history();
+            }
+            return true;
+        };
+        auto const set_managed_point_lights = +[](void* opaque, deren::scripting::point_light_desc const* lights,
+                                                   std::uint32_t count) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->render_runtime == nullptr) {
+                return false;
+            }
+            // The ABI record is deliberately flat; this is the only place that knows both shapes, so
+            // the conversion and the finiteness check live together. A bad record fails the whole
+            // call instead of leaving half a rig applied.
+            deren::utility::vessel::array<deren::engine::punctual_light, deren::engine::max_punctual_lights> converted{};
+            for (std::uint32_t index = 0; index < count; ++index) {
+                auto const& record = lights[index];
+                if (!std::isfinite(record.position[0]) || !std::isfinite(record.position[1]) ||
+                    !std::isfinite(record.position[2]) || !std::isfinite(record.direction[0]) ||
+                    !std::isfinite(record.direction[1]) || !std::isfinite(record.direction[2]) ||
+                    !std::isfinite(record.colour[0]) || !std::isfinite(record.colour[1]) ||
+                    !std::isfinite(record.colour[2]) || !std::isfinite(record.intensity) ||
+                    !std::isfinite(record.range) || record.range <= 0.0F || !std::isfinite(record.outer_cos) ||
+                    !std::isfinite(record.inner_cos) || !std::isfinite(record.npr_mode) ||
+                    !std::isfinite(record.npr_data[0]) || !std::isfinite(record.npr_data[1]) ||
+                    !std::isfinite(record.npr_data[2]) || !std::isfinite(record.npr_data[3])) {
+                    return false;
+                }
+                glm::vec3 const direction{record.direction[0], record.direction[1], record.direction[2]};
+                if (record.spot != 0 && glm::dot(direction, direction) <= 1e-12F) {
+                    return false;
+                }
+                auto& light = converted[index];
+                light.position = glm::vec3{record.position[0], record.position[1], record.position[2]};
+                light.range = record.range;
+                light.color = glm::vec3{record.colour[0], record.colour[1], record.colour[2]};
+                light.intensity = record.intensity;
+                light.spot = record.spot != 0;
+                light.spot_direction = light.spot ? glm::normalize(direction) : direction;
+                light.spot_outer_cos = record.outer_cos;
+                if (record.has_inner_cos != 0) {
+                    light.spot_inner_cos = record.inner_cos;
+                }
+                light.npr_mode = record.npr_mode;
+                light.npr_data = glm::vec4{record.npr_data[0], record.npr_data[1], record.npr_data[2],
+                                           record.npr_data[3]};
+            }
+            context->render_runtime->set_point_lights(
+                std::span<deren::engine::punctual_light const>{converted.data(), count});
+            return true;
+        };
+        auto const set_managed_clustered_lights = +[](void* opaque, bool enabled) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->render_runtime == nullptr) {
+                return false;
+            }
+            context->render_runtime->set_clustered_lights(enabled);
+            return true;
+        };
+        // One node subtree's material factors, applied between frames. The engine owns ONE material
+        // row per imported slot, so an object that needs its own tint or shading path needs a clone;
+        // this walk creates it once per leaf and afterwards rebuilds it from the recorded base row.
+        auto const set_managed_max_fps = +[](void* opaque, double fps) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->render_runtime == nullptr) {
+                return false;
+            }
+            // The runtime clamps a negative value to "uncapped", but a negative frame rate is a caller
+            // error rather than policy, so the app-level validator has already refused it.
+            context->render_runtime->set_max_fps(fps);
+            return true;
+        };
+        auto const set_managed_toon_shading = +[](void* opaque, float steps, float softness) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->render_runtime == nullptr) {
+                return false;
+            }
+            context->render_runtime->set_toon_shading(steps, softness);
+            return true;
+        };
+        auto const set_managed_shadow_enabled = +[](void* opaque, bool enabled) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->render_runtime == nullptr) {
+                return false;
+            }
+            context->render_runtime->set_shadow_enabled(enabled);
+            return true;
+        };
+        // One character slot's head frame. The engine keeps one block per slot and uploads the whole
+        // array every frame, so this is a plain write between frames: the managed side has already
+        // normalised the axes and decided what the `.w` flags mean (captured frame, known centre).
+        auto const set_managed_head_basis = +[](void* opaque, std::uint32_t index,
+                                                deren::scripting::head_basis_desc const& value) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->render_runtime == nullptr) {
+                return false;
+            }
+            auto const axis = [](float const (&values)[3]) {
+                return glm::vec3(values[0], values[1], values[2]);
+            };
+            context->render_runtime->set_head_basis(
+                index, deren::engine::head_ubo{
+                           .front = glm::vec4(axis(value.front), value.captured != 0 ? 1.0F : 0.0F),
+                           .right = glm::vec4(axis(value.right), 0.0F),
+                           .up = glm::vec4(axis(value.up), 0.0F),
+                           .center = glm::vec4(axis(value.center), value.has_center != 0 ? 1.0F : 0.0F)});
+            return true;
+        };
+        // OFFSCREEN CUBE CAPTURE (ABI 30). The camera and the pass are the host's to install; the face
+        // loop, the cadence, and the output path belong to the managed game, which is why these are
+        // four separate entries rather than one blocking capture call.
+        auto const set_managed_capture_camera = +[](void* opaque, std::uint8_t enabled, float const position[3],
+                                                    std::uint32_t face, float near_plane,
+                                                    float far_plane) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->render_runtime == nullptr || context->renderer == nullptr) {
+                return false;
+            }
+            if (enabled == 0) {
+                context->render_runtime->set_camera_override(std::nullopt);
+                context->renderer->set_radiance_capture(false);
+                return true;
+            }
+            if (position == nullptr || face > 5) {
+                return false;
+            }
+            context->render_runtime->set_camera_override(deren::engine::make_cube_capture_camera(
+                glm::vec3(position[0], position[1], position[2]), face, near_plane, far_plane));
+            context->renderer->set_radiance_capture(true);
+            return true;
+        };
+        auto const request_managed_radiance = +[](void* opaque) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            return context != nullptr && context->render_runtime != nullptr &&
+                   context->render_runtime->request_radiance_capture();
+        };
+        auto const acquire_managed_radiance = +[](void* opaque, std::uint32_t& width, std::uint32_t& height,
+                                                  float* rgba, std::uint32_t float_count) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->render_runtime == nullptr || rgba == nullptr) {
+                return false;
+            }
+            auto image = context->render_runtime->acquire_radiance_image();
+            if (!image) {
+                deren::utility::error("radiance readback failed: {}", image.error());
+                return false;
+            }
+            std::uint64_t const expected = std::uint64_t(image->width) * image->height * 4;
+            if (expected != float_count || image->rgba.size() != expected) {
+                deren::utility::error("radiance readback: image is {}x{} ({} floats), caller has {}", image->width,
+                                      image->height, image->rgba.size(), float_count);
+                return false;
+            }
+            // The readback is the rendered face as the pass saw it: mirrored in X and with the alpha
+            // lane carrying storage noise rather than coverage. Cubemap faces are canonical, so the
+            // engine's own canonicalizer converts it before the caller sees anything: the managed side
+            // then stores raw faces and never has to know the capture convention.
+            if (image->width != image->height) {
+                deren::utility::error("radiance readback: {}x{} is not a square face", image->width, image->height);
+                return false;
+            }
+            if (!deren::engine::radiance_detail::canonicalize_face(
+                    std::span<float const>{image->rgba.data(), image->rgba.size()},
+                    static_cast<std::int32_t>(image->width), std::span<float>{rgba, static_cast<std::size_t>(expected)})) {
+                deren::utility::error("radiance readback: the {}x{} face is not canonicalizable", image->width,
+                                      image->height);
+                return false;
+            }
+            width = image->width;
+            height = image->height;
+            return true;
+        };
+        auto const reset_managed_temporal_history = +[](void* opaque) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->renderer == nullptr) {
+                return false;
+            }
+            context->renderer->reset_temporal_history();
+            return true;
+        };
+        auto const write_managed_radiance_cube = +[](void*, std::string_view path, std::uint32_t size,
+                                                      float const* pixels, std::uint32_t float_count) -> bool {
+            if (pixels == nullptr || path.empty()) {
+                return false;
+            }
+            auto const written = deren::app::radiance_capture::write_cube(
+                std::filesystem::path(path), static_cast<int>(size),
+                std::span<float const>{pixels, float_count});
+            if (!written) {
+                deren::utility::error("radiance cube: {}", deren::app::radiance_capture::describe(written.error()));
+                // "invalid pixels" alone is not actionable: report the FIRST offending float, so a
+                // capture that produced a negative radiance, a NaN, or a non-unit alpha names itself.
+                auto const count = std::size_t{float_count};
+                auto const expected = std::size_t{6} * size * size * 4;
+                if (count != expected) {
+                    deren::utility::error("radiance cube: {} float(s), expected {} for {}px", count, expected, size);
+                } else {
+                    for (std::size_t index = 0; index < count; ++index) {
+                        auto const value = pixels[index];
+                        auto const channel = index % 4;
+                        if (!std::isfinite(value) || value < 0.0F || value > 65504.0F ||
+                            (channel == 3 && value != 1.0F)) {
+                            deren::utility::error(
+                                "radiance cube: first invalid value {} at pixel {} channel {} ({}x{} face {})",
+                                value, index / 4, channel, size, size, (index / 4) / (std::size_t{size} * size));
+                            break;
+                        }
+                    }
+                }
+                return false;
+            }
+            deren::utility::log("radiance cube: wrote '{}' ({}px, 6 faces)", std::string(path), size);
+            return true;
+        };
+        auto const apply_managed_material_override =
+            +[](void* opaque, deren::engine::scene_tree::scene_node& node,
+                deren::scripting::material_override_desc const& value) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->render_runtime == nullptr) {
+                return false;
+            }
+            auto const finite = [](float const number) { return std::isfinite(number); };
+            if (!finite(value.tint[0]) || !finite(value.tint[1]) || !finite(value.tint[2]) ||
+                !finite(value.metallic_scale) || !finite(value.roughness_scale) ||
+                !finite(value.emissive_scale) || value.environment_slot > 3u || value.unlit > 1 ||
+                value.enabled > 1) {
+                return false;
+            }
+            auto& runtime = *context->render_runtime;
+            glm::vec3 const tint{value.tint[0], value.tint[1], value.tint[2]};
+            auto const rewrite = [&](deren::engine::scene_tree::scene_node& entry) {
+                if (entry.primitive_leaf == nullptr) {
+                    return;
+                }
+                // Imported leaves always come from runtime::create_primitive(), i.e. they are
+                // deren::engine::primitive; RTTI is off, so this is the documented downcast.
+                auto& leaf = *static_cast<deren::engine::primitive*>(entry.primitive_leaf.get());
+                auto& row = context->material_overrides[leaf.lifetime_id];
+                if (value.enabled == 0) {
+                    // Turning the override off restores the imported material; the clone stays
+                    // allocated for a later re-enable rather than churning a table row per toggle.
+                    if (row.base_recorded) {
+                        leaf.push.material_index = row.base;
+                    }
+                    return;
+                }
+                if (!row.base_recorded) {
+                    row.base = leaf.push.material_index;
+                    row.base_recorded = true;
+                }
+                if (row.clone.value == 0) {
+                    row.clone = runtime.clone_material(row.base, tint, value.metallic_scale,
+                                                       value.roughness_scale, value.emissive_scale,
+                                                       value.unlit != 0, value.environment_slot);
+                } else {
+                    runtime.update_material_override(row.clone, row.base, tint, value.metallic_scale,
+                                                     value.roughness_scale, value.emissive_scale,
+                                                     value.unlit != 0, value.environment_slot);
+                }
+                leaf.push.material_index = row.clone;
+            };
+            auto walk = [&](auto&& self, deren::engine::scene_tree::scene_node& entry) -> void {
+                rewrite(entry);
+                // `visible` is deliberately not consulted: a hidden subtree must still be rewritten
+                // so it renders with the object's factors when it is shown again.
+                for (auto& child : entry.children) {
+                    self(self, child);
+                }
+            };
+            walk(walk, node);
+            runtime.scene_changed();
+            return true;
+        };
+        // ---- ABI 31: THE MANAGED DEBUG PANEL -----------------------------------------------
+        // THE PLUGIN IS LOADED ONLY WHEN THE PROJECT ASKS FOR IT: `enable_debug_gui()` resolves
+        // `deren_gui_<api>.dll` and returns false when the device cannot present a window or no plugin
+        // answers. A project with `[gui] show = false` keeps the ui module published as well, so the
+        // game's panel calls report `module_unavailable` and the game can say so in its log - a null
+        // table would look like a bug in the game instead of a setting in the project.
+        managed_binding.ui_available = settings.gui.show && runtime.enable_debug_gui();
+        if (managed_binding.ui_available) {
+            deren::utility::log("gui: managed debug panel enabled (default {}x{})", settings.gui.panel_width,
+                                settings.gui.panel_height);
+            // `[gui] panel_width/panel_height` is the size a panel gets when the game asks for none: the
+            // ABI's zero means "the project's default", not "no size".
+            managed_binding.ui_default_width = settings.gui.panel_width;
+            managed_binding.ui_default_height = settings.gui.panel_height;
+            // ONE PANEL IS OPENED AT A TIME, and its widgets are rebuilt from the managed side every
+            // frame: the panel owns `unique_ptr<widget>`s, so a list that is never cleared would grow by
+            // one managed frame each time.
+            auto ui_begin_panel = +[](void* opaque, std::string_view title, float width, float height) -> bool {
+                auto& context = *static_cast<managed_bind_context*>(opaque);
+                if (!context.ui_available || title.empty() || context.ui_panel_open) {
+                    return false;
+                }
+                auto& overlay = context.render_runtime->debug_gui();
+                // A RENAMED PANEL IS A NEW PANEL: the old registration is removed first, otherwise the
+                // overlay would keep drawing a panel whose widgets nobody rebuilt any more.
+                if (context.ui_panel != nullptr && context.ui_panel_title != title) {
+                    overlay.remove_panel(*context.ui_panel);
+                    context.ui_panel = nullptr;
+                }
+                if (context.ui_panel == nullptr) {
+                    auto& created = overlay.add_panel(deren::utility::vessel::string{title});
+                    created.set_open(true);
+                    context.ui_panel = &created;
+                    context.ui_panel_title.assign(title);
+                }
+                {
+                    // A zero side means "the project's `[gui]` size", so a game can size one axis only.
+                    auto const panel_width = width > 0.0F ? width : context.ui_default_width;
+                    auto const panel_height = height > 0.0F ? height : context.ui_default_height;
+                    context.ui_panel->set_default_size(panel_width, panel_height);
+                }
+                context.ui_panel->clear();
+                context.ui_panel_open = true;
+                return true;
+            };
+            auto ui_end_panel = +[](void* opaque) -> bool {
+                auto& context = *static_cast<managed_bind_context*>(opaque);
+                if (!context.ui_available || !context.ui_panel_open) {
+                    return false;
+                }
+                context.ui_panel_open = false;
+                return true;
+            };
+            auto ui_text = +[](void* opaque, std::string_view text) -> bool {
+                auto& context = *static_cast<managed_bind_context*>(opaque);
+                if (!context.ui_available || !context.ui_panel_open) {
+                    return false;
+                }
+                context.ui_panel->add_label(deren::utility::vessel::string{text});
+                return true;
+            };
+            auto ui_checkbox = +[](void* opaque, std::string_view label, std::uint8_t* value) -> bool {
+                auto& context = *static_cast<managed_bind_context*>(opaque);
+                if (!context.ui_available || !context.ui_panel_open || value == nullptr) {
+                    return false;
+                }
+                // THE MANAGED SIDE'S BYTE IS THE WIDGET'S BOOL: the plugin binds ImGui's `bool*`, and one
+                // byte holding 0 or 1 is what both sides mean by a switch. The static_assert is the whole
+                // platform assumption this reinterpretation rests on.
+                static_assert(sizeof(bool) == 1, "the managed checkbox hands over one byte");
+                context.ui_panel->add_checkbox(deren::utility::vessel::string{label}, reinterpret_cast<bool*>(value));
+                return true;
+            };
+            auto ui_slider = +[](void* opaque, std::string_view label, float* value, float minimum, float maximum) -> bool {
+                auto& context = *static_cast<managed_bind_context*>(opaque);
+                if (!context.ui_available || !context.ui_panel_open || value == nullptr) {
+                    return false;
+                }
+                context.ui_panel->add_slider(deren::utility::vessel::string{label}, value, minimum, maximum);
+                return true;
+            };
+            auto ui_vec3 = +[](void* opaque, std::string_view label, float* value, float speed) -> bool {
+                auto& context = *static_cast<managed_bind_context*>(opaque);
+                if (!context.ui_available || !context.ui_panel_open || value == nullptr) {
+                    return false;
+                }
+                context.ui_panel->add_vec3(deren::utility::vessel::string{label}, value, speed);
+                return true;
+            };
+            auto ui_combo = +[](void* opaque, std::string_view label, std::string_view const* items, std::uint32_t count,
+                                std::int32_t* selected) -> bool {
+                auto& context = *static_cast<managed_bind_context*>(opaque);
+                if (!context.ui_available || !context.ui_panel_open || items == nullptr || selected == nullptr || count == 0) {
+                    return false;
+                }
+                deren::utility::vessel::vector<deren::utility::vessel::string> names;
+                names.reserve(count);
+                for (std::uint32_t index = 0; index < count; ++index) {
+                    names.emplace_back(items[index]);
+                }
+                context.ui_panel->add_combo(deren::utility::vessel::string{label}, std::move(names), selected);
+                return true;
+            };
+            auto ui_button = +[](void* opaque, std::string_view label, std::uint8_t* pressed) -> bool {
+                auto& context = *static_cast<managed_bind_context*>(opaque);
+                if (!context.ui_available || !context.ui_panel_open || pressed == nullptr) {
+                    return false;
+                }
+                // THE PRESS IS A ONE-SHOT BYTE the game reads on its next frame and clears itself; the
+                // callback runs while the overlay draws, which is after the managed update of this frame.
+                *pressed = 0;
+                context.ui_panel->add_button(deren::utility::vessel::string{label}, [pressed] { *pressed = 1; });
+                return true;
+            };
+            auto ui_wants_mouse = +[](void* opaque, std::uint8_t* value) -> bool {
+                auto& context = *static_cast<managed_bind_context*>(opaque);
+                if (!context.ui_available || value == nullptr) {
+                    return false;
+                }
+                *value = context.render_runtime->debug_gui_wants_mouse() ? 1U : 0U;
+                return true;
+            };
+            // ABI 31: THE WINDOW'S EVENTS BECOME THE GAME'S EVENTS. The action layer forwards every
+            // raw event here (it keeps its own named-action map untouched); this seam only renames the
+            // fields into the scripting ABI's flat record, so the app owns no input state either.
+            auto const forward_window_event = +[](void*, deren::app::window_event const& source) {
+                deren::scripting::input_event event{};
+                switch (source.type) {
+                case deren::app::window_event_type::mouse_move:
+                    event.type = deren::scripting::input_event_type::mouse_move;
+                    break;
+                case deren::app::window_event_type::mouse_button:
+                    event.type = deren::scripting::input_event_type::mouse_button;
+                    break;
+                case deren::app::window_event_type::scroll:
+                    event.type = deren::scripting::input_event_type::scroll;
+                    break;
+                case deren::app::window_event_type::key:
+                    event.type = deren::scripting::input_event_type::key;
+                    break;
+                case deren::app::window_event_type::character:
+                    event.type = deren::scripting::input_event_type::character;
+                    break;
+                case deren::app::window_event_type::focus_lost:
+                    event.type = deren::scripting::input_event_type::focus_lost;
+                    break;
+                }
+                event.button = source.button;
+                event.down = source.down ? 1U : 0U;
+                event.key = source.key;
+                event.x = source.x;
+                event.y = source.y;
+                event.dx = source.dx;
+                event.dy = source.dy;
+                event.wheel = source.wheel;
+                event.codepoint = source.codepoint;
+                script_scene::publish_input_event(event);
+            };
+            action_input.set_event_sink(forward_window_event, nullptr);
+            // INSTALLED BEFORE start(): the game may build its first panel inside initialize(), and a ui
+            // table published afterwards would report module_unavailable for that first frame.
+            script_scene.install_ui(deren::app::managed_ui_host{
+                .context = &managed_binding,
+                .begin_panel = ui_begin_panel,
+                .end_panel = ui_end_panel,
+                .text = ui_text,
+                .checkbox = ui_checkbox,
+                .slider = ui_slider,
+                .vec3 = ui_vec3,
+                .combo = ui_combo,
+                .button = ui_button,
+                .wants_mouse = ui_wants_mouse});
+        }
+        auto const started = script_scene.start(
+            script_assembly,
+            deren::app::managed_scene_host{.context = &managed_binding,
+                                           .set_scene = install_managed_scene,
+                                           .get_camera = get_managed_camera,
+                                           .set_camera = set_managed_camera,
+                                           .request_screenshot = request_managed_screenshot,
+                                           .set_global_environment_hdr = set_managed_environment_hdr,
+                                           .apply_pipeline = apply_managed_pipeline,
+                                           .set_exposure = set_managed_exposure,
+                                           .set_tone_mapping = set_managed_tone_mapping,
+                                           .set_environment = set_managed_environment,
+                                           .set_sun_intensity = set_managed_sun_intensity,
+                                           .set_bloom = set_managed_bloom,
+                                           .set_fxaa = set_managed_fxaa,
+                                           .set_taa = set_managed_taa,
+                                           .set_ssao = set_managed_ssao,
+                                           .set_gbuffer_debug = set_managed_gbuffer_debug,
+                                           .set_sun_direction = set_managed_sun_direction,
+                                           .set_area_light = set_managed_area_light,
+                                           .set_clustered_lights = set_managed_clustered_lights,
+                                           .set_point_lights = set_managed_point_lights,
+                                           .apply_material_override = apply_managed_material_override,
+                                           .set_max_fps = set_managed_max_fps,
+                                           .set_toon_shading = set_managed_toon_shading,
+                                           .set_shadow_enabled = set_managed_shadow_enabled,
+                                           .set_head_basis = set_managed_head_basis,
+                                             .set_capture_camera = set_managed_capture_camera,
+                                             .request_radiance_capture = request_managed_radiance,
+                                             .acquire_radiance_image = acquire_managed_radiance,
+                                             .reset_temporal_history = reset_managed_temporal_history,
+                                             .write_radiance_cube = write_managed_radiance_cube},
+            settings.paths.asset_library,
+            deren::app::managed_asset_binder{.context = &managed_binding, .bind = bind_managed_asset});
+        if (!started) {
+            deren::utility::println(stderr, "{}", started.error());
+            deren::utility::error("{}", started.error());
+            deren::utility::wait_log_all();
+            return 2;
+        }
+        script_scene.clear_asset_binder();
+        // The scene the game built is only visible through the log once; dumping it here is the last
+        // point where "what the game imported" and "what the renderer holds" are the same thing.
+        runtime.log_scene_tree();
+        // One line naming every optional feature the device could not create. Restored from the
+        // pre-managed application, which printed it before its first frame for the same reason.
+        runtime.log_feature_status();
+
+        // 10. Scripted capture: apply the camera override LAST, so nothing in the game's setup can win
+        //     over the requested view.
+        if (capture.camera) {
+            runtime.camera.yaw = glm::radians((*capture.camera)[0]);
+            runtime.camera.pitch = glm::radians((*capture.camera)[1]);
+            runtime.camera.distance = (*capture.camera)[2];
+            if (capture.target) {
+                runtime.camera.target = *capture.target;
+            }
+            deren::utility::log("capture camera: yaw {:.1f} deg, pitch {:.1f} deg, distance {:.2f}, target ({:.2f}, {:.2f}, {:.2f})",
+                                (*capture.camera)[0], (*capture.camera)[1], (*capture.camera)[2],
+                                runtime.camera.target.x, runtime.camera.target.y, runtime.camera.target.z);
+        }
+        float const sweep_base_yaw = runtime.camera.yaw;
+
+        // Per-frame cheap clock: stamp() once per presented frame on this (the presentation) thread.
+        deren::utility::frame_clock frame_clock;
+        // FPS statistics (deren.utility:frame_stats): a rolling one-second window of frame gaps.
+        deren::utility::frame_stats frame_stats;
+        std::int32_t captured_frames = 0; // presented frames so far (scripted capture)
+        // capture-only transition probe: exercise progressive restoration while uploads are in flight.
+        auto* disable_streaming_text = std::getenv("DEREN_BENCH_DISABLE_STREAMING_FRAME");
+        int const disable_streaming_frame = disable_streaming_text ? std::atoi(disable_streaming_text) : -1;
+        // Opt-in benchmark trace: keep timestamps in memory and write only after rendering ends.
+        char const* const frame_trace_path = std::getenv("DEREN_BENCH_FRAME_TRACE");
+        deren::utility::vessel::vector<std::pair<double, double>> frame_trace;
+        auto trace_previous = std::chrono::steady_clock::now();
+        auto const trace_origin = trace_previous;
+        double const trace_unix_ms = std::chrono::duration<double, std::milli>(std::chrono::system_clock::now().time_since_epoch()).count();  //NOLINT
+        if (frame_trace_path) {
+            frame_trace.reserve(4096);
+        }
+        // Resource queries walk allocator metadata: enable only in separate memory captures.
+        char const* const resource_trace_path = std::getenv("DEREN_BENCH_RESOURCE_TRACE");
+        struct memory_sample {
+            std::uint64_t frame;
+            deren::promise::rhi::resource_memory_statistics gpu;
+            deren::utility::memory::allocation_statistics cpu;
+        };
+        deren::utility::vessel::vector<memory_sample> resource_trace;
+        std::uint64_t resource_frame = 0;
+        auto sample_resources = [&] {
+            auto gpu = runtime.rhi_face().resources->memory_statistics();
+            auto cpu = deren::utility::vessel::memory_statistics();
+            resource_trace.push_back({resource_frame, gpu, cpu});
+        };
+        if (resource_trace_path) {
+            resource_trace.reserve(128);
+            sample_resources();
+        }
+        // ONE place that turns the live pose into the six numbers the config takes: the screenshot
+        // prints it (so a bug report carries its camera) and so does the exit below.
+        auto const log_camera_pose = [&runtime](char const* const why) {
+            deren::utility::log("camera pose ({}): {:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f}   -> [render] camera_pose = [...]",
+                                why,
+                                glm::degrees(runtime.camera.yaw),
+                                glm::degrees(runtime.camera.pitch),
+                                runtime.camera.distance,
+                                runtime.camera.target.x,
+                                runtime.camera.target.y,
+                                runtime.camera.target.z);
+        };
+
+        while (true) {
+            if (capture.frames > 0 && captured_frames == disable_streaming_frame) {
+                runtime.set_visibility_texture_streaming(false);
+            }
+            // Phase 1: poll window events (ESC / native close -> closed, minimized -> skipped)
+            deren::engine::frame_status const polled = runtime.poll_events();
+            if (polled == deren::engine::frame_status::closed || deren::engine::is_failure(polled)) {
+                break;
+            }
+            if (polled == deren::engine::frame_status::skipped) {
+                frame_stats.on_skipped();
+                std::this_thread::yield();
+                continue;
+            }
+            runtime.recreate_if_minimized();
+            // dt: the wall clock, clamped - UNLESS the capture asked for a frame-indexed clock.
+            float const dt = capture.animation_seconds_per_frame != 0.0f
+                                 ? capture.animation_seconds_per_frame
+                                 : static_cast<float>(std::min(frame_clock.delta_seconds(), 0.25));
+            // the managed game drives the scene here: node transforms, spawns, script ticks
+            if (auto const input_frame = action_state.begin_frame(); input_frame.has_value() && !script_scene.update(dt, *input_frame)) {
+                return 2;
+            }
+            // A managed environment change is applied between frames: preparing the IBL is CPU work
+            // and set_ibl waits for the GPU, so neither may run inside the managed callback. The
+            // newest request wins, and a request that fails to decode keeps the current environment.
+            if (managed_binding.environment_pending) {
+                std::filesystem::path request = std::move(managed_binding.pending_environment);
+                managed_binding.pending_environment.clear();
+                managed_binding.environment_pending = false;
+                auto const prepare_start = std::chrono::steady_clock::now();
+                auto prepared = prepare_environment(request, sun_direction, env_size, env_mip_count, irr_size, 1.0f);
+                if (!prepared.error.empty()) {
+                    deren::utility::log("environment: '{}' rejected: {} (keeping the current IBL)",
+                                        request.empty() ? "procedural sky" : request.string(), prepared.error.c_str());
+                } else {
+                    auto const lut = deren::engine::generate_brdf_lut(lut_size);
+                    auto const applied = runtime.set_ibl(deren::engine::ibl_input{
+                        .prefiltered_env = std::move(prepared.environment),
+                        .irradiance = std::move(prepared.irradiance),
+                        .brdf_lut = deren::engine::to_half_rg(lut),
+                        .env_size = static_cast<std::uint32_t>(env_size),
+                        .env_mip_count = static_cast<std::uint32_t>(env_mip_count),
+                        .irr_size = static_cast<std::uint32_t>(irr_size),
+                        .lut_size = static_cast<std::uint32_t>(lut_size)});
+                    // the history holds the old radiance; a new environment invalidates every pixel
+                    app_renderer.reset_temporal_history();
+                    deren::utility::log("environment: switched to '{}' in {:.1f} ms ({})",
+                                        request.empty() ? "procedural sky" : request.string(),
+                                        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - prepare_start).count(),
+                                        applied ? "uploaded" : "upload failed");
+                }
+            }
+            // Scripted capture: the camera sweep, advanced by the number of PRESENTED frames - a frame
+            // index, not a clock reading, so two runs of one sweep are byte-identical. It has to happen
+            // before pace_and_acquire(), which is the phase that writes the camera UBO.
+            if (capture.sweep_yaw_deg_per_frame != 0.0f) {
+                runtime.camera.yaw = sweep_base_yaw + glm::radians(capture.sweep_yaw_deg_per_frame) * static_cast<float>(captured_frames);
+            }
+            // Phase 2: pace + acquire the next frame slot.
+            deren::engine::frame_status const paced = runtime.pace_and_acquire();
+            if (paced == deren::engine::frame_status::closed || deren::engine::is_failure(paced)) {
+                break;
+            }
+            if (paced == deren::engine::frame_status::skipped) {
+                frame_stats.on_skipped();
+                std::this_thread::yield();
+                continue;
+            }
+            // Phase 3: record + submit + present the paced frame
+            deren::engine::frame_status const rec = runtime.begin_recording();
+            if (rec == deren::engine::frame_status::closed || deren::engine::is_failure(rec)) {
+                break;
+            }
+            runtime.prepare_scene_recording();
+            deren::engine::frame_status const recorded = runtime.record_graph();
+            if (recorded == deren::engine::frame_status::closed || deren::engine::is_failure(recorded)) {
+                break;
+            }
+            deren::engine::frame_status const ended = runtime.end_recording();
+            if (ended == deren::engine::frame_status::closed || deren::engine::is_failure(ended)) {
+                break;
+            }
+            deren::engine::frame_status const result = runtime.submit_and_present();
+            if (result == deren::engine::frame_status::closed || deren::engine::is_failure(result)) {
+                break;
+            }
+            if (result == deren::engine::frame_status::skipped) {
+                frame_stats.on_skipped();
+                std::this_thread::yield();
+                continue;
+            }
+            action_state.finish_frame();
+
+            // A frame was presented: publish its stamp for cheap readers (frame_clock)
+            ++resource_frame;
+            if (resource_trace_path && (resource_frame % 10 == 0 || resource_frame == static_cast<std::uint64_t>(capture.frames))) {
+                sample_resources();
+            }
+            if (frame_trace_path) {
+                auto const boundary = std::chrono::steady_clock::now();
+                frame_trace.emplace_back(std::chrono::duration<double, std::milli>(boundary - trace_origin).count(),
+                                         std::chrono::duration<double, std::milli>(boundary - trace_previous).count());
+                trace_previous = boundary;
+            }
+            splash.close();
+            frame_clock.stamp();
+            // The host only reports the frame boundary. Managed code drains its own do_after_frame
+            // queue here; no managed callable is stored on the native side.
+            if (!script_scene.signal_after_frame()) {
+                return 3;
+            }
+
+            // scripted capture: once the requested number of frames has been PRESENTED, request the
+            // screenshot from the runtime - the F12 block below consumes the request in this same
+            // iteration, so the capture happens on a fully warmed-up frame
+            if (capture.frames > 0 && ++captured_frames >= capture.frames) {
+                runtime.request_screenshot();
+            }
+
+            // fps statistics: accumulate the frame gap into the rolling window
+            frame_stats.tick();
+            if (frame_stats.window_rolled()) {
+                deren::utility::log("fps: {:.1f} ({:.2f} ms/frame)", frame_stats.window_fps(), frame_stats.window_frame_ms());
+            }
+
+            // F12 / managed screenshot request: the runtime reports the request (edge-triggered in
+            // poll_events), main captures the presented swapchain image and writes it as a PNG.
+            if (runtime.consume_screenshot_request()) {
+                auto const image = runtime.acquire_current_frame_image();
+                if (!image) {
+                    deren::utility::log("screenshot failed: {}", image.error());
+                } else {
+                    // base directory from [paths] screenshot_dir (empty = the current working
+                    // directory); created on demand so a fresh checkout can capture immediately
+                    std::filesystem::path directory(settings.paths.screenshot_dir);
+                    if (!directory.empty()) {
+                        std::error_code ec;
+                        std::filesystem::create_directories(directory, ec);
+                        if (ec) {
+                            deren::utility::log("screenshot: cannot create '{}' - saving to the working directory", directory.string());
+                            directory.clear();
+                        }
+                    }
+                    std::filesystem::path const path = directory / deren::utility::vessel::format("screenshot_{:%Y%m%d_%H%M%S}.png", std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now()));
+                    auto const written = deren::utility::write_png(path, image->width, image->height, image->rgba);
+                    if (written) {
+                        deren::utility::log("screenshot saved: {} ({}x{})", path.string(), image->width, image->height);
+                    } else {
+                        deren::utility::log("screenshot save failed: {}", written.error());
+                    }
+                    // ... AND THE POSE THAT FRAME WAS RENDERED WITH, so a screenshot is reproducible.
+                    log_camera_pose("screenshot");
+                }
+                // scripted capture: the frame is captured (saved or not), so leave the render loop
+                if (capture.frames > 0) {
+                    break;
+                }
+            }
+        }
+
+        // The pose the session ENDED on, so a view reached by orbiting can be written down.
+        log_camera_pose("exit");
+        // 15. Wait for the GPU to finish; primitives and pipelines are released by the runtime destructor
+        runtime.rhi_face().wait_idle();
+        if (resource_trace_path) {
+            std::ofstream trace(resource_trace_path, std::ios::binary | std::ios::out);
+            trace << "frame,supported,gpu_buffer_local,gpu_image_local,gpu_total_local,gpu_peak_local,gpu_total,gpu_reserved,gpu_reserved_local,cpu_current,cpu_peak\n";
+            for (auto const& sample : resource_trace) {
+                trace << deren::utility::vessel::format("{},{},{},{},{},{},{},{},{},{},{}\n", sample.frame, sample.gpu.supported ? 1 : 0,
+                                                        sample.gpu.buffers.current_device_local_bytes, sample.gpu.images.current_device_local_bytes,
+                                                        sample.gpu.total.current_device_local_bytes, sample.gpu.total.peak_device_local_bytes, sample.gpu.total.current_bytes,
+                                                        sample.gpu.allocator_reserved_bytes, sample.gpu.allocator_device_local_reserved_bytes,
+                                                        sample.cpu.current_bytes, sample.cpu.peak_bytes);
+            }
+            if (!trace) {
+                deren::utility::error("benchmark resource trace could not be written");
+            }
+        }
+        if (frame_trace_path) {
+            std::ofstream trace(frame_trace_path, std::ios::binary | std::ios::out);
+            trace << "frame,unix_ms,interval_ms\n";
+            for (std::size_t i = 0; i < frame_trace.size(); ++i) {
+                trace << deren::utility::vessel::format("{},{:.6f},{:.6f}\n", i + 1, trace_unix_ms + frame_trace[i].first, frame_trace[i].second);
+            }
+            if (!trace) {
+                deren::utility::error("benchmark frame trace could not be written");
+            }
+        }
+        deren::utility::log("render loop finished");
+        return 0;
+    }
+} // namespace deren::app

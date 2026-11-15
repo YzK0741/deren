@@ -53,18 +53,15 @@ screenshot_dir = '$work'
 window_width = 1080
 window_height = 960
 vsync = false
-validation_layers = true
 taa = false
 rt_shadows = true
+[debug]
+validation_layers = true
 rt_mask_bake = true
 rt_skin_bake = true
 [gui]
 show = false
 [lighting]
-env_size = 256
-env_mip_count = 5
-irr_size = 32
-lut_size = 256
 "@ | Set-Content -LiteralPath $config -Encoding utf8
 $start = [Diagnostics.ProcessStartInfo]::new()
 $start.FileName = Join-Path $build 'deren.exe'

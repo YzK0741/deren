@@ -197,7 +197,7 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Configure (Debug, Ninja)
-        run: cmake -S . -B build-debug -G Ninja -DCMAKE_BUILD_TYPE=Debug -DDEREN_ENABLE_CSHARP=ON -DVR_SLANGC_EXECUTABLE="$VR_SLANGC"
+        run: cmake -S . -B build-debug -G Ninja -DCMAKE_BUILD_TYPE=Debug -DVR_SLANGC_EXECUTABLE="$VR_SLANGC"
 
       - name: Build all targets (Debug compile gate)
         run: cmake --build build-debug

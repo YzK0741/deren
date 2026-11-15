@@ -1,7 +1,5 @@
 // module version: 0.1.1  (independent of the app version in CMakeLists project(VERSION))
 
-module;
-
 /**
  * @file source/app/app_application.cppm
  * @brief the application's lifecycle entry, called by main.cpp after the platform entry

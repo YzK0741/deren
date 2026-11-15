@@ -260,6 +260,7 @@ namespace deren::engine {
         // stage-specific failures: a fatal Vulkan error at that point; caller exits the loop
         acquire_failed,         // vkAcquireNextImageKHR failed (other than out-of-date)
         begin_recording_failed, // vkBeginCommandBuffer failed
+        recording_failed,       // a pass of the frame's lane graph failed to record (see record_graph)
         end_recording_failed,   // vkEndCommandBuffer failed
         submit_failed,          // vkQueueSubmit failed
         present_failed,         // vkQueuePresentKHR failed (other than out-of-date / suboptimal)
@@ -1941,6 +1942,13 @@ namespace deren::engine {
         // one-time log for "this surface cannot do screenshots" (see end_recording's copy_image_to_buffer
         // result)
         bool screenshot_unsupported_logged = false;
+        // THE LANE GRAPH'S TWO FRAME FLAGS. `graph_recorded` says record_graph() opened the frame and
+        // end_recording() may close it (a graph that refused the frame leaves it false, so the close has
+        // nothing to finish). `post_wrote_swapchain` says the graph's post chain actually wrote the
+        // swapchain image this frame - a frame that never got that far must not be read back by the
+        // screenshot path, and the image's use at the start of the frame depends on it.
+        bool graph_recorded = false;
+        bool post_wrote_swapchain = false;
         // S2 BATCH 2: WHAT IS LEFT HERE IS ABOUT THE FRAME, NOTHING ABOUT THE BUFFER. The staging pointer
         // and the record-time extent used to live here because the recorded copy wrote into a buffer this
         // runtime kept; the copy is now recorded through the contract's recording surface and the bytes
@@ -2675,7 +2683,7 @@ namespace deren::engine {
         // runtime drives it inside the frame steps (new_frame before recording, record after the
         // runtime's draw calls) so callers only manage its content via debug_gui().
         /// THE GUI PLUGIN'S OVERLAY (plan X2): a deren_gui_<api>.dll object the loader resolved. null
-        /// until nable_debug_gui() brought one up, which is why every call site guards on it.
+        /// until enable_debug_gui() brought one up, which is why every call site guards on it.
         std::shared_ptr<deren::gui::overlay> debug_overlay;
         // whether the active overlay is drawn (the built-in F1 toggle flips it);
         // hiding keeps the overlay initialized and its panels intact, so showing is instant
@@ -2969,6 +2977,16 @@ namespace deren::engine {
         void prepare_scene_resources();                                   // (lazily) create the shadow map and the clustered-light buffers, and write their heap slots
         void write_light_and_shadow_bindings() const;                     // write the light UBO and the shadow map into each frame slot's heap block
         material_id register_material(primitive_create_info const& info); // upload textures into the array, append a material_record, return its index
+        /// @brief fill the whole skin palette with identity matrices, so a skinned primitive that never
+        ///        received matrices still skins to its bind pose instead of collapsing onto the origin
+        /// @note the palette has two readers with no animation controller of their own: the glTF loader,
+        ///       which gives every vertex `joints = (0,0,0,0)` / `weights = (1,0,0,0)`, and an asset that
+        ///       declares skins but is bound by a project that never runs one (the managed path). Joint
+        ///       indices reach past the palette's first four entries (0-3 are the contract's identity
+        ///       block), so seeding only those four leaves the rest reading zero matrices. Writing only the
+        ///       current slot keeps the history and mirrored copies untouched - see each buffer's own
+        ///       comment for why they are not this method's to fill.
+        void seed_identity_skin_palette();
 
     public:
         /**
@@ -3363,6 +3381,16 @@ namespace deren::engine {
         frame_status begin_recording();
         /** @brief record the shadow pass, the attachment transitions and the main scene pass */
         void record_main_drawcalls();
+        /** @brief run the CPU half of the frame preparation before anything is recorded: pick this
+         *         frame's lane graph and settle the per-frame flags every later stage reads
+         *         (`main_graph_frame`, shadow reuse, the debug lane's selection, ...) */
+        void prepare_scene_recording();
+        /** @brief record the frame's lane graph - the passes the graph says this frame needs, in lane
+         *         order; record_failed when a pass reports a fatal recording error */
+        frame_status record_graph();
+        /** @brief the recording half of record_graph(), split out so the graph's setup and its
+         *         recording can be read (and tested) apart; false when a pass failed to record */
+        bool record_graph_content();
 
         /**
          * @ingroup runtime
