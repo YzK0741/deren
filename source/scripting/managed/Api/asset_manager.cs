@@ -40,19 +40,13 @@ namespace deren {
             if (string.IsNullOrEmpty(id)) {
                 return false;
             }
-            var id_bytes = Encoding.UTF8.GetBytes(id);
-            fixed (byte* id_data = id_bytes) {
-                var view = new utf8_view {
-                    data = id_data,
-                    length = (uint)id_bytes.Length
-                };
-                ulong value = 0;
-                if (scene_api.load_scene_asset(view, &value) != script_status.success || value == 0) {
-                    return false;
-                }
-                asset = new asset_handle(value);
-                return true;
+            using var text = native_string.create(id);
+            ulong value = 0;
+            if (scene_api.load_scene_asset(text.view, &value) != script_status.success || value == 0) {
+                return false;
             }
+            asset = new asset_handle(value);
+            return true;
         }
 
         /// <summary>

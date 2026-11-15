@@ -126,11 +126,8 @@ namespace deren {
             if (string.IsNullOrEmpty(title)) {
                 return false;
             }
-            var bytes = Encoding.UTF8.GetBytes(title);
-            fixed (byte* data = bytes) {
-                return ui_api.assign_begin(new utf8_view { data = data, length = (uint)bytes.Length }, default_width,
-                                           default_height) == script_status.success;
-            }
+            using var text = native_string.create(title);
+            return ui_api.assign_begin(text.view, default_width, default_height) == script_status.success;
         }
 
         public static bool end_panel() {
@@ -138,44 +135,33 @@ namespace deren {
         }
 
         public static bool text(string text) {
-            var bytes = Encoding.UTF8.GetBytes(text ?? string.Empty);
-            fixed (byte* data = bytes) {
-                return ui_api.assign_text(new utf8_view { data = data, length = (uint)bytes.Length }) ==
-                       script_status.success;
-            }
+            using var encoded = native_string.create(text);
+            return ui_api.assign_text(encoded.view) == script_status.success;
         }
 
         public static bool checkbox(string label, ui_value value) {
             if (string.IsNullOrEmpty(label) || value == null) {
                 return false;
             }
-            var bytes = Encoding.UTF8.GetBytes(label);
-            fixed (byte* data = bytes) {
-                return ui_api.assign_checkbox(new utf8_view { data = data, length = (uint)bytes.Length },
-                                              value.address) == script_status.success;
-            }
+            using var text = native_string.create(label);
+            return ui_api.assign_checkbox(text.view, value.address) == script_status.success;
         }
 
         public static bool slider(string label, ui_value value, float minimum, float maximum) {
             if (string.IsNullOrEmpty(label) || value == null) {
                 return false;
             }
-            var bytes = Encoding.UTF8.GetBytes(label);
-            fixed (byte* data = bytes) {
-                return ui_api.assign_slider(new utf8_view { data = data, length = (uint)bytes.Length },
-                                            (float*)value.address, minimum, maximum) == script_status.success;
-            }
+            using var text = native_string.create(label);
+            return ui_api.assign_slider(text.view, (float*)value.address, minimum, maximum) ==
+                   script_status.success;
         }
 
         public static bool vec3(string label, ui_value value, float speed = 0.05f) {
             if (string.IsNullOrEmpty(label) || value == null) {
                 return false;
             }
-            var bytes = Encoding.UTF8.GetBytes(label);
-            fixed (byte* data = bytes) {
-                return ui_api.assign_vec3(new utf8_view { data = data, length = (uint)bytes.Length },
-                                          (float*)value.address, speed) == script_status.success;
-            }
+            using var text = native_string.create(label);
+            return ui_api.assign_vec3(text.view, (float*)value.address, speed) == script_status.success;
         }
 
         public static bool combo(string label, string[] items, ui_value value) {
@@ -183,12 +169,10 @@ namespace deren {
                 return false;
             }
             // THE ITEM NAMES LIVE IN ONE BUFFER the call pins: one utf8_view per item points into it, so
-            // the host sees contiguous strings and there is nothing to free afterwards.
-            var encoded = new byte[items.Length][];
+            // the host sees contiguous strings and nothing outlives the call.
             var total = 0;
             for (var index = 0; index < items.Length; ++index) {
-                encoded[index] = Encoding.UTF8.GetBytes(items[index] ?? string.Empty);
-                total += encoded[index].Length;
+                total += Encoding.UTF8.GetByteCount(items[index] ?? string.Empty);
             }
             var buffer = new byte[total];
             var views = new utf8_view[items.Length];
@@ -196,16 +180,14 @@ namespace deren {
             fixed (byte* buffer_data = buffer)
             fixed (utf8_view* view_data = views) {
                 for (var index = 0; index < items.Length; ++index) {
-                    Array.Copy(encoded[index], 0, buffer, cursor, encoded[index].Length);
-                    views[index] = new utf8_view { data = buffer_data + cursor, length = (uint)encoded[index].Length };
-                    cursor += encoded[index].Length;
+                    var item = items[index] ?? string.Empty;
+                    var written = Encoding.UTF8.GetBytes(item, 0, item.Length, buffer, cursor);
+                    views[index] = new utf8_view { data = buffer_data + cursor, length = (uint)written };
+                    cursor += written;
                 }
-                var label_bytes = Encoding.UTF8.GetBytes(label);
-                fixed (byte* label_data = label_bytes) {
-                    return ui_api.assign_combo(new utf8_view { data = label_data, length = (uint)label_bytes.Length },
-                                               view_data, (uint)items.Length, (int*)value.address) ==
-                           script_status.success;
-                }
+                using var text = native_string.create(label);
+                return ui_api.assign_combo(text.view, view_data, (uint)items.Length, (int*)value.address) ==
+                       script_status.success;
             }
         }
 
@@ -218,11 +200,8 @@ namespace deren {
             if (string.IsNullOrEmpty(label) || value == null) {
                 return false;
             }
-            var bytes = Encoding.UTF8.GetBytes(label);
-            fixed (byte* data = bytes) {
-                return ui_api.assign_button(new utf8_view { data = data, length = (uint)bytes.Length },
-                                            value.address) == script_status.success;
-            }
+            using var text = native_string.create(label);
+            return ui_api.assign_button(text.view, value.address) == script_status.success;
         }
 
         /// <summary>Whether the pointer is over the panel: a game with its own mouse-look should idle it.</summary>

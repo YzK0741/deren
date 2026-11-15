@@ -1,5 +1,4 @@
 using System;
-using System.Text;
 using deren.scripting;
 
 namespace deren {
@@ -87,21 +86,15 @@ namespace deren {
             if (handle == 0) {
                 return false;
             }
-            var name_bytes = Encoding.UTF8.GetBytes(name ?? string.Empty);
-            fixed (byte* name_data = name_bytes) {
-                var view = new utf8_view {
-                    data = name_bytes.Length == 0 ? null : name_data,
-                    length = (uint)name_bytes.Length
-                };
-                var copy = local;
-                node_handle created;
-                var status = scene_api.create_tree_node(handle, parent.handle, view, &copy, &created);
-                if (status != script_status.success || created.value == 0) {
-                    return false;
-                }
-                node = new node_id(created);
-                return true;
+            using var text = native_string.create(name);
+            var copy = local;
+            node_handle created;
+            var status = scene_api.create_tree_node(handle, parent.handle, text.view, &copy, &created);
+            if (status != script_status.success || created.value == 0) {
+                return false;
             }
+            node = new node_id(created);
+            return true;
         }
 
         /// <summary>
@@ -145,14 +138,8 @@ namespace deren {
             if (handle == 0 || !node.is_valid || string.IsNullOrEmpty(pipeline)) {
                 return false;
             }
-            var bytes = Encoding.UTF8.GetBytes(pipeline);
-            fixed (byte* data = bytes) {
-                var view = new utf8_view {
-                    data = data,
-                    length = (uint)bytes.Length
-                };
-                return scene_api.assign_pipeline(handle, node.handle, view) == script_status.success;
-            }
+            using var text = native_string.create(pipeline);
+            return scene_api.assign_pipeline(handle, node.handle, text.view) == script_status.success;
         }
 
         /// <summary>

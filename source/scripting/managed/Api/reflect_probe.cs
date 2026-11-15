@@ -87,11 +87,9 @@ namespace deren {
             if (cube == null || cube.Length != (int)(6 * size * size * 4)) {
                 return reject($"cube buffer must hold {6 * size * size * 4} floats");
             }
-            var bytes = Encoding.UTF8.GetBytes(path);
-            fixed (byte* data = bytes)
+            using var text = native_string.create(path);
             fixed (float* pixels = cube) {
-                var view = new utf8_view { data = data, length = (uint)bytes.Length };
-                return accept(scene_api.publish_radiance_cube(view, size, pixels, (uint)cube.Length),
+                return accept(scene_api.publish_radiance_cube(text.view, size, pixels, (uint)cube.Length),
                               $"write '{path}'");
             }
         }

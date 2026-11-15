@@ -1,4 +1,3 @@
-using System.Text;
 using deren.scripting;
 
 namespace deren {
@@ -18,16 +17,13 @@ namespace deren {
                 return false;
             }
             owner.ensure_bound();
-            var asset = Encoding.UTF8.GetBytes(asset_id);
-            fixed (byte* data = asset) {
-                node_handle handle;
-                if (scene_api.spawn(owner.scene_id, new utf8_view { data = data, length = (uint)asset.Length }, &pose, &handle)
-                    != script_status.success) {
-                    return false;
-                }
-                target = new node_id(handle, owner);
-                return true;
+            using var asset = native_string.create(asset_id);
+            node_handle handle;
+            if (scene_api.spawn(owner.scene_id, asset.view, &pose, &handle) != script_status.success) {
+                return false;
             }
+            target = new node_id(handle, owner);
+            return true;
         }
 
         public unsafe bool try_despawn(node_id target) {

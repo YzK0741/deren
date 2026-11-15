@@ -43,17 +43,14 @@ namespace deren {
             }
             path ??= string.Empty;
             try {
-                var bytes = Encoding.UTF8.GetBytes(path);
-                fixed (byte* data = bytes) {
-                    var view = new utf8_view { data = data, length = (uint)bytes.Length };
-                    var status = scene_api.assign_environment_hdr(view, (uint)environment_slot);
-                    if (status == script_status.success) {
-                        return true;
-                    }
-                    managed_bootstrap.core.write_log(Encoding.UTF8.GetBytes(
-                        $"Game: cannot set the environment of slot {environment_slot} '{path}' ({status})"));
-                    return false;
+                using var text = native_string.create(path);
+                var status = scene_api.assign_environment_hdr(text.view, (uint)environment_slot);
+                if (status == script_status.success) {
+                    return true;
                 }
+                managed_bootstrap.core.write_log(Encoding.UTF8.GetBytes(
+                    $"Game: cannot set the environment of slot {environment_slot} '{path}' ({status})"));
+                return false;
             } catch (Exception error) {
                 managed_bootstrap.core.write_log(Encoding.UTF8.GetBytes(
                     $"Game: environment slot {environment_slot} request failed: {error.GetBaseException().Message}"));
