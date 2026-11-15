@@ -454,4 +454,13 @@ jobs:
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         # -LE device: this tree builds VR_TEST_TARGETS only, so the device-labelled tests have no executable
         # here and CTest must not go looking for them (see CMakeLists' VR_DEVICE_TEST_TARGETS).
-        run: ctest --test-dir build-asan --output-on-failure -E test_native_boundary_zero -LE device
+        #
+        # `managed_host_` IS EXCLUDED FOR THE SAME REASON, not to drop coverage: source/scripting/CMakeLists.txt
+        # registers its nine scenarios with add_test unconditionally, but test_managed_host is NOT one of
+        # VR_TEST_TARGETS - it is built with the product (it needs the .NET SDK at configure time and the
+        # published game assembly at run time), so this lane has no executable and CTest reports nine
+        # "Not Run" entries and exits 8 (measured, run 43693954145: "Could not find executable
+        # build-asan/source/scripting/test_managed_host.exe", tests 90-99). The Release job builds the whole
+        # product and runs all nine (`ctest -LE device` there, run 43693954145 job 132750290510: 9/9 Passed),
+        # which is also the only place they CAN run: this lane deliberately builds test targets only.
+        run: ctest --test-dir build-asan --output-on-failure -E "test_native_boundary_zero|managed_host_" -LE device
