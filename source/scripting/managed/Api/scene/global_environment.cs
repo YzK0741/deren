@@ -1,5 +1,4 @@
 using System;
-using System.Text;
 using deren.scripting;
 
 namespace deren {
@@ -47,8 +46,8 @@ namespace deren {
         public static bool try_set_slot_hdr(int environment_slot, string? path, out script_status status) {
             if (environment_slot < 0 || environment_slot >= slot_count) {
                 status = script_status.invalid_argument;
-                managed_bootstrap.core.write_log(Encoding.UTF8.GetBytes(
-                    $"Game: environment slot {environment_slot} is out of range (0..{slot_count - 1})"));
+                log.write(
+                    $"Game: environment slot {environment_slot} is out of range (0..{slot_count - 1})");
                 return false;
             }
             path ??= string.Empty;
@@ -58,13 +57,13 @@ namespace deren {
                 if (status == script_status.success) {
                     return true;
                 }
-                managed_bootstrap.core.write_log(Encoding.UTF8.GetBytes(
-                    $"Game: cannot set the environment of slot {environment_slot} '{path}' ({status})"));
+                log.write(
+                    $"Game: cannot set the environment of slot {environment_slot} '{path}' ({status})");
                 return false;
             } catch (Exception error) {
                 status = script_status.script_failure;
-                managed_bootstrap.core.write_log(Encoding.UTF8.GetBytes(
-                    $"Game: environment slot {environment_slot} request failed: {error.GetBaseException().Message}"));
+                log.write(
+                    $"Game: environment slot {environment_slot} request failed: {error.GetBaseException().Message}");
                 return false;
             }
         }

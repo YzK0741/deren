@@ -1,5 +1,4 @@
 using System;
-using System.Text;
 using deren.scripting;
 
 namespace deren {
@@ -17,7 +16,7 @@ namespace deren {
             if (status == script_status.success) {
                 return;
             }
-            managed_bootstrap.core.write_log(Encoding.UTF8.GetBytes($"Game: {what} rejected ({status})"));
+            log.write($"Game: {what} rejected ({status})");
         }
 
         /// <summary>Exposure scale, 0.05..20 (1.0 = unchanged).</summary>

@@ -1,5 +1,4 @@
 using System;
-using System.Text;
 
 namespace deren.scripting {
     /// <summary>
@@ -18,7 +17,7 @@ namespace deren.scripting {
 
         public static bool try_set_max_fps(double fps, out script_status status) {
             status = scene_api.assign_max_fps(fps);
-            write_log(status == script_status.success
+            log.write(status == script_status.success
                 ? $"Game: max fps: {(fps > 0.0 ? fps.ToString("0.##") : "uncapped")}"
                 : $"Game: max fps {fps} rejected ({status})");
             return status == script_status.success;
@@ -34,13 +33,6 @@ namespace deren.scripting {
 
         internal static void clear() {
             frame_event_processor.clear_all();
-        }
-
-        private static unsafe void write_log(string message) {
-            if (managed_bootstrap.core.log == null) {
-                return;
-            }
-            managed_bootstrap.core.write_log(Encoding.UTF8.GetBytes(message));
         }
     }
 }

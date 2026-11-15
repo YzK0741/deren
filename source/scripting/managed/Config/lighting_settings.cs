@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Text;
 using deren.scripting;
 
 namespace deren {
@@ -143,9 +142,7 @@ namespace deren {
         }
 
         private static void report(string message) {
-            if (managed_bootstrap.core.write_log != null) {
-                managed_bootstrap.core.write_log(Encoding.UTF8.GetBytes(message));
-            }
+            log.write(message);
         }
 
         /// <summary>

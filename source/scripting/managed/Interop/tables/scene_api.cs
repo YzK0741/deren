@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices;
-using System.Text;
 
 namespace deren.scripting {
     /// <summary>
@@ -260,9 +259,9 @@ namespace deren.scripting {
             // ABI 33: the host reports the table size, so a field count that drifted between the two
             // sides is a refused binding instead of a call through a pointer read past the table.
             if (byte_size != sizeof(scene_api_layout)) {
-                api->write_log(Encoding.UTF8.GetBytes(
+                log.write(api, 
                     $"Managed host: the scene module table is {byte_size} bytes, this build expects " +
-                    $"{sizeof(scene_api_layout)}."));
+                    $"{sizeof(scene_api_layout)}.");
                 return script_status.module_invalid;
             }
             var resolved = *(scene_api_layout*)table;

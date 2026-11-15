@@ -570,6 +570,9 @@ public static bool cancel(ulong handle);
   boundary, counting from registration.
 - Registration is thread-safe. `cancel` never interrupts a task that has already started, because
   the running batch no longer references the registry.
+- Registered after the host's `stop` has run, nothing runs: the once forms return `false` and the
+  repeat forms return 0, because the threads they would use are gone. A task registered while a
+  batch is draining waits for the next boundary of its kind: the running batch is a snapshot.
 - `is_blocking: true` (the default) means the host waits: the dispatcher runs the batch on the
   blocking executor before it answers. `is_blocking: false` means the batch goes to the non-blocking
   executor and the answer does not wait for it to finish.
