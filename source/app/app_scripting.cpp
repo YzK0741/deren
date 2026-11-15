@@ -1,12 +1,8 @@
 module;
 #define GLM_ENABLE_EXPERIMENTAL
-#include <array>
-#include <cmath>
-#include <cstdlib>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtx/matrix_decompose.hpp>
-#include <optional>
 module deren.app.scripting;
 import deren.vstd;
 import deren.app.toon;

@@ -1,6 +1,5 @@
 #include <cmath>
 #include <cstdio>
-#include <string>
 
 import deren.scripting.managed_host;
 
