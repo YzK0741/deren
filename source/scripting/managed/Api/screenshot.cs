@@ -1,5 +1,4 @@
 using System;
-using System.Text;
 using deren.scripting;
 
 namespace deren {
@@ -33,8 +32,8 @@ namespace deren {
                 return status == script_status.success;
             } catch (Exception error) {
                 status = script_status.script_failure;
-                managed_bootstrap.core.write_log(Encoding.UTF8.GetBytes(
-                    $"Game: screenshot request failed: {error.GetBaseException().Message}"));
+                log.write(
+                    $"Game: screenshot request failed: {error.GetBaseException().Message}");
                 return false;
             }
         }

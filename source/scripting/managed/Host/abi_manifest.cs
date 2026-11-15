@@ -1,4 +1,3 @@
-using System.Text;
 
 namespace deren.scripting {
     /// <summary>
@@ -17,20 +16,20 @@ namespace deren.scripting {
         /// </summary>
         internal static bool verify(native_api* api) {
             if (api == null || api->abi_layout == null) {
-                log(api, "Managed host: the native host publishes no ABI layout (ABI 33 required).");
+                log.write(api, "Managed host: the native host publishes no ABI layout (ABI 33 required).");
                 return false;
             }
             abi_layout_entry* entries = stackalloc abi_layout_entry[entry_count];
             var status = api->abi_layout(entries, entry_count);
             if (status != script_status.success) {
-                log(api, $"Managed host: the native host rejected the ABI layout request ({status}).");
+                log.write(api, $"Managed host: the native host rejected the ABI layout request ({status}).");
                 return false;
             }
             for (int index = 0; index != entry_count; ++index) {
                 var entry = entries[index];
                 var expected = expected_size(entry.type);
                 if (entry.size != expected) {
-                    log(api, $"Managed host: the layouts of '{entry.type}' disagree " +
+                    log.write(api, $"Managed host: the layouts of '{entry.type}' disagree " +
                              $"({entry.size} bytes native, {expected} bytes managed).");
                     return false;
                 }
@@ -53,12 +52,6 @@ namespace deren.scripting {
                 // An entry this build does not know: the caller reports the mismatch by name.
                 _ => 0u,
             };
-        }
-
-        private static void log(native_api* api, string message) {
-            if (api != null && api->log != null) {
-                api->write_log(Encoding.UTF8.GetBytes(message));
-            }
         }
     }
 }

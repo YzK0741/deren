@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Text;
 using deren.scripting;
 
 namespace deren {
@@ -56,22 +55,22 @@ namespace deren {
                 document = File.ReadAllText(path);
             } catch (Exception error) {
                 status = script_status.asset_not_found;
-                log($"light rig: cannot read '{path}' ({error.GetBaseException().Message})");
+                log_game($"light rig: cannot read '{path}' ({error.GetBaseException().Message})");
                 return false;
             }
             var root = toml_table.parse(document, out var complaint);
             if (root == null) {
                 status = script_status.asset_invalid;
-                log($"light rig: '{path}' is not TOML ({complaint})");
+                log_game($"light rig: '{path}' is not TOML ({complaint})");
                 return false;
             }
             if (complaint != null) {
-                log($"light rig: '{path}' parsed with a complaint: {complaint}");
+                log_game($"light rig: '{path}' parsed with a complaint: {complaint}");
             }
             var entries = root.tables("light");
             if (entries == null || entries.Count == 0) {
                 status = script_status.asset_invalid;
-                log($"light rig: '{path}' declares no [[light]] entries");
+                log_game($"light rig: '{path}' declares no [[light]] entries");
                 return false;
             }
             var staging = root.table("rig");
@@ -87,10 +86,10 @@ namespace deren {
                 }
             }
             if (!lighting.try_set_point_lights(lights, out status)) {
-                log($"light rig: the host rejected the {lights.Length} light(s) of '{path}'");
+                log_game($"light rig: the host rejected the {lights.Length} light(s) of '{path}'");
                 return false;
             }
-            log($"light rig: '{Path.GetFileName(path)}' published {lights.Length} light(s)");
+            log_game($"light rig: '{Path.GetFileName(path)}' published {lights.Length} light(s)");
             return true;
         }
 
@@ -98,7 +97,7 @@ namespace deren {
                                            out point_light light) {
             light = default;
             if (!try_position(entry.numbers("position"), z_up, offset, out var placement)) {
-                log($"light rig: light {index} needs a 'position' of three numbers");
+                log_game($"light rig: light {index} needs a 'position' of three numbers");
                 return false;
             }
             // A direction is only meaningful for a spot, and a spot without one would silently light
@@ -148,8 +147,8 @@ namespace deren {
                 : new vector_3 { x = 1.0f, y = 1.0f, z = 1.0f };
         }
 
-        private static void log(string message) {
-            managed_bootstrap.core.write_log(Encoding.UTF8.GetBytes($"Game: {message}"));
+        private static void log_game(string message) {
+            log.write($"Game: {message}");
         }
     }
 }

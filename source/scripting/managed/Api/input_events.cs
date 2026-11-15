@@ -97,8 +97,8 @@ namespace deren {
                 callback(new input_event((input_type)record.type, record.button, record.down != 0, record.key,
                                          record.x, record.y, record.dx, record.dy, record.wheel, record.codepoint));
             } catch (Exception error) {
-                managed_bootstrap.core.write_log(System.Text.Encoding.UTF8.GetBytes(
-                    $"Game: input handler threw: {error.GetBaseException().Message}"));
+                log.write(
+                    $"Game: input handler threw: {error.GetBaseException().Message}");
             }
         }
     }

@@ -1,5 +1,4 @@
 using System;
-using System.Text;
 using deren.scripting;
 
 namespace deren {
@@ -145,7 +144,7 @@ namespace deren {
         }
 
         private static bool reject(string message) {
-            managed_bootstrap.core.write_log(Encoding.UTF8.GetBytes($"Game: reflect probe: {message}"));
+            log.write($"Game: reflect probe: {message}");
             return false;
         }
     }
@@ -228,8 +227,8 @@ namespace deren {
                     }
                     running = false;
                     finished = true;
-                    managed_bootstrap.core.write_log(Encoding.UTF8.GetBytes(
-                        $"Game: reflect probe: wrote '{path}' ({size}px, 6 faces)"));
+                    log.write(
+                        $"Game: reflect probe: wrote '{path}' ({size}px, 6 faces)");
                     return false;
                 }
                 reflect_probe.reset_history();

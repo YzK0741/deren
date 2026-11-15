@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Text;
 using System.Threading;
 
 namespace deren.scripting {
@@ -18,6 +17,12 @@ namespace deren.scripting {
     /// when its snapshot is taken, a repeat task stays registered until <c>cancel</c>. Counted tasks
     /// are repeats whose closure decides which boundaries reach the wrapped callable, so they need
     /// no queue of their own. Each executor runs one batch at a time in registration order.
+    ///
+    /// Two consequences are worth stating up front. Non-blocking does not mean free: the dispatcher
+    /// waits for the previous non-blocking batch before it starts this frame's, so a batch that
+    /// outlives a frame delays the host's answer for the next boundary, and the frame rate follows.
+    /// And a batch is a snapshot: a callable cancelled while its batch is draining still finishes
+    /// that run, and a once task registered during a drain waits for the next boundary of its kind.
     /// </summary>
     public static class frame_event_processor {
         private sealed class frame_task {
@@ -160,12 +165,17 @@ namespace deren.scripting {
 
         /// <summary>The host's wait escape hatch: answer even when the batch could not be prepared.</summary>
         internal static unsafe void notify_host() {
-            if (managed_bootstrap.core.notify_rendering == null) {
-                return;
-            }
-            var status = managed_bootstrap.core.notify_rendering();
-            if (status != script_status.success) {
-                write_log($"Frame events: the host rejected the completion notice ({status}).");
+            try {
+                if (managed_bootstrap.core.notify_rendering == null) {
+                    return;
+                }
+                var status = managed_bootstrap.core.notify_rendering();
+                if (status != script_status.success) {
+                    nothrow_log.write($"Frame events: the host rejected the completion notice ({status}).");
+                }
+            } catch (Exception error) {
+                // This runs from a finally block, so it must not throw: the notice is already lost.
+                nothrow_log.write($"Frame events: the completion notice failed: {error.GetBaseException().Message}");
             }
         }
 
@@ -200,7 +210,10 @@ namespace deren.scripting {
                 try {
                     process(before);
                 } catch (Exception error) {
-                    write_log($"Frame events: the boundary failed: {error.GetBaseException().Message}");
+                    nothrow_log.write($"Frame events: the boundary failed: {error.GetBaseException().Message}");
+                } finally {
+                    // One signal, one answer, even when the batch could not be prepared: a skipped
+                    // notice would leave the render loop waiting for its timeout instead.
                     notify_host();
                 }
             }
@@ -208,7 +221,8 @@ namespace deren.scripting {
 
         /// <summary>
         /// One boundary, in the order the frame needs: blocking first (the host waits for it), then
-        /// the previous non-blocking batch, then this frame's, then the answer to the host.
+        /// the previous non-blocking batch, then this frame's. The answer to the host is the
+        /// dispatcher's, in a finally block, so no failure inside the batch can skip it.
         /// </summary>
         private static void process(bool before) {
             take(before, out var blocking, out var concurrent);
@@ -218,13 +232,16 @@ namespace deren.scripting {
             if (concurrent.Count > 0) {
                 start_concurrent(concurrent);
             }
-            notify_host();
         }
 
         private static bool add(bool before, Action? action, bool is_blocking, bool repeat, out ulong handle) {
             handle = 0;
+            if (stopping) {
+                // The threads are gone: a task accepted here would never run.
+                return false;
+            }
             if (action == null) {
-                write_log("Frame events: a null callable was refused.");
+                nothrow_log.write("Frame events: a null callable was refused.");
                 return false;
             }
             var entry = new frame_task { action = action };
@@ -241,7 +258,7 @@ namespace deren.scripting {
 
         private static ulong counted(bool before, ulong frame_count, Action? action, bool is_blocking) {
             if (action == null || frame_count == 0) {
-                write_log(frame_count == 0
+                nothrow_log.write(frame_count == 0
                     ? "Frame events: a counted task needs a non-zero frame count."
                     : "Frame events: a counted task was refused.");
                 return 0;
@@ -308,14 +325,16 @@ namespace deren.scripting {
         }
 
         private static void collect(List<frame_task> tasks, List<Action> actions, bool remove) {
-            var index = 0;
-            while (index < tasks.Count) {
-                actions.Add(tasks[index].action);
-                if (remove) {
-                    tasks.RemoveAt(index);
-                } else {
-                    ++index;
-                }
+            if (tasks.Count == 0) {
+                return;
+            }
+            // Order is registration order either way. When the whole list is being taken, clear it
+            // instead of removing from the front, which would shift the tail once per entry.
+            foreach (var task in tasks) {
+                actions.Add(task.action);
+            }
+            if (remove) {
+                tasks.Clear();
             }
         }
 
@@ -407,16 +426,9 @@ namespace deren.scripting {
                 try {
                     action();
                 } catch (Exception error) {
-                    write_log($"Frame events: {failure}: {error.GetBaseException().Message}");
+                    nothrow_log.write($"Frame events: {failure}: {error.GetBaseException().Message}");
                 }
             }
-        }
-
-        private static unsafe void write_log(string message) {
-            if (managed_bootstrap.core.log == null) {
-                return;
-            }
-            managed_bootstrap.core.write_log(Encoding.UTF8.GetBytes(message));
         }
     }
 }

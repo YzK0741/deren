@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices;
-using System.Text;
 
 namespace deren.scripting {
     /// <summary>
@@ -70,9 +69,9 @@ namespace deren.scripting {
             }
             // ABI 33: same table-size check as the scene module (see scene_api.initialize).
             if (byte_size != sizeof(ui_api_layout)) {
-                api->write_log(Encoding.UTF8.GetBytes(
+                log.write(api, 
                     $"Managed host: the ui module table is {byte_size} bytes, this build expects " +
-                    $"{sizeof(ui_api_layout)}."));
+                    $"{sizeof(ui_api_layout)}.");
                 return script_status.module_invalid;
             }
             var resolved = *(ui_api_layout*)table;
