@@ -24,8 +24,9 @@ namespace deren {
         /// <summary>Equirectangular HDR environment; empty keeps the procedural sky.</summary>
         public string environment_hdr = string.Empty;
 
-        /// <summary>`environment_hdr`'s linear multiplier (parsed, not consumed yet).</summary>
-        public float environment_intensity = 0.35f;
+        // `environment_intensity` used to sit here: a bake-time multiplier for the HDR. The bake is gone
+        // with the native preview path, so the key is neither parsed nor applied; a profile that still
+        // carries it loads fine and the value is ignored. Turn `environment_strength` instead.
 
         public float environment_rotation = 0.0f;
         public float environment_strength = 1.0f;
@@ -109,13 +110,9 @@ namespace deren {
         }
 
         private void read_profile_table(toml_table profile) {
-            if (profile.number("environment_intensity") is { } intensity) {
-                if (float.IsFinite(intensity) && intensity >= 0.0f) {
-                    environment_intensity = intensity;
-                } else {
-                    report($"app_config: invalid environment_intensity {intensity} (use a finite value >= 0), falling back to 0.35");
-                }
-            }
+            // `environment_intensity` is not read: it was the bake-time multiplier of the HDR, the bake is
+            // gone with the native preview path, and nothing consumed the value. A profile that still has
+            // the key loads fine - the key is ignored, exactly like the native parser does.
             if (profile.number("environment_rotation") is { } rotation) {
                 environment_rotation = float.IsFinite(rotation) ? (float)Math.IEEERemainder(rotation, 360.0) : 0.0f;
             }

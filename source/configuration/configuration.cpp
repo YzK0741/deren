@@ -751,11 +751,9 @@ namespace deren::app_config {
             }
         }
         if (toml::table const* lighting = lighting_table ? &*lighting_table : nullptr) {
-            if (toml::node const* node = lighting->get("environment_intensity")) {
-                if (std::optional<double> const value = node->value<double>()) {
-                    settings.lighting.environment_intensity = static_cast<float>(*value);
-                }
-            }
+            // `environment_intensity` is deliberately NOT read: it was the bake-time multiplier for an
+            // equirectangular `.hdr`, the bake left the app, and nothing consumed the value afterwards.
+            // A profile that still carries the key parses fine - the key is simply ignored.
             if (auto v = (*lighting)["environment_rotation"].value<double>()) {
                 settings.lighting.environment_rotation = std::isfinite(*v) ? static_cast<float>(std::remainder(*v, 360.0)) : 0.0f;
             }
@@ -1100,13 +1098,6 @@ namespace deren::app_config {
         }
         settings.render.ssao_radius = std::clamp(settings.render.ssao_radius, 0.0f, 100.0f);
         settings.render.ssao_intensity = std::clamp(settings.render.ssao_intensity, 0.0f, 1.0f);
-        // The environment multiplier scales radiance: a negative one would mirror the image into nonsense
-        // and a NaN would poison every texel of the IBL it feeds. Both fall back to the reference's
-        // number instead of rendering an environment nobody chose. (`!(x >= 0)` is the NaN test.)
-        if (!(settings.lighting.environment_intensity >= 0.0f) || !std::isfinite(settings.lighting.environment_intensity)) {
-            deren::utility::log("app_config: invalid environment_intensity {} (use a finite value >= 0), falling back to 0.35", settings.lighting.environment_intensity);
-            settings.lighting.environment_intensity = 0.35f;
-        }
         // The area light's numbers. A negative size/power means "no such emitter" rather than a negative
         // one, a negative multiplier would give a negative radiance (a light that sucks photons out of the
         // frame), and a NaN or infinity in ANY of them travels straight into the light UBO and then into every

@@ -6,7 +6,7 @@ export import deren.vstd;
 
 export namespace deren::scripting {
 
-    inline constexpr std::uint32_t managed_abi_version = 31;
+    inline constexpr std::uint32_t managed_abi_version = 32;
 
     struct node_handle {
         std::uint64_t value = 0;
@@ -222,13 +222,20 @@ export namespace deren::scripting {
         // The managed game owns the camera pose. Calls fail if no scene is active.
         script_status(* get_camera)(camera_state* value) = nullptr;
         script_status(* set_camera)(camera_state const* value) = nullptr;
-        // Replaces the GLOBAL image-based lighting with the environment named by @p path: a baked
-        // .ibl or an equirectangular .hdr, relative paths resolved against the executable directory.
-        // An empty path returns to the procedural sky. The call is a request: the host validates the
-        // path, applies the new IBL between frames, and keeps the current one if decoding fails.
-        // There is no per-scene or per-node scope yet; the name says global so a later per-tree or
-        // per-primitive variant can be added without renaming this one.
-        script_status(* set_global_environment_hdr)(utf8_view path) = nullptr;
+        // Replaces ONE image-based-lighting slot with the environment named by @p path: a baked .ibl or
+        // an equirectangular .hdr, relative paths resolved against the executable directory. An empty
+        // path loads the procedural sky into that slot. The call is a request: the host validates the
+        // path, prepares the images and applies them between frames, and keeps the slot's current
+        // environment if decoding fails.
+        //
+        // SLOT 0 IS THE SCENE-WIDE ENVIRONMENT - the one every material samples unless its record names
+        // another slot - and it is also the only slot with a BRDF LUT (the LUT is shared, so a custom
+        // slot reuses slot 0's). Slots 1..3 are the per-material lanes: a material record carries the
+        // slot number in its flags (bits 10..11, `material_override.environment_slot` on the managed
+        // side), and the shaders pick the slot's cubemap pair out of the descriptor heap
+        // (`heap_access.slang`, `custom_env_cube + slot - 1`). `layout::heap_environment_capacity` is the
+        // upper bound; a larger slot is rejected with `invalid_argument`.
+        script_status(* set_environment_hdr)(utf8_view path, std::uint32_t environment_slot) = nullptr;
         // The asset manifest declares which renderer pipelines its meshes support and which one a
         // bind starts on. These return that declaration for parameter validation on the managed
         // side; the strings borrow the registry's storage while the handle is alive.

@@ -178,26 +178,10 @@ clear_color = [0.02, 0.02, 0.03]
 #   and --capture-camera pins an exact pose on top of either mode.
 camera_fit = "exterior"
 
-# camera_pose: pin the orbit camera exactly - `[yaw, pitch, distance, targetX, targetY, targetZ]`, the same six
-# numbers `--capture-camera` takes and the same six the log prints on exit, so a view can be pasted between them,
-# written into a config to make a bare run reproduce it, or reported by a user. ABSENT here on purpose: absent
-# leaves `camera_fit` in charge, and `--capture-camera` overrides either.
-#
-#   THE TARGET IS THE POINT THE ORBIT ROTATES ABOUT, which is what makes this worth setting for a character.
-#   Point it at the HEAD and the mouse orbits the head; leave it on the body centre and a few degrees of pitch
-#   swings the head straight out of a close-up (measured: at distance 0.45, 15 degrees of pitch moved the face
-#   about 500 px - enough that "look at the eyes from another angle" was not possible without re-aiming).
-#
-#   THE HEAD'S NUMBER IS ARITHMETIC, NOT TASTE. main.cpp shifts the model by `-scene_center + scene_sink` with
-#   `scene_sink = (0, -scene_radius, 0)`, so the model's CENTRE lands at `y = -scene_radius` and a camera_pose
-#   target is in THAT sunk space:
-#       target_y = head_model_y - scene_radius
-#   Both numbers are in the startup log's `scene bounds (aabb)` line. For `chen.glb` (`max.y` 1.780, radius
-#   1.092, iris mesh at model y 1.51) that is `1.56 - 1.092 = +0.47` below the origin, i.e. target y -0.47, and
-#   distance 1.0 frames head and shoulders. Measured with that pose: the head stays centred and in frame at
-#   pitch -25, 0, +25, +45 and at yaw +/-35 with pitch +/-15.
-#
-# camera_pose = [0.0, 0.0, 1.0, 0.0, -0.47, 0.0]
+# camera_pose IS NOT A CONFIG KEY ANY MORE. The schema no longer accepts it, so writing it here stops the load
+# with "unknown key(s): render.camera_pose". A pinned view is still available on the command line
+# (`--capture-camera yaw,pitch,distance,targetX,targetY,targetZ`, the same six numbers the startup and exit logs
+# print), and `camera_fit` above picks the automatic modes.
 
 # animation_time: pin the keyframe animation at this time in SECONDS, or -1 (the default) to play it. Only
 # matters for a model that carries animations, which the demo plays automatically on a loop.
@@ -687,15 +671,16 @@ panel_height = 560
 # profile entry below is only used when baking a `.hdr` and a differing value for a `.ibl` is reported
 # and ignored.
 #
-# To bake a different panorama offline:
-#   deren.exe --bake-environment asset/environments/neutral.hdr asset/environments/neutral.ibl
+# The baked Studio Neutral IBL, used as this config's environment. Baked `.ibl` files are shipped as assets:
+# the app no longer carries an offline baker, so a new panorama is baked by the tooling that produced this
+# one rather than by a flag on deren.exe.
 environment_hdr = "environments/neutral.ibl"
 
-# profile: the numeric IBL knobs (environment_intensity, environment_strength, environment_rotation,
-# environment_background, environment_color, environment_blur) and the reference package's rectangular
-# soft box (area_light_*) are calibrated together, so they live in a TOML profile file instead of sixteen
-# keys here - a project copies a calibration rather than re-typing it. Relative paths resolve against
-# this config's directory; absent keeps the compiled defaults. See asset/lighting/softbox.toml.
+# profile: the numeric IBL knobs (environment_strength, environment_rotation, environment_background,
+# environment_color, environment_blur) and the reference package's rectangular soft box (area_light_*) are
+# calibrated together, so they live in a TOML profile file instead of sixteen keys here - a project copies a
+# calibration rather than re-typing it. Relative paths resolve against this config's directory; absent keeps
+# the compiled defaults. See asset/lighting/softbox.toml.
 profile = "asset/lighting/softbox.toml"
 
 # ---- [toon] the toon character stage's LIGHT RIG ----

@@ -189,7 +189,7 @@ namespace {
     void test_environment_invalid_controls() {
         auto const profile = write_profile("environment-invalid.toml", "lighting", ".profile.toml",
                                            "environment_rotation=nan\nenvironment_strength=inf\nenvironment_background=99\n"
-                                           "environment_blur=nan\nenvironment_color=[nan, -1.0, 2.0]\nenvironment_intensity=inf\n");
+                                           "environment_blur=nan\nenvironment_color=[nan, -1.0, 2.0]\n");
         std::ofstream("environment-invalid.toml", std::ios::app) << "[render]\nexposure=nan\ntone_mapping=99\n";
         auto s = deren::app_config::load_settings("environment-invalid.toml");
         CHECK(s.lighting.environment_rotation == 0);
@@ -199,7 +199,6 @@ namespace {
         CHECK(s.lighting.environment_color[0] == 0.18f);
         CHECK(s.lighting.environment_color[1] == 0);
         CHECK(s.lighting.environment_color[2] == 1);
-        CHECK(s.lighting.environment_intensity == 0.35f);
         CHECK(s.render.exposure == 1 && s.render.tone_mapping == 0);
         std::filesystem::remove("environment-invalid.toml");
         std::filesystem::remove(profile);
@@ -224,7 +223,6 @@ namespace {
         CHECK(settings.render.shadow_map_size == 1024);
         CHECK(!settings.render.clustered_lights); // fixture turns the M5 cluster pass off
         CHECK(settings.lighting.demo_lights == 3);
-        CHECK(settings.lighting.environment_intensity > 0.79f && settings.lighting.environment_intensity < 0.81f);
         CHECK(!settings.render.ssao); // fixture turns the M6 screen-space AO off
         CHECK(settings.render.ssao_radius > 1.49f && settings.render.ssao_radius < 1.51f);
         CHECK(settings.render.ssao_intensity > 0.49f && settings.render.ssao_intensity < 0.51f);
@@ -342,8 +340,8 @@ namespace {
         CHECK(settings.lighting.demo_lights == 0);
         // The example ships the baked Studio Neutral IBL as its default environment: `[lighting] environment_hdr`
         // is a key the MANAGED host reads for itself (see `collect_unknown_scene_keys`), so this module accepts
-        // it and stores nothing - what the parser still proves here is the numeric knob beside it.
-        CHECK(settings.lighting.environment_intensity > 0.99f && settings.lighting.environment_intensity < 1.01f);
+        // it and stores nothing. The numeric knobs beside it live in the lighting PROFILE, and the one that used
+        // to be baked into the environment cubemap (`environment_intensity`) is no longer a stored setting.
         // [lighting] area_light_*: the example DOCUMENTS the reference package's soft box but ships it OFF
         // (`area_light_size = 0`), which is the byte-identical contract - a config copied from this file
         // renders what the repository rendered before the keys existed, and the block is one edit away.
@@ -421,7 +419,6 @@ namespace {
     // env_size/irr_size lines are inert; what is still clamped here is the lighting calibration.
     void test_lighting_values_are_clamped() {
         deren::app_config::app_settings const settings = deren::app_config::load_settings(VR_TEST_SOURCE_DIR "/source/tests/fixtures/config_bad_lighting.toml");
-        CHECK(settings.lighting.environment_intensity > 0.349f && settings.lighting.environment_intensity < 0.351f); // -1.0 -> the default
         // The area light's numbers: a negative size/power means "no such emitter" rather than a negative
         // one, `nan` on the multiplier would ride the light UBO into every pixel (clamp cannot catch a NaN),
         // and a negative softness would ask the shading for a negative penumbra radius.
@@ -490,8 +487,8 @@ namespace {
         CHECK(settings.gui.show);
         CHECK(settings.gui.panel_width > 379.0f && settings.gui.panel_width < 381.0f);
         CHECK(settings.gui.panel_height > 139.0f && settings.gui.panel_height < 141.0f);
-        // [lighting]: the loader's clamps must leave every generator default untouched
-        CHECK(settings.lighting.environment_intensity > 0.349f && settings.lighting.environment_intensity < 0.351f);
+        // [lighting]: the loader's clamps must leave every generator default untouched. There is no
+        // `environment_intensity` check here any more: the key left the schema (see lighting_settings).
         // [lighting] area_light_*: OFF by default, and the generator writes all eight keys out, so this is
         // also the check that the two files (generator + fixture) have not drifted apart.
         CHECK(settings.lighting.area_light_size == 0.0f);

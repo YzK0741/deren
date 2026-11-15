@@ -1,6 +1,7 @@
-# The lighting profile named by `config_full.toml`'s [lighting] profile key. One key here is a NON-default
-# value, so a read-back proves the parser follows the profile rather than leaving the compiled defaults.
-environment_intensity = 0.8
+# The lighting profile named by `config_full.toml`'s [lighting] profile key. The area-light keys below are
+# NON-default values, so a read-back proves the parser follows the profile rather than leaving the compiled
+# defaults. (`environment_intensity` used to be the key that proved it here; it left the schema, see
+# `lighting_settings`.)
 
 # The reference package's soft box (manifest: size 30 m, 4000 W, Blender [-3, -4, 15] -> Y-up [-3, 15, 4]),
 # with v1's two A/B switches deliberately OFF so a test reading this file proves the parser reads the booleans
