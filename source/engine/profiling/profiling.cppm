@@ -32,7 +32,8 @@ namespace deren::engine::profiling {
     export enum class cpu_phase : std::uint32_t {
         pace,
         begin,
-        cull, // sub-phase of begin: scene-tree walk + frustum/BVH cull + visible split
+        prepare, // graph eligibility, shadow reuse, ray-tracing structures (records nothing)
+        cull,    // sub-phase of begin: scene-tree walk + frustum/BVH cull + visible split
         scene,
         cluster, // sub-phase of scene
         shadow,  // sub-phase of scene
@@ -47,6 +48,7 @@ namespace deren::engine::profiling {
     export constexpr deren::utility::vessel::array<std::string_view, static_cast<std::size_t>(cpu_phase::count)> cpu_phase_names = {
         "pace",
         "begin",
+        "prepare",
         "cull*",
         "scene",
         "cluster*",
@@ -123,6 +125,7 @@ namespace deren::engine::profiling {
             deren::utility::vessel::string report = deren::utility::vessel::format("cpu frame phases (avg of {} frames):", window_length);
             double const pace_mean = this->sum[static_cast<std::size_t>(cpu_phase::pace)] / static_cast<double>(window_length);
             double const record_mean = (this->sum[static_cast<std::size_t>(cpu_phase::begin)] +
+                                        this->sum[static_cast<std::size_t>(cpu_phase::prepare)] +
                                         this->sum[static_cast<std::size_t>(cpu_phase::scene)] +
                                         this->sum[static_cast<std::size_t>(cpu_phase::post)]) /
                                        static_cast<double>(window_length);

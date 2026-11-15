@@ -12,7 +12,7 @@ export import deren.promise.rhi;
 export namespace deren::gui {
     /// The boundary's version: an INCOMPATIBLE change to the interface or to `create_info` moves it, and
     /// the entry refuses a caller that hands over another number (the backend's abi handshake, one level up).
-    inline constexpr std::uint32_t gui_abi_version = 6u;
+    inline constexpr std::uint32_t gui_abi_version = 7u;
 
     /// WHICH GRAPHICS API THE HOST IS ASKING THIS GUI DLL TO SERVE. It is the host's hint AND the plugin's
     /// check: `deren_gui_vulkan.dll` serves `vulkan` and refuses anything else by name.
@@ -82,6 +82,9 @@ export namespace deren::gui {
         /// a three-component drag control bound to three consecutive floats (a glm::vec3's x member)
         virtual widget& add_vec3(deren::utility::vessel::string label, float* value, float speed = 0.05f, std::function<void()> on_change = {}) = 0;
         virtual widget& add_combo(deren::utility::vessel::string label, deren::utility::vessel::vector<deren::utility::vessel::string> items, std::int32_t* current_item, std::function<void(std::int32_t)> on_change = {}) = 0;
+        /// a BUTTON whose press calls @p on_press (abi 7): the panel's only verb that changes nothing but
+        /// its callback, because the host owns the state a button switches
+        virtual widget& add_button(deren::utility::vessel::string label, std::function<void()> on_press = {}) = 0;
 
         virtual void clear() = 0;
         [[nodiscard]] virtual bool empty() const noexcept = 0;

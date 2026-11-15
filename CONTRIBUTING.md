@@ -57,8 +57,8 @@ that came before it.
    `export import std` pattern, `vessel` containers instead of the C++ standard
    library, plain classes with direct members rather than pimpl
    (`source/backends/vulkan/gui/gui.cppm`
-   states this explicitly), and private app headers included after the module
-   imports (`source/app/environment_loader.hpp` shows the shape). Before introducing
+   states this explicitly), and private app implementation partitions imported
+   after the module declaration (`source/app/environment_loader.cppm` shows the shape). Before introducing
    a technique, abstraction or "standard practice" from elsewhere, find where this
    repository already does it. If there is no precedent, ask instead of inventing
    one; if the repository has a precedent, follow it rather than adding a second way

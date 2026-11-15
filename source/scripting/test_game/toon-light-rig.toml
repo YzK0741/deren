@@ -1,0 +1,113 @@
+# The GameToon character light rig.
+#
+# These are the ten punctual lights the GameToon preview was lit with: two spots for the key and
+# fill, seven point lights close to the face and hair, and one fog light behind the model. The
+# numbers are the ones in `submission/demo/character.toml`'s day of the reference render, kept here
+# in the space that render used: the engine's Y-up world with the model standing in it. They are NOT
+# in the glb's bind space (that file's vertices run up +Z), because the rendered character is the
+# bind pose posed by the skin the reference used.
+#
+# WHICH SPACE. `up_axis = "y"` says the positions below are already in the engine's world
+# orientation, so `light_rig` uses them as written; `up_axis = "z"` would rotate them out of a Z-up
+# model space first. `offset` is then where the engine actually drew the model: the asset binder
+# grounds an import by moving its centre, so this is the world position of the model's local origin
+# for the current asset and camera staging. Change the asset and the offset changes with it; the
+# binder does not yet hand that placement to managed code.
+[rig]
+up_axis = "y"
+offset = [0.0, -2.1588, 0.2450]
+
+# Key spot: cool white, above the front-left shoulder, wide cone with a soft inner edge.
+[[light]]
+position = [1.1350, 0.9420, 0.1380]
+direction = [-0.8698, 0.0, -0.4935]
+colour = [0.7506, 0.9342, 1.0]
+intensity = 18.0
+range = 1.15
+spot = true
+outer_degrees = 71.6229
+inner_degrees = 62.2358
+npr_mode = 3
+npr = [0.368, 0.194, 0.0, 0.0]
+
+# Fill spot: warm, above the front-right, tighter cone.
+[[light]]
+position = [0.6402, 1.7082, -0.1039]
+direction = [-0.9756, -0.1811, -0.1244]
+colour = [1.0, 0.8274, 0.7078]
+intensity = 25.0
+range = 0.555
+spot = true
+outer_degrees = 98.3070
+inner_degrees = 74.8897
+npr_mode = 3
+npr = [0.4, 0.7, 0.0, 0.0]
+
+# Hair and face points: a wrap light at the crown, two small specular lights at the fringe, a
+# stronger one at the jaw to keep the chin lit, and three low-intensity accents along the ears.
+[[light]]
+position = [0.2280, 1.5494, 0.0360]
+colour = [1.0, 1.0, 1.0]
+intensity = 1.5
+range = 0.2635
+npr_mode = 0
+
+[[light]]
+position = [0.0708, 1.6474, 0.0601]
+colour = [1.0, 1.0, 1.0]
+intensity = 0.5
+range = 0.2082
+npr_mode = 2
+npr = [0.6, 0.95, 0.0, 0.0]
+
+[[light]]
+position = [-0.1233, 1.6341, 0.1940]
+colour = [1.0, 1.0, 1.0]
+intensity = 0.3
+range = 0.2082
+npr_mode = 2
+npr = [0.6, 0.95, 0.0, 0.0]
+
+[[light]]
+position = [-0.2722, 1.2880, -0.0420]
+colour = [1.0, 1.0, 1.0]
+intensity = 2.0
+range = 0.1316
+npr_mode = 2
+npr = [0.6, 0.95, 0.0, 0.0]
+
+[[light]]
+position = [0.1016, 1.5468, 0.0510]
+colour = [1.0, 1.0, 1.0]
+intensity = 0.2
+range = 0.1716
+npr_mode = 0
+
+[[light]]
+position = [-0.1050, 1.4780, 0.3530]
+colour = [1.0, 1.0, 1.0]
+intensity = 0.35
+range = 0.4596
+npr_mode = 0
+
+# Crown accent, the brightest of the small points: it is what puts the thin highlight on the top
+# of the hair.
+[[light]]
+position = [0.0211, 1.7919, 0.0002]
+colour = [1.0, 1.0, 1.0]
+intensity = 3.0
+range = 0.1491
+npr_mode = 0
+
+# Fog light behind the model: wide, dim, bluish, and the only light on npr mode 4.
+[[light]]
+position = [0.0134, 1.0117, -1.3375]
+direction = [0.0, 0.0, 1.0]
+colour = [0.2166, 0.2166, 0.2603]
+intensity = 0.4
+range = 1.5
+spot = true
+outer_degrees = 86.6636
+inner_degrees = 81.1457
+npr_mode = 4
+npr = [0.7, 1.0, 0.0, 0.0]

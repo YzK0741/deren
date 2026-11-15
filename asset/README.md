@@ -18,6 +18,21 @@ or `gaussian`), the `model` path relative to the folder, and optional `sidecar`,
 asset-specific rendering data. A manifest path must stay inside its asset folder; absolute
 paths and `..` are rejected.
 
+`default_pipeline` and `pipelines` declare the renderer pipelines an asset supports and the one
+a managed bind starts on:
+
+```toml
+default_pipeline = "pbr"
+pipelines = ["pbr", "unlit"]
+```
+
+Omitted, both are derived from `type`: `pbr`/`unlit` map to themselves, `toon` gets `pbr` (plus
+`game_toon` when it also has a sidecar and `[toon] game_toon = true`), and `gaussian` declares
+none. Only `pbr`, `unlit` and `game_toon` are valid names; unknown names and `game_toon` without
+a sidecar are dropped with a warning, and a `default_pipeline` outside `pipelines` falls back to
+the first entry with a warning. A managed project reads the declared list and switches a bound
+subtree at runtime through the scripting API.
+
 `library.toml` at this root sets the catalogue policy: `default` names the id used when no
 asset is requested, `scan_depth` bounds the folder walk, and `ignore` lists folder prefixes to
 skip.
@@ -38,10 +53,19 @@ experimental game-toon path on by itself.
 | Folder | Contents | Terms |
 | --- | --- | --- |
 | `DamagedHelmet/` | Khronos DamagedHelmet sample (glTF, textures, license) | See `DamagedHelmet/LICENSE.md` |
+| `environments/` | Studio Neutral HDR and its pre-baked `neutral.ibl` IBL | CC-BY-4.0, see `environments/neutral.hdr.license` |
 | `FlightHelmet/` | Khronos FlightHelmet sample (glTF, textures, license) | CC0-1.0, see `FlightHelmet/LICENSE.md` |
 | `flowers/` | NVIDIA Bouquet of Flowers Gaussian splat cloud | CC BY 4.0, see `flowers/README.md` |
 | `laevatain/` | Laevatain / GameToon preview model and Toon sidecar | **All rights reserved by Hypergryph Network Technology Co., Ltd.** — see `laevatain/LICENSE.md` |
 | `tangtang/` | Tangtang / GameToon preview model and Toon sidecar | **All rights reserved by Hypergryph Network Technology Co., Ltd.** — see `tangtang/LICENSE.md` |
+
+`environments/neutral.ibl` is the baked form of `environments/neutral.hdr`: it stores the
+prefiltered environment mip chain, irradiance cube and BRDF LUT in one file. Regenerate it only when
+the HDR or the bake parameters change:
+
+```sh
+deren.exe --bake-environment asset/environments/neutral.hdr asset/environments/neutral.ibl
+```
 
 `laevatain/*.glb`, `tangtang/*.glb` and `flowers/*.ply` are stored with Git LFS. After cloning, install
 `git-lfs` and run `git lfs pull` if the assets were not fetched automatically.

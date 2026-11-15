@@ -35,7 +35,6 @@
 // ============================================================================
 module;
 
-#include <cstddef>
 #include <vulkan/vulkan.h>
 
 module deren.vulkan.core;

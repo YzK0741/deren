@@ -129,6 +129,72 @@ namespace {
         CHECK(!empty.valid());
         CHECK(empty.error().find("not a directory") != std::string::npos);
     }
+    /// PIPELINES ARE DERIVED FROM THE TYPE UNLESS THE MANIFEST SPEAKS: a toon asset only offers the
+    /// experimental game-toon path when it opted in *and* carries a sidecar, and an explicit list may
+    /// be partial or wrong without hiding the asset -- unknown names are dropped with a warning.
+    void test_pipeline_derivation_and_overrides() {
+        fs::path const root = "asset-library-pipelines";
+        fs::remove_all(root);
+        write_file(root / "library.toml", "version = 1\n");
+        write_file(root / "plain" / "asset.toml", "id = \"plain\"\ntype = \"pbr\"\nmodel = \"plain.glb\"\n");
+        write_file(root / "plain" / "plain.glb", "glb");
+        write_file(root / "flat" / "asset.toml", "id = \"flat\"\ntype = \"unlit\"\nmodel = \"flat.glb\"\n");
+        write_file(root / "flat" / "flat.glb", "glb");
+        write_file(root / "toon" / "asset.toml",
+                   "id = \"toon\"\ntype = \"toon\"\nmodel = \"toon.glb\"\nsidecar = \"toon.glb.toon.tsv\"\n"
+                   "[toon]\ngame_toon = true\n");
+        write_file(root / "toon" / "toon.glb", "glb");
+        write_file(root / "toon" / "toon.glb.toon.tsv", "profile\n");
+        write_file(root / "no-sidecar" / "asset.toml",
+                   "id = \"no-sidecar\"\ntype = \"toon\"\nmodel = \"no-sidecar.glb\"\n"
+                   "pipelines = [\"game_toon\", \"pbr\"]\n[toon]\ngame_toon = true\n");
+        write_file(root / "no-sidecar" / "no-sidecar.glb", "glb");
+        write_file(root / "explicit" / "asset.toml",
+                   "id = \"explicit\"\ntype = \"pbr\"\nmodel = \"explicit.glb\"\n"
+                   "pipelines = [\"unlit\", \"bogus\", \"pbr\", \"unlit\"]\ndefault_pipeline = \"unlit\"\n");
+        write_file(root / "explicit" / "explicit.glb", "glb");
+        write_file(root / "bad-default" / "asset.toml",
+                   "id = \"bad-default\"\ntype = \"pbr\"\nmodel = \"bad-default.glb\"\n"
+                   "pipelines = [\"unlit\"]\ndefault_pipeline = \"game_toon\"\n");
+        write_file(root / "bad-default" / "bad-default.glb", "glb");
+        write_file(root / "splat" / "asset.toml", "id = \"splat\"\ntype = \"gaussian\"\nmodel = \"splat.glb\"\n");
+        write_file(root / "splat" / "splat.glb", "glb");
+
+        deren::asset_library::asset_library const library = deren::asset_library::asset_library::scan(root);
+        CHECK_MSG(library.valid(), library.error().c_str());
+
+        auto const check = [&library](char const* id, std::vector<std::string> const& expected,
+                                      std::string_view const expected_default) {
+            deren::asset_library::asset_entry const* entry = library.find(id);
+            CHECK(entry != nullptr);
+            if (entry == nullptr) {
+                return;
+            }
+            CHECK(entry->pipelines == expected);
+            CHECK(entry->default_pipeline == expected_default);
+        };
+
+        check("plain", {"pbr"}, "pbr");
+        check("flat", {"unlit"}, "unlit");
+        check("toon", {"game_toon", "pbr"}, "game_toon");
+        check("no-sidecar", {"pbr"}, "pbr");
+        check("explicit", {"unlit", "pbr"}, "unlit");
+        check("bad-default", {"unlit"}, "unlit");
+        check("splat", {}, "");
+
+        CHECK(any_warning_contains(library, "unknown pipeline 'bogus'"));
+        CHECK(any_warning_contains(library, "pipeline 'game_toon' needs a sidecar"));
+        CHECK(any_warning_contains(library, "default_pipeline 'game_toon' is not supported"));
+
+        deren::asset_library::asset_entry const* toon = library.find("toon");
+        CHECK(toon != nullptr);
+        if (toon != nullptr) {
+            CHECK(deren::asset_library::supports_pipeline(*toon, "game_toon"));
+            CHECK(deren::asset_library::supports_pipeline(*toon, "pbr"));
+            CHECK(!deren::asset_library::supports_pipeline(*toon, "unlit"));
+        }
+        fs::remove_all(root);
+    }
 } // namespace
 
 int main() {
@@ -137,5 +203,6 @@ int main() {
     test_missing_model_is_reported();
     test_duplicate_ids_are_skipped();
     test_default_fallback_and_empty_library();
+    test_pipeline_derivation_and_overrides();
     return deren::vk_test::finish("test_asset_library");
 }

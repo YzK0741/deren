@@ -467,6 +467,8 @@ int main(int const argc, char** const argv) {
         taa.bind_resources(outputs.resources());
         taa.record(io);
         CHECK(taa.wrote_history() && observed_history == 1);
+        engine.prepare_scene_recording();
+        CHECK(engine.record_graph() == deren::engine::frame_status::proceed);
         CHECK(engine.end_recording() == deren::engine::frame_status::proceed);
         CHECK(engine.submit_and_present() == deren::engine::frame_status::proceed);
         // Reject an incorrectly classified history before acquisition or descriptor changes.
@@ -514,7 +516,8 @@ int main(int const argc, char** const argv) {
         deren::vk_test::probe_resource_failure(*device, -1);
         CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
         CHECK(engine.begin_recording() == deren::engine::frame_status::proceed);
-        engine.record_main_drawcalls();
+        engine.prepare_scene_recording();
+        CHECK(engine.record_graph() == deren::engine::frame_status::proceed);
         CHECK(engine.end_recording() == deren::engine::frame_status::proceed);
         CHECK(engine.submit_and_present() == deren::engine::frame_status::proceed);
         return deren::vk_test::finish("output_first_failure");
@@ -551,7 +554,8 @@ int main(int const argc, char** const argv) {
         CHECK(deren::vk_test::probe_heap_image(*device, layout::heap_slot_offset(layout::heap_slots::post_color)) == hdr->objects[0].image.get());
         auto finish_frame = [&] {
             CHECK(engine.begin_recording() == deren::engine::frame_status::proceed);
-            engine.record_main_drawcalls();
+            engine.prepare_scene_recording();
+            CHECK(engine.record_graph() == deren::engine::frame_status::proceed);
             CHECK(engine.end_recording() == deren::engine::frame_status::proceed);
             CHECK(engine.submit_and_present() == deren::engine::frame_status::proceed);
         };
@@ -654,7 +658,8 @@ int main(int const argc, char** const argv) {
         engine.set_pass_chain(*application, {});
         auto const finish_frame = [&] {
             CHECK(engine.begin_recording() == deren::engine::frame_status::proceed);
-            engine.record_main_drawcalls();
+            engine.prepare_scene_recording();
+            CHECK(engine.record_graph() == deren::engine::frame_status::proceed);
             CHECK(engine.end_recording() == deren::engine::frame_status::proceed);
             CHECK(engine.submit_and_present() == deren::engine::frame_status::proceed);
         };
@@ -708,7 +713,8 @@ int main(int const argc, char** const argv) {
             if (heap(layout::heap_slots::goo_fgd_lut)) {
                 CHECK(table->find(rr::resource_id::goo_fgd_lut, 0, 0).image_handle == heap(layout::heap_slots::goo_fgd_lut));
             }
-            engine.record_main_drawcalls();
+            engine.prepare_scene_recording();
+            CHECK(engine.record_graph() == deren::engine::frame_status::proceed);
             CHECK(engine.end_recording() == deren::engine::frame_status::proceed);
             CHECK(engine.submit_and_present() == deren::engine::frame_status::proceed);
         };
@@ -838,7 +844,8 @@ int main(int const argc, char** const argv) {
                     CHECK(std::equal(table_bytes[i].begin(), table_bytes[i].end(), bytes.begin()));
                 }
             }
-            engine.record_main_drawcalls();
+            engine.prepare_scene_recording();
+            CHECK(engine.record_graph() == deren::engine::frame_status::proceed);
             CHECK(engine.end_recording() == deren::engine::frame_status::proceed);
             CHECK(engine.submit_and_present() == deren::engine::frame_status::proceed);
         };
@@ -954,7 +961,8 @@ int main(int const argc, char** const argv) {
         check_morph();
         auto finish = [&] {
             CHECK(engine.begin_recording() == deren::engine::frame_status::proceed);
-            engine.record_main_drawcalls();
+            engine.prepare_scene_recording();
+            CHECK(engine.record_graph() == deren::engine::frame_status::proceed);
             CHECK(engine.end_recording() == deren::engine::frame_status::proceed);
             CHECK(engine.submit_and_present() == deren::engine::frame_status::proceed);
         };
@@ -1056,7 +1064,8 @@ int main(int const argc, char** const argv) {
         };
         auto finish = [&] {
             CHECK(engine.begin_recording() == deren::engine::frame_status::proceed);
-            engine.record_main_drawcalls();
+            engine.prepare_scene_recording();
+            CHECK(engine.record_graph() == deren::engine::frame_status::proceed);
             CHECK(engine.end_recording() == deren::engine::frame_status::proceed);
             CHECK(engine.submit_and_present() == deren::engine::frame_status::proceed);
         };
@@ -1207,7 +1216,8 @@ int main(int const argc, char** const argv) {
         };
         auto finish_frame = [&] {
             CHECK(engine.begin_recording() == deren::engine::frame_status::proceed);
-            engine.record_main_drawcalls();
+            engine.prepare_scene_recording();
+            CHECK(engine.record_graph() == deren::engine::frame_status::proceed);
             CHECK(engine.end_recording() == deren::engine::frame_status::proceed);
             CHECK(engine.submit_and_present() == deren::engine::frame_status::proceed);
         };
@@ -1329,7 +1339,8 @@ int main(int const argc, char** const argv) {
         namespace layout = deren::engine::render_layout;
         auto finish_frame = [&] {
             CHECK(engine.begin_recording() == deren::engine::frame_status::proceed);
-            engine.record_main_drawcalls();
+            engine.prepare_scene_recording();
+            CHECK(engine.record_graph() == deren::engine::frame_status::proceed);
             CHECK(engine.end_recording() == deren::engine::frame_status::proceed);
             CHECK(engine.submit_and_present() == deren::engine::frame_status::proceed);
         };
@@ -1538,7 +1549,8 @@ int main(int const argc, char** const argv) {
         engine.set_pass_chain(*old_chain, {});
         auto finish_frame = [&] {
             CHECK(engine.begin_recording() == deren::engine::frame_status::proceed);
-            engine.record_main_drawcalls();
+            engine.prepare_scene_recording();
+            CHECK(engine.record_graph() == deren::engine::frame_status::proceed);
             CHECK(engine.end_recording() == deren::engine::frame_status::proceed);
             CHECK(engine.submit_and_present() == deren::engine::frame_status::proceed);
         };
@@ -1616,7 +1628,8 @@ int main(int const argc, char** const argv) {
         auto prepare = [&] {
             CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
             CHECK(engine.begin_recording() == deren::engine::frame_status::proceed);
-            engine.record_main_drawcalls();
+            engine.prepare_scene_recording();
+            CHECK(engine.record_graph() == deren::engine::frame_status::proceed);
             CHECK(engine.end_recording() == deren::engine::frame_status::proceed);
         };
         prepare();
@@ -1661,7 +1674,8 @@ int main(int const argc, char** const argv) {
             return value;
         };
         auto finish_frame = [&] {
-            engine.record_main_drawcalls();
+            engine.prepare_scene_recording();
+            CHECK(engine.record_graph() == deren::engine::frame_status::proceed);
             CHECK(engine.end_recording() == deren::engine::frame_status::proceed);
             CHECK(engine.submit_and_present() == deren::engine::frame_status::proceed);
         };
@@ -1756,7 +1770,8 @@ int main(int const argc, char** const argv) {
             CHECK(value == glm::mat4(0));
         }
         CHECK(root->frames->begin_commands() != nullptr);
-        engine.record_main_drawcalls();
+        engine.prepare_scene_recording();
+        CHECK(engine.record_graph() == deren::engine::frame_status::proceed);
         CHECK(engine.end_recording() == deren::engine::frame_status::proceed);
         CHECK(engine.submit_and_present() == deren::engine::frame_status::proceed);
         CHECK(frames->position() == (initial_slot + 1u) % frames->slot_count());

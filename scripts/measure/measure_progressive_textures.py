@@ -187,30 +187,26 @@ window_width = 1280
 window_height = 720
 vsync = false
 max_fps = 0
-validation_layers = {str(args.validation).lower()}
 main_render_graph = true
-visibility_buffer = {str(not args.no_visibility).lower()}
+character_forward = false
+taa = false
+ssao = false
+bloom = false
+fxaa = false
+[gui]
+show = false
+[debug]
+validation_layers = {str(args.validation).lower()}
 unlit = {str(args.unlit).lower()}
+gpu_timings = true
+[experimental]
+visibility_buffer = {str(not args.no_visibility).lower()}
 visibility_texture_streaming = {str(args.mode != 'eager').lower()}
 subtilis = {str(args.subtilis or args.software).lower()}
 subtilis_error_px = 1.0
 subtilis_hysteresis = false
 software_raster = {str(args.software).lower()}
 software_raster_threshold_px = 1.0
-character_forward = false
-shadow = false
-taa = false
-ssao = false
-bloom = false
-fxaa = false
-gpu_timings = true
-[gui]
-show = false
-[lighting]
-env_size = 128
-env_mip_count = 4
-irr_size = 16
-lut_size = 128
 '''
     config = out/'config.toml'
     config.write_text(template)

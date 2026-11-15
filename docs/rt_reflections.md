@@ -93,7 +93,7 @@ The README material preview uses this configuration with a 1080x960 offscreen ca
 This repository does not commit a frame-time number for the reflection pass. The
 cost is resolution-proportional, scales with `rt_reflection_samples`, and adds the
 four denoiser dispatches; the default one sample is the cheapest configuration.
-Measure it on the target device with `[render] gpu_timings` and the overlay or the
+Measure it on the target device with `[debug] gpu_timings` and the overlay or the
 session average rather than inferring a number from the capture settings. With
 the feature off, no reflection pass is recorded and the deferred lighting result
 is unchanged.

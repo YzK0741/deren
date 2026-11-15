@@ -579,7 +579,7 @@ graph recording. The lighting and geometry acceptance records are not distribute
 ## The visibility buffer's lanes (v0.5)
 
 The renderer can record the OPAQUE half of the main view through the visibility buffer instead of the
-fragment G-buffer pass (`[render] visibility_buffer`). Two lanes replace the geometry lane on an admitted
+fragment G-buffer pass (`[experimental] visibility_buffer`). Two lanes replace the geometry lane on an admitted
 frame, and the switch is all-or-nothing per frame:
 
 - `scene visibility raster` - a mesh-task lane over two attachments: the R32_UINT visibility buffer and the

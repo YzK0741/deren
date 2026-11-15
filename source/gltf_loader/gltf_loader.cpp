@@ -2120,6 +2120,79 @@ namespace deren::gltf {
     std::expected<scenes, error_code> load_model(std::string_view file_name) {
         return load_model(file_name, {});
     }
+
+    namespace {
+        /// The rotation a Z-up asset needs to stand in this engine's Y-up world: -90 degrees about X.
+        glm::mat4 z_up_correction() {
+            return glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+        }
+
+        /// Rebuild every node's world matrix from its local transform, in DFS pre-order order.
+        /// @param sc the scene whose nodes were just rewritten
+        void rebuild_world_transforms(deren::gltf::scene& sc) {
+            deren::utility::vessel::vector<std::pair<std::size_t, glm::mat4>> stack;
+            stack.reserve(sc.nodes.size());
+            for (std::size_t const root : sc.root_indices) {
+                stack.emplace_back(root, glm::mat4(1.0f));
+            }
+            while (!stack.empty()) {
+                auto const [index, parent_world] = stack.back();
+                stack.pop_back();
+                deren::gltf::node& current = sc.nodes[index];
+                current.transform_matrix = parent_world * current.local_transform;
+                for (std::size_t const child : current.children) {
+                    stack.emplace_back(child, current.transform_matrix);
+                }
+            }
+        }
+
+        /**
+         * Turn a Z-up asset upright: pre-multiply the -90 degree about X correction into every SCENE
+         * ROOT node, then rebuild the world matrices.
+         *
+         * The roots - not the vertices, and not the skeleton - are the one place where this correction is
+         * both visible and coherent:
+         *  - rotating VERTICES would invalidate every inverse bind matrix and every skinning matrix the
+         *    mesh already carries;
+         *  - rotating the SKIN ROOT JOINTS is invisible to this renderer's skinned draw, which multiplies
+         *    the vertex by the mesh node's world transform and by the per-joint palette, and the host
+         *    seeds that palette with identities because this app uploads no poses (see
+         *    runtime::seed_identity_skin_palette) - so only the mesh node's line of the hierarchy puts the
+         *    character on screen;
+         *  - rotating a root node keeps the whole asset in one frame: joint world matrices, inverse bind
+         *    matrices, the mesh node and every animation channel stay mutually consistent, and when a real
+         *    animation controller starts uploading `inverse(mesh_world) * joint_world * inverse_bind`, R
+         *    cancels on both sides and arrives exactly once through `push.model`.
+         *
+         * Caveat, documented for whoever binds motion: an animation channel that targets a scene ROOT node
+         * would overwrite the prepended rotation, because sampling writes the node's local TRS from the
+         * clip. No current asset does that.
+         */
+        void apply_z_up_correction(scenes& model) {
+            glm::mat4 const correction = z_up_correction();
+            std::size_t rotated_roots = 0;
+            for (deren::gltf::scene& sc : model.scene) {
+                for (std::size_t const root : sc.root_indices) {
+                    deren::gltf::node& current = sc.nodes[root];
+                    current.local_transform = correction * current.local_transform;
+                    // keep the TRS base pose in step: it is what animation sampling starts from
+                    current.translation = glm::vec3(correction * glm::vec4(current.translation, 1.0f));
+                    current.rotation = glm::quat_cast(glm::mat3(correction)) * current.rotation;
+                    ++rotated_roots;
+                }
+                rebuild_world_transforms(sc);
+            }
+            if (rotated_roots == 0) {
+                deren::utility::error("gltf load: asset declared Z-up but has no scene root; "
+                                      "its geometry was left in asset space");
+            } else {
+                deren::utility::log("gltf load: Z-up asset turned upright, {} scene root(s) rotated "
+                                    "-90 deg about X",
+                                    rotated_roots);
+            }
+        }
+    } // namespace
+
     static std::expected<scenes, error_code> load_model_impl(std::string_view file_name, load_options options) {
         std::filesystem::path const path(file_name);
         if (!std::filesystem::is_regular_file(path)) {
@@ -2212,6 +2285,12 @@ namespace deren::gltf {
         result.skins.reserve(asset.skins.size());
         for (std::size_t i = 0; i < asset.skins.size(); ++i) {
             result.skins.push_back(load_skin(asset, i));
+        }
+
+        // the up-axis correction runs AFTER the skins exist (it needs the joint lists) and mutates the
+        // nodes in place, so `node_by_source`'s pointers - collected above - stay valid.
+        if (options.asset_up_axis == up_axis::z) {
+            apply_z_up_correction(result);
         }
 
         result.cameras.reserve(asset.cameras.size());

@@ -846,8 +846,31 @@ namespace deren::gltf {
      * @return scenes on success, error_code on failure (file_not_found/file_type_error/file_load_failed)
      */
     export std::expected<scenes, error_code> load_model(std::string_view file_name);
+
+    /**
+     * @ingroup gltf_loader
+     * @brief the up axis an asset was AUTHORED in
+     * @note the engine, its shaders and the captured game-toon profiles all work in a Y-up world,
+     *       while Blender - the tool most of this library comes through - writes Z-up by default.
+     *       A Z-up asset therefore has to be turned upright at LOAD time: rotating its vertices
+     *       would invalidate every inverse bind matrix and every skinning matrix the mesh already
+     *       carries, and rotating a whole parent node would leave the mesh node with a non-identity
+     *       rotation, which the captured `push.model` root frame (`captured/hair.slang`) treats as
+     *       the world axes. Rotating the SKIN ROOT JOINTS is the one place that leaves the mesh
+     *       node's own world transform at identity while turning the character.
+     */
+    export enum class up_axis : std::uint8_t {
+        y = 0, // authored Y-up: loaded verbatim
+        z = 1, // authored Z-up: every skin root joint is pre-rotated by -90 degrees about X
+    };
+
     export struct load_options {
         bool extract_subtilis_payload = false;
+        // see up_axis: `z` turns the skeleton upright, `y` (the default) changes nothing. The
+        // correction is applied to skin root joints only, so an unskinned Z-up asset loads as-is and
+        // a warning says so; animation channels are sampled in the asset's own space and are NOT
+        // rotated, so a Z-up asset with bound motion would need the same correction on its samplers.
+        up_axis asset_up_axis = up_axis::y;
     };
     export std::expected<scenes, error_code> load_model(std::string_view file_name, load_options options);
 

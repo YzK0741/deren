@@ -121,7 +121,8 @@ int main() {
         CHECK(!weak.expired());
         auto finish = [&] {
             CHECK(engine.begin_recording() == deren::engine::frame_status::proceed);
-            engine.record_main_drawcalls();
+            engine.prepare_scene_recording();
+            CHECK(engine.record_graph() == deren::engine::frame_status::proceed);
             CHECK(engine.end_recording() == deren::engine::frame_status::proceed);
             CHECK(engine.submit_and_present() == deren::engine::frame_status::proceed);
         };

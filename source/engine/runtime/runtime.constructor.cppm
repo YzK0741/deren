@@ -1644,10 +1644,20 @@ namespace deren::engine {
                 mapped.push_back(object.buffer->mapped().data());
             }
         };
+        bool const seed_skin = this->skin_buffers.empty() && this->skin_current.empty();
         adopt_deformation(0, this->motion_buffers, this->motion_mapped);
         adopt_deformation(1, this->skin_buffers, this->skin_mapped);
         adopt_deformation(2, this->skin_buffers_previous, this->skin_previous_mapped);
         adopt_deformation(3, this->morph_buffers, this->morph_mapped);
+        // THE SKIN BUFFERS' CONTRACTUAL INITIAL CONTENT (see runtime::seed_identity_skin_palette): the whole
+        // palette as identities. An allocation nobody seeds is zero, and a zero skin matrix collapses the
+        // entire scene to a single point - the mesh-shader counters still report triangles, which is what
+        // made that failure look like anything but skinning.
+        // Only when the allocation is brand new: a rebuild copies the previous generation forward, and a scene
+        // that already uploaded a pose keeps it (the pass chain adopting the buffers must not lose joints).
+        if (seed_skin) {
+            this->seed_identity_skin_palette();
+        }
         if (std::ranges::any_of(deformation_changed, [](bool changed) { return changed; })) {
             this->publish_deformation_bindings();
         }
@@ -1819,7 +1829,7 @@ namespace deren::engine {
         // THE HZB BUILD LANE'S TWO GPU-ONLY TABLES (M3 phase A2): sized from the CURRENT render extent and
         // rebuilt only when that extent changes. A no-op unless DEREN_HZB_BUILD is set - the OFF path allocates
         // nothing, records nothing and therefore cannot move a pixel. It runs here (the one resource-preparation
-        // point every frame passes through) rather than in `record_main_drawcalls`'s frozen segment because the
+        // point every frame passes through) rather than in `prepare_scene_recording`'s frozen segment because the
         // renderer's frame partitions are not this task's scope; the ordering property the spec asks for is the
         // same: the buffers and their heap descriptors exist BEFORE the frame that imports them records.
         this->ensure_hzb_resources();

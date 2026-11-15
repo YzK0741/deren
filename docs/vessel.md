@@ -75,7 +75,7 @@ new is unchanged.
 Allocator-backed containers in engine, utility, application, configuration, loaders,
 backends, RHI/GUI contracts, and tests use vessel. APIs that return views keep
 span/string_view. Third-party libraries and vstd standard-library exports
-keep their existing types. RHI ABI61 and GUI ABI6 require rebuilt matching
+keep their existing types. RHI ABI61 and GUI ABI7 require rebuilt matching
 plugins; factories reject mismatched versions before returning typed objects.
 Vectors with different allocators use range copies; string boundaries use
 views or explicitly construct the target type.

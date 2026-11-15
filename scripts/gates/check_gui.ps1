@@ -32,14 +32,11 @@ screenshot_dir = '$run'
 window_width = 640
 window_height = 480
 vsync = false
+[debug]
 validation_layers = true
 [gui]
 show = $visible
 [lighting]
-env_size = 256
-env_mip_count = 5
-irr_size = 32
-lut_size = 256
 "@ | Set-Content -LiteralPath $config -Encoding utf8
     $start = [Diagnostics.ProcessStartInfo]::new()
     $start.FileName = $exe

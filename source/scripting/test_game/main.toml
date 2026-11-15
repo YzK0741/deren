@@ -5,27 +5,27 @@ screenshot_dir = "captures"
 window_title = "deren C# input demo"
 window_width = 640
 window_height = 360
+# The runtime knobs below are parsed and applied by the managed framework (project_config) before
+# the project's initialize; the native host only reads the creation parameters above.
 taa = false
+taa_blend_static = 0.9
+taa_blend_min = 0.5
+# The laevatain look as it was first restored: the toon character stage ON (character_forward)
+# drawing with the game-shader toon model (game_toon), the Khronos PBR Neutral tone curve at the
+# exposure that look was tuned at. Everything else stays at its default (procedural sky, the
+# demo's own sun, bloom on, fxaa off, ssao on).
+character_forward = true
+game_toon = true
+exposure = 0.92
+tone_mapping = 1
+
+[lighting]
+# The constant grey studio HDR the toon look was matched against (relative paths resolve against the
+# executable directory, i.e. build/, hence the ../asset).
+environment_hdr = "../asset/laevatain/laevatain_preview_constant.hdr"
 
 [gui]
-show = false
-
-[[scene.objects]]
-name = "Left Helmet"
-asset = "damaged-helmet"
-pipeline = "pbr"
-position = [-1.2, 0.0, 0.0]
-script = "game.move_helmet"
-
-[[scene.objects]]
-name = "Right Helmet"
-asset = "damaged-helmet"
-pipeline = "pbr"
-position = [1.2, 0.0, 0.0]
-script = "game.spin_helmet"
-
-[[scene.objects]]
-name = "Spawned Helmet"
-asset = "damaged-helmet"
-pipeline = "pbr"
-spawn_slot = true
+# the managed debug panel: the overlay loads only when show = true, and 0 sizes an axis to its content
+show = true
+panel_width = 460
+panel_height = 0

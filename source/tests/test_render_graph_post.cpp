@@ -214,23 +214,30 @@ int main() {
         CHECK(runtime.pace_and_acquire() == deren::engine::frame_status::proceed);
         CHECK(runtime.begin_recording() == deren::engine::frame_status::proceed);
         auto before_render = deren::vk_test::probe_rendering_count(*core);
-        runtime.record_main_drawcalls();
-        // modes 1/2 activate an overlay feature with no pass: eligibility is refused BEFORE anything records.
-        if (mode == 1 || mode == 2) {
+        runtime.prepare_scene_recording();
+        auto const recorded = runtime.record_graph();
+        // mode 1 activates an overlay feature with no pass: the graph is refused before anything records.
+        if (mode == 1) {
             CHECK(deren::vk_test::probe_rendering_count(*core) == before_render);
         }
         if (mode == 4) {
             deren::vk_test::probe_scoped_validation_failure(*core, 0);
         }
         auto const end = runtime.end_recording();
-        if (mode != 0 && mode != 2) {
+        if (mode == 4) {
+            // The validation failure is scoped to the END of the command buffer: the graph itself records,
+            // and the frame fails when finalization submits the invalid command stream.
+            CHECK(recorded == deren::engine::frame_status::proceed);
             CHECK(end == deren::engine::frame_status::end_recording_failed);
             CHECK(runtime.submit_and_present() == deren::engine::frame_status::submit_failed);
+            CHECK(deferred.graph == 1U);
+        } else if (mode != 0 && mode != 2) {
+            CHECK(recorded == deren::engine::frame_status::recording_failed);
+            CHECK(end == deren::engine::frame_status::recording_failed);
+            CHECK(runtime.submit_and_present() == deren::engine::frame_status::submit_failed);
             CHECK(deferred.graph == (mode == 3 ? 1U : 0U));
-            if (mode >= 4) {
-                CHECK(deren::vk_test::probe_rendering_count(*core) == before_render);
-            }
         } else {
+            CHECK(recorded == deren::engine::frame_status::proceed);
             CHECK(end == deren::engine::frame_status::proceed);
             CHECK(runtime.submit_and_present() == deren::engine::frame_status::proceed);
             CHECK(deferred.graph == 1);
@@ -255,7 +262,10 @@ int main() {
         runtime.set_pass_chain(chain, {});
         CHECK(runtime.pace_and_acquire() == deren::engine::frame_status::proceed);
         CHECK(runtime.begin_recording() == deren::engine::frame_status::proceed);
-        runtime.record_main_drawcalls();
+        // end_recording() is finalization only: closing before the graph has been recorded is refused.
+        CHECK(runtime.end_recording() == deren::engine::frame_status::recording_failed);
+        runtime.prepare_scene_recording();
+        CHECK(runtime.record_graph() == deren::engine::frame_status::proceed);
         CHECK(runtime.end_recording() == deren::engine::frame_status::proceed);
         CHECK(runtime.submit_and_present() == deren::engine::frame_status::proceed);
     }

@@ -564,17 +564,24 @@ float3 captured_hair_shade(surface_sample s, float3 world_pos, float3 geo_normal
     // `Kf`/`qf` (`extractRotation(hairNode.matrixWorld)`; for a static mesh `qf` returns the MESH node itself).
     // deren's per-draw model matrix IS that node's world transform (`runtime.cpp`'s
     // `result->push.model = info.model_matrix`, filled from the loader's `node::transform_matrix`), and
-    // `three.js`'s `extractRotation` is its normalised rotation basis - so the three captured axes are the three
-    // normalised basis vectors of `push.model`, using the SAME spelling `pbr.slang` gives a direction
-    // (`mul(v, (float3x3)world)`): `push.model[i]` is the world image of the node's local axis i.
+    // `three.js`'s `extractRotation` is its normalised rotation basis. The captured asset's hair node had an
+    // IDENTITY rotation, so those basis vectors were the world axes - which is what this port reads directly;
+    // a SKINNED character has no per-bone hair-node frame in this stage (the capture's `qf` would return
+    // `Head_Local`/`Root`) - documented MISSING lane.
     //   `R86 = normalize(Q116[0])`, `R277 = normalize(Q116[2])`, `normalize(Q116[1])` (`readable:1017-1019,1039`).
-    // The staged preview asset's hair node has an IDENTITY rotation (its node table carries a translation only),
-    // so this reproduces the previous constants exactly on the asset this port is compared on; a rotated node
-    // now rotates the captured frame with it. A SKINNED character has no per-bone hair-node frame in this stage
-    // (the capture's `qf` would return `Head_Local`/`Root`) - documented MISSING lane.
-    const float3 root_x = normalize(float3(push.model[0].xyz));                                        // `Q116[0]`
-    const float3 root_y = normalize(float3(push.model[1].xyz));                                        // `Q116[1]`
-    const float3 root_z = normalize(float3(push.model[2].xyz));                                        // `Q116[2]`
+    // The captured axes are the WORLD axes. In the game the hair node's rotation was identity (the
+    // captured asset is authored Y-up, its node table carries a translation only), so the node frame and
+    // the world frame were the same thing; deren keeps that equivalence by NORMALISING the up axis at
+    // load time (`deren::gltf::up_axis`: a Z-up asset gets its scene root pre-rotated by -90 degrees
+    // about X), which makes the asset frame and the world frame coincide for every character. Reading
+    // `push.model` here instead would re-introduce the asset's AUTHORED axes - measured on the laevatain
+    // preview asset as root_x = world +X, root_y = world -Z, root_z = world +Y - and the ring that
+    // `strand_bitangent` sweeps would be a vertical circle facing the camera instead of the horizontal
+    // one the captured program draws. A permanent structural fix would be a per-draw asset-to-world lane
+    // (the same MISSING lane a per-bone hair frame would need); until then the world axes ARE the frame.
+    const float3 root_x = float3(1.0, 0.0, 0.0);                                                       // `Q116[0]`
+    const float3 root_y = float3(0.0, 1.0, 0.0);                                                       // `Q116[1]`
+    const float3 root_z = float3(0.0, 0.0, 1.0);                                                       // `Q116[2]`
     // `R20 = normalize(Q116 * vec3(Q212, 1.0, 0.0))` (`readable:1019`) - the local (Q212,1,0) direction through
     // the captured frame; for the captured `_AnisotropyDirX = 0` this is `root_y`, but it follows the frame.
     const float3 root_tilt = normalize(root_x * anisotropy_dir_x + root_y);                            // `R20` (`:1019`)

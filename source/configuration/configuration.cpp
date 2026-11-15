@@ -31,6 +31,124 @@ namespace deren::app_config {
         /// only when every component is a finite number. Writing component by component would leave a
         /// half-applied value - this config's first number next to the default's second - which is a light
         /// direction or a colour nobody asked for, with nothing in the logs to say it happened.
+        /// Append every key in @p table that is not in @p allowed. The prefix makes a nested report
+        /// (`render.window_widht`) usable on its own, rather than forcing the reader back into the file to
+        /// discover which table the key belonged to.
+        void append_unknown_keys(toml::table const& table,
+                                 std::string_view prefix,
+                                 std::initializer_list<std::string_view> allowed,
+                                 std::vector<std::string>& unknown) {
+            for (auto const& [key, value] : table) {
+                std::string_view const name = key.str();
+                bool known = false;
+                for (std::string_view const candidate : allowed) {
+                    if (candidate == name) {
+                        known = true;
+                        break;
+                    }
+                }
+                if (!known) {
+                    unknown.push_back(prefix.empty() ? std::string(name) : std::format("{}.{}", prefix, name));
+                }
+            }
+        }
+
+        [[nodiscard]] std::string join_keys(std::vector<std::string> const& keys) {
+            std::string joined;
+            for (std::size_t i = 0; i < keys.size(); ++i) {
+                if (i != 0) {
+                    joined += ", ";
+                }
+                joined += keys[i];
+            }
+            return joined;
+        }
+
+        /// The schema of a scene/config file. This is deliberately a separate list from the `get` calls
+        /// below: the parser answers "what does this key mean", while this answers "did the author spell a
+        /// key this build knows". Keeping the list here means a new setting cannot be parsed and forgotten
+        /// by the validator without both appearing in the same review.
+        void collect_unknown_scene_keys(toml::table const& table, std::vector<std::string>& unknown) {
+            append_unknown_keys(table, "", {"model", "asset", "paths", "render", "toon", "reflection_probe", "lighting", "gui", "scene", "debug", "experimental"}, unknown);
+
+            if (auto const* paths = table.get_as<toml::table>("paths")) {
+                append_unknown_keys(*paths, "paths", {"shaders_dir", "model_dir", "asset_library", "screenshot_dir"}, unknown);
+            }
+            if (auto const* render = table.get_as<toml::table>("render")) {
+                append_unknown_keys(*render, "render",
+                                    {"window_width", "window_height", "window_title", "vsync", "max_fps", "clear_color",
+                                     "exposure", "tone_mapping", "sun_intensity", "rt_shadows", "rt_reflections",
+                                     "rt_reflection_cloth", "rt_reflection_strength", "rt_reflection_samples", "rt_reflection_materials",
+                                     "animation_time", "camera_fit",
+                                     "shadow_cascades", "shadow_cascade_blend", "toon_shadow_softness", "shadow_bias_constant",
+                                     "shadow_bias_slope", "clustered_lights", "shadow_map_size", "ssao", "ssao_radius", "ssao_intensity",
+                                     "ssao_samples", "fxaa", "bloom", "render_scale", "upscale", "taa", "taa_blend_static",
+                                     "taa_blend_min", "character_forward",
+                                     "game_toon", "game_toon_copies", "background_glb", "offscreen"},
+                                    unknown);
+            }
+            if (auto const* toon = table.get_as<toml::table>("toon")) {
+                append_unknown_keys(*toon, "toon", {"profile"}, unknown);
+            }
+            if (auto const* probe = table.get_as<toml::table>("reflection_probe")) {
+                append_unknown_keys(*probe, "reflection_probe", {"enabled", "asset", "position", "box_min", "box_max", "fade", "gain"}, unknown);
+            }
+            if (auto const* lighting = table.get_as<toml::table>("lighting")) {
+                // `environment_hdr` is accepted but NOT parsed here: its value belongs to the managed host
+                // (`source/scripting/managed/Api/project_config.cs` reads it and calls
+                // `global_environment.try_set_hdr`), so this module only keeps the key legal in the schema.
+                append_unknown_keys(*lighting, "lighting", {"sun_direction", "environment_hdr", "profile"}, unknown);
+            }
+            if (auto const* debug = table.get_as<toml::table>("debug")) {
+                append_unknown_keys(*debug, "debug",
+                                    {"grid_side", "furnace", "unlit", "gbuffer_debug", "gbuffer_channel", "rt_mask_bake",
+                                     "rt_skin_bake", "gpu_timings", "validation_layers", "async_present", "demo_lights",
+                                     "demo_light_radius", "demo_light_range"},
+                                    unknown);
+            }
+            if (auto const* experimental = table.get_as<toml::table>("experimental")) {
+                append_unknown_keys(*experimental, "experimental",
+                                    {"visibility_buffer", "visibility_texture_streaming", "subtilis", "subtilis_error_px",
+                                     "subtilis_hysteresis", "subtilis_gpu_cut", "subtilis_page_upload_bytes",
+                                     "subtilis_resident_page_bytes", "software_raster", "software_raster_threshold_px"},
+                                    unknown);
+            }
+            if (auto const* gui = table.get_as<toml::table>("gui")) {
+                append_unknown_keys(*gui, "gui", {"show", "panel_width", "panel_height"}, unknown);
+            }
+            if (auto const* scene = table.get_as<toml::table>("scene")) {
+                append_unknown_keys(*scene, "scene", {"objects"}, unknown);
+                if (auto const* objects = scene->get_as<toml::array>("objects")) {
+                    for (auto const& element : *objects) {
+                        if (auto const* object = element.as_table()) {
+                            append_unknown_keys(*object, "scene.objects[]",
+                                                {"name", "model", "asset", "script", "spawn_slot", "position", "rotation", "scale",
+                                                 "visible", "cast_shadow", "ray_tracing_shadow", "ray_tracing_reflection", "pipeline",
+                                                 "environment", "material_override", "tint", "metallic_scale", "roughness_scale",
+                                                 "emissive_scale", "animation", "animation_speed", "animation_playing"},
+                                                unknown);
+                        }
+                    }
+                }
+            }
+        }
+
+        void collect_unknown_project_keys(toml::table const& manifest, std::vector<std::string>& unknown) {
+            append_unknown_keys(manifest, "", {"project", "paths", "scripts", "input"}, unknown);
+            if (auto const* project = manifest.get_as<toml::table>("project")) {
+                append_unknown_keys(*project, "project", {"name", "main_scene"}, unknown);
+            }
+            if (auto const* paths = manifest.get_as<toml::table>("paths")) {
+                append_unknown_keys(*paths, "paths", {"asset_library"}, unknown);
+            }
+            if (auto const* scripts = manifest.get_as<toml::table>("scripts")) {
+                append_unknown_keys(*scripts, "scripts", {"assembly"}, unknown);
+            }
+            if (auto const* input = manifest.get_as<toml::table>("input")) {
+                append_unknown_keys(*input, "input", {"actions"}, unknown);
+            }
+        }
+
         void read_finite_vec3(toml::table const& source, char const* key, deren::utility::vessel::array<float, 3>& target) {
             toml::node const* node = source.get(key);
             if (node == nullptr) {
@@ -49,6 +167,18 @@ namespace deren::app_config {
                 parsed[i] = static_cast<float>(*component);
             }
             target = parsed;
+        }
+
+        /// Resolve a profile path named by a config: absolute paths are taken as written, relative ones are
+        /// resolved against the config file's directory so a project stays relocatable (and so the answer does
+        /// not depend on the process's current directory, which nothing here controls).
+        std::filesystem::path resolve_profile_path(std::string_view const config_path, std::string_view const profile) {
+            std::filesystem::path named{std::string(profile)};
+            if (named.is_absolute()) {
+                return named;
+            }
+            std::filesystem::path const config{std::string(config_path)};
+            return config.has_parent_path() ? config.parent_path() / named : named;
         }
     } // namespace
 
@@ -73,6 +203,14 @@ namespace deren::app_config {
             dumped << table;
             deren::utility::log("app_config: '{}' contents:\n{}", path, dumped.str());
         }
+        {
+            std::vector<std::string> unknown;
+            collect_unknown_scene_keys(table, unknown);
+            if (!unknown.empty()) {
+                deren::utility::log("app_config: '{}' has unknown key(s): {} (ignored; use the project command for strict validation)",
+                                    path, join_keys(unknown));
+            }
+        }
 
         settings.config_file = path;
         // read keys only when present: absent keys keep the struct defaults (an empty model /
@@ -87,15 +225,6 @@ namespace deren::app_config {
                 settings.asset = *value;
             }
         }
-        if (toml::node const* node = table.get("grid_side")) {
-            if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
-                // The documented range is 0..90 (the instancing stress test reserves side*side transforms) and
-                // the sanity clamp at the end of this function caps it; saturating here keeps 2^32 + 1 from
-                // narrowing to a plausible 1 before that cap runs.
-                settings.grid_side = saturating_int32(*value);
-            }
-        }
-
         if (toml::table const* paths = table.get_as<toml::table>("paths")) {
             if (toml::node const* node = paths->get("shaders_dir")) {
                 if (std::optional<std::string_view> const value = node->value<std::string_view>()) {
@@ -181,11 +310,6 @@ namespace deren::app_config {
                     settings.render.sun_intensity = static_cast<float>(std::clamp(*value, 0.0, 3.0));
                 }
             }
-            if (toml::node const* node = render->get("furnace")) {
-                if (std::optional<bool> const value = node->value<bool>()) {
-                    settings.render.furnace = *value;
-                }
-            }
             if (toml::node const* node = render->get("rt_shadows")) {
                 if (std::optional<bool> const value = node->value<bool>()) {
                     settings.render.rt_shadows = *value;
@@ -240,45 +364,14 @@ namespace deren::app_config {
                     settings.render.rt_reflection_materials = std::move(joined);
                 }
             }
-            if (toml::node const* node = render->get("rt_mask_bake")) {
-                if (std::optional<bool> const value = node->value<bool>()) {
-                    settings.render.rt_mask_bake = *value;
-                }
-            }
-            if (toml::node const* node = render->get("rt_skin_bake")) {
-                if (std::optional<bool> const value = node->value<bool>()) {
-                    settings.render.rt_skin_bake = *value;
-                }
-            }
             if (toml::node const* node = render->get("animation_time")) {
                 if (std::optional<double> const value = node->value<double>()) {
                     settings.render.animation_time = static_cast<float>(*value);
                 }
             }
-            if (toml::node const* node = render->get("camera_pose")) {
-                if (toml::array const* pose = node->as_array()) {
-                    std::size_t value_index = 0;
-                    for (toml::node const& element : *pose) {
-                        if (value_index >= settings.render.camera_pose.size()) {
-                            break;
-                        }
-                        if (std::optional<double> const number = element.value<double>()) {
-                            settings.render.camera_pose[value_index++] = static_cast<float>(*number);
-                        }
-                    }
-                    // All six are required: a partial pose is not a pose, and silently keeping half of it
-                    // would pin a view nobody asked for.
-                    settings.render.camera_pose_set = value_index == settings.render.camera_pose.size();
-                }
-            }
             if (toml::node const* node = render->get("camera_fit")) {
                 if (std::optional<std::string_view> const value = node->value<std::string_view>()) {
                     settings.render.camera_fit = *value;
-                }
-            }
-            if (toml::node const* node = render->get("shadow")) {
-                if (std::optional<bool> const value = node->value<bool>()) {
-                    settings.render.shadow = *value;
                 }
             }
             if (toml::node const* node = render->get("shadow_cascades")) {
@@ -345,11 +438,6 @@ namespace deren::app_config {
                     settings.render.ssao_samples = saturating_int32(*value);
                 }
             }
-            if (toml::node const* node = render->get("unlit")) {
-                if (std::optional<bool> const value = node->value<bool>()) {
-                    settings.render.unlit = *value;
-                }
-            }
             if (toml::node const* node = render->get("fxaa")) {
                 if (std::optional<bool> const value = node->value<bool>()) {
                     settings.render.fxaa = *value;
@@ -385,72 +473,6 @@ namespace deren::app_config {
                     settings.render.taa_blend_min = static_cast<float>(*value);
                 }
             }
-            if (toml::node const* node = render->get("gbuffer_debug")) {
-                if (std::optional<bool> const value = node->value<bool>()) {
-                    settings.render.gbuffer_debug = *value;
-                }
-            }
-            // THE VISIBILITY BUFFER'S SWITCH ([render] visibility_buffer): the opaque path's all-or-nothing frame
-            // gate - see render_settings::visibility_buffer for what "off" and "cannot be carried" both mean.
-            if (toml::node const* node = render->get("visibility_buffer")) {
-                if (std::optional<bool> const value = node->value<bool>()) {
-                    settings.render.visibility_buffer = *value;
-                }
-            }
-            if (toml::node const* node = render->get("visibility_texture_streaming")) {
-                if (auto const value = node->value<bool>()) {
-                    settings.render.visibility_texture_streaming = *value;
-                }
-            }
-            if (toml::node const* node = render->get("subtilis")) {
-                if (auto const value = node->value<bool>()) {
-                    settings.render.subtilis = *value;
-                }
-            }
-            if (auto const* node = render->get("subtilis_error_px")) {
-                if (auto value = node->value<double>(); value && std::isfinite(*value) && *value > 0 && *value <= std::numeric_limits<float>::max() && static_cast<float>(*value) > 0) {
-                    settings.render.subtilis_error_px = static_cast<float>(*value);
-                }
-            }
-            if (auto const* node = render->get("subtilis_hysteresis")) {
-                if (auto value = node->value<bool>()) {
-                    settings.render.subtilis_hysteresis = *value;
-                }
-            }
-            if (auto const* node = render->get("subtilis_gpu_cut")) {
-                if (auto value = node->value<bool>()) {
-                    settings.render.subtilis_gpu_cut = *value;
-                }
-            }
-            auto const read_subtilis_page_budget = [&](char const* key, std::uint64_t& target) {
-                auto const* node = render->get(key);
-                if (node == nullptr) {
-                    return;
-                }
-                auto const value = node->value<std::int64_t>();
-                if (!value || *value <= 0) {
-                    return;
-                }
-                auto const clamped = std::clamp(*value, subtilis_page_slot_bytes, subtilis_page_arena_max_bytes);
-                if (clamped != *value) {
-                    deren::utility::log("app_config: {} {} is outside the Subtilis page arena range [{}, {}], clamping",
-                                        key, *value, subtilis_page_slot_bytes, subtilis_page_arena_max_bytes);
-                }
-                target = static_cast<std::uint64_t>(clamped);
-            };
-            read_subtilis_page_budget("subtilis_page_upload_bytes", settings.render.subtilis_page_upload_bytes);
-            read_subtilis_page_budget("subtilis_resident_page_bytes", settings.render.subtilis_resident_page_bytes);
-            if (toml::node const* node = render->get("software_raster")) {
-                if (auto value = node->value<bool>()) {
-                    settings.render.software_raster = *value;
-                }
-            }
-            if (auto const* node = render->get("software_raster_threshold_px")) {
-                if (auto value = node->value<double>(); value && std::isfinite(*value) && *value > 0 &&
-                                                        *value <= std::numeric_limits<float>::max() && static_cast<float>(*value) > 0) {
-                    settings.render.software_raster_threshold_px = static_cast<float>(*value);
-                }
-            }
             if (toml::node const* node = render->get("character_forward")) {
                 if (std::optional<bool> const value = node->value<bool>()) {
                     settings.render.character_forward = *value;
@@ -478,31 +500,127 @@ namespace deren::app_config {
                     settings.render.background_glb = *value;
                 }
             }
-            if (toml::node const* node = render->get("gbuffer_channel")) {
-                if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
-                    settings.render.gbuffer_channel = static_cast<std::int32_t>(*value);
-                }
-            }
-            if (toml::node const* node = render->get("gpu_timings")) {
-                if (std::optional<bool> const value = node->value<bool>()) {
-                    settings.render.gpu_timings = *value;
-                }
-            }
-            if (toml::node const* node = render->get("async_present")) {
-                if (auto value = node->value<bool>()) {
-                    settings.render.async_present = *value;
-                }
-            }
             if (toml::node const* node = render->get("offscreen")) {
                 if (auto value = node->value<bool>()) {
                     settings.render.offscreen = *value;
                 }
             }
-            if (toml::node const* node = render->get("validation_layers")) {
-                if (std::optional<bool> const value = node->value<bool>()) {
-                    settings.render.validation_layers = *value;
+        }
+
+        // ---- THE DEBUG TABLE ([debug]) ----
+        //
+        // Developer instruments rather than preferences: repro knobs, verification modes and stress switches.
+        // They live here so `[render]` stays "what a project would choose"; a missing key is the compiled
+        // default, and a key of the wrong type leaves the default in place (the rule `[render]` follows).
+        //
+        // NO LEGACY PLACEMENT: these keys were moved out of `[render]` (and `grid_side` out of the top level)
+        // deliberately, and the parser now agrees with the strict project schema - a debug key written in
+        // `[render]` is not a debug key any more. Migrating a config is a one-line move into this table.
+        toml::table const* const debug_table = table.get_as<toml::table>("debug");
+        auto const debug_source = [&](char const* key) -> toml::node const* {
+            return debug_table != nullptr ? debug_table->get(key) : nullptr;
+        };
+        {
+            auto read_bool = [&](char const* key, bool& target) {
+                if (toml::node const* node = debug_source(key)) {
+                    if (std::optional<bool> const value = node->value<bool>()) {
+                        target = *value;
+                    }
+                }
+            };
+            read_bool("furnace", settings.render.furnace);
+            read_bool("unlit", settings.render.unlit);
+            read_bool("gbuffer_debug", settings.render.gbuffer_debug);
+            read_bool("rt_mask_bake", settings.render.rt_mask_bake);
+            read_bool("rt_skin_bake", settings.render.rt_skin_bake);
+            read_bool("gpu_timings", settings.render.gpu_timings);
+            read_bool("validation_layers", settings.render.validation_layers);
+            read_bool("async_present", settings.render.async_present);
+            if (toml::node const* node = debug_source("gbuffer_channel")) {
+                if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
+                    settings.render.gbuffer_channel = static_cast<std::int32_t>(*value);
                 }
             }
+            if (toml::node const* grid_side_node = debug_source("grid_side")) {
+                if (std::optional<std::int64_t> const value = grid_side_node->value<std::int64_t>()) {
+                    // The documented range is 0..90 (the instancing stress test reserves side*side transforms) and
+                    // the sanity clamp at the end of this function caps it; saturating here keeps 2^32 + 1 from
+                    // narrowing to a plausible 1 before that cap runs.
+                    settings.grid_side = saturating_int32(*value);
+                }
+            }
+            if (toml::node const* node = debug_source("demo_lights")) {
+                if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
+                    settings.lighting.demo_lights = static_cast<std::int32_t>(*value);
+                }
+            }
+            // The generated lights' geometry (see the struct's note): a radius and a range, both as
+            // fractions of the scene radius, whose defaults are the helix this mode has always used.
+            for (auto const& [key, target] : {
+                     std::pair{"demo_light_radius", &settings.lighting.demo_light_radius},
+                     std::pair{"demo_light_range", &settings.lighting.demo_light_range},
+                 }) {
+                if (toml::node const* node = debug_source(key)) {
+                    if (std::optional<double> const value = node->value<double>()) {
+                        *target = static_cast<float>(*value);
+                    }
+                }
+            }
+        }
+
+        // ---- THE EXPERIMENTAL TABLE ([experimental]) ----
+        //
+        // The research lanes: visibility buffer, Subtilis and the software rasteriser. Bucketed apart from
+        // `[render]` because they are not a shipped look but work in progress, and a config that carries them
+        // is a measurement rather than a project's preferences. Like `[debug]`, the old `[render]` placement
+        // is NOT honoured any more: the strict schema and the parser now agree on where a lane may be declared.
+        toml::table const* const experimental_table = table.get_as<toml::table>("experimental");
+        auto const experimental_source = [&](char const* key) -> toml::node const* {
+            return experimental_table != nullptr ? experimental_table->get(key) : nullptr;
+        };
+        {
+            auto read_bool = [&](char const* key, bool& target) {
+                if (toml::node const* node = experimental_source(key)) {
+                    if (std::optional<bool> const value = node->value<bool>()) {
+                        target = *value;
+                    }
+                }
+            };
+            read_bool("visibility_buffer", settings.render.visibility_buffer);
+            read_bool("visibility_texture_streaming", settings.render.visibility_texture_streaming);
+            read_bool("subtilis", settings.render.subtilis);
+            read_bool("subtilis_hysteresis", settings.render.subtilis_hysteresis);
+            read_bool("subtilis_gpu_cut", settings.render.subtilis_gpu_cut);
+            read_bool("software_raster", settings.render.software_raster);
+            if (auto const* node = experimental_source("subtilis_error_px")) {
+                if (auto value = node->value<double>(); value && std::isfinite(*value) && *value > 0 && *value <= std::numeric_limits<float>::max() && static_cast<float>(*value) > 0) {
+                    settings.render.subtilis_error_px = static_cast<float>(*value);
+                }
+            }
+            if (auto const* node = experimental_source("software_raster_threshold_px")) {
+                if (auto value = node->value<double>(); value && std::isfinite(*value) && *value > 0 &&
+                                                        *value <= std::numeric_limits<float>::max() && static_cast<float>(*value) > 0) {
+                    settings.render.software_raster_threshold_px = static_cast<float>(*value);
+                }
+            }
+            auto const read_subtilis_page_budget = [&](char const* key, std::uint64_t& target) {
+                auto const* node = experimental_source(key);
+                if (node == nullptr) {
+                    return;
+                }
+                auto const value = node->value<std::int64_t>();
+                if (!value || *value <= 0) {
+                    return;
+                }
+                auto const clamped = std::clamp(*value, subtilis_page_slot_bytes, subtilis_page_arena_max_bytes);
+                if (clamped != *value) {
+                    deren::utility::log("app_config: {} {} is outside the Subtilis page arena range [{}, {}], clamping",
+                                        key, *value, subtilis_page_slot_bytes, subtilis_page_arena_max_bytes);
+                }
+                target = static_cast<std::uint64_t>(clamped);
+            };
+            read_subtilis_page_budget("subtilis_page_upload_bytes", settings.render.subtilis_page_upload_bytes);
+            read_subtilis_page_budget("subtilis_resident_page_bytes", settings.render.subtilis_resident_page_bytes);
         }
 
         // ---- THE TOON LIGHT RIG ([toon]) ----
@@ -510,7 +628,22 @@ namespace deren::app_config {
         // A separate TABLE rather than more keys under `[render]`, because these are the CHARACTER stage's art
         // direction rather than the frame's render settings - and because they belong together: they are the
         // lanes of one block (`deren::vulkan::toon_rig`), and a reader who moves one of them wants to see the others.
-        if (toml::table const* toon = table.get_as<toml::table>("toon")) {
+        // THE RIG COMES FROM A PROFILE FILE ([toon] profile): one key naming a TOML file whose top-level keys
+        // are the lanes below. The lanes are NOT read from `[toon]` itself any more - the strict schema accepts
+        // only `profile` there and the parser now agrees, so a rig is always one file that can be copied.
+        std::optional<toml::table> toon_table;
+        if (toml::table const* toon_section = table.get_as<toml::table>("toon")) {
+            if (std::optional<std::string_view> const profile = (*toon_section)["profile"].value<std::string_view>()) {
+                std::filesystem::path const profile_path = resolve_profile_path(path, *profile);
+                toml::parse_result parsed_profile = toml::parse_file(profile_path.string());
+                if (!parsed_profile) {
+                    deren::utility::log("app_config: cannot load the toon profile '{}': {}", profile_path.string(), parsed_profile.error().description());
+                } else {
+                    toon_table.emplace(std::move(parsed_profile.table()));
+                }
+            }
+        }
+        if (toml::table const* toon = toon_table ? &*toon_table : nullptr) {
             for (auto const& [key, target] : {
                      std::pair{"head_light_day0", &settings.toon.head_light_day0},
                      std::pair{"head_light_day1", &settings.toon.head_light_day1},
@@ -593,38 +726,31 @@ namespace deren::app_config {
             r.fade = probe->contains("fade") ? static_cast<float>((*probe)["fade"].value_or(std::numeric_limits<double>::quiet_NaN())) : .5f;
             r.gain = probe->contains("gain") ? static_cast<float>((*probe)["gain"].value_or(std::numeric_limits<double>::quiet_NaN())) : 1.f;
         }
-        if (toml::table const* lighting = table.get_as<toml::table>("lighting")) {
-            if (toml::node const* node = lighting->get("env_size")) {
-                if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
-                    settings.lighting.env_size = static_cast<std::int32_t>(*value);
-                }
-            }
-            if (toml::node const* node = lighting->get("env_mip_count")) {
-                if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
-                    settings.lighting.env_mip_count = static_cast<std::int32_t>(*value);
-                }
-            }
-            if (toml::node const* node = lighting->get("irr_size")) {
-                if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
-                    settings.lighting.irr_size = static_cast<std::int32_t>(*value);
-                }
-            }
-            if (toml::node const* node = lighting->get("lut_size")) {
-                if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
-                    settings.lighting.lut_size = static_cast<std::int32_t>(*value);
-                }
-            }
+        // THE ENVIRONMENT AND AREA-LIGHT PROFILE ([lighting] profile): the numeric IBL knobs and the reference
+        // package's area light are calibrated together, so they live in a TOML file named by one key. `[lighting]`
+        // itself keeps only what IDENTIFIES the environment - sun_direction and the key `environment_hdr`, whose
+        // VALUE belongs to the managed host (see `collect_unknown_scene_keys`) - while every numeric knob below
+        // comes from the profile and NOT from the table: the strict schema accepts exactly those keys plus
+        // `profile`, so the parser and the schema now agree on one layout.
+        toml::table const* const lighting_section = table.get_as<toml::table>("lighting");
+        if (lighting_section != nullptr) {
             // Three numbers or nothing (see `read_finite_vec3`): a partly-specified direction would silently mix
             // this config's components with the default's, which is a light nobody asked for and no way to see it.
-            read_finite_vec3(*lighting, "sun_direction", settings.lighting.sun_direction);
-            // The environment image and its multiplier (see the struct's note). The path is taken
-            // VERBATIM and left relative here; the host resolves it against the executable's directory,
-            // because that is where the assets live and this module has no business guessing.
-            if (toml::node const* node = lighting->get("environment_hdr")) {
-                if (std::optional<std::string_view> const value = node->value<std::string_view>()) {
-                    settings.lighting.environment_hdr = *value;
+            read_finite_vec3(*lighting_section, "sun_direction", settings.lighting.sun_direction);
+        }
+        std::optional<toml::table> lighting_table;
+        if (lighting_section != nullptr) {
+            if (std::optional<std::string_view> const profile = (*lighting_section)["profile"].value<std::string_view>()) {
+                std::filesystem::path const profile_path = resolve_profile_path(path, *profile);
+                toml::parse_result parsed_profile = toml::parse_file(profile_path.string());
+                if (!parsed_profile) {
+                    deren::utility::log("app_config: cannot load the lighting profile '{}': {}", profile_path.string(), parsed_profile.error().description());
+                } else {
+                    lighting_table.emplace(std::move(parsed_profile.table()));
                 }
             }
+        }
+        if (toml::table const* lighting = lighting_table ? &*lighting_table : nullptr) {
             if (toml::node const* node = lighting->get("environment_intensity")) {
                 if (std::optional<double> const value = node->value<double>()) {
                     settings.lighting.environment_intensity = static_cast<float>(*value);
@@ -642,27 +768,10 @@ namespace deren::app_config {
             if (auto v = (*lighting)["environment_background"].value<std::int64_t>()) {
                 settings.lighting.environment_background = *v >= 0 && *v <= 3 ? static_cast<std::int32_t>(*v) : 0;
             }
-            if (toml::node const* node = lighting->get("demo_lights")) {
-                if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
-                    settings.lighting.demo_lights = static_cast<std::int32_t>(*value);
-                }
-            }
-            // The generated lights' geometry (see the struct's note): a radius and a range, both as
-            // fractions of the scene radius, whose defaults are the helix this mode has always used.
-            for (auto const& [key, target] : {
-                     std::pair{"demo_light_radius", &settings.lighting.demo_light_radius},
-                     std::pair{"demo_light_range", &settings.lighting.demo_light_range},
-                 }) {
-                if (toml::node const* node = lighting->get(key)) {
-                    if (std::optional<double> const value = node->value<double>()) {
-                        *target = static_cast<float>(*value);
-                    }
-                }
-            }
-            // The area light (see the struct's note for the manifest these keys come from). The two
-            // vectors take exactly the shape sun_direction takes, and for the same reason: three numbers or
-            // nothing, because a partly-specified vector would mix this config's components with the default's
-            // and put a light somewhere nobody asked for.
+            // The area light (see the struct's note for the manifest these keys come from). The two vectors take
+            // exactly the shape sun_direction takes, and for the same reason: three numbers or nothing, because a
+            // partly-specified vector would mix this config's components with the default's and put a light
+            // somewhere nobody asked for.
             auto const read_vec3 = [](toml::table const& source, char const* key, deren::utility::vessel::array<float, 3>& target) {
                 if (toml::node const* node = source.get(key)) {
                     if (toml::array const* values = node->as_array(); values != nullptr && values->size() == target.size()) {
@@ -991,29 +1100,6 @@ namespace deren::app_config {
         }
         settings.render.ssao_radius = std::clamp(settings.render.ssao_radius, 0.0f, 100.0f);
         settings.render.ssao_intensity = std::clamp(settings.render.ssao_intensity, 0.0f, 1.0f);
-        // IBL resolutions drive the CPU precompute that runs BEFORE the runtime validates anything
-        // (main.cpp bakes the cubemap right after analyse_config), so an out-of-range value is not a
-        // quality knob but a crash: env_size = 0 indexes an empty source buffer inside
-        // build_environment_pyramid (its source_size floors at 1, so every fetch runs off the end),
-        // a negative one turns "6 * size * size * 4" into a huge std::size_t (length_error -> terminate
-        // with exceptions disabled), and env_mip_count < 2 makes the sampler's
-        // "pyramid.size() - 1" wrap around. Clamp to the range the precompute actually supports.
-        if (settings.lighting.env_size < 16 || settings.lighting.env_size > 4096) {
-            deren::utility::log("app_config: invalid env_size {} (use 16..4096), falling back to 256", settings.lighting.env_size);
-            settings.lighting.env_size = 256;
-        }
-        if (settings.lighting.env_mip_count < 2 || settings.lighting.env_mip_count > 12) {
-            deren::utility::log("app_config: invalid env_mip_count {} (use 2..12), falling back to 5", settings.lighting.env_mip_count);
-            settings.lighting.env_mip_count = 5;
-        }
-        if (settings.lighting.irr_size < 1 || settings.lighting.irr_size > 1024) {
-            deren::utility::log("app_config: invalid irr_size {} (use 1..1024), falling back to 32", settings.lighting.irr_size);
-            settings.lighting.irr_size = 32;
-        }
-        if (settings.lighting.lut_size < 1 || settings.lighting.lut_size > 1024) {
-            deren::utility::log("app_config: invalid lut_size {} (use 1..1024), falling back to 256", settings.lighting.lut_size);
-            settings.lighting.lut_size = 256;
-        }
         // The environment multiplier scales radiance: a negative one would mirror the image into nonsense
         // and a NaN would poison every texel of the IBL it feeds. Both fall back to the reference's
         // number instead of rendering an environment nobody chose. (`!(x >= 0)` is the NaN test.)
@@ -1167,6 +1253,19 @@ namespace deren::app_config {
         return settings.model == model_ask;
     }
 
+    std::expected<void, std::string> validate_settings_file(std::string_view const path) {
+        toml::parse_result const parsed = toml::parse_file(path);
+        if (!parsed) {
+            return std::unexpected(std::format("cannot parse configuration '{}': {}", path, parsed.error().description()));
+        }
+        std::vector<std::string> unknown;
+        collect_unknown_scene_keys(parsed.table(), unknown);
+        if (!unknown.empty()) {
+            return std::unexpected(std::format("configuration '{}' has unknown key(s): {}", path, join_keys(unknown)));
+        }
+        return {};
+    }
+
     std::expected<project_launch_settings, std::string> load_project_settings(std::filesystem::path const& directory) {
         namespace fs = std::filesystem;
         std::error_code error;
@@ -1179,6 +1278,13 @@ namespace deren::app_config {
         if (!manifest) {
             return std::unexpected(std::format("cannot load project manifest '{}': {}", manifest_path, manifest.error().description()));
         }
+        {
+            std::vector<std::string> unknown;
+            collect_unknown_project_keys(manifest.table(), unknown);
+            if (!unknown.empty()) {
+                return std::unexpected(std::format("project manifest '{}' has unknown key(s): {}", manifest_path, join_keys(unknown)));
+            }
+        }
         auto const project = manifest.table()["project"];
         auto const name = project["name"].value<std::string_view>();
         auto const scene = project["main_scene"].value<std::string_view>();
@@ -1189,6 +1295,9 @@ namespace deren::app_config {
         auto const scene_path = (root / fs::path(*scene)).lexically_normal();
         if (!fs::is_regular_file(scene_path, error)) {
             return std::unexpected("project entry scene does not exist: " + scene_path.string());
+        }
+        if (auto valid = validate_settings_file(scene_path.string()); !valid) {
+            return std::unexpected(valid.error());
         }
         auto settings = load_settings(scene_path.string());
         if (settings.config_file.empty()) {
@@ -1212,17 +1321,12 @@ namespace deren::app_config {
                 return std::unexpected("project script assembly does not exist: " + script_assembly.string());
             }
         }
-
-        if (wants_model_dialog(settings)) {
-            return std::unexpected("project entry scene needs a fixed model or asset: " + scene_path.string());
+        if (script_assembly.empty()) {
+            return std::unexpected(std::format("project manifest '{}' needs [scripts] assembly; the C# game owns scene objects", manifest_path));
         }
-        bool const has_default = !settings.model.empty() || !settings.asset.empty();
-        bool const has_library = !settings.paths.asset_library.empty();
-        if (!has_default && settings.scene.objects.empty()) {
-            return std::unexpected("project entry scene has no model, asset, or scene objects: " + scene_path.string());
-        }
-        if (settings.model.empty() && !settings.asset.empty() && !has_library) {
-            return std::unexpected("project entry scene references an asset ID without [paths] asset_library: " + scene_path.string());
+        if (!settings.scene.objects.empty()) {
+            return std::unexpected(std::format("project entry scene '{}' must not define [[scene.objects]]; the C# game owns scene objects",
+                                               scene_path.string()));
         }
 
         auto const resolve = [&](deren::utility::vessel::string& path) {
@@ -1230,37 +1334,12 @@ namespace deren::app_config {
                 path = (root / fs::path(path)).lexically_normal().string();
             }
         };
-        for (auto& object : settings.scene.objects) {
-            if (object.spawn_slot) {
-                if (script_assembly.empty() || object.asset.empty() || object.script ||
-                    object.pipeline != scene_object_pipeline_pbr) {
-                    return std::unexpected(std::format("spawn slot '{}' needs a script assembly, an asset ID and the pbr pipeline",
-                                                       std::string_view(object.name)));
-                }
-            }
-            if (object.script && (object.script->empty() || script_assembly.empty())) {
-                return std::unexpected(std::format("scene object '{}' needs a non-empty script type and [scripts] assembly",
-                                                   std::string_view(object.name)));
-            }
-            if (!object.asset.empty() && !object.model.empty()) {
-                return std::unexpected(std::format("scene object '{}' must specify only one of asset or model", std::string_view(object.name)));
-            }
-            if (!object.asset.empty() && !has_library) {
-                return std::unexpected(std::format("scene object '{}' references an asset ID without [paths] asset_library", std::string_view(object.name)));
-            }
-            if (object.asset.empty() && object.model.empty() && !has_default && !has_library) {
-                return std::unexpected(std::format("scene object '{}' has no model or asset to load", std::string_view(object.name)));
-            }
-            resolve(object.model);
-            resolve(object.environment);
-        }
         resolve(settings.model);
         resolve(settings.paths.asset_library);
         resolve(settings.paths.model_dir);
         resolve(settings.paths.shaders_dir);
         resolve(settings.paths.screenshot_dir);
         resolve(settings.render.background_glb);
-        resolve(settings.lighting.environment_hdr);
         resolve(settings.reflection_probe.asset);
         deren::utility::vessel::vector<deren::input::action_binding> input_actions;
         auto const input = manifest.table()["input"];
@@ -1290,6 +1369,32 @@ namespace deren::app_config {
             }
         }
         return project_launch_settings{std::string(*name), std::move(settings), std::move(script_assembly), std::move(input_actions)};
+    }
+
+    std::expected<void, std::string> validate_project_arguments(std::int32_t const argc, char const* const* const argv) {
+        if (argc < 3 || argv == nullptr || argv[1] == nullptr || std::string_view(argv[1]) != "run") {
+            return std::unexpected("usage: deren run <project-directory>");
+        }
+        for (std::int32_t i = 3; i < argc; ++i) {
+            if (argv[i] == nullptr) {
+                return std::unexpected("project command contains a null argument");
+            }
+            std::string_view const arg(argv[i]);
+            if (arg == "--config" || arg.starts_with("--config=")) {
+                return std::unexpected("project mode does not support --config; the entry scene is [project] main_scene in deren.toml");
+            }
+            if (arg == "--asset" || arg.starts_with("--asset=")) {
+                return std::unexpected("project mode does not support --asset; the C# game owns asset selection");
+            }
+            if (arg == "--asset-library" || arg.starts_with("--asset-library=")) {
+                return std::unexpected("project mode does not support --asset-library; set [paths] asset_library in deren.toml");
+            }
+            if (arg.starts_with("--")) {
+                return std::unexpected(std::format("project mode does not support option '{}'", arg));
+            }
+            return std::unexpected(std::format("project mode does not accept extra argument '{}'", arg));
+        }
+        return {};
     }
 
     app_settings resolve_from_argv(std::int32_t const argc, char const* const* const argv, deren::utility::vessel::string const& default_config_path) {

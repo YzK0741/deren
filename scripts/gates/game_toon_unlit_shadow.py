@@ -44,21 +44,18 @@ vsync=false
 max_fps=0
 shadow={str(shadow).lower()}
 toon_shadow_softness=2
-validation_layers=true
-unlit={str(unlit).lower()}
 character_forward={str(toon).lower()}
 game_toon={str(toon).lower()}
 taa={str(taa).lower()}
 fxaa=true
 [gui]
 show=false
+[debug]
+validation_layers=true
+unlit={str(unlit).lower()}
 [lighting]
 sun_direction=[0,0.25,1]
 environment_hdr=""
-env_size=128
-env_mip_count=8
-irr_size=16
-lut_size=64
 '''
         path = folder / "config.toml"
         path.write_text(config)

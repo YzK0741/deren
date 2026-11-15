@@ -6,15 +6,12 @@
 # ---- top level: model to load ----
 model = "asset/DamagedHelmet/DamagedHelmet.gltf"
 
-grid_side = 0
-sun_intensity = 1.0
-
 # ---- [paths] resource directories (empty = auto-locate) ----
 [paths]
 shaders_dir = ""
 model_dir = ""
 
-# ---- [render] window / presentation ----
+# ---- [render] the shipped surface: window / presentation ----
 [render]
 window_width = 1080
 window_height = 960
@@ -23,28 +20,22 @@ vsync = false
 max_fps = 0
 clear_color = [0.02, 0.02, 0.03]
 camera_fit = "exterior"
-shadow = true
-validation_layers = true
+offscreen = false
+sun_intensity = 1.0
 
 # ---- [render] shadow mapping ----
 shadow_cascades = 3
 shadow_map_size = 2048
 shadow_cascade_blend = 0.1
-toon_shadow_softness = 0
+toon_shadow_softness = 0.0
 
-# ---- [render] shading + post-processing features ----
-unlit = false
+# ---- [render] antialiasing + scaling ----
 taa = false
 taa_blend_static = 0.9
 taa_blend_min = 0.5
-visibility_buffer = false
-subtilis = false
 fxaa = false
 render_scale = 1.0
 upscale = "easu"
-gbuffer_debug = false
-gbuffer_channel = 1
-gpu_timings = true
 
 # ---- [render] punctual lights + screen-space AO ----
 clustered_lights = true
@@ -53,14 +44,40 @@ ssao_radius = 0.5
 ssao_intensity = 1.0
 ssao_samples = 8
 
-# camera_pose = [yaw_deg, pitch_deg, distance, tx, ty, tz]   # a PINNED initial pose; absent
-#   leaves camera_fit in charge. F12 and exit print one (`camera pose: ...`) to paste back.
-# ---- [render] ray-traced effects ----
+# ---- [render] ray-traced effects + animation ----
 rt_shadows = false
+animation_time = -1.0
+
+# ---- [debug] investigation switches: a gate or a person flips these,
+# ---- not a project. They are documented in config.example.toml. ----
+[debug]
+grid_side = 0
+async_present = false
+furnace = false
+unlit = false
+gbuffer_debug = false
+gbuffer_channel = 1
+gpu_timings = true
+validation_layers = true
 rt_mask_bake = false
 rt_skin_bake = false
-animation_time = -1.0
-furnace = false
+demo_lights = 0
+demo_light_radius = 0.0
+demo_light_range = 0.0
+
+# ---- [experimental] research paths: absent from a project's config, 
+# ---- present when the paper path is being measured. See config.example.toml. ----
+[experimental]
+visibility_buffer = false
+visibility_texture_streaming = false
+subtilis = false
+subtilis_error_px = 1.0
+subtilis_hysteresis = false
+subtilis_gpu_cut = false
+subtilis_page_upload_bytes = 8388608
+subtilis_resident_page_bytes = 67108864
+software_raster = false
+software_raster_threshold_px = 1.0
 
 # ---- [gui] debug overlay ----
 [gui]
@@ -68,19 +85,7 @@ show = true
 panel_width = 380
 panel_height = 140
 
-# ---- [lighting] IBL precompute resolutions ----
+# ---- [lighting] the environment image; the numeric IBL knobs and the
+# ---- area light live in a profile file named by `profile`. ----
 [lighting]
-env_size = 256
-env_mip_count = 5
-irr_size = 32
-lut_size = 256
 environment_hdr = ""
-environment_intensity = 0.35
-area_light_size = 0.0
-area_light_power = 0.0
-area_light_position = [0.0, 0.0, 0.0]
-area_light_target = [0.0, 0.0, 0.0]
-area_light_intensity = 1.0
-area_light_irradiance = true
-area_light_shadow = true
-area_light_softness = 0.0

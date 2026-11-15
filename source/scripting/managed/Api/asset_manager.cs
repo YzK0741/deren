@@ -62,5 +62,46 @@ namespace deren {
         public static bool release(asset_handle asset) {
             return asset.is_valid && scene_api.release_scene_asset(asset.value) == script_status.success;
         }
+
+        /// <summary>
+        /// The renderer pipelines this asset's manifest supports, in manifest order. Empty when the
+        /// asset has no named pipeline (a gaussian splat) or the handle is invalid.
+        /// </summary>
+        public static unsafe string[] supported_pipelines(asset_handle asset) {
+            if (!asset.is_valid) {
+                return Array.Empty<string>();
+            }
+            uint count = 0;
+            if (scene_api.query_asset_pipeline_count(asset.value, &count) != script_status.success) {
+                return Array.Empty<string>();
+            }
+            var pipelines = new List<string>((int)count);
+            for (uint index = 0; index < count; ++index) {
+                utf8_view view;
+                if (scene_api.query_asset_pipeline(asset.value, index, &view) != script_status.success || view.data == null) {
+                    return Array.Empty<string>();
+                }
+                pipelines.Add(Encoding.UTF8.GetString(view.data, checked((int)view.length)));
+            }
+            return pipelines.ToArray();
+        }
+
+        /// <summary>
+        /// The pipeline a bind starts on. Returns false when the asset declares none or the handle
+        /// is invalid; the name is copied out of native storage.
+        /// </summary>
+        public static unsafe bool try_get_default_pipeline(asset_handle asset, out string? pipeline) {
+            pipeline = null;
+            if (!asset.is_valid) {
+                return false;
+            }
+            utf8_view view;
+            if (scene_api.query_asset_default_pipeline(asset.value, &view) != script_status.success ||
+                view.data == null || view.length == 0) {
+                return false;
+            }
+            pipeline = Encoding.UTF8.GetString(view.data, checked((int)view.length));
+            return true;
+        }
     }
 }

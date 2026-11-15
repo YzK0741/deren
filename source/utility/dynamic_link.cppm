@@ -214,6 +214,18 @@ namespace {
             return deren::utility::vessel::string{file_name};
         }
         return deren::utility::vessel::string{file_name} + deren::utility::vessel::string{suffix};
+#elifdef __APPLE__
+        constexpr std::string_view suffix = ".dylib";
+        if (file_name.ends_with(suffix)) {
+            return deren::utility::vessel::string{file_name};
+        }
+        deren::utility::vessel::string completed{};
+        if (file_name.find('/') == std::string_view::npos && !file_name.starts_with("lib")) {
+            completed = "lib";
+        }
+        completed += deren::utility::vessel::string{file_name};
+        completed += deren::utility::vessel::string{suffix};
+        return completed;
 #else
         if (file_name.ends_with(".so") || file_name.find(".so.") != std::string_view::npos) {
             return deren::utility::vessel::string{file_name};

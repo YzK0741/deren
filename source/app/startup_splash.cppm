@@ -1,4 +1,6 @@
-#include "startup_splash.hpp"
+module;
+
+struct GLFWwindow;
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -8,6 +10,35 @@
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
+#endif
+
+export module deren.app.application:startup_splash;
+
+namespace deren::app {
+    // Application startup decoration; failures never prevent the renderer from starting.
+    export class startup_splash {
+    public:
+        explicit startup_splash(bool enabled) noexcept;
+        ~startup_splash();
+        startup_splash(startup_splash const&) = delete ("startup_splash is non-copyable: pass it by reference or construct a new instance");
+        startup_splash& operator=(startup_splash const&) = delete ("startup_splash is non-copyable: modify the existing instance instead");
+
+        void attach_window(GLFWwindow* window) noexcept;
+        void close() noexcept;
+
+    private:
+#ifdef _WIN32
+        static unsigned long __stdcall run(void* context) noexcept;
+        void* thread_ = nullptr;
+        void* ready_ = nullptr;
+        void* stop_ = nullptr;
+        unsigned long thread_id_ = 0;
+#endif
+    };
+} // namespace deren::app
+
+
+#ifdef _WIN32
 
 namespace {
     constexpr wchar_t splash_class[] = L"DerenStartupSplash";
@@ -160,3 +191,4 @@ namespace deren::app {
     }
 } // namespace deren::app
 #endif
+

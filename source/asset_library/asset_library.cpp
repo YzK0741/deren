@@ -119,6 +119,98 @@ namespace deren::asset_library {
             return pose;
         }
 
+        constexpr std::array<std::string_view, 3> known_pipelines{"pbr", "unlit", "game_toon"};
+
+        bool known_pipeline(std::string_view const name) {
+            return std::ranges::any_of(known_pipelines, [name](std::string_view const candidate) {
+                return candidate == name;
+            });
+        }
+
+        bool contains_pipeline(std::vector<std::string> const& names, std::string_view const name) {
+            return std::ranges::any_of(names, [name](std::string const& candidate) {
+                return candidate == name;
+            });
+        }
+
+        /// Resolve `default_pipeline` / `pipelines` from the manifest plus `type`, `[toon] game_toon`
+        /// and the sidecar. Explicit keys win, but a name the renderer does not register, or
+        /// `game_toon` on an asset without a sidecar, is dropped with a warning instead of failing
+        /// the whole manifest (a partly wrong pipeline list must not hide a usable asset).
+        void resolve_pipelines(asset_entry& entry, fs::path const& manifest, std::vector<std::string>& warnings) {
+            std::vector<std::string> declared = std::move(entry.pipelines);
+            entry.pipelines.clear();
+            for (std::string& name : declared) {
+                if (!known_pipeline(name)) {
+                    warn(warnings, manifest, "unknown pipeline '" + name + "'; ignored");
+                    continue;
+                }
+                if (!contains_pipeline(entry.pipelines, name)) {
+                    entry.pipelines.push_back(std::move(name));
+                }
+            }
+
+            if (entry.pipelines.empty()) {
+                switch (entry.type) {
+                case asset_type::pbr:
+                    entry.pipelines.emplace_back("pbr");
+                    break;
+                case asset_type::unlit:
+                    entry.pipelines.emplace_back("unlit");
+                    break;
+                case asset_type::toon:
+                    if (entry.game_toon && !entry.sidecar.empty()) {
+                        entry.pipelines.emplace_back("game_toon");
+                    }
+                    entry.pipelines.emplace_back("pbr");
+                    break;
+                case asset_type::gaussian:
+                    break; // the splat stage is not a named pipeline
+                }
+            }
+
+            if (contains_pipeline(entry.pipelines, "game_toon") && entry.sidecar.empty()) {
+                warn(warnings, manifest, "pipeline 'game_toon' needs a sidecar; ignored");
+                for (std::vector<std::string>::iterator current = entry.pipelines.begin();
+                     current != entry.pipelines.end();) {
+                    if (*current == "game_toon") {
+                        current = entry.pipelines.erase(current);
+                    } else {
+                        ++current;
+                    }
+                }
+                if (entry.pipelines.empty() && entry.type == asset_type::toon) {
+                    entry.pipelines.emplace_back("pbr");
+                }
+            }
+
+            if (!entry.default_pipeline.empty() && !contains_pipeline(entry.pipelines, entry.default_pipeline)) {
+                warn(warnings, manifest, "default_pipeline '" + entry.default_pipeline + "' is not supported");
+                entry.default_pipeline.clear();
+            }
+            if (entry.default_pipeline.empty()) {
+                std::string_view preferred;
+                switch (entry.type) {
+                case asset_type::pbr:
+                    preferred = "pbr";
+                    break;
+                case asset_type::unlit:
+                    preferred = "unlit";
+                    break;
+                case asset_type::toon:
+                    preferred = "game_toon";
+                    break;
+                case asset_type::gaussian:
+                    break;
+                }
+                if (!preferred.empty() && contains_pipeline(entry.pipelines, preferred)) {
+                    entry.default_pipeline = std::string(preferred);
+                } else if (!entry.pipelines.empty()) {
+                    entry.default_pipeline = entry.pipelines.front();
+                }
+            }
+        }
+
         std::optional<asset_entry> parse_manifest(fs::path const& manifest, fs::path const& directory,
                                                   std::vector<std::string>& warnings) {
             toml::parse_result const parsed = toml::parse_file(manifest.string());
@@ -213,6 +305,15 @@ namespace deren::asset_library {
                 }
             }
 
+            if (std::optional<std::string_view> const up_axis = string_value(table, "up_axis")) {
+                std::string const spelling(*up_axis);
+                if (spelling == "z" || spelling == "Z") {
+                    entry.z_up = true;
+                } else if (spelling != "y" && spelling != "Y") {
+                    warn(warnings, manifest, "up_axis must be \"y\" or \"z\" (got '" + spelling + "'); using \"y\"");
+                }
+            }
+
             if (toml::node const* tags_node = table.get("tags")) {
                 toml::array const* tags = tags_node->as_array();
                 if (tags == nullptr) {
@@ -224,6 +325,30 @@ namespace deren::asset_library {
                             warn(warnings, manifest, "tags contains a non-string value; ignored");
                         } else {
                             entry.tags.emplace_back(*text);
+                        }
+                    }
+                }
+            }
+
+            if (toml::node const* default_pipeline_node = table.get("default_pipeline")) {
+                if (std::optional<std::string_view> const text = default_pipeline_node->value<std::string_view>()) {
+                    entry.default_pipeline = *text;
+                } else {
+                    warn(warnings, manifest, "default_pipeline must be a string; ignored");
+                }
+            }
+
+            if (toml::node const* pipelines_node = table.get("pipelines")) {
+                toml::array const* pipelines = pipelines_node->as_array();
+                if (pipelines == nullptr) {
+                    warn(warnings, manifest, "pipelines must be an array of strings; ignored");
+                } else {
+                    for (toml::node const& pipeline : *pipelines) {
+                        std::optional<std::string_view> const text = pipeline.value<std::string_view>();
+                        if (!text) {
+                            warn(warnings, manifest, "pipelines contains a non-string value; ignored");
+                        } else {
+                            entry.pipelines.emplace_back(*text);
                         }
                     }
                 }
@@ -275,6 +400,7 @@ namespace deren::asset_library {
                 }
             }
 
+            resolve_pipelines(entry, manifest, warnings);
             return entry;
         }
     } // namespace
@@ -312,6 +438,12 @@ namespace deren::asset_library {
             return asset_type::gaussian;
         }
         return std::nullopt;
+    }
+
+    bool supports_pipeline(asset_entry const& entry, std::string_view const name) noexcept {
+        return std::ranges::any_of(entry.pipelines, [name](std::string const& candidate) {
+            return candidate == name;
+        });
     }
 
     asset_library asset_library::scan(fs::path root) {

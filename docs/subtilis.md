@@ -11,11 +11,11 @@ archived records.
 The optional GPU cut uses a request buffer and page-table snapshot per frame-ring slot.
 After the frame walker completes a slot, its feedback joins a deduplicated CPU backlog
 and its arena references are released. Each geometry is prepared once per frame even
-when several items share it; all geometries share `[render] subtilis_page_upload_bytes`
+when several items share it; all geometries share `[experimental] subtilis_page_upload_bytes`
 (default 8 MiB) per frame. Sources are served round-robin with a fair byte share, so one
 source cannot consume the whole budget. Total in-flight upload payload is limited to that
 budget times the frame-ring slot count. All sources share one page arena sized by
-`[render] subtilis_resident_page_bytes` (default 64 MiB). The arena is split into
+`[experimental] subtilis_resident_page_bytes` (default 64 MiB). The arena is split into
 fixed 64 KiB slots, so the budget is a real global limit rather than a per-source
 allowance. If a geometry's pinned set cannot fit, that geometry keeps using its full index
 buffer without paging.
@@ -36,7 +36,7 @@ while an error observing accepted work preserves the ticket and its resources. P
 uploads are retained by the runtime independently of frame snapshots and scene objects,
 so hiding or removing an object does not force a synchronous upload drain.
 
-With `[render] gpu_timings` enabled, the graphics report separates `subtilis cut`
+With `[debug] gpu_timings` enabled, the graphics report separates `subtilis cut`
 from `visibility raster`. Set `DEREN_SUBTILIS_COPY_TIMINGS=1` to also log the GPU
 duration and byte count of each completed paging copy batch. The copy interval
 includes its barriers and is reported separately from the graphics frame total.
@@ -125,7 +125,7 @@ allocation/transfer/lifetime mechanisms remain shared infrastructure.
 > subpixel-share sweeps found no stable whole-frame win, and no further software-raster optimization is planned.
 > M2 (GPU select/finalize) is not implemented. M5 (geometry streaming/paging) was implemented after this
 > status note (2026-11-10); see the frame-isolated asynchronous pages section.
-> **Default OFF**: `[render] subtilis=true` opts into payload extraction/adoption at startup and requires
+> **Default OFF**: `[experimental] subtilis=true` opts into payload extraction/adoption at startup and requires
 > `visibility_buffer=true` plus frame admission. Unsupported assets/items keep complete LOD0.
 >
 > The real converter-DAG Bistro matrix measures GPU -17.8%/-12.9% (far/near), parallel cut about 1.2ms,
@@ -211,7 +211,7 @@ reports a shared/LOD0 fallback - the frame never mixes two G-buffer producers.
 ## 5. Enabling and configuring
 
 ```toml
-[render]
+[experimental]
 visibility_buffer = true   # the producer this LOD feeds
 subtilis = true            # hierarchical cut for admitted static opaque items (default false)
 subtilis_error_px = 1.0    # finite positive projected error; invalid values use 1.0
@@ -329,7 +329,7 @@ is summarized here; its raw records are not distributed with this repository.
 2. **Shared-vertex v1 only** - converter payload import is implemented; automatic build-at-load, disk
    caching and extra-attribute profiles are not. OFF startup cannot enable unavailable payloads later.
 3. **Textured-scene subtilis OFF/ON** was covered by the corrected 2026-10-23 acceptance (visibility baseline/DAG/DAG+HZB/software matrix, quantified edge differences, no pixel-identity claim).
-4. **M4 software raster** is wired behind `[render] software_raster=true` and remains default-off. It requires
+4. **M4 software raster** is wired behind `[experimental] software_raster=true` and remains default-off. It requires
    `visibility_buffer=true` and `subtilis=true`; `software_raster_threshold_px` defaults to 1.0 and must be finite
    and positive. It composes with HZB culling/recovery: HZB tests the hardware prefix and software suffix, and the
    software pass consumes HZB's final visibility/recovery flags. A refused/oversized CSR restores every selected

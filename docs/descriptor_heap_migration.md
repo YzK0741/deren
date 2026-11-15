@@ -422,7 +422,7 @@ descriptor heap: the heap-native GRAPHICS probe rendered grid slot 16897 ... rea
 
 The plan was to prove the heap-native shader path on the MASK BAKE, which looks ideal: it reads exactly two
 descriptors (the material table and the bindless texture array, both already on the grid), it is a job rather
-than a frame pass, and it only runs under `[render] rt_mask_bake`, which no gate scenario sets - so a mistake
+than a frame pass, and it only runs under `[debug] rt_mask_bake`, which no gate scenario sets - so a mistake
 could not reach a reference frame. The conversion was written and COMPILED (glslc accepts it first try):
 
 ```glsl

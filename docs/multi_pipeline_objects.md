@@ -568,7 +568,6 @@ Phase A and Phase B modified:
 - `source/app/main.cpp`
 - `source/app/app_config.cpp`
 - `source/app/app_config.cppm`
-- `source/app/app_ui.cpp`
 - `source/configuration/configuration.cppm`
 - `source/configuration/configuration.cpp`
 - `source/tests/test_app_config.cpp`

@@ -91,7 +91,7 @@
  * multisampled without per-sample shading, so there is no MSAA - `taa.frag` is the anti-aliasing.
  *
  * ONE ALTERNATIVE OPAQUE PRODUCER EXISTS and it replaces that row rather than adding to it: the
- * `[render] visibility_buffer` key (off by default, `false`) records `visibility.mesh.spv` + `visibility.frag.spv`
+ * `[experimental] visibility_buffer` key (off by default, `false`) records `visibility.mesh.spv` + `visibility.frag.spv`
  * (`source/shaders/scene/visibility.slang` - one packed triangle id per pixel, the alphaMode MASK test in
  * the raster fragment) followed by `visibility_resolve.comp.spv` (`source/shaders/scene/visibility_resolve.slang`
  * - the ids back into the five colour targets), and the geometry lane is then NOT recorded at all: two

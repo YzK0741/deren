@@ -3,7 +3,7 @@ include_guard(GLOBAL)
 
 # THE APPLICATION (the runtime switch and the S1-S3 gate that used to wrap this are retired: see the
 # comment above `deren_engine`).
-add_executable(deren source/app/main.cpp source/app/startup_splash.cpp)
+add_executable(deren source/app/main.cpp)
 if(WIN32)
     enable_language(RC)
     target_sources(deren PRIVATE source/app/resources/deren.rc)
@@ -60,8 +60,8 @@ target_link_libraries(backend_loader
 
 # Application-level support modules. The renderer's pass wiring lives here, not in deren_engine:
 # the engine records whatever chain it is handed, while this target holds the chain this app builds.
-# This is the former `chores` target split into focused modules: startup config, pipeline setup,
-# the renderer, the debug GUI, the animation backend and the instancing stress helper.
+# It holds the managed host glue only: project config, pipeline setup, the renderer, the scripting
+# bridge and the environment baker. There is no native preview mode left to support.
 add_library(app_support STATIC)
 target_sources(app_support
     PUBLIC
@@ -70,21 +70,20 @@ target_sources(app_support
         source/app/app_config.cppm
         source/app/app_pipelines.cppm
         source/app/app_renderer.cppm
-        source/app/app_ui.cppm
-        source/app/app_animation.cppm
-        source/app/app_instancing.cppm
-        source/app/app_toon.cppm
         source/app/app_application.cppm
-    PRIVATE
+        source/app/app_toon.cppm
+        source/app/capture.cppm
+        source/app/environment_loader.cppm
+        source/app/glfw.cppm
+        source/app/image_loader.cppm
+        source/app/startup_splash.cppm
+        PRIVATE
         source/app/app_config.cpp
         source/app/app_pipelines.cpp
         source/app/app_renderer.cpp
-        source/app/app_ui.cpp
-        source/app/app_animation.cpp
-        source/app/app_instancing.cpp
         source/app/app_toon.cpp
-        source/app/app_application.cpp
-)
+        source/app/run.cpp
+    )
 target_link_libraries(app_support
         app_config
         asset_library
@@ -95,19 +94,24 @@ target_link_libraries(app_support
         backend_loader   # deren.app.application calls load_api_core(): the app holds the acquisition (batch ⑥)
 )
 
-if(DEREN_ENABLE_CSHARP)
-    target_sources(app_support PRIVATE FILE_SET app_scripting_modules TYPE CXX_MODULES FILES source/app/app_scripting.cppm)
-    target_sources(app_support PRIVATE source/app/app_scripting.cpp)
-    target_compile_definitions(app_support PRIVATE DEREN_ENABLE_CSHARP)
-    target_link_libraries(app_support deren_managed_host)
-    get_property(managed_runtime_dir TARGET deren_managed_bridge PROPERTY DEREN_MANAGED_RUNTIME_DIR)
-    add_custom_target(deren_managed_runtime
-        COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
-            "${managed_runtime_dir}" "$<TARGET_FILE_DIR:deren>/managed"
-        DEPENDS deren_managed_bridge
-        VERBATIM)
-    add_dependencies(deren deren_managed_runtime)
-endif()
+target_sources(app_support PRIVATE FILE_SET app_scripting_modules TYPE CXX_MODULES FILES source/app/app_scripting.cppm)
+target_sources(app_support PRIVATE source/app/app_scripting.cpp)
+target_link_libraries(app_support deren_managed_host)
+get_property(managed_runtime_dir TARGET deren_managed_bridge PROPERTY DEREN_MANAGED_RUNTIME_DIR)
+add_custom_target(deren_managed_runtime
+    COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
+        "${managed_runtime_dir}" "$<TARGET_FILE_DIR:deren>/managed"
+    DEPENDS deren_managed_bridge
+    VERBATIM)
+add_dependencies(deren deren_managed_runtime)
+# The sample's baked environment is part of the build tree, like the managed assemblies: a
+# relative environment_hdr resolves against the executable's directory, so a fresh checkout needs
+# these files beside deren.exe before the first run.
+add_custom_target(deren_environment_assets
+    COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/asset/environments" "$<TARGET_FILE_DIR:deren>/environments"
+    VERBATIM)
+add_dependencies(deren deren_environment_assets)
 
 target_link_libraries(${PROJECT_NAME}
         static_utility

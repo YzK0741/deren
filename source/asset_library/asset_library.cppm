@@ -1,6 +1,6 @@
 // ============================================================================
 // module: asset_library
-// module version: 1.0.1
+// module version: 1.1.0
 //
 // A folder-backed asset catalogue: each asset is one directory with an
 // `asset.toml` manifest, and the library root may carry a `library.toml` that
@@ -50,6 +50,8 @@ export import deren.vstd;
  * type = "pbr"                  # pbr | toon | unlit | gaussian
  * model = "DamagedHelmet.gltf"  # required, resolved relative to this folder
  * sidecar = "DamagedHelmet.gltf.toon.tsv"
+ * default_pipeline = "pbr"      # pipeline a bind starts on; derived from `type` when absent
+ * pipelines = ["pbr", "unlit"]  # pipelines the asset supports; derived from `type` when absent
  * license = "LICENSE.md"
  * thumbnail = "thumbnail.png"
  * tags = ["sample", "helmet"]
@@ -72,6 +74,16 @@ export import deren.vstd;
  * The library never guesses that `type = "toon"` means the experimental
  * game-toon renderer: that stage is enabled only by `[toon] game_toon = true`,
  * which mirrors the configuration's opt-in.
+ *
+ * `default_pipeline` and `pipelines` name RENDERER pipelines (`pbr`, `unlit`,
+ * `game_toon`), not asset types. When a manifest omits them the library derives
+ * them from `type`: `pbr` -> `["pbr"]`, `unlit` -> `["unlit"]`, `toon` ->
+ * `["game_toon", "pbr"]` only with `[toon] game_toon = true` AND a sidecar (else
+ * `["pbr"]`), `gaussian` -> `[]` (the splat stage is not a named pipeline). The
+ * default is the first derived name. Explicit keys win over the derivation, but
+ * an unknown pipeline name is dropped from the list and `game_toon` without a
+ * sidecar is dropped with a warning; an explicit default outside the supported
+ * list falls back to the list's first entry.
  */
 namespace deren::asset_library {
     /**
@@ -108,15 +120,28 @@ namespace deren::asset_library {
         std::filesystem::path license;   // empty when absent or unreadable
         std::filesystem::path thumbnail; // empty when absent or unreadable
         std::vector<std::string> tags;
+        // Renderer pipelines this asset supports, in the manifest's order (see the
+        // module doc for the derivation). Empty for a gaussian asset, whose splat
+        // stage is not one of the named pipelines.
+        std::vector<std::string> pipelines;
+        // The pipeline a bind starts on. Empty exactly when pipelines is empty.
+        std::string default_pipeline;
         // The game-toon opt-in is deliberately separate from `type`: a toon
         // asset may be shaded by the ordinary toon chain, and only this flag
         // asks for the captured game-toon path.
         bool game_toon = false;
         std::string toon_profile;
+        // The up axis the model was AUTHORED in (asset.toml `up_axis`). The engine is Y-up, so a
+        // Z-up model (Blender's default export) is turned upright by the loader; see
+        // deren::gltf::up_axis for what exactly gets rotated and why it is not the vertices.
+        bool z_up = false;
         std::optional<std::int32_t> tone_mapping;        // 0..2, same meaning as [render] tone_mapping
         std::filesystem::path environment_hdr;           // empty when absent or unreadable
         std::optional<std::array<float, 6>> camera_pose; // yaw, pitch, distance, target xyz
     };
+
+    /// whether @p name is one of @p entry's supported pipelines
+    export [[nodiscard]] bool supports_pipeline(asset_entry const& entry, std::string_view name) noexcept;
 
     /**
      * @ingroup asset_library

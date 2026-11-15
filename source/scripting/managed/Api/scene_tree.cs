@@ -136,6 +136,26 @@ namespace deren {
         }
 
         /// <summary>
+        /// Switches every imported primitive under a <see cref="try_bind_asset"/> root to one of the
+        /// pipelines that asset declares. Returns false for an unknown name, a node that is not a
+        /// bind root, or a tree that is not the active scene. Hidden subtrees switch too, so they
+        /// render with the new pipeline once shown again.
+        /// </summary>
+        public unsafe bool try_set_pipeline(node_id node, string pipeline) {
+            if (handle == 0 || !node.is_valid || string.IsNullOrEmpty(pipeline)) {
+                return false;
+            }
+            var bytes = Encoding.UTF8.GetBytes(pipeline);
+            fixed (byte* data = bytes) {
+                var view = new utf8_view {
+                    data = data,
+                    length = (uint)bytes.Length
+                };
+                return scene_api.assign_pipeline(handle, node.handle, view) == script_status.success;
+            }
+        }
+
+        /// <summary>
         /// Reads a node's local transform from this tree. Returns false for a stale or foreign node.
         /// </summary>
         public unsafe bool try_get_transform(node_id node, out transform_value value) {
@@ -171,6 +191,21 @@ namespace deren {
                 return false;
             }
             return scene_api.assign_tree_visible(handle, node.handle, visible) == script_status.success;
+        }
+
+        /// <summary>
+        /// Applies per-object material factors to a node and its whole subtree, replacing whatever the
+        /// imported materials carried. Pass <paramref name="enabled"/>=false to hand the subtree back
+        /// to its imported materials. Returns false for a stale or foreign node, or a factor the host
+        /// rejects (a non-finite value, an environment lane above 3).
+        /// </summary>
+        public unsafe bool try_set_material_override(node_id node, in material_override value, bool enabled = true) {
+            if (handle == 0 || !node.is_valid) {
+                return false;
+            }
+            material_override_desc record;
+            value.write_to(&record, enabled);
+            return scene_api.assign_material_override(handle, node.handle, &record) == script_status.success;
         }
 
         public void Dispose() {

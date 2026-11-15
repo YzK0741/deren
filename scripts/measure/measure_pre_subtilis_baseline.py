@@ -41,23 +41,19 @@ window_width = 1280
 window_height = 720
 vsync = false
 max_fps = 0
-validation_layers = false
 main_render_graph = true
-visibility_buffer = true
 character_forward = false
-shadow = false
 taa = false
 ssao = false
 bloom = false
 fxaa = false
-gpu_timings = true
 [gui]
 show = false
-[lighting]
-env_size = 128
-env_mip_count = 4
-irr_size = 16
-lut_size = 128
+[debug]
+validation_layers = false
+gpu_timings = true
+[experimental]
+visibility_buffer = true
 ''',
         encoding="utf-8",
     )

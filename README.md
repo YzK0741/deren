@@ -28,7 +28,7 @@
 
 ## Features
 
-- **Engine runtime and modular boundaries**: `deren.engine.runtime` holds the scene-wide GPU resources and drives a frame through explicit phases (`poll_events`, `pace_and_acquire`, `begin_recording`, `record_main_drawcalls`, `end_recording`, `submit_and_present`). CPU-only modules such as `deren.gltf_loader`, `deren.application_configuration` and `deren.utility` do not depend on Vulkan; the backend is loaded through `deren.engine.backend_loader`.
+- **Engine runtime and modular boundaries**: `deren.engine.runtime` holds the scene-wide GPU resources and drives a frame through explicit phases (`poll_events`, `pace_and_acquire`, `begin_recording`, `prepare_scene_recording`, `record_graph`, `end_recording`, `submit_and_present`). CPU-only modules such as `deren.gltf_loader`, `deren.application_configuration` and `deren.utility` do not depend on Vulkan; the backend is loaded through `deren.engine.backend_loader`.
 - **Scene and draw model**: a caller-held scene tree is walked once per frame into world matrices; GPU drawables live in `deren.engine.primitive`. Leaves either use default pipeline semantics or request a named pipeline, so several pipelines and material strategies coexist in one scene. Parallel recording workers each build their `render_environment`. A BVH over leaf bounds culls the scene against the camera and is reused while the scene and camera are static; `static_draw_primitive` merges static sub-meshes into one vertex/index buffer with a per-chunk draw table.
 - **Vulkan 1.3 backend**: dynamic rendering (no render passes or framebuffers), a descriptor heap instead of descriptor sets, timeline semaphores, ray queries, mesh/task shaders, host image copies, and buffer device addresses. The RHI/GUI boundary is process-level and backend implementations are loaded by name.
 - **Deferred rendering**: a G-buffer pass writes surface targets; the lighting stage shades them into an HDR target with IBL, punctual lights, cascaded shadows and optional ray-traced sun shadows. Post-processing adds exposure, ACES tone mapping, bloom and FXAA; TAA is available separately. The analytic `furnace` mode is an exactness check for the lighting path.
@@ -37,7 +37,7 @@
 - **amnis texture residency**: an opt-in texture-residency system independent of the geometry cuts. Visibility and screen-footprint feedback request whole-image, two-tier or progressive mip streaming; bounded async uploads and low-resolution fallbacks keep frames moving. See [`docs/amnis.md`](docs/amnis.md).
 - **Gaussian splatting**: `.ply` files load as Gaussian clouds, are packed onto the GPU once, and are drawn by a dedicated stage between lighting and blended geometry. The GPU path prepares, sorts, finalizes and rasterizes without CPU readback.
 - **glTF, animation and skinning**: `.gltf` / `.glb` loading with hierarchy, skins, morph targets and keyframe animations; a format-neutral animation controller samples into the scene tree and updates skin/morph buffers per frame.
-- **Debug GUI, profiling and capture**: a Dear ImGui overlay (F1) exposes only features that can affect the current frame. `[render] gpu_timings` records pass boundaries with `vkCmdWriteTimestamp` without waiting on the GPU. F12 saves a PNG through the frame's command buffer; `--capture-frames`, `--capture-camera`, `--capture-sweep` and `--capture-animation-sweep` make headless captures reproducible.
+- **Profiling and capture**: there is no native overlay. `[debug] gpu_timings` records pass boundaries with `vkCmdWriteTimestamp` without waiting on the GPU, and a capture is a managed decision: the host forwards the untouched argv to the game's `preinit`, the demo parses `--capture-frames`, `--capture-camera`, `--capture-sweep`, `--capture-animation-sweep` and `--capture-windowed` into `startup_options`, and a frame is written to PNG only when the game asks for it through `scene.request_screenshot()`.
 - **Engineering**: C++26 modules, exceptions and RTTI disabled, `-Wall -Wextra -Werror`, automatic `clang-format`, LTO and dead-code elimination in Release, and a per-module CMake target graph.
 
 ## Build helpers
@@ -121,12 +121,9 @@ A `.ply` in the `model` key is a Gaussian splat cloud, not a mesh: the extension
 
 Measured on the screenshot above (RTX 4060 Laptop, 1280x720): **562,974 splats**, SH degree 3, **135.1 MB** of static tables uploaded once, zero validation errors. Per-frame work runs on the GPU (the CPU prepares instance/camera metadata in about 0.002 ms), and the steady state is **~410 fps**. The session-average GPU frame is **2.50-2.67 ms**, split across prepare, sort, finalize and raster. The per-stage method and its limits are in [`docs/gaussian_splatting.md`](docs/gaussian_splatting.md).
 
-```powershell
-# the cloud is checked in under asset/flowers (CC BY 4.0, Git LFS)
-git lfs pull
-# config.toml: model = "asset/flowers/flowers_1.ply"
-./build/deren.exe    # orbit, zoom, F12 screenshot, F1 panel, ESC quit
-```
+The cloud is checked in under `asset/flowers` (CC BY 4.0, Git LFS). The splat pipeline is engine-level: the managed host
+does not expose a splat entry point yet, so the measurement above comes from the `gaussian` pass tests and the previous
+native preview, which has been removed.
 
 ## Documentation
 
@@ -208,19 +205,20 @@ cmake --build build
 
 ## Run
 
-Run from the project root or a build directory (the program walks upward to locate `source/shaders/` and `asset/`):
+The executable has one launch mode: a managed project. The program walks upward to locate `source/shaders/` and `asset/`.
 
 ```bash
-./build/deren                # or build\deren.exe on Windows
-./build/deren path/to/model.glb
-./build/deren path/to/model.glb 8   # grid_side 8: one instanced draw call
+./build/deren.exe run /path/to/MyGame      # or build/deren run ...
+./build/deren.exe --version                # and the CPU-only tools below
 ```
 
-By default it loads `asset/DamagedHelmet/DamagedHelmet.gltf` with PBR + IBL. Controls: **left-drag** orbit, **wheel** zoom, **arrow keys** pan (SHIFT for 4x), **drag the window border** to resize, **F1** debug overlay, **F12** screenshot, **ESC** quit. Keyframe animations play on a loop.
+The old controls (left-drag orbit, wheel zoom, arrow-key pan, F1 overlay, F12 screenshot) belonged to the native preview
+and are gone with it: the scene, its camera and its input bindings belong to the managed game, and a screenshot is written only
+when the game requests one.
 
 ### Launch a project
 
-Run `deren run /path/to/MyGame` from any working directory. Put a `deren.toml` in the project root:
+Run `deren run /path/to/MyGame` from any working directory. Project launches are C#-driven: the manifest must name the built game assembly, and the game entry owns scene creation, asset loading, node construction and behavior attachment. Put a `deren.toml` in the project root:
 
 ```toml
 [project]
@@ -229,32 +227,37 @@ main_scene = "scenes/main.toml"
 
 [paths]
 asset_library = "assets"
+
+[scripts]
+assembly = "Game.dll"
 ```
 
-Put the entry scene in `scenes/main.toml` using the existing scene settings:
+The entry scene supplies render/path settings only. It must not contain `[[scene.objects]]`; the C# game creates those nodes itself:
 
 ```toml
-[[scene.objects]]
-name = "Helmet"
-asset = "damaged-helmet"
-pipeline = "pbr"
+[render]
+window_title = "Helmet Demo"
 ```
 
-For this example, copy the existing `asset/DamagedHelmet` directory, including its `asset.toml`, into `MyGame/assets`. The scene resolves `asset` IDs through the same [asset library](asset/README.md) as the preview command. Use `model = "models/helmet.gltf"` on an object to reference a file directly. Relative paths are based on the project root, including those in the entry scene. The manifest's asset-library path takes precedence over the scene's path if both are set.
+For this example, copy the existing `asset/DamagedHelmet` directory, including its `asset.toml`, into `MyGame/assets`. The game resolves asset IDs through the [asset library](asset/README.md). Relative paths are based on the project root, including those in the entry scene. The manifest's asset-library path takes precedence over the scene's path if both are set. The C# game creates every scene node itself; the parser still reads `[[scene.objects]]` for tooling, but the host imports nothing from it.
 
-Capture a project with `deren run /path/to/MyGame --capture-frames 120`. Preview a single library asset with `deren --asset-library /path/to/MyGame/assets --asset damaged-helmet`.
+Project launches validate the manifest and entry scene strictly: an unknown key is an error rather than a silent fallback. The entry scene comes from `[project] main_scene`. There is no native preview mode any more: the executable accepts exactly `deren run <project-directory>`, every startup setting lives in the project's TOML files, and the remaining arguments are handed to the game's `preinit`.
+
+Capture a project with `deren run /path/to/MyGame --capture-frames 120`.
 
 #### C# scripts
 
-On Windows x64, configure with `-DDEREN_ENABLE_CSHARP=ON` and build with the .NET 10 SDK installed. With `VR_BUILD_TESTS=ON`, the build includes a two-helmet demo. Hold A or D to move the left helmet, press Space to toggle the right helmet's rotation, or press E to spawn and remove a third helmet.
+The managed host is required on supported 64-bit targets and is built by default; configure with the matching .NET 10 SDK installed. Windows x64 is the shipped configuration. With `VR_BUILD_TESTS=ON`, the build includes a two-helmet demo. Hold A or D to move the left helmet, press Space to toggle the right helmet's rotation, or press E to spawn and remove a third helmet.
+
+One configure and one build produce every piece - the executable, `Deren.Managed.dll`, the demo `Game.dll` and the managed-host tests:
 
 ```powershell
-cmake -S . -B build -G Ninja -DDEREN_ENABLE_CSHARP=ON
-cmake --build build --target deren test_managed_host
+cmake -S . -B build -G Ninja
+cmake --build build
 ./build/deren.exe run ./build/source/scripting/test_game
 ```
 
-For your own project, reference `Deren.Managed.dll` when building your scripts. Set `[scripts] assembly` in `deren.toml` to the built DLL path relative to the project root. Add `script = "game.move_helmet"` to an entry in `[[scene.objects]]` to bind that class. Derive scripts from `deren.behaviour` and override `on_create`, `on_update`, or `on_destroy` as needed. See the [demo scripts](source/scripting/test_game/helmet_controls.cs). Running a scripted project requires the .NET 10 runtime.
+For your own project, reference `Deren.Managed.dll` when building your scripts. Set `[scripts] assembly` in `deren.toml` to the built DLL path relative to the project root. The game assembly provides the `game_entry` implementation; it creates the scene tree, loads assets and attaches behaviors to the nodes it creates. Derive behaviors from `deren.behaviour` and override `on_create`, `on_update`, or `on_destroy` as needed. See the [demo game entry](source/scripting/test_game/game_host.cs) and [behaviors](source/scripting/test_game/helmet_controls.cs). Running a scripted project requires the .NET 10 runtime.
 
 Bind named actions to one or more keys in `deren.toml`:
 
@@ -267,43 +270,38 @@ toggle_spin = ["space"]
 
 Use `input.is_down`, `input.was_pressed`, and `input.was_released` in `on_update()`. All scripts in a frame read the same snapshot. A quick tap can report both edges. Key names include lowercase letters, digits, `space`, `left`, `right`, `up`, `down`, `enter`, `tab`, and left/right variants of `shift` and `control`.
 
-To let scripts instantiate a static PBR asset, reserve a slot in the entry scene:
-
-```toml
-[[scene.objects]]
-asset = "damaged-helmet"
-pipeline = "pbr"
-spawn_slot = true
-```
-
-Each slot starts hidden and can hold one live instance. Use `scene.try_spawn("damaged-helmet", pose, out var entity)` and `scene.try_despawn(entity)` from a behaviour. Spawning returns `false` when the asset has no free slot or the transform is invalid. Removing an instance invalidates its handle and frees its slot for reuse. The slot's render resources stay preloaded. Spawn slots participate in raster rendering and raster shadows. Their ray-traced shadow and reflection masks are disabled.
-
 ### Startup configuration
 
-Startup is driven by a TOML file: copy `config.example.toml` to `config.toml`, or point at one explicitly:
-
-```bash
-./build/deren --config my_config.toml
-```
-
-Positional argv overrides the file: `argv[1]` is the model path, `argv[2]` is the grid side. The config covers model/instancing, paths, window and render settings, camera framing, shadows, TAA, render scale/upscale, ray tracing, SSAO, clustered lights, IBL, the subtilis switches and the debug GUI. See [`config.example.toml`](config.example.toml) for the full annotated list.
-
-Set `model = "ask"` to open the platform file dialog at startup; cancelling it, or running where no dialog backend exists, falls back to the default model.
+A launch reads one settings file: the project's entry scene named by `[project] main_scene` in `deren.toml`. It covers paths, window and render settings, shadows, TAA, render scale/upscale, ray tracing, SSAO, clustered lights, IBL, the subtilis switches and the toon profiles. See [`config.example.toml`](config.example.toml) for the annotated key list. There is no `--config` flag and no positional override.
 
 ### Reproducible captures
 
+The host passes argv through untouched, so the demo game turns these flags into `startup_options` in `preinit`:
+
 ```bash
 # render 120 frames, save a screenshot, then quit
-./build/deren --config my_config.toml --capture-frames 120
+./build/deren run ./build/source/scripting/test_game --capture-frames 120
 
 # force the view: yaw,pitch,distance[,target x,y,z]
-./build/deren --capture-frames 120 --capture-camera 31,0,10,0,-18,0
+./build/deren run ./build/source/scripting/test_game --capture-frames 120 --capture-camera 31,0,10,0,-18,0
 
 # move the camera and the animation by frame index
-./build/deren --capture-frames 40 --capture-sweep 0.5 --capture-animation-sweep 0.02
+./build/deren run ./build/source/scripting/test_game --capture-frames 40 --capture-sweep 0.5 --capture-animation-sweep 0.02
 ```
 
-`--capture-sweep` and `--capture-animation-sweep` advance by frame index, so two runs of one capture are identical. `--capture-animation-sweep` is ignored when `[render] animation_time` pins the pose. The PNG goes to `[paths] screenshot_dir` and the log line prints its full path.
+The same values can be set programmatically, which is what a project without a CLI parser does:
+
+```csharp
+options->capture_frames = 120;
+options->camera_set = 1;                        // yaw, pitch, distance in degrees
+options->camera_yaw_degrees = 31;
+options->camera_distance = 10;
+options->target_set = 1;                        // look at a point instead of the scene centre
+options->sweep_yaw_deg_per_frame = 0.5f;        // and/or move the camera by frame index
+options->animation_seconds_per_frame = 0.02f;   // and/or advance the animation by frame index
+```
+
+The sweep fields advance by frame index, so two runs of one capture are identical. The PNG is written when the game's screenshot request is consumed; it goes to `[paths] screenshot_dir` and the log line prints its full path.
 
 ## Screenshot regression check
 

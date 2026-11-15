@@ -1,0 +1,38 @@
+# deren toon light rig profile - THE README'S CHARACTER CALIBRATION
+# ------------------------------------------------------------
+# `toon-rig.toml` beside this file is the article's rig: the numbers this port was measured at, with the
+# optional face/hair shaping left at zero. `docs/screenshots/README.md`'s GameToon.png was however taken
+# with `submission/demo/character.toml`, which ADDS five `[toon]` shaping values on top of that rig -
+# and because `[toon]` in a project file accepts only `profile`, those values have to live in a profile
+# file. This is that file: the article's rig, plus the character capture's shaping.
+#
+# Referenced as `[toon] profile = "asset/laevatain/toon-rig-character.toml"` (a relative path resolves
+# against the config file's directory).
+# ============================================================
+
+# --- the article's rig (identical to toon-rig.toml) ---
+day_strength = 1.0
+head_light_day0 = 0.7
+head_light_day1 = 0.3
+head_light_colour = [0.60, 0.65, 0.80]
+sun_dark_colour = [0.60, 0.65, 0.80]
+env_strength = 1.0
+env_rotation = 0.0
+specular_strength = 1.0
+diffuse_blend_effect = 1.0
+rim_area = 1.0
+rim_strength = 1.0
+rim_nolxz_strength = 1.0
+backlight_strength = 1.0
+emotion_type = 0.0
+
+# --- the character capture's shaping (submission/demo/character.toml's [toon]) ---
+# Nose: reduce base-alpha diffuse dimming on a face whose alpha is an authored nose mask.
+nose_shadow_reduction = 0.8
+# Hair: tangent-aligned band; width 0.12 and shift 0.25 are the values GameToon.png was taken with.
+hair_highlight_width = 0.12
+hair_highlight_shift = 0.25
+# Requires an HG hair P mask in the glTF metallic-roughness slot and a positive hair width.
+hair_masked_highlights = true
+# Existing face SDF/head basis; missing SDF keeps legacy shading.
+face_angular_sdf = true

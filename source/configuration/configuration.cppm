@@ -33,12 +33,16 @@ import deren.utility;
  *        arguments (`--config <path>` overrides the default file; explicit argv values for the
  *        model / grid override the file). Pure CPU, no Vulkan dependency.
  *
+ * The file has THREE tables, split by who a key belongs to: `[render]` is what a project would choose,
+ * `[debug]` is what an investigation flips, and `[experimental]` is the research lanes. Two profile keys
+ * ([toon] and [lighting]) name further TOML files whose contents override the same keys written inline;
+ * relative profile paths resolve against the config file's own directory.
+ *
  * Example config.toml:
  * @code
  * # top level: model to load
  * model = "gltf_model/DamagedHelmet.gltf"
  * asset = ""        # asset-library id to load when model is empty; --asset overrides it
- * grid_side = 0     # > 1 enables the instancing stress grid (0 = off)
  *
  * # [scene] objects = the SAME loaded model placed more than once (PBR path only). An absent/empty
  * # list keeps the historic single-object import. Each entry may carry name, position, rotation
@@ -59,18 +63,24 @@ import deren.utility;
  * clear_color = [0.02, 0.02, 0.03]  # background clear color, RGB in 0..1
  * camera_fit = "exterior"  # "exterior" fits the whole model from outside; "interior" stands inside
  *                          # and looks down the longest horizontal axis (a hall / nave / corridor)
- * shadow = true    # record the directional shadow pass each frame
  * fxaa   = false   # anti-alias the final image (adds one fullscreen pass; needs fxaa.frag.spv)
- * gpu_timings = true  # measure + report per-pass GPU milliseconds (timestamp queries)
- * gbuffer_debug = false  # draw the G-buffer + a separate one channels instead of the shaded scene
  * taa = false            # temporal anti-aliasing (jitter + resolved history)
  * rt_shadows = false    # ray-traced sun shadows (needs a device with ray queries; else ignored)
- * rt_mask_bake = false  # bake alphaMode MASK into the acceleration structures (off: the rule measured worse)
- * furnace = false       # verification mode: sun off, environment a constant, so the answer is analytic
  * animation_time = -1.0 # pin a keyframe animation at N seconds (-1 = play it; playback is wall-clock)
+ *
+ * [debug]
+ * grid_side = 0          # > 1 enables the instancing stress grid (0 = off)
+ * gpu_timings = true     # measure + report per-pass GPU milliseconds (timestamp queries)
+ * gbuffer_debug = false  # draw the G-buffer + a separate one channels instead of the shaded scene
  * gbuffer_channel = 1    # which channel: 0 albedo, 1 normal, 2 roughness, 3 metallic, 4 ao, 5 id,
  *                        # 6 depth, 7 flags, 8 motion (the motion vector, amplified - see the shader)
+ * rt_mask_bake = false   # bake alphaMode MASK into the acceleration structures (off: the rule measured worse)
+ * furnace = false        # verification mode: sun off, environment a constant, so the answer is analytic
  * validation_layers = true  # Vulkan validation layers + debug messenger (Debug builds default on, Release off)
+ *
+ * [experimental]
+ * visibility_buffer = false  # the GPU-driven opaque path (a research lane, not a shipped look)
+ * subtilis = false           # CPU-selected LOD0 / Cluster DAG rendering; requires an admitted visibility frame
  *
  * [gui]
  * show         = true    # show the Dear ImGui debug overlay by default
@@ -78,18 +88,17 @@ import deren.utility;
  * panel_height = 140     # default debug-panel height (0 = auto-size)
  *
  * [lighting]
- * env_size     = 256   # environment cubemap size
- * env_mip_count = 5    # prefiltered env mip chain length
- * irr_size     = 32    # irradiance cubemap size
- * lut_size     = 256   # BRDF LUT size
  * environment_hdr = "" # equirect HDR image used as the IBL instead of the procedural sky ("" = the sky)
- * environment_intensity = 0.35 # linear multiplier on that image (the reference's world_strength)
+ * profile = "asset/lighting/softbox.toml"  # the IBL/area-light calibration; the ONLY home of those keys
+ *
+ * [toon]
+ * profile = "asset/laevatain/toon-rig.toml"  # the character stage's light rig
  * @endcode
  */
 namespace deren::app_config {
 #ifdef NDEBUG
     // Release builds default validation layers OFF (historic behavior); enable them when needed
-    // via [render] validation_layers = true (e.g. debugging in a Release build).
+    // via [debug] validation_layers = true (e.g. debugging in a Release build).
     inline constexpr bool default_validation_layers = false;
 #else
     // Debug builds keep the validation layers + debug messenger ON by default (historic
@@ -125,14 +134,6 @@ namespace deren::app_config {
         // See the log's "initial camera" line for the numbers this resolves to, and use
         // --capture-camera to pin an exact pose.
         deren::utility::vessel::string camera_fit = "exterior";
-        // A PINNED initial camera pose: yaw (deg), pitch (deg), distance, target x, y, z - the same six
-        // numbers `--capture-camera` takes and the same six the log prints (`camera pose: ...`), so a view
-        // can be reproduced from a config, pasted between the two, or reported by a user. ABSENT by
-        // default, which leaves `camera_fit` in charge; when present it wins over the fit and is itself
-        // overridden by `--capture-camera`.
-        deren::utility::vessel::array<float, 6> camera_pose = {};
-        bool camera_pose_set = false;
-        bool shadow = true; // record the directional shadow pass each frame
         // Cascaded shadow maps ([render] shadow_cascades / shadow_cascade_blend): how many cascades the
         // shadow pass fits, renders and samples (1 = one box over the whole visible range, the historic
         // single-map behavior) and the fraction of a cascade's range over which the shader blends into
@@ -208,7 +209,7 @@ namespace deren::app_config {
         // glossy band to match.
         std::uint32_t rt_reflection_samples = 1;
         deren::utility::vessel::string rt_reflection_materials = {};
-        // Bake alphaMode MASK into the acceleration structures ([render] rt_mask_bake): a compute pass
+        // Bake alphaMode MASK into the acceleration structures ([debug] rt_mask_bake): a compute pass
         // collapses the triangles a material's alpha covers nowhere. This is the SUBSTITUTE for an any-hit
         // stage and the shipped path no longer needs it: the shadow runs on a ray-tracing pipeline whose
         // any-hit shader cuts the mask per hit (source/shaders/rt_shadow.rahit). It stays because a knob is the only
@@ -217,13 +218,13 @@ namespace deren::app_config {
         // the raster path's filtered sampling keeps, and the frame comes out 1.29 of mean brightness
         // BRIGHTER than the raster shadow it should match.
         bool rt_mask_bake = false;
-        // Re-skin animated casters and refit their acceleration structures every frame ([render]
+        // Re-skin animated casters and refit their acceleration structures every frame ([debug]
         // rt_skin_bake). The structures are built from the bind pose, so without this a ray-traced shadow of
         // an animated mesh is cast by the mesh where it is not. OFF BY DEFAULT: it is the A/B whose effect
         // the L2.2b measurement is about, and leaving it off keeps the traced shadow path byte-identical to
         // the frames every earlier measurement was taken with.
         bool rt_skin_bake = false;
-        // The furnace verification mode ([render] furnace): the sun is turned off and the environment becomes
+        // The furnace verification mode ([debug] furnace): the sun is turned off and the environment becomes
         // a constant level, so the correct frame is computable by hand - a diffuse surface's outgoing
         // radiance is exactly albedo * L, so anything added on top of it is double counting.
         // It is the one reference in this project that no separate estimator can flatter, because it is not
@@ -240,7 +241,7 @@ namespace deren::app_config {
         float ssao_radius = 0.5f;
         float ssao_intensity = 1.0f;
         std::int32_t ssao_samples = 8;
-        // Render mode ([render] unlit): the "pbr (lit)" / "unlit (flat)" combo of the debug overlay
+        // Render mode ([debug] unlit): the "pbr (lit)" / "unlit (flat)" combo of the debug overlay
         // as a startup setting - the flat base-color reference, useful as a shading-free view. It
         // selects the runtime's default pipeline for the transparent pass, and the lighting stage is
         // told explicitly (set_unlit) because it binds its pipeline and cannot follow a per-leaf
@@ -285,7 +286,7 @@ namespace deren::app_config {
         bool async_present = false;
         // the composed render graph is the only recording path: there is no per-frame fallback any more
         bool offscreen = false;
-        // G-buffer debug view ([render] gbuffer_debug / gbuffer_channel): draws the opaque scene
+        // G-buffer debug view ([debug] gbuffer_debug / gbuffer_channel): draws the opaque scene
         // into the three G-buffer targets and shows the selected channel through the ordinary post
         // chain. A development view of the deferred path's data - the deferred lighting pass (M2)
         // takes over the display role and this stays as the inspection tool.
@@ -299,7 +300,7 @@ namespace deren::app_config {
         float taa_blend_static = 0.9f; // history weight for a pixel that did not move
         float taa_blend_min = 0.5f;    // history weight floor under motion (lower = less ghosting)
         /**
-         * THE VISIBILITY BUFFER ([render] visibility_buffer): the GPU-driven opaque path. A mesh-task raster
+         * THE VISIBILITY BUFFER ([experimental] visibility_buffer): the GPU-driven opaque path. A mesh-task raster
          * writes one packed triangle id per pixel and the frame's shared depth; a compute resolve turns the ids
          * back into the five G-buffer targets, and the deferred lighting stage then reads them exactly as it reads
          * the fragment G-buffer's (see docs/superpowers/plans/2026-10-17-visibility-buffer.md, v0.5).
@@ -389,13 +390,16 @@ namespace deren::app_config {
 
     /**
      * @ingroup app_config
-     * @brief image-based-lighting precompute resolutions ([lighting] in the config)
+     * @brief the environment's bake resolutions and light calibration ([lighting] in the config)
+     *
+     * THE IBL RESOLUTIONS ARE NOT SETTINGS AT ALL. They are compile-time constants in
+     * `source/app/environment_loader.cppm` (`environment_cubemap_size` = 256, `environment_mip_count` = 5,
+     * `environment_irradiance_size` = 32, `environment_brdf_lut_size` = 256): the precompute runs before the
+     * device exists and the baked sizes are part of what the reference captures measure, so a config key
+     * could only make every capture incomparable. A `--bake-environment` run writes the same constants into
+     * the .ibl header, and a file baked with different numbers is rejected on load.
      */
     export struct lighting_settings {
-        std::int32_t env_size = 256;    // base environment cubemap size
-        std::int32_t env_mip_count = 5; // prefiltered-environment mip chain length
-        std::int32_t irr_size = 32;     // irradiance cubemap size
-        std::int32_t lut_size = 256;    // BRDF LUT size
         // sun_direction ([lighting] sun_direction): the sun's direction in world space, pointing FROM the
         // surface TOWARD the sun, unnormalized (it is normalized where it is used). ONE setting feeds three
         // consumers that must agree or the frame contradicts itself - the shadow cascades and the shading's
@@ -405,25 +409,12 @@ namespace deren::app_config {
         // elevation is what moves the shadows off a face and onto the ground behind it.
         deren::utility::vessel::array<float, 3> sun_direction = {0.3f, 1.0f, 0.5f};
         /**
-         * THE ENVIRONMENT IMAGE, i.e. the reference package's way of describing its world.
-         *
-         * `environment_hdr`: path to an EQUIRECTANGULAR (lat-long) HDR image - in practice the reference
-         * package's `lighting/studio_01_1k.exr`, converted once, offline, into the one float format the
-         * engine's decoder reads (Radiance `.hdr`, which is what `stb_image` handles; the conversion
-         * and its measurements are in `deren-ab/bg/_hdr_convert.py`). It REPLACES the procedural sky above as
-         * the environment cubemap.
-         *
-         * EMPTY (THE DEFAULT) IS THE CONTRACT: with no image every path renders exactly what it rendered
-         * before this key existed, byte for byte. Relative paths resolve against the executable's
-         * directory, the same rule [render] background_glb follows.
-         *
-         * WHEN IT IS SET the procedural gradient AND its baked sun disc are both gone from the IBL - the
-         * image is the whole environment. The DIRECT light is untouched: `sun_direction` still drives the
-         * shadow cascades, the shading and the visible disc the sky draws, so the image is never asked to
-         * double as a sun. (The visible sky itself is still analytic; with the reference's backdrop dome
-         * present - see [render] background_glb - it is occluded anyway.)
+         * THE ENVIRONMENT IMAGE IS NOT PARSED HERE. `[lighting] environment_hdr` (an equirectangular
+         * Radiance `.hdr`, empty = the procedural sky) is a project convention the MANAGED host reads for
+         * itself: `source/scripting/managed/Api/project_config.cs` loads it and reaches the renderer through
+         * `global_environment.try_set_hdr`, so this module keeps only the key acceptable in the schema (see
+         * `collect_unknown_scene_keys`) and no field for its value.
          */
-        deren::utility::vessel::string environment_hdr = {};
         /**
          * `environment_intensity`: a linear multiplier applied to every texel of that image - the same
          * degree of freedom the reference package calls its world's `world_strength`.
@@ -504,7 +495,7 @@ namespace deren::app_config {
         bool area_light_irradiance = true;                                                // true = the emitter TAKES OVER the main light (its direction, its radiance)
         bool area_light_shadow = true;                                                    // the area light's (soft) visibility
         float area_light_softness = 0.0f;                                                 // penumbra world radius, metres; 0 = automatic
-        // demo_lights ([lighting] demo_lights): spawn this many procedural punctual lights around
+        // demo_lights ([debug] demo_lights): spawn this many procedural punctual lights around
         // the scene (a helix at the scene bounds, cycling colors). This is the clustered-light stress
         // mode: with the debug overlay's four light slots the cluster lists and the brute-force loop
         // visit the same handful of lights, so the win is invisible. 0 (default) = overlay lights
@@ -528,12 +519,12 @@ namespace deren::app_config {
         float demo_light_range = 0.55f;  // the lights' range, as the same fraction (0 = no cutoff)
     };
 
-    /** @brief upper bound for [lighting] demo_lights (the UBO's light array is deren::vulkan::max_punctual_lights) */
+    /** @brief upper bound for [debug] demo_lights (the UBO's light array is deren::vulkan::max_punctual_lights) */
     export constexpr std::uint32_t max_demo_lights = 64;
 
     /**
      * @ingroup app_config
-     * @brief the area light's per-frame values, derived once per frame from `[lighting] area_light_*`
+     * @brief the area light's per-frame values, derived once per frame from the lighting profile's `area_light_*`
      *
      * Everything here is in the ENGINE's frame (Y-up, metres, world space). `enabled == false` means "no
      * emitter at all": every field is zero, the caller writes a literal zero `light_ubo` pair and the frame
@@ -554,9 +545,9 @@ namespace deren::app_config {
 
     /**
      * @ingroup app_config
-     * @brief turn `[lighting] area_light_*` into the frame's area light - PURE: no device, no globals, no I/O
+     * @brief turn the lighting profile's `area_light_*` into the frame's area light - PURE: no device, no globals, no I/O
      *
-     * @param lighting      the parsed `[lighting]` table
+     * @param lighting      the parsed lighting profile (the `[lighting] profile` file)
      * @param scene_origin  the AUTHOR'S origin: the character's feet on the ground (world XZ = 0), i.e. where the
      *                      reference package's `manifest.json` measures its light from. `area_light_position` and
      *                      `area_light_target` are relative to it, so the manifest's "character at the origin"
@@ -591,7 +582,7 @@ namespace deren::app_config {
 
     /**
      * @ingroup app_config
-     * @brief the TOON stage's LIGHT RIG ([toon] in the config), which is `deren::vulkan::toon_rig`'s content
+     * @brief the TOON stage's LIGHT RIG ([toon] profile in the config), which is `deren::vulkan::toon_rig`'s content
      *
      * THESE ARE THE ARTICLE'S GLOBAL NUMBERS - the ones an artist tunes once for a whole character rather than per
      * material: the split between the sun and the head light the game rigs over every figure, what each of them
@@ -810,7 +801,28 @@ namespace deren::app_config {
     };
 
     /// Read deren.toml and its entry scene. Resolve relative resource paths from the project root.
+    /// Unknown keys in the manifest or its entry scene are errors, not silently ignored.
     export std::expected<project_launch_settings, std::string> load_project_settings(std::filesystem::path const& directory);
+
+    /**
+     * @ingroup app_config
+     * @brief check a scene/config file for keys this loader does not understand
+     * @return success when every key is known; otherwise an error naming each unknown key
+     *
+     * Unknown keys are ignored by load_settings() for backwards compatibility, but the project path
+     * uses this validator so a typo cannot silently fall back to a compiled-in default.
+     */
+    export std::expected<void, std::string> validate_settings_file(std::string_view path);
+
+    /**
+     * @ingroup app_config
+     * @brief validate the arguments of `deren run <project-directory>`
+     *
+     * Capture flags are removed before this sees argv. The project command owns its own scene and
+     * manifest, so preview-only options (`--config`, `--asset`, `--asset-library`, ...) are rejected
+     * with a message instead of being treated as extra positionals or silently dropped.
+     */
+    export std::expected<void, std::string> validate_project_arguments(std::int32_t argc, char const* const* argv);
 
     /**
      * @ingroup app_config
