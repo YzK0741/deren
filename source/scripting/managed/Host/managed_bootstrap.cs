@@ -7,7 +7,7 @@ using System.Text;
 
 namespace deren.scripting {
     internal static unsafe class managed_bootstrap {
-        private const uint abi_version = 32;
+        private const uint abi_version = 33;
         internal static native_api core;
         internal static Assembly? game_assembly;
 
@@ -33,6 +33,10 @@ namespace deren.scripting {
                 return abi_mismatch;
             }
             if (!api->is_valid()) {
+                return invalid_api;
+            }
+            // ABI 33: refuse to run on a layout this side does not understand.
+            if (!abi_manifest.verify(api)) {
                 return invalid_api;
             }
 
@@ -87,6 +91,10 @@ namespace deren.scripting {
                 return invalid_api;
             }
             core = *api;
+            // ABI 33: the layout gate also guards a session that reaches initialize without configure.
+            if (!abi_manifest.verify(api)) {
+                return invalid_api;
+            }
             screenshot.bind(api);
             scene_api.initialize(api);
             // THE PANEL TABLE IS OPTIONAL: a host without the GUI plugin still publishes it, but an

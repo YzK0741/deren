@@ -260,7 +260,8 @@ export namespace deren::app {
         static placement* find(scripting::node_handle handle);
         static script_scene* find_scene(std::uint64_t scene);
         static void log(char const* text, std::uint32_t length);
-        static scripting::script_status get_module(std::uint32_t module, void const** table);
+        static scripting::script_status get_module(std::uint32_t module, void const** table, std::uint32_t* byte_size);
+        static scripting::script_status abi_layout(scripting::abi_layout_entry* out, std::uint32_t capacity);
         static scripting::script_status get_transform(scripting::node_handle node, scripting::transform_value* value);
         static scripting::script_status set_transform(scripting::node_handle node, scripting::transform_value const* value);
         static scripting::script_status try_spawn(std::uint64_t scene, scripting::utf8_view asset,

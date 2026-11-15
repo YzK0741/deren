@@ -1,6 +1,6 @@
 # C# Module ABI
 
-Status: implemented for the `scene` and `ui` modules; managed ABI v32.
+Status: implemented for the `scene` and `ui` modules; managed ABI v33.
 
 Baseline: `feature/csharp-scene-tree`. Native code owns rendering, the Vulkan runtime, the
 module resolver, and primitive/scene import. Managed code owns scene construction, asset
@@ -44,10 +44,22 @@ graph.
 ```cpp
 struct native_api {
     void(* log)(char const* utf8, std::uint32_t length) = nullptr;
-    script_status(* get_module)(std::uint32_t module, void const** table) = nullptr;
+    script_status(* get_module)(std::uint32_t module, void const** table,
+                                std::uint32_t* byte_size) = nullptr;
     script_status(* request_screenshot)() = nullptr;
     void(* set_input_event_callback)(void(* callback)(void* context, input_event const* event),
                                      void* context) = nullptr;
+    script_status(* abi_layout)(abi_layout_entry* out, std::uint32_t capacity) = nullptr;
+};
+
+enum class abi_type : std::uint32_t {
+    native_api = 1, managed_api, frame_info, transform_value, input_event,
+    point_light_desc, material_override_desc, startup_options, head_basis_desc, face_frame_desc,
+};
+
+struct abi_layout_entry {
+    abi_type type;
+    std::uint32_t size;
 };
 
 enum class input_event_type : std::uint32_t {
@@ -184,7 +196,9 @@ than truncated, because a silently dropped light is a picture that no longer mat
 
 ## 3. Scene module table
 
-The table is static, typed, and versioned only by the global `managed_abi_version`:
+The table is static, typed, and versioned by the global `managed_abi_version`; since v33 the
+host also reports its `sizeof` from `get_module`, and the managed side refuses a table whose size
+does not match its own layout:
 
 ```cpp
 struct scene_api {
@@ -562,9 +576,14 @@ Status values are returned through the ABI; no exception crosses the native boun
 
 ## 8. Layout and versioning
 
-- One global `managed_abi_version`, currently 32.
+- One global `managed_abi_version`, currently 33.
 - No `context` parameter and no per-module version.
-- No `size` fields; one version means one exact layout.
+- One version means one exact layout, and since v33 the layout is checked as well: the host
+  publishes `{type, sizeof}` for every struct both sides share through `native_api.abi_layout`,
+  and reports each module table's size through `get_module`'s `byte_size`. The managed bootstrap
+  compares all of it against its own mirrors before it binds and refuses to start on a mismatch,
+  so a field added, removed, or reordered without a version bump fails loudly instead of calling
+  through a signature the callee does not have.
 - A field addition, removal, reorder, or signature change bumps the global version.
 - The managed bootstrap compares the ABI version before it loads the project assembly and
   returns `abi_mismatch` on any difference; `configure_from_engine` runs before `initialize_from_engine`.
@@ -646,4 +665,10 @@ Status values are returned through the ABI; no exception crosses the native boun
   slots, and every material had to sample the scene-wide one. A custom slot uploads only the
   environment pair (slot 0's BRDF LUT is shared), an out-of-range slot is `invalid_argument`, and a
   decode failure keeps that slot's previous environment.
+- v33 added the layout check: `native_api` gained `abi_layout` (one `{type, sizeof}` entry per
+  shared struct, in the `abi_type` enum) and `get_module` gained a `byte_size` out-parameter for
+  the module table it publishes. The C# side (`Host/abi_manifest.cs`) compares every entry with
+  `sizeof` of its mirror and the two module tables with their layout structs, and declines to bind
+  on the first disagreement. The version number stays the primary gate; this is the second one,
+  for the case where a field changes without the bump that was supposed to accompany it.
 
