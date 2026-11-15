@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace deren.scripting {
     /// <summary>
@@ -59,11 +60,19 @@ namespace deren.scripting {
             wants_mouse = null;
 
             void* table = null;
-            var status = api->get_module((uint)native_module.ui, &table);
+            uint byte_size = 0;
+            var status = api->get_module((uint)native_module.ui, &table, &byte_size);
             if (status != script_status.success) {
                 return status;
             }
             if (table == null) {
+                return script_status.module_invalid;
+            }
+            // ABI 33: same table-size check as the scene module (see scene_api.initialize).
+            if (byte_size != sizeof(ui_api_layout)) {
+                api->write_log(Encoding.UTF8.GetBytes(
+                    $"Managed host: the ui module table is {byte_size} bytes, this build expects " +
+                    $"{sizeof(ui_api_layout)}."));
                 return script_status.module_invalid;
             }
             var resolved = *(ui_api_layout*)table;

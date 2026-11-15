@@ -6,7 +6,7 @@ export import deren.vstd;
 
 export namespace deren::scripting {
 
-    inline constexpr std::uint32_t managed_abi_version = 32;
+    inline constexpr std::uint32_t managed_abi_version = 34;
 
     struct node_handle {
         std::uint64_t value = 0;
@@ -377,6 +377,32 @@ export namespace deren::scripting {
 
     static_assert(sizeof(input_event) == 40);
 
+    // ABI 33: the structs both sides pass by value and pointer, whose byte size the managed side
+    // re-checks before it binds. The version number alone only catches an ABI both sides know they
+    // disagree about; these entries also catch a field added, removed, or reordered without a
+    // version bump, which used to surface as a call through a wrong signature. The module tables
+    // (scene_api, ui_api) are not listed here: get_module() reports their size instead, so each
+    // module checks its own table where it consumes it. Never renumber a value once shipped.
+    enum class abi_type : std::uint32_t {
+        native_api = 1,
+        managed_api = 2,
+        frame_info = 3,
+        transform_value = 4,
+        input_event = 5,
+        point_light_desc = 6,
+        material_override_desc = 7,
+        startup_options = 8,
+        head_basis_desc = 9,
+        face_frame_desc = 10
+    };
+
+    struct abi_layout_entry {
+        abi_type type = abi_type::native_api;
+        std::uint32_t size = 0;
+    };
+
+    static_assert(sizeof(abi_layout_entry) == 8);
+
     enum class native_module : std::uint32_t {
         scene = 1,
         // ABI 31: the debug panel and the overlay state (ui_api).
@@ -386,7 +412,9 @@ export namespace deren::scripting {
     // Keep layouts and calling conventions in sync with managed_bootstrap.cs.
     struct native_api {
         void(* log)(char const* utf8, std::uint32_t length) = nullptr;
-        script_status(* get_module)(std::uint32_t module, void const** table) = nullptr;
+        // ABI 33: @p byte_size receives sizeof() of the module table @p table points at, so the
+        // managed side compares the host's layout against its own mirror instead of trusting it.
+        script_status(* get_module)(std::uint32_t module, void const** table, std::uint32_t* byte_size) = nullptr;
         // Requests the same one-shot screenshot path as the F12 key. The next recorded frame
         // copies the presented image, and the renderer saves it under [paths] screenshot_dir with
         // a timestamped file name. Null before initialize; projects call it through
@@ -396,6 +424,17 @@ export namespace deren::scripting {
         // the window reports and passes @p context back unchanged; passing a null callback stops the
         // forwarding. The game owns the meaning of the input, the host only reports it.
         void(* set_input_event_callback)(void(*callback)(void* context, input_event const* event), void* context) = nullptr;
+        // ABI 33: writes one {type, sizeof} entry per mirrored type and returns success; a null
+        // @p out or a @p capacity below the number of entries is invalid_argument rather than a
+        // truncated answer. The managed side refuses to bind when any entry disagrees with its own
+        // struct layout, which turns a forgotten field into "module_invalid" at startup.
+        script_status(* abi_layout)(abi_layout_entry* out, std::uint32_t capacity) = nullptr;
+        // ABI 34: the managed side reports that the frame-boundary work the host handed it has
+        // finished, which releases the wait the host entered after before_frame/after_frame.
+        // Exactly one call answers each signal; a call with nothing outstanding is
+        // invalid_argument so an out-of-step managed side is visible in the log instead of
+        // silently borrowing the next frame's wait.
+        script_status(* notify_rendering)() = nullptr;
     };
 
     // One frame's borrowed state. The layout is exact for this ABI version; any field
@@ -409,20 +448,22 @@ export namespace deren::scripting {
 
     static_assert(sizeof(frame_info) == 24);
 
-    // Frame-boundary signals are facts sent from the host into managed code. The host never
-    // executes a managed callable itself; managed code owns the queue behind do_after_frame.
-    enum class frame_signal : std::uint32_t {
-        after_frame = 1
-    };
-
+    // ABI 34: the two frame boundaries are plain void callbacks rather than a signal number,
+    // because the host now waits for managed code to report completion (native_api
+    // notify_rendering) and one signal per boundary needs no payload. Both are optional; a null
+    // callback means the boundary costs nothing. The host never executes a managed callable
+    // itself: managed code owns the queue behind these callbacks.
     struct managed_api {
         // The managed game owns its scene and script lifetime. The host only forwards frames
         // and asks for one program-wide shutdown.
         // The frame and its input bytes are borrowed only during the update.
         script_status(* update)(frame_info const* frame) = nullptr;
         script_status(* stop)() = nullptr;
-        // Emitted after a presented frame. Managed code dispatches its collected callables here.
-        script_status(* signal)(std::uint32_t signal) = nullptr;
+        // Emitted before the frame is recorded (after the host has decided to draw it) and again
+        // after it is presented. Managed code dispatches its collected callables here and calls
+        // notify_rendering once the batch is done, which is what releases the host.
+        void(* before_frame)() = nullptr;
+        void(* after_frame)() = nullptr;
     };
 
     enum class host_status : std::int32_t {

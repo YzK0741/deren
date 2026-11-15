@@ -1387,6 +1387,13 @@ namespace deren::app {
                 continue;
             }
             // Phase 3: record + submit + present the paced frame
+            // The before-frame boundary lives here, past every skip path, so before and after are
+            // always handed out as a pair. The cost: the camera UBO was already written by
+            // pace_and_acquire(), so a before-frame task that moves the camera shows the move one
+            // frame later.
+            if (!script_scene.signal_before_frame()) {
+                return 3;
+            }
             deren::engine::frame_status const rec = runtime.begin_recording();
             if (rec == deren::engine::frame_status::closed || deren::engine::is_failure(rec)) {
                 break;
@@ -1424,8 +1431,9 @@ namespace deren::app {
             }
             splash.close();
             frame_clock.stamp();
-            // The host only reports the frame boundary. Managed code drains its own do_after_frame
-            // queue here; no managed callable is stored on the native side.
+            // The host only reports the frame boundary. Managed code drains its own queues here and
+            // reports back through native_api notify_rendering; no managed callable is stored on
+            // the native side.
             if (!script_scene.signal_after_frame()) {
                 return 3;
             }

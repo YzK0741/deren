@@ -13,6 +13,9 @@ namespace deren {
     /// out of the frame the window is already rendering. A cube therefore needs a square window whose
     /// side is <see cref="min_size"/>..<see cref="max_size"/> and a power of two, and a mismatched
     /// extent is reported instead of being silently stretched.
+    ///
+    /// Every call has an <c>out script_status</c> overload: validation done here reports
+    /// <see cref="script_status.invalid_argument"/>, a refused host call reports what the host said.
     /// </summary>
     public static unsafe class reflect_probe {
         public const uint min_size = 16;
@@ -25,46 +28,70 @@ namespace deren {
 
         public static bool try_install(vector_3 position, uint face, float near_plane = 0.05f,
                                        float far_plane = 100.0f) {
+            return try_install(position, face, near_plane, far_plane, out _);
+        }
+
+        public static bool try_install(vector_3 position, uint face, float near_plane, float far_plane,
+                                       out script_status status) {
             if (face > 5) {
+                status = script_status.invalid_argument;
                 return reject($"face must be 0..5, got {face}");
             }
             if (!(near_plane > 0.0f) || !(far_plane > near_plane)) {
+                status = script_status.invalid_argument;
                 return reject($"near/far must bracket the scene, got {near_plane}/{far_plane}");
             }
             var eye = stackalloc float[3];
             eye[0] = position.x;
             eye[1] = position.y;
             eye[2] = position.z;
-            return accept(scene_api.assign_capture_camera(1, eye, face, near_plane, far_plane),
-                          $"install face {face} at ({position.x}, {position.y}, {position.z})");
+            status = scene_api.assign_capture_camera(1, eye, face, near_plane, far_plane);
+            return accept(status, $"install face {face} at ({position.x}, {position.y}, {position.z})");
         }
 
         /// Restores the orbit camera and turns the capture pass off.
         public static bool clear() {
-            return accept(scene_api.assign_capture_camera(0, null, 0, 0.0f, 0.0f), "clear");
+            return clear(out _);
+        }
+
+        public static bool clear(out script_status status) {
+            status = scene_api.assign_capture_camera(0, null, 0, 0.0f, 0.0f);
+            return accept(status, "clear");
         }
 
         public static bool try_request() {
-            return accept(scene_api.assign_radiance_request(), "request");
+            return try_request(out _);
+        }
+
+        public static bool try_request(out script_status status) {
+            status = scene_api.assign_radiance_request();
+            return accept(status, "request");
         }
 
         /// Copies one face out. `pixels` holds the face as RGBA floats, so its length is size*size*4.
         public static bool try_read(uint size, float[] pixels) {
+            return try_read(size, pixels, out _);
+        }
+
+        public static bool try_read(uint size, float[] pixels, out script_status status) {
             if (!valid_size(size)) {
+                status = script_status.invalid_argument;
                 return reject($"size must be a power of two in {min_size}..{max_size}, got {size}");
             }
             if (pixels == null || pixels.Length != (int)(size * size * 4)) {
+                status = script_status.invalid_argument;
                 return reject($"read buffer must hold {size * size * 4} floats");
             }
             uint width = 0;
             uint height = 0;
             fixed (float* target = pixels) {
-                var status = scene_api.read_radiance_image(&width, &height, target, (uint)pixels.Length);
+                status = scene_api.read_radiance_image(&width, &height, target, (uint)pixels.Length);
                 if (status != script_status.success) {
                     return reject($"read failed ({status})");
                 }
             }
             if (width != size || height != size) {
+                status = script_status.invalid_argument;
                 return reject($"the render extent is {width}x{height}, not the {size}x{size} the probe needs " +
                               "(run the window at the probe size)");
             }
@@ -73,26 +100,36 @@ namespace deren {
 
         /// Drops the temporal history so the next face is not blended with the previous one.
         public static bool reset_history() {
-            return accept(scene_api.assign_temporal_reset(), "reset temporal history");
+            return reset_history(out _);
+        }
+
+        public static bool reset_history(out script_status status) {
+            status = scene_api.assign_temporal_reset();
+            return accept(status, "reset temporal history");
         }
 
         /// Writes six collected faces as an IBL1 cube file.
         public static bool try_write(string path, uint size, float[] cube) {
+            return try_write(path, size, cube, out _);
+        }
+
+        public static bool try_write(string path, uint size, float[] cube, out script_status status) {
             if (string.IsNullOrEmpty(path)) {
+                status = script_status.invalid_argument;
                 return reject("an output path is required");
             }
             if (!valid_size(size)) {
+                status = script_status.invalid_argument;
                 return reject($"size must be a power of two in {min_size}..{max_size}, got {size}");
             }
             if (cube == null || cube.Length != (int)(6 * size * size * 4)) {
+                status = script_status.invalid_argument;
                 return reject($"cube buffer must hold {6 * size * size * 4} floats");
             }
-            var bytes = Encoding.UTF8.GetBytes(path);
-            fixed (byte* data = bytes)
+            using var text = native_string.create(path);
             fixed (float* pixels = cube) {
-                var view = new utf8_view { data = data, length = (uint)bytes.Length };
-                return accept(scene_api.publish_radiance_cube(view, size, pixels, (uint)cube.Length),
-                              $"write '{path}'");
+                status = scene_api.publish_radiance_cube(text.view, size, pixels, (uint)cube.Length);
+                return accept(status, $"write '{path}'");
             }
         }
 

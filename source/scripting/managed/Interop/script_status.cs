@@ -1,5 +1,9 @@
 namespace deren.scripting {
-    internal enum script_status {
+    /// <summary>
+    /// The host's answer for one call. Public because the wrapper overloads hand it back: a game that
+    /// wants to tell "no such asset" from "this host has no such entry" branches on it.
+    /// </summary>
+    public enum script_status {
         success = 0,
         invalid_argument = 1,
         invalid_node = 2,

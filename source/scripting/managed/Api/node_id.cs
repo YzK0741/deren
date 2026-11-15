@@ -22,12 +22,18 @@ namespace deren {
         /// instead of throwing.
         /// </summary>
         public unsafe bool is_alive() {
+            return is_alive(out _);
+        }
+
+        public unsafe bool is_alive(out script_status status) {
             if (owner is null || !is_valid) {
+                status = script_status.invalid_node;
                 return false;
             }
             owner.ensure_bound();
             transform_value ignored;
-            return scene_api.query_transform(handle, &ignored) == script_status.success;
+            status = scene_api.query_transform(handle, &ignored);
+            return status == script_status.success;
         }
 
         /// <summary>
@@ -35,13 +41,19 @@ namespace deren {
         /// unavailable node; it does not throw.
         /// </summary>
         public unsafe bool try_get_transform(out transform_value value) {
+            return try_get_transform(out value, out _);
+        }
+
+        public unsafe bool try_get_transform(out transform_value value, out script_status status) {
             value = default;
             if (owner is null || !is_valid) {
+                status = script_status.invalid_node;
                 return false;
             }
             owner.ensure_bound();
             transform_value result;
-            if (scene_api.query_transform(handle, &result) != script_status.success) {
+            status = scene_api.query_transform(handle, &result);
+            if (status != script_status.success) {
                 return false;
             }
             value = result;
@@ -53,12 +65,18 @@ namespace deren {
         /// the native side rejects the pose; it does not throw.
         /// </summary>
         public unsafe bool try_set_transform(in transform_value value) {
+            return try_set_transform(value, out _);
+        }
+
+        public unsafe bool try_set_transform(in transform_value value, out script_status status) {
             if (owner is null || !is_valid) {
+                status = script_status.invalid_node;
                 return false;
             }
             owner.ensure_bound();
             var copy = value;
-            return scene_api.assign_transform(handle, &copy) == script_status.success;
+            status = scene_api.assign_transform(handle, &copy);
+            return status == script_status.success;
         }
 
         public bool Equals(node_id other) {

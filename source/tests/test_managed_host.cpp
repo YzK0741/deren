@@ -45,6 +45,9 @@ namespace {
         unsigned assets_bound = 0;
         std::uint64_t assets[8]{};
         module_mode module = module_mode::ok;
+        // ABI 33: how many bytes to add to the native_api entry the layout answer reports, so a
+        // scenario can prove the managed side refuses a layout it does not understand.
+        std::uint32_t abi_size_delta = 0;
     };
 
     scene_fixture* module_context = nullptr;
@@ -949,11 +952,12 @@ namespace {
         input_sink_installed = callback != nullptr;
     }
 
-    script_status get_scene_module(std::uint32_t module, void const** table) {
-        if (table == nullptr) {
+    script_status get_scene_module(std::uint32_t module, void const** table, std::uint32_t* byte_size) {
+        if (table == nullptr || byte_size == nullptr) {
             return script_status::invalid_argument;
         }
         *table = nullptr;
+        *byte_size = 0;
         if (module == static_cast<std::uint32_t>(native_module::ui)) {
             static ui_api const published_ui{.begin_panel = ui_begin_panel,
                                              .end_panel = ui_end_panel,
@@ -965,6 +969,7 @@ namespace {
                                              .button = ui_button,
                                              .wants_mouse = ui_wants_mouse};
             *table = &published_ui;
+            *byte_size = sizeof(published_ui);
             return script_status::success;
         }
         if (module != static_cast<std::uint32_t>(native_module::scene)) {
@@ -1028,12 +1033,60 @@ namespace {
             .reset_temporal_history = reset_temporal_history,
             .write_radiance_cube = write_radiance_cube};
         *table = &published;
+        *byte_size = sizeof(published);
+        return script_status::success;
+    }
+
+    script_status publish_abi_layout(abi_layout_entry* out, std::uint32_t capacity) {
+        // Mirrors the host in app_scripting.cpp so the managed side sees the real layouts here too.
+        auto const delta = module_context != nullptr ? module_context->abi_size_delta : 0u;
+        abi_layout_entry entries[] = {
+            {.type = abi_type::native_api, .size = static_cast<std::uint32_t>(sizeof(native_api) + delta)},
+            {.type = abi_type::managed_api, .size = sizeof(managed_api)},
+            {.type = abi_type::frame_info, .size = sizeof(frame_info)},
+            {.type = abi_type::transform_value, .size = sizeof(transform_value)},
+            {.type = abi_type::input_event, .size = sizeof(input_event)},
+            {.type = abi_type::point_light_desc, .size = sizeof(point_light_desc)},
+            {.type = abi_type::material_override_desc, .size = sizeof(material_override_desc)},
+            {.type = abi_type::startup_options, .size = sizeof(startup_options)},
+            {.type = abi_type::head_basis_desc, .size = sizeof(head_basis_desc)},
+            {.type = abi_type::face_frame_desc, .size = sizeof(face_frame_desc)},
+        };
+        constexpr auto count = static_cast<std::uint32_t>(std::size(entries));
+        if (out == nullptr || capacity < count) {
+            return script_status::invalid_argument;
+        }
+        for (std::uint32_t index = 0; index < count; ++index) {
+            out[index] = entries[index];
+        }
         return script_status::success;
     }
 
     script_status request_screenshot() {
         ++screenshot_requests;
         return script_status::success;
+    }
+
+    // The managed side answers each frame boundary from its own worker thread, so the count must be
+    // atomic. It is the proof that the host's wait was released instead of timing out.
+    std::atomic<unsigned> notify_count{0};
+
+    script_status record_notify() {
+        ++notify_count;
+        return script_status::success;
+    }
+
+    // The real host blocks on a condition variable after it hands over a boundary. This test calls
+    // the managed callbacks directly, so it has to wait the same way instead of racing the worker
+    // thread that runs a non-empty batch.
+    bool wait_for_notify(unsigned const expected) {
+        for (int attempt = 0; attempt < 500; ++attempt) {
+            if (notify_count.load() >= expected) {
+                return true;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        return false;
     }
 
     script_status set_environment_hdr(utf8_view path, std::uint32_t requested_slot) {
@@ -1070,15 +1123,23 @@ namespace {
         native_api const api{.log = scene_log,
                              .get_module = get_scene_module,
                              .request_screenshot = request_screenshot,
-                             .set_input_event_callback = set_input_callback};
+                             .set_input_event_callback = set_input_callback,
+                             .abi_layout = publish_abi_layout,
+                             .notify_rendering = record_notify};
         managed_api scripts;
         if (initialize_managed_host(paths, api, scripts).status != host_status::success) {
             std::fputs("startup: managed host initialization failed\n", stderr);
             return false;
         }
-        if (scripts.signal == nullptr ||
-            scripts.signal(static_cast<std::uint32_t>(frame_signal::after_frame)) != script_status::success) {
-            std::fputs("frame: signal callback missing or failed\n", stderr);
+        if (scripts.before_frame == nullptr || scripts.after_frame == nullptr) {
+            std::fputs("frame: boundary callbacks missing\n", stderr);
+            return false;
+        }
+        // An empty before-frame batch answers inline; the wait must settle exactly once.
+        notify_count = 0;
+        scripts.before_frame();
+        if (!wait_for_notify(1) || notify_count != 1) {
+            std::fprintf(stderr, "frame: before-frame wait answered %u times, expected 1\n", notify_count.load());
             return false;
         }
         if (scene.active_tree == 0 || scene.trees_created != 1 || scene.nodes_created != 3 ||
@@ -1126,11 +1187,18 @@ namespace {
             std::fputs("frame: update failed\n", stderr);
             return false;
         }
-        auto const signal_status = scripts.signal(static_cast<std::uint32_t>(frame_signal::after_frame));
+        // The demo queues its one-shot after-frame task; the boundary must run it, answer the wait,
+        // and only then may the next update observe the task's effect.
+        notify_count = 0;
+        scripts.after_frame();
+        if (!wait_for_notify(1)) {
+            std::fprintf(stderr, "frame: after-frame wait was never answered\n");
+            return false;
+        }
         auto const follow_status = update_scene(scripts, 7, 0.5F);
-        if (signal_status != script_status::success || follow_status != script_status::success) {
-            std::fprintf(stderr, "frame: after-frame callback or screenshot request failed (signal %u, update %u)\n",
-                         static_cast<unsigned>(signal_status), static_cast<unsigned>(follow_status));
+        if (notify_count != 1 || follow_status != script_status::success) {
+            std::fprintf(stderr, "frame: after-frame wait answered %u times, update %u\n", notify_count.load(),
+                         static_cast<unsigned>(follow_status));
             return false;
         }
         // The environment request is the project's `[lighting] environment_hdr` round trip. Two calls
@@ -1228,8 +1296,68 @@ namespace {
         return true;
     }
 
+    // ABI 34: the two boundaries and the six registration verbs. The demo game turns itself into a
+    // self check when it sees `--frame-events-selftest`: it registers one task of every kind on the
+    // first frame and fails its own update the moment a count drifts. This case owns the other half
+    // of the contract, the part managed code cannot see: every boundary answers exactly once, in
+    // order, with the render thread waiting in between.
+    bool run_frame_events(host_paths const& paths) {
+        char const* selftest_argv[]{"test_managed_host", "--frame-events-selftest"};
+        auto selftest_paths = paths;
+        selftest_paths.argc = 2;
+        selftest_paths.argv = const_cast<char**>(selftest_argv);
+        scene_fixture scene;
+        module_context = &scene;
+        native_api const api{.log = scene_log,
+                             .get_module = get_scene_module,
+                             .request_screenshot = request_screenshot,
+                             .set_input_event_callback = set_input_callback,
+                             .abi_layout = publish_abi_layout,
+                             .notify_rendering = record_notify};
+        managed_api scripts;
+        if (initialize_managed_host(selftest_paths, api, scripts).status != host_status::success) {
+            std::fputs("frame events: managed host initialization failed\n", stderr);
+            return false;
+        }
+        if (scripts.before_frame == nullptr || scripts.after_frame == nullptr) {
+            std::fputs("frame events: boundary callbacks missing\n", stderr);
+            return false;
+        }
+        notify_count = 0;
+        unsigned answered = 0;
+        for (int frame = 1; frame <= 6; ++frame) {
+            // The first update registers the tasks; every later one verifies the boundaries that ran
+            // since, so a failure here is the managed self check reporting a broken contract.
+            if (update_scene(scripts, 7, 0.5F) != script_status::success) {
+                std::fprintf(stderr, "frame events: the self check failed before boundary %d\n", frame);
+                return false;
+            }
+            scripts.before_frame();
+            ++answered;
+            if (!wait_for_notify(answered) || notify_count != answered) {
+                std::fprintf(stderr, "frame events: before boundary %d answered %u times, expected %u\n", frame,
+                             notify_count.load(), answered);
+                return false;
+            }
+            scripts.after_frame();
+            ++answered;
+            if (!wait_for_notify(answered) || notify_count != answered) {
+                std::fprintf(stderr, "frame events: after boundary %d answered %u times, expected %u\n", frame,
+                             notify_count.load(), answered);
+                return false;
+            }
+        }
+        if (update_scene(scripts, 7, 0.5F) != script_status::success) {
+            std::fputs("frame events: the final self check failed\n", stderr);
+            return false;
+        }
+        return true;
+    }
+
     void log_message(char const* message, std::uint32_t length) {
-        *log_target = std::string_view{message, length} == "deren managed host ready";
+        auto const view = std::string_view{message, length};
+        last_log.assign(view);
+        *log_target = view == "deren managed host ready";
     }
 
 } // namespace
@@ -1246,6 +1374,13 @@ int main(int argc, char** argv) {
         .runtime_config = bridge_directory / "Deren.Managed.runtimeconfig.json",
         .nethost = bridge_directory / "nethost.dll",
         .game_assembly = std::filesystem::path{argv[3]}};
+    if (scenario == "frame_events") {
+        if (!run_frame_events(paths)) {
+            std::fputs("Managed frame event boundaries failed\n", stderr);
+            return 1;
+        }
+        return 0;
+    }
     if (scenario == "scene_lifecycle" || scenario == "scene_input") {
         if (!run_scene(paths, scenario == "scene_input")) {
             std::fputs("Managed scene lifecycle or transform round trip failed\n", stderr);
@@ -1257,7 +1392,27 @@ int main(int argc, char** argv) {
     auto abi_version = deren::scripting::managed_abi_version;
     bool received = false;
     log_target = &received;
-    auto api = deren::scripting::native_api{.log = log_message, .get_module = get_scene_module, .request_screenshot = request_screenshot};
+    auto api = deren::scripting::native_api{.log = log_message,
+                                            .get_module = get_scene_module,
+                                            .request_screenshot = request_screenshot,
+                                            .abi_layout = publish_abi_layout,
+                                            .notify_rendering = record_notify};
+    if (scenario == "abi_layout_mismatch") {
+        // ABI 33: the fake host reports a native_api size the managed side does not share, and the
+        // layout check lives in configure_from_engine, so this scenario has to go through configure.
+        static scene_fixture layout_fixture;
+        layout_fixture.abi_size_delta = 8;
+        module_context = &layout_fixture;
+        deren::scripting::startup_options options{};
+        auto const result = deren::scripting::configure_managed_host(paths, api, options);
+        if (result.status != host_status::invalid_api ||
+            last_log.find("the layouts of 'native_api' disagree") == std::string::npos) {
+            std::fprintf(stderr, "abi_layout_mismatch: status %d, last log '%s'\n",
+                         static_cast<int>(result.status), last_log.c_str());
+            return 1;
+        }
+        return 0;
+    }
     managed_api scripts;
     static scene_fixture round_trip_fixture;
     if (scenario == "round_trip") {

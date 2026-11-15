@@ -69,12 +69,18 @@ namespace deren {
         private static Action<input_event>? handler;
 
         public static bool try_set_callback(Action<input_event>? value) {
+            return try_set_callback(value, out _);
+        }
+
+        public static bool try_set_callback(Action<input_event>? value, out script_status status) {
             var api = managed_bootstrap.core;
             if (api.set_input_event_callback == null) {
+                status = script_status.module_unavailable;
                 return false;
             }
             handler = value;
             api.set_input_event_callback(value == null ? null : &dispatch, null);
+            status = script_status.success;
             return true;
         }
 

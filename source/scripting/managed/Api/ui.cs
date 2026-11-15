@@ -123,72 +123,96 @@ namespace deren {
         }
 
         public static bool begin_panel(string title, float default_width, float default_height) {
+            return begin_panel(title, default_width, default_height, out _);
+        }
+
+        public static bool begin_panel(string title, float default_width, float default_height,
+                                       out script_status status) {
             if (string.IsNullOrEmpty(title)) {
+                status = script_status.invalid_argument;
                 return false;
             }
-            var bytes = Encoding.UTF8.GetBytes(title);
-            fixed (byte* data = bytes) {
-                return ui_api.assign_begin(new utf8_view { data = data, length = (uint)bytes.Length }, default_width,
-                                           default_height) == script_status.success;
-            }
+            using var text = native_string.create(title);
+            status = ui_api.assign_begin(text.view, default_width, default_height);
+            return status == script_status.success;
         }
 
         public static bool end_panel() {
-            return ui_api.assign_end() == script_status.success;
+            return end_panel(out _);
         }
 
-        public static bool text(string text) {
-            var bytes = Encoding.UTF8.GetBytes(text ?? string.Empty);
-            fixed (byte* data = bytes) {
-                return ui_api.assign_text(new utf8_view { data = data, length = (uint)bytes.Length }) ==
-                       script_status.success;
-            }
+        public static bool end_panel(out script_status status) {
+            status = ui_api.assign_end();
+            return status == script_status.success;
+        }
+
+        public static bool text(string value) {
+            return text(value, out _);
+        }
+
+        public static bool text(string value, out script_status status) {
+            using var encoded = native_string.create(value);
+            status = ui_api.assign_text(encoded.view);
+            return status == script_status.success;
         }
 
         public static bool checkbox(string label, ui_value value) {
+            return checkbox(label, value, out _);
+        }
+
+        public static bool checkbox(string label, ui_value value, out script_status status) {
             if (string.IsNullOrEmpty(label) || value == null) {
+                status = script_status.invalid_argument;
                 return false;
             }
-            var bytes = Encoding.UTF8.GetBytes(label);
-            fixed (byte* data = bytes) {
-                return ui_api.assign_checkbox(new utf8_view { data = data, length = (uint)bytes.Length },
-                                              value.address) == script_status.success;
-            }
+            using var text = native_string.create(label);
+            status = ui_api.assign_checkbox(text.view, value.address);
+            return status == script_status.success;
         }
 
         public static bool slider(string label, ui_value value, float minimum, float maximum) {
+            return slider(label, value, minimum, maximum, out _);
+        }
+
+        public static bool slider(string label, ui_value value, float minimum, float maximum,
+                                  out script_status status) {
             if (string.IsNullOrEmpty(label) || value == null) {
+                status = script_status.invalid_argument;
                 return false;
             }
-            var bytes = Encoding.UTF8.GetBytes(label);
-            fixed (byte* data = bytes) {
-                return ui_api.assign_slider(new utf8_view { data = data, length = (uint)bytes.Length },
-                                            (float*)value.address, minimum, maximum) == script_status.success;
-            }
+            using var text = native_string.create(label);
+            status = ui_api.assign_slider(text.view, (float*)value.address, minimum, maximum);
+            return status == script_status.success;
         }
 
         public static bool vec3(string label, ui_value value, float speed = 0.05f) {
+            return vec3(label, value, speed, out _);
+        }
+
+        public static bool vec3(string label, ui_value value, float speed, out script_status status) {
             if (string.IsNullOrEmpty(label) || value == null) {
+                status = script_status.invalid_argument;
                 return false;
             }
-            var bytes = Encoding.UTF8.GetBytes(label);
-            fixed (byte* data = bytes) {
-                return ui_api.assign_vec3(new utf8_view { data = data, length = (uint)bytes.Length },
-                                          (float*)value.address, speed) == script_status.success;
-            }
+            using var text = native_string.create(label);
+            status = ui_api.assign_vec3(text.view, (float*)value.address, speed);
+            return status == script_status.success;
         }
 
         public static bool combo(string label, string[] items, ui_value value) {
+            return combo(label, items, value, out _);
+        }
+
+        public static bool combo(string label, string[] items, ui_value value, out script_status status) {
             if (string.IsNullOrEmpty(label) || value == null || items == null || items.Length == 0) {
+                status = script_status.invalid_argument;
                 return false;
             }
             // THE ITEM NAMES LIVE IN ONE BUFFER the call pins: one utf8_view per item points into it, so
-            // the host sees contiguous strings and there is nothing to free afterwards.
-            var encoded = new byte[items.Length][];
+            // the host sees contiguous strings and nothing outlives the call.
             var total = 0;
             for (var index = 0; index < items.Length; ++index) {
-                encoded[index] = Encoding.UTF8.GetBytes(items[index] ?? string.Empty);
-                total += encoded[index].Length;
+                total += Encoding.UTF8.GetByteCount(items[index] ?? string.Empty);
             }
             var buffer = new byte[total];
             var views = new utf8_view[items.Length];
@@ -196,16 +220,14 @@ namespace deren {
             fixed (byte* buffer_data = buffer)
             fixed (utf8_view* view_data = views) {
                 for (var index = 0; index < items.Length; ++index) {
-                    Array.Copy(encoded[index], 0, buffer, cursor, encoded[index].Length);
-                    views[index] = new utf8_view { data = buffer_data + cursor, length = (uint)encoded[index].Length };
-                    cursor += encoded[index].Length;
+                    var item = items[index] ?? string.Empty;
+                    var written = Encoding.UTF8.GetBytes(item, 0, item.Length, buffer, cursor);
+                    views[index] = new utf8_view { data = buffer_data + cursor, length = (uint)written };
+                    cursor += written;
                 }
-                var label_bytes = Encoding.UTF8.GetBytes(label);
-                fixed (byte* label_data = label_bytes) {
-                    return ui_api.assign_combo(new utf8_view { data = label_data, length = (uint)label_bytes.Length },
-                                               view_data, (uint)items.Length, (int*)value.address) ==
-                           script_status.success;
-                }
+                using var text = native_string.create(label);
+                status = ui_api.assign_combo(text.view, view_data, (uint)items.Length, (int*)value.address);
+                return status == script_status.success;
             }
         }
 
@@ -215,20 +237,28 @@ namespace deren {
         /// <see cref="ui_value.clear"/> it, exactly like a one-shot key press.
         /// </summary>
         public static bool button(string label, ui_value value) {
+            return button(label, value, out _);
+        }
+
+        public static bool button(string label, ui_value value, out script_status status) {
             if (string.IsNullOrEmpty(label) || value == null) {
+                status = script_status.invalid_argument;
                 return false;
             }
-            var bytes = Encoding.UTF8.GetBytes(label);
-            fixed (byte* data = bytes) {
-                return ui_api.assign_button(new utf8_view { data = data, length = (uint)bytes.Length },
-                                            value.address) == script_status.success;
-            }
+            using var text = native_string.create(label);
+            status = ui_api.assign_button(text.view, value.address);
+            return status == script_status.success;
         }
 
         /// <summary>Whether the pointer is over the panel: a game with its own mouse-look should idle it.</summary>
         public static bool wants_mouse() {
+            return wants_mouse(out _);
+        }
+
+        public static bool wants_mouse(out script_status status) {
             byte wants = 0;
-            return ui_api.read_wants_mouse(&wants) == script_status.success && wants != 0;
+            status = ui_api.read_wants_mouse(&wants);
+            return status == script_status.success && wants != 0;
         }
     }
 }

@@ -266,7 +266,9 @@ namespace deren::app {
         scripting::native_api const api{.log = log,
                                         .get_module = get_module,
                                         .request_screenshot = request_screenshot,
-                                        .set_input_event_callback = set_input_event_callback};
+                                        .set_input_event_callback = set_input_event_callback,
+                                        .abi_layout = abi_layout,
+                                        .notify_rendering = notify_rendering};
         scripting::startup_options options{};
         auto const result = scripting::configure_managed_host(
             {.assembly = runtime_dir / "Deren.Managed.dll",
@@ -310,7 +312,9 @@ namespace deren::app {
         scripting::native_api const api{.log = log,
                                         .get_module = get_module,
                                         .request_screenshot = request_screenshot,
-                                        .set_input_event_callback = set_input_event_callback};
+                                        .set_input_event_callback = set_input_event_callback,
+                                        .abi_layout = abi_layout,
+                                        .notify_rendering = notify_rendering};
         starting_scene = this;
         auto const result = scripting::initialize_managed_host(
             {.assembly = runtime_dir / "Deren.Managed.dll",
@@ -350,16 +354,38 @@ namespace deren::app {
         return true;
     }
 
-    bool script_scene::signal_after_frame() {
-        if (scripts.signal == nullptr) {
+    bool script_scene::await_frame_callback(void (*callback)()) {
+        {
+            std::lock_guard const lock(frame_mutex);
+            frame_pending = true;
+        }
+        // Only announce the boundary: managed code copies what it needs, runs the batch on its own
+        // worker thread and answers through native_api notify_rendering.
+        callback();
+        std::unique_lock lock(frame_mutex);
+        // A managed side that throws its way out of a batch never answers. One timeout and one
+        // error line is the whole cost; the flag is cleared so the next frame starts clean.
+        constexpr auto frame_wait_timeout = std::chrono::milliseconds(5000);
+        bool const answered = frame_cv.wait_for(lock, frame_wait_timeout, [this] { return !frame_pending; });
+        if (!answered) {
+            frame_pending = false;
+            utility::error("scripts: managed code did not answer a frame boundary within 5000 ms");
+        }
+        return answered;
+    }
+
+    bool script_scene::signal_before_frame() {
+        if (scripts.before_frame == nullptr) {
             return true;
         }
-        if (scripts.signal(static_cast<std::uint32_t>(scripting::frame_signal::after_frame)) !=
-            scripting::script_status::success) {
-            utility::error("scripts: after-frame signal failed");
-            return false;
+        return await_frame_callback(scripts.before_frame);
+    }
+
+    bool script_scene::signal_after_frame() {
+        if (scripts.after_frame == nullptr) {
+            return true;
         }
-        return true;
+        return await_frame_callback(scripts.after_frame);
     }
 
     void script_scene::clear_asset_binder() noexcept {
@@ -1152,11 +1178,13 @@ namespace deren::app {
         utility::log("scripts: {}", std::string_view{text, length});
     }
 
-    scripting::script_status script_scene::get_module(std::uint32_t const module, void const** table) {
-        if (table == nullptr) {
+    scripting::script_status script_scene::get_module(std::uint32_t const module, void const** table,
+                                                      std::uint32_t* const byte_size) {
+        if (table == nullptr || byte_size == nullptr) {
             return scripting::script_status::invalid_argument;
         }
         *table = nullptr;
+        *byte_size = 0;
         if (module == static_cast<std::uint32_t>(scripting::native_module::ui)) {
             // The panel table exists even when no overlay is installed: the managed side then gets
             // module_unavailable from the first widget instead of a silently empty frame.
@@ -1172,6 +1200,7 @@ namespace deren::app {
                 .wants_mouse = ui_wants_mouse,
             };
             *table = &ui_api;
+            *byte_size = sizeof(ui_api);
             return scripting::script_status::success;
         }
         if (module != static_cast<std::uint32_t>(scripting::native_module::scene)) {
@@ -1228,6 +1257,50 @@ namespace deren::app {
             .reset_temporal_history = reset_temporal_history,
             .write_radiance_cube = write_radiance_cube};
         *table = &scene_api;
+        *byte_size = sizeof(scene_api);
+        return scripting::script_status::success;
+    }
+
+    scripting::script_status script_scene::abi_layout(scripting::abi_layout_entry* const out,
+                                                      std::uint32_t const capacity) {
+        using scripting::abi_type;
+        // ABI 33: one entry per struct the managed side mirrors. The module tables are not listed:
+        // get_module() reports their size, so scene_api and ui_api each check their own table.
+        constexpr scripting::abi_layout_entry entries[] = {
+            {.type = abi_type::native_api, .size = sizeof(scripting::native_api)},
+            {.type = abi_type::managed_api, .size = sizeof(scripting::managed_api)},
+            {.type = abi_type::frame_info, .size = sizeof(scripting::frame_info)},
+            {.type = abi_type::transform_value, .size = sizeof(scripting::transform_value)},
+            {.type = abi_type::input_event, .size = sizeof(scripting::input_event)},
+            {.type = abi_type::point_light_desc, .size = sizeof(scripting::point_light_desc)},
+            {.type = abi_type::material_override_desc, .size = sizeof(scripting::material_override_desc)},
+            {.type = abi_type::startup_options, .size = sizeof(scripting::startup_options)},
+            {.type = abi_type::head_basis_desc, .size = sizeof(scripting::head_basis_desc)},
+            {.type = abi_type::face_frame_desc, .size = sizeof(scripting::face_frame_desc)},
+        };
+        constexpr auto count = static_cast<std::uint32_t>(std::size(entries));
+        if (out == nullptr || capacity < count) {
+            return scripting::script_status::invalid_argument;
+        }
+        for (std::uint32_t index = 0; index < count; ++index) {
+            out[index] = entries[index];
+        }
+        return scripting::script_status::success;
+    }
+
+    scripting::script_status script_scene::notify_rendering() {
+        script_scene* const owner = current_owner();
+        if (owner == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        std::lock_guard const lock(owner->frame_mutex);
+        if (!owner->frame_pending) {
+            // Nothing is waiting: a duplicate or out-of-step answer. Reporting it keeps such a
+            // managed side visible instead of letting the call settle some later frame's wait.
+            return scripting::script_status::invalid_argument;
+        }
+        owner->frame_pending = false;
+        owner->frame_cv.notify_all();
         return scripting::script_status::success;
     }
 

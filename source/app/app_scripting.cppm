@@ -238,7 +238,15 @@ export namespace deren::app {
             std::filesystem::path const& assembly, managed_scene_host host,
             std::filesystem::path const& asset_library_root = {}, managed_asset_binder binder = {});
         [[nodiscard]] bool update(float dt, std::span<std::uint8_t const> input_frame);
-        /** Emits the after-frame signal; managed code dispatches its own callables. */
+        /**
+         * Emits the before-frame callback and waits for managed code to report the batch done.
+         *
+         * Called only for a frame the host has already decided to draw, so the pair before/after is
+         * never split by a skipped frame. Managed code owns the queue behind the callback; the host
+         * only hands over the boundary and waits for native_api notify_rendering.
+         */
+        [[nodiscard]] bool signal_before_frame();
+        /** Emits the after-frame callback and waits for managed code to report the batch done. */
         [[nodiscard]] bool signal_after_frame();
         /** Installs the debug panel host (ABI 31); empty when the project draws no panel. */
         void install_ui(managed_ui_host host);
@@ -260,7 +268,10 @@ export namespace deren::app {
         static placement* find(scripting::node_handle handle);
         static script_scene* find_scene(std::uint64_t scene);
         static void log(char const* text, std::uint32_t length);
-        static scripting::script_status get_module(std::uint32_t module, void const** table);
+        static scripting::script_status get_module(std::uint32_t module, void const** table, std::uint32_t* byte_size);
+        static scripting::script_status abi_layout(scripting::abi_layout_entry* out, std::uint32_t capacity);
+        /// The native_api entry that ends a frame-boundary wait; see managed_scene_host::notify_rendering.
+        static scripting::script_status notify_rendering();
         static scripting::script_status get_transform(scripting::node_handle node, scripting::transform_value* value);
         static scripting::script_status set_transform(scripting::node_handle node, scripting::transform_value const* value);
         static scripting::script_status try_spawn(std::uint64_t scene, scripting::utf8_view asset,
@@ -369,6 +380,15 @@ export namespace deren::app {
         static scripting::script_status ui_button(scripting::utf8_view label, std::uint8_t* pressed);
         static scripting::script_status ui_wants_mouse(std::uint8_t* value);
 
+        /**
+         * Hands one frame boundary to managed code and waits for the matching notify_rendering.
+         *
+         * The pending flag is raised before the callback runs, so a managed side that answers
+         * inline (an empty batch) settles the wait immediately instead of losing the wake-up. A
+         * managed side that never answers costs one timeout and one error line, never a hung app.
+         */
+        [[nodiscard]] bool await_frame_callback(void (*callback)());
+
         scripting::managed_api scripts;
         managed_ui_host ui_host;
         engine::scene_tree::scene* tree = nullptr;
@@ -378,5 +398,10 @@ export namespace deren::app {
         std::uint64_t scene_id = 0;
         bool running = false;
         bool closing = false;
+        // ABI 34: one frame boundary at a time. The render thread waits on this pair while managed
+        // code runs the batch on its worker thread and calls notify_rendering.
+        std::mutex frame_mutex;
+        std::condition_variable frame_cv;
+        bool frame_pending = false;
     };
 } // namespace deren::app

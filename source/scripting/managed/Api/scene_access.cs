@@ -1,4 +1,3 @@
-using System.Text;
 using deren.scripting;
 
 namespace deren {
@@ -13,29 +12,47 @@ namespace deren {
         public node_id self => owner is null ? default : new node_id(owner.self_handle, owner);
 
         public unsafe bool try_spawn(string asset_id, transform_value pose, out node_id target) {
+            return try_spawn(asset_id, pose, out target, out _);
+        }
+
+        public unsafe bool try_spawn(string asset_id, transform_value pose, out node_id target,
+                                     out script_status status) {
             target = default;
-            if (owner == null || string.IsNullOrEmpty(asset_id)) {
+            if (owner == null) {
+                status = script_status.invalid_argument;
+                return false;
+            }
+            if (string.IsNullOrEmpty(asset_id)) {
+                status = script_status.invalid_argument;
                 return false;
             }
             owner.ensure_bound();
-            var asset = Encoding.UTF8.GetBytes(asset_id);
-            fixed (byte* data = asset) {
-                node_handle handle;
-                if (scene_api.spawn(owner.scene_id, new utf8_view { data = data, length = (uint)asset.Length }, &pose, &handle)
-                    != script_status.success) {
-                    return false;
-                }
-                target = new node_id(handle, owner);
-                return true;
+            using var asset = native_string.create(asset_id);
+            node_handle handle;
+            status = scene_api.spawn(owner.scene_id, asset.view, &pose, &handle);
+            if (status != script_status.success) {
+                return false;
             }
+            target = new node_id(handle, owner);
+            return true;
         }
 
         public unsafe bool try_despawn(node_id target) {
-            if (owner == null || !target.is_valid) {
+            return try_despawn(target, out _);
+        }
+
+        public unsafe bool try_despawn(node_id target, out script_status status) {
+            if (owner == null) {
+                status = script_status.invalid_argument;
+                return false;
+            }
+            if (!target.is_valid) {
+                status = script_status.invalid_node;
                 return false;
             }
             owner.ensure_bound();
-            return scene_api.despawn(owner.scene_id, target.handle) == script_status.success;
+            status = scene_api.despawn(owner.scene_id, target.handle);
+            return status == script_status.success;
         }
     }
 }

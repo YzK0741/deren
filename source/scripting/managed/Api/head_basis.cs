@@ -24,17 +24,23 @@ namespace deren.scripting {
         /// has no usable face measurement, when the frame is degenerate, or when the host refuses it.
         /// </summary>
         public static bool try_publish(asset_handle asset, uint character_index = 0) {
+            return try_publish(asset, character_index, out _);
+        }
+
+        public static bool try_publish(asset_handle asset, uint character_index, out script_status status) {
             if (character_index >= max_characters) {
+                status = script_status.invalid_argument;
                 log($"Game: head basis: character slot {character_index} is above the {max_characters} the renderer keeps");
                 return false;
             }
             scene_api.face_frame_desc measured;
-            var status = scene_api.query_face_frame(asset.value, &measured);
+            status = scene_api.query_face_frame(asset.value, &measured);
             if (status != script_status.success) {
                 log($"Game: head basis: no face frame for asset {asset.value} ({status})");
                 return false;
             }
             if (measured.valid == 0) {
+                status = script_status.asset_not_found;
                 log($"Game: head basis: asset {asset.value} has no usable face frame");
                 return false;
             }
@@ -44,6 +50,7 @@ namespace deren.scripting {
             var front = normalize(measured.world_forward, measured.forward);
             var right = normalize(measured.world_right, measured.right);
             if (!is_usable(front) || !is_usable(right)) {
+                status = script_status.asset_invalid;
                 log($"Game: head basis: asset {asset.value} reported a degenerate face frame");
                 return false;
             }
@@ -51,6 +58,7 @@ namespace deren.scripting {
             // three cannot disagree with each other the way three independent measurements could.
             var up = cross(right, front);
             if (!is_usable(up)) {
+                status = script_status.asset_invalid;
                 log($"Game: head basis: asset {asset.value} reported parallel face axes");
                 return false;
             }

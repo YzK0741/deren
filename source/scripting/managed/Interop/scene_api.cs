@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace deren.scripting {
     /// <summary>
@@ -248,11 +249,20 @@ namespace deren.scripting {
             write_radiance_cube = null;
 
             void* table = null;
-            var status = api->get_module((uint)native_module.scene, &table);
+            uint byte_size = 0;
+            var status = api->get_module((uint)native_module.scene, &table, &byte_size);
             if (status != script_status.success) {
                 return status;
             }
             if (table == null) {
+                return script_status.module_invalid;
+            }
+            // ABI 33: the host reports the table size, so a field count that drifted between the two
+            // sides is a refused binding instead of a call through a pointer read past the table.
+            if (byte_size != sizeof(scene_api_layout)) {
+                api->write_log(Encoding.UTF8.GetBytes(
+                    $"Managed host: the scene module table is {byte_size} bytes, this build expects " +
+                    $"{sizeof(scene_api_layout)}."));
                 return script_status.module_invalid;
             }
             var resolved = *(scene_api_layout*)table;

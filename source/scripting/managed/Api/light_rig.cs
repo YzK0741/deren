@@ -30,27 +30,38 @@ namespace deren {
         /// error, because most demos light themselves with the sun alone.
         /// </summary>
         public static bool try_load_project_rig() {
+            return try_load_project_rig(out _);
+        }
+
+        public static bool try_load_project_rig(out script_status status) {
             var directory = project_config.scene_directory;
             if (string.IsNullOrEmpty(directory)) {
                 directory = managed_bootstrap.project_directory;
             }
             if (string.IsNullOrEmpty(directory)) {
+                status = script_status.invalid_argument;
                 return false;
             }
-            return try_load(Path.Combine(directory, file_name));
+            return try_load(Path.Combine(directory, file_name), out status);
         }
 
         /// <summary>Loads one rig file and replaces the punctual light set with its lights.</summary>
         public static unsafe bool try_load(string path) {
+            return try_load(path, out _);
+        }
+
+        public static unsafe bool try_load(string path, out script_status status) {
             string document;
             try {
                 document = File.ReadAllText(path);
             } catch (Exception error) {
+                status = script_status.asset_not_found;
                 log($"light rig: cannot read '{path}' ({error.GetBaseException().Message})");
                 return false;
             }
             var root = toml_table.parse(document, out var complaint);
             if (root == null) {
+                status = script_status.asset_invalid;
                 log($"light rig: '{path}' is not TOML ({complaint})");
                 return false;
             }
@@ -59,6 +70,7 @@ namespace deren {
             }
             var entries = root.tables("light");
             if (entries == null || entries.Count == 0) {
+                status = script_status.asset_invalid;
                 log($"light rig: '{path}' declares no [[light]] entries");
                 return false;
             }
@@ -70,10 +82,11 @@ namespace deren {
             for (var index = 0; index < entries.Count; ++index) {
                 var entry = entries[index];
                 if (!try_read_light(entry, index, z_up, offset, out lights[index])) {
+                    status = script_status.asset_invalid;
                     return false;
                 }
             }
-            if (!lighting.try_set_point_lights(lights)) {
+            if (!lighting.try_set_point_lights(lights, out status)) {
                 log($"light rig: the host rejected the {lights.Length} light(s) of '{path}'");
                 return false;
             }
