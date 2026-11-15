@@ -1,6 +1,6 @@
 # C# Module ABI
 
-Status: implemented for the `scene` and `ui` modules; managed ABI v33.
+Status: implemented for the `scene` and `ui` modules; managed ABI v34.
 
 Baseline: `feature/csharp-scene-tree`. Native code owns rendering, the Vulkan runtime, the
 module resolver, and primitive/scene import. Managed code owns scene construction, asset
@@ -20,7 +20,8 @@ every startup decision before the window and the Vulkan runtime exist:
 4. The host creates the window and the Vulkan runtime from those options.
 5. Call `game_entry.initialize(native_api*, managed_api*)`.
 6. Validate that the project registered `managed_api.update` and `managed_api.stop`; the
-   managed bootstrap installs the `managed_api.signal` entry used for frame boundaries.
+   managed bootstrap installs the `managed_api.before_frame` and `managed_api.after_frame`
+   entries used for the frame boundaries.
 
 The project entry:
 
@@ -32,7 +33,7 @@ The project entry:
 6. Binds renderable assets with `scene_tree.try_bind_asset`.
 7. Attaches scripts.
 8. Writes its `update` and `stop` function pointers into `managed_api`; the bootstrap installs
-   the frame signal entry.
+   the two frame boundary entries.
 
 There is no `start_scene`, `scene_builder`, object count, binding array, or native object-root
 allocation. `[scripts]` selects the project assembly (the managed path); `[[scene.objects]]`
@@ -50,6 +51,7 @@ struct native_api {
     void(* set_input_event_callback)(void(* callback)(void* context, input_event const* event),
                                      void* context) = nullptr;
     script_status(* abi_layout)(abi_layout_entry* out, std::uint32_t capacity) = nullptr;
+    script_status(* notify_rendering)() = nullptr;
 };
 
 enum class abi_type : std::uint32_t {
@@ -81,14 +83,11 @@ struct input_event {
     std::uint32_t codepoint;
 };
 
-enum class frame_signal : std::uint32_t {
-    after_frame = 1
-};
-
 struct managed_api {
     script_status(* update)(frame_info const* frame) = nullptr;
     script_status(* stop)() = nullptr;
-    script_status(* signal)(std::uint32_t signal) = nullptr;
+    void(* before_frame)() = nullptr;
+    void(* after_frame)() = nullptr;
 };
 
 struct startup_options {
@@ -524,6 +523,62 @@ target tree; the handle can be released after binding. Releasing it does not inv
 nodes. The asset is selected by library id, so a managed project does not need a matching
 `[[scene.objects]]` entry.
 
+### Frame events
+
+The render loop reports two boundaries and waits for each one to be answered:
+
+- `before_frame` fires once the frame is certain to be drawn: after pacing and after every skip
+  path, before `begin_recording`. The camera UBO is already written at that point, so a task that
+  moves the camera shows the move one frame later.
+- `after_frame` fires after the frame was presented.
+
+Both are plain `void` callbacks on `managed_api`. The host waits on a condition variable for
+`native_api.notify_rendering`, so managed code must call it exactly once per boundary, including
+when a task throws. The callback itself only posts the order to the dispatcher, so it returns at
+once and the host's wait ends when the dispatcher answers. A boundary that is never answered costs
+one five-second timeout and one error line, and the host stops instead of hanging.
+
+Managed code answers from a dispatcher thread, not from the caller and not from the task that runs
+the callables. The signal only hands the boundary over; then:
+
+1. the dispatcher takes one snapshot of that boundary's queues and hands the blocking half to the
+   blocking executor, waiting until that batch is done;
+2. it waits for the previous frame's non-blocking batch, so two non-blocking batches never overlap;
+3. it hands this frame's non-blocking batch to the non-blocking executor without waiting for it;
+4. it calls `notify_rendering`, and only then does the render thread continue.
+
+The queues are one per (boundary x once/repeat x blocking/non-blocking) combination, eight in all.
+A once task is removed when its snapshot is taken; a repeat task stays registered until `cancel`.
+Each executor runs one batch at a time in registration order; a task registered while a batch runs
+starts at the following boundary, never recursively. Because step 2 has to finish before step 4, a
+non-blocking task that is still running when the next boundary arrives delays that boundary's
+answer: keep non-blocking tasks shorter than a frame.
+
+```csharp
+public static bool do_before_frame_once(Action action, bool is_blocking = true);
+public static bool do_after_frame_once(Action action, bool is_blocking = true);
+public static ulong do_before_frame_repeat(Action action, bool is_blocking = true);
+public static ulong do_after_frame_repeat(Action action, bool is_blocking = true);
+public static ulong do_before_counted_frame_repeat(ulong frame_count, Action action, bool is_blocking = true);
+public static ulong do_after_counted_frame_repeat(ulong frame_count, Action action, bool is_blocking = true);
+public static bool cancel(ulong handle);
+```
+
+- A once task has no handle and runs at the next matching boundary; a repeat task returns the
+  handle `cancel` takes (0 = refused).
+- A counted task is a repeat wrapped in a counter: it runs on every `frame_count`-th matching
+  boundary, counting from registration.
+- Registration is thread-safe. `cancel` never interrupts a task that has already started, because
+  the running batch no longer references the registry.
+- `is_blocking: true` (the default) means the host waits: the dispatcher runs the batch on the
+  blocking executor before it answers. `is_blocking: false` means the batch goes to the non-blocking
+  executor and the answer does not wait for it to finish.
+- A method call made from a non-blocking task races with the render thread. Nothing serializes
+  those calls against the record pass, so the registrant must keep such a task to work that is safe
+  while a frame is recording; the queue only guarantees that the task itself runs once.
+- `deren.frame_scheduler.do_after_frame` stays as the one-shot convenience hook and forwards to
+  the after-frame path.
+
 ## 6. Project entry
 
 ```csharp
@@ -583,7 +638,7 @@ Status values are returned through the ABI; no exception crosses the native boun
 
 ## 8. Layout and versioning
 
-- One global `managed_abi_version`, currently 33.
+- One global `managed_abi_version`, currently 34.
 - No `context` parameter and no per-module version.
 - One version means one exact layout, and since v33 the layout is checked as well: the host
   publishes `{type, sizeof}` for every struct both sides share through `native_api.abi_layout`,
@@ -678,4 +733,10 @@ Status values are returned through the ABI; no exception crosses the native boun
   `sizeof` of its mirror and the two module tables with their layout structs, and declines to bind
   on the first disagreement. The version number stays the primary gate; this is the second one,
   for the case where a field changes without the bump that was supposed to accompany it.
+- v34 replaced the payload signal with two frame boundaries: `managed_api.signal(uint32)` became
+  `void before_frame()` and `void after_frame()`, and `native_api` gained `notify_rendering()`,
+  which is what releases the host's wait. `frame_signal` is gone. The host reports the boundary,
+  waits on a condition variable and lets the managed side run the batch on its own worker thread;
+  the C# entry is `deren.frame_event_processor` with once/repeat/counted registration and
+  `cancel`.
 

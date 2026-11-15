@@ -19,8 +19,12 @@ namespace deren.scripting {
         // them and refuses to bind on a mismatch.
         public delegate* unmanaged<abi_layout_entry*, uint, script_status> abi_layout;
 
+        // ABI 34: answers the frame-boundary wait the host entered after before_frame/after_frame.
+        // Exactly one call per signal; the host reports a call with nothing outstanding.
+        public delegate* unmanaged<script_status> notify_rendering;
+
         public readonly bool is_valid() {
-            return log != null && get_module != null;
+            return log != null && get_module != null && notify_rendering != null;
         }
 
         public readonly void write_log(ReadOnlySpan<byte> message) {

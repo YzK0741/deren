@@ -64,6 +64,23 @@ namespace game {
         private bool left_down;
         private float orbit_dx;
         private static bool input_reported;
+        // Test-only frame event self check. `--frame-events-selftest` turns the demo into a fixed
+        // six-boundary script: it registers one task of every kind, then fails the update as soon as
+        // a queue stops matching the contract. The C++ case `managed_host_frame_events` drives the
+        // boundaries and asserts the notify count; the expectations below are the other half.
+        private bool frame_events_selftest;
+        private bool frame_events_registered;
+        private int frame_events_boundaries;
+        private int frame_events_before;
+        private int frame_events_after;
+        private int frame_events_repeat;
+        private int frame_events_counted;
+        private int frame_events_nonblocking;
+        private int frame_events_cancelled;
+        private int frame_events_serial;
+        private int frame_events_before_serial;
+        private int frame_events_after_serial;
+        private ulong frame_events_repeat_handle;
 
         public script_status preinit(startup_options* options, int argc, byte** argv) {
             if (options == null || argc < 0 || (argc > 0 && argv == null)) {
@@ -77,6 +94,10 @@ namespace game {
                 var argument = args[i];
                 if (argument == "--capture-windowed") {
                     options->capture_windowed = 1;
+                    continue;
+                }
+                if (argument == "--frame-events-selftest") {
+                    frame_events_selftest = true;
                     continue;
                 }
                 var separator = argument.IndexOf('=');
@@ -492,6 +513,93 @@ namespace game {
             current.orbit_dx += -value.dx * 0.25f;
         }
 
+        private script_status frame_events_check() {
+            return frame_events_registered ? frame_events_verify() : frame_events_register();
+        }
+
+        private script_status frame_events_register() {
+            frame_events_registered = true;
+            if (!frame_event_processor.do_before_frame_once(() => {
+                    System.Threading.Interlocked.Increment(ref frame_events_before);
+                    frame_events_before_serial = System.Threading.Interlocked.Increment(ref frame_events_serial);
+                }) ||
+                !frame_event_processor.do_after_frame_once(() => {
+                    System.Threading.Interlocked.Increment(ref frame_events_after);
+                    frame_events_after_serial = System.Threading.Interlocked.Increment(ref frame_events_serial);
+                })) {
+                return frame_events_fail("a blocking once task was refused");
+            }
+            frame_events_repeat_handle =
+                frame_event_processor.do_after_frame_repeat(() => System.Threading.Interlocked.Increment(ref frame_events_repeat));
+            if (frame_events_repeat_handle == 0 ||
+                frame_event_processor.do_after_counted_frame_repeat(
+                    2, () => System.Threading.Interlocked.Increment(ref frame_events_counted)) == 0 ||
+                frame_event_processor.do_after_frame_repeat(
+                    () => System.Threading.Interlocked.Increment(ref frame_events_nonblocking), is_blocking: false) == 0) {
+                return frame_events_fail("a repeat task was refused");
+            }
+            var doomed = frame_event_processor.do_after_frame_repeat(
+                () => System.Threading.Interlocked.Increment(ref frame_events_cancelled));
+            if (doomed == 0 || !frame_event_processor.cancel(doomed) || frame_event_processor.cancel(doomed)) {
+                return frame_events_fail("cancel did not behave like a one-shot handle");
+            }
+            if (frame_event_processor.do_after_frame_repeat(null!) != 0 ||
+                frame_event_processor.do_after_counted_frame_repeat(0, () => { }) != 0 ||
+                frame_event_processor.cancel(ulong.MaxValue)) {
+                return frame_events_fail("an invalid registration or cancel was accepted");
+            }
+            // Registration happens during the first update, so the first boundary pair follows it:
+            // counting it here keeps the verify step's "boundaries already answered" honest.
+            ++frame_events_boundaries;
+            return script_status.success;
+        }
+
+        private script_status frame_events_verify() {
+            var boundaries = frame_events_boundaries;
+            var repeat = Math.Min(boundaries, 3);
+            var counted = boundaries / 2;
+            var before = System.Threading.Volatile.Read(ref frame_events_before);
+            var after = System.Threading.Volatile.Read(ref frame_events_after);
+            var repeats = System.Threading.Volatile.Read(ref frame_events_repeat);
+            var counted_runs = System.Threading.Volatile.Read(ref frame_events_counted);
+            var nonblocking = System.Threading.Volatile.Read(ref frame_events_nonblocking);
+            var cancelled = System.Threading.Volatile.Read(ref frame_events_cancelled);
+            if (before != 1 || after != 1) {
+                return frame_events_fail($"the once tasks ran {before}/{after} times, expected 1/1");
+            }
+            if (repeats != repeat) {
+                return frame_events_fail($"the repeat ran {repeats} times after {boundaries} boundaries, expected {repeat}");
+            }
+            if (counted_runs != counted) {
+                return frame_events_fail($"the counted task ran {counted_runs} times after {boundaries} boundaries, expected {counted}");
+            }
+            // The dispatcher waits for the previous non-blocking batch before it starts ours, so by
+            // the time boundary n is answered, batch n-1 is always done. That is the only guarantee
+            // worth asserting: the batch that just started is allowed to still be running.
+            if (boundaries > 0 && nonblocking < boundaries - 1) {
+                return frame_events_fail($"the non-blocking batch ran {nonblocking} times after {boundaries} boundaries");
+            }
+            if (cancelled != 0) {
+                return frame_events_fail($"a cancelled task ran {cancelled} times");
+            }
+            if (boundaries > 0 &&
+                !(System.Threading.Volatile.Read(ref frame_events_before_serial) > 0 &&
+                  System.Threading.Volatile.Read(ref frame_events_before_serial) <
+                      System.Threading.Volatile.Read(ref frame_events_after_serial))) {
+                return frame_events_fail("the before-frame task did not run before the after-frame one");
+            }
+            if (boundaries == 3 && !frame_event_processor.cancel(frame_events_repeat_handle)) {
+                return frame_events_fail("the repeat handle was no longer cancellable");
+            }
+            ++frame_events_boundaries;
+            return script_status.success;
+        }
+
+        private static script_status frame_events_fail(string message) {
+            managed_bootstrap.core.write_log(System.Text.Encoding.UTF8.GetBytes($"Game: frame events: {message}"));
+            return script_status.script_failure;
+        }
+
         private void attach(script_base script, node_id node) {
             script.attach(0, node.handle);
             scripts.Add(script);
@@ -501,6 +609,9 @@ namespace game {
         private static script_status update(frame_info* frame) {
             if (instance == null || frame == null) {
                 return script_status.invalid_argument;
+            }
+            if (instance.frame_events_selftest) {
+                return instance.frame_events_check();
             }
             if (!instance.frame_signal_scheduled) {
                 instance.frame_signal_scheduled = true;
@@ -518,6 +629,12 @@ namespace game {
                     // so a config that asks for a studio HDR is the environment that gets published.
                     current.environment_requested =
                         global_environment.try_set_hdr(project_config.lighting.environment_hdr);
+                    // A non-blocking task runs on its own thread: the host does not wait for it, so
+                    // a slow task costs the frame nothing. This one only reports that it ran, which
+                    // is what makes the path visible in the log.
+                    frame_event_processor.do_after_frame_once(() => {
+                        managed_bootstrap.core.write_log("Game: non-blocking frame task ran"u8);
+                    }, is_blocking: false);
                 });
             } else if (!instance.frame_signal_ran || !instance.environment_requested ||
                        (!instance.screenshot_requested && !instance.probe_active)) {

@@ -1067,6 +1067,28 @@ namespace {
         return script_status::success;
     }
 
+    // The managed side answers each frame boundary from its own worker thread, so the count must be
+    // atomic. It is the proof that the host's wait was released instead of timing out.
+    std::atomic<unsigned> notify_count{0};
+
+    script_status record_notify() {
+        ++notify_count;
+        return script_status::success;
+    }
+
+    // The real host blocks on a condition variable after it hands over a boundary. This test calls
+    // the managed callbacks directly, so it has to wait the same way instead of racing the worker
+    // thread that runs a non-empty batch.
+    bool wait_for_notify(unsigned const expected) {
+        for (int attempt = 0; attempt < 500; ++attempt) {
+            if (notify_count.load() >= expected) {
+                return true;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        return false;
+    }
+
     script_status set_environment_hdr(utf8_view path, std::uint32_t requested_slot) {
         // The demo game asks for whatever `[lighting] environment_hdr` (or the procedural sky, encoded
         // as an empty path) says: both spellings are legal, so the fake records the request instead of
@@ -1102,15 +1124,22 @@ namespace {
                              .get_module = get_scene_module,
                              .request_screenshot = request_screenshot,
                              .set_input_event_callback = set_input_callback,
-                             .abi_layout = publish_abi_layout};
+                             .abi_layout = publish_abi_layout,
+                             .notify_rendering = record_notify};
         managed_api scripts;
         if (initialize_managed_host(paths, api, scripts).status != host_status::success) {
             std::fputs("startup: managed host initialization failed\n", stderr);
             return false;
         }
-        if (scripts.signal == nullptr ||
-            scripts.signal(static_cast<std::uint32_t>(frame_signal::after_frame)) != script_status::success) {
-            std::fputs("frame: signal callback missing or failed\n", stderr);
+        if (scripts.before_frame == nullptr || scripts.after_frame == nullptr) {
+            std::fputs("frame: boundary callbacks missing\n", stderr);
+            return false;
+        }
+        // An empty before-frame batch answers inline; the wait must settle exactly once.
+        notify_count = 0;
+        scripts.before_frame();
+        if (!wait_for_notify(1) || notify_count != 1) {
+            std::fprintf(stderr, "frame: before-frame wait answered %u times, expected 1\n", notify_count.load());
             return false;
         }
         if (scene.active_tree == 0 || scene.trees_created != 1 || scene.nodes_created != 3 ||
@@ -1158,11 +1187,18 @@ namespace {
             std::fputs("frame: update failed\n", stderr);
             return false;
         }
-        auto const signal_status = scripts.signal(static_cast<std::uint32_t>(frame_signal::after_frame));
+        // The demo queues its one-shot after-frame task; the boundary must run it, answer the wait,
+        // and only then may the next update observe the task's effect.
+        notify_count = 0;
+        scripts.after_frame();
+        if (!wait_for_notify(1)) {
+            std::fprintf(stderr, "frame: after-frame wait was never answered\n");
+            return false;
+        }
         auto const follow_status = update_scene(scripts, 7, 0.5F);
-        if (signal_status != script_status::success || follow_status != script_status::success) {
-            std::fprintf(stderr, "frame: after-frame callback or screenshot request failed (signal %u, update %u)\n",
-                         static_cast<unsigned>(signal_status), static_cast<unsigned>(follow_status));
+        if (notify_count != 1 || follow_status != script_status::success) {
+            std::fprintf(stderr, "frame: after-frame wait answered %u times, update %u\n", notify_count.load(),
+                         static_cast<unsigned>(follow_status));
             return false;
         }
         // The environment request is the project's `[lighting] environment_hdr` round trip. Two calls
@@ -1260,6 +1296,64 @@ namespace {
         return true;
     }
 
+    // ABI 34: the two boundaries and the six registration verbs. The demo game turns itself into a
+    // self check when it sees `--frame-events-selftest`: it registers one task of every kind on the
+    // first frame and fails its own update the moment a count drifts. This case owns the other half
+    // of the contract, the part managed code cannot see: every boundary answers exactly once, in
+    // order, with the render thread waiting in between.
+    bool run_frame_events(host_paths const& paths) {
+        char const* selftest_argv[]{"test_managed_host", "--frame-events-selftest"};
+        auto selftest_paths = paths;
+        selftest_paths.argc = 2;
+        selftest_paths.argv = const_cast<char**>(selftest_argv);
+        scene_fixture scene;
+        module_context = &scene;
+        native_api const api{.log = scene_log,
+                             .get_module = get_scene_module,
+                             .request_screenshot = request_screenshot,
+                             .set_input_event_callback = set_input_callback,
+                             .abi_layout = publish_abi_layout,
+                             .notify_rendering = record_notify};
+        managed_api scripts;
+        if (initialize_managed_host(selftest_paths, api, scripts).status != host_status::success) {
+            std::fputs("frame events: managed host initialization failed\n", stderr);
+            return false;
+        }
+        if (scripts.before_frame == nullptr || scripts.after_frame == nullptr) {
+            std::fputs("frame events: boundary callbacks missing\n", stderr);
+            return false;
+        }
+        notify_count = 0;
+        unsigned answered = 0;
+        for (int frame = 1; frame <= 6; ++frame) {
+            // The first update registers the tasks; every later one verifies the boundaries that ran
+            // since, so a failure here is the managed self check reporting a broken contract.
+            if (update_scene(scripts, 7, 0.5F) != script_status::success) {
+                std::fprintf(stderr, "frame events: the self check failed before boundary %d\n", frame);
+                return false;
+            }
+            scripts.before_frame();
+            ++answered;
+            if (!wait_for_notify(answered) || notify_count != answered) {
+                std::fprintf(stderr, "frame events: before boundary %d answered %u times, expected %u\n", frame,
+                             notify_count.load(), answered);
+                return false;
+            }
+            scripts.after_frame();
+            ++answered;
+            if (!wait_for_notify(answered) || notify_count != answered) {
+                std::fprintf(stderr, "frame events: after boundary %d answered %u times, expected %u\n", frame,
+                             notify_count.load(), answered);
+                return false;
+            }
+        }
+        if (update_scene(scripts, 7, 0.5F) != script_status::success) {
+            std::fputs("frame events: the final self check failed\n", stderr);
+            return false;
+        }
+        return true;
+    }
+
     void log_message(char const* message, std::uint32_t length) {
         auto const view = std::string_view{message, length};
         last_log.assign(view);
@@ -1280,6 +1374,13 @@ int main(int argc, char** argv) {
         .runtime_config = bridge_directory / "Deren.Managed.runtimeconfig.json",
         .nethost = bridge_directory / "nethost.dll",
         .game_assembly = std::filesystem::path{argv[3]}};
+    if (scenario == "frame_events") {
+        if (!run_frame_events(paths)) {
+            std::fputs("Managed frame event boundaries failed\n", stderr);
+            return 1;
+        }
+        return 0;
+    }
     if (scenario == "scene_lifecycle" || scenario == "scene_input") {
         if (!run_scene(paths, scenario == "scene_input")) {
             std::fputs("Managed scene lifecycle or transform round trip failed\n", stderr);
@@ -1294,7 +1395,8 @@ int main(int argc, char** argv) {
     auto api = deren::scripting::native_api{.log = log_message,
                                             .get_module = get_scene_module,
                                             .request_screenshot = request_screenshot,
-                                            .abi_layout = publish_abi_layout};
+                                            .abi_layout = publish_abi_layout,
+                                            .notify_rendering = record_notify};
     if (scenario == "abi_layout_mismatch") {
         // ABI 33: the fake host reports a native_api size the managed side does not share, and the
         // layout check lives in configure_from_engine, so this scenario has to go through configure.

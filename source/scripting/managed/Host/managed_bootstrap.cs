@@ -7,7 +7,7 @@ using System.Text;
 
 namespace deren.scripting {
     internal static unsafe class managed_bootstrap {
-        private const uint abi_version = 33;
+        private const uint abi_version = 34;
         internal static native_api core;
         internal static Assembly? game_assembly;
 
@@ -15,6 +15,9 @@ namespace deren.scripting {
         internal static string project_directory = string.Empty;
 
         private static game_entry? game;
+
+        // Installed by initialize: the project's own stop entry, behind the shutdown wrapper below.
+        private static delegate* unmanaged<script_status> project_stop;
         private const int abi_mismatch = 1;
         private const int invalid_api = 2;
 
@@ -91,7 +94,7 @@ namespace deren.scripting {
                 return invalid_api;
             }
             core = *api;
-            // ABI 33: the layout gate also guards a session that reaches initialize without configure.
+            // ABI 33: the layout check also guards a session that reaches initialize without configure.
             if (!abi_manifest.verify(api)) {
                 return invalid_api;
             }
@@ -111,30 +114,55 @@ namespace deren.scripting {
                 api->write_log(Encoding.UTF8.GetBytes($"Managed host: project initialization failed ({status})."));
                 return (int)status;
             }
-            scripts->signal = &signal_from_engine;
-            if (scripts->update == null || scripts->stop == null || scripts->signal == null) {
-                api->write_log("Managed host: project did not register update/stop/signal."u8);
+            scripts->before_frame = &before_frame_from_engine;
+            scripts->after_frame = &after_frame_from_engine;
+            if (scripts->update == null || scripts->stop == null) {
+                api->write_log("Managed host: project did not register update/stop."u8);
                 return (int)script_status.script_failure;
             }
+            // Wrap the project's stop so the frame worker ends before the native side tears down.
+            project_stop = scripts->stop;
+            scripts->stop = &stop_from_engine;
             api->write_log("deren managed host ready"u8);
             return 0;
         }
 
         /// <summary>
-        /// Called by the native render loop after a presented frame. Managed code owns the queue of
-        /// callables; the native side only emits the signal.
+        /// Called once by the render loop during shutdown. The frame worker is stopped first, so a
+        /// batch that was queued but not started never runs against a torn-down host.
         /// </summary>
         [UnmanagedCallersOnly]
-        public static script_status signal_from_engine(uint signal) {
+        public static script_status stop_from_engine() {
+            frame_event_processor.shutdown();
+            return project_stop == null ? script_status.script_failure : project_stop();
+        }
+
+        /// <summary>
+        /// Called by the render loop once the frame is certain to be drawn. The batch runs on the
+        /// worker thread owned by frame_event_processor, which also answers the host wait; this
+        /// entry point only prepares it, so it returns before the tasks have run.
+        /// </summary>
+        [UnmanagedCallersOnly]
+        public static void before_frame_from_engine() {
+            run_boundary(frame_event_processor.dispatch_before);
+        }
+
+        /// <summary>Called by the render loop after the frame was presented.</summary>
+        [UnmanagedCallersOnly]
+        public static void after_frame_from_engine() {
+            run_boundary(frame_event_processor.dispatch_after);
+        }
+
+        private static void run_boundary(Action dispatch) {
             try {
-                frame_scheduler.dispatch(signal);
-                return script_status.success;
+                dispatch();
             } catch (Exception error) {
                 if (core.log != null) {
                     core.write_log(Encoding.UTF8.GetBytes(
-                        $"Managed host: frame signal failed: {error.GetBaseException().Message}"));
+                        $"Managed host: frame boundary failed: {error.GetBaseException().Message}"));
                 }
-                return script_status.script_failure;
+                // The host is blocked on the answer: a batch that never started must still release it.
+                frame_event_processor.notify_host();
             }
         }
 

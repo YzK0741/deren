@@ -48,8 +48,8 @@ The test project (`source/scripting/test_game/game_host.cs`) demonstrates the in
 5. Create roots and children with `try_create_node`.
 6. `try_activate`.
 7. `try_bind_asset` for each renderable instance.
-8. Attach scripts and register `scripts->update` / `scripts->stop`; the bootstrap installs
-   `scripts->signal` for after-frame dispatch.
+8. Attach scripts and register `scripts->update` / `scripts->stop`; the bootstrap installs the
+   frame boundary entries for `deren.frame_event_processor`.
 
 Game code chooses its own assets and object layout. `[[scene.objects]]` is native project
 metadata and is not forwarded to a managed project.
@@ -61,7 +61,8 @@ metadata and is not forwarded to a managed project.
 ```cpp
 script_status(* update)(frame_info const*);
 script_status(* stop)();
-script_status(* signal)(std::uint32_t signal);
+void(* before_frame)();
+void(* after_frame)();
 ```
 
 `update` receives the native script-scene id and one frame of borrowed input. The managed tree
@@ -69,11 +70,13 @@ id is separate and can be read with `get_active_scene`. A null input pointer is 
 no input actions this frame. `stop` is program-wide: scripts receive
 `on_destroy` in reverse order, then the project detaches and destroys its tree.
 
-The native host emits `signal(after_frame)` after a successfully presented frame. Managed code
-owns the callables queued by `frame_scheduler.do_after_frame`; it detaches the queue and runs each
-callable outside the lock. Callables queued during dispatch run on the next signal, and managed
-exceptions are logged instead of crossing the native boundary. The native host calls `stop` once
-during shutdown and never calls `update` or `signal` after it.
+The host emits `before_frame` once the frame is certain to be drawn and `after_frame` after it was
+presented, and waits for `native_api.notify_rendering` each time. `deren.frame_event_processor`
+owns the callables (once, repeat, counted, with `cancel`), runs one batch at a time on its own
+worker thread, and reports completion even when a callable throws. Callables queued during a batch
+run on the next boundary, and managed exceptions are logged instead of crossing the native
+boundary. The native host calls `stop` once during shutdown and never calls `update` or a boundary
+callback after it.
 
 ## 4. Scene tree API
 

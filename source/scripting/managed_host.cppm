@@ -6,7 +6,7 @@ export import deren.vstd;
 
 export namespace deren::scripting {
 
-    inline constexpr std::uint32_t managed_abi_version = 33;
+    inline constexpr std::uint32_t managed_abi_version = 34;
 
     struct node_handle {
         std::uint64_t value = 0;
@@ -429,6 +429,12 @@ export namespace deren::scripting {
         // truncated answer. The managed side refuses to bind when any entry disagrees with its own
         // struct layout, which turns a forgotten field into "module_invalid" at startup.
         script_status(* abi_layout)(abi_layout_entry* out, std::uint32_t capacity) = nullptr;
+        // ABI 34: the managed side reports that the frame-boundary work the host handed it has
+        // finished, which releases the wait the host entered after before_frame/after_frame.
+        // Exactly one call answers each signal; a call with nothing outstanding is
+        // invalid_argument so an out-of-step managed side is visible in the log instead of
+        // silently borrowing the next frame's wait.
+        script_status(* notify_rendering)() = nullptr;
     };
 
     // One frame's borrowed state. The layout is exact for this ABI version; any field
@@ -442,20 +448,22 @@ export namespace deren::scripting {
 
     static_assert(sizeof(frame_info) == 24);
 
-    // Frame-boundary signals are facts sent from the host into managed code. The host never
-    // executes a managed callable itself; managed code owns the queue behind do_after_frame.
-    enum class frame_signal : std::uint32_t {
-        after_frame = 1
-    };
-
+    // ABI 34: the two frame boundaries are plain void callbacks rather than a signal number,
+    // because the host now waits for managed code to report completion (native_api
+    // notify_rendering) and one signal per boundary needs no payload. Both are optional; a null
+    // callback means the boundary costs nothing. The host never executes a managed callable
+    // itself: managed code owns the queue behind these callbacks.
     struct managed_api {
         // The managed game owns its scene and script lifetime. The host only forwards frames
         // and asks for one program-wide shutdown.
         // The frame and its input bytes are borrowed only during the update.
         script_status(* update)(frame_info const* frame) = nullptr;
         script_status(* stop)() = nullptr;
-        // Emitted after a presented frame. Managed code dispatches its collected callables here.
-        script_status(* signal)(std::uint32_t signal) = nullptr;
+        // Emitted before the frame is recorded (after the host has decided to draw it) and again
+        // after it is presented. Managed code dispatches its collected callables here and calls
+        // notify_rendering once the batch is done, which is what releases the host.
+        void(* before_frame)() = nullptr;
+        void(* after_frame)() = nullptr;
     };
 
     enum class host_status : std::int32_t {
