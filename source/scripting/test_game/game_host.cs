@@ -251,6 +251,7 @@ namespace game {
                     exercise_pipelines(api, helmet, left_bound);
                     exercise_post_processing(api);
                     exercise_lighting(api);
+                    exercise_environment_slots(left_bound);
                     if (!tree.try_set_visible(spawned, false)) {
                         throw new InvalidOperationException("cannot hide the spawn root");
                     }
@@ -431,6 +432,25 @@ namespace game {
                 throw new InvalidOperationException("cannot restore the startup lighting state");
             }
             api->write_log("Game: lighting round trip"u8);
+        }
+
+        /// <summary>
+        /// The per-material environment lanes: the project config fills the scene-wide slot, but a
+        /// material record may name slots 1..3. This puts a real image into slot 1 and binds the left
+        /// helmet to it, so the lane has an end-to-end artifact instead of only a documented entry
+        /// point - the host test asserts both requests, and the render log names slot 1.
+        /// </summary>
+        private void exercise_environment_slots(node_id bound) {
+            if (!global_environment.try_set_slot_hdr(1, "environments/neutral.ibl")) {
+                throw new InvalidOperationException(
+                    "cannot load 'environments/neutral.ibl' into environment slot 1");
+            }
+            var factors = material_override.imported;
+            factors.environment_slot = 1;
+            if (!tree!.try_set_material_override(bound, factors)) {
+                throw new InvalidOperationException("cannot bind the left helmet to environment slot 1");
+            }
+            log.write("Game: environment slot 1 bound to the left helmet");
         }
 
         /// Rebuilt every frame: the overlay draws the panel after this returns, so the widget list is the

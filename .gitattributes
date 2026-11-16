@@ -21,6 +21,13 @@ asset/flowers/*.ply filter=lfs diff=lfs merge=lfs -text
 # Baked IBL and HDR source are binary; keep their bytes unnormalized (they are small enough to
 # stay in plain Git rather than LFS).
 asset/environments/** -text
+# Every Radiance HDR is binary in the same sense: with core.autocrlf=true a .hdr that is not marked
+# -text is checked out with its header's LF rewritten to CRLF, and stb_image's Radiance signature
+# check requires the LF right after `#?RADIANCE`, so the file reads as "not a Radiance .hdr image"
+# and the slot silently keeps its procedural fallback. The committed blobs are LF; these rules keep
+# the working tree that way for any asset directory, not just asset/environments.
+asset/**/*.hdr -text
+asset/**/*.ibl -text
 # README SCREENSHOTS STAY IN PLAIN GIT, deliberately. They are hand-picked presentation assets
 # referenced from README.md (and copied by the docs build), they are refreshed rarely, and each is
 # 0.3-1 MB: a Git LFS pointer would have to be resolved by every consumer of those files (README
