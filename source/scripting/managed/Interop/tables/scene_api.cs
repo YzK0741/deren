@@ -120,7 +120,7 @@ namespace deren.scripting {
             public delegate* unmanaged<uint*, uint*, float*, uint, script_status> acquire_radiance_image;
             public delegate* unmanaged<script_status> reset_temporal_history;
             public delegate* unmanaged<utf8_view, uint, float*, uint, script_status> write_radiance_cube;
-            // ABI 35: the host's character animation player. The three queries read the per-frame
+            // ABI 36: the host's character animation player. The three queries read the per-frame
             // snapshot; the commands only queue work for the frame thread.
             public delegate* unmanaged<animation_state*, script_status> get_animation_state;
             public delegate* unmanaged<uint*, script_status> animation_playable_count;
@@ -196,7 +196,7 @@ namespace deren.scripting {
         private static delegate* unmanaged<uint*, uint*, float*, uint, script_status> acquire_radiance_image;
         private static delegate* unmanaged<script_status> reset_temporal_history;
         private static delegate* unmanaged<utf8_view, uint, float*, uint, script_status> write_radiance_cube;
-        // Optional too: the animation player arrived with ABI 35.
+        // Optional too: the animation player arrived with ABI 36.
         private static delegate* unmanaged<animation_state*, script_status> get_animation_state;
         private static delegate* unmanaged<uint*, script_status> animation_playable_count;
         private static delegate* unmanaged<uint, utf8_view*, script_status> animation_playable_name;
@@ -206,6 +206,12 @@ namespace deren.scripting {
         private static delegate* unmanaged<float, script_status> set_animation_time;
 
         internal static bool is_ready() {
+            if (!host_call_guard.host_calls_allowed) {
+                // A non-blocking batch must not touch host state the record pass is using; the
+                // executor logs the count at the end of the batch.
+                host_call_guard.note_refusal();
+                return false;
+            }
             return get_transform != null && set_transform != null && try_spawn != null && try_despawn != null &&
                    create_scene_tree != null && activate_scene != null && get_active_scene != null &&
                    deactivate_scene != null && destroy_scene_tree != null && create_node != null && destroy_node != null &&

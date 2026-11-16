@@ -6,7 +6,7 @@ export import deren.vstd;
 
 export namespace deren::scripting {
 
-    inline constexpr std::uint32_t managed_abi_version = 35;
+    inline constexpr std::uint32_t managed_abi_version = 36;
 
     struct node_handle {
         std::uint64_t value = 0;
@@ -178,7 +178,7 @@ export namespace deren::scripting {
 
     static_assert(sizeof(head_basis_desc) == 52);
 
-    // One frame of the host's CHARACTER ANIMATION PLAYER (ABI 35). The host keeps one player for the
+    // One frame of the host's CHARACTER ANIMATION PLAYER (ABI 36). The host keeps one player for the
     // scene and builds it from the first bound asset whose manifest names a motion file, so managed
     // code never owns the sampling, the skin matrices or the morph upload - it only decides WHICH
     // clip plays, from when, and how fast. `available` is 0 until such an asset is bound; the rest of
@@ -344,7 +344,7 @@ export namespace deren::scripting {
         // engine's IBL1 probe file at @p path. Called once, after all six faces are collected.
         script_status(* write_radiance_cube)(utf8_view path, std::uint32_t size, float const* pixels,
                                              std::uint32_t float_count) = nullptr;
-        // ABI 35: THE ANIMATION PLAYER. The host samples the clip, writes the skin matrices and
+        // ABI 36: THE ANIMATION PLAYER. The host samples the clip, writes the skin matrices and
         // uploads the morph deltas between frames; these entries only choose the clip and the clock.
         // Every call reports module_unavailable until an asset that names a motion file is bound, and
         // select/set_* report invalid_argument for a clip index or a value the player cannot take.
@@ -469,6 +469,11 @@ export namespace deren::scripting {
         // invalid_argument so an out-of-step managed side is visible in the log instead of
         // silently borrowing the next frame's wait.
         script_status(* notify_rendering)() = nullptr;
+        // ABI 35: how long the host waits for one frame boundary before it treats the managed host
+        // as dead. 0 waits indefinitely, which is what a debugger breakpoint or a deliberately long
+        // blocking task needs; anything else is milliseconds, capped so an absurd value cannot turn
+        // a stuck boundary into an apparently frozen process. Null (an older host) keeps 5000 ms.
+        script_status(* set_frame_boundary_timeout)(std::uint32_t milliseconds) = nullptr;
     };
 
     // One frame's borrowed state. The layout is exact for this ABI version; any field

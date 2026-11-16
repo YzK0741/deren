@@ -1,6 +1,6 @@
 # C# Module ABI
 
-Status: implemented for the `scene` and `ui` modules; managed ABI v35.
+Status: implemented for the `scene` and `ui` modules; managed ABI v36.
 
 Baseline: `feature/csharp-scene-tree`. Native code owns rendering, the Vulkan runtime, the
 module resolver, and primitive/scene import. Managed code owns scene construction, asset
@@ -52,6 +52,7 @@ struct native_api {
                                      void* context) = nullptr;
     script_status(* abi_layout)(abi_layout_entry* out, std::uint32_t capacity) = nullptr;
     script_status(* notify_rendering)() = nullptr;
+    script_status(* set_frame_boundary_timeout)(std::uint32_t milliseconds) = nullptr;
 };
 
 enum class abi_type : std::uint32_t {
@@ -571,7 +572,14 @@ Both are plain `void` callbacks on `managed_api`. The host waits on a condition 
 `native_api.notify_rendering`, so managed code must call it exactly once per boundary, including
 when a task throws. The callback itself only posts the order to the dispatcher, so it returns at
 once and the host's wait ends when the dispatcher answers. A boundary that is never answered costs
-one five-second timeout and one error line, and the host stops instead of hanging.
+one timeout and one error line, and the host stops instead of hanging.
+
+Since v35 the wait is settable through `native_api.set_frame_boundary_timeout`: the default is 5000
+ms, `0` waits without a deadline (what a debugger breakpoint or a deliberately long blocking task
+needs), and anything above 600000 is `invalid_argument` rather than a value that would turn a stuck
+boundary into an apparently frozen process. The C# entry is
+`frame_scheduler.set_boundary_timeout_ms(uint)`, which reports `module_unavailable` on a host older
+than v35.
 
 Managed code answers from a dispatcher thread, not from the caller and not from the task that runs
 the callables. The signal only hands the boundary over; then:
@@ -597,6 +605,7 @@ public static ulong do_after_frame_repeat(Action action, bool is_blocking = true
 public static ulong do_before_counted_frame_repeat(ulong frame_count, Action action, bool is_blocking = true);
 public static ulong do_after_counted_frame_repeat(ulong frame_count, Action action, bool is_blocking = true);
 public static bool cancel(ulong handle);
+public static bool set_boundary_timeout_ms(uint milliseconds);
 ```
 
 - A once task has no handle and runs at the next matching boundary; a repeat task returns the
@@ -611,9 +620,10 @@ public static bool cancel(ulong handle);
 - `is_blocking: true` (the default) means the host waits: the dispatcher runs the batch on the
   blocking executor before it answers. `is_blocking: false` means the batch goes to the non-blocking
   executor and the answer does not wait for it to finish.
-- A method call made from a non-blocking task races with the render thread. Nothing serializes
-  those calls against the record pass, so the registrant must keep such a task to work that is safe
-  while a frame is recording; the queue only guarantees that the task itself runs once.
+- A method call made from a non-blocking task would race the record pass, so the wrappers refuse
+  it: on that thread every entry reports `module_unavailable` and the executor logs one line with
+  the number of refusals. A non-blocking task is therefore for pure work and for calls that are
+  already thread-safe; anything that touches the scene belongs in a blocking task.
 - `deren.frame_scheduler.do_after_frame` stays as the one-shot convenience hook and forwards to
   the after-frame path.
 
@@ -676,7 +686,7 @@ Status values are returned through the ABI; no exception crosses the native boun
 
 ## 8. Layout and versioning
 
-- One global `managed_abi_version`, currently 35.
+- One global `managed_abi_version`, currently 36.
 - No `context` parameter and no per-module version.
 - One version means one exact layout, and since v33 the layout is checked as well: the host
   publishes `{type, sizeof}` for every struct both sides share through `native_api.abi_layout`,
@@ -777,7 +787,12 @@ Status values are returned through the ABI; no exception crosses the native boun
   waits on a condition variable and lets the managed side run the batch on its own worker thread;
   the C# entry is `deren.frame_event_processor` with once/repeat/counted registration and
   `cancel`.
-- v35 added the character animation player: `scene_api` gained `get_animation_state` over the new
+- v35 made that wait settable: `native_api.set_frame_boundary_timeout(uint32)` replaces the
+  hardcoded 5000 ms, where 0 waits without a deadline and anything above 600000 is
+  `invalid_argument`. The C# entry is `frame_scheduler.set_boundary_timeout_ms`. In the same
+  change the wrappers started refusing scene calls from a non-blocking batch instead of racing the
+  record pass.
+- v36 added the character animation player: `scene_api` gained `get_animation_state` over the new
   24-byte `animation_state` record plus `animation_playable_count`, `animation_playable_name`,
   `select_animation`, `set_animation_playing`, `set_animation_speed`, and `set_animation_time`, with
   the C# `deren.animation` entry (`try_get_info`, `try_get_clip_names`, `try_play`/`try_pause`,
