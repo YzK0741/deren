@@ -502,7 +502,7 @@ is crossed.
 | --- | --- |
 | `scripts/checks/check_native_boundary.py` | the executable's import table, the engine objects' unresolved symbols, and the engine sources' vocabulary |
 | `scripts/checks/check_backend_boundary.py` | the symbol ratchet, the whitelist (empty now) and the export table of each plugin |
-| the render gates (`check_render.ps1`, `check_gui.ps1`, `check_rt.ps1`) | that the application really runs the backend it resolved: fifteen frozen legacy-path scenarios plus the visibility-path A/B, a GUI on/off pair, and a GPU ray-traversal probe |
+| the render gates (`check_render.ps1`, `check_gui.ps1`, `check_rt.ps1`) | that the application really runs the backend it resolved: fifteen frozen legacy-path scenarios plus the visibility-path A/B, a GUI on/off pair, and a GPU ray-traversal probe. Retired with the pre-managed CLI in #90; the recorded rounds stand |
 
 ## The rename, done
 

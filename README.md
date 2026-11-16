@@ -144,7 +144,7 @@ Development docs:
 - [subtilis M2/M5 plan](docs/subtilis_m2_m5_plan.md): GPU cut status and streaming design
 - [mesh shaders](docs/mesh_shaders.md)
 - [Doxygen front page](docs/mainpage.md), [dynamic runtime](docs/dynamic_runtime.md), [conventions](docs/conventions.md)
-- [capture harness](scripts/gates/check_render.ps1) and [measurement instruments](scripts/measure/README.md)
+- [measurement instruments](scripts/measure/README.md): the analysis tools that read saved captures and logs
 
 ## Dependencies & Build
 
@@ -303,20 +303,11 @@ options->animation_seconds_per_frame = 0.02f;   // and/or advance the animation 
 
 The sweep fields advance by frame index, so two runs of one capture are identical. The PNG is written when the game's screenshot request is consumed; it goes to `[paths] screenshot_dir` and the log line prints its full path.
 
-## Screenshot regression check
+## Captures and comparisons
 
-`scripts/gates/check_render.ps1` renders a fixed set of scenarios (fixed config, camera and frame count), screenshots each, and compares it to a reference captured on the same machine. It answers "did the frame change", not "is it better".
+There is no built-in pixel gate. A capture is a `deren run ... --capture-frames N` invocation (above); comparing two of them is a file diff of the PNGs, which is what [`scripts/measure/diff.py`](scripts/measure/diff.py) prints (signed per-channel means, changed-pixel counts, and a 4x4 tile table).
 
-```powershell
-pwsh -File scripts/gates/check_render.ps1 -List      # scenarios and tiers
-pwsh -File scripts/gates/check_render.ps1            # CORE: 5 scenarios, 10 renders
-pwsh -File scripts/gates/check_render.ps1 -Full      # all 15 legacy scenarios, 30 renders
-pwsh -File scripts/gates/check_render.ps1 -Update    # accept current output as reference
-```
-
-There are 16 scenarios: 15 tagged `core` or `extra`, plus the visibility-path A/B selected by `-Visibility`. The core five cover deferred G-buffer/lighting, forward unlit, forward default with BLEND/MASK, the heavy Sponza interior, and a deforming mesh. `-Only <name>` runs one scenario; `-Update -Full` re-baselines everything that runs.
-
-This is intentionally **not** a CI test: CI has no GPU, and references are tied to the local GPU/driver. References live outside the repository (`$env:LOCALAPPDATA\deren\baseline`, overridable with `VR_RENDER_BASELINE_DIR`). The check depends on `[gui] show = false` (a live fps counter breaks determinism) and a fixed frame count (TAA accumulates); check mode renders each scenario twice and reports a mismatch as flaky. The debug overlay is on by default; disable it with `[gui] show = false`.
+The old capture harness (`scripts/gates/check_render.ps1` and the scenario scripts around it) drove `deren.exe --config`, a flag the application stopped reading when it moved to the managed host. It and the instruments that wrapped it were retired in #90; the numbers those runs recorded stay in the feature docs under `docs/`.
 
 Windows builds are GUI-subsystem executables: no console window. Logs go to `deren-debug.log`; the previous session is rotated to `deren-debug.log.old`. Panic and crash evidence goes to `deren-crash.log`.
 

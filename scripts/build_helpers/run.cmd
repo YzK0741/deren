@@ -7,11 +7,10 @@ rem raised by ShellExecuteEx, which is what a DOUBLE-CLICK on an .exe (and Power
 rem .exe carries no signature here - it is built on this machine, for this machine - so Windows asks about the
 rem "unknown publisher" on every launch, and a capture batch launches it dozens of times. A .cmd is not an image:
 rem the shell runs the Microsoft-signed `cmd.exe`, and the line below starts the renderer with CreateProcess, which
-rem has no such check. `scripts\gates\capture.ps1` and `check_render.ps1` were changed the same way (they now use
-rem `UseShellExecute = $false`), so the automated runs no longer prompt either.
+rem has no such check, which is the point: a capture batch launches the renderer dozens of times.
 rem
 rem ARGUMENTS ARE FORWARDED, so this is also the way to run a capture by hand:
-rem     run.cmd --capture-frames 60 --capture-camera=0,0,2.4,0,-0.9,0
+rem     run.cmd run build\source\scripting\test_game --capture-frames 60 --capture-camera=0,0,2.4,0,-0.9,0
 rem The working directory becomes the build directory, which is where the renderer's relative paths (its
 rem `config.toml`, `chars\`, `shaders\`) resolve from.
 rem ------------------------------------------------------------------------------------------------------------------

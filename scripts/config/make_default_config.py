@@ -62,7 +62,7 @@ def main() -> int:
 
     shutil.copyfile(EXAMPLE, dest)
     print(f"wrote {dest}")
-    print("run the renderer from that directory, or point at it with --config config.toml")
+    print("start the application with `deren run <project dir>` and point [project] main_scene at this file")
     return 0
 
 

@@ -155,7 +155,8 @@ and no gate can exist.
 This project already made exactly this argument once, for the camera, and built the answer:
 `--capture-sweep` advances the camera by a fixed number of degrees **per frame index** precisely so that
 "a capture move[s] ... not per wall-clock second, so a sweep capture is as reproducible as a still one"
-(`main.cpp:34-44`), and the gate already uses it (`glossy_motion`, `scripts/gates/check_render.ps1`).
+(`main.cpp:34-44`), and the capture gate used it (`glossy_motion`, `scripts/gates/check_render.ps1`, since
+retired with the pre-managed CLI in #90).
 The animation clock now needs its sibling: a frame-indexed advance (`--capture-animation-sweep
 <seconds per frame>`, or equivalently making the controller's time a function of the frame index under
 capture). **Without it this feature cannot be accepted at all**, which is why it is step 0 and not a
@@ -225,7 +226,7 @@ The half that needs no push-block change, and it covers the assets that skin rat
 * **untouched**: the push block, `shadow.vert`, `compute_skin.comp`, `shadow_geometry_signature`.
 
 Acceptance:
-* `check_render.ps1` byte-identical - the gate's models are all rigid, so any movement there is a bug in the
+* `check_render.ps1` (retired with the pre-managed CLI in #90) byte-identical - the gate's models were all rigid, so any movement there is a bug in the
   shared path;
 * a **pinned-pose** capture of the skinned model byte-identical before and after the change: a pinned pose
   uploads the same matrices every frame, so the deformation term is provably zero. That is the null test
@@ -277,27 +278,25 @@ Two ctest checks carry steps 1 and 2 specifically, and neither can be satisfied 
 morph lane ends up sharing the lane group, `:503`
 (the shadow cascade's offset) joins them.
 
-The specific instruments, all of which exist:
+The specific instruments:
 
 ```powershell
-# the regression that keeps this fixed - seed the references BEFORE the change
-pwsh -File scripts/gates/check_render.ps1 -List
-pwsh -File scripts/gates/check_render.ps1 -Update
-pwsh -File scripts/gates/check_render.ps1            # each scenario runs twice and must hash-equal itself first
-# $env:DEREN_BASELINE_DIR overrides %LOCALAPPDATA%\deren\baseline
-
-# the baseline of the BUG (step 0): static camera, swept animation, motion channel
-./build/deren.exe --config my.toml --capture-frames 40 `
+# the regression that keeps this fixed: two runs of one binary must hash-equal first
+./build/deren.exe run ./build/source/scripting/test_game --capture-frames 40 `
   --capture-camera=35,20,7,0,-1.6,0 --capture-animation-sweep=0.02   # gbuffer_debug=true, gbuffer_channel=8
 ```
+
+The capture gate that seeded the frozen references (`scripts/gates/check_render.ps1`) was retired with the pre-managed CLI in #90,
+so the equality is checked by comparing the two PNGs directly (`scripts/measure/diff.py`).
 
 and, for the A/B at one swept pose, `python scripts/measure/diff.py`, `tiletab.py` and `mean.py` on the
 TAA-on and TAA-off captures, with `spec_material.py` for a per-material reading from channels 2/3/1.
 `scripts/measure/README.md` fixes the unit: every recorded number is **mean green**.
 
-Once the fixture is committed, the deformation scenario joins `check_render.ps1`'s list (`:87-134`) with
-Its config (`taa = true`, `gui.show = false`, a pinned frame-indexed animation sweep) - that scenario
-is the deliverable's regression, and it is the reason step 0(a) is not optional.
+The deformation scenario was meant to join `check_render.ps1`'s list (`:87-134`) with its config
+(`taa = true`, `gui.show = false`, a pinned frame-indexed animation sweep). That harness was retired with the pre-managed CLI in #90,
+so the scenario is reproduced with `deren run ... --capture-frames N --capture-animation-sweep` instead;
+the fixture is still the reason step 0(a) is not optional.
 
 ## 6. What would make this fail, refused in advance
 
@@ -343,5 +342,5 @@ image, descriptor family or render target.
 | step 1 the skins (heap family, buffers, publication, vertex stage) | DONE - `skin_matrices_previous` in both grid files, the per-slot previous buffer + its CPU copy, `runtime::advance_motion_deformations()`, and the second skin blend in `source/shaders/pbr.vert`. Measured on the swept fixture: **0.00% -> 65.59% moved** (150,371 px, mean deviation 17.14, worst 104, 597 distinct values) with the pinned left half correctly still (34.41%); the PINNED-pose null test **100.00% still**; the rigid reference capture byte-identical; ctest 8/8; zero validation findings. On a REAL character from the sample assets (Fox, 24 joints): swept **100.00% moved** (266,727 px, 218 distinct values) against **100.00% still** when the pose is pinned - every skinned pixel reports the motion it has, and none reports any when nothing changed |
 | step 2 the morph weights (a second weight region per morph block) | DONE - the block is `[deltas][weights][previous weights]`, the bake writes both regions equal, `animation::controller::update` copies the current region forward before overwriting it, and `source/shaders/pbr.vert` blends the static deltas a second time with the previous weights and composes it with the previous skin matrices (`skin_previous(morph_previous(v))`). Measured on AnimatedMorphCube: **100.00% still -> 99.99% moved** (303,749 px, mean deviation 123.03, 14,144 distinct values); SimpleMorph **100.00% -> 99.48% moved**; both pinned-pose null tests **100.00% still**; the flag's step-1 numbers identical to the digit; ctest 8/8; gate 10/10 with 0 changed and 0 flaky; the rigid reference capture byte-identical |
 | step 3 the documents that call the gap current | DONE - `docs/shaders.md`, `docs/mainpage.md`, the `source/shaders/gbuffer.frag` note and the layout notes in `pbr.vert`, `runtime::morph_scratch()` and `material_push_constants::morph_base` describe the finished state, and the one case that is still not carried is stated wherever the covered ones are: alpha-blended geometry |
-| the deformation scenario in the capture gate | DONE - `check_render.ps1`'s `deformation` scenario captures gbuffer_debug's MOTION CHANNEL (a shaded frame cannot show a wrong motion vector with TAA off), pinned to the repo's fixture with `--capture-animation-sweep`; the gate is 14 scenarios x 2, 0 changed, 0 flaky |
+| the deformation scenario in the capture gate | DONE - `check_render.ps1`'s `deformation` scenario captures gbuffer_debug's MOTION CHANNEL (a shaded frame cannot show a wrong motion vector with TAA off), pinned to the repo's fixture with `--capture-animation-sweep`; the gate was 14 scenarios x 2, 0 changed, 0 flaky (it was retired with the pre-managed CLI in #90) |
 | transparent geometry's motion vectors | NOT STARTED, deliberately separate (section 3) |

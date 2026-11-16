@@ -22,7 +22,7 @@
 // 0..63 instead of 352..415. Use byte-addressed reads of the same descriptor.
 // See docs/diagnostics/descriptor-heap-nested-light-read.md. The host pins the 352-byte
 // array offset, 64-byte stride and field offsets in primitive.cppm.
-// GPU regression: scripts/gates/game_toon_light_reads.py.
+// GPU regression: scripts/gates/game_toon_light_reads.py (retired with the pre-managed CLI in #90).
 static PunctualLight game_toon_load_light(uint index) {
     const uint base = 352u + index * 64u;
     PunctualLight light;

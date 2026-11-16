@@ -8,9 +8,11 @@ Usage:
     python scripts/build_helpers/run.py --build-dir build-local -- --version
 
 Runs from the repository root.  Arguments after ``--`` (and unknown options)
-are forwarded to the executable.  The legacy -Type/-Model/-Grid/-Config/
--BuildDir spellings are still accepted for callers migrating from the old
-platform wrappers.
+are forwarded to the executable, so the subcommand goes through it:
+``run.py run build/source/scripting/test_game --capture-frames 60``.  The
+legacy -Type/-Model/-Grid/-BuildDir spellings are still accepted for callers
+migrating from the old platform wrappers.  There is no --config: the
+application reads the project's ``deren.toml``.
 """
 
 from __future__ import annotations
@@ -36,7 +38,6 @@ def _normalize_legacy_args(argv: Sequence[str]) -> List[str]:
     index = 0
     mapping = {
         "-Type": "--type",
-        "-Config": "--config",
         "-Model": "--model",
         "-Grid": "--grid",
         "-BuildDir": "--build-dir",
@@ -69,7 +70,6 @@ def _parse_args(argv: Sequence[str]) -> (argparse.Namespace, List[str]):
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--type", "-t", choices=CONFIGS, default="RelWithDebInfo", help="build configuration")
-    parser.add_argument("--config", help="config.toml passed as --config")
     parser.add_argument("--model", help="model path passed as the first executable argument")
     parser.add_argument("--grid", type=int, default=0, help="grid side passed after the model")
     parser.add_argument("--build-dir", help="explicit build directory")
@@ -82,8 +82,6 @@ def main(argv: Sequence[str]) -> int:
     args, forward = _parse_args(argv)
     executable = executable_for(args.type, args.build_dir)
     command: List[str] = [str(executable)]
-    if args.config:
-        command += ["--config", args.config]
     if args.model:
         command.append(args.model)
     if args.grid > 0:

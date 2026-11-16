@@ -100,10 +100,11 @@ depth. The compute resolve does not re-run the cut-out test; a pixel with a vali
 - A/B capture: run the capture harness with the switch appended, e.g.
   `pwsh scripts/gates/check_render.ps1 -Only deferred -ExtraConfig 'visibility_buffer = true'`.
 - Frozen reference for the on path: a `deferred_visibility` hash file produced by the gate's `-Visibility`
-  mode and consumed with `-Compare <file>`. That reference and the legacy 15/15 render-graph round were kept
+  mode and consumed with `-Compare <file>` (both gone with the gate). That reference and the legacy 15/15 render-graph round were kept
   as maintainer artifacts and are not distributed with the repository. The legacy round does not include the
-  visibility tier.
-- Frame-to-frame A/B of the two producers: `scripts/measure/visibility_ab.py` over two capture directories.
+  visibility tier. The gate itself was retired with the pre-managed CLI in #90.
+- Frame-to-frame A/B of the two producers: `scripts/measure/visibility_ab.py` over two capture directories
+  (retired with the pre-managed CLI in #90).
 
 ## Known limits and cost
 

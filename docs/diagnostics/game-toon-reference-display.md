@@ -20,10 +20,10 @@ nose bridge is easier to read. No exposure or material colour was retuned.
 
 - The application and affected shaders build.
 - 22 independent reference values pass, maximum absolute error `2.63025e-7`.
-- `scripts/gates/game_toon_tonemap.py`: two known HDR inputs through the real
+- `scripts/gates/game_toon_tonemap.py` (retired with the pre-managed CLI in #90): two known HDR inputs through the real
   post chain match the reference output byte for byte (display-byte error 0).
   Before the fix, the grey input expected 88 and read 105.
-- `scripts/gates/game_toon_specular_ramp.py`: GPU-verifies the bound texture is
+- `scripts/gates/game_toon_specular_ramp.py` (retired with the pre-managed CLI in #90): GPU-verifies the bound texture is
   256x256 and that a given sample matches the GLB image; the diagnostic image
   matched 423208 pixels and 0 wrong pixels. Before the fix it read the
   substitute ramp.
