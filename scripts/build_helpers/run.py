@@ -68,7 +68,7 @@ def _parse_args(argv: Sequence[str]) -> (argparse.Namespace, List[str]):
         description="Run the deren renderer.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--type", "-t", choices=CONFIGS, default="Release", help="build configuration")
+    parser.add_argument("--type", "-t", choices=CONFIGS, default="RelWithDebInfo", help="build configuration")
     parser.add_argument("--config", help="config.toml passed as --config")
     parser.add_argument("--model", help="model path passed as the first executable argument")
     parser.add_argument("--grid", type=int, default=0, help="grid side passed after the model")

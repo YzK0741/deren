@@ -5,7 +5,6 @@ build-stacktrace-posix/
 build-subtilis/
 build-subtilis-asan/
 build-debug/
-build-relwithdebinfo/
 build-release/
 #sanitizer build (ASan/UBSan, local verification only - see source/tests/)
 build-asan/
