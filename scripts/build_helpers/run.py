@@ -27,7 +27,7 @@ from common import (
     run_command,
 )
 
-CONFIGS = ("Debug", "Release")
+CONFIGS = ("Debug", "RelWithDebInfo", "Release")
 
 
 def _normalize_legacy_args(argv: Sequence[str]) -> List[str]:

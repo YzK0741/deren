@@ -31,7 +31,7 @@ from common import (
     run_command,
 )
 
-CONFIGS = ("Debug", "Release")
+CONFIGS = ("Debug", "RelWithDebInfo", "Release")
 
 
 def _normalize_legacy_args(argv: Sequence[str]) -> List[str]:
@@ -85,7 +85,7 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
         "configs",
         nargs="*",
         metavar="CONFIG",
-        help="Debug and/or Release; default: both",
+        help="Debug, RelWithDebInfo and/or Release; default: Debug and Release",
     )
     parser.add_argument(
         "--type",
@@ -108,7 +108,7 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
         elif value in CONFIGS:
             configs.append(value)
         else:
-            parser.error("unknown configuration {!r}; expected Debug, Release or Clean".format(value))
+            parser.error("unknown configuration {!r}; expected Debug, RelWithDebInfo, Release or Clean".format(value))
     args.configs = configs or ["Debug", "Release"]
     if args.build_dir and len(args.configs) != 1:
         parser.error("--build-dir requires exactly one configuration")

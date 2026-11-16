@@ -207,10 +207,15 @@ namespace deren::app {
         // startup banner: version (single source: project(VERSION) in CMakeLists.txt)
         deren::utility::log("deren {}.{}.{}", DEREN_VERSION_MAJOR, DEREN_VERSION_MINOR, DEREN_VERSION_PATCH);
 
-        // 4. Kick off the runtime-independent heavy CPU stage BEFORE constructing the (heavy) Vulkan
-        //    runtime, so window/instance/device/swapchain init overlaps the base environment cubemap
-        //    generation. The IBL resolutions are compiled in (environment_loader.cppm): nothing
-        //    re-shapes them.
+        // 4. The IBL resolutions are compiled in (environment_loader.cppm): nothing re-shapes them.
+        //    THE ANALYTIC SKY IS NOT BAKED HERE ANY MORE. It used to be generated before the window
+        //    existed, because the renderer wanted an environment before its first frame - but the
+        //    managed project decides what slot 0 holds, and the demo replaced that atmosphere with its
+        //    own HDR on the very first update, so the startup bake was pure launch latency (1.1 s
+        //    Release, 16 s Debug, both convolutions on the CPU). The sky is now a FALLBACK baked in the
+        //    frame loop only when the project has not named an environment by the frame about to be
+        //    recorded (see `bake_fallback_sky`), and every bake - the sky's and every decoded HDR's -
+        //    goes through the on-disk cache, so a second launch reads one file instead.
         constexpr std::int32_t env_size = environment_cubemap_size;
         constexpr std::int32_t env_mip_count = environment_mip_count;
         constexpr std::int32_t irr_size = environment_irradiance_size;
@@ -221,7 +226,6 @@ namespace deren::app {
         // (the shading's `light_dir` and the shadow cascades) and the disc the sky draws - which reads
         // that UBO's `light_dir`, so the sky cannot put its sun where the shadows do not fall.
         auto const& sun_direction = settings.lighting.sun_direction;
-        auto env_future = deren::engine::generate_environment_cubemap_async(env_size, sun_direction);
 
         // 5. THE APPLICATION ACQUIRES THE DEVICE ROOT, THEN BUILDS THE RENDERER FROM IT. The loader is
         //    the app's decision (which backend, from where, with which search rules, and what a
@@ -266,7 +270,7 @@ namespace deren::app {
         runtime.set_shadow_depth_bias(settings.render.shadow_bias_constant, settings.render.shadow_bias_slope, 0.0f);
         runtime.set_shadow_map_size(static_cast<std::uint32_t>(settings.render.shadow_map_size));
         auto const runtime_ready = std::chrono::steady_clock::now();
-        deren::utility::log("vulkan runtime initialized: {:.1f} ms (environment generation running in background)", std::chrono::duration<double, std::milli>(runtime_ready - startup_start).count());
+        deren::utility::log("vulkan runtime initialized: {:.1f} ms (no environment baked yet)", std::chrono::duration<double, std::milli>(runtime_ready - startup_start).count());
 
         // 6. Pipelines up front (deren::app::setup_pipeline): the standard PBR pipeline and the
         //    directional shadow pass.
@@ -297,22 +301,10 @@ namespace deren::app {
         runtime.set_software_raster(settings.render.software_raster);
         runtime.set_software_raster_threshold_px(settings.render.software_raster_threshold_px);
 
-        // 7. Collect the async startup result: the analytic sky's cubemap, then its IBL convolutions.
-        deren::utility::vessel::vector<float> environment_cube = env_future.get();
-        auto prefilter_future = deren::engine::prefilter_environment_async(environment_cube, env_size, env_mip_count);
-        auto irradiance_future = deren::engine::generate_irradiance_map_async(environment_cube, env_size, irr_size);
-        auto lut_future = deren::engine::generate_brdf_lut_async(lut_size);
-        deren::utility::vessel::vector<float> const prefiltered = prefilter_future.get();
-        deren::utility::vessel::vector<float> const irradiance = irradiance_future.get();
-        deren::utility::vessel::vector<float> const brdf_lut = lut_future.get();
-        deren::utility::vessel::vector<std::uint8_t> const env_bytes = deren::engine::to_half_rgba(prefiltered);
-        deren::utility::vessel::vector<std::uint8_t> const irr_bytes = deren::engine::to_half_rgba(irradiance);
-        deren::utility::vessel::vector<std::uint8_t> const lut_bytes = deren::engine::to_half_rg(brdf_lut);
-        runtime.set_ibl(deren::engine::ibl_input{.prefiltered_env = env_bytes, .irradiance = irr_bytes, .brdf_lut = lut_bytes,
-                                                 .env_size = static_cast<std::uint32_t>(env_size),
-                                                 .env_mip_count = static_cast<std::uint32_t>(env_mip_count),
-                                                 .irr_size = static_cast<std::uint32_t>(irr_size),
-                                                 .lut_size = static_cast<std::uint32_t>(lut_size)});
+        // 7. THE BASE IBL IS NOT UPLOADED HERE. Slot 0 is whatever the project names on its first
+        //    frame; when it names nothing, the analytic sky is baked as a fallback just before that
+        //    frame is recorded (`bake_fallback_sky` below). What the renderer holds until then is the
+        //    furnace/1x1 cube it already creates, which is what a frame without an environment is.
         // THE LOOK OF THE FRAME IS THE MANAGED PROJECT'S: the environment, sun, exposure, tone
         // mapping, bloom, FXAA, TAA, SSAO, the G-buffer debug view and clustered light culling are
         // parsed by the managed framework from the same project files and applied before the
@@ -401,7 +393,7 @@ namespace deren::app {
             }
         }
         auto const startup_done = std::chrono::steady_clock::now();
-        deren::utility::log("environment cubemap + IBL (startup window incl. runtime init): {:.1f} ms", std::chrono::duration<double, std::milli>(startup_done - startup_start).count());
+        deren::utility::log("startup window (runtime + pipelines + probe, no IBL): {:.1f} ms", std::chrono::duration<double, std::milli>(startup_done - startup_start).count());
 
         // 9. THE MANAGED PROJECT: the C# game owns the scene. The engine hands it three native services
         //    (import a glTF asset into a scene node, read/write the camera, request a screenshot) and
@@ -1462,6 +1454,17 @@ namespace deren::app {
                                 runtime.camera.target.z);
         };
 
+        // A + B: ONE PREPARATION PATH FOR EVERY ENVIRONMENT, WITH A DISK CACHE IN FRONT OF THE BAKE.
+        // `environment-cache/` sits beside the executable, which is where relative asset paths already
+        // resolve, so the cache lives and dies with one build tree. Its key pins the source file's
+        // identity and the baked resolutions (see environment_loader.cppm), so editing an HDR or
+        // changing the light re-keys an entry instead of silently reusing the old pixels.
+        std::filesystem::path const environment_cache_dir = deren::utility::executable_directory() / "environment-cache";
+        // A: the analytic sky, baked only when the project has not named slot 0's environment by the
+        // time the first recorded frame is about to be drawn. It is the same bake startup used to run
+        // unconditionally; the difference is that a project shipping its own HDR never pays for it.
+        bool slot0_environment_set = false;
+
         while (true) {
             if (capture.frames > 0 && captured_frames == disable_streaming_frame) {
                 runtime.set_visibility_texture_streaming(false);
@@ -1488,7 +1491,9 @@ namespace deren::app {
             // A managed environment change is applied between frames: preparing the IBL is CPU work
             // and set_ibl waits for the GPU, so neither may run inside the managed callback. The
             // newest request wins (whatever slot it names), and a request that fails to decode keeps
-            // that slot's current environment.
+            // that slot's current environment. Every decoded bake goes through the on-disk cache, so
+            // a project that ships the same HDR pays for its convolutions once per source, not once
+            // per launch.
             if (managed_binding.environment_pending) {
                 std::uint32_t const environment_slot = managed_binding.pending_environment_slot;
                 std::filesystem::path request = std::move(managed_binding.pending_environment);
@@ -1496,7 +1501,9 @@ namespace deren::app {
                 managed_binding.pending_environment_slot = 0;
                 managed_binding.environment_pending = false;
                 auto const prepare_start = std::chrono::steady_clock::now();
-                auto prepared = prepare_environment(request, sun_direction, env_size, env_mip_count, irr_size, 1.0f);
+                environment_cache_report cache;
+                auto prepared = prepare_environment_cached(request, environment_cache_dir, sun_direction,
+                                                                       env_size, env_mip_count, irr_size, 1.0f, &cache);
                 if (!prepared.error.empty()) {
                     deren::utility::log("environment slot {}: '{}' rejected: {} (keeping the slot's current IBL)",
                                         environment_slot, request.empty() ? "procedural sky" : request.string(), prepared.error.c_str());
@@ -1528,10 +1535,50 @@ namespace deren::app {
                     }
                     // the history holds the old radiance; a new environment invalidates every pixel
                     app_renderer.reset_temporal_history();
-                    deren::utility::log("environment slot {}: switched to '{}' in {:.1f} ms ({})",
+                    // a slot 0 request is the project's answer to "what is the environment", so the
+                    // fallback sky must never overwrite it later.
+                    if (environment_slot == 0u) {
+                        slot0_environment_set = true;
+                    }
+                    deren::utility::log("environment slot {}: switched to '{}' in {:.1f} ms ({}){}",
                                         environment_slot, request.empty() ? "procedural sky" : request.string(),
                                         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - prepare_start).count(),
-                                        applied ? "uploaded" : "upload failed");
+                                        applied ? "uploaded" : "upload failed",
+                                        cache.hit ? ", cache hit" : cache.write_failed ? ", cache write failed" : ", cached");
+                }
+            }
+            // A: THE FALLBACK SKY IS BAKED HERE, NOT AT STARTUP. A project that names slot 0's
+            // environment before its first recorded frame (in initialize, or in update) never reaches
+            // this point, which is the whole saving: the demo's own HDR used to replace a sky baked
+            // seconds earlier. One attempt only - a rejected bake keeps the renderer's furnace cube
+            // rather than retrying every frame.
+            if (!slot0_environment_set) {
+                slot0_environment_set = true;
+                auto const bake_start = std::chrono::steady_clock::now();
+                environment_cache_report bake_cache;
+                auto baked = prepare_environment_cached(std::filesystem::path{}, environment_cache_dir, sun_direction,
+                                                        env_size, env_mip_count, irr_size, 1.0f, &bake_cache);
+                if (!baked.error.empty()) {
+                    deren::utility::log("fallback sky: rejected: {} (the frame keeps the furnace environment)", baked.error.c_str());
+                } else {
+                    auto const bake_lut = deren::engine::generate_brdf_lut(lut_size);
+                    auto const bake_lut_bytes = deren::engine::to_half_rg(bake_lut);
+                    bool const bake_applied = runtime.set_ibl(0u, deren::engine::ibl_input{
+                                                                      .prefiltered_env = baked.environment,
+                                                                      .irradiance = baked.irradiance,
+                                                                      .brdf_lut = bake_lut_bytes,
+                                                                      .env_size = static_cast<std::uint32_t>(env_size),
+                                                                      .env_mip_count = static_cast<std::uint32_t>(env_mip_count),
+                                                                      .irr_size = static_cast<std::uint32_t>(irr_size),
+                                                                      .lut_size = static_cast<std::uint32_t>(lut_size),
+                                                                  });
+                    app_renderer.reset_temporal_history();
+                    deren::utility::log("fallback sky: {} in {:.1f} ms, cache {} ({}{})",
+                                        bake_applied ? "uploaded" : "upload failed",
+                                        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - bake_start).count(),
+                                        bake_cache.hit ? "hit" : "miss",
+                                        bake_cache.file.empty() ? "disabled" : bake_cache.file.string(),
+                                        bake_cache.write_failed ? ", write failed" : "");
                 }
             }
             // Scripted capture: the camera sweep, advanced by the number of PRESENTED frames - a frame

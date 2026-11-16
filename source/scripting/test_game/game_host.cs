@@ -27,7 +27,6 @@ namespace game {
         private bool frame_signal_scheduled;
         private bool frame_signal_ran;
         private bool screenshot_requested;
-        private bool environment_requested;
         private bool animation_reported;
         private reflect_probe_session? probe;
         private bool probe_active => probe != null && probe.active;
@@ -715,11 +714,10 @@ namespace game {
                     if (!current.probe_active) {
                         current.screenshot_requested = screenshot.try_request();
                     }
-                    // Exercise the managed environment path once. The project's `[lighting]
-                    // environment_hdr` wins when it names one (an empty path means the procedural sky),
-                    // so a config that asks for a studio HDR is the environment that gets published.
-                    current.environment_requested =
-                        global_environment.try_set_hdr(project_config.lighting.environment_hdr);
+                    // The environment is not requested here: the host publishes the project's
+                    // `[lighting] environment_hdr` before the first frame (`project_config.apply`), and
+                    // bakes the analytic sky itself when a project names none, so a request from this
+                    // hook would only re-upload an environment that is already bound.
                     // A non-blocking task runs on its own thread: the host does not wait for it, so
                     // a slow task costs the frame nothing. This one only reports that it ran, which
                     // is what makes the path visible in the log.
@@ -727,7 +725,7 @@ namespace game {
                         managed_bootstrap.core.write_log("Game: non-blocking frame task ran"u8);
                     }, is_blocking: false);
                 });
-            } else if (!instance.frame_signal_ran || !instance.environment_requested ||
+            } else if (!instance.frame_signal_ran ||
                        (!instance.screenshot_requested && !instance.probe_active)) {
                 return script_status.script_failure;
             }
