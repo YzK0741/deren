@@ -269,6 +269,9 @@ namespace deren::app {
         runtime.set_shadow_cascade_blend(settings.render.shadow_cascade_blend);
         runtime.set_shadow_depth_bias(settings.render.shadow_bias_constant, settings.render.shadow_bias_slope, 0.0f);
         runtime.set_shadow_map_size(static_cast<std::uint32_t>(settings.render.shadow_map_size));
+        // [render] shadow: the raster shadow term itself. Applied before the first scene set, so the
+        // first frame already renders (or skips) the cascaded shadow maps.
+        runtime.set_shadow_enabled(settings.render.shadow);
         auto const runtime_ready = std::chrono::steady_clock::now();
         deren::utility::log("vulkan runtime initialized: {:.1f} ms (no environment baked yet)", std::chrono::duration<double, std::milli>(runtime_ready - startup_start).count());
 

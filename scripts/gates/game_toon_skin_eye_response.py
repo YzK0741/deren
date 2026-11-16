@@ -127,12 +127,13 @@ def main():
             config, count = re.subn(rf'(?m)^{key}\s*=.*$', f'{key}="{value}"', config)
             assert count == 1, key
         for key, value in {"show": "false", "taa": "false", "fxaa": "false",
-                           "window_width": "600", "window_height": "600",
-                           "camera_pose": "[0,0,0.65,0,0.03,-0.85]"}.items():
+                           "window_width": "600", "window_height": "600"}.items():
             config = re.sub(rf'(?m)^{key}\s*=.*$', f"{key}={value}", config)
         cfg = case_dir / "config.toml"
         cfg.write_text(config)
-        run = subprocess.run([str(build / "deren.exe"), "--config", str(cfg), "--capture-frames", "4"],
+        run = subprocess.run([str(build / "deren.exe"), "--config", str(cfg),
+                              "--capture-camera", "0,0,0.65,0,0.03,-0.85",
+                              "--capture-frames", "4"],
                              cwd=build, env=env, capture_output=True, timeout=120)
         (case_dir / "run.log").write_bytes(run.stdout + run.stderr)
         run.check_returncode()

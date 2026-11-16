@@ -37,7 +37,6 @@ def main():
 shaders_dir="{(build / 'shaders').as_posix()}"
 screenshot_dir="{folder.as_posix()}"
 [render]
-camera_pose=[-30,0,0.65,0,0.03,-0.85]
 window_width=600
 window_height=600
 vsync=false
@@ -60,6 +59,7 @@ environment_hdr=""
         path = folder / "config.toml"
         path.write_text(config)
         run = subprocess.run([str(build / "deren.exe"), "--config", str(path),
+                              "--capture-camera", "-30,0,0.65,0,0.03,-0.85",
                               "--capture-frames", "90", "--capture-sweep", "0.75"],
                              cwd=build, env=env, capture_output=True, timeout=180)
         (folder / "run.log").write_bytes(run.stdout + run.stderr)

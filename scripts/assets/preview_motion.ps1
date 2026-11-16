@@ -24,7 +24,6 @@ model="$modelToml"
 shaders_dir="$shaderPath"
 screenshot_dir="$screenshotPath"
 [render]
-camera_pose=[0.0,0.0,2.6,0.0,-0.6,0.0]
 window_width=1000
 window_height=1000
 vsync=true
@@ -44,7 +43,7 @@ environment_color=[0.18,0.18,0.18]
 "@ | Set-Content -LiteralPath $configPath -Encoding utf8
 Push-Location $buildPath
 try {
-    & (Join-Path $buildPath 'deren.exe') --config $configPath --motion $motionPath
+    & (Join-Path $buildPath 'deren.exe') --config $configPath --motion $motionPath --capture-camera 0.0,0.0,2.6,0.0,-0.6,0.0
     if ($LASTEXITCODE -ne 0) { throw "Motion preview exited with code $LASTEXITCODE" }
 } finally {
     Pop-Location
