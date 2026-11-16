@@ -400,6 +400,9 @@ namespace deren.scripting {
         }
 
         private static void concurrent_loop() {
+            // This thread runs while the host records the next frame, so the wrappers must refuse
+            // scene calls here rather than race the record pass.
+            host_call_guard.enter_nonblocking_thread();
             while (true) {
                 List<Action>? batch;
                 lock (concurrent_monitor) {
@@ -412,8 +415,13 @@ namespace deren.scripting {
                     batch = concurrent_batch;
                     concurrent_batch = null;
                 }
+                host_call_guard.begin_batch();
                 // No notify: the host was already released and must not be answered twice.
                 run(batch, "non-blocking callable failed");
+                var refused = host_call_guard.end_batch();
+                if (refused > 0) {
+                    nothrow_log.write($"Frame events: a non-blocking task called the scene API {refused} time(s); the calls were refused (module_unavailable).");
+                }
                 lock (concurrent_monitor) {
                     concurrent_idle = true;
                     Monitor.PulseAll(concurrent_monitor);

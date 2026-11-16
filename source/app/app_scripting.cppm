@@ -272,6 +272,8 @@ export namespace deren::app {
         static scripting::script_status abi_layout(scripting::abi_layout_entry* out, std::uint32_t capacity);
         /// The native_api entry that ends a frame-boundary wait; see managed_scene_host::notify_rendering.
         static scripting::script_status notify_rendering();
+        /// ABI 35: the native_api entry that sets the frame-boundary wait. 0 waits indefinitely.
+        static scripting::script_status set_frame_boundary_timeout(std::uint32_t milliseconds);
         static scripting::script_status get_transform(scripting::node_handle node, scripting::transform_value* value);
         static scripting::script_status set_transform(scripting::node_handle node, scripting::transform_value const* value);
         static scripting::script_status try_spawn(std::uint64_t scene, scripting::utf8_view asset,
