@@ -253,7 +253,7 @@ deleted those two vertex entries outright. So `pbr.vert` / `shadow.vert` below n
 in the tree today - and `source/shaders/scene/pbr.slang` / `source/shaders/lighting/shadow.slang` are where the entries actually are.
 
 **"The gate" means the CORE set, and the exact scope matters because the numbers above were not all
-taken over the same one.** `check_render.ps1` defines sixteen scenarios, tags five of them `core`, and keeps
+taken over the same one.** The gate (since retired with the pre-managed CLI in #90) defined sixteen scenarios, tags five of them `core`, and keeps
 one (`deferred_visibility`) out of `-Full` because its frozen reference describes the visibility lane; the
 default run is those five x 2 runs = 10 renders. The earlier rounds in this document ran all ten (20
 renders) because the harness had no tiers yet. The rule for a step here: iterate on the core round,

@@ -129,16 +129,10 @@ Six static/rotating before/after cache PNGs are pixel-exact; an additional pre-p
 
 Headless tests cover loading, layouts, covariance/SH math, camera/model validation, budgets, sorting, allocation rollback, resource lifetime, indirect recording and runtime injection. Native probes cover 48 stable-sort cases and 11 GPU raster scenes; the latter compares 10,626 pixels with maximum HDR RGB error 0.0008074641, maximum depth difference 1 float32 ULP and zero small-sample double-order differences. Clean validation alone is not a pixel-correctness test.
 
-Reproduce image and performance checks with the Windows helpers:
-
-```powershell
-$build = 'build'
-$scripts = 'scripts/gates'
-& "$scripts/check_gaussian_gpu.ps1" -BuildDir $build
-& "$scripts/benchmark_gaussian_gpu.ps1" -BuildDir $build
-& "$scripts/check_gaussian_resize.ps1" -BuildDir $build `
-    -Config '<viewer.toml>' -MaximizeRestore -EarlyCapture
-```
+The image and performance checks below were made with the Windows helpers
+`check_gaussian_gpu.ps1`, `benchmark_gaussian_gpu.ps1` and
+`check_gaussian_resize.ps1`. They drove `deren.exe --config` and were
+retired with the pre-managed CLI in #90; the numbers they recorded stand.
 
 The resize helper also accepts `-RapidResize` for twenty actions and `-Camera` for a fixed capture pose. Inspect early restored frames as well as final output. The following fixes are part of the current viewer:
 

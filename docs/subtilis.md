@@ -315,7 +315,8 @@ is summarized here; its raw records are not distributed with this repository.
   `tools/subtilis/CMakeLists.txt` (`ctest --test-dir build-subtilis`), separately from the engine CTest set;
   measurement scripts live in `scripts/measure/`. The Task 8 acceptance record is maintainer material and
   is not distributed with this repository.
-- Real-scene captures: `scripts/gates/capture.ps1 -Base <toml> -Camera ... -Frames ...` with
+- Real-scene captures: `scripts/gates/capture.ps1 -Base <toml> -Camera ... -Frames ...` (the harness was
+  retired with the pre-managed CLI in #90) with
   `subtilis = true`; the full OFF/ON matrix and raw logs were kept in maintainer records that are not
   distributed with this repository. The textured asset preparation/verification scripts are
   `scripts/measure/prepare_bistro_textures.py`, `convert_bistro_metalrough.py`, `verify_bistro_textured.py`.

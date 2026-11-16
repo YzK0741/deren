@@ -111,9 +111,10 @@ SPIR-V/disassembly and the result log.
 
 Keep the byte-addressed `game_toon_load_light` workaround and the CPU layout
 assertions. Do not adjust material parameters or disable punctual lights.
-The GPU regression tool `scripts/gates/game_toon_light_reads.py` compares the
-actual light fields so a future change cannot silently return to the broken
-typed access.
+The GPU regression tool `scripts/gates/game_toon_light_reads.py` compared the
+actual light fields so a future change could not silently return to the broken
+typed access; it was retired with the pre-managed CLI in #90, so that comparison is a recorded arm
+rather than a runnable gate.
 
 The check was rerun after the diagnosis; frames 4 and 5 pass and the installed
 normal GameToon shader hash remains unchanged.

@@ -220,7 +220,7 @@ image, which is why it survived every fix that changed what the frame does.
 ```powershell
 cmake --build build            # must be exit 0
 ctest --test-dir build         # 85 tests today; 7 are device-labelled and skipped by CI, which runs 78
-pwsh scripts\gates\check_render.ps1            # the scenario set, changed must be 0
+# the render gate (check_render.ps1) was retired with the pre-managed CLI in #90; it is not runnable today
 ```
 
 Then re-do the negative proof as a *frame-level* check (push a wrong slot on purpose and confirm the

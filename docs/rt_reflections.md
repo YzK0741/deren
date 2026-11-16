@@ -109,7 +109,8 @@ is unchanged.
 - The published material preview is a 1080x960 offscreen capture at frame 30
   (`docs/screenshots/README.md:5`); it is a manual capture, not an automated
   pixel gate.
-- `scripts/measure/motion_dd.py` records the reflection's temporal motion
+- `scripts/measure/motion_dd.py` (retired with the pre-managed CLI in #90)
+  recorded the reflection's temporal motion
   loss as mean |difference of differences| 0.4029 before the accumulation cap and
   0.3492 after it, with the change confined to smooth-material tiles and the
   rough tiles bit-identical. That is a recorded arm, not a CI threshold.

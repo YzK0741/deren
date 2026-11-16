@@ -134,6 +134,12 @@ namespace deren::app_config {
         // See the log's "initial camera" line for the numbers this resolves to, and use
         // --capture-camera to pin an exact pose.
         deren::utility::vessel::string camera_fit = "exterior";
+        // The raster sun shadow term ([render] shadow): the runtime's `shadow_enabled` flag, which decides
+        // whether the cascaded shadow maps are rendered and sampled at all. true by default (every frame
+        // before this key was reachable from a file had it on). A measurement that wants no shadow
+        // contribution - and therefore no shadow pass cost - turns it off here; `rt_shadows` is the
+        // unrelated ray-traced replacement, and it wins only when both are on.
+        bool shadow = true;
         // Cascaded shadow maps ([render] shadow_cascades / shadow_cascade_blend): how many cascades the
         // shadow pass fits, renders and samples (1 = one box over the whole visible range, the historic
         // single-map behavior) and the fraction of a cascade's range over which the shader blends into

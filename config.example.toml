@@ -188,6 +188,12 @@ camera_fit = "exterior"
 # function of this value alone and a capture becomes reproducible. -1 is a no-op: the frame is what it was.
 animation_time = -1.0
 
+# shadow: the raster sun shadow term itself. false skips the cascaded shadow maps entirely - the pass is
+# not recorded and the shading stage adds no shadow factor - which is what a measurement wants when it is
+# comparing lit response and must not pay for (or be darkened by) shadows. true is the default and the
+# historic behavior. `rt_shadows` below is the unrelated ray-traced replacement; it still needs this on.
+shadow = true
+
 # shadow_cascades: how many cascaded shadow maps the sun uses (1..4). One map cannot be dense enough
 # for both the near range and the far one: a single 2048^2 map fitted to a whole scene gives every
 # receiver the same texel size, so with the box fitted to the camera view the pixels close to the

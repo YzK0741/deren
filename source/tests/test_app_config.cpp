@@ -217,6 +217,7 @@ namespace {
         CHECK(settings.model == "Models/tri.gltf");
         CHECK(settings.render.vsync);
         check_presentation_settings(settings, true);
+        CHECK(!settings.render.shadow); // fixture: the raster shadow term off (a measurement wants no shadow cost)
         CHECK(settings.render.shadow_cascades == 2);
         CHECK(settings.render.shadow_cascade_blend > 0.24f && settings.render.shadow_cascade_blend < 0.26f);
         CHECK(settings.render.toon_shadow_softness == 0.0f); // the fixture omits the key: the compiled default
@@ -305,6 +306,7 @@ namespace {
         CHECK(settings.render.background_glb.empty());
         CHECK(settings.scene.objects.empty());       // default: the historic single-object import
         CHECK(settings.render.shadow_cascades == 3); // default: three cascades
+        CHECK(settings.render.shadow);               // default: the raster shadow term runs (every frame before the key had it)
         CHECK(settings.render.shadow_cascade_blend > 0.09f && settings.render.shadow_cascade_blend < 0.11f);
         CHECK(settings.render.clustered_lights); // default: the cluster pass runs
         CHECK(settings.lighting.demo_lights == 0);

@@ -161,7 +161,7 @@ renderer already shipped, and that check is the SHADOW GATE (plan 8.3):
   The ONLY field that differs is `image`: the recipe constants carry `VK_NULL_HANDLE` because they are templates,
   and the recording site fills in the frame image. Every other field is equal, which is what the compile-time
   assertion proves without the image being read.
-- The capture itself stays byte-identical: `check_render.ps1 -Full` reports all THIRTEEN capturing scenarios of that
+- The capture itself stays byte-identical: `check_render.ps1 -Full` (retired with the pre-managed CLI in #90) reported all THIRTEEN capturing scenarios of that
   round at the frozen pre-change hashes (deferred `972A31EC5FF55C87`, ..., laevatain_old_chain `190EB09D3E9FDCDA`).
   That was the gate of the time; it now defines 16 scenarios, with 15 in `-Full`. Its summary
   says `passed 2 / changed 12`, which is the STALE LOCAL BASELINE and not a pixel change - the hashes are the
@@ -187,7 +187,7 @@ MEASURED on this machine:
   validation: 13 capturing scenes report the `PRESENT_SRC_KHR` / `GENERAL` mismatch above, which is why the
   screenshot read-back was left where it was (see "What is NOT established" and the batch report for the raw
   lines).
-- No frame changed: `scripts/gates/check_render.ps1 -Full` reports the same render hashes byte for byte, the
+- No frame changed: `scripts/gates/check_render.ps1 -Full` (retired with the pre-managed CLI in #90) reported the same render hashes byte for byte, the
   screenshot PNG is unchanged (the read-back did not move), and `ctest` is green (85 tests today, 7 device-labelled and skipped by CI, including
   `test_docs`, which is why `docs/host_image_copy.md` is in the `Doxyfile` INPUT list).
 

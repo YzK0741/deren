@@ -77,7 +77,7 @@ namespace deren::app_config {
             if (auto const* render = table.get_as<toml::table>("render")) {
                 append_unknown_keys(*render, "render",
                                     {"window_width", "window_height", "window_title", "vsync", "max_fps", "clear_color",
-                                     "exposure", "tone_mapping", "sun_intensity", "rt_shadows", "rt_reflections",
+                                     "exposure", "tone_mapping", "sun_intensity", "shadow", "rt_shadows", "rt_reflections",
                                      "rt_reflection_cloth", "rt_reflection_strength", "rt_reflection_samples", "rt_reflection_materials",
                                      "animation_time", "camera_fit",
                                      "shadow_cascades", "shadow_cascade_blend", "toon_shadow_softness", "shadow_bias_constant",
@@ -308,6 +308,11 @@ namespace deren::app_config {
             if (toml::node const* node = render->get("sun_intensity")) {
                 if (std::optional<double> const value = node->value<double>()) {
                     settings.render.sun_intensity = static_cast<float>(std::clamp(*value, 0.0, 3.0));
+                }
+            }
+            if (toml::node const* node = render->get("shadow")) {
+                if (std::optional<bool> const value = node->value<bool>()) {
+                    settings.render.shadow = *value;
                 }
             }
             if (toml::node const* node = render->get("rt_shadows")) {
