@@ -34,6 +34,7 @@ import deren.engine.render_layout;
 
 import deren.engine.gaussian_splatting;
 import deren.engine.gaussian_splatting.raster;
+import deren.engine.animation;
 import deren.engine.runtime;
 import deren.engine.scene_tree;
 import deren.gltf_loader;
@@ -449,6 +450,23 @@ namespace deren::app {
             // The size a panel falls back to when the game names none (`[gui] panel_width/panel_height`).
             float ui_default_width = 380.0F;
             float ui_default_height = 140.0F;
+            // ---- ABI 35: THE CHARACTER ANIMATION PLAYER ----
+            //
+            // ONE player for the scene, built when the first asset whose manifest names a motion file
+            // is bound. The host owns it because it needs the runtime's per-frame skin/morph slots and
+            // the scene pointer; managed code only names the clip and the clock. `animation_commands`
+            // is written from the managed frame thread and drained by the frame thread right before it
+            // records, which is why it is the one field here behind a lock.
+            struct animation_command {
+                deren::app::animation_command_kind kind = deren::app::animation_command_kind::select;
+                std::uint32_t index = 0;
+                float value = 0.0F;
+            };
+            std::unique_ptr<deren::engine::animation::controller> player;
+            deren::scripting::animation_state animation_state{};
+            std::vector<std::string> animation_names;
+            std::mutex animation_mutex;
+            std::vector<animation_command> animation_pending;
         };
         managed_bind_context managed_binding{.render_runtime = &runtime,
                                             .renderer = &app_renderer,
@@ -464,8 +482,31 @@ namespace deren::app {
                                             .ui_panel_title = {},
                                             .ui_panel_open = false,
                                             .ui_available = false,
-        .ui_default_width = 380.0F,
-        .ui_default_height = 140.0F};
+                                            .ui_default_width = 380.0F,
+                                            .ui_default_height = 140.0F,
+                                            .player = nullptr,
+                                            .animation_state = {},
+                                            .animation_names = {},
+                                            .animation_mutex = {},
+                                            .animation_pending = {}};
+        // The snapshot every ABI 35 query reads. The frame thread writes it once per frame; a managed
+        // thread reads it under the same lock, so a query never sees a half-built state.
+        constexpr auto publish_animation_state = +[](managed_bind_context& context) {
+            deren::scripting::animation_state state{};
+            if (context.player != nullptr) {
+                auto const& player = *context.player;
+                state.playable_count = static_cast<std::uint32_t>(player.playable_count());
+                state.current = static_cast<std::uint32_t>(player.current());
+                state.has_active = player.has_active() ? 1 : 0;
+                state.playing = player.is_playing() ? 1 : 0;
+                state.available = 1;
+                state.time = player.current_time();
+                state.duration = player.loop_duration();
+                state.speed = player.speed();
+            }
+            std::lock_guard const lock(context.animation_mutex);
+            context.animation_state = state;
+        };
         auto const bind_managed_asset = +[](void* opaque, deren::engine::scene_tree::scene_node& parent,
                                             std::string_view asset_id, deren::app::managed_asset_source const& source) -> bool {
             auto& context = *static_cast<managed_bind_context*>(opaque);
@@ -525,6 +566,51 @@ namespace deren::app {
             if (result.primitive_count == 0) {
                 return false;
             }
+            // ---- ABI 35: THE ANIMATION PLAYER IS BUILT FROM THE FIRST ASSET THAT BRINGS CLIPS ----
+            //
+            // One player drives the whole scene: the runtime has ONE skin-matrix region for the
+            // animation controller (blocks 4.. after the shared identity block), so a second animated
+            // asset is reported and stays static instead of silently stealing the skeleton writes.
+            // init() is legal here because a bind runs inside the managed update, before the frame is
+            // paced: the per-frame skin slots it writes are not being recorded yet.
+            if (context.player == nullptr && !source.scenes->animations.empty()) {
+                auto player = std::make_unique<deren::engine::animation::controller>();
+                deren::engine::animation::backend const backend{
+                    .scene = &runtime.get_scene(),
+                    .morph_scratch_active = [&runtime]() { return static_cast<float*>(runtime.morph_scratch()); },
+                    .set_skin_matrices_active = [&runtime](std::span<glm::mat4 const> matrices, std::uint32_t base) {
+                        runtime.set_skin_matrices_at(matrices, base);
+                    },
+                    .morph_scratch_slot = [&runtime](std::uint32_t slot) {
+                        return static_cast<float*>(runtime.morph_scratch(slot));
+                    },
+                    .set_skin_matrices_slot = [&runtime](std::span<glm::mat4 const> matrices, std::uint32_t slot) {
+                        runtime.set_skin_matrices(matrices, slot);
+                    },
+                    .scene_changed = [&runtime]() { runtime.scene_changed(); },
+                    .run_tasks = [&runtime](std::span<std::function<void()>> tasks) { runtime.run_tasks(tasks); },
+                    .task_worker_count = [&runtime]() { return runtime.task_pool_threads(); },
+                };
+                player->init(*source.scenes, backend, import_shift, result.import_instance);
+                context.animation_names.clear();
+                for (std::size_t index = 0; index < player->playable_count(); ++index) {
+                    context.animation_names.emplace_back(player->playable_name(index));
+                }
+                std::string names;
+                for (auto const& name : context.animation_names) {
+                    names += names.empty() ? "'" : ", '";
+                    names += name;
+                    names += '\'';
+                }
+                deren::utility::log("animation: '{}' drives the scene - {} clip(s) [{}]", asset_id,
+                                    player->playable_count(), names);
+                context.player = std::move(player);
+                publish_animation_state(context);
+            } else if (context.player != nullptr && !source.scenes->animations.empty()) {
+                deren::utility::log("animation: '{}' has {} clip(s), but one player already drives this scene - "
+                                    "the asset stays static",
+                                    asset_id, source.scenes->animations.size());
+            }
             // THE SHADOW FIT: the frame's directional shadow maps frame the sphere the imported
             // primitives occupy, which is what makes the sun cast a shadow at all. `enable_shadows`
             // also remembers the extent the camera's far plane needs, so it is re-run only when a
@@ -563,6 +649,16 @@ namespace deren::app {
             // replacement tree must not inherit the previous one's splats. The cached uploads stay valid
             // (their device tables outlive the staging) and are reused when the new tree places them again.
             context->render_runtime->clear_gaussian_assets();
+            // A new tree also ends the animation player: it holds a raw pointer to the tree it animated
+            // and the node indices the clips address, and set_scene() only stores that pointer, so
+            // keeping it would write skin matrices into a tree that no longer exists.
+            if (context->player != nullptr) {
+                deren::utility::log("animation: the scene tree was replaced - dropping the player");
+                context->player.reset();
+                context->animation_names.clear();
+                context->animation_pending.clear();
+                publish_animation_state(*context);
+            }
             context->render_runtime->set_scene(managed);
             context->render_runtime->scene_changed();
             return true;
@@ -628,6 +724,63 @@ namespace deren::app {
             context->pending_environment = std::move(request);
             context->pending_environment_slot = environment_slot;
             context->environment_pending = true;
+            return true;
+        };
+        // ---- ABI 35: THE ANIMATION ENTRIES ----
+        // The queries read the snapshot the frame thread publishes; the commands only queue work for
+        // that thread, because the player writes GPU-visible per-slot buffers that may not be touched
+        // between pace_and_acquire() and the end of the frame.
+        auto const get_managed_animation_state = +[](void* opaque, deren::scripting::animation_state& out) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr) {
+                return false;
+            }
+            std::lock_guard const lock(context->animation_mutex);
+            out = context->animation_state;
+            return true;
+        };
+        auto const get_managed_animation_name = +[](void* opaque, std::uint32_t index, std::string_view& name) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->player == nullptr) {
+                return false;
+            }
+            std::lock_guard const lock(context->animation_mutex);
+            if (index >= context->animation_names.size()) {
+                return false;
+            }
+            // The view borrows the player's storage and lives until the player is rebuilt.
+            name = context->animation_names[index];
+            return true;
+        };
+        auto const queue_managed_animation = +[](void* opaque, deren::app::animation_command_kind kind,
+                                                 std::uint32_t index, float value) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->player == nullptr) {
+                return false;
+            }
+            // Reject against the PUBLISHED state, not against the player: a managed request is answered
+            // with success only when the frame thread will certainly be able to apply it.
+            std::lock_guard const lock(context->animation_mutex);
+            switch (kind) {
+                case deren::app::animation_command_kind::select:
+                    if (index >= context->animation_state.playable_count) {
+                        return false;
+                    }
+                    break;
+                case deren::app::animation_command_kind::playing:
+                    break;
+                case deren::app::animation_command_kind::speed:
+                    if (!std::isfinite(value) || value < 0.0F) {
+                        return false;
+                    }
+                    break;
+                case deren::app::animation_command_kind::time:
+                    if (!std::isfinite(value)) {
+                        return false;
+                    }
+                    break;
+            }
+            context->animation_pending.push_back({.kind = kind, .index = index, .value = value});
             return true;
         };
         // The former startup-only [render]/[lighting] knobs, now runtime state owned by the managed
@@ -1212,7 +1365,10 @@ namespace deren::app {
                                              .request_radiance_capture = request_managed_radiance,
                                              .acquire_radiance_image = acquire_managed_radiance,
                                              .reset_temporal_history = reset_managed_temporal_history,
-                                             .write_radiance_cube = write_managed_radiance_cube},
+                                             .write_radiance_cube = write_managed_radiance_cube,
+                                             .animation_state = get_managed_animation_state,
+                                             .animation_playable_name = get_managed_animation_name,
+                                             .animation_command = queue_managed_animation},
             settings.paths.asset_library,
             deren::app::managed_asset_binder{.context = &managed_binding, .bind = bind_managed_asset});
         if (!started) {
@@ -1385,6 +1541,35 @@ namespace deren::app {
                 frame_stats.on_skipped();
                 std::this_thread::yield();
                 continue;
+            }
+            // ABI 35: advance the animation player between the acquired slot and the recording, which is
+            // the window its update() contract requires: the pose it writes is the one this frame
+            // records, and no managed command can touch the player while the frame is being built.
+            if (managed_binding.player != nullptr) {
+                std::vector<managed_bind_context::animation_command> commands;
+                {
+                    std::lock_guard const lock(managed_binding.animation_mutex);
+                    commands.swap(managed_binding.animation_pending);
+                }
+                deren::engine::animation::controller& player = *managed_binding.player;
+                for (managed_bind_context::animation_command const& command : commands) {
+                    switch (command.kind) {
+                        case deren::app::animation_command_kind::select:
+                            player.select(command.index);
+                            break;
+                        case deren::app::animation_command_kind::playing:
+                            player.set_playing(command.value != 0.0F);
+                            break;
+                        case deren::app::animation_command_kind::speed:
+                            player.set_speed(command.value);
+                            break;
+                        case deren::app::animation_command_kind::time:
+                            player.set_time(command.value);
+                            break;
+                    }
+                }
+                player.update(dt);
+                publish_animation_state(managed_binding);
             }
             // Phase 3: record + submit + present the paced frame
             // The before-frame boundary lives here, past every skip path, so before and after are

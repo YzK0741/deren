@@ -357,15 +357,24 @@ namespace deren::engine::animation {
                 }
             }
 
-            // live-tree lookup: asset node index -> host scene nodes + root flag (import applied
-            // the shift to root locals only, so animated roots must re-apply it). scene_iterator
-            // walks the whole tree in DFS pre-order; roots sit at depth 0. The SCENE TREE is the
-            // authoritative host: only sources that actually live in it are animated.
-            for (auto it = deren::engine::scene_tree::begin(*this->host.scene); it != deren::engine::scene_tree::end(*this->host.scene); ++it) {
-                if (it->import_instance != this->import_id || it->source_index == deren::engine::scene_tree::no_source_index) {
-                    continue;
+            // live-tree lookup: asset node index -> host scene nodes + root flag. The import bakes
+            // the shift into the TOP node of the imported subtree only, so that one node has to
+            // re-apply it when its clip writes its local. "Top of the import" is what the flag
+            // means - NOT "depth 0": the application binds an asset under a destination parent, so
+            // the imported subtree usually hangs one or more levels below the scene root, and a
+            // depth test would tag both the right node and its children (or, when the tree is
+            // wrapped, none of them).
+            auto index_tree = [this](auto&& self, deren::engine::scene_tree::scene_node& node, bool parent_outside_import) -> void {
+                bool const top_of_import = parent_outside_import && node.import_instance == this->import_id;
+                if (node.import_instance == this->import_id && node.source_index != deren::engine::scene_tree::no_source_index) {
+                    this->source_nodes[node.source_index].push_back(node_target{&node, /*scene_root=*/top_of_import});
                 }
-                this->source_nodes[it->source_index].push_back(node_target{&*it, /*scene_root=*/it.depth() == 0});
+                for (deren::engine::scene_tree::scene_node& child : node.children) {
+                    self(self, child, node.import_instance != this->import_id);
+                }
+            };
+            for (deren::engine::scene_tree::scene_node& root : this->host.scene->roots) {
+                index_tree(index_tree, root, true);
             }
 
             // TRS base pose per TREE node: look each tree node's asset source up in the source's
@@ -503,7 +512,6 @@ namespace deren::engine::animation {
                             s.joints.assign(loader_skin.joints.begin(), loader_skin.joints.end());
                             s.inverse_bind.assign(loader_skin.inverse_bind_matrices.begin(), loader_skin.inverse_bind_matrices.end());
                             this->skin_rigs.push_back(skin_rig{std::move(s), {source}, block_base, entry.node});
-                            this->skin_mesh_world_cache.emplace(entry.node, glm::mat4(1.0f));
                         }
                     }
                     if (this->skin_rigs.size() > first_mesh_rig) {
@@ -876,7 +884,12 @@ namespace deren::engine::animation {
         // a reused per-frame world cache, so update() never allocates a per-frame map
         deren::utility::vessel::unordered_map<std::size_t, std::uint32_t> skin_world_index = {};
         deren::utility::vessel::vector<glm::mat4> skin_world_cache = {};
-        deren::utility::vessel::unordered_map<deren::engine::scene_tree::scene_node*, glm::mat4> skin_mesh_world_cache = {};
+        // inverse of every joint's world at the bind pose, in skin_rigs order (rig x joint): the
+        // reference update() measures each skin matrix against (see the note at the skin upload).
+        // Captured by the first update(), after the host tree holds its rest pose.
+        deren::utility::vessel::vector<glm::mat4> bind_inverse = {};
+        /// whether `bind_inverse` was filled by the first update()'s capture_bind_pose()
+        bool bind_captured = false;
         deren::utility::vessel::vector<glm::mat4> skin_matrices_scratch = {}; // per-frame skin upload buffer
         bool skin_debug_valid = false;
         glm::vec3 skin_debug_translation{};
@@ -898,5 +911,10 @@ namespace deren::engine::animation {
         // sampling fan-out tasks only capture `this` (+ their source range): the task list is
         // self-contained and can be handed to the host's run_tasks for pool execution.
         bool sample_source(std::size_t source, deren::utility::vessel::vector<node_target> const& targets);
+        /// Snapshot every joint's BIND product into `bind_inverse` (see the member note) from the
+        /// scene as it stands right now. Called by the first update(), BEFORE that frame samples
+        /// anything: init() may run before the importer published the tree's locals, while the
+        /// first update() is guaranteed to see exactly the pose the skin matrices refer to.
+        void capture_bind_pose();
     };
 } // namespace deren::engine::animation

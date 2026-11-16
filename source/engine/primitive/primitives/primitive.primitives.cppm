@@ -583,9 +583,10 @@ namespace deren::engine {
          *
          * Every vertex is a convex blend of the same local position through up to four joints, so
          * the union of the bind box transformed by ALL joints in the block contains every possible
-         * blended position. The joint matrices are object-local (the animation controller already
-         * folds the mesh's inverse world into them), hence `push.model * joint` before taking the
-         * bounds. `matrices` is the runtime's current CPU copy of the uploaded skin block and must
+         * blended position. The joint matrices are object-local (the animation controller folds
+         * the inverse of the joint's BIND product into them, which equals the mesh's inverse world
+         * for an asset whose `joint_rest_world * inverse_bind` reproduces its mesh world), hence
+         * `push.model * joint` before taking the bounds. `matrices` is the runtime's current CPU copy of the uploaded skin block and must
          * cover `push.skin_base + skin_joint_count`.
          */
         [[nodiscard]] std::pair<glm::vec3, glm::vec3> skinned_world_aabb(std::span<glm::mat4 const> const matrices) const noexcept {

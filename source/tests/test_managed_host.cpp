@@ -1,5 +1,6 @@
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 
 import deren.scripting.managed_host;
 
@@ -115,6 +116,22 @@ namespace {
     std::uint32_t cube_writes = 0;
     std::uint32_t capture_rejections = 0;
     constexpr std::uint32_t capture_face_capacity = 6;
+    // ABI 35: the animation player. The helmet demo names no motion, so the player must stay absent
+    // there; the animated-asset scenario asserts that the demo selected a clip and started its clock.
+    std::uint32_t animation_queries = 0;
+    std::uint32_t animation_name_queries = 0;
+    std::uint32_t animation_selects = 0;
+    std::uint32_t animation_play_requests = 0;
+    std::uint32_t animation_speed_requests = 0;
+    std::uint32_t animation_time_requests = 0;
+    std::uint32_t animation_last_select = ~0u;
+    std::uint8_t animation_last_playing = 0;
+    float animation_last_speed = 0.0F;
+    // Off in the helmet scenario: an asset that names no motion must leave the player absent.
+    bool animation_available = false;
+    // The clip the fixture pretends the player holds; the names are reported from here.
+    constexpr std::uint32_t animation_clip_count = 2;
+    constexpr char const* animation_clip_names[animation_clip_count] = {"idle", "bibideba"};
 
     constexpr node_handle node_zero{.value = 1};
     constexpr node_handle node_one{.value = 2};
@@ -450,6 +467,90 @@ namespace {
     }
 
     script_status set_environment_hdr(utf8_view path, std::uint32_t requested_slot);
+
+    // ABI 35: the fake animation player, over the counters declared beside the other fixtures.
+    script_status get_animation_state(animation_state* out) {
+        ++animation_queries;
+        if (out == nullptr) {
+            return script_status::invalid_argument;
+        }
+        if (!animation_available) {
+            return script_status::module_unavailable;
+        }
+        *out = {};
+        out->playable_count = animation_clip_count;
+        out->current = animation_last_select == ~0u ? 0u : animation_last_select;
+        out->has_active = 1;
+        out->playing = animation_last_playing;
+        out->available = 1;
+        out->time = 0.5F;
+        out->duration = 2.0F;
+        out->speed = animation_last_speed;
+        return script_status::success;
+    }
+
+    script_status animation_playable_count(std::uint32_t* count) {
+        if (count == nullptr) {
+            return script_status::invalid_argument;
+        }
+        *count = 0;
+        if (!animation_available) {
+            return script_status::module_unavailable;
+        }
+        *count = animation_clip_count;
+        return script_status::success;
+    }
+
+    script_status animation_playable_name(std::uint32_t index, utf8_view* name) {
+        if (name == nullptr) {
+            return script_status::invalid_argument;
+        }
+        *name = {};
+        ++animation_name_queries;
+        if (!animation_available) {
+            return script_status::module_unavailable;
+        }
+        if (index >= animation_clip_count) {
+            return script_status::invalid_argument;
+        }
+        *name = {.data = animation_clip_names[index], .length = static_cast<std::uint32_t>(std::strlen(animation_clip_names[index]))};
+        return script_status::success;
+    }
+
+    script_status select_animation(std::uint32_t index) {
+        ++animation_selects;
+        animation_last_select = index;
+        if (!animation_available) {
+            return script_status::module_unavailable;
+        }
+        return index < animation_clip_count ? script_status::success : script_status::invalid_argument;
+    }
+
+    script_status set_animation_playing(std::uint8_t playing) {
+        ++animation_play_requests;
+        animation_last_playing = playing;
+        if (!animation_available) {
+            return script_status::module_unavailable;
+        }
+        return playing <= 1 ? script_status::success : script_status::invalid_argument;
+    }
+
+    script_status set_animation_speed(float speed) {
+        ++animation_speed_requests;
+        animation_last_speed = speed;
+        if (!animation_available) {
+            return script_status::module_unavailable;
+        }
+        return script_status::success;
+    }
+
+    script_status set_animation_time(float seconds) {
+        ++animation_time_requests;
+        if (!animation_available) {
+            return script_status::module_unavailable;
+        }
+        return seconds >= 0.0F ? script_status::success : script_status::invalid_argument;
+    }
 
     bool known_asset(asset_handle asset) {
         if (module_context == nullptr) {
@@ -1032,7 +1133,14 @@ namespace {
             .request_radiance_capture = request_radiance_capture,
             .acquire_radiance_image = acquire_radiance_image,
             .reset_temporal_history = reset_temporal_history,
-            .write_radiance_cube = write_radiance_cube};
+            .write_radiance_cube = write_radiance_cube,
+            .get_animation_state = get_animation_state,
+            .animation_playable_count = animation_playable_count,
+            .animation_playable_name = animation_playable_name,
+            .select_animation = select_animation,
+            .set_animation_playing = set_animation_playing,
+            .set_animation_speed = set_animation_speed,
+            .set_animation_time = set_animation_time};
         *table = &published;
         *byte_size = sizeof(published);
         return script_status::success;
@@ -1052,6 +1160,7 @@ namespace {
             {.type = abi_type::startup_options, .size = sizeof(startup_options)},
             {.type = abi_type::head_basis_desc, .size = sizeof(head_basis_desc)},
             {.type = abi_type::face_frame_desc, .size = sizeof(face_frame_desc)},
+            {.type = abi_type::animation_state, .size = sizeof(animation_state)},
         };
         constexpr auto count = static_cast<std::uint32_t>(std::size(entries));
         if (out == nullptr || capacity < count) {
@@ -1269,6 +1378,16 @@ namespace {
                          "frame: capture calls camera=%u requests=%u reads=%u resets=%u writes=%u rejections=%u\n",
                          capture_camera_calls, radiance_requests, radiance_reads, temporal_resets, cube_writes,
                          capture_rejections);
+            return false;
+        }
+        // The helmet demo binds an asset whose manifest names NO motion, so the host player must stay
+        // absent and the demo must not try to drive one: the update loop only reads the snapshot.
+        if (animation_selects != 0 || animation_play_requests != 0 || animation_speed_requests != 0 ||
+            animation_time_requests != 0 || animation_name_queries != 0) {
+            std::fprintf(stderr,
+                         "frame: animation commands selects=%u play=%u speed=%u time=%u names=%u\n",
+                         animation_selects, animation_play_requests, animation_speed_requests,
+                         animation_time_requests, animation_name_queries);
             return false;
         }
         // The head frame is a character feature: the loader measures it per asset and the managed side

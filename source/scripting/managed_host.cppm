@@ -6,7 +6,7 @@ export import deren.vstd;
 
 export namespace deren::scripting {
 
-    inline constexpr std::uint32_t managed_abi_version = 34;
+    inline constexpr std::uint32_t managed_abi_version = 35;
 
     struct node_handle {
         std::uint64_t value = 0;
@@ -178,6 +178,25 @@ export namespace deren::scripting {
 
     static_assert(sizeof(head_basis_desc) == 52);
 
+    // One frame of the host's CHARACTER ANIMATION PLAYER (ABI 35). The host keeps one player for the
+    // scene and builds it from the first bound asset whose manifest names a motion file, so managed
+    // code never owns the sampling, the skin matrices or the morph upload - it only decides WHICH
+    // clip plays, from when, and how fast. `available` is 0 until such an asset is bound; the rest of
+    // the struct is a snapshot taken once per frame, which keeps the query side lock-free.
+    struct animation_state {
+        std::uint32_t playable_count = 0;  // clips the player holds
+        std::uint32_t current = 0;         // index of the selected clip
+        std::uint8_t has_active = 0;       // a clip is selected
+        std::uint8_t playing = 0;          // the clock advances on each frame
+        std::uint8_t available = 0;        // the host has a player at all
+        std::uint8_t padding = 0;
+        float time = 0.0F;      // seconds into the clip
+        float duration = 0.0F;  // the clip's looping length in seconds
+        float speed = 0.0F;     // playback-rate multiplier (0..16)
+    };
+
+    static_assert(sizeof(animation_state) == 24);
+
     struct scene_api {
         script_status(* get_transform)(node_handle node, transform_value* value) = nullptr;
         script_status(* set_transform)(node_handle node, transform_value const* value) = nullptr;
@@ -325,6 +344,20 @@ export namespace deren::scripting {
         // engine's IBL1 probe file at @p path. Called once, after all six faces are collected.
         script_status(* write_radiance_cube)(utf8_view path, std::uint32_t size, float const* pixels,
                                              std::uint32_t float_count) = nullptr;
+        // ABI 35: THE ANIMATION PLAYER. The host samples the clip, writes the skin matrices and
+        // uploads the morph deltas between frames; these entries only choose the clip and the clock.
+        // Every call reports module_unavailable until an asset that names a motion file is bound, and
+        // select/set_* report invalid_argument for a clip index or a value the player cannot take.
+        script_status(* get_animation_state)(animation_state * out) = nullptr;
+        script_status(* animation_playable_count)(std::uint32_t* count) = nullptr;
+        // The clip name borrows the player's storage and stays valid until the player is rebuilt.
+        script_status(* animation_playable_name)(std::uint32_t index, utf8_view* name) = nullptr;
+        script_status(* select_animation)(std::uint32_t index) = nullptr;
+        script_status(* set_animation_playing)(std::uint8_t playing) = nullptr;
+        script_status(* set_animation_speed)(float speed) = nullptr;
+        // Scrubbing: sets the clip time in seconds and pauses, so a GUI timeline drag does not fight
+        // the advancing clock. A time outside [0, duration] is clamped.
+        script_status(* set_animation_time)(float seconds) = nullptr;
     };
     // ONE FRAME'S PANEL CONTENT (ABI 31). The managed game describes its debug panel every frame and the
     // host turns each call into the overlay plugin's widget. Every pointer is borrowed until the frame is
@@ -393,7 +426,8 @@ export namespace deren::scripting {
         material_override_desc = 7,
         startup_options = 8,
         head_basis_desc = 9,
-        face_frame_desc = 10
+        face_frame_desc = 10,
+        animation_state = 11
     };
 
     struct abi_layout_entry {

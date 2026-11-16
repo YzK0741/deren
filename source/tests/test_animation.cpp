@@ -256,7 +256,7 @@ namespace {
         CHECK(std::fabs(h.scratch[1][1] - 0.1f) < 1e-4f);
     }
 
-    void test_controller_shared_skin_cancels_each_mesh_world() {
+    void test_controller_shared_skin_is_instance_independent() {
         controller_host h;
         h.add_node(0, 3.0f, true);
         h.add_node(1, -7.0f, true);
@@ -293,11 +293,14 @@ namespace {
                 if (leaf->push.skin_base >= h.matrices.size()) {
                     continue;
                 }
-                // This is the shader's actual mesh-world * skin * position chain.
-                glm::vec4 const world = h.tree.roots[mesh].local * h.matrices[leaf->push.skin_base] * glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
-                CHECK(std::fabs(world.x - 11.0f) < 1e-4f);
-                CHECK(std::fabs(world.y) < 1e-4f);
-                CHECK(std::fabs(world.z) < 1e-4f);
+                // This is the shader's actual `skin * position` chain; the mesh's world is applied
+                // on top of it by `push.model`. The block is instance independent: it deforms in the
+                // asset's bind space (relative to the joint's bind product), so the same vertex must
+                // always land on the same asset-space point no matter which mesh world draws it.
+                glm::vec4 const local = h.matrices[leaf->push.skin_base] * glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
+                CHECK(std::fabs(local.x - 1.0f) < 1e-4f);
+                CHECK(std::fabs(local.y) < 1e-4f);
+                CHECK(std::fabs(local.z) < 1e-4f);
             }
         }
     }
@@ -919,7 +922,7 @@ int32_t main() {
     test_controller_does_not_animate_other_assets_or_synthetic_leaves();
     test_controller_reports_only_actual_transform_changes();
     test_controller_morph_history_follows_frames_across_slots();
-    test_controller_shared_skin_cancels_each_mesh_world();
+    test_controller_shared_skin_is_instance_independent();
     test_camera_world_lookup_selects_the_requested_import();
     test_linear_translation_interpolates_and_clamps();
     test_step_holds_previous_keyframe();

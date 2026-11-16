@@ -117,6 +117,10 @@ namespace deren::asset_library {
         std::filesystem::path directory;
         std::filesystem::path model;
         std::filesystem::path sidecar;   // empty when the manifest has none
+        // The motion file the asset PLAYS (manifest `motion`, ABI 35): a skeleton-only .gltf whose
+        // clips are bound to this model by deren::gltf::load_motion. Empty when the asset has no
+        // animation. The only key that may point outside the asset directory (see resolve_inside_root).
+        std::filesystem::path motion;
         std::filesystem::path license;   // empty when absent or unreadable
         std::filesystem::path thumbnail; // empty when absent or unreadable
         std::vector<std::string> tags;

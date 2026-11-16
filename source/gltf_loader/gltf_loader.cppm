@@ -871,6 +871,11 @@ namespace deren::gltf {
         // a warning says so; animation channels are sampled in the asset's own space and are NOT
         // rotated, so a Z-up asset with bound motion would need the same correction on its samplers.
         up_axis asset_up_axis = up_axis::y;
+        // A skeleton-only motion file whose clips are bound to this model (see load_motion). It is
+        // bound BEFORE the up-axis correction, because the motion's fingerprint and channel values are
+        // expressed in the glTF's own space: binding afterwards compares a rotated rest pose and fails.
+        // A mismatch is a warning; the model still loads, just without animation.
+        std::string_view motion_file = {};
     };
     export std::expected<scenes, error_code> load_model(std::string_view file_name, load_options options);
 
