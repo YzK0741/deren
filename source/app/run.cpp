@@ -783,6 +783,13 @@ namespace deren::app {
             context->animation_pending.push_back({.kind = kind, .index = index, .value = value});
             return true;
         };
+        // ABI 37: the managed side's fault. This lambda has no way back - the call writes the same
+        // report deren::utility::panic writes and terminates the process - so the bool it returns
+        // only ever answers a host that records the report instead of dying, which is the test host.
+        auto const report_managed_panic = +[](void*, std::uint32_t line, std::string_view message,
+                                              std::string_view source_file, std::string_view managed_stack) -> bool {
+            deren::utility::panic_managed(message, source_file, line, managed_stack);
+        };
         // The former startup-only [render]/[lighting] knobs, now runtime state owned by the managed
         // game. The validation lives in der::app::scripting; these lambdas only forward.
         auto const set_managed_exposure = +[](void* opaque, float exposure) -> bool {
@@ -1368,7 +1375,8 @@ namespace deren::app {
                                              .write_radiance_cube = write_managed_radiance_cube,
                                              .animation_state = get_managed_animation_state,
                                              .animation_playable_name = get_managed_animation_name,
-                                             .animation_command = queue_managed_animation},
+                                             .animation_command = queue_managed_animation,
+                                             .panic = report_managed_panic},
             settings.paths.asset_library,
             deren::app::managed_asset_binder{.context = &managed_binding, .bind = bind_managed_asset});
         if (!started) {

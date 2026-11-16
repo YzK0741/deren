@@ -279,7 +279,8 @@ namespace deren::app {
                                         .set_input_event_callback = set_input_event_callback,
                                         .abi_layout = abi_layout,
                                         .notify_rendering = notify_rendering,
-                                        .set_frame_boundary_timeout = set_frame_boundary_timeout};
+                                        .set_frame_boundary_timeout = set_frame_boundary_timeout,
+                                        .panic = panic_report};
         scripting::startup_options options{};
         auto const result = scripting::configure_managed_host(
             {.assembly = runtime_dir / "Deren.Managed.dll",
@@ -326,7 +327,8 @@ namespace deren::app {
                                         .set_input_event_callback = set_input_event_callback,
                                         .abi_layout = abi_layout,
                                         .notify_rendering = notify_rendering,
-                                        .set_frame_boundary_timeout = set_frame_boundary_timeout};
+                                        .set_frame_boundary_timeout = set_frame_boundary_timeout,
+                                        .panic = panic_report};
         starting_scene = this;
         auto const result = scripting::initialize_managed_host(
             {.assembly = runtime_dir / "Deren.Managed.dll",
@@ -1173,6 +1175,27 @@ namespace deren::app {
         return owner->host.animation_command(owner->host.context, animation_command_kind::time, 0, seconds)
                    ? scripting::script_status::success
                    : scripting::script_status::invalid_argument;
+    }
+    scripting::script_status script_scene::panic_report(scripting::utf8_view const message,
+                                                        scripting::utf8_view const source_file, std::uint32_t const line,
+                                                        scripting::utf8_view const managed_stack) {
+        // A null pointer with a non-zero length is the only shape rejected, and that rejection is
+        // for a caller that built the view wrong, not a limit on the report: empty strings are
+        // normal (a fault with no message, a location the managed side did not have).
+        auto const valid = [](scripting::utf8_view const value) { return value.length == 0 || value.data != nullptr; };
+        if (!valid(message) || !valid(source_file) || !valid(managed_stack)) {
+            return scripting::script_status::invalid_argument;
+        }
+        auto const view = [](scripting::utf8_view const value) {
+            return value.length == 0 ? std::string_view{} : std::string_view(value.data, value.length);
+        };
+        script_scene* const owner = current_owner();
+        if (owner == nullptr || owner->host.panic == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        return owner->host.panic(owner->host.context, line, view(message), view(source_file), view(managed_stack))
+                   ? scripting::script_status::success
+                   : scripting::script_status::script_failure;
     }
     scripting::script_status script_scene::set_point_lights(scripting::point_light_desc const* const lights,
                                                             std::uint32_t const count) {

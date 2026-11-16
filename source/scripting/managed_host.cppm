@@ -6,7 +6,7 @@ export import deren.vstd;
 
 export namespace deren::scripting {
 
-    inline constexpr std::uint32_t managed_abi_version = 36;
+    inline constexpr std::uint32_t managed_abi_version = 37;
 
     struct node_handle {
         std::uint64_t value = 0;
@@ -474,6 +474,15 @@ export namespace deren::scripting {
         // blocking task needs; anything else is milliseconds, capped so an absurd value cannot turn
         // a stuck boundary into an apparently frozen process. Null (an older host) keeps 5000 ms.
         script_status(* set_frame_boundary_timeout)(std::uint32_t milliseconds) = nullptr;
+        // ABI 37: the managed side reports a fault it cannot continue from, and the host answers it
+        // by writing one crash report and terminating the process - the same sink, the same report
+        // shape and the same exit as deren::utility::panic, so a reader does not have to know which
+        // language faulted. The strings are borrowed for the duration of the call. A host that
+        // returns success took the report (only a test host does); a host that is gone, or that
+        // answers any other status, leaves the managed side to write stderr and fail fast on its
+        // own.
+        script_status(* panic)(utf8_view message, utf8_view source_file, std::uint32_t line,
+                               utf8_view managed_stack) = nullptr;
     };
 
     // One frame's borrowed state. The layout is exact for this ABI version; any field

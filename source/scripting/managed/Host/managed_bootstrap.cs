@@ -6,7 +6,7 @@ using System.Runtime.Loader;
 
 namespace deren.scripting {
     internal static unsafe class managed_bootstrap {
-        private const uint abi_version = 36;
+        private const uint abi_version = 37;
         internal static native_api core;
         internal static Assembly? game_assembly;
 
@@ -93,6 +93,12 @@ namespace deren.scripting {
                 return invalid_api;
             }
             core = *api;
+            // ABI 37: an exception nothing caught ends the process through the same report as an
+            // explicit logger.panic. Installed here, where the table is first held - a fault before
+            // this point has no host to report through, and the runtime's own message is the whole
+            // story then.
+            AppDomain.CurrentDomain.UnhandledException -= on_unhandled_exception;
+            AppDomain.CurrentDomain.UnhandledException += on_unhandled_exception;
             // ABI 33: the layout check also guards a session that reaches initialize without configure.
             if (!abi_manifest.verify(api)) {
                 return invalid_api;
@@ -160,6 +166,31 @@ namespace deren.scripting {
                 // The host is blocked on the answer: a batch that never started must still release it.
                 frame_event_processor.notify_host();
             }
+        }
+
+        /// <summary>
+        /// ABI 37: an exception nothing caught ends the process through the host's crash report.
+        ///
+        /// The exception's own text is better evidence than the frames that merely noticed it, so it
+        /// becomes the managed stack; the message names the type, which a reader greps for.
+        /// </summary>
+        private static void on_unhandled_exception(object? sender, UnhandledExceptionEventArgs args) {
+            string description = args.ExceptionObject is Exception known
+                                     ? $"unhandled managed exception: {known.GetType().FullName}: {known.Message}"
+                                     : "unhandled managed exception";
+            string detail = args.ExceptionObject?.ToString() ?? string.Empty;
+            // The report pairs a call site with every stack, so ask the exception where it was thrown
+            // instead of leaving `source:` empty: the first frame carries the throw site's file and line.
+            string file = string.Empty;
+            int line = 0;
+            if (args.ExceptionObject is Exception thrown) {
+                var site = new System.Diagnostics.StackTrace(thrown, fNeedFileInfo: true).GetFrame(0);
+                if (site != null) {
+                    file = site.GetFileName() ?? string.Empty;
+                    line = site.GetFileLineNumber();
+                }
+            }
+            logger.panic(core, description, file, line, detail);
         }
 
         private static Type? find_game_host(Assembly assembly) {

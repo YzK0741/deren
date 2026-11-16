@@ -233,6 +233,7 @@ namespace game {
                 scripts->update = &update;
                 scripts->stop = &stop;
                 api->write_log("Game: asset scene ready"u8);
+                panic_probe();
                 return script_status.success;
             }
             try {
@@ -274,7 +275,29 @@ namespace game {
             scripts->update = &update;
             scripts->stop = &stop;
             api->write_log("Game: helmet scene ready"u8);
+            panic_probe();
             return script_status.success;
+        }
+
+        /// <summary>
+        /// ABI 37: on request, reports a managed fault and RETURNS.
+        ///
+        /// Only the host test gets to see the line after the call: the real host writes the report and
+        /// terminates the process inside logger.panic. The probe exists so both halves of that contract
+        /// have evidence - the report crossing the boundary, and the host that ends the process.
+        /// </summary>
+        private static void panic_probe() {
+            // "throw" exercises the other half of the contract: an exception nobody catches leaves the
+            // module through the same report, because managed_bootstrap hooks
+            // AppDomain.UnhandledException. The window the demo's try/catch blocks cover is above this
+            // call, so nothing swallows it.
+            if (System.Environment.GetEnvironmentVariable("DEREN_PANIC_PROBE") == "throw") {
+                throw new InvalidOperationException("panic probe: an unhandled managed exception");
+            }
+            if (System.Environment.GetEnvironmentVariable("DEREN_PANIC_PROBE") != "1") {
+                return;
+            }
+            logger.panic("panic probe: the managed module reports a fault on request");
         }
 
         /// <summary>

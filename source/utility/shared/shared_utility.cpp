@@ -484,4 +484,59 @@ namespace deren::utility {
 
         std::terminate();
     }
+
+    [[noreturn]] void panic_managed(std::string_view const message, std::string_view const source_file,
+                                    std::uint32_t const line, std::string_view const managed_stack) noexcept {
+        static thread_local bool reporting = false;
+        if (reporting) {
+            fast_panic("recursive managed panic");
+        }
+        reporting = true;
+        // No allocation on this path: the report is written piece by piece, and every piece is
+        // capped instead of rejected, because a panic that fails on its own message is useless.
+        auto const put = [](std::string_view const text) noexcept {
+            detail::trace_native::write_text(text.data(), text.size());
+        };
+        auto const capped = [](std::string_view const value, std::size_t const limit) noexcept {
+            return value.substr(0, std::min(value.size(), limit));
+        };
+        put("deren panic (managed): ");
+        put(capped(message, 4096));
+        put("\n");
+        put("source: ");
+        if (source_file.empty()) {
+            // An unhandled exception that never reached a CallerFilePath-marked call has no call site,
+            // and printing an empty path with line 0 would read as corruption rather than as absence.
+            put("unknown (no managed call site)\n");
+        } else {
+            put(capped(source_file, 1024));
+            put(":");
+            char digits[16] = {};
+            if (auto const [end, error] = std::to_chars(digits, digits + std::size(digits) - 1, line);
+                error == std::errc{}) {
+                put(std::string_view(digits, static_cast<std::size_t>(end - digits)));
+            } else {
+                put("?");
+            }
+            put(" in managed code\n");
+        }
+        if (!managed_stack.empty()) {
+            put("managed call stack:\n");
+            put(capped(managed_stack, std::size_t{64} * 1024));
+            put("\n");
+        }
+        put("native stack:\n");
+        auto const trace = diagnostics::capture_stack();
+        diagnostics::write_stack(trace);
+        auto const readable = diagnostics::symbolize(trace);
+        if (!readable.text.empty()) {
+            detail::trace_native::write_text("call stack:\n", 12);
+            detail::trace_native::write_text(readable.text.data(), readable.text.size());
+        }
+        if (auto* sink = active_sink.load(std::memory_order_acquire)) {
+            sink->wait_prefix_for(std::chrono::milliseconds(250));
+        }
+
+        std::terminate();
+    }
 } // namespace deren::utility
