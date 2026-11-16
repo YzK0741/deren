@@ -28,6 +28,7 @@ namespace game {
         private bool frame_signal_ran;
         private bool screenshot_requested;
         private bool environment_requested;
+        private bool animation_reported;
         private reflect_probe_session? probe;
         private bool probe_active => probe != null && probe.active;
         // --asset <library-id> replaces the helmet demo with ONE bound asset, and --pipeline <name>
@@ -291,6 +292,7 @@ namespace game {
                     throw new InvalidOperationException("cannot activate the managed scene");
                 }
                 var bound = bind_helmet(root, asset);
+                exercise_animation(api, asset_id);
                 // The probe is started before the gaussian early return below: a cloud is exactly the
                 // scene a reflection probe is usually captured from.
                 if (requested_probe != null) {
@@ -451,6 +453,32 @@ namespace game {
                 throw new InvalidOperationException("cannot bind the left helmet to environment slot 1");
             }
             log.write("Game: environment slot 1 bound to the left helmet");
+        }
+
+        /// <summary>
+        /// The host's animation player, driven from the game: this asset's manifest names a motion
+        /// file, so the host built a player at bind. The game only names the clip and starts it; the
+        /// first update reports the clock once it has advanced, which is the end-to-end artifact the
+        /// host test and the render log both look for.
+        /// </summary>
+        private void exercise_animation(native_api* api, string asset_id) {
+            if (!animation.try_get_info(out var state)) {
+                api->write_log(System.Text.Encoding.UTF8.GetBytes(
+                    $"Game: animation: '{asset_id}' has no player (the asset names no playable motion)"));
+                return;
+            }
+            var names = animation.get_clip_names();
+            if (names.Length != state.clip_count) {
+                throw new InvalidOperationException("animation: the clip count and the clip names disagree");
+            }
+            api->write_log(System.Text.Encoding.UTF8.GetBytes(
+                $"Game: animation: '{asset_id}' offers {state.clip_count} clip(s): {string.Join(", ", names)}"));
+            if (state.clip_count == 0) {
+                return;
+            }
+            if (!animation.try_select(0) || !animation.try_set_speed(1.0F) || !animation.try_play()) {
+                throw new InvalidOperationException("animation: cannot start the first clip");
+            }
         }
 
         /// Rebuilt every frame: the overlay draws the panel after this returns, so the widget list is the
@@ -679,6 +707,15 @@ namespace game {
             } else if (!instance.frame_signal_ran || !instance.environment_requested ||
                        (!instance.screenshot_requested && !instance.probe_active)) {
                 return script_status.script_failure;
+            }
+            // ONE LOG LINE, the first frame the clock has advanced: the query side reads the snapshot the
+            // host publishes from the same loop that samples the clip, so a non-zero time here is the
+            // game's proof that the player it asked for is actually running.
+            if (!instance.animation_reported && animation.try_get_info(out var anim) && anim.playing && anim.time > 0.0F) {
+                instance.animation_reported = true;
+                animation.try_get_clip_name(anim.current_clip, out var clip_name);
+                managed_bootstrap.core.write_log(System.Text.Encoding.UTF8.GetBytes(
+                    $"Game: animation: '{clip_name}' at {anim.time:F2} s of {anim.duration:F2} s"));
             }
             // One probe step per frame: the session owns the six-face cadence (settle, request,
             // collect, next face) so this is all the game side of a capture looks like.

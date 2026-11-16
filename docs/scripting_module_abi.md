@@ -1,6 +1,6 @@
 # C# Module ABI
 
-Status: implemented for the `scene` and `ui` modules; managed ABI v35.
+Status: implemented for the `scene` and `ui` modules; managed ABI v36.
 
 Baseline: `feature/csharp-scene-tree`. Native code owns rendering, the Vulkan runtime, the
 module resolver, and primitive/scene import. Managed code owns scene construction, asset
@@ -251,6 +251,13 @@ struct scene_api {
     acquire_radiance_image; // (uint32* width, uint32* height, float* rgba, uint32 float_count)
     reset_temporal_history;
     write_radiance_cube;    // (utf8_view path, uint32 size, float const* pixels, uint32 float_count)
+    get_animation_state;    // (animation_state* value)
+    animation_playable_count;   // (uint32* count)
+    animation_playable_name;    // (uint32 index, utf8_view* name)
+    select_animation;       // (uint32 index)
+    set_animation_playing;  // (uint8 playing)
+    set_animation_speed;    // (float speed)
+    set_animation_time;     // (float seconds)
 };
 ```
 
@@ -336,6 +343,20 @@ optional: a host that predates them leaves the pointer null, and the C# wrapper 
   already drawing, so a cube needs a square window whose side is a power of two in 16..512 and a
   mismatched extent is reported instead of being stretched. An existing output file is never
   overwritten (the writer stages a `.part-<clock>` sibling and renames it).
+- `get_animation_state` reads the snapshot of the host's character animation player: how many clips
+  it holds, which one is selected, whether the clock is running, its time, the clip's looping
+  duration, and the playback multiplier. `animation_playable_name` names one clip; the view borrows
+  the player's storage and stays valid until the player is rebuilt (a scene replacement drops it).
+- `select_animation`, `set_animation_playing`, `set_animation_speed`, and `set_animation_time` are
+  the whole command surface. They only QUEUE work for the frame thread, which applies it between
+  `pace_and_acquire()` and the recording, so a successful call means "accepted", and the snapshot
+  shows the applied result one frame later. The player itself is built by the host at bind time from
+  the first asset whose manifest names a motion file; managed code never samples a clip, writes a
+  skin matrix, or uploads a morph delta. Until such an asset is bound every entry reports
+  `module_unavailable`; an out-of-range clip index is `invalid_argument`, as is a negative or
+  non-finite speed (the host clamps 0..16) or a non-finite time. `set_animation_time` scrubs to a
+  time and pauses, so a GUI drag does not fight the advancing clock; a time outside the clip is
+  clamped.
 
 ## 4. Panel module table
 
@@ -417,6 +438,20 @@ bool global_environment.try_set_hdr(string? path);
 
 `path` is a baked `.ibl` or an equirectangular `.hdr`; an empty string restores the procedural
 sky. The call queues the change and returns whether the host accepted the path.
+
+The character animation player is global to the scene, and the game only drives it:
+
+```csharp
+bool animation.try_get_info(out animation.info value);   // available, clip_count, current_clip,
+                                                          // has_active, playing, time, duration, speed
+string[] animation.get_clip_names();
+bool animation.try_get_clip_name(int index, out string? name);
+bool animation.try_play();
+bool animation.try_pause();
+bool animation.try_select(int index);
+bool animation.try_set_speed(float speed);
+bool animation.try_seek(float seconds);                   // scrub and pause
+```
 
 The post-processing knobs are global too:
 
@@ -651,7 +686,7 @@ Status values are returned through the ABI; no exception crosses the native boun
 
 ## 8. Layout and versioning
 
-- One global `managed_abi_version`, currently 35.
+- One global `managed_abi_version`, currently 36.
 - No `context` parameter and no per-module version.
 - One version means one exact layout, and since v33 the layout is checked as well: the host
   publishes `{type, sizeof}` for every struct both sides share through `native_api.abi_layout`,
@@ -757,4 +792,14 @@ Status values are returned through the ABI; no exception crosses the native boun
   `invalid_argument`. The C# entry is `frame_scheduler.set_boundary_timeout_ms`. In the same
   change the wrappers started refusing scene calls from a non-blocking batch instead of racing the
   record pass.
+- v36 added the character animation player: `scene_api` gained `get_animation_state` over the new
+  24-byte `animation_state` record plus `animation_playable_count`, `animation_playable_name`,
+  `select_animation`, `set_animation_playing`, `set_animation_speed`, and `set_animation_time`, with
+  the C# `deren.animation` entry (`try_get_info`, `try_get_clip_names`, `try_play`/`try_pause`,
+  `try_select`, `try_set_speed`, `try_seek`). The host builds one player per scene from the first
+  bound asset whose manifest names a `motion` file, samples it between
+  `pace_and_acquire()` and the recording, and publishes a per-frame snapshot the queries read;
+  commands only queue for that thread, so managed code cannot write a skin matrix mid-frame. A
+  second animated asset is reported and left static, and a scene replacement drops the player with
+  its clip names.
 

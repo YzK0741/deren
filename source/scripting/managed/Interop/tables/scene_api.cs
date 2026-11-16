@@ -120,6 +120,15 @@ namespace deren.scripting {
             public delegate* unmanaged<uint*, uint*, float*, uint, script_status> acquire_radiance_image;
             public delegate* unmanaged<script_status> reset_temporal_history;
             public delegate* unmanaged<utf8_view, uint, float*, uint, script_status> write_radiance_cube;
+            // ABI 36: the host's character animation player. The three queries read the per-frame
+            // snapshot; the commands only queue work for the frame thread.
+            public delegate* unmanaged<animation_state*, script_status> get_animation_state;
+            public delegate* unmanaged<uint*, script_status> animation_playable_count;
+            public delegate* unmanaged<uint, utf8_view*, script_status> animation_playable_name;
+            public delegate* unmanaged<uint, script_status> select_animation;
+            public delegate* unmanaged<byte, script_status> set_animation_playing;
+            public delegate* unmanaged<float, script_status> set_animation_speed;
+            public delegate* unmanaged<float, script_status> set_animation_time;
 
             public readonly bool is_valid() {
                 return get_transform != null && set_transform != null && try_spawn != null && try_despawn != null &&
@@ -187,6 +196,14 @@ namespace deren.scripting {
         private static delegate* unmanaged<uint*, uint*, float*, uint, script_status> acquire_radiance_image;
         private static delegate* unmanaged<script_status> reset_temporal_history;
         private static delegate* unmanaged<utf8_view, uint, float*, uint, script_status> write_radiance_cube;
+        // Optional too: the animation player arrived with ABI 36.
+        private static delegate* unmanaged<animation_state*, script_status> get_animation_state;
+        private static delegate* unmanaged<uint*, script_status> animation_playable_count;
+        private static delegate* unmanaged<uint, utf8_view*, script_status> animation_playable_name;
+        private static delegate* unmanaged<uint, script_status> select_animation;
+        private static delegate* unmanaged<byte, script_status> set_animation_playing;
+        private static delegate* unmanaged<float, script_status> set_animation_speed;
+        private static delegate* unmanaged<float, script_status> set_animation_time;
 
         internal static bool is_ready() {
             if (!host_call_guard.host_calls_allowed) {
@@ -252,6 +269,13 @@ namespace deren.scripting {
             acquire_radiance_image = null;
             reset_temporal_history = null;
             write_radiance_cube = null;
+            get_animation_state = null;
+            animation_playable_count = null;
+            animation_playable_name = null;
+            select_animation = null;
+            set_animation_playing = null;
+            set_animation_speed = null;
+            set_animation_time = null;
 
             void* table = null;
             uint byte_size = 0;
@@ -323,6 +347,13 @@ namespace deren.scripting {
             acquire_radiance_image = resolved.acquire_radiance_image;
             reset_temporal_history = resolved.reset_temporal_history;
             write_radiance_cube = resolved.write_radiance_cube;
+            get_animation_state = resolved.get_animation_state;
+            animation_playable_count = resolved.animation_playable_count;
+            animation_playable_name = resolved.animation_playable_name;
+            select_animation = resolved.select_animation;
+            set_animation_playing = resolved.set_animation_playing;
+            set_animation_speed = resolved.set_animation_speed;
+            set_animation_time = resolved.set_animation_time;
             return script_status.success;
         }
 
@@ -578,6 +609,48 @@ namespace deren.scripting {
         internal static script_status publish_radiance_cube(utf8_view path, uint size, float* pixels, uint float_count) {
             return is_ready() && write_radiance_cube != null
                 ? write_radiance_cube(path, size, pixels, float_count)
+                : script_status.module_unavailable;
+        }
+
+        internal static script_status query_animation_state(animation_state* value) {
+            return is_ready() && get_animation_state != null
+                ? get_animation_state(value)
+                : script_status.module_unavailable;
+        }
+
+        internal static script_status query_animation_playable_count(uint* count) {
+            return is_ready() && animation_playable_count != null
+                ? animation_playable_count(count)
+                : script_status.module_unavailable;
+        }
+
+        internal static script_status query_animation_playable_name(uint index, utf8_view* name) {
+            return is_ready() && animation_playable_name != null
+                ? animation_playable_name(index, name)
+                : script_status.module_unavailable;
+        }
+
+        internal static script_status assign_animation_select(uint index) {
+            return is_ready() && select_animation != null
+                ? select_animation(index)
+                : script_status.module_unavailable;
+        }
+
+        internal static script_status assign_animation_playing(byte playing) {
+            return is_ready() && set_animation_playing != null
+                ? set_animation_playing(playing)
+                : script_status.module_unavailable;
+        }
+
+        internal static script_status assign_animation_speed(float speed) {
+            return is_ready() && set_animation_speed != null
+                ? set_animation_speed(speed)
+                : script_status.module_unavailable;
+        }
+
+        internal static script_status assign_animation_time(float seconds) {
+            return is_ready() && set_animation_time != null
+                ? set_animation_time(seconds)
                 : script_status.module_unavailable;
         }
     }

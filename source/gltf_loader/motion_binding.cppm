@@ -100,6 +100,53 @@ namespace deren::gltf {
             }
             return result;
         }
+
+        /**
+         * @brief the node's rest matrix, recomposed in double from its stored TRS
+         *
+         * `node::local_transform` is a float matrix built from the TRS by the loader. Composing it
+         * again in float makes the 1e-6 quantum of the fingerprint depend on the compiler's
+         * contraction decisions (Debug and Release hashed the same asset differently), so the
+         * fingerprint recomposes from the exact float inputs in double, which is stable across
+         * build modes. A matrix node (whose TRS is the identity placeholder) keeps its stored
+         * matrix, which needs no composition.
+         */
+        void rest_matrix(node const& n, double (&out)[4][4]) {
+            bool const trs_identity = n.translation == glm::vec3(0.0f) && n.scale == glm::vec3(1.0f) &&
+                                      n.rotation == glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+            if (trs_identity) {
+                for (int c = 0; c < 4; ++c) {
+                    for (int r = 0; r < 4; ++r) {
+                        out[c][r] = static_cast<double>(n.local_transform[c][r]);
+                    }
+                }
+                return;
+            }
+            double const x = n.rotation.x, y = n.rotation.y, z = n.rotation.z, w = n.rotation.w;
+            double const sx = n.scale.x, sy = n.scale.y, sz = n.scale.z;
+            double const r00 = 1.0 - 2.0 * (y * y + z * z), r01 = 2.0 * (x * y + z * w), r02 = 2.0 * (x * z - y * w);
+            double const r10 = 2.0 * (x * y - z * w), r11 = 1.0 - 2.0 * (x * x + z * z), r12 = 2.0 * (y * z + x * w);
+            double const r20 = 2.0 * (x * z + y * w), r21 = 2.0 * (y * z - x * w), r22 = 1.0 - 2.0 * (x * x + y * y);
+            for (int r = 0; r < 4; ++r) {
+                out[3][r] = 0.0;
+            }
+            out[3][0] = static_cast<double>(n.translation.x);
+            out[3][1] = static_cast<double>(n.translation.y);
+            out[3][2] = static_cast<double>(n.translation.z);
+            out[3][3] = 1.0;
+            out[0][0] = r00 * sx;
+            out[0][1] = r01 * sx;
+            out[0][2] = r02 * sx;
+            out[0][3] = 0.0;
+            out[1][0] = r10 * sy;
+            out[1][1] = r11 * sy;
+            out[1][2] = r12 * sy;
+            out[1][3] = 0.0;
+            out[2][0] = r20 * sz;
+            out[2][1] = r21 * sz;
+            out[2][2] = r22 * sz;
+            out[2][3] = 0.0;
+        }
     } // namespace motion_detail
 
     std::expected<deren::utility::vessel::string, std::string_view> skeleton_fingerprint(scenes const& model) {
@@ -108,16 +155,20 @@ namespace deren::gltf {
             return std::unexpected(entries.error());
         }
         // Matrix form handles TRS/matrix equivalence and quaternion signs. Quantization to
-        // 1e-6 also canonicalizes negative zero; text integers avoid native byte order.
+        // 1e-6 also canonicalizes negative zero; text integers avoid native byte order. The
+        // matrix itself is recomposed in double (see motion_detail::rest_matrix) so the quantum
+        // does not move with the build mode.
         deren::utility::vessel::string bytes = "deren-motion-rest-matrix-v1\n";
         for (auto const& e : *entries) {
             bytes += std::to_string(e.path.size());
             bytes += ':';
             bytes += e.path;
             bytes += e.joint ? ":1" : ":0";
+            double matrix[4][4];
+            motion_detail::rest_matrix(*e.value, matrix);
             for (std::int32_t c = 0; c < 4; ++c) {
                 for (std::int32_t r = 0; r < 4; ++r) {
-                    double const v = e.value->local_transform[c][r];
+                    double const v = matrix[c][r];
                     if (!std::isfinite(v) || std::abs(v) > 1e9) {
                         return std::unexpected("invalid skeleton rest matrix");
                     }

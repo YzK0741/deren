@@ -1062,6 +1062,118 @@ namespace deren::app {
                    ? scripting::script_status::success
                    : scripting::script_status::script_failure;
     }
+    // ---- ABI 35: THE ANIMATION PLAYER ----
+    //
+    // The host owns the player (samples the clip, writes the skin matrices, uploads the morph deltas);
+    // these four entries only read its published snapshot and queue one command for the frame that
+    // runs before the next image. `module_unavailable` is the "no player yet" answer rather than
+    // scene_not_found: the scene exists, the animation module the managed side asked for does not.
+    // The scene whose host answers the tree-less animation entries, or nullptr.
+    script_scene* script_scene::animation_owner() {
+        script_scene* const owner = current_owner();
+        if (owner == nullptr || owner->host.animation_state == nullptr) {
+            return nullptr;
+        }
+        return owner;
+    }
+
+    scripting::script_status script_scene::get_animation_state(scripting::animation_state* const value) {
+        if (value == nullptr) {
+            return scripting::script_status::invalid_argument;
+        }
+        script_scene* const owner = animation_owner();
+        if (owner == nullptr) {
+            return scripting::script_status::module_unavailable;
+        }
+        return owner->host.animation_state(owner->host.context, *value) ? scripting::script_status::success
+                                                                        : scripting::script_status::script_failure;
+    }
+
+    scripting::script_status script_scene::animation_playable_count(std::uint32_t* const count) {
+        if (count == nullptr) {
+            return scripting::script_status::invalid_argument;
+        }
+        script_scene* const owner = animation_owner();
+        if (owner == nullptr) {
+            return scripting::script_status::module_unavailable;
+        }
+        scripting::animation_state state{};
+        if (!owner->host.animation_state(owner->host.context, state)) {
+            return scripting::script_status::script_failure;
+        }
+        *count = state.playable_count;
+        return scripting::script_status::success;
+    }
+
+    scripting::script_status script_scene::animation_playable_name(std::uint32_t const index,
+                                                                   scripting::utf8_view* const name) {
+        if (name == nullptr) {
+            return scripting::script_status::invalid_argument;
+        }
+        script_scene* const owner = animation_owner();
+        if (owner == nullptr || owner->host.animation_playable_name == nullptr) {
+            return scripting::script_status::module_unavailable;
+        }
+        std::string_view borrowed{};
+        if (!owner->host.animation_playable_name(owner->host.context, index, borrowed)) {
+            return scripting::script_status::invalid_argument;
+        }
+        // The player keeps the storage; this view only lives until the player is rebuilt.
+        *name = {.data = borrowed.data(), .length = static_cast<std::uint32_t>(borrowed.size())};
+        return scripting::script_status::success;
+    }
+
+    scripting::script_status script_scene::animation_select(std::uint32_t const index) {
+        script_scene* const owner = animation_owner();
+        if (owner == nullptr || owner->host.animation_command == nullptr) {
+            return scripting::script_status::module_unavailable;
+        }
+        return owner->host.animation_command(owner->host.context, animation_command_kind::select, index, 0.0F)
+                   ? scripting::script_status::success
+                   : scripting::script_status::invalid_argument;
+    }
+
+    scripting::script_status script_scene::animation_set_playing(std::uint8_t const playing) {
+        if (playing > 1) {
+            return scripting::script_status::invalid_argument;
+        }
+        script_scene* const owner = animation_owner();
+        if (owner == nullptr || owner->host.animation_command == nullptr) {
+            return scripting::script_status::module_unavailable;
+        }
+        return owner->host.animation_command(owner->host.context, animation_command_kind::playing, 0,
+                                             playing != 0 ? 1.0F : 0.0F)
+                   ? scripting::script_status::success
+                   : scripting::script_status::script_failure;
+    }
+
+    scripting::script_status script_scene::animation_set_speed(float const speed) {
+        // NaN would slip past a plain comparison and poison the clock; a negative rate would play the
+        // clip backwards, which the player does not implement, so both are refused rather than clamped.
+        if (!std::isfinite(speed) || speed < 0.0F) {
+            return scripting::script_status::invalid_argument;
+        }
+        script_scene* const owner = animation_owner();
+        if (owner == nullptr || owner->host.animation_command == nullptr) {
+            return scripting::script_status::module_unavailable;
+        }
+        return owner->host.animation_command(owner->host.context, animation_command_kind::speed, 0, speed)
+                   ? scripting::script_status::success
+                   : scripting::script_status::invalid_argument;
+    }
+
+    scripting::script_status script_scene::animation_set_time(float const seconds) {
+        if (!std::isfinite(seconds)) {
+            return scripting::script_status::invalid_argument;
+        }
+        script_scene* const owner = animation_owner();
+        if (owner == nullptr || owner->host.animation_command == nullptr) {
+            return scripting::script_status::module_unavailable;
+        }
+        return owner->host.animation_command(owner->host.context, animation_command_kind::time, 0, seconds)
+                   ? scripting::script_status::success
+                   : scripting::script_status::invalid_argument;
+    }
     scripting::script_status script_scene::set_point_lights(scripting::point_light_desc const* const lights,
                                                             std::uint32_t const count) {
         // The count is the caller's contract with the light UBO: the engine has a fixed array, and
@@ -1281,7 +1393,14 @@ namespace deren::app {
             .request_radiance_capture = request_radiance_capture,
             .acquire_radiance_image = acquire_radiance_image,
             .reset_temporal_history = reset_temporal_history,
-            .write_radiance_cube = write_radiance_cube};
+            .write_radiance_cube = write_radiance_cube,
+            .get_animation_state = get_animation_state,
+            .animation_playable_count = animation_playable_count,
+            .animation_playable_name = animation_playable_name,
+            .select_animation = animation_select,
+            .set_animation_playing = animation_set_playing,
+            .set_animation_speed = animation_set_speed,
+            .set_animation_time = animation_set_time};
         *table = &scene_api;
         *byte_size = sizeof(scene_api);
         return scripting::script_status::success;
@@ -1303,6 +1422,7 @@ namespace deren::app {
             {.type = abi_type::startup_options, .size = sizeof(scripting::startup_options)},
             {.type = abi_type::head_basis_desc, .size = sizeof(scripting::head_basis_desc)},
             {.type = abi_type::face_frame_desc, .size = sizeof(scripting::face_frame_desc)},
+            {.type = abi_type::animation_state, .size = sizeof(scripting::animation_state)},
         };
         constexpr auto count = static_cast<std::uint32_t>(std::size(entries));
         if (out == nullptr || capacity < count) {
@@ -1610,7 +1730,8 @@ namespace deren::app {
         auto loaded = gltf::load_model(entry->model.string(),
                                        gltf::load_options{.extract_subtilis_payload = false,
                                                           .asset_up_axis = entry->z_up ? gltf::up_axis::z
-                                                                                       : gltf::up_axis::y});
+                                                                                       : gltf::up_axis::y,
+                                                          .motion_file = entry->motion.string()});
         if (!loaded) {
             utility::error("scripts: could not load asset '{}' from '{}'", entry->id, entry->model.string());
             return scripting::script_status::asset_invalid;

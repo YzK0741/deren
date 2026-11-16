@@ -3,6 +3,9 @@ name = "Laevatain"
 type = "toon"
 model = "laevatain_game_toon_preview.glb"
 sidecar = "laevatain_game_toon_preview.glb.toon.tsv"
+# The motion library holds the clips; the model itself carries none. The host binds them to this
+# skeleton at load time, and the managed game drives the player through the ABI 35 entries.
+motion = "../motion/bibideba_laevatain/motion.gltf"
 license = "LICENSE.md"
 up_axis = "z"
 

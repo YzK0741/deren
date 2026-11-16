@@ -329,9 +329,51 @@ namespace deren::engine::animation {
         return changed;
     }
 
+    void controller::capture_bind_pose() {
+        this->bind_captured = true;
+        this->bind_inverse.clear();
+        if (this->skin_rigs.empty()) {
+            return;
+        }
+        std::ranges::fill(this->skin_world_cache, glm::mat4(1.0f));
+        auto const collect = [this](auto&& self, deren::engine::scene_tree::scene_node& node, glm::mat4 const& parent_world) -> void {
+            glm::mat4 const world = parent_world * node.local;
+            if (node.import_instance == this->import_id) {
+                if (auto const it = this->skin_world_index.find(node.source_index); it != this->skin_world_index.end()) {
+                    this->skin_world_cache[it->second] = world;
+                }
+            }
+            for (deren::engine::scene_tree::scene_node& child : node.children) {
+                self(self, child, world);
+            }
+        };
+        for (deren::engine::scene_tree::scene_node& root : this->host.scene->roots) {
+            collect(collect, root, glm::mat4(1.0f));
+        }
+        this->bind_inverse.reserve(this->skin_sources.size());
+        for (skin_rig const& rig : this->skin_rigs) {
+            for (std::size_t j = 0; j < rig.s.joints.size(); ++j) {
+                glm::mat4 const& ib = j < rig.s.inverse_bind.size() ? rig.s.inverse_bind[j] : glm::mat4(1.0f);
+                auto const it = this->skin_world_index.find(rig.s.joints[j]);
+                glm::mat4 const joint_world = it == this->skin_world_index.end() ? glm::mat4(1.0f) : this->skin_world_cache[it->second];
+                // inverse of the joint's BIND product (world_at_bind * inverse_bind), i.e.
+                // `inverse(ib) * inverse(world)`: it is deliberately NOT assumed to be the mesh
+                // world - a converted asset whose joints do not invert onto its mesh world would
+                // otherwise snap by that constant the moment a player takes the skin over.
+                this->bind_inverse.push_back(glm::inverse(ib) * glm::inverse(joint_world));
+            }
+        }
+        deren::utility::log("skinning: bind pose captured for {} joint matrix(es) ({} rig(s))", this->bind_inverse.size(), this->skin_rigs.size());
+    }
+
     void controller::update(float const dt_seconds) {
         if (this->host.scene == nullptr) {
             return;
+        }
+        if (!this->bind_captured) {
+            // The FIRST update() is the only moment that is guaranteed to show the imported bind
+            // pose (init() may run before the importer publishes the tree's node locals).
+            this->capture_bind_pose();
         }
 
         // 1. playback: advance the clock (when playing) and sample the active clip into the
@@ -412,9 +454,6 @@ namespace deren::engine::animation {
                         this->skin_world_cache[it->second] = world;
                     }
                 }
-                if (auto const it = this->skin_mesh_world_cache.find(&node); it != this->skin_mesh_world_cache.end()) {
-                    it->second = world;
-                }
                 for (deren::engine::scene_tree::scene_node& child : node.children) {
                     self(self, child, world);
                 }
@@ -437,11 +476,13 @@ namespace deren::engine::animation {
             for (std::size_t i = 0; i < prefix; ++i) {
                 matrices.push_back(glm::mat4(1.0f));
             }
+            std::size_t bind_cursor = 0;
             for (skin_rig const& rig : this->skin_rigs) {
-                // Cancel this mesh instance's world transform before the shader applies it.
-                glm::mat4 const mesh_world_inv = glm::inverse(this->skin_mesh_world_cache.at(rig.mesh_node));
                 for (std::size_t j = 0; j < rig.s.joints.size(); ++j) {
-                    matrices.push_back(mesh_world_inv * world_of(rig.s.joints[j]) * rig.s.inverse_bind[j]);
+                    glm::mat4 const& ib = j < rig.s.inverse_bind.size() ? rig.s.inverse_bind[j] : glm::mat4(1.0f);
+                    glm::mat4 const& bind_inverse = bind_cursor < this->bind_inverse.size() ? this->bind_inverse[bind_cursor] : glm::mat4(1.0f);
+                    ++bind_cursor;
+                    matrices.push_back(bind_inverse * world_of(rig.s.joints[j]) * ib);
                 }
             }
             this->host.set_skin_matrices_active(matrices, prepends_identity_block ? 0u : this->skin_region_base);

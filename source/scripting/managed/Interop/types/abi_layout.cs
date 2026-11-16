@@ -16,6 +16,7 @@ namespace deren.scripting {
         startup_options = 8,
         head_basis_desc = 9,
         face_frame_desc = 10,
+        animation_state = 11,
     }
 
     /// <summary>One <c>{type, sizeof}</c> answer from the host's abi_layout entry point.</summary>

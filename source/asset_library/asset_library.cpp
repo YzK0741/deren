@@ -73,6 +73,34 @@ namespace deren::asset_library {
             return (directory / relative).lexically_normal();
         }
 
+        /// Resolve a path that may leave the asset directory but must stay inside @p root.
+        ///
+        /// `motion` is the one key that legitimately points at a sibling folder: the motion library
+        /// keeps its `motion.gltf` + `motion.bin` pair under `asset/motion/<name>/` and the character
+        /// asset that plays it lives under `asset/<name>/`, so the manifest has to write `../motion/…`.
+        /// Absolute paths are still refused, and `lexically_normal` runs first so `..` cannot climb
+        /// past @p root without the check below noticing.
+        std::optional<fs::path> resolve_inside_root(fs::path const& root, fs::path const& directory,
+                                                    std::string_view const raw, std::string_view const field,
+                                                    fs::path const& manifest, std::vector<std::string>& warnings) {
+            if (raw.empty()) {
+                warn(warnings, manifest, std::string(field) + " is empty");
+                return std::nullopt;
+            }
+            fs::path const relative(raw);
+            if (relative.is_absolute() || relative.has_root_name() || relative.has_root_directory()) {
+                warn(warnings, manifest, std::string(field) + " must be relative to the asset directory");
+                return std::nullopt;
+            }
+            fs::path normalized = (directory / relative).lexically_normal();
+            fs::path const inside = normalized.lexically_relative(root.lexically_normal());
+            if (inside.empty() || *inside.begin() == "..") {
+                warn(warnings, manifest, std::string(field) + " must stay inside the asset library root");
+                return std::nullopt;
+            }
+            return normalized;
+        }
+
         /// ids are used as command-line values and log keys; keeping them to one filename-safe token
         /// makes `--asset <id>` unambiguous without an escaping rule.
         bool valid_id(std::string_view const id) {
@@ -212,7 +240,7 @@ namespace deren::asset_library {
         }
 
         std::optional<asset_entry> parse_manifest(fs::path const& manifest, fs::path const& directory,
-                                                  std::vector<std::string>& warnings) {
+                                                  std::vector<std::string>& warnings, fs::path const& root) {
             toml::parse_result const parsed = toml::parse_file(manifest.string());
             if (!parsed) {
                 warn(warnings, manifest, parsed.error().description());
@@ -284,6 +312,19 @@ namespace deren::asset_library {
                     return std::nullopt;
                 }
                 entry.sidecar = *sidecar_path;
+            }
+
+            if (std::optional<std::string_view> const motion = string_value(table, "motion")) {
+                std::optional<fs::path> const motion_path =
+                    resolve_inside_root(root, directory, *motion, "motion", manifest, warnings);
+                if (!motion_path) {
+                    return std::nullopt;
+                }
+                if (!fs::is_regular_file(*motion_path)) {
+                    warn(warnings, manifest, "motion '" + motion_path->string() + "' does not exist");
+                    return std::nullopt;
+                }
+                entry.motion = *motion_path;
             }
 
             if (std::optional<std::string_view> const license = string_value(table, "license")) {
@@ -536,7 +577,8 @@ namespace deren::asset_library {
                 fs::path const manifest = child / "asset.toml";
                 std::error_code manifest_error;
                 if (fs::is_regular_file(manifest, manifest_error)) {
-                    if (std::optional<asset_entry> entry = parse_manifest(manifest, child, library.warnings_)) {
+                    if (std::optional<asset_entry> entry = parse_manifest(manifest, child, library.warnings_,
+                                                                         library.root_)) {
                         if (!ids.insert(entry->id).second) {
                             warn(library.warnings_, manifest, "duplicate asset id '" + entry->id + "'; ignored");
                         } else {

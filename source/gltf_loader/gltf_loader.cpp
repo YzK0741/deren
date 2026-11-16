@@ -2287,6 +2287,20 @@ namespace deren::gltf {
             result.skins.push_back(load_skin(asset, i));
         }
 
+        // THE MOTION FILE IS BOUND HERE, BEFORE THE UP-AXIS CORRECTION runs: the correction rotates the
+        // rest pose, while the motion's fingerprint and channel values are expressed in the glTF's own
+        // space. Binding afterwards would compare a rotated skeleton (and then play back channels in the
+        // wrong space). A mismatch is a warning, not a failed load: a character with no animation is
+        // still a usable asset.
+        if (!options.motion_file.empty()) {
+            if (auto const bound = load_motion(result, options.motion_file)) {
+                deren::utility::log("motion: bound {} clip(s) from '{}'", *bound, options.motion_file);
+            } else {
+                deren::utility::error("motion: could not bind '{}' - {} (the asset loads without animation)",
+                                      options.motion_file, bound.error());
+            }
+        }
+
         // the up-axis correction runs AFTER the skins exist (it needs the joint lists) and mutates the
         // nodes in place, so `node_by_source`'s pointers - collected above - stay valid.
         if (options.asset_up_axis == up_axis::z) {

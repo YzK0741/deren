@@ -85,6 +85,20 @@ export namespace deren::app {
     };
 
     /**
+     * @brief what managed code can ask a running animation player to do (ABI 35)
+     *
+     * The command carries one index and one float, which is all the player needs: a clip selection
+     * names its index, the play flag and the speed are floats, and a scrub is a time. Keeping one
+     * entry instead of seven keeps the host binding and the managed mirror in one place.
+     */
+    enum class animation_command_kind : std::uint32_t {
+        select = 0,
+        playing = 1,
+        speed = 2,
+        time = 3
+    };
+
+    /**
      * @brief Host callback that makes a managed tree the rendered scene.
      *
      * The managed scene builder creates the tree, fills it, and calls activate_scene() before
@@ -223,6 +237,17 @@ export namespace deren::app {
         bool (*reset_temporal_history)(void* context) = nullptr;
         bool (*write_radiance_cube)(void* context, std::string_view path, std::uint32_t size, float const* pixels,
                                     std::uint32_t float_count) = nullptr;
+        /**
+         * @brief ABI 35: the character animation player.
+         *
+         * animation_state publishes a snapshot taken once per frame, which every query reads; the
+         * other two queue work for the frame that runs before the frame is recorded. All of them
+         * return false when no player exists, which the managed side reports as not_ready.
+         */
+        bool (*animation_state)(void* context, scripting::animation_state& out) = nullptr;
+        bool (*animation_playable_name)(void* context, std::uint32_t index, std::string_view& name) = nullptr;
+        bool (*animation_command)(void* context, animation_command_kind kind, std::uint32_t index,
+                                  float value) = nullptr;
     };
 
     class script_scene {
@@ -364,8 +389,21 @@ export namespace deren::app {
         static scripting::script_status reset_temporal_history();
         static scripting::script_status write_radiance_cube(scripting::utf8_view path, std::uint32_t size,
                                                             float const* pixels, std::uint32_t float_count);
+        /** ABI 35: the animation player's per-frame snapshot; see managed_scene_host::animation_state. */
+        static scripting::script_status get_animation_state(scripting::animation_state* value);
+        /** ABI 35: how many clips the player holds, from the same snapshot. */
+        static scripting::script_status animation_playable_count(std::uint32_t* count);
+        /** ABI 35: one clip's name, borrowed from the player; see managed_scene_host::animation_playable_name. */
+        static scripting::script_status animation_playable_name(std::uint32_t index, scripting::utf8_view* name);
+        /** ABI 35: the four player commands; see managed_scene_host::animation_command. */
+        static scripting::script_status animation_select(std::uint32_t index);
+        static scripting::script_status animation_set_playing(std::uint8_t playing);
+        static scripting::script_status animation_set_speed(float speed);
+        static scripting::script_status animation_set_time(float seconds);
         /** The scene whose host answers the global (tree-less) setters: the starting scene, else the newest. */
         static script_scene* current_owner();
+        /** The scene that answers the animation entries, or nullptr when no host provides them. */
+        static script_scene* animation_owner();
 
         // ABI 31: the debug panel. Each call is one widget in the frame the managed game is drawing; the
         // managed side pairs begin_panel with end_panel and owns the storage the controls write into.
