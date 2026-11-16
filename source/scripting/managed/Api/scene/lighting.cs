@@ -15,7 +15,7 @@ namespace deren {
             if (status == script_status.success) {
                 return;
             }
-            log.write($"Game: {what} rejected ({status})");
+            logger.write($"Game: {what} rejected ({status})");
         }
 
         /// <summary>

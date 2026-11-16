@@ -148,7 +148,7 @@ namespace deren {
         }
 
         private static void log_game(string message) {
-            log.write($"Game: {message}");
+            logger.write($"Game: {message}");
         }
     }
 }

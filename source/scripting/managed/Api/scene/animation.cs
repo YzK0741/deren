@@ -134,7 +134,7 @@ namespace deren {
         /// <summary>Selects a clip by index; the host opens it at time 0 and keeps the current speed.</summary>
         public static bool try_select(int index) {
             if (index < 0) {
-                log.write($"Game: animation clip {index} is out of range");
+                logger.write($"Game: animation clip {index} is out of range");
                 return false;
             }
             var status = scene_api.assign_animation_select((uint)index);
@@ -145,7 +145,7 @@ namespace deren {
         /// <summary>Sets the playback-rate multiplier (clamped by the host to <see cref="max_speed"/>).</summary>
         public static bool try_set_speed(float speed) {
             if (float.IsNaN(speed) || float.IsInfinity(speed) || speed < 0.0F) {
-                log.write($"Game: animation speed {speed} is not a finite, non-negative number");
+                logger.write($"Game: animation speed {speed} is not a finite, non-negative number");
                 return false;
             }
             var status = scene_api.assign_animation_speed(speed);
@@ -159,7 +159,7 @@ namespace deren {
         /// </summary>
         public static bool try_seek(float seconds) {
             if (float.IsNaN(seconds) || float.IsInfinity(seconds)) {
-                log.write($"Game: animation time {seconds} is not a finite number");
+                logger.write($"Game: animation time {seconds} is not a finite number");
                 return false;
             }
             var status = scene_api.assign_animation_time(seconds);
@@ -169,7 +169,7 @@ namespace deren {
 
         private static void report(script_status status, string what) {
             if (status != script_status.success) {
-                log.write($"Game: animation {what} failed ({status})");
+                logger.write($"Game: animation {what} failed ({status})");
             }
         }
     }

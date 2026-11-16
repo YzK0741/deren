@@ -142,7 +142,7 @@ namespace deren {
         }
 
         private static void report(string message) {
-            log.write(message);
+            logger.write(message);
         }
 
         /// <summary>

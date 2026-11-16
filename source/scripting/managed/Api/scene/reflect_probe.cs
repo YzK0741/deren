@@ -144,7 +144,7 @@ namespace deren {
         }
 
         private static bool reject(string message) {
-            log.write($"Game: reflect probe: {message}");
+            logger.write($"Game: reflect probe: {message}");
             return false;
         }
     }
@@ -227,7 +227,7 @@ namespace deren {
                     }
                     running = false;
                     finished = true;
-                    log.write(
+                    logger.write(
                         $"Game: reflect probe: wrote '{path}' ({size}px, 6 faces)");
                     return false;
                 }

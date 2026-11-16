@@ -49,7 +49,7 @@ namespace deren.scripting {
                 var context = AssemblyLoadContext.GetLoadContext(typeof(managed_bootstrap).Assembly)!;
                 game_assembly = context.LoadFromAssemblyPath(path);
             } catch (Exception error) {
-                log.write(api, $"Managed host: cannot load project assembly: {error.GetBaseException().Message}");
+                logger.write(api, $"Managed host: cannot load project assembly: {error.GetBaseException().Message}");
                 return (int)script_status.script_failure;
             }
 
@@ -57,16 +57,16 @@ namespace deren.scripting {
             try {
                 var host_type = find_game_host(game_assembly);
                 if (host_type == null) {
-                    log.write(api, "Managed host: project does not define exactly one game_entry.");
+                    logger.write(api, "Managed host: project does not define exactly one game_entry.");
                     return (int)script_status.script_failure;
                 }
                 created = (game_entry?)Activator.CreateInstance(host_type, nonPublic: true);
             } catch (Exception error) {
-                log.write(api, $"Managed host: cannot create game_entry: {error.GetBaseException().Message}");
+                logger.write(api, $"Managed host: cannot create game_entry: {error.GetBaseException().Message}");
                 return (int)script_status.script_failure;
             }
             if (created == null) {
-                log.write(api, "Managed host: game_entry constructor returned null.");
+                logger.write(api, "Managed host: game_entry constructor returned null.");
                 return (int)script_status.script_failure;
             }
             game = created;
@@ -76,7 +76,7 @@ namespace deren.scripting {
             project_config.load(project_directory);
             var status = game.preinit(options, argc, argv);
             if (status != script_status.success) {
-                log.write(api, $"Managed host: project preinit failed ({status}).");
+                logger.write(api, $"Managed host: project preinit failed ({status}).");
                 game = null;
                 return (int)status;
             }
@@ -89,7 +89,7 @@ namespace deren.scripting {
                 return invalid_api;
             }
             if (game == null) {
-                log.write(api, "Managed host: initialize called before preinit.");
+                logger.write(api, "Managed host: initialize called before preinit.");
                 return invalid_api;
             }
             core = *api;
@@ -104,25 +104,25 @@ namespace deren.scripting {
             // an initialization failure, so the status is only logged when the module is missing.
             var ui_status = ui_api.initialize(api);
             if (ui_status != script_status.success) {
-                log.write(api, $"Managed host: no panel module ({ui_status}); ui calls will fail.");
+                logger.write(api, $"Managed host: no panel module ({ui_status}); ui calls will fail.");
             }
             // Framework baseline first: the project's initialize can still move anything after.
             project_config.apply();
             var status = game.initialize(api, scripts);
             if (status != script_status.success) {
-                log.write(api, $"Managed host: project initialization failed ({status}).");
+                logger.write(api, $"Managed host: project initialization failed ({status}).");
                 return (int)status;
             }
             scripts->before_frame = &before_frame_from_engine;
             scripts->after_frame = &after_frame_from_engine;
             if (scripts->update == null || scripts->stop == null) {
-                log.write(api, "Managed host: project did not register update/stop.");
+                logger.write(api, "Managed host: project did not register update/stop.");
                 return (int)script_status.script_failure;
             }
             // Wrap the project's stop so the frame worker ends before the native side tears down.
             project_stop = scripts->stop;
             scripts->stop = &stop_from_engine;
-            log.write(api, "deren managed host ready");
+            logger.write(api, "deren managed host ready");
             return 0;
         }
 
@@ -156,7 +156,7 @@ namespace deren.scripting {
             try {
                 dispatch();
             } catch (Exception error) {
-                nothrow_log.write($"Managed host: frame boundary failed: {error.GetBaseException().Message}");
+                logger.write($"Managed host: frame boundary failed: {error.GetBaseException().Message}");
                 // The host is blocked on the answer: a batch that never started must still release it.
                 frame_event_processor.notify_host();
             }

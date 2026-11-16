@@ -452,7 +452,7 @@ namespace game {
             if (!tree!.try_set_material_override(bound, factors)) {
                 throw new InvalidOperationException("cannot bind the left helmet to environment slot 1");
             }
-            log.write("Game: environment slot 1 bound to the left helmet");
+            logger.write("Game: environment slot 1 bound to the left helmet");
         }
 
         /// <summary>

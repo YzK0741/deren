@@ -39,7 +39,7 @@ namespace deren {
             scene_directory = string.Empty;
             var manifest = Path.Combine(project_directory, "deren.toml");
             if (!File.Exists(manifest)) {
-                log.write($"config: no deren.toml in '{project_directory}'; keeping the built-in lighting defaults");
+                logger.write($"config: no deren.toml in '{project_directory}'; keeping the built-in lighting defaults");
                 return;
             }
             var root = read(manifest);
@@ -61,12 +61,12 @@ namespace deren {
             var profile_note = profile.profile.Length != 0
                 ? $", profile '{Path.GetFileName(profile.profile)}'"
                 : ", no profile";
-            log.write(string.Create(CultureInfo.InvariantCulture,
+            logger.write(string.Create(CultureInfo.InvariantCulture,
                 $"config: [lighting] from '{main_scene}': sun ({profile.sun_direction.x:F3}, {profile.sun_direction.y:F3}, {profile.sun_direction.z:F3}) x {profile.sun_intensity:F3}, " +
                 $"environment rotation {profile.environment_rotation:F1} strength {profile.environment_strength:F3} background {profile.environment_background}, " +
                 $"area light {(profile.area_light_size > 0.0f ? $"{profile.area_light_size:F1} m x {profile.area_light_power:F0} W" : "off")}{profile_note}"));
             var look = render;
-            log.write(string.Create(CultureInfo.InvariantCulture,
+            logger.write(string.Create(CultureInfo.InvariantCulture,
                 $"config: [render] from '{main_scene}': exposure {look.exposure:F3}, tone mapping {look.effective_tone_mapping()}, " +
                 $"bloom {(look.bloom ? "on" : "off")}, fxaa {(look.fxaa ? "on" : "off")}, " +
                 $"taa {(look.taa ? $"on ({look.taa_blend_static:F3}/{look.taa_blend_min:F3})" : "off")}, " +
@@ -103,7 +103,7 @@ namespace deren {
             if (derived.enabled) {
                 deren.lighting.try_set_area_light(derived.world_centre, derived.half, profile.area_light_irradiance,
                                                   derived.axis, derived.penumbra);
-                log.write(string.Create(CultureInfo.InvariantCulture,
+                logger.write(string.Create(CultureInfo.InvariantCulture,
                     $"config: area light centre ({derived.world_centre.x:F3}, {derived.world_centre.y:F3}, {derived.world_centre.z:F3}) half {derived.half:F3} m, " +
                     $"radiance {derived.radiance:F5}{(takes_over ? " (takes over the sun)" : " (penumbra only)")}, penumbra {derived.penumbra:F3} m"));
             } else {
@@ -129,14 +129,14 @@ namespace deren {
             try {
                 var parsed = toml_table.parse(File.ReadAllText(path), out var error);
                 if (error != null) {
-                    log.write($"config: '{path}' parsed with issues ({error}); the keys read so far are used");
+                    logger.write($"config: '{path}' parsed with issues ({error}); the keys read so far are used");
                 }
                 return parsed;
             } catch (IOException error) {
-                log.write($"config: cannot read '{path}': {error.GetBaseException().Message}");
+                logger.write($"config: cannot read '{path}': {error.GetBaseException().Message}");
                 return null;
             } catch (UnauthorizedAccessException error) {
-                log.write($"config: cannot read '{path}': {error.GetBaseException().Message}");
+                logger.write($"config: cannot read '{path}': {error.GetBaseException().Message}");
                 return null;
             }
         }
