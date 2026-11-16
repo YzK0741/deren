@@ -25,8 +25,9 @@ $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
 Push-Location $repo
 try {
-    # WHICH BUILD TREE. `build/` is the canonical Release tree written by
-    # `python scripts/build_helpers/build.py --type Release`; older checkouts may
+    # WHICH BUILD TREE. `build/` is the canonical tree written by
+    # `python scripts/build_helpers/build.py` (RelWithDebInfo: NDEBUG plus line
+    # tables), which is the configuration the gate expects; older checkouts may
     # still have the historical build-<config>-clang64 / build-<config> names, so
     # keep those as fallbacks. -BuildDir always wins, and a path that does not
     # exist is still reported by name.
@@ -35,10 +36,10 @@ try {
         $BuildDir = @($releaseCandidates | Where-Object { Test-Path -LiteralPath (Join-Path $repo $_) })[0]
     }
     if (-not $BuildDir) {
-        throw ("no Release build tree found (looked for: {0}). Configure and build one first:`n    python scripts/build_helpers/build.py --type Release`nor pass -BuildDir <path>." -f ($releaseCandidates -join ", "))
+        throw ("no build tree found (looked for: {0}). Configure and build one first:`n    python scripts/build_helpers/build.py`nor pass -BuildDir <path>." -f ($releaseCandidates -join ", "))
     }
     if (-not (Test-Path -LiteralPath (Join-Path $repo $BuildDir))) {
-        throw ("build directory not found: {0} (run python scripts/build_helpers/build.py --type Release, or pass -BuildDir <path>)" -f $BuildDir)
+        throw ("build directory not found: {0} (run python scripts/build_helpers/build.py, or pass -BuildDir <path>)" -f $BuildDir)
     }
 
     # THE GATE'S TRANSCRIPT. Every step's output is tee'd into tmp/local-gate.log, and the marker

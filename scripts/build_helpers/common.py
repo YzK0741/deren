@@ -24,16 +24,16 @@ IS_WINDOWS = os.name == "nt"
 def build_dir_for(config: str, explicit: Optional[str] = None) -> Path:
     """Return the build directory for a CMake configuration.
 
-    ``build/`` is the canonical Release tree and ``build-debug/`` is the
-    canonical Debug tree.  The older ``build-<config>-clang64`` /
-    ``build-<config>`` names are no longer written by this helper.
-    ``explicit`` overrides the layout.
+    ``build/`` is the canonical RelWithDebInfo tree - the default build - and
+    ``build-debug/`` the Debug one; ``build-release/`` holds the opt-in Release
+    tree.  The older ``build-<config>-clang64`` / ``build-<config>`` names are no
+    longer written by this helper.  ``explicit`` overrides the layout.
     """
     if explicit:
         path = Path(explicit)
         return path if path.is_absolute() else REPO_ROOT / path
     lowered = config.lower()
-    if lowered == "release":
+    if lowered == "relwithdebinfo":
         return REPO_ROOT / "build"
     return REPO_ROOT / ("build-" + lowered)
 

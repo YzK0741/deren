@@ -73,9 +73,10 @@ Run from the repository root:
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-local-ci.ps1 -Mode Incremental
 ```
 
-The build tree is auto-detected as the canonical Release tree, `build/`, falling back to
-the historical `build-release-clang64/` / `build-release/` names; pass `-BuildDir <path>`
-to override.
+The build tree is auto-detected as the canonical tree, `build/` (RelWithDebInfo: `NDEBUG`
+plus line tables — the configuration `python scripts/build_helpers/build.py` produces by
+default), falling back to the historical `build-release-clang64/` / `build-release/`
+names; pass `-BuildDir <path>` to override.
 
 This is a **local gate, not a CI pass**. It is a strict subset of the remote
 workflow that can run on a Windows checkout:

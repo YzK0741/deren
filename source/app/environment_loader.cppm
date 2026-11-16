@@ -3,6 +3,7 @@ module;
 export module deren.app.application:environment_loader;
 
 import deren.vstd;
+import deren.utility;
 import deren.utility.shared;
 import deren.engine.math;
 import deren.engine.lighting.environment_controls;
@@ -235,6 +236,157 @@ export prepared_environment prepare_environment(std::filesystem::path const& pat
         return {{}, {}, "Prepared environment exceeds finite half-float radiance; reduce input intensity"};
     }
     return {deren::engine::to_half_rgba(specular_pixels), deren::engine::to_half_rgba(diffuse_pixels), {}};
+}
+
+// A BAKED ENVIRONMENT IS A FUNCTION OF ITS SOURCE AND OF THE BAKED RESOLUTIONS, so a cache entry for it
+// can be keyed by exactly those inputs and reused across launches: the source file's identity (path,
+// size, modification time), the sun the analytic sky is built from, the three resolutions the file
+// header pins, and the input scale. Nothing else in the process may reach a bake, so a hit is the same
+// pixels a miss would have produced. The layout version is part of the key: changing what a bake means
+// re-keys every entry instead of silently reusing one.
+export inline constexpr std::uint32_t environment_cache_version = 1;
+
+// The identity of a source file, read once by the caller that already has to open it.
+export struct environment_source_identity {
+    std::uint64_t size = 0;
+    std::int64_t modified = 0;
+};
+
+export inline std::filesystem::path environment_cache_file(std::filesystem::path const& cache_dir,
+                                                           std::filesystem::path const& source,
+                                                           environment_source_identity identity,
+                                                           deren::utility::vessel::array<float, 3> sun,
+                                                           std::int32_t env_size,
+                                                           std::int32_t mip_count,
+                                                           std::int32_t irr_size,
+                                                           std::int32_t lut_size,
+                                                           float input_scale) {
+    std::string key;
+    auto append = [&key](void const* data, std::size_t size) { key.append(static_cast<char const*>(data), size); };
+    auto append_u32 = [&append](std::uint32_t value) { append(&value, sizeof(value)); };
+    auto append_u64 = [&append](std::uint64_t value) { append(&value, sizeof(value)); };
+    auto append_float = [&append](float value) { append(&value, sizeof(value)); };
+    char const domain[] = "deren environment cache";
+    append(domain, sizeof(domain) - 1);
+    append_u32(environment_cache_version);
+    append_u32(static_cast<std::uint32_t>(env_size));
+    append_u32(static_cast<std::uint32_t>(mip_count));
+    append_u32(static_cast<std::uint32_t>(irr_size));
+    append_u32(static_cast<std::uint32_t>(lut_size));
+    append_float(input_scale);
+    // the source path is part of the identity even though the bytes decide the bake: two projects that
+    // ship the same panorama under different names are different assets to the person debugging them.
+    std::string const source_text = source.generic_string();
+    append_u64(static_cast<std::uint64_t>(source_text.size()));
+    append(source_text.data(), source_text.size());
+    append_u64(identity.size);
+    append_u64(static_cast<std::uint64_t>(identity.modified));
+    // the analytic sky is the only bake the sun shapes; keying a decoded HDR by the sun would re-bake an
+    // unchanged file every time the light moved.
+    if (source.empty()) {
+        append_float(sun[0]);
+        append_float(sun[1]);
+        append_float(sun[2]);
+    }
+    auto const digest = deren::utility::xxh3_128bits(
+        std::span<std::uint8_t const>(reinterpret_cast<std::uint8_t const*>(key.data()), key.size()));
+    std::string name;
+    name.reserve(2 * deren::utility::xxh3_digest::size_byte + 4);
+    char const digits[] = "0123456789abcdef";
+    for (std::uint8_t const byte : digest.data) {
+        name.push_back(digits[byte >> 4]);
+        name.push_back(digits[byte & 0x0fu]);
+    }
+    name += ".ibl";
+    return cache_dir / name;
+}
+
+// What a cached preparation did, for the log line the caller writes: a hit is the case this exists for.
+export struct environment_cache_report {
+    bool hit = false;
+    bool write_failed = false;
+    std::filesystem::path file;
+    std::uint64_t bytes = 0;
+};
+
+// prepare_environment() with a disk cache in front of it: a hit reads the .ibl the last miss wrote, a
+// miss writes one. An empty cache_dir disables the cache (the caller asked for a one-off bake), and a
+// cache that cannot be written is reported, never fatal - the prepared pixels are already in hand.
+export prepared_environment prepare_environment_cached(std::filesystem::path const& path,
+                                                       std::filesystem::path const& cache_dir,
+                                                       deren::utility::vessel::array<float, 3> sun,
+                                                       int env_size,
+                                                       int mip_count,
+                                                       int irr_size,
+                                                       float input_scale,
+                                                       environment_cache_report* report = nullptr) {
+    if (report != nullptr) {
+        *report = {};
+    }
+    environment_source_identity identity;
+    std::error_code identity_error;
+    if (!path.empty()) {
+        identity.size = std::filesystem::file_size(path, identity_error);
+        if (identity_error) {
+            return {{}, {}, deren::utility::vessel::format("could not read the environment source '{}': {}",
+                                                           path.string(), identity_error.message())};
+        }
+        auto const modified = std::filesystem::last_write_time(path, identity_error);
+        if (identity_error) {
+            return {{}, {}, deren::utility::vessel::format("could not read the environment source '{}': {}",
+                                                           path.string(), identity_error.message())};
+        }
+        identity.modified = static_cast<std::int64_t>(modified.time_since_epoch().count());
+    }
+    // A baked file needs no bake, so it bypasses the cache entirely (the caller named the pixels).
+    if (cache_dir.empty() || is_environment_ibl_path(path)) {
+        return prepare_environment(path, sun, env_size, mip_count, irr_size, input_scale);
+    }
+    std::filesystem::path const file = environment_cache_file(cache_dir, path, identity, sun, env_size, mip_count,
+                                                              irr_size, environment_brdf_lut_size, input_scale);
+    std::error_code file_error;
+    if (std::filesystem::is_regular_file(file, file_error) && !file_error) {
+        environment_ibl_data data;
+        std::string error;
+        if (read_environment_ibl(file, data, error) && data.env_size == static_cast<std::uint32_t>(env_size) &&
+            data.env_mip_count == static_cast<std::uint32_t>(mip_count) && data.irr_size == static_cast<std::uint32_t>(irr_size)) {
+            if (report != nullptr) {
+                report->hit = true;
+                report->file = file;
+                report->bytes = std::filesystem::file_size(file, file_error);
+            }
+            return {std::move(data.prefiltered), std::move(data.irradiance), {}};
+        }
+        // A truncated or foreign file at the key's path is not trusted: the bake below rewrites it.
+    }
+    prepared_environment prepared = prepare_environment(path, sun, env_size, mip_count, irr_size, input_scale);
+    if (!prepared.error.empty()) {
+        return prepared;
+    }
+    // The .ibl container carries the BRDF LUT next to the two cubes (that is the format the offline bake
+    // writes); the caller regenerates its own LUT anyway, so this one only has to be a valid payload.
+    auto const lut = deren::engine::generate_brdf_lut(environment_brdf_lut_size);
+    environment_ibl_data data{
+        .env_size = static_cast<std::uint32_t>(env_size),
+        .env_mip_count = static_cast<std::uint32_t>(mip_count),
+        .irr_size = static_cast<std::uint32_t>(irr_size),
+        .lut_size = static_cast<std::uint32_t>(environment_brdf_lut_size),
+        .input_intensity = input_scale,
+        .prefiltered = prepared.environment,
+        .irradiance = prepared.irradiance,
+        .brdf_lut = deren::engine::to_half_rg(lut),
+    };
+    std::string write_error;
+    if (write_environment_ibl(file, data, write_error)) {
+        if (report != nullptr) {
+            report->file = file;
+            report->bytes = std::filesystem::file_size(file, file_error);
+        }
+    } else if (report != nullptr) {
+        report->write_failed = true;
+        report->file = file;
+    }
+    return prepared;
 }
 
 export inline bool bake_environment_ibl(std::filesystem::path const& input, std::filesystem::path const& output,
