@@ -6,7 +6,7 @@ export import deren.vstd;
 
 export namespace deren::scripting {
 
-    inline constexpr std::uint32_t managed_abi_version = 34;
+    inline constexpr std::uint32_t managed_abi_version = 35;
 
     struct node_handle {
         std::uint64_t value = 0;
@@ -435,6 +435,11 @@ export namespace deren::scripting {
         // invalid_argument so an out-of-step managed side is visible in the log instead of
         // silently borrowing the next frame's wait.
         script_status(* notify_rendering)() = nullptr;
+        // ABI 35: how long the host waits for one frame boundary before it treats the managed host
+        // as dead. 0 waits indefinitely, which is what a debugger breakpoint or a deliberately long
+        // blocking task needs; anything else is milliseconds, capped so an absurd value cannot turn
+        // a stuck boundary into an apparently frozen process. Null (an older host) keeps 5000 ms.
+        script_status(* set_frame_boundary_timeout)(std::uint32_t milliseconds) = nullptr;
     };
 
     // One frame's borrowed state. The layout is exact for this ABI version; any field

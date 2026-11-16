@@ -146,6 +146,16 @@ namespace deren::app {
 
         script_scene* starting_scene = nullptr;
 
+        // How long one frame boundary may stay unanswered before the host treats the managed side as
+        // dead. 0 waits forever, which a debugger breakpoint or a deliberately long blocking task
+        // needs; native_api.set_frame_boundary_timeout (ABI 35) is the only writer, and it runs on
+        // the render thread or a frame-event worker, hence the atomic.
+        std::atomic<std::uint32_t> frame_boundary_timeout_ms{5000};
+
+        // A cap that still leaves room for a long task while keeping a stuck boundary visible as an
+        // error inside the same minute rather than as a process that appears hung.
+        constexpr std::uint32_t frame_boundary_timeout_cap_ms = 600000;
+
         managed_tree* find_managed_tree_entry(std::uint64_t const id) {
             for (auto& entry : managed_trees()) {
                 if (entry.id == id) {
@@ -268,7 +278,8 @@ namespace deren::app {
                                         .request_screenshot = request_screenshot,
                                         .set_input_event_callback = set_input_event_callback,
                                         .abi_layout = abi_layout,
-                                        .notify_rendering = notify_rendering};
+                                        .notify_rendering = notify_rendering,
+                                        .set_frame_boundary_timeout = set_frame_boundary_timeout};
         scripting::startup_options options{};
         auto const result = scripting::configure_managed_host(
             {.assembly = runtime_dir / "Deren.Managed.dll",
@@ -314,7 +325,8 @@ namespace deren::app {
                                         .request_screenshot = request_screenshot,
                                         .set_input_event_callback = set_input_event_callback,
                                         .abi_layout = abi_layout,
-                                        .notify_rendering = notify_rendering};
+                                        .notify_rendering = notify_rendering,
+                                        .set_frame_boundary_timeout = set_frame_boundary_timeout};
         starting_scene = this;
         auto const result = scripting::initialize_managed_host(
             {.assembly = runtime_dir / "Deren.Managed.dll",
@@ -364,14 +376,28 @@ namespace deren::app {
         callback();
         std::unique_lock lock(frame_mutex);
         // A managed side that throws its way out of a batch never answers. One timeout and one
-        // error line is the whole cost; the flag is cleared so the next frame starts clean.
-        constexpr auto frame_wait_timeout = std::chrono::milliseconds(5000);
-        bool const answered = frame_cv.wait_for(lock, frame_wait_timeout, [this] { return !frame_pending; });
+        // error line is the whole cost; the flag is cleared so the next frame starts clean. A
+        // timeout of 0 waits without a deadline, which is what a breakpoint in a callable needs.
+        auto const timeout_ms = frame_boundary_timeout_ms.load(std::memory_order_relaxed);
+        bool answered = true;
+        if (timeout_ms == 0) {
+            frame_cv.wait(lock, [this] { return !frame_pending; });
+        } else {
+            answered = frame_cv.wait_for(lock, std::chrono::milliseconds(timeout_ms), [this] { return !frame_pending; });
+        }
         if (!answered) {
             frame_pending = false;
-            utility::error("scripts: managed code did not answer a frame boundary within 5000 ms");
+            utility::error("scripts: managed code did not answer a frame boundary within {} ms", timeout_ms);
         }
         return answered;
+    }
+
+    scripting::script_status script_scene::set_frame_boundary_timeout(std::uint32_t const milliseconds) {
+        if (milliseconds > frame_boundary_timeout_cap_ms) {
+            return scripting::script_status::invalid_argument;
+        }
+        frame_boundary_timeout_ms.store(milliseconds, std::memory_order_relaxed);
+        return scripting::script_status::success;
     }
 
     bool script_scene::signal_before_frame() {

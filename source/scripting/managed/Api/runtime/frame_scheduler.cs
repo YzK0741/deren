@@ -24,6 +24,29 @@ namespace deren.scripting {
         }
 
         /// <summary>
+        /// Sets how long the host waits for one frame boundary before it treats the managed host as
+        /// dead. 0 waits indefinitely, which a debugger breakpoint or a deliberately long blocking
+        /// task needs; the host caps the value and reports invalid_argument above the cap. The
+        /// default is 5000 ms, and a host without the entry (ABI 34 or older) reports
+        /// module_unavailable.
+        /// </summary>
+        public static bool set_boundary_timeout_ms(uint milliseconds) {
+            return set_boundary_timeout_ms(milliseconds, out _);
+        }
+
+        public static unsafe bool set_boundary_timeout_ms(uint milliseconds, out script_status status) {
+            if (managed_bootstrap.core.set_frame_boundary_timeout == null) {
+                status = script_status.module_unavailable;
+                return false;
+            }
+            status = managed_bootstrap.core.set_frame_boundary_timeout(milliseconds);
+            log.write(status == script_status.success
+                ? $"Game: frame boundary timeout: {(milliseconds == 0 ? "unlimited" : $"{milliseconds} ms")}"
+                : $"Game: frame boundary timeout {milliseconds} ms rejected ({status})");
+            return status == script_status.success;
+        }
+
+        /// <summary>
         /// Queues one callable for the next after-frame boundary. A callable added while a boundary
         /// is being dispatched runs on the following frame, never recursively.
         /// </summary>

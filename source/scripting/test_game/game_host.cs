@@ -76,6 +76,7 @@ namespace game {
         private int frame_events_repeat;
         private int frame_events_counted;
         private int frame_events_nonblocking;
+        private int frame_events_refusals;
         private int frame_events_cancelled;
         private int frame_events_serial;
         private int frame_events_before_serial;
@@ -198,6 +199,11 @@ namespace game {
             var module_status = scene_api.initialize(api);
             if (module_status != script_status.success) {
                 return module_status;
+            }
+            // ABI 35: every run exercises the settable boundary wait, so the host test can assert
+            // the value arrived and the demo keeps a wait that is still generous for its batches.
+            if (!frame_scheduler.set_boundary_timeout_ms(4000)) {
+                return script_status.script_failure;
             }
             if (!camera.try_get(out var pose)) {
                 return script_status.script_failure;
@@ -535,7 +541,15 @@ namespace game {
                 frame_event_processor.do_after_counted_frame_repeat(
                     2, () => System.Threading.Interlocked.Increment(ref frame_events_counted)) == 0 ||
                 frame_event_processor.do_after_frame_repeat(
-                    () => System.Threading.Interlocked.Increment(ref frame_events_nonblocking), is_blocking: false) == 0) {
+                    () => {
+                        System.Threading.Interlocked.Increment(ref frame_events_nonblocking);
+                        // ABI 35: a non-blocking batch runs beside the record pass, so the wrappers
+                        // refuse scene calls instead of racing it. At least one refusal proves the
+                        // guard is in effect; without it this call would succeed.
+                        if (!camera.try_get(out _)) {
+                            System.Threading.Interlocked.Increment(ref frame_events_refusals);
+                        }
+                    }, is_blocking: false) == 0) {
                 return frame_events_fail("a repeat task was refused");
             }
             var doomed = frame_event_processor.do_after_frame_repeat(
@@ -581,6 +595,12 @@ namespace game {
             }
             if (cancelled != 0) {
                 return frame_events_fail($"a cancelled task ran {cancelled} times");
+            }
+            var refusals = System.Threading.Volatile.Read(ref frame_events_refusals);
+            // Boundary 2 is the first one whose dispatch waited for batch 1, so only from there is
+            // the refusal count guaranteed to be settled.
+            if (boundaries >= 2 && refusals < 1) {
+                return frame_events_fail("the non-blocking task's scene call was not refused");
             }
             if (boundaries > 0 &&
                 !(System.Threading.Volatile.Read(ref frame_events_before_serial) > 0 &&
