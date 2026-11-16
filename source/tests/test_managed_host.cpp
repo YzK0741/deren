@@ -55,7 +55,8 @@ namespace {
     std::uint32_t screenshot_requests = 0;
     std::uint32_t environment_requests = 0;
     bool environment_path_is_empty = false;
-    std::uint32_t environment_slot = ~0u; // the slot the last environment request named
+    std::uint32_t environment_slot = ~0u;    // the slot the last environment request named
+    std::uint32_t environment_slot_mask = 0; // one bit per slot any request named
     std::uint32_t pipeline_queries = 0;
     std::uint32_t pipeline_assignments = 0;
     std::uint32_t post_processing_requests = 0;
@@ -1103,6 +1104,7 @@ namespace {
         }
         environment_path_is_empty = path.length == 0;
         environment_slot = requested_slot;
+        environment_slot_mask |= 1u << requested_slot;
         ++environment_requests;
         return script_status::success;
     }
@@ -1210,12 +1212,13 @@ namespace {
                          environment_requests);
             return false;
         }
-        // ... and every one of them named the scene-wide slot: both call sites use the one-argument
-        // `global_environment.try_set_hdr`, which is slot 0 by definition. A non-zero slot here would
-        // mean a project path silently wrote into a per-material lane.
-        if (environment_slot != 0) {
-            std::fprintf(stderr, "frame: environment request named slot %u, expected the scene-wide slot 0\n",
-                         environment_slot);
+        // ... and the set of slots asked for is exactly what the demo is supposed to use: slot 0 from
+        // the startup path (`[lighting] environment_hdr` or the procedural sky) and slot 1 from the
+        // per-material lane the demo binds to its left helmet. A project path that wrote into a lane
+        // it did not name, or a lane that never reached the host, shows up here.
+        if (environment_slot_mask != 0b11u) {
+            std::fprintf(stderr, "frame: environment slots asked for = 0x%x, expected 0x3 (slots 0 and 1)\n",
+                         environment_slot_mask);
             return false;
         }
         // The project light rig is project data pushed only on the demo's `--asset` path; this
@@ -1275,11 +1278,24 @@ namespace {
                          face_frame_queries, head_basis_requests, head_basis_rejections);
             return false;
         }
-        // Same rule for the per-object material factors: the helmet demo has no objects that need
-        // their own material, so the whole run must never touch the override entry.
-        if (material_override_requests != 0 || material_override_rejections != 0) {
+        // The demo binds exactly one override: the left helmet is moved to environment slot 1, which
+        // is the per-material lane the same run fills through set_environment_hdr. The record must
+        // arrive enabled, with the factors intact (the imported factors, so only the slot differs).
+        if (material_override_requests != 1 || material_override_rejections != 0) {
             std::fprintf(stderr, "frame: material override requests=%u rejections=%u\n",
                          material_override_requests, material_override_rejections);
+            return false;
+        }
+        if (material_override_last.environment_slot != 1 || material_override_last.enabled != 1 ||
+            material_override_last.tint[0] != 1.0f || material_override_last.metallic_scale != 1.0f ||
+            material_override_last.roughness_scale != 1.0f || material_override_last.emissive_scale != 1.0f) {
+            std::fprintf(stderr,
+                         "frame: material override slot=%u enabled=%u tint=%g metallic=%g roughness=%g emissive=%g\n",
+                         material_override_last.environment_slot, material_override_last.enabled,
+                         static_cast<double>(material_override_last.tint[0]),
+                         static_cast<double>(material_override_last.metallic_scale),
+                         static_cast<double>(material_override_last.roughness_scale),
+                         static_cast<double>(material_override_last.emissive_scale));
             return false;
         }
         if (scripts.stop() != script_status::success || scripts.stop() != script_status::success) {
