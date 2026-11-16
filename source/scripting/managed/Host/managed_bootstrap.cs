@@ -6,7 +6,7 @@ using System.Runtime.Loader;
 
 namespace deren.scripting {
     internal static unsafe class managed_bootstrap {
-        private const uint abi_version = 37;
+        private const uint abi_version = 38;
         internal static native_api core;
         internal static Assembly? game_assembly;
 

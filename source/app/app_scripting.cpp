@@ -119,6 +119,35 @@ namespace deren::app {
                 {.x = scale.x, .y = scale.y, .z = scale.z}};
         }
 
+        // World transform of the node with @p id below @p node, accumulated the way update_world()
+        // does (world = parent * local); false when the id is not in this subtree. Managed nodes
+        // carry no import identity, so scene_tree::find_world() - which matches import_instance +
+        // source_index - cannot answer this.
+        bool find_world_by_id(engine::scene_tree::scene_node const& node, utility::ecs::entity const id,
+                              glm::mat4 const& parent_world, glm::mat4& output) {
+            glm::mat4 const world = parent_world * node.local;
+            if (node.node_id == id) {
+                output = world;
+                return true;
+            }
+            for (auto const& child : node.children) {
+                if (find_world_by_id(child, id, world, output)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        bool find_world_in_scene(engine::scene_tree::scene const& scene, utility::ecs::entity const id,
+                                 glm::mat4& output) {
+            for (auto const& root : scene.roots) {
+                if (find_world_by_id(root, id, glm::mat4{1.0f}, output)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         utility::vessel::vector<script_scene*>& active_scenes() {
             static utility::vessel::vector<script_scene*> scenes;
             return scenes;
@@ -1423,7 +1452,18 @@ namespace deren::app {
             .select_animation = animation_select,
             .set_animation_playing = animation_set_playing,
             .set_animation_speed = animation_set_speed,
-            .set_animation_time = animation_set_time};
+            .set_animation_time = animation_set_time,
+            .node_child_count = node_child_count,
+            .node_child = node_child,
+            .node_name = node_name,
+            .get_node_flags = get_node_flags,
+            .set_node_flags = set_node_flags,
+            .reparent_node = reparent_node,
+            .viewport_size = viewport_size,
+            .project_point = project_point,
+            .screen_ray = screen_ray,
+            .query_counters = query_counters,
+            .gpu_timing_summary = gpu_timing_summary};
         *table = &scene_api;
         *byte_size = sizeof(scene_api);
         return scripting::script_status::success;
@@ -1446,6 +1486,7 @@ namespace deren::app {
             {.type = abi_type::head_basis_desc, .size = sizeof(scripting::head_basis_desc)},
             {.type = abi_type::face_frame_desc, .size = sizeof(scripting::face_frame_desc)},
             {.type = abi_type::animation_state, .size = sizeof(scripting::animation_state)},
+            {.type = abi_type::diagnostic_counters, .size = sizeof(scripting::diagnostic_counters)},
         };
         constexpr auto count = static_cast<std::uint32_t>(std::size(entries));
         if (out == nullptr || capacity < count) {
@@ -1663,6 +1704,243 @@ namespace deren::app {
             return scripting::script_status::invalid_node;
         }
         scene_node->visible = visible != 0;
+        return scripting::script_status::success;
+    }
+
+    scripting::script_status script_scene::node_child_count(std::uint64_t const tree, scripting::node_handle const node,
+                                                            std::uint32_t* const count) {
+        if (count == nullptr) {
+            return scripting::script_status::invalid_argument;
+        }
+        *count = 0;
+        auto* scene = find_managed_tree(tree);
+        if (scene == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        // A null handle names the scene's ROOT LIST, which is what reparent_node() accepts as "no
+        // parent"; a module can therefore walk the whole tree from one handle.
+        if (node.value == 0) {
+            *count = static_cast<std::uint32_t>(scene->roots.size());
+            return scripting::script_status::success;
+        }
+        auto* const scene_node = scene->find_node(to_entity(node));
+        if (scene_node == nullptr) {
+            return scripting::script_status::invalid_node;
+        }
+        *count = static_cast<std::uint32_t>(scene_node->children.size());
+        return scripting::script_status::success;
+    }
+
+    scripting::script_status script_scene::node_child(std::uint64_t const tree, scripting::node_handle const node,
+                                                      std::uint32_t const index, scripting::node_handle* const child) {
+        if (child == nullptr) {
+            return scripting::script_status::invalid_argument;
+        }
+        *child = {};
+        auto* scene = find_managed_tree(tree);
+        if (scene == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        auto const visit = [&](auto const& children) -> engine::scene_tree::scene_node const* {
+            return index < children.size() ? &children[index] : nullptr;
+        };
+        engine::scene_tree::scene_node const* found = nullptr;
+        if (node.value == 0) {
+            found = visit(scene->roots);
+        } else {
+            auto const* const scene_node = scene->find_node(to_entity(node));
+            if (scene_node == nullptr) {
+                return scripting::script_status::invalid_node;
+            }
+            found = visit(scene_node->children);
+        }
+        if (found == nullptr) {
+            return scripting::script_status::invalid_argument;
+        }
+        *child = to_handle(found->node_id);
+        return scripting::script_status::success;
+    }
+
+    scripting::script_status script_scene::node_name(std::uint64_t const tree, scripting::node_handle const node,
+                                                     scripting::utf8_view* const name) {
+        if (name == nullptr) {
+            return scripting::script_status::invalid_argument;
+        }
+        *name = {};
+        auto* scene = find_managed_tree(tree);
+        if (scene == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        if (node.value == 0) {
+            return scripting::script_status::invalid_argument;
+        }
+        auto const* const scene_node = scene->find_node(to_entity(node));
+        if (scene_node == nullptr) {
+            return scripting::script_status::invalid_node;
+        }
+        // Borrowed: the node owns the name, so the view lives until the node is renamed/destroyed.
+        *name = {.data = scene_node->node_name.data(), .length = static_cast<std::uint32_t>(scene_node->node_name.size())};
+        return scripting::script_status::success;
+    }
+
+    scripting::script_status script_scene::get_node_flags(std::uint64_t const tree, scripting::node_handle const node,
+                                                          std::uint32_t* const flags) {
+        if (flags == nullptr) {
+            return scripting::script_status::invalid_argument;
+        }
+        *flags = 0;
+        auto* scene = find_managed_tree(tree);
+        if (scene == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        auto* const scene_node = scene->find_node(to_entity(node));
+        if (scene_node == nullptr) {
+            return scripting::script_status::invalid_node;
+        }
+        *flags = scene_node->flags;
+        return scripting::script_status::success;
+    }
+
+    scripting::script_status script_scene::set_node_flags(std::uint64_t const tree, scripting::node_handle const node,
+                                                          std::uint32_t const flags, std::uint32_t const mask) {
+        auto* scene = find_managed_tree(tree);
+        if (scene == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        auto* const scene_node = scene->find_node(to_entity(node));
+        if (scene_node == nullptr) {
+            return scripting::script_status::invalid_node;
+        }
+        scene_node->flags = (scene_node->flags & ~mask) | (flags & mask);
+        return scripting::script_status::success;
+    }
+
+    scripting::script_status script_scene::reparent_node(std::uint64_t const tree, scripting::node_handle const node,
+                                                         scripting::node_handle const parent,
+                                                         std::uint8_t const keep_transform) {
+        auto* scene = find_managed_tree(tree);
+        if (scene == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        auto const id = to_entity(node);
+        if (!id.valid() || scene->find_node(id) == nullptr) {
+            return scripting::script_status::invalid_node;
+        }
+        auto const parent_id = to_entity(parent);
+        if (parent.value != 0 && scene->find_node(parent_id) == nullptr) {
+            return scripting::script_status::invalid_node;
+        }
+        std::optional<glm::mat4> local_override;
+        if (keep_transform != 0) {
+            glm::mat4 world{1.0f};
+            if (!find_world_in_scene(*scene, id, world)) {
+                return scripting::script_status::invalid_node;
+            }
+            glm::mat4 parent_world{1.0f};
+            if (parent.value != 0 && !find_world_in_scene(*scene, parent_id, parent_world)) {
+                return scripting::script_status::invalid_node;
+            }
+            // A collapsed chain (a zero scale somewhere above) has no inverse; refusing beats handing
+            // back a local transform full of infinities.
+            if (std::abs(glm::determinant(parent_world)) < 1.0e-12F) {
+                return scripting::script_status::invalid_argument;
+            }
+            local_override = glm::inverse(parent_world) * world;
+        }
+        if (!scene->reparent_node(id, parent_id, local_override ? &*local_override : nullptr)) {
+            // The engine refuses a move into the node's own subtree (and a move onto itself).
+            return scripting::script_status::invalid_argument;
+        }
+        if (local_override) {
+            // Keep the transform the managed side can read back (the TRS pose) consistent with the
+            // full matrix the move produced.
+            if (auto* const placement_value = engine::scene_tree::components().try_get<placement>(id)) {
+                placement_value->transform = pose_from_matrix(*local_override);
+                placement_value->dirty = true;
+            }
+        }
+        return scripting::script_status::success;
+    }
+
+    scripting::script_status script_scene::viewport_size(std::uint32_t* const width, std::uint32_t* const height) {
+        if (width == nullptr || height == nullptr) {
+            return scripting::script_status::invalid_argument;
+        }
+        script_scene* const owner = current_owner();
+        if (owner == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        if (owner->host.viewport_size == nullptr) {
+            return scripting::script_status::module_unavailable;
+        }
+        return owner->host.viewport_size(owner->host.context, *width, *height) ? scripting::script_status::success
+                                                                               : scripting::script_status::script_failure;
+    }
+
+    scripting::script_status script_scene::project_point(float const* const world, float* const screen) {
+        if (world == nullptr || screen == nullptr) {
+            return scripting::script_status::invalid_argument;
+        }
+        script_scene* const owner = current_owner();
+        if (owner == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        if (owner->host.project_point == nullptr) {
+            return scripting::script_status::module_unavailable;
+        }
+        return owner->host.project_point(owner->host.context, world, screen) ? scripting::script_status::success
+                                                                             : scripting::script_status::script_failure;
+    }
+
+    scripting::script_status script_scene::screen_ray(float const x, float const y, float* const origin,
+                                                      float* const direction) {
+        if (origin == nullptr || direction == nullptr) {
+            return scripting::script_status::invalid_argument;
+        }
+        script_scene* const owner = current_owner();
+        if (owner == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        if (owner->host.screen_ray == nullptr) {
+            return scripting::script_status::module_unavailable;
+        }
+        return owner->host.screen_ray(owner->host.context, x, y, origin, direction) ? scripting::script_status::success
+                                                                                    : scripting::script_status::script_failure;
+    }
+
+    scripting::script_status script_scene::query_counters(scripting::diagnostic_counters* const counters) {
+        if (counters == nullptr) {
+            return scripting::script_status::invalid_argument;
+        }
+        *counters = {};
+        script_scene* const owner = current_owner();
+        if (owner == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        if (owner->host.counters == nullptr) {
+            return scripting::script_status::module_unavailable;
+        }
+        return owner->host.counters(owner->host.context, *counters) ? scripting::script_status::success
+                                                                    : scripting::script_status::script_failure;
+    }
+
+    scripting::script_status script_scene::gpu_timing_summary(scripting::utf8_view* const text) {
+        if (text == nullptr) {
+            return scripting::script_status::invalid_argument;
+        }
+        *text = {};
+        script_scene* const owner = current_owner();
+        if (owner == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        if (owner->host.gpu_timing_summary == nullptr) {
+            return scripting::script_status::module_unavailable;
+        }
+        std::string_view borrowed;
+        if (!owner->host.gpu_timing_summary(owner->host.context, borrowed)) {
+            return scripting::script_status::script_failure;
+        }
+        *text = {.data = borrowed.data(), .length = static_cast<std::uint32_t>(borrowed.size())};
         return scripting::script_status::success;
     }
 

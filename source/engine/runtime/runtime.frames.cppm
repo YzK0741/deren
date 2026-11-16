@@ -2831,8 +2831,15 @@ namespace deren::engine {
         };
     }
 
-    runtime::frame_services runtime::make_frame_services() noexcept {
-        // Capture-less lambdas: each one casts the parent back and calls the builder it names, so the parent never
+    camera_ubo runtime::frame_camera() const noexcept {
+        // The frame's own expression (see the `current_ubo` snapshot): a cube capture's override wins while it is
+        // active, otherwise the orbit camera over the scene's bounds.
+        return this->camera_override ? *this->camera_override
+                                     : make_orbit_camera_ubo(this->camera.yaw, this->camera.pitch, this->camera.distance,
+                                                             this->camera.target, this->scene_extent_radius, this->current_aspect);
+    }
+
+    runtime::frame_services runtime::make_frame_services() noexcept { // Capture-less lambdas: each one casts the parent back and calls the builder it names, so the parent never
         // sees a member function of this class - it sees the frame. THREE builders, not eleven: the rest of the
         // frames are composed by their passes from the published facts (see frame_pass::prepare_frame).
         return frame_services{

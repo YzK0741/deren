@@ -663,6 +663,104 @@ namespace deren::app {
             context->render_runtime->scene_changed();
             return true;
         };
+        // ---- world <-> screen queries and diagnostics (ABI 38) ---------------------------------------
+        // All five read `frame_camera()` (the matrix the frame renders with, capture override included) and
+        // the RENDER extent, so the answer is in the same pixels the passes shade - which differ from the
+        // window's whenever the render scale is below 1.
+        auto const query_viewport_size = +[](void* opaque, std::uint32_t& width, std::uint32_t& height) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->render_runtime == nullptr) {
+                return false;
+            }
+            auto const extent = context->render_runtime->query_frame_diagnostics().render;
+            width = extent.width;
+            height = extent.height;
+            return width != 0 && height != 0;
+        };
+        auto const query_project_point = +[](void* opaque, float const world[3], float screen[3]) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->render_runtime == nullptr || world == nullptr || screen == nullptr) {
+                return false;
+            }
+            auto const& runtime = *context->render_runtime;
+            auto const extent = runtime.query_frame_diagnostics().render;
+            auto const camera = runtime.frame_camera();
+            glm::vec4 const point{world[0], world[1], world[2], 1.0f};
+            glm::vec4 const clip = camera.view_proj_unjittered * point;
+            glm::vec4 const eye = camera.view * point;
+            if (std::abs(clip.w) < 1.0e-6F) {
+                return false;
+            }
+            // The projection already carries the y flip (see make_orbit_camera_ubo), so NDC -> pixel is the
+            // plain scale with the origin at the TOP-left, the same convention input events arrive in.
+            float const inverse_w = 1.0f / clip.w;
+            screen[0] = (clip.x * inverse_w * 0.5f + 0.5f) * static_cast<float>(extent.width);
+            screen[1] = (clip.y * inverse_w * 0.5f + 0.5f) * static_cast<float>(extent.height);
+            screen[2] = -eye.z; // view-space depth; negative means the point is BEHIND the camera
+            return true;
+        };
+        auto const query_screen_ray = +[](void* opaque, float x, float y, float origin[3], float direction[3]) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->render_runtime == nullptr || origin == nullptr || direction == nullptr) {
+                return false;
+            }
+            auto const& runtime = *context->render_runtime;
+            auto const extent = runtime.query_frame_diagnostics().render;
+            if (extent.width == 0 || extent.height == 0) {
+                return false;
+            }
+            auto const camera = runtime.frame_camera();
+            float const ndc_x = (x / static_cast<float>(extent.width)) * 2.0f - 1.0f;
+            float const ndc_y = (y / static_cast<float>(extent.height)) * 2.0f - 1.0f;
+            // Vulkan's 0..1 depth: z = 0 is the near plane, so the unprojected near point minus the eye IS the
+            // direction. Solving it through the inverse matrix keeps the y flip and the jitter-free matrix in
+            // one place instead of re-deriving the frustum here.
+            glm::vec4 const near_point = glm::inverse(camera.view_proj_unjittered) * glm::vec4{ndc_x, ndc_y, 0.0f, 1.0f};
+            if (std::abs(near_point.w) < 1.0e-6F) {
+                return false;
+            }
+            glm::vec3 const eye = glm::vec3{camera.camera_pos};
+            glm::vec3 const ray = glm::vec3{near_point} / near_point.w - eye;
+            if (glm::dot(ray, ray) < 1.0e-12F) {
+                return false;
+            }
+            glm::vec3 const unit = glm::normalize(ray);
+            origin[0] = eye.x;
+            origin[1] = eye.y;
+            origin[2] = eye.z;
+            direction[0] = unit.x;
+            direction[1] = unit.y;
+            direction[2] = unit.z;
+            return true;
+        };
+        auto const query_counters = +[](void* opaque, deren::scripting::diagnostic_counters& counters) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->render_runtime == nullptr) {
+                return false;
+            }
+            auto const& runtime = *context->render_runtime;
+            auto const diagnostics = runtime.query_frame_diagnostics();
+            counters = {};
+            counters.render_width = diagnostics.render.width;
+            counters.render_height = diagnostics.render.height;
+            counters.output_width = diagnostics.output.width;
+            counters.output_height = diagnostics.output.height;
+            counters.gpu_interval_count = diagnostics.gpu_intervals;
+            counters.gpu_timings_available = diagnostics.gpu_timings ? std::uint8_t{1} : std::uint8_t{0};
+            return true;
+        };
+        auto const query_gpu_timing_summary = +[](void* opaque, std::string_view& text) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->render_runtime == nullptr) {
+                return false;
+            }
+            // Borrowed into a thread-local buffer: the ABI hands the module a view, so the bytes it points
+            // at must outlive the call. Valid until the next query on this thread.
+            thread_local deren::utility::vessel::string summary;
+            summary = context->render_runtime->gpu_timing_summary();
+            text = summary;
+            return true;
+        };
         auto const get_managed_camera = +[](void* opaque, deren::scripting::camera_state* value) -> bool {
             auto* context = static_cast<managed_bind_context*>(opaque);
             if (context == nullptr || context->render_runtime == nullptr || value == nullptr) {
@@ -1376,7 +1474,12 @@ namespace deren::app {
                                              .animation_state = get_managed_animation_state,
                                              .animation_playable_name = get_managed_animation_name,
                                              .animation_command = queue_managed_animation,
-                                             .panic = report_managed_panic},
+                                             .panic = report_managed_panic,
+                                             .viewport_size = query_viewport_size,
+                                             .project_point = query_project_point,
+                                             .screen_ray = query_screen_ray,
+                                             .counters = query_counters,
+                                             .gpu_timing_summary = query_gpu_timing_summary},
             settings.paths.asset_library,
             deren::app::managed_asset_binder{.context = &managed_binding, .bind = bind_managed_asset});
         if (!started) {

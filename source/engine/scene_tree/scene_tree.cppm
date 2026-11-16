@@ -131,6 +131,10 @@ namespace deren::engine::scene_tree {
         // runtime draw filter: a hidden node's primitive leaf and its whole subtree are skipped by
         // visit_primitives(), so it disappears from both the visible pass and shadow-caster collection.
         bool visible = true;
+        // Opaque gameplay word: the renderer never interprets it, it only keeps it on the node so a
+        // managed module can tag subtrees (e.g. "is a trigger volume") without a side table that
+        // would have to be kept in sync with node creation and destruction.
+        std::uint32_t flags = 0;
         deren::utility::vessel::vector<scene_node> children = {};
         std::unique_ptr<primitive> primitive_leaf = {}; // null for transform-only nodes
 
@@ -242,6 +246,22 @@ namespace deren::engine::scene_tree {
          *       children vector, exactly like add_child()
          */
         bool destroy_node(deren::utility::ecs::entity id);
+
+        /**
+         * @ingroup engine_scene_tree
+         * @brief move @p id (and its whole subtree) under @p new_parent, or among the roots when
+         *        @p new_parent is null
+         * @param new_local optional local transform written to the node *before* the move (so the
+         *        caller can preserve the world pose it computed through the old chain); nullptr
+         *        keeps the current local transform
+         * @return false when @p id is null/stale, when @p new_parent is null-but-invalid, or when
+         *         @p new_parent is @p id itself or lives inside its subtree (that move would carry
+         *         the new parent away with the node)
+         * @note the node keeps its node_id and every component; world transforms are recomputed
+         *       from the tree by update_world(), so nothing has to be rebaked
+         */
+        bool reparent_node(deren::utility::ecs::entity id, deren::utility::ecs::entity new_parent,
+                           glm::mat4 const* new_local = nullptr);
 
         /** @brief destroy every node entity and remove all roots; keeps the scene usable */
         void clear();

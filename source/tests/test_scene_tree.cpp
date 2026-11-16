@@ -3,6 +3,7 @@
 // detachment, component lookup, and cascading component destruction.
 #include "vk_test.h"
 
+#include <glm/gtc/matrix_transform.hpp>
 #include <utility>
 
 import deren.engine.scene_tree;
@@ -146,6 +147,81 @@ int main() {
         CHECK(world.destroy_node(stale));
         CHECK(!world.destroy_node(stale));
         CHECK(world.find_node(stale) == nullptr);
+    }
+
+    // reparent_node moves a subtree between parents, root list included, without renaming the nodes.
+    {
+        scene world;
+        world.add_root().add_child().add_child();
+        scene_node& second = world.add_root();
+        entity const second_id = second.node_id;
+        // add_root can reallocate the root list, so every access below goes through ids again.
+        entity const subject_id = world.roots[0].children[0].node_id;
+        entity const grandchild_id = world.roots[0].children[0].children[0].node_id;
+        CHECK(components().size() == 4);
+
+        // Under the other root: the moved node keeps its identity, the whole subtree comes along.
+        CHECK(world.reparent_node(subject_id, second_id));
+        CHECK(world.find_node(subject_id) != nullptr);
+        CHECK(world.roots[0].children.empty());
+        CHECK(world.roots[1].children.size() == 1);
+        CHECK(world.roots[1].children[0].node_id == subject_id);
+        CHECK(world.roots[1].children[0].children.size() == 1);
+        CHECK(world.roots[1].children[0].children[0].node_id == grandchild_id);
+        CHECK(components().alive(subject_id));
+        CHECK(components().alive(grandchild_id));
+
+        // Back to the root list: a null parent means "no parent".
+        CHECK(world.reparent_node(subject_id, entity{}));
+        CHECK(world.find_node(subject_id) != nullptr);
+        CHECK(world.roots.size() == 3);
+        CHECK(world.roots[2].node_id == subject_id);
+
+        // Already a root: the repeat still succeeds and does not duplicate the node.
+        CHECK(world.reparent_node(subject_id, entity{}));
+        CHECK(world.roots.size() == 3);
+    }
+
+    // The transform supplied to reparent_node is the local one; the world result follows the new parent.
+    {
+        scene world;
+        world.add_root();
+        world.add_root();
+        glm::mat4 const parent_local = glm::translate(glm::mat4{1.0f}, glm::vec3{10.0f, 0.0f, 0.0f});
+        world.roots[0].local = parent_local;
+        glm::mat4 const local = glm::translate(glm::mat4{1.0f}, glm::vec3{1.0f, 2.0f, 3.0f});
+        CHECK(world.reparent_node(world.roots[1].node_id, world.roots[0].node_id, &local));
+        CHECK(world.roots[0].children.size() == 1);
+        CHECK(world.roots[0].children[0].local == local);
+    }
+
+    // Cycles are refused: a node cannot move onto itself or under its own descendant.
+    {
+        scene world;
+        scene_node& root = world.add_root();
+        scene_node& middle = root.add_child();
+        scene_node& leaf = middle.add_child();
+        CHECK(!world.reparent_node(root.node_id, root.node_id));
+        CHECK(!world.reparent_node(root.node_id, leaf.node_id));
+        CHECK(!world.reparent_node(root.node_id, middle.node_id));
+        CHECK(world.roots.size() == 1);
+        CHECK(world.find_node(root.node_id) == &root);
+
+        // A parent that is not in this scene is refused too.
+        scene other;
+        scene_node& foreign = other.add_root();
+        CHECK(!world.reparent_node(middle.node_id, foreign.node_id));
+        CHECK(root.children.size() == 1);
+    }
+
+    // flags are opaque storage: clone() carries them, and the scene never consults them.
+    {
+        scene world;
+        scene_node& root = world.add_root();
+        root.flags = 0xDEADBEEFu;
+        scene_node copy = root.clone();
+        CHECK(copy.flags == 0xDEADBEEFu);
+        CHECK(!world.reparent_node(entity{}, entity{}));
     }
 
     return deren::vk_test::finish("test_scene_tree");

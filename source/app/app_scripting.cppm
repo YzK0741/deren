@@ -258,6 +258,21 @@ export namespace deren::app {
          */
         bool (*panic)(void* context, std::uint32_t line, std::string_view message, std::string_view source_file,
                       std::string_view managed_stack) = nullptr;
+        /**
+         * @brief ABI 38: the query side of the renderer state the debug overlay already shows.
+         *
+         * viewport_size reports the presentation (up-scaled) extent in pixels. project_point and
+         * screen_ray map between world space and that same pixel grid using the matrices the current
+         * frame renders with, so a managed HUD lines up with the 3D view. counters fills the
+         * diagnostic struct from the runtime's own sizes, and gpu_timing_summary hands back the
+         * overlay's per-pass timing text, borrowed until the next frame. False means the host has no
+         * runtime yet.
+         */
+        bool (*viewport_size)(void* context, std::uint32_t& width, std::uint32_t& height) = nullptr;
+        bool (*project_point)(void* context, float const world[3], float screen[3]) = nullptr;
+        bool (*screen_ray)(void* context, float x, float y, float origin[3], float direction[3]) = nullptr;
+        bool (*counters)(void* context, scripting::diagnostic_counters& value) = nullptr;
+        bool (*gpu_timing_summary)(void* context, std::string_view& text) = nullptr;
     };
 
     class script_scene {
@@ -330,6 +345,24 @@ export namespace deren::app {
                                                            scripting::transform_value const* value);
         static scripting::script_status set_node_visible(std::uint64_t tree, scripting::node_handle node,
                                                          std::uint8_t visible);
+        /// ABI 38: tree queries. `parent` in reparent_node is a null handle for "become a root".
+        static scripting::script_status node_child_count(std::uint64_t tree, scripting::node_handle node,
+                                                         std::uint32_t* count);
+        static scripting::script_status node_child(std::uint64_t tree, scripting::node_handle node, std::uint32_t index,
+                                                   scripting::node_handle* child);
+        static scripting::script_status node_name(std::uint64_t tree, scripting::node_handle node, scripting::utf8_view* name);
+        static scripting::script_status get_node_flags(std::uint64_t tree, scripting::node_handle node,
+                                                       std::uint32_t* flags);
+        static scripting::script_status set_node_flags(std::uint64_t tree, scripting::node_handle node,
+                                                       std::uint32_t flags, std::uint32_t mask);
+        static scripting::script_status reparent_node(std::uint64_t tree, scripting::node_handle node,
+                                                      scripting::node_handle parent, std::uint8_t keep_transform);
+        /// ABI 38: view/screen mapping and the runtime counters; all five forward to managed_scene_host.
+        static scripting::script_status viewport_size(std::uint32_t* width, std::uint32_t* height);
+        static scripting::script_status project_point(float const* world, float* screen);
+        static scripting::script_status screen_ray(float x, float y, float* origin, float* direction);
+        static scripting::script_status query_counters(scripting::diagnostic_counters* counters);
+        static scripting::script_status gpu_timing_summary(scripting::utf8_view* text);
         static scripting::script_status list_asset(std::uint32_t index, scripting::utf8_view* id);
         static scripting::script_status load_asset(scripting::utf8_view id, scripting::asset_handle* asset);
         static scripting::script_status release_asset(scripting::asset_handle asset);
