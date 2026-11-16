@@ -178,11 +178,6 @@ clear_color = [0.02, 0.02, 0.03]
 #   and --capture-camera pins an exact pose on top of either mode.
 camera_fit = "exterior"
 
-# camera_pose IS NOT A CONFIG KEY ANY MORE. The schema no longer accepts it, so writing it here stops the load
-# with "unknown key(s): render.camera_pose". A pinned view is still available on the command line
-# (`--capture-camera yaw,pitch,distance,targetX,targetY,targetZ`, the same six numbers the startup and exit logs
-# print), and `camera_fit` above picks the automatic modes.
-
 # animation_time: pin the keyframe animation at this time in SECONDS, or -1 (the default) to play it. Only
 # matters for a model that carries animations, which the demo plays automatically on a loop.
 # WHY IT EXISTS: playback is driven by the WALL CLOCK (frame_clock::delta_seconds), so the pose at a given

@@ -61,7 +61,7 @@ sh scripts/setup/posix.sh
 **Build / run / docs**
 
 ```bash
-# configure + build Debug and Release
+# configure + build RelWithDebInfo (the default)
 python scripts/build_helpers/build.py
 # one configuration / clean rebuild
 python scripts/build_helpers/build.py --type Release --clean
@@ -76,7 +76,7 @@ python scripts/build_helpers/run.py --model path/to/model.glb -- --demo gui
 python scripts/build_helpers/build_docs.py
 ```
 
-Release builds go to `build/` and Debug builds to `build-debug/`; pass `--build-dir` to either helper to override. Windows-only capture, gate and probe scripts live in `scripts/gates/`.
+RelWithDebInfo builds go to `build/` (the default: optimised, with line tables), Debug to `build-debug/` and the opt-in Release to `build-release/`; pass `--build-dir` to either helper to override. Windows-only capture, gate and probe scripts live in `scripts/gates/`.
 
 Python also drives the config generators:
 

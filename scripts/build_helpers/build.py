@@ -8,8 +8,8 @@ Usage:
     python scripts/build_helpers/build.py --dry-run Debug
     python scripts/build_helpers/build.py --build-dir build-local Release
 
-The default builds Release into ``build/`` and Debug into ``build-debug/``.
-The legacy
+The default builds RelWithDebInfo into ``build/``; Debug lands in
+``build-debug/`` and the opt-in Release in ``build-release/``.  The legacy
 -Type/-Clean spellings are still accepted for callers migrating from the old
 platform wrappers.
 """
@@ -31,7 +31,7 @@ from common import (
     run_command,
 )
 
-CONFIGS = ("Debug", "Release")
+CONFIGS = ("Debug", "RelWithDebInfo", "Release")
 
 
 def _normalize_legacy_args(argv: Sequence[str]) -> List[str]:
@@ -72,7 +72,7 @@ def _normalize_legacy_args(argv: Sequence[str]) -> List[str]:
 
 def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Configure and build deren (Debug and Release by default).",
+        description="Configure and build deren (RelWithDebInfo by default).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
@@ -85,7 +85,7 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
         "configs",
         nargs="*",
         metavar="CONFIG",
-        help="Debug and/or Release; default: both",
+        help="Debug, RelWithDebInfo and/or Release; default: RelWithDebInfo",
     )
     parser.add_argument(
         "--type",
@@ -108,8 +108,8 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
         elif value in CONFIGS:
             configs.append(value)
         else:
-            parser.error("unknown configuration {!r}; expected Debug, Release or Clean".format(value))
-    args.configs = configs or ["Debug", "Release"]
+            parser.error("unknown configuration {!r}; expected Debug, RelWithDebInfo, Release or Clean".format(value))
+    args.configs = configs or ["RelWithDebInfo"]
     if args.build_dir and len(args.configs) != 1:
         parser.error("--build-dir requires exactly one configuration")
     return args
