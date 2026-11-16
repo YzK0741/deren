@@ -330,9 +330,15 @@ int main(int argc, char** argv) {
 #if STACKTRACE_DIAGNOSTICS && STACKTRACE_HAVE_SYMBOLIZER
     // THE FAULT PC IS EXACT, NOT A RETURN ADDRESS. The crash log carries the fault frame's RVA,
     // which does not move with ASLR, so this rebuilds that frame against THIS image and decodes
-    // it twice: as the exact PC a crash record carries, and as a return address. MEASURED: exact
-    // lands on stacktrace_fault.cpp:19 (`*page = 42;`), one byte lower on :16 - which is why a
-    // blanket `pc - 1` misreports the faulting line.
+    // it twice: as the exact PC a crash record carries, and as a return address - which is why a
+    // blanket `pc - 1` misreports where the fault happened.
+    //
+    // The assertion names the COLUMN, because the line alone cannot separate the two decodes at
+    // -O0: the unoptimized `*page = 42;` is two instructions on line 19 (the load at :19:6 and the
+    // store at :19:11), so `pc - 1` still reports line 19. A line-only check therefore passes for
+    // the WRONG decode in Debug, and passes in Release only because optimization puts `pc - 1` at
+    // :16. MEASURED with the fault frame of a real report
+    // (rva 0x27db9 -> :19:11 exact, :19:6 one byte lower).
     diag::symbolizer_options raw_only;
     raw_only.executable = "off";
     auto const base_address = field(diag::symbolize(capture_site(), raw_only).text, "base=0x");
@@ -346,8 +352,8 @@ int main(int argc, char** argv) {
         auto const exact = diag::symbolize(fault);
         fault.exact_address_count = 0;
         auto const adjusted = diag::symbolize(fault);
-        CHECK(exact.text.find("stacktrace_fault.cpp:19") != vessel::string::npos);
-        CHECK(adjusted.text.find("stacktrace_fault.cpp:19") == vessel::string::npos);
+        CHECK(exact.text.find("stacktrace_fault.cpp:19:11") != vessel::string::npos);
+        CHECK(adjusted.text.find("stacktrace_fault.cpp:19:11") == vessel::string::npos);
     }
 #if defined(STACKTRACE_DECODER) && defined(STACKTRACE_PYTHON)
     // THE CROSS-CHECK, and why it is here: the fault-frame rule lived in TWO decoders with no test

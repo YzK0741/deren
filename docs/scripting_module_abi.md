@@ -60,11 +60,24 @@ struct native_api {
 enum class abi_type : std::uint32_t {
     native_api = 1, managed_api, frame_info, transform_value, input_event,
     point_light_desc, material_override_desc, startup_options, head_basis_desc, face_frame_desc,
+    animation_state,
 };
 
 struct abi_layout_entry {
     abi_type type;
     std::uint32_t size;
+};
+
+struct animation_state {
+    std::uint32_t playable_count = 0;  // clips the player holds
+    std::uint32_t current = 0;         // index of the selected clip
+    std::uint8_t has_active = 0;       // a clip is selected
+    std::uint8_t playing = 0;          // the clock advances on each frame
+    std::uint8_t available = 0;        // the host has a player at all
+    std::uint8_t padding = 0;
+    float time = 0.0F;      // seconds into the clip
+    float duration = 0.0F;  // the clip's looping length in seconds
+    float speed = 0.0F;     // playback-rate multiplier
 };
 
 enum class input_event_type : std::uint32_t {
