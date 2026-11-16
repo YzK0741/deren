@@ -248,6 +248,16 @@ export namespace deren::app {
         bool (*animation_playable_name)(void* context, std::uint32_t index, std::string_view& name) = nullptr;
         bool (*animation_command)(void* context, animation_command_kind kind, std::uint32_t index,
                                   float value) = nullptr;
+        /**
+         * @brief ABI 37: a managed fault the process cannot continue from.
+         *
+         * The host answers by writing one crash report through deren::utility::panic_managed and
+         * terminating; returning `true` means a host recorded the report instead (tests only). The
+         * views are borrowed for the call and may be empty; `line` is 0 when the managed side had
+         * no location.
+         */
+        bool (*panic)(void* context, std::uint32_t line, std::string_view message, std::string_view source_file,
+                      std::string_view managed_stack) = nullptr;
     };
 
     class script_scene {
@@ -400,6 +410,15 @@ export namespace deren::app {
         static scripting::script_status animation_set_playing(std::uint8_t playing);
         static scripting::script_status animation_set_speed(float speed);
         static scripting::script_status animation_set_time(float seconds);
+        /**
+         * ABI 37: reports a managed fault; see managed_scene_host::panic.
+         *
+         * Answers success when the host took the report - which, for the real host, has already
+         * terminated the process by then. Any other answer is the managed side's cue to write
+         * stderr and fail fast on its own.
+         */
+        static scripting::script_status panic_report(scripting::utf8_view message, scripting::utf8_view source_file,
+                                                     std::uint32_t line, scripting::utf8_view managed_stack);
         /** The scene whose host answers the global (tree-less) setters: the starting scene, else the newest. */
         static script_scene* current_owner();
         /** The scene that answers the animation entries, or nullptr when no host provides them. */

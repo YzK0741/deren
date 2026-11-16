@@ -136,6 +136,25 @@ namespace deren::utility {
      */
     export [[noreturn]] void panic(std::string_view msg = "",
                                    std::source_location source_location = std::source_location::current()) noexcept;
+
+    /**
+     * @ingroup utility
+     * @brief the same report and the same sink, for a fault the MANAGED module reports
+     * @param message what the managed side said; already user-facing text
+     * @param source_file the managed source file the caller pointed at, kept verbatim
+     * @param line the managed line, 0 when the caller had none
+     * @param managed_stack the managed stack text, or empty
+     * @note
+     *     - TERMINATING and identical to panic(): one header, the managed stack, the native raw
+     *       stack and best-effort symbols, the same bounded existing-sink wait, then
+     *       std::terminate(). The managed caller sits on top of the native frames here, so a
+     *       reader sees the managed stack first and the frames that reached it second.
+     *     - fields are capped, not rejected: a panic path never fails because a message was long
+     *     - the managed side keeps its own file/line, because the native report cannot recover
+     *       them: nothing in the native stack names the managed method that faulted
+     */
+    export [[noreturn]] void panic_managed(std::string_view message, std::string_view source_file, std::uint32_t line,
+                                           std::string_view managed_stack) noexcept;
 } // namespace deren::utility
 
 // ---- Memory service and STL aliases in the primary interface. ----

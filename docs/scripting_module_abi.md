@@ -1,6 +1,6 @@
 # C# Module ABI
 
-Status: implemented for the `scene` and `ui` modules; managed ABI v36.
+Status: implemented for the `scene` and `ui` modules; managed ABI v37.
 
 Baseline: `feature/csharp-scene-tree`. Native code owns rendering, the Vulkan runtime, the
 module resolver, and primitive/scene import. Managed code owns scene construction, asset
@@ -53,6 +53,8 @@ struct native_api {
     script_status(* abi_layout)(abi_layout_entry* out, std::uint32_t capacity) = nullptr;
     script_status(* notify_rendering)() = nullptr;
     script_status(* set_frame_boundary_timeout)(std::uint32_t milliseconds) = nullptr;
+    script_status(* panic)(utf8_view message, utf8_view source_file, std::uint32_t line,
+                          utf8_view managed_stack) = nullptr;
 };
 
 enum class abi_type : std::uint32_t {
@@ -627,6 +629,46 @@ public static bool set_boundary_timeout_ms(uint milliseconds);
 - `deren.frame_scheduler.do_after_frame` stays as the one-shot convenience hook and forwards to
   the after-frame path.
 
+### Diagnostics
+
+`deren.scripting.logger` is the one place managed code writes outward. Neither call throws, so it
+is safe inside error handling and inside `finally`:
+
+```csharp
+bool logger.write(string message);                       // false when the host is gone
+void logger.panic(string message,
+                  [CallerFilePath] string file = "",     // filled in by the compiler
+                  [CallerLineNumber] int line = 0);
+```
+
+`panic` reports a fault the game cannot recover from and terminates the process, the same way C++
+`deren::utility::panic` does. The report goes to the same `deren-crash.log` and has the same shape,
+so one decoder reads both:
+
+```
+deren panic (managed): <message>
+source: <managed file>:<line> in managed code
+managed call stack:
+   at <frames, with file and line>
+native stack:
+deren raw stack v1 ...
+call stack:
+deren::utility::panic_managed@deren.utility.shared(...)
+C:/.../shared_utility.cpp:522:28
+```
+
+An exception nobody catches takes the same path: `managed_bootstrap` hooks
+`AppDomain.UnhandledException`, so the report names the exception, its throw site and its stack
+instead of the process dying without a record. Exceptions thrown inside a frame callback are the
+exception: the dispatcher catches them, logs the message and cancels that task, because a
+recoverable frame must not take the process down.
+
+The host side never returns from `native_api.panic`: it writes the report and calls
+`std::terminate`. A host that answers `success` has taken over the report, which is what the test
+host does so it can assert the message, the managed location and the stack crossed the boundary.
+A host that answers anything else (or publishes no entry at all, i.e. older than v37) makes the
+managed side write the same report to stderr and then call `Environment.FailFast`, so the fault is
+never silent.
 ## 6. Project entry
 
 ```csharp
@@ -686,7 +728,7 @@ Status values are returned through the ABI; no exception crosses the native boun
 
 ## 8. Layout and versioning
 
-- One global `managed_abi_version`, currently 36.
+- One global `managed_abi_version`, currently 37.
 - No `context` parameter and no per-module version.
 - One version means one exact layout, and since v33 the layout is checked as well: the host
   publishes `{type, sizeof}` for every struct both sides share through `native_api.abi_layout`,
@@ -802,4 +844,11 @@ Status values are returned through the ABI; no exception crosses the native boun
   commands only queue for that thread, so managed code cannot write a skin matrix mid-frame. A
   second animated asset is reported and left static, and a scene replacement drops the player with
   its clip names.
-
+- v37 gave managed code the same fault path C++ has: `native_api.panic(message, file, line, stack)`
+  carries a managed report to the host, which writes it into `deren-crash.log` in the shape the
+  existing decoder already reads (`deren panic (managed):`, `source: ... in managed code`,
+  `managed call stack:` above the native `deren raw stack v1` and symbolized `call stack:`), and
+  then terminates - so a C# fault and a C++ fault produce one kind of record. The C# entry is
+  `deren.scripting.logger.panic` (with `[CallerFilePath]`/`[CallerLineNumber]`), and
+  `managed_bootstrap` routes `AppDomain.UnhandledException` through it. In the same version `log`
+  and `nothrow_log` were folded into one `logger` whose `write` returns `bool` and never throws.

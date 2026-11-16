@@ -16,7 +16,7 @@ namespace deren {
             if (status == script_status.success) {
                 return;
             }
-            log.write($"Game: {what} rejected ({status})");
+            logger.write($"Game: {what} rejected ({status})");
         }
 
         /// <summary>Exposure scale, 0.05..20 (1.0 = unchanged).</summary>

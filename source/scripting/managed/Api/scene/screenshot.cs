@@ -32,7 +32,7 @@ namespace deren {
                 return status == script_status.success;
             } catch (Exception error) {
                 status = script_status.script_failure;
-                log.write(
+                logger.write(
                     $"Game: screenshot request failed: {error.GetBaseException().Message}");
                 return false;
             }

@@ -27,6 +27,11 @@ namespace deren.scripting {
         // on an older host, which keeps its 5000 ms; frame_scheduler reports module_unavailable.
         public delegate* unmanaged<uint, script_status> set_frame_boundary_timeout;
 
+        // ABI 37: reports a managed fault, which the host answers by writing one crash report and
+        // terminating the process. Null on an older host; logger.panic then writes stderr and fails
+        // fast on its own. `line` is 0 when the caller had no location.
+        public delegate* unmanaged<utf8_view, utf8_view, uint, utf8_view, script_status> panic;
+
         public readonly bool is_valid() {
             return log != null && get_module != null && notify_rendering != null;
         }

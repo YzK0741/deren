@@ -1,5 +1,6 @@
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 import deren.scripting.managed_host;
@@ -1230,6 +1231,31 @@ namespace {
         return script_status::success;
     }
 
+    // ABI 37: the report the real host turns into deren-crash.log and terminates on. This fake
+    // records it and answers success, which is the only way a test process survives to check that
+    // the message, the managed location and the managed stack all crossed the boundary.
+    std::uint32_t panic_reports = 0;
+    std::uint32_t panic_line = 0;
+    std::string panic_message;
+    std::string panic_file;
+    std::string panic_stack;
+
+    script_status record_panic(utf8_view message, utf8_view source_file, std::uint32_t line, utf8_view stack) {
+        if ((message.length != 0 && message.data == nullptr) || (source_file.length != 0 && source_file.data == nullptr) ||
+            (stack.length != 0 && stack.data == nullptr)) {
+            return script_status::invalid_argument;
+        }
+        auto const text = [](utf8_view const view) {
+            return view.length == 0 ? std::string{} : std::string(reinterpret_cast<char const*>(view.data), view.length);
+        };
+        ++panic_reports;
+        panic_line = line;
+        panic_message = text(message);
+        panic_file = text(source_file);
+        panic_stack = text(stack);
+        return script_status::success;
+    }
+
     script_status update_scene(managed_api& scripts, std::uint64_t scene, float delta_time,
                                std::uint8_t const* input = nullptr, std::uint32_t input_count = 0) {
         frame_info const frame{
@@ -1249,10 +1275,22 @@ namespace {
                              .set_input_event_callback = set_input_callback,
                              .abi_layout = publish_abi_layout,
                              .notify_rendering = record_notify,
-                             .set_frame_boundary_timeout = record_timeout};
+                             .set_frame_boundary_timeout = record_timeout,
+                             .panic = record_panic};
         managed_api scripts;
+        // ABI 37: the demo reports one managed fault when it sees this variable. The fake host above
+        // answers success instead of terminating, which is the only way a test process survives to
+        // inspect the report, so the probe is armed for exactly these runs.
+        // <cstdlib> is what declares _putenv_s on both compilers this project builds with.
+        static_cast<void>(_putenv_s("DEREN_PANIC_PROBE", "1"));
         if (initialize_managed_host(paths, api, scripts).status != host_status::success) {
             std::fputs("startup: managed host initialization failed\n", stderr);
+            return false;
+        }
+        if (panic_reports != 1 || panic_message.empty() || panic_line == 0 ||
+            panic_file.find("game_host.cs") == std::string::npos || panic_stack.empty()) {
+            std::fprintf(stderr, "startup: panic reports=%u line=%u file='%s' message='%s' stack=%zu\n", panic_reports,
+                         panic_line, panic_file.c_str(), panic_message.c_str(), panic_stack.size());
             return false;
         }
         if (scripts.before_frame == nullptr || scripts.after_frame == nullptr) {
@@ -1468,7 +1506,8 @@ namespace {
                              .set_input_event_callback = set_input_callback,
                              .abi_layout = publish_abi_layout,
                              .notify_rendering = record_notify,
-                             .set_frame_boundary_timeout = record_timeout};
+                             .set_frame_boundary_timeout = record_timeout,
+                             .panic = record_panic};
         managed_api scripts;
         if (initialize_managed_host(selftest_paths, api, scripts).status != host_status::success) {
             std::fputs("frame events: managed host initialization failed\n", stderr);
@@ -1552,7 +1591,8 @@ int main(int argc, char** argv) {
                                             .request_screenshot = request_screenshot,
                                             .abi_layout = publish_abi_layout,
                                             .notify_rendering = record_notify,
-                                            .set_frame_boundary_timeout = record_timeout};
+                                            .set_frame_boundary_timeout = record_timeout,
+                                            .panic = record_panic};
     if (scenario == "abi_layout_mismatch") {
         // ABI 33: the fake host reports a native_api size the managed side does not share, and the
         // layout check lives in configure_from_engine, so this scenario has to go through configure.
