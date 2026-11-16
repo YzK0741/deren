@@ -66,6 +66,21 @@ namespace deren.scripting {
             public fixed byte padding[2];
         }
 
+        /// <summary>
+        /// ABI 38: the frame's shape - the extent the passes shade, the extent presentation shows, and the
+        /// size of the GPU timing table. The mirror of deren::scripting::diagnostic_counters (24 bytes).
+        /// </summary>
+        [StructLayout(LayoutKind.Sequential)]
+        internal unsafe struct diagnostic_counters {
+            public uint render_width;
+            public uint render_height;
+            public uint output_width;
+            public uint output_height;
+            public uint gpu_interval_count;
+            public byte gpu_timings_available;
+            public fixed byte padding[3];
+        }
+
         private struct scene_api_layout {
             public delegate* unmanaged[Cdecl]<node_handle, transform_value*, script_status> get_transform;
             public delegate* unmanaged[Cdecl]<node_handle, transform_value*, script_status> set_transform;
@@ -129,6 +144,20 @@ namespace deren.scripting {
             public delegate* unmanaged<byte, script_status> set_animation_playing;
             public delegate* unmanaged<float, script_status> set_animation_speed;
             public delegate* unmanaged<float, script_status> set_animation_time;
+            // ABI 38: scene-graph queries, world/screen conversion, and diagnostics. Optional like the
+            // entries above: a host that predates them leaves the pointers null and every wrapper reports
+            // module_unavailable instead of calling through one.
+            public delegate* unmanaged<ulong, node_handle, uint*, script_status> node_child_count;
+            public delegate* unmanaged<ulong, node_handle, uint, node_handle*, script_status> node_child;
+            public delegate* unmanaged<ulong, node_handle, utf8_view*, script_status> node_name;
+            public delegate* unmanaged<ulong, node_handle, uint*, script_status> get_node_flags;
+            public delegate* unmanaged<ulong, node_handle, uint, uint, script_status> set_node_flags;
+            public delegate* unmanaged<ulong, node_handle, node_handle, byte, script_status> reparent_node;
+            public delegate* unmanaged<uint*, uint*, script_status> viewport_size;
+            public delegate* unmanaged<float*, float*, script_status> project_point;
+            public delegate* unmanaged<float, float, float*, float*, script_status> screen_ray;
+            public delegate* unmanaged<diagnostic_counters*, script_status> query_counters;
+            public delegate* unmanaged<utf8_view*, script_status> gpu_timing_summary;
 
             public readonly bool is_valid() {
                 return get_transform != null && set_transform != null && try_spawn != null && try_despawn != null &&
@@ -204,6 +233,18 @@ namespace deren.scripting {
         private static delegate* unmanaged<byte, script_status> set_animation_playing;
         private static delegate* unmanaged<float, script_status> set_animation_speed;
         private static delegate* unmanaged<float, script_status> set_animation_time;
+        // Optional too: the scene-graph/screen/diagnostics batch arrived with ABI 38.
+        private static delegate* unmanaged<ulong, node_handle, uint*, script_status> node_child_count;
+        private static delegate* unmanaged<ulong, node_handle, uint, node_handle*, script_status> node_child;
+        private static delegate* unmanaged<ulong, node_handle, utf8_view*, script_status> node_name;
+        private static delegate* unmanaged<ulong, node_handle, uint*, script_status> get_node_flags;
+        private static delegate* unmanaged<ulong, node_handle, uint, uint, script_status> set_node_flags;
+        private static delegate* unmanaged<ulong, node_handle, node_handle, byte, script_status> reparent_node;
+        private static delegate* unmanaged<uint*, uint*, script_status> viewport_size;
+        private static delegate* unmanaged<float*, float*, script_status> project_point;
+        private static delegate* unmanaged<float, float, float*, float*, script_status> screen_ray;
+        private static delegate* unmanaged<diagnostic_counters*, script_status> query_counters;
+        private static delegate* unmanaged<utf8_view*, script_status> gpu_timing_summary;
 
         internal static bool is_ready() {
             if (!host_call_guard.host_calls_allowed) {
@@ -276,6 +317,17 @@ namespace deren.scripting {
             set_animation_playing = null;
             set_animation_speed = null;
             set_animation_time = null;
+            node_child_count = null;
+            node_child = null;
+            node_name = null;
+            get_node_flags = null;
+            set_node_flags = null;
+            reparent_node = null;
+            viewport_size = null;
+            project_point = null;
+            screen_ray = null;
+            query_counters = null;
+            gpu_timing_summary = null;
 
             void* table = null;
             uint byte_size = 0;
@@ -354,6 +406,17 @@ namespace deren.scripting {
             set_animation_playing = resolved.set_animation_playing;
             set_animation_speed = resolved.set_animation_speed;
             set_animation_time = resolved.set_animation_time;
+            node_child_count = resolved.node_child_count;
+            node_child = resolved.node_child;
+            node_name = resolved.node_name;
+            get_node_flags = resolved.get_node_flags;
+            set_node_flags = resolved.set_node_flags;
+            reparent_node = resolved.reparent_node;
+            viewport_size = resolved.viewport_size;
+            project_point = resolved.project_point;
+            screen_ray = resolved.screen_ray;
+            query_counters = resolved.query_counters;
+            gpu_timing_summary = resolved.gpu_timing_summary;
             return script_status.success;
         }
 
@@ -651,6 +714,74 @@ namespace deren.scripting {
         internal static script_status assign_animation_time(float seconds) {
             return is_ready() && set_animation_time != null
                 ? set_animation_time(seconds)
+                : script_status.module_unavailable;
+        }
+
+        // ---- ABI 38: the scene graph read back, world <-> screen, and diagnostics ---------------------
+
+        internal static script_status query_child_count(ulong tree, node_handle node, uint* count) {
+            return is_ready() && node_child_count != null
+                ? node_child_count(tree, node, count)
+                : script_status.module_unavailable;
+        }
+
+        internal static script_status query_child(ulong tree, node_handle node, uint index, node_handle* child) {
+            return is_ready() && node_child != null
+                ? node_child(tree, node, index, child)
+                : script_status.module_unavailable;
+        }
+
+        internal static script_status query_node_name(ulong tree, node_handle node, utf8_view* name) {
+            return is_ready() && node_name != null
+                ? node_name(tree, node, name)
+                : script_status.module_unavailable;
+        }
+
+        internal static script_status query_node_flags(ulong tree, node_handle node, uint* flags) {
+            return is_ready() && get_node_flags != null
+                ? get_node_flags(tree, node, flags)
+                : script_status.module_unavailable;
+        }
+
+        internal static script_status assign_node_flags(ulong tree, node_handle node, uint flags, uint mask) {
+            return is_ready() && set_node_flags != null
+                ? set_node_flags(tree, node, flags, mask)
+                : script_status.module_unavailable;
+        }
+
+        internal static script_status assign_parent(ulong tree, node_handle node, node_handle parent, byte keep_transform) {
+            return is_ready() && reparent_node != null
+                ? reparent_node(tree, node, parent, keep_transform)
+                : script_status.module_unavailable;
+        }
+
+        internal static script_status query_viewport_size(uint* width, uint* height) {
+            return is_ready() && viewport_size != null
+                ? viewport_size(width, height)
+                : script_status.module_unavailable;
+        }
+
+        internal static script_status project_world_point(float* world, float* screen) {
+            return is_ready() && project_point != null
+                ? project_point(world, screen)
+                : script_status.module_unavailable;
+        }
+
+        internal static script_status query_screen_ray(float x, float y, float* origin, float* direction) {
+            return is_ready() && screen_ray != null
+                ? screen_ray(x, y, origin, direction)
+                : script_status.module_unavailable;
+        }
+
+        internal static script_status query_diagnostic_counters(diagnostic_counters* counters) {
+            return is_ready() && query_counters != null
+                ? query_counters(counters)
+                : script_status.module_unavailable;
+        }
+
+        internal static script_status query_gpu_timing_text(utf8_view* text) {
+            return is_ready() && gpu_timing_summary != null
+                ? gpu_timing_summary(text)
                 : script_status.module_unavailable;
         }
     }

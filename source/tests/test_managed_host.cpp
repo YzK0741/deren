@@ -1162,6 +1162,7 @@ namespace {
             {.type = abi_type::head_basis_desc, .size = sizeof(head_basis_desc)},
             {.type = abi_type::face_frame_desc, .size = sizeof(face_frame_desc)},
             {.type = abi_type::animation_state, .size = sizeof(animation_state)},
+            {.type = abi_type::diagnostic_counters, .size = sizeof(diagnostic_counters)},
         };
         constexpr auto count = static_cast<std::uint32_t>(std::size(entries));
         if (out == nullptr || capacity < count) {

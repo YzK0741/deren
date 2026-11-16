@@ -312,6 +312,177 @@ namespace deren {
             return status == script_status.success;
         }
 
+        /// <summary>
+        /// Reads how many children a node has. Pass a default <paramref name="node"/> to count the
+        /// tree's ROOTS instead, which together with <see cref="try_get_child"/> walks the whole graph
+        /// from one starting handle. Returns false for a stale or foreign node.
+        /// </summary>
+        public bool try_get_child_count(node_id node, out uint count) {
+            return try_get_child_count(node, out count, out _);
+        }
+
+        public bool try_get_child_count(node_id node, out uint count, out script_status status) {
+            count = 0;
+            if (handle == 0) {
+                status = script_status.invalid_argument;
+                return false;
+            }
+            // A default handle IS the tree's root list (see scene_api::node_child_count), so there is no
+            // node to validate here.
+            unsafe {
+                uint result;
+                status = scene_api.query_child_count(handle, node.handle, &result);                if (status != script_status.success) {
+                    return false;
+                }
+                count = result;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Reads the child at <paramref name="index"/>; a default <paramref name="node"/> reads the
+        /// tree's root at that index. Returns false when the index is past the end.
+        /// </summary>
+        public bool try_get_child(node_id node, uint index, out node_id child) {
+            return try_get_child(node, index, out child, out _);
+        }
+
+        public bool try_get_child(node_id node, uint index, out node_id child, out script_status status) {
+            child = default;
+            if (handle == 0) {
+                status = script_status.invalid_argument;
+                return false;
+            }
+            unsafe {
+                node_handle result;
+                status = scene_api.query_child(handle, node.handle, index, &result);
+                if (status != script_status.success) {
+                    return false;
+                }
+                if (result.value == 0) {
+                    status = script_status.script_failure;
+                    return false;
+                }
+                child = new node_id(result);
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Counts the tree's roots.
+        /// </summary>
+        public bool try_get_root_count(out uint count) {
+            return try_get_child_count(default, out count);
+        }
+
+        /// <summary>
+        /// Reads the root at <paramref name="index"/>.
+        /// </summary>
+        public bool try_get_root(uint index, out node_id root) {
+            return try_get_child(default, index, out root);
+        }
+
+        /// <summary>
+        /// Reads the name a node was created with. The bytes belong to the node, so they are copied out
+        /// before this returns. Returns false for a stale or foreign node.
+        /// </summary>
+        public unsafe bool try_get_name(node_id node, out string? name) {
+            return try_get_name(node, out name, out _);
+        }
+
+        public unsafe bool try_get_name(node_id node, out string? name, out script_status status) {
+            name = null;
+            if (handle == 0) {
+                status = script_status.invalid_argument;
+                return false;
+            }
+            if (!node.is_valid) {
+                status = script_status.invalid_node;
+                return false;
+            }
+            utf8_view view;
+            status = scene_api.query_node_name(handle, node.handle, &view);
+            if (status != script_status.success) {
+                return false;
+            }
+            name = view.length == 0 ? string.Empty : System.Text.Encoding.UTF8.GetString(view.data, checked((int)view.length));
+            return true;
+        }
+
+        /// <summary>
+        /// Reads the opaque 32-bit word the game attached to a node (four are left alone by every host
+        /// entry). They are free storage, not a host feature: nothing in the renderer reads them.
+        /// </summary>
+        public bool try_get_flags(node_id node, out uint flags) {
+            return try_get_flags(node, out flags, out _);
+        }
+
+        public bool try_get_flags(node_id node, out uint flags, out script_status status) {
+            flags = 0;
+            if (handle == 0) {
+                status = script_status.invalid_argument;
+                return false;
+            }
+            if (!node.is_valid) {
+                status = script_status.invalid_node;
+                return false;
+            }
+            unsafe {
+                uint result;
+                status = scene_api.query_node_flags(handle, node.handle, &result);
+                if (status != script_status.success) {
+                    return false;
+                }
+                flags = result;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Writes the bits of <paramref name="flags"/> selected by <paramref name="mask"/>, leaving the
+        /// others as they were. Pass a full mask to replace the whole word.
+        /// </summary>
+        public bool try_set_flags(node_id node, uint flags, uint mask = uint.MaxValue) {
+            return try_set_flags(node, flags, mask, out _);
+        }
+
+        public bool try_set_flags(node_id node, uint flags, uint mask, out script_status status) {
+            if (handle == 0) {
+                status = script_status.invalid_argument;
+                return false;
+            }
+            if (!node.is_valid) {
+                status = script_status.invalid_node;
+                return false;
+            }
+            status = scene_api.assign_node_flags(handle, node.handle, flags, mask);
+            return status == script_status.success;
+        }
+
+        /// <summary>
+        /// Moves a node under a new parent; a default <paramref name="parent"/> makes it a root. With
+        /// <paramref name="keep_transform"/> (the default) the node stays where it is in the world and
+        /// its local transform is recomputed, so a scene graph can be regrouped without anything
+        /// moving. The move is refused for a stale or foreign handle, for a parent inside the node's own
+        /// subtree, and for a target with a collapsed transform.
+        /// </summary>
+        public bool try_reparent(node_id node, node_id parent, bool keep_transform = true) {
+            return try_reparent(node, parent, keep_transform, out _);
+        }
+
+        public bool try_reparent(node_id node, node_id parent, bool keep_transform, out script_status status) {
+            if (handle == 0) {
+                status = script_status.invalid_argument;
+                return false;
+            }
+            if (!node.is_valid) {
+                status = script_status.invalid_node;
+                return false;
+            }
+            status = scene_api.assign_parent(handle, node.handle, parent.handle, keep_transform ? (byte)1 : (byte)0);
+            return status == script_status.success;
+        }
+
         public void Dispose() {
             destroy();
         }

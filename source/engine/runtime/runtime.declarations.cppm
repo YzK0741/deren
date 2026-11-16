@@ -3216,6 +3216,40 @@ namespace deren::engine {
          */
         orbit_camera camera;
 
+        // ---- ABI 38: the frame's shape and camera, for host-side queries -----------------------------
+        /**
+         * @brief what a diagnostics reader needs to describe the frame: both extents and the timing shape
+         *
+         * `render` is the extent the passes shade at (the render scale is ALREADY applied), so a managed
+         * caller that projects a world point gets pixels the passes agree with; `output` is what
+         * presentation shows, i.e. the size a window manager would report.
+         */
+        struct frame_diagnostics {
+            rhi::image_extent render = {};
+            rhi::image_extent output = {};
+            std::uint32_t gpu_intervals = 0;
+            bool gpu_timings = false;
+        };
+        [[nodiscard]] frame_diagnostics query_frame_diagnostics() const noexcept {
+            return frame_diagnostics{
+                .render = this->render_extent_value,
+                .output = this->output_extent,
+                .gpu_intervals = gpu_mark_count - 1,
+                .gpu_timings = this->gpu_timings_available(),
+            };
+        }
+        /**
+         * @brief the camera the frame renders with, as the UBO the passes receive
+         *
+         * THE SAME EXPRESSION THE FRAME'S UBO SNAPSHOT USES (see `current_ubo`): the cube capture's
+         * override while one is active, otherwise the orbit camera over the scene's bounds. Exposed so a
+         * host can answer world/screen queries with the matrix the GPU actually used instead of
+         * recomposing one from the same knobs and disagreeing whenever the two drift.
+         *
+         * `proj` is jittered while TAA runs; `view_proj_unjittered` is the matrix to project through.
+         */
+        [[nodiscard]] camera_ubo frame_camera() const noexcept;
+
         /**
          * @ingroup runtime
          * @brief background clear color applied every frame (the skybox is drawn over it, so it

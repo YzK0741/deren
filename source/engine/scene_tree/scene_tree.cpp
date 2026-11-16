@@ -34,6 +34,48 @@ namespace deren::engine::scene_tree {
             }
             return false;
         }
+
+        // Cut the node named by @p id out of @p nodes (searching the whole subtree) and hand it
+        // back WITHOUT destroying its components: a node that only changes parent must keep the
+        // process-wide handle every managed reference and every component is keyed by.
+        template <class Nodes>
+        bool detach_node_by_id(Nodes& nodes, deren::utility::ecs::entity const id, scene_node& out) {
+            for (auto it = nodes.begin(); it != nodes.end(); ++it) {
+                if (it->node_id == id) {
+                    out = std::move(*it);
+                    nodes.erase(it);
+                    return true;
+                }
+                if (detach_node_by_id(it->children, id, out)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // true when @p nodes holds the node named by @p id directly (not below it)
+        template <class Nodes>
+        bool holds_child(Nodes const& nodes, deren::utility::ecs::entity const id) {
+            for (auto const& child : nodes) {
+                if (child.node_id == id) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // true when @p candidate is @p node itself or sits somewhere below it
+        bool subtree_contains(scene_node const& node, deren::utility::ecs::entity const candidate) {
+            if (node.node_id == candidate) {
+                return true;
+            }
+            for (scene_node const& child : node.children) {
+                if (subtree_contains(child, candidate)) {
+                    return true;
+                }
+            }
+            return false;
+        }
     } // namespace
 
     deren::utility::ecs::registry& components() noexcept {
@@ -91,6 +133,7 @@ namespace deren::engine::scene_tree {
         copy.source_index = this->source_index;
         copy.import_instance = this->import_instance;
         copy.visible = this->visible;
+        copy.flags = this->flags;
         // A clone is a detached subtree: it gets fresh identities when a scene adopts it.
         copy.node_id = deren::utility::ecs::null_entity;
         copy.owner_scene = nullptr;
@@ -270,6 +313,54 @@ namespace deren::engine::scene_tree {
             return false;
         }
         return erase_node_by_id(this->roots, id);
+    }
+
+    bool scene::reparent_node(deren::utility::ecs::entity const id, deren::utility::ecs::entity const new_parent,
+                              glm::mat4 const* const new_local) {
+        if (!id.valid()) {
+            return false;
+        }
+        scene_node* const node = this->find_node(id);
+        if (node == nullptr) {
+            return false;
+        }
+        scene_node* parent = nullptr;
+        if (new_parent.valid()) {
+            if (new_parent == id) {
+                return false; // a node cannot become its own parent
+            }
+            if (subtree_contains(*node, new_parent)) {
+                return false; // the new parent lives inside the moved subtree: it would travel with it
+            }
+            parent = this->find_node(new_parent);
+            if (parent == nullptr) {
+                return false;
+            }
+        }
+        if (new_local != nullptr) {
+            node->local = *new_local;
+        }
+        // Already there: report success without re-sorting the siblings (a repeated reparent must
+        // not shuffle draw order, and the transform is the only observable of that call).
+        if (parent != nullptr ? holds_child(parent->children, id) : holds_child(this->roots, id)) {
+            return true;
+        }
+        scene_node moved;
+        if (!detach_node_by_id(this->roots, id, moved)) {
+            return false; // unreachable while find_node above found it; kept so a null move never happens
+        }
+        if (parent != nullptr) {
+            // Re-resolve after the detach: the pointer taken before it belongs to a vector that
+            // just had an element erased.
+            scene_node* const destination = this->find_node(new_parent);
+            if (destination == nullptr) {
+                return false; // unreachable for the same reason as above
+            }
+            destination->add_child(std::move(moved));
+        } else {
+            this->add_root(std::move(moved));
+        }
+        return true;
     }
 
     void scene::clear() {

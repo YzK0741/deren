@@ -1,6 +1,6 @@
 # C# Module ABI
 
-Status: implemented for the `scene` and `ui` modules; managed ABI v37.
+Status: implemented for the `scene` and `ui` modules; managed ABI v38.
 
 Baseline: `feature/csharp-scene-tree`. Native code owns rendering, the Vulkan runtime, the
 module resolver, and primitive/scene import. Managed code owns scene construction, asset
@@ -273,13 +273,25 @@ struct scene_api {
     set_animation_playing;  // (uint8 playing)
     set_animation_speed;    // (float speed)
     set_animation_time;     // (float seconds)
+    // ABI 38: reading the graph back, world <-> screen, and frame counters.
+    node_child_count;       // (uint64 tree, node_handle node, uint32* count)
+    node_child;             // (uint64 tree, node_handle node, uint32 index, node_handle* child)
+    node_name;              // (uint64 tree, node_handle node, utf8_view* name)
+    get_node_flags;         // (uint64 tree, node_handle node, uint32* flags)
+    set_node_flags;         // (uint64 tree, node_handle node, uint32 flags, uint32 mask)
+    reparent_node;          // (uint64 tree, node_handle node, node_handle parent, uint8 keep_transform)
+    viewport_size;          // (uint32* width, uint32* height)
+    project_point;          // (float const world[3], float screen[3])
+    screen_ray;             // (float x, float y, float origin[3], float direction[3])
+    query_counters;         // (diagnostic_counters* out)
+    gpu_timing_summary;     // (utf8_view* text)
 };
 ```
 
 The order is part of the ABI. C# mirrors it with one layout and validates every pointer before
-publishing the table. The camera, environment, pipeline, post-processing, and lighting entries are
-optional: a host that predates them leaves the pointer null, and the C# wrapper reports
-`module_unavailable`.
+publishing the table. The camera, environment, pipeline, post-processing, lighting, graph read-back,
+screen-space, and diagnostic entries are optional: a host that predates them leaves the pointer null,
+and the C# wrapper reports `module_unavailable`.
 
 - `create_scene_tree` creates an empty independent tree and returns a process-wide tree id.
 - `activate_scene` attaches the tree to the current project scene and calls the native
@@ -372,6 +384,38 @@ optional: a host that predates them leaves the pointer null, and the C# wrapper 
   non-finite speed (the host clamps 0..16) or a non-finite time. `set_animation_time` scrubs to a
   time and pauses, so a GUI drag does not fight the advancing clock; a time outside the clip is
   clamped.
+- `node_child_count` and `node_child` walk the graph without holding a pointer: a null `node_handle`
+  names the tree's ROOT LIST, so one handle reaches every node. An out-of-range index is
+  `invalid_argument`; a stale handle is `invalid_node`. The count and the index are taken against the
+  same frame, so a scene the game mutates from another callback is not observed mid-walk - a display
+  list builds from a snapshot it takes itself.
+- `node_name` returns the name `create_node` was given. The bytes stay owned by the node, so the view
+  borrows until that node is renamed or destroyed; the C# wrapper copies before returning. The root
+  list has no name and answers `invalid_argument`.
+- `get_node_flags`/`set_node_flags` are 32 opaque bits per node. Nothing in the renderer reads them:
+  they are storage the game can use for its own marking (layers, selection, gameplay tags) that
+  survives the graph rebuild a scene replacement performs. `set_node_flags` writes
+  `(current & ~mask) | (flags & mask)`, so a read-modify-write needs one call, not two.
+- `reparent_node` moves a subtree, root list included, without destroying it: node ids and every
+  component stay alive, because the world transform is derived on demand rather than cached. A move
+  onto itself, under its own descendant, or onto a node of another tree is `invalid_argument`, as is a
+  target with a collapsed transform. `keep_transform` makes the engine recompute the local transform
+  from the new parent, so regrouping a scene moves nothing on screen. The world transform itself is
+  not observable through the ABI, so `keep_transform` is applied to the pose the managed side reads
+  back (`try_get_transform`).
+- `viewport_size` is the RENDER extent, the resolution the shading passes ran at, not the window
+  extent once the render scale is not 1. `project_point` and `screen_ray` are stated in those same
+  pixels and use the jitter-free projection, so a world point maps to one pixel on every TAA frame.
+  `project_point` writes `{pixel x, pixel y, view depth}` where the depth is positive in front of the
+  camera and negative behind it; the point is projected either way. `screen_ray` writes the camera
+  position and a unit direction. Both describe the camera the frame rendered with, which for a
+  radiance capture is the capture camera, not the orbit camera.
+- `query_counters` describes the last submitted frame: the render extent, the presented extent, the
+  number of intervals in the GPU timing table, and whether the backend timestamps at all.
+  `gpu_timing_summary` returns that table as text, one interval per line; the string is borrowed from
+  the renderer only until the next frame, so the C# wrapper copies it. An empty table is not an
+  error - it means the backend does not timestamp, which `gpu_timings_available` in the counters
+  distinguishes from "nothing was submitted yet" (both entries then report `module_unavailable`).
 
 ## 4. Panel module table
 
@@ -432,6 +476,13 @@ public sealed class scene_tree : IDisposable {
     public bool try_get_transform(node_id node, out transform_value value);
     public bool try_set_transform(node_id node, in transform_value value);
     public bool try_set_visible(node_id node, bool visible);
+    // ABI 38: graph read-back. Pass default(node_id) where a node is expected to mean the root list.
+    public bool try_get_child_count(node_id node, out uint count);
+    public bool try_get_child(node_id node, uint index, out node_id child);
+    public bool try_get_name(node_id node, out string? name);
+    public bool try_get_flags(node_id node, out uint flags);
+    public bool try_set_flags(node_id node, uint flags, uint mask = uint.MaxValue);
+    public bool try_reparent(node_id node, node_id parent, bool keep_transform = true);
 }
 ```
 
@@ -453,6 +504,23 @@ bool global_environment.try_set_hdr(string? path);
 
 `path` is a baked `.ibl` or an equirectangular `.hdr`; an empty string restores the procedural
 sky. The call queues the change and returns whether the host accepted the path.
+
+Screen space and frame counters are read-only:
+
+```csharp
+bool screen.try_get_viewport_size(out uint width, out uint height);
+bool screen.try_project_point(float x, float y, float z, out float pixel_x, out float pixel_y,
+                              out float depth);
+bool screen.try_screen_ray(float pixel_x, float pixel_y, out vector_3 origin, out vector_3 direction);
+
+bool diagnostics.try_get_counters(out diagnostics.frame_counters counters);
+string? diagnostics.gpu_timing_text();
+```
+
+`screen` answers in render pixels and uses the jitter-free projection; `depth` is positive in front
+of the camera. `diagnostics.frame_counters` carries the render extent, the presented extent, the GPU
+timing interval count and whether timing is available; `gpu_timing_text` copies the renderer's table
+into a managed string rather than handing out the borrowed view.
 
 The character animation player is global to the scene, and the game only drives it:
 
@@ -741,7 +809,7 @@ Status values are returned through the ABI; no exception crosses the native boun
 
 ## 8. Layout and versioning
 
-- One global `managed_abi_version`, currently 37.
+- One global `managed_abi_version`, currently 38.
 - No `context` parameter and no per-module version.
 - One version means one exact layout, and since v33 the layout is checked as well: the host
   publishes `{type, sizeof}` for every struct both sides share through `native_api.abi_layout`,
@@ -865,3 +933,19 @@ Status values are returned through the ABI; no exception crosses the native boun
   `deren.scripting.logger.panic` (with `[CallerFilePath]`/`[CallerLineNumber]`), and
   `managed_bootstrap` routes `AppDomain.UnhandledException` through it. In the same version `log`
   and `nothrow_log` were folded into one `logger` whose `write` returns `bool` and never throws.
+- v38 opened the scene graph for reading and gave a game the frame's own numbers: `scene_api` gained
+  `node_child_count`/`node_child` (the graph walked by handle, with a null handle meaning the root
+  list), `node_name` (the name a node was created with, borrowed from the node), `get_node_flags` /
+  `set_node_flags` (32 opaque bits the renderer never interprets, preserved across a scene rebuild),
+  `reparent_node` (move a subtree, root list included, keeping node ids and components alive, with
+  `keep_transform` recomputing the local transform so nothing moves on screen), `viewport_size`,
+  `project_point` and `screen_ray` (render pixels and the jitter-free projection, with the depth sign
+  documented in front of the camera), and `query_counters` / `gpu_timing_summary` (the `{render,
+  output}` extent pair, the GPU timing interval count and the timing table as text). The graph
+  entries are the engine's own: `scene_node` gained an opaque `flags` word and `scene::reparent_node`
+  does the move structurally, because the world transform is derived per frame rather than cached and
+  the ECS ids survive a re-parent. The C# entries are `scene_tree.try_get_child_count`/`try_get_child`/
+  `try_get_root`/`try_name`/`try_get_flags`/`try_set_flags`/`try_reparent`, `deren.screen`
+  (`try_get_viewport_size`, `try_project_point`, `try_screen_ray`) and `deren.diagnostics`
+  (`try_get_counters`, `gpu_timing_text`). Every new entry is optional: an older host answers
+  `module_unavailable`, and `abi_type::diagnostic_counters` (24 bytes) joined the layout check.

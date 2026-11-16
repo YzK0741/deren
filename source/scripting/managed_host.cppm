@@ -6,7 +6,7 @@ export import deren.vstd;
 
 export namespace deren::scripting {
 
-    inline constexpr std::uint32_t managed_abi_version = 37;
+    inline constexpr std::uint32_t managed_abi_version = 38;
 
     struct node_handle {
         std::uint64_t value = 0;
@@ -197,6 +197,22 @@ export namespace deren::scripting {
 
     static_assert(sizeof(animation_state) == 24);
 
+    // One frame's renderer counters (ABI 38): the numbers the debug overlay shows, exposed so a
+    // managed module can draw its own panel instead of parsing the native one. Sizes are in pixels;
+    // `gpu_timings_available` is 1 when the device can timestamp passes, and `gpu_interval_count`
+    // is how many intervals the timing table holds (0 when timing is off).
+    struct diagnostic_counters {
+        std::uint32_t render_width = 0;
+        std::uint32_t render_height = 0;
+        std::uint32_t output_width = 0;
+        std::uint32_t output_height = 0;
+        std::uint32_t gpu_interval_count = 0;
+        std::uint8_t gpu_timings_available = 0;
+        std::uint8_t padding[3] = {};
+    };
+
+    static_assert(sizeof(diagnostic_counters) == 24);
+
     struct scene_api {
         script_status(* get_transform)(node_handle node, transform_value* value) = nullptr;
         script_status(* set_transform)(node_handle node, transform_value const* value) = nullptr;
@@ -358,6 +374,43 @@ export namespace deren::scripting {
         // Scrubbing: sets the clip time in seconds and pauses, so a GUI timeline drag does not fight
         // the advancing clock. A time outside [0, duration] is clamped.
         script_status(* set_animation_time)(float seconds) = nullptr;
+        // ABI 38: TREE QUERIES. create_node() already takes a name and a parent, but until now a
+        // managed module could not read either back, so every subtree it built had to be remembered
+        // in its own side table. These entries make the scene tree itself the source of truth.
+        // Children are addressed by index in the parent's own order; the count is 0 for a leaf.
+        script_status(* node_child_count)(std::uint64_t tree, node_handle node, std::uint32_t* count) = nullptr;
+        script_status(* node_child)(std::uint64_t tree, node_handle node, std::uint32_t index,
+                                    node_handle* child) = nullptr;
+        // The node name borrows the node's own storage and stays valid until the node is renamed or
+        // destroyed; an unnamed node reports an empty view.
+        script_status(* node_name)(std::uint64_t tree, node_handle node, utf8_view* name) = nullptr;
+        // ABI 38: the opaque 32-bit gameplay word the renderer never interprets (see scene_node).
+        // set_node_flags is a masked write: only the bits set in @p mask change.
+        script_status(* get_node_flags)(std::uint64_t tree, node_handle node, std::uint32_t* flags) = nullptr;
+        script_status(* set_node_flags)(std::uint64_t tree, node_handle node, std::uint32_t flags,
+                                        std::uint32_t mask) = nullptr;
+        // ABI 38: moves @p node (and its subtree) under @p parent, or among the roots when
+        // @p parent is a null handle. keep_transform != 0 rewrites the local transform so the node
+        // keeps the WORLD pose it had before the move; 0 keeps the local transform, which changes
+        // the world pose. The node keeps its handle and every component; moving a node into its own
+        // subtree is invalid_argument (that would carry the new parent away with it).
+        script_status(* reparent_node)(std::uint64_t tree, node_handle node, node_handle parent,
+                                       std::uint8_t keep_transform) = nullptr;
+        // ABI 38: VIEW/SCREEN MAPPING. viewport_size is the presentation (up-scaled) extent in
+        // pixels. project_point maps a world position to {x, y, view_depth}: x and y are pixels with
+        // the origin at the top-left, and view_depth is the view-space w, positive in front of the
+        // camera (x/y are still written when it is not, but they are meaningless there). screen_ray
+        // is the inverse: a pixel position becomes the camera position and a normalised world-space
+        // direction. Both use the same unjittered matrices the frame's motion vectors use, so they
+        // ignore the TAA jitter and the Vulkan y flip is already accounted for.
+        script_status(* viewport_size)(std::uint32_t* width, std::uint32_t* height) = nullptr;
+        script_status(* project_point)(float const* world, float* screen) = nullptr;
+        script_status(* screen_ray)(float x, float y, float* origin, float* direction) = nullptr;
+        // ABI 38: the renderer's own counters (see diagnostic_counters) and the debug overlay's
+        // per-pass GPU timing text. The text borrows the runtime's last completed window and stays
+        // valid until the next frame, so copy it if it must outlive the callback.
+        script_status(* query_counters)(diagnostic_counters * counters) = nullptr;
+        script_status(* gpu_timing_summary)(utf8_view * text) = nullptr;
     };
     // ONE FRAME'S PANEL CONTENT (ABI 31). The managed game describes its debug panel every frame and the
     // host turns each call into the overlay plugin's widget. Every pointer is borrowed until the frame is
@@ -427,7 +480,8 @@ export namespace deren::scripting {
         startup_options = 8,
         head_basis_desc = 9,
         face_frame_desc = 10,
-        animation_state = 11
+        animation_state = 11,
+        diagnostic_counters = 12
     };
 
     struct abi_layout_entry {
