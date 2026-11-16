@@ -1077,6 +1077,18 @@ namespace {
         return script_status::success;
     }
 
+    // ABI 35: the demo project sets the boundary wait in initialize. The fake records the value so
+    // the scenario can prove the managed-to-host direction works, not just that the field exists.
+    std::atomic<std::uint32_t> boundary_timeout_ms{0};
+
+    script_status record_timeout(std::uint32_t const milliseconds) {
+        if (milliseconds > 600000) {
+            return script_status::invalid_argument;
+        }
+        boundary_timeout_ms = milliseconds;
+        return script_status::success;
+    }
+
     // The real host blocks on a condition variable after it hands over a boundary. This test calls
     // the managed callbacks directly, so it has to wait the same way instead of racing the worker
     // thread that runs a non-empty batch.
@@ -1127,7 +1139,8 @@ namespace {
                              .request_screenshot = request_screenshot,
                              .set_input_event_callback = set_input_callback,
                              .abi_layout = publish_abi_layout,
-                             .notify_rendering = record_notify};
+                             .notify_rendering = record_notify,
+                             .set_frame_boundary_timeout = record_timeout};
         managed_api scripts;
         if (initialize_managed_host(paths, api, scripts).status != host_status::success) {
             std::fputs("startup: managed host initialization failed\n", stderr);
@@ -1149,6 +1162,12 @@ namespace {
             std::fprintf(stderr, "startup: tree=%llu trees=%u nodes=%u assets=%u/%u/%u\n",
                          static_cast<unsigned long long>(scene.active_tree), scene.trees_created, scene.nodes_created,
                          scene.assets_loaded, scene.assets_bound, scene.assets_released);
+            return false;
+        }
+        // ABI 35: the demo sets 4000 ms in initialize, so a value other than the default proves the
+        // managed-to-host direction rather than just the size of the table.
+        if (boundary_timeout_ms.load() != 4000u) {
+            std::fprintf(stderr, "startup: boundary timeout %u ms, expected 4000\n", boundary_timeout_ms.load());
             return false;
         }
         // supported_pipelines() queries the count and one entry, then the default is queried and
@@ -1329,7 +1348,8 @@ namespace {
                              .request_screenshot = request_screenshot,
                              .set_input_event_callback = set_input_callback,
                              .abi_layout = publish_abi_layout,
-                             .notify_rendering = record_notify};
+                             .notify_rendering = record_notify,
+                             .set_frame_boundary_timeout = record_timeout};
         managed_api scripts;
         if (initialize_managed_host(selftest_paths, api, scripts).status != host_status::success) {
             std::fputs("frame events: managed host initialization failed\n", stderr);
@@ -1412,7 +1432,8 @@ int main(int argc, char** argv) {
                                             .get_module = get_scene_module,
                                             .request_screenshot = request_screenshot,
                                             .abi_layout = publish_abi_layout,
-                                            .notify_rendering = record_notify};
+                                            .notify_rendering = record_notify,
+                                            .set_frame_boundary_timeout = record_timeout};
     if (scenario == "abi_layout_mismatch") {
         // ABI 33: the fake host reports a native_api size the managed side does not share, and the
         // layout check lives in configure_from_engine, so this scenario has to go through configure.

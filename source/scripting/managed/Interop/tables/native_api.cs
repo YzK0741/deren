@@ -23,6 +23,10 @@ namespace deren.scripting {
         // Exactly one call per signal; the host reports a call with nothing outstanding.
         public delegate* unmanaged<script_status> notify_rendering;
 
+        // ABI 35: sets how long the host waits for one frame boundary. 0 waits indefinitely. Null
+        // on an older host, which keeps its 5000 ms; frame_scheduler reports module_unavailable.
+        public delegate* unmanaged<uint, script_status> set_frame_boundary_timeout;
+
         public readonly bool is_valid() {
             return log != null && get_module != null && notify_rendering != null;
         }

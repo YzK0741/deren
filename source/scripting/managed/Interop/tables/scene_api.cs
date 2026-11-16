@@ -189,6 +189,12 @@ namespace deren.scripting {
         private static delegate* unmanaged<utf8_view, uint, float*, uint, script_status> write_radiance_cube;
 
         internal static bool is_ready() {
+            if (!host_call_guard.host_calls_allowed) {
+                // A non-blocking batch must not touch host state the record pass is using; the
+                // executor logs the count at the end of the batch.
+                host_call_guard.note_refusal();
+                return false;
+            }
             return get_transform != null && set_transform != null && try_spawn != null && try_despawn != null &&
                    create_scene_tree != null && activate_scene != null && get_active_scene != null &&
                    deactivate_scene != null && destroy_scene_tree != null && create_node != null && destroy_node != null &&
