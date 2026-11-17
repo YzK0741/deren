@@ -9,11 +9,12 @@ From the repository root, with the build runtime dependencies on PATH:
 ```powershell
 python scripts/assets/convert_mmd_motion.py --model asset/laevatain/laevatain_game_toon_preview.glb --vmd "PATH/TO/Bibideba.zip" --output asset/motion/bibideba_laevatain --deren build/deren.exe --source-pose poser-a
 build/deren.exe --verify-motion asset/laevatain/laevatain_game_toon_preview.glb asset/motion/bibideba_laevatain/motion.gltf
-build/deren.exe --motion asset/motion/bibideba_laevatain/motion.gltf
-pwsh -File scripts/assets/preview_motion.ps1
+build/deren.exe run build/source/scripting/test_game --asset laevatain
 ```
 
-Use `--config` to select a working character preview configuration. The converter
+The launch is `deren run <project>`: the project's `deren.toml` names the entry scene, and the character's
+`asset.toml` binds the clip through its `motion` key (`asset/laevatain/asset.toml:8`), so no `--motion`
+flag is needed. The converter
 accepts a VMD or a ZIP containing exactly one VMD. `--mmd-unit` explicitly controls
 model units per MMD unit (default 0.08); the source VMD does not contain a reference
 skeleton from which an exact scale could be recovered. The current offline profile

@@ -235,9 +235,11 @@ float3 game_toon_hair_shade(surface_sample s, float3 world_pos, float3 geo_norma
     // `calc_shadow`, and the hair family's edge (`center`/`softness`: a strand's terminator is a drawn
     // line, 0.52/0.015) sharpens it into the game's hard hair shadow. This is the approved "keep deren's
     // shadow" boundary rather than a tuned sign.
-    const float shadow_scene = saturate(smoothstep(params.center - params.softness,
-                                                   params.center + params.softness,
-                                                   calc_shadow(world_pos, normal)));              // `_2180`/`_2183`
+    const float shadow_scene = raster_shadows_enabled()
+                                   ? saturate(smoothstep(params.center - params.softness,
+                                                         params.center + params.softness,
+                                                         calc_shadow(world_pos, normal))) // `_2180`/`_2183`
+                                   : 1.0;
 
     // ---- THE STRAND FRAME AND ITS EDGE FADE (HLSL 486-491) ----
     //

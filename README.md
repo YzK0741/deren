@@ -67,10 +67,9 @@ python scripts/build_helpers/build.py
 python scripts/build_helpers/build.py --type Release --clean
 python scripts/build_helpers/build.py --build-dir build-local Release
 
-# run (extra arguments after -- are forwarded to the executable)
-python scripts/build_helpers/run.py
+# run (everything after the wrapper's own options is forwarded to the executable)
+python scripts/build_helpers/run.py run build/source/scripting/test_game --capture-frames 60
 python scripts/build_helpers/run.py --type Debug -- --version
-python scripts/build_helpers/run.py --model path/to/model.glb -- --demo gui
 
 # Doxygen HTML + LaTeX manual
 python scripts/build_helpers/build_docs.py

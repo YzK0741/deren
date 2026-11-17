@@ -340,7 +340,7 @@ float3 game_toon_eye_shade(surface_sample s, float3 world_pos, float3 geo_normal
     // deren's `calc_shadow` instead.
     const float shadow_scene = game_eye_shadow_override >= 0.0
                                    ? game_eye_shadow_override
-                                   : saturate(calc_shadow(world_pos, geo_normal));                      // `_1267`
+                                   : (raster_shadows_enabled() ? saturate(calc_shadow(world_pos, geo_normal)) : 1.0); // `_1267`
 
     // ---- THE LIGHT TERM (HLSL 686-707) ----
     //

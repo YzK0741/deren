@@ -23,9 +23,10 @@ The compressed [capture manifest](pbr-captures-2026-10-29.json.gz) preserves the
 command, executable and final PNG hashes, resolved camera logs and HDR provenance for the original
 helmet captures; its DamagedHelmet entry predates the RT re-capture above, so it reproduces the
 pre-RT image. Its paths are repository-relative. To reproduce the published RT image, extract the
-DamagedHelmet `config` string and add `rt_reflections = true`,
-`rt_reflection_strength = 1.0` and `rt_reflection_materials = ["Material_MR"]` under `[render]`,
-then run the current executable with `--config <file> --capture-frames 30` and the camera above.
+DamagedHelmet `config` string, add `rt_reflections = true`,
+`rt_reflection_strength = 1.0` and `rt_reflection_materials = ["Material_MR"]` under `[render]`, put
+the result in the scene TOML the project's `deren.toml` names, then run the current executable with
+`deren run <project> --capture-frames 30 --capture-camera=0,12,3.7,0,-1.6446,0`.
 FlightHelmet uses the manifest as-is at frame 120. The local originals and logs used for the
 capture are not distributed with the repository. See
 [environment lighting](../environment_lighting.md) for the pinned HDR fetch command.
