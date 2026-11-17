@@ -37,11 +37,13 @@ namespace deren.scripting {
         };
 
         public void Dispose() {
-            if (data != null) {
-                NativeMemory.Free(data);
-                data = null;
-                length = 0;
+            if (data == null) {
+                return;
             }
+
+            NativeMemory.Free(data);
+            data = null;
+            length = 0;
         }
     }
 }

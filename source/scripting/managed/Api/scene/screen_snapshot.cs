@@ -5,7 +5,7 @@ namespace deren {
     /// <summary>
     /// One-shot screenshot requests from managed code.
     /// </summary>
-    public static unsafe class screenshot {
+    public static unsafe class screen_snapshot {
         private static native_api api;
 
         internal static void bind(native_api* value) {
@@ -32,7 +32,7 @@ namespace deren {
                 return status == script_status.success;
             } catch (Exception error) {
                 status = script_status.script_failure;
-                logger.write(
+                host_logger.write(
                     $"Game: screenshot request failed: {error.GetBaseException().Message}");
                 return false;
             }

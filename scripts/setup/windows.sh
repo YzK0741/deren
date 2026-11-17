@@ -100,4 +100,4 @@ fi
 echo ""
 echo "environment ready. Next:"
 echo "  python scripts/build_helpers/build.py   # Debug+Release"
-echo "  python scripts/build_helpers/run.py     # run the demo"
+echo "  python scripts/build_helpers/run.py run build/source/scripting/test_game"

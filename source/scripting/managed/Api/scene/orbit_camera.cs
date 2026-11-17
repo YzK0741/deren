@@ -6,7 +6,7 @@ namespace deren {
     /// Orbit camera pose owned by managed code. Angles are degrees and the target is in world space.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
-    public struct camera {
+    public struct orbit_camera {
         public float yaw_degrees;
         public float pitch_degrees;
         public float distance;
@@ -16,7 +16,7 @@ namespace deren {
         /// Applies this pose to the active scene. Returns false when no scene is active; the
         /// overload with an <c>out script_status</c> says which.
         /// </summary>
-        public unsafe bool try_apply() {
+        public bool try_apply() {
             return try_apply(out _);
         }
 
@@ -29,12 +29,12 @@ namespace deren {
         /// <summary>
         /// Reads the active scene's camera pose. Returns false when no scene is active.
         /// </summary>
-        public static unsafe bool try_get(out camera value) {
+        public static bool try_get(out orbit_camera value) {
             return try_get(out value, out _);
         }
 
-        public static unsafe bool try_get(out camera value, out script_status status) {
-            camera result;
+        public static unsafe bool try_get(out orbit_camera value, out script_status status) {
+            orbit_camera result;
             status = scene_api.query_camera(&result);
             if (status != script_status.success) {
                 value = default;

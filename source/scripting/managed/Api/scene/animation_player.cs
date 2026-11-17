@@ -19,9 +19,9 @@ namespace deren {
     /// call only means the request was accepted; the snapshot returned by <see cref="try_get_info"/>
     /// shows the applied result one frame later.
     /// </remarks>
-    public static unsafe class animation {
+    public static unsafe class animation_player {
         /// <summary>One frame of the player: what is playing, where its clock is, and how fast.</summary>
-        public readonly struct info {
+        public readonly struct animation_info {
             /// <summary>The host has a player (an animated asset is bound).</summary>
             public bool available { get; init; }
             /// <summary>The clips the player holds.</summary>
@@ -44,18 +44,18 @@ namespace deren {
         public const float max_speed = 16.0F;
 
         /// <summary>The player as of the frame the host last finished.</summary>
-        public static bool try_get_info(out info value) {
+        public static bool try_get_info(out animation_info value) {
             return try_get_info(out value, out _);
         }
 
-        public static bool try_get_info(out info value, out script_status status) {
+        public static bool try_get_info(out animation_info value, out script_status status) {
             value = default;
             animation_state state;
             status = scene_api.query_animation_state(&state);
             if (status != script_status.success) {
                 return false;
             }
-            value = new info {
+            value = new animation_info {
                 available = state.available != 0,
                 clip_count = checked((int)state.clip_count),
                 current_clip = checked((int)state.current_clip),
@@ -84,11 +84,11 @@ namespace deren {
             var names = new List<string>(count);
             for (var index = 0; index < count; ++index) {
                 if (!try_get_clip_name(index, out var name)) {
-                    return Array.Empty<string>();
+                    return [];
                 }
                 names.Add(name!);
             }
-            return names.ToArray();
+            return [.. names];
         }
 
         /// <summary>One clip's name, copied out of the player.</summary>
@@ -134,7 +134,7 @@ namespace deren {
         /// <summary>Selects a clip by index; the host opens it at time 0 and keeps the current speed.</summary>
         public static bool try_select(int index) {
             if (index < 0) {
-                logger.write($"Game: animation clip {index} is out of range");
+                host_logger.write($"Game: animation clip {index} is out of range");
                 return false;
             }
             var status = scene_api.assign_animation_select((uint)index);
@@ -145,7 +145,7 @@ namespace deren {
         /// <summary>Sets the playback-rate multiplier (clamped by the host to <see cref="max_speed"/>).</summary>
         public static bool try_set_speed(float speed) {
             if (float.IsNaN(speed) || float.IsInfinity(speed) || speed < 0.0F) {
-                logger.write($"Game: animation speed {speed} is not a finite, non-negative number");
+                host_logger.write($"Game: animation speed {speed} is not a finite, non-negative number");
                 return false;
             }
             var status = scene_api.assign_animation_speed(speed);
@@ -159,7 +159,7 @@ namespace deren {
         /// </summary>
         public static bool try_seek(float seconds) {
             if (float.IsNaN(seconds) || float.IsInfinity(seconds)) {
-                logger.write($"Game: animation time {seconds} is not a finite number");
+                host_logger.write($"Game: animation time {seconds} is not a finite number");
                 return false;
             }
             var status = scene_api.assign_animation_time(seconds);
@@ -169,7 +169,7 @@ namespace deren {
 
         private static void report(script_status status, string what) {
             if (status != script_status.success) {
-                logger.write($"Game: animation {what} failed ({status})");
+                host_logger.write($"Game: animation {what} failed ({status})");
             }
         }
     }

@@ -16,23 +16,25 @@ namespace deren.scripting {
         /// </summary>
         internal static bool verify(native_api* api) {
             if (api == null || api->abi_layout == null) {
-                logger.write(api, "Managed host: the native host publishes no ABI layout (ABI 33 required).");
+                host_logger.write(api, "Managed host: the native host publishes no ABI layout (ABI 33 required).");
                 return false;
             }
             abi_layout_entry* entries = stackalloc abi_layout_entry[entry_count];
             var status = api->abi_layout(entries, entry_count);
             if (status != script_status.success) {
-                logger.write(api, $"Managed host: the native host rejected the ABI layout request ({status}).");
+                host_logger.write(api, $"Managed host: the native host rejected the ABI layout request ({status}).");
                 return false;
             }
-            for (int index = 0; index != entry_count; ++index) {
+            for (var index = 0; index != entry_count; ++index) {
                 var entry = entries[index];
                 var expected = expected_size(entry.type);
-                if (entry.size != expected) {
-                    logger.write(api, $"Managed host: the layouts of '{entry.type}' disagree " +
-                             $"({entry.size} bytes native, {expected} bytes managed).");
-                    return false;
+                if (entry.size == expected) {
+                    continue;
                 }
+
+                host_logger.write(api, $"Managed host: the layouts of '{entry.type}' disagree " +
+                                  $"({entry.size} bytes native, {expected} bytes managed).");
+                return false;
             }
             return true;
         }

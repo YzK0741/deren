@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 
 namespace deren.scripting {
     /// <summary>
@@ -17,8 +18,8 @@ namespace deren.scripting {
 
         public static bool try_set_max_fps(double fps, out script_status status) {
             status = scene_api.assign_max_fps(fps);
-            logger.write(status == script_status.success
-                ? $"Game: max fps: {(fps > 0.0 ? fps.ToString("0.##") : "uncapped")}"
+            host_logger.write(status == script_status.success
+                ? $"Game: max fps: {(fps > 0.0 ? fps.ToString("0.##", CultureInfo.InvariantCulture) : "uncapped")}"
                 : $"Game: max fps {fps} rejected ({status})");
             return status == script_status.success;
         }
@@ -40,7 +41,7 @@ namespace deren.scripting {
                 return false;
             }
             status = managed_bootstrap.core.set_frame_boundary_timeout(milliseconds);
-            logger.write(status == script_status.success
+            host_logger.write(status == script_status.success
                 ? $"Game: frame boundary timeout: {(milliseconds == 0 ? "unlimited" : $"{milliseconds} ms")}"
                 : $"Game: frame boundary timeout {milliseconds} ms rejected ({status})");
             return status == script_status.success;

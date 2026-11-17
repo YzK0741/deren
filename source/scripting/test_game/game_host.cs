@@ -205,7 +205,7 @@ namespace game {
             if (!frame_scheduler.set_boundary_timeout_ms(4000)) {
                 return script_status.script_failure;
             }
-            if (!camera.try_get(out var pose)) {
+            if (!orbit_camera.try_get(out var pose)) {
                 return script_status.script_failure;
             }
             pose.yaw_degrees = 0.0f;
@@ -282,7 +282,7 @@ namespace game {
         /// ABI 37: on request, reports a managed fault and RETURNS.
         ///
         /// Only the host test gets to see the line after the call: the real host writes the report and
-        /// terminates the process inside logger.panic. The probe exists so both halves of that contract
+        /// terminates the process inside host_logger.panic. The probe exists so both halves of that contract
         /// have evidence - the report crossing the boundary, and the host that ends the process.
         /// </summary>
         private static void panic_probe() {
@@ -296,7 +296,7 @@ namespace game {
             if (System.Environment.GetEnvironmentVariable("DEREN_PANIC_PROBE") != "1") {
                 return;
             }
-            logger.panic("panic probe: the managed module reports a fault on request");
+            host_logger.panic("panic probe: the managed module reports a fault on request");
         }
 
         /// <summary>
@@ -443,16 +443,16 @@ namespace game {
         private void exercise_lighting(native_api* api) {
             var centre = new vector_3 { x = 0.0f, y = 1.0f, z = 0.0f };
             var axis = new vector_3 { x = 0.0f, y = 1.0f, z = 0.0f };
-            if (!lighting.try_set_sun_direction(new vector_3 { x = 1.0f, y = 0.8f, z = 0.2f }) ||
-                !lighting.try_set_area_light(centre, 0.5f, false, axis, 0.3f) ||
-                !lighting.try_set_clustered_lights(false)) {
+            if (!scene_lighting.try_set_sun_direction(new vector_3 { x = 1.0f, y = 0.8f, z = 0.2f }) ||
+                !scene_lighting.try_set_area_light(centre, 0.5f, false, axis, 0.3f) ||
+                !scene_lighting.try_set_clustered_lights(false)) {
                 throw new InvalidOperationException("a lighting setter was rejected");
             }
-            if (lighting.try_set_sun_direction(new vector_3())) {
+            if (scene_lighting.try_set_sun_direction(new vector_3())) {
                 throw new InvalidOperationException("an invalid sun direction was accepted");
             }
-            if (!lighting.try_set_sun_direction(new vector_3 { x = 0.3f, y = 1.0f, z = 0.5f }) ||
-                !lighting.try_clear_area_light() || !lighting.try_set_clustered_lights(true)) {
+            if (!scene_lighting.try_set_sun_direction(new vector_3 { x = 0.3f, y = 1.0f, z = 0.5f }) ||
+                !scene_lighting.try_clear_area_light() || !scene_lighting.try_set_clustered_lights(true)) {
                 throw new InvalidOperationException("cannot restore the startup lighting state");
             }
             api->write_log("Game: lighting round trip"u8);
@@ -474,7 +474,7 @@ namespace game {
             if (!tree!.try_set_material_override(bound, factors)) {
                 throw new InvalidOperationException("cannot bind the left helmet to environment slot 1");
             }
-            logger.write("Game: environment slot 1 bound to the left helmet");
+            host_logger.write("Game: environment slot 1 bound to the left helmet");
         }
 
         /// <summary>
@@ -484,12 +484,12 @@ namespace game {
         /// host test and the render log both look for.
         /// </summary>
         private void exercise_animation(native_api* api, string asset_id) {
-            if (!animation.try_get_info(out var state)) {
+            if (!animation_player.try_get_info(out var state)) {
                 api->write_log(System.Text.Encoding.UTF8.GetBytes(
                     $"Game: animation: '{asset_id}' has no player (the asset names no playable motion)"));
                 return;
             }
-            var names = animation.get_clip_names();
+            var names = animation_player.get_clip_names();
             if (names.Length != state.clip_count) {
                 throw new InvalidOperationException("animation: the clip count and the clip names disagree");
             }
@@ -498,7 +498,7 @@ namespace game {
             if (state.clip_count == 0) {
                 return;
             }
-            if (!animation.try_select(0) || !animation.try_set_speed(1.0F) || !animation.try_play()) {
+            if (!animation_player.try_select(0) || !animation_player.try_set_speed(1.0F) || !animation_player.try_play()) {
                 throw new InvalidOperationException("animation: cannot start the first clip");
             }
         }
@@ -517,54 +517,54 @@ namespace game {
             }
             // The camera drag is applied here, on the frame after the events: a game reads the stream and
             // decides when the pose changes.
-            if (orbit_dx != 0.0f && camera.try_get(out var pose)) {
+            if (orbit_dx != 0.0f && orbit_camera.try_get(out var pose)) {
                 pose.yaw_degrees += orbit_dx;
                 pose.try_apply();
                 orbit_dx = 0.0f;
             }
             // The project sizes the panel (`[gui] panel_width`, auto height); the game only names it.
-            if (!ui.begin_panel("deren demo")) {
+            if (!debug_ui.begin_panel("deren demo")) {
                 return;
             }
-            ui.text(ui.wants_mouse() ? "pointer: panel" : "pointer: scene");
+            debug_ui.text(debug_ui.wants_mouse() ? "pointer: panel" : "pointer: scene");
             // A knob is only written when it disagrees with its cell, so a drag costs one call per frame
             // of movement instead of one call per frame of the session.
             if (exposure_cell.number != last_exposure) {
                 last_exposure = exposure_cell.number;
                 post_processing.try_set_exposure(last_exposure);
             }
-            ui.slider("exposure", exposure_cell, 0.05f, 4.0f);
+            debug_ui.slider("exposure", exposure_cell, 0.05f, 4.0f);
             if (bloom_cell.flag != last_bloom) {
                 last_bloom = bloom_cell.flag;
                 post_processing.try_set_bloom(last_bloom ? 0.6f : 0.0f, 0.75f);
             }
-            ui.checkbox("bloom", bloom_cell);
+            debug_ui.checkbox("bloom", bloom_cell);
             if (fxaa_cell.flag != last_fxaa) {
                 last_fxaa = fxaa_cell.flag;
                 post_processing.try_set_fxaa(last_fxaa);
             }
-            ui.checkbox("fxaa", fxaa_cell);
+            debug_ui.checkbox("fxaa", fxaa_cell);
             if (sun_cell.vector.x != last_sun_x || sun_cell.vector.y != last_sun_y || sun_cell.vector.z != last_sun_z) {
                 last_sun_x = sun_cell.vector.x;
                 last_sun_y = sun_cell.vector.y;
                 last_sun_z = sun_cell.vector.z;
-                lighting.try_set_sun_direction(sun_cell.vector);
+                scene_lighting.try_set_sun_direction(sun_cell.vector);
             }
-            ui.vec3("sun direction", sun_cell, 0.02f);
-            if (ui.combo("tone mapping", tone_names, tone_cell) && tone_cell.selected != tone_applied) {
+            debug_ui.vec3("sun direction", sun_cell, 0.02f);
+            if (debug_ui.combo("tone mapping", tone_names, tone_cell) && tone_cell.selected != tone_applied) {
                 tone_applied = tone_cell.selected;
                 post_processing.try_set_tone_mapping(tone_applied);
             }
             // A BUTTON IS A ONE-SHOT: the cell is set while the overlay draws, and read on the next update.
-            ui.button("capture screenshot", shot_cell);
+            debug_ui.button("capture screenshot", shot_cell);
             if (shot_cell.flag) {
                 shot_cell.clear();
-                if (!screenshot.try_request()) {
+                if (!screen_snapshot.try_request()) {
                     managed_bootstrap.core.write_log(
                         System.Text.Encoding.UTF8.GetBytes("Game: screenshot request rejected"));
                 }
             }
-            ui.end_panel();
+            debug_ui.end_panel();
         }
 
         /// Every window event, on the render thread. This demo orbits the camera while the left button is
@@ -583,7 +583,7 @@ namespace game {
                 current.left_down = value.down;
                 return;
             }
-            if (value.type != input_type.mouse_move || !current.left_down || ui.wants_mouse()) {
+            if (value.type != input_type.mouse_move || !current.left_down || debug_ui.wants_mouse()) {
                 return;
             }
             current.orbit_dx += -value.dx * 0.25f;
@@ -616,7 +616,7 @@ namespace game {
                         // ABI 35: a non-blocking batch runs beside the record pass, so the wrappers
                         // refuse scene calls instead of racing it. At least one refusal proves the
                         // guard is in effect; without it this call would succeed.
-                        if (!camera.try_get(out _)) {
+                        if (!orbit_camera.try_get(out _)) {
                             System.Threading.Interlocked.Increment(ref frame_events_refusals);
                         }
                     }, is_blocking: false) == 0) {
@@ -712,7 +712,7 @@ namespace game {
                     // screenshot request is consumed, which would end the six-face loop on frame one,
                     // so a running probe defers the screenshot instead.
                     if (!current.probe_active) {
-                        current.screenshot_requested = screenshot.try_request();
+                        current.screenshot_requested = screen_snapshot.try_request();
                     }
                     // The environment is not requested here: the host publishes the project's
                     // `[lighting] environment_hdr` before the first frame (`project_config.apply`), and
@@ -732,9 +732,9 @@ namespace game {
             // ONE LOG LINE, the first frame the clock has advanced: the query side reads the snapshot the
             // host publishes from the same loop that samples the clip, so a non-zero time here is the
             // game's proof that the player it asked for is actually running.
-            if (!instance.animation_reported && animation.try_get_info(out var anim) && anim.playing && anim.time > 0.0F) {
+            if (!instance.animation_reported && animation_player.try_get_info(out var anim) && anim.playing && anim.time > 0.0F) {
                 instance.animation_reported = true;
-                animation.try_get_clip_name(anim.current_clip, out var clip_name);
+                animation_player.try_get_clip_name(anim.current_clip, out var clip_name);
                 managed_bootstrap.core.write_log(System.Text.Encoding.UTF8.GetBytes(
                     $"Game: animation: '{clip_name}' at {anim.time:F2} s of {anim.duration:F2} s"));
             }
@@ -752,9 +752,9 @@ namespace game {
             // deferred screenshot is asked for here, so a scripted run still ends the way it always
             // does instead of being reported as a failed frame.
             if (!instance.screenshot_requested && instance.frame_signal_ran && !instance.probe_active) {
-                instance.screenshot_requested = screenshot.try_request();
+                instance.screenshot_requested = screen_snapshot.try_request();
             }
-            if (!instance.camera_checked && camera.try_get(out var pose)) {
+            if (!instance.camera_checked && orbit_camera.try_get(out var pose)) {
                 instance.camera_checked = pose.try_apply();
             }
             instance.build_panel();

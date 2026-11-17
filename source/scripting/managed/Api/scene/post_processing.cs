@@ -1,4 +1,3 @@
-using System;
 using deren.scripting;
 
 namespace deren {
@@ -16,7 +15,7 @@ namespace deren {
             if (status == script_status.success) {
                 return;
             }
-            logger.write($"Game: {what} rejected ({status})");
+            host_logger.write($"Game: {what} rejected ({status})");
         }
 
         /// <summary>Exposure scale, 0.05..20 (1.0 = unchanged).</summary>

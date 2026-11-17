@@ -14,8 +14,7 @@
 #
 # Afterwards:
 #     python3 scripts/build_helpers/build.py         # Debug + Release
-#     python3 scripts/build_helpers/run.py           # run the demo
-#     python3 scripts/build_helpers/run.py <model.glb> gui
+#     python3 scripts/build_helpers/run.py run build/source/scripting/test_game
 
 set -eu
 
@@ -131,4 +130,4 @@ fi
 echo ""
 echo "environment ready. Next:"
 echo "  python3 scripts/build_helpers/build.py   # Debug + Release"
-echo "  python3 scripts/build_helpers/run.py     # run the demo"
+echo "  python3 scripts/build_helpers/run.py run build/source/scripting/test_game"

@@ -13,7 +13,7 @@ namespace deren {
 
         /// <summary>
         /// True when this handle names a scene node. A syntactically valid handle can still be
-        /// stale; use <see cref="is_alive"/> for a liveness check.
+        /// stale; use <see cref="is_alive()"/> for a liveness check.
         /// </summary>
         public bool is_valid => handle.value != 0;
 
@@ -21,7 +21,7 @@ namespace deren {
         /// True when the handle is still the live node. A stale or foreign handle returns false
         /// instead of throwing.
         /// </summary>
-        public unsafe bool is_alive() {
+        public bool is_alive() {
             return is_alive(out _);
         }
 
@@ -40,7 +40,7 @@ namespace deren {
         /// Reads this node's local transform. Returns false for a stale, foreign, or otherwise
         /// unavailable node; it does not throw.
         /// </summary>
-        public unsafe bool try_get_transform(out transform_value value) {
+        public bool try_get_transform(out transform_value value) {
             return try_get_transform(out value, out _);
         }
 
@@ -64,7 +64,7 @@ namespace deren {
         /// Writes this node's local transform. Returns false when the node is unavailable or
         /// the native side rejects the pose; it does not throw.
         /// </summary>
-        public unsafe bool try_set_transform(in transform_value value) {
+        public bool try_set_transform(in transform_value value) {
             return try_set_transform(value, out _);
         }
 

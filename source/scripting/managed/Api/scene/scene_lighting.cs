@@ -10,12 +10,12 @@ namespace deren {
     /// the next frame, so each method returns whether the change was accepted. The overloads that
     /// take an <c>out script_status</c> report the rejection the same way without the guesswork.
     /// </summary>
-    public static class lighting {
+    public static class scene_lighting {
         private static void report(script_status status, string what) {
             if (status == script_status.success) {
                 return;
             }
-            logger.write($"Game: {what} rejected ({status})");
+            host_logger.write($"Game: {what} rejected ({status})");
         }
 
         /// <summary>
@@ -83,12 +83,12 @@ namespace deren {
         /// The array is copied into a managed scratch buffer before the call, so callers may reuse
         /// their own array immediately afterwards.
         /// </summary>
-        public static unsafe bool try_set_point_lights(point_light[]? lights) {
+        public static bool try_set_point_lights(point_light[]? lights) {
             return try_set_point_lights(lights, out _);
         }
 
         public static unsafe bool try_set_point_lights(point_light[]? lights, out script_status status) {
-            var count = lights == null ? 0 : lights.Length;
+            var count = lights?.Length ?? 0;
             if (count > max_point_lights) {
                 status = script_status.invalid_argument;
                 report(status, "set_point_lights (too many lights)");

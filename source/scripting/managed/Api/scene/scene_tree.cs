@@ -31,7 +31,7 @@ namespace deren {
         /// <summary>
         /// Creates an empty tree. Returns false when the native scene module is unavailable.
         /// </summary>
-        public static unsafe bool try_create(out scene_tree? tree) {
+        public static bool try_create(out scene_tree? tree) {
             return try_create(out tree, out _);
         }
 
@@ -95,14 +95,11 @@ namespace deren {
         }
 
         public bool destroy(out script_status status) {
-            if (handle == 0) {
+            if (handle == 0 || active) {
                 status = script_status.invalid_argument;
                 return false;
             }
-            if (active) {
-                status = script_status.invalid_argument;
-                return false;
-            }
+
             status = scene_api.destroy_tree(handle);
             handle = 0;
             return status == script_status.success;
@@ -113,7 +110,7 @@ namespace deren {
         /// The returned handle is a process-wide scene node id and remains valid until the node or
         /// one of its ancestors is destroyed.
         /// </summary>
-        public unsafe bool try_create_node(node_id parent, string? name, in transform_value local, out node_id node) {
+        public bool try_create_node(node_id parent, string? name, in transform_value local, out node_id node) {
             return try_create_node(parent, name, local, out node, out _);
         }
 
@@ -165,7 +162,7 @@ namespace deren {
         /// instance root's local transform. The copied node hierarchy stays valid after the asset
         /// handle is released.
         /// </summary>
-        public unsafe bool try_bind_asset(node_id parent, asset_handle asset, in transform_value offset, out node_id root) {
+        public bool try_bind_asset(node_id parent, asset_handle asset, in transform_value offset, out node_id root) {
             return try_bind_asset(parent, asset, offset, out root, out _);
         }
 
@@ -200,11 +197,11 @@ namespace deren {
         /// bind root, or a tree that is not the active scene. Hidden subtrees switch too, so they
         /// render with the new pipeline once shown again.
         /// </summary>
-        public unsafe bool try_set_pipeline(node_id node, string pipeline) {
+        public bool try_set_pipeline(node_id node, string pipeline) {
             return try_set_pipeline(node, pipeline, out _);
         }
 
-        public unsafe bool try_set_pipeline(node_id node, string pipeline, out script_status status) {
+        public bool try_set_pipeline(node_id node, string pipeline, out script_status status) {
             if (handle == 0 || string.IsNullOrEmpty(pipeline)) {
                 status = script_status.invalid_argument;
                 return false;
@@ -221,7 +218,7 @@ namespace deren {
         /// <summary>
         /// Reads a node's local transform from this tree. Returns false for a stale or foreign node.
         /// </summary>
-        public unsafe bool try_get_transform(node_id node, out transform_value value) {
+        public bool try_get_transform(node_id node, out transform_value value) {
             return try_get_transform(node, out value, out _);
         }
 
@@ -248,7 +245,7 @@ namespace deren {
         /// Writes a node's local transform in this tree. Returns false for a stale node or an
         /// invalid pose.
         /// </summary>
-        public unsafe bool try_set_transform(node_id node, in transform_value value) {
+        public bool try_set_transform(node_id node, in transform_value value) {
             return try_set_transform(node, value, out _);
         }
 
@@ -292,7 +289,7 @@ namespace deren {
         /// to its imported materials. Returns false for a stale or foreign node, or a factor the host
         /// rejects (a non-finite value, an environment lane above 3).
         /// </summary>
-        public unsafe bool try_set_material_override(node_id node, in material_override value, bool enabled = true) {
+        public bool try_set_material_override(node_id node, in material_override value, bool enabled = true) {
             return try_set_material_override(node, value, enabled, out _);
         }
 
@@ -386,7 +383,7 @@ namespace deren {
         /// Reads the name a node was created with. The bytes belong to the node, so they are copied out
         /// before this returns. Returns false for a stale or foreign node.
         /// </summary>
-        public unsafe bool try_get_name(node_id node, out string? name) {
+        public bool try_get_name(node_id node, out string? name) {
             return try_get_name(node, out name, out _);
         }
 

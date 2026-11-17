@@ -49,7 +49,7 @@ namespace deren.scripting {
                 var context = AssemblyLoadContext.GetLoadContext(typeof(managed_bootstrap).Assembly)!;
                 game_assembly = context.LoadFromAssemblyPath(path);
             } catch (Exception error) {
-                logger.write(api, $"Managed host: cannot load project assembly: {error.GetBaseException().Message}");
+                host_logger.write(api, $"Managed host: cannot load project assembly: {error.GetBaseException().Message}");
                 return (int)script_status.script_failure;
             }
 
@@ -57,16 +57,16 @@ namespace deren.scripting {
             try {
                 var host_type = find_game_host(game_assembly);
                 if (host_type == null) {
-                    logger.write(api, "Managed host: project does not define exactly one game_entry.");
+                    host_logger.write(api, "Managed host: project does not define exactly one game_entry.");
                     return (int)script_status.script_failure;
                 }
                 created = (game_entry?)Activator.CreateInstance(host_type, nonPublic: true);
             } catch (Exception error) {
-                logger.write(api, $"Managed host: cannot create game_entry: {error.GetBaseException().Message}");
+                host_logger.write(api, $"Managed host: cannot create game_entry: {error.GetBaseException().Message}");
                 return (int)script_status.script_failure;
             }
             if (created == null) {
-                logger.write(api, "Managed host: game_entry constructor returned null.");
+                host_logger.write(api, "Managed host: game_entry constructor returned null.");
                 return (int)script_status.script_failure;
             }
             game = created;
@@ -75,12 +75,13 @@ namespace deren.scripting {
             // runtime side is applied later, once the scene API is bound.
             project_config.load(project_directory);
             var status = game.preinit(options, argc, argv);
-            if (status != script_status.success) {
-                logger.write(api, $"Managed host: project preinit failed ({status}).");
-                game = null;
-                return (int)status;
+            if (status == script_status.success) {
+                return 0;
             }
-            return 0;
+
+            host_logger.write(api, $"Managed host: project preinit failed ({status}).");
+            game = null;
+            return (int)status;
         }
 
         [UnmanagedCallersOnly]
@@ -89,12 +90,12 @@ namespace deren.scripting {
                 return invalid_api;
             }
             if (game == null) {
-                logger.write(api, "Managed host: initialize called before preinit.");
+                host_logger.write(api, "Managed host: initialize called before preinit.");
                 return invalid_api;
             }
             core = *api;
             // ABI 37: an exception nothing caught ends the process through the same report as an
-            // explicit logger.panic. Installed here, where the table is first held - a fault before
+            // explicit host_logger.panic. Installed here, where the table is first held - a fault before
             // this point has no host to report through, and the runtime's own message is the whole
             // story then.
             AppDomain.CurrentDomain.UnhandledException -= on_unhandled_exception;
@@ -103,32 +104,32 @@ namespace deren.scripting {
             if (!abi_manifest.verify(api)) {
                 return invalid_api;
             }
-            screenshot.bind(api);
+            screen_snapshot.bind(api);
             scene_api.initialize(api);
             // THE PANEL TABLE IS OPTIONAL: a host without the GUI plugin still publishes it, but an
             // older host does not publish the ui module at all - that is a session without a panel, not
             // an initialization failure, so the status is only logged when the module is missing.
             var ui_status = ui_api.initialize(api);
             if (ui_status != script_status.success) {
-                logger.write(api, $"Managed host: no panel module ({ui_status}); ui calls will fail.");
+                host_logger.write(api, $"Managed host: no panel module ({ui_status}); ui calls will fail.");
             }
             // Framework baseline first: the project's initialize can still move anything after.
             project_config.apply();
             var status = game.initialize(api, scripts);
             if (status != script_status.success) {
-                logger.write(api, $"Managed host: project initialization failed ({status}).");
+                host_logger.write(api, $"Managed host: project initialization failed ({status}).");
                 return (int)status;
             }
             scripts->before_frame = &before_frame_from_engine;
             scripts->after_frame = &after_frame_from_engine;
             if (scripts->update == null || scripts->stop == null) {
-                logger.write(api, "Managed host: project did not register update/stop.");
+                host_logger.write(api, "Managed host: project did not register update/stop.");
                 return (int)script_status.script_failure;
             }
             // Wrap the project's stop so the frame worker ends before the native side tears down.
             project_stop = scripts->stop;
             scripts->stop = &stop_from_engine;
-            logger.write(api, "deren managed host ready");
+            host_logger.write(api, "deren managed host ready");
             return 0;
         }
 
@@ -162,7 +163,7 @@ namespace deren.scripting {
             try {
                 dispatch();
             } catch (Exception error) {
-                logger.write($"Managed host: frame boundary failed: {error.GetBaseException().Message}");
+                host_logger.write($"Managed host: frame boundary failed: {error.GetBaseException().Message}");
                 // The host is blocked on the answer: a batch that never started must still release it.
                 frame_event_processor.notify_host();
             }
@@ -175,14 +176,14 @@ namespace deren.scripting {
         /// becomes the managed stack; the message names the type, which a reader greps for.
         /// </summary>
         private static void on_unhandled_exception(object? sender, UnhandledExceptionEventArgs args) {
-            string description = args.ExceptionObject is Exception known
+            var description = args.ExceptionObject is Exception known
                                      ? $"unhandled managed exception: {known.GetType().FullName}: {known.Message}"
                                      : "unhandled managed exception";
-            string detail = args.ExceptionObject?.ToString() ?? string.Empty;
+            var detail = args.ExceptionObject?.ToString() ?? string.Empty;
             // The report pairs a call site with every stack, so ask the exception where it was thrown
             // instead of leaving `source:` empty: the first frame carries the throw site's file and line.
-            string file = string.Empty;
-            int line = 0;
+            var file = string.Empty;
+            var line = 0;
             if (args.ExceptionObject is Exception thrown) {
                 var site = new System.Diagnostics.StackTrace(thrown, fNeedFileInfo: true).GetFrame(0);
                 if (site != null) {
@@ -190,7 +191,7 @@ namespace deren.scripting {
                     line = site.GetFileLineNumber();
                 }
             }
-            logger.panic(core, description, file, line, detail);
+            host_logger.panic(core, description, file, line, detail);
         }
 
         private static Type? find_game_host(Assembly assembly) {

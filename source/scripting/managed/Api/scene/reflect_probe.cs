@@ -67,12 +67,13 @@ namespace deren {
             return accept(status, "request");
         }
 
-        /// Copies one face out. `pixels` holds the face as RGBA floats, so its length is size*size*4.
-        public static bool try_read(uint size, float[] pixels) {
+        /// Copies one face out. `pixels` holds the face as RGBA floats, so its length is size*size*4;
+        /// a null buffer is rejected with invalid_argument.
+        public static bool try_read(uint size, float[]? pixels) {
             return try_read(size, pixels, out _);
         }
 
-        public static bool try_read(uint size, float[] pixels, out script_status status) {
+        public static bool try_read(uint size, float[]? pixels, out script_status status) {
             if (!valid_size(size)) {
                 status = script_status.invalid_argument;
                 return reject($"size must be a power of two in {min_size}..{max_size}, got {size}");
@@ -89,12 +90,14 @@ namespace deren {
                     return reject($"read failed ({status})");
                 }
             }
-            if (width != size || height != size) {
-                status = script_status.invalid_argument;
-                return reject($"the render extent is {width}x{height}, not the {size}x{size} the probe needs " +
-                              "(run the window at the probe size)");
+
+            if (width == size && height == size) {
+                return true;
             }
-            return true;
+
+            status = script_status.invalid_argument;
+            return reject($"the render extent is {width}x{height}, not the {size}x{size} the probe needs " +
+                          "(run the window at the probe size)");
         }
 
         /// Drops the temporal history so the next face is not blended with the previous one.
@@ -107,12 +110,13 @@ namespace deren {
             return accept(status, "reset temporal history");
         }
 
-        /// Writes six collected faces as an IBL1 cube file.
-        public static bool try_write(string path, uint size, float[] cube) {
+        /// Writes six collected faces as an IBL1 cube file. A null buffer is rejected with
+        /// invalid_argument.
+        public static bool try_write(string path, uint size, float[]? cube) {
             return try_write(path, size, cube, out _);
         }
 
-        public static bool try_write(string path, uint size, float[] cube, out script_status status) {
+        public static bool try_write(string path, uint size, float[]? cube, out script_status status) {
             if (string.IsNullOrEmpty(path)) {
                 status = script_status.invalid_argument;
                 return reject("an output path is required");
@@ -133,18 +137,15 @@ namespace deren {
         }
 
         internal static bool valid_size(uint size) {
-            return size >= min_size && size <= max_size && (size & (size - 1)) == 0;
+            return size is >= min_size and <= max_size && (size & (size - 1)) == 0;
         }
 
         private static bool accept(script_status status, string what) {
-            if (status == script_status.success) {
-                return true;
-            }
-            return reject($"{what} failed ({status})");
+            return status == script_status.success || reject($"{what} failed ({status})");
         }
 
         private static bool reject(string message) {
-            logger.write($"Game: reflect probe: {message}");
+            host_logger.write($"Game: reflect probe: {message}");
             return false;
         }
     }
@@ -153,32 +154,23 @@ namespace deren {
     /// The six-face loop as a per-frame state machine. call <see cref="step"/> once per frame; every
     /// sixth completed face writes the cube and sets <see cref="complete"/>.
     /// </summary>
-    public sealed class reflect_probe_session {
-        private readonly vector_3 position;
-        private readonly string path;
-        private readonly float near_plane;
-        private readonly float far_plane;
-        private uint size;
+    public sealed class reflect_probe_session(
+        vector_3 position,
+        uint size,
+        string path,
+        float near_plane = 0.05f,
+        float far_plane = 100.0f) {
         private float[]? cube;
         private uint face;
         private int frame;
         private bool running;
         private bool finished;
 
-        public reflect_probe_session(vector_3 position, uint size, string path, float near_plane = 0.05f,
-                                     float far_plane = 100.0f) {
-            this.position = position;
-            this.size = size;
-            this.path = path;
-            this.near_plane = near_plane;
-            this.far_plane = far_plane;
-            failure = reflect_probe.valid_size(size)
-                ? null
-                : $"size must be a power of two in {reflect_probe.min_size}..{reflect_probe.max_size}, got {size}";
-        }
-
         /// Why the session stopped without a cube; null while it is healthy.
-        public string? failure { get; private set; }
+        public string? failure { get; private set; } = reflect_probe.valid_size(size)
+            ? null
+            : $"size must be a power of two in {reflect_probe.min_size}..{reflect_probe.max_size}, got {size}";
+
         public bool complete => finished;
         public bool active => running;
         /// How many faces are already collected (0..6).
@@ -227,15 +219,13 @@ namespace deren {
                     }
                     running = false;
                     finished = true;
-                    logger.write(
+                    host_logger.write(
                         $"Game: reflect probe: wrote '{path}' ({size}px, 6 faces)");
                     return false;
                 }
                 reflect_probe.reset_history();
-                if (!reflect_probe.try_install(position, face, near_plane, far_plane)) {
-                    return fail($"the host refused the capture camera for face {face}");
-                }
-                return true;
+                return reflect_probe.try_install(position, face, near_plane, far_plane) || 
+                       fail($"the host refused the capture camera for face {face}");
             }
             ++frame;
             return true;

@@ -41,7 +41,7 @@ namespace deren.scripting {
     internal static unsafe class scene_api {
         /// <summary>ABI 29: the face frame the loader measured for a loaded asset (72 bytes).</summary>
         [StructLayout(LayoutKind.Sequential)]
-        internal unsafe struct face_frame_desc {
+        internal struct face_frame_desc {
             public fixed float forward[3];
             public fixed float right[3];
             public fixed float world_forward[3];
@@ -56,7 +56,7 @@ namespace deren.scripting {
 
         /// <summary>ABI 29: one character slot head frame (52 bytes; the two flags become the vec4 `.w`s).</summary>
         [StructLayout(LayoutKind.Sequential)]
-        internal unsafe struct head_basis_desc {
+        internal struct head_basis_desc {
             public fixed float front[3];
             public fixed float right[3];
             public fixed float up[3];
@@ -71,7 +71,7 @@ namespace deren.scripting {
         /// size of the GPU timing table. The mirror of deren::scripting::diagnostic_counters (24 bytes).
         /// </summary>
         [StructLayout(LayoutKind.Sequential)]
-        internal unsafe struct diagnostic_counters {
+        internal struct diagnostic_counters {
             public uint render_width;
             public uint render_height;
             public uint output_width;
@@ -81,113 +81,27 @@ namespace deren.scripting {
             public fixed byte padding[3];
         }
 
-        private struct scene_api_layout {
-            public delegate* unmanaged[Cdecl]<node_handle, transform_value*, script_status> get_transform;
-            public delegate* unmanaged[Cdecl]<node_handle, transform_value*, script_status> set_transform;
-            public delegate* unmanaged[Cdecl]<ulong, utf8_view, transform_value*, node_handle*, script_status> try_spawn;
-            public delegate* unmanaged[Cdecl]<ulong, node_handle, script_status> try_despawn;
-            public delegate* unmanaged[Cdecl]<ulong*, script_status> create_scene_tree;
-            public delegate* unmanaged[Cdecl]<ulong, script_status> activate_scene;
-            public delegate* unmanaged[Cdecl]<ulong*, script_status> get_active_scene;
-            public delegate* unmanaged[Cdecl]<ulong, script_status> deactivate_scene;
-            public delegate* unmanaged[Cdecl]<ulong, script_status> destroy_scene_tree;
-            public delegate* unmanaged[Cdecl]<ulong, node_handle, utf8_view, transform_value*, node_handle*, script_status> create_node;
-            public delegate* unmanaged[Cdecl]<ulong, node_handle, script_status> destroy_node;
-            public delegate* unmanaged[Cdecl]<ulong, node_handle, transform_value*, script_status> get_node_transform;
-            public delegate* unmanaged[Cdecl]<ulong, node_handle, transform_value*, script_status> set_node_transform;
-            public delegate* unmanaged[Cdecl]<ulong, node_handle, byte, script_status> set_node_visible;
-            public delegate* unmanaged[Cdecl]<uint, utf8_view*, script_status> list_asset;
-            public delegate* unmanaged[Cdecl]<utf8_view, ulong*, script_status> load_asset;
-            public delegate* unmanaged[Cdecl]<ulong, script_status> release_asset;
-            public delegate* unmanaged[Cdecl]<ulong, node_handle, ulong, transform_value*, node_handle*, script_status> bind_asset;
-            public delegate* unmanaged<camera*, script_status> get_camera;
-            public delegate* unmanaged<camera*, script_status> set_camera;
-            public delegate* unmanaged<utf8_view, uint, script_status> set_environment_hdr;
-            public delegate* unmanaged<ulong, uint*, script_status> asset_pipeline_count;
-            public delegate* unmanaged<ulong, uint, utf8_view*, script_status> asset_pipeline;
-            public delegate* unmanaged<ulong, utf8_view*, script_status> asset_default_pipeline;
-            public delegate* unmanaged<ulong, node_handle, utf8_view, script_status> set_pipeline;
-            public delegate* unmanaged<float, script_status> set_exposure;
-            public delegate* unmanaged<int, script_status> set_tone_mapping;
-            public delegate* unmanaged<float, float, int, float, float, float, float, script_status> set_environment;
-            public delegate* unmanaged<float, script_status> set_sun_intensity;
-            public delegate* unmanaged<float, float, script_status> set_bloom;
-            public delegate* unmanaged<byte, float, float, script_status> set_fxaa;
-            public delegate* unmanaged<byte, float, float, script_status> set_taa;
-            public delegate* unmanaged<byte, float, float, uint, script_status> set_ssao;
-            public delegate* unmanaged<byte, script_status> set_gbuffer_debug;
-            public delegate* unmanaged<float, float, float, script_status> set_sun_direction;
-            public delegate* unmanaged<float, float, float, float, byte, float, float, float, float, script_status> set_area_light;
-            public delegate* unmanaged<byte, script_status> set_clustered_lights;
-            public delegate* unmanaged<point_light_desc*, uint, script_status> set_point_lights;
-            public delegate* unmanaged<ulong, node_handle, material_override_desc*, script_status> set_material_override;
-            public delegate* unmanaged<double, script_status> set_max_fps;
-            public delegate* unmanaged<float, float, script_status> set_toon_shading;
-            public delegate* unmanaged<byte, script_status> set_shadow_enabled;
-            // ABI 29: the face frame the loader measured, and the head frame derived from it.
-            public delegate* unmanaged<ulong, face_frame_desc*, script_status> asset_face_frame;
-            public delegate* unmanaged<uint, head_basis_desc*, script_status> set_head_basis;
-            // ABI 30: the offscreen cube camera and the radiance readback behind the reflect probe.
-            // The host installs the camera and runs the pass; the face loop, the cadence, and the
-            // output file belong to the game.
-            public delegate* unmanaged<byte, float*, uint, float, float, script_status> set_capture_camera;
-            public delegate* unmanaged<script_status> request_radiance_capture;
-            public delegate* unmanaged<uint*, uint*, float*, uint, script_status> acquire_radiance_image;
-            public delegate* unmanaged<script_status> reset_temporal_history;
-            public delegate* unmanaged<utf8_view, uint, float*, uint, script_status> write_radiance_cube;
-            // ABI 36: the host's character animation player. The three queries read the per-frame
-            // snapshot; the commands only queue work for the frame thread.
-            public delegate* unmanaged<animation_state*, script_status> get_animation_state;
-            public delegate* unmanaged<uint*, script_status> animation_playable_count;
-            public delegate* unmanaged<uint, utf8_view*, script_status> animation_playable_name;
-            public delegate* unmanaged<uint, script_status> select_animation;
-            public delegate* unmanaged<byte, script_status> set_animation_playing;
-            public delegate* unmanaged<float, script_status> set_animation_speed;
-            public delegate* unmanaged<float, script_status> set_animation_time;
-            // ABI 38: scene-graph queries, world/screen conversion, and diagnostics. Optional like the
-            // entries above: a host that predates them leaves the pointers null and every wrapper reports
-            // module_unavailable instead of calling through one.
-            public delegate* unmanaged<ulong, node_handle, uint*, script_status> node_child_count;
-            public delegate* unmanaged<ulong, node_handle, uint, node_handle*, script_status> node_child;
-            public delegate* unmanaged<ulong, node_handle, utf8_view*, script_status> node_name;
-            public delegate* unmanaged<ulong, node_handle, uint*, script_status> get_node_flags;
-            public delegate* unmanaged<ulong, node_handle, uint, uint, script_status> set_node_flags;
-            public delegate* unmanaged<ulong, node_handle, node_handle, byte, script_status> reparent_node;
-            public delegate* unmanaged<uint*, uint*, script_status> viewport_size;
-            public delegate* unmanaged<float*, float*, script_status> project_point;
-            public delegate* unmanaged<float, float, float*, float*, script_status> screen_ray;
-            public delegate* unmanaged<diagnostic_counters*, script_status> query_counters;
-            public delegate* unmanaged<utf8_view*, script_status> gpu_timing_summary;
 
-            public readonly bool is_valid() {
-                return get_transform != null && set_transform != null && try_spawn != null && try_despawn != null &&
-                       create_scene_tree != null && activate_scene != null && get_active_scene != null &&
-                       deactivate_scene != null && destroy_scene_tree != null && create_node != null && destroy_node != null &&
-                       get_node_transform != null && set_node_transform != null && set_node_visible != null &&
-                       list_asset != null && load_asset != null && release_asset != null && bind_asset != null;
-            }
-        }
-
-        private static delegate* unmanaged[Cdecl]<node_handle, transform_value*, script_status> get_transform;
-        private static delegate* unmanaged[Cdecl]<node_handle, transform_value*, script_status> set_transform;
-        private static delegate* unmanaged[Cdecl]<ulong, utf8_view, transform_value*, node_handle*, script_status> try_spawn;
-        private static delegate* unmanaged[Cdecl]<ulong, node_handle, script_status> try_despawn;
-        private static delegate* unmanaged[Cdecl]<ulong*, script_status> create_scene_tree;
-        private static delegate* unmanaged[Cdecl]<ulong, script_status> activate_scene;
-        private static delegate* unmanaged[Cdecl]<ulong*, script_status> get_active_scene;
-        private static delegate* unmanaged[Cdecl]<ulong, script_status> deactivate_scene;
-        private static delegate* unmanaged[Cdecl]<ulong, script_status> destroy_scene_tree;
-        private static delegate* unmanaged[Cdecl]<ulong, node_handle, utf8_view, transform_value*, node_handle*, script_status> create_node;
-        private static delegate* unmanaged[Cdecl]<ulong, node_handle, script_status> destroy_node;
-        private static delegate* unmanaged[Cdecl]<ulong, node_handle, transform_value*, script_status> get_node_transform;
-        private static delegate* unmanaged[Cdecl]<ulong, node_handle, transform_value*, script_status> set_node_transform;
-        private static delegate* unmanaged[Cdecl]<ulong, node_handle, byte, script_status> set_node_visible;
-        private static delegate* unmanaged[Cdecl]<uint, utf8_view*, script_status> list_asset;
-        private static delegate* unmanaged[Cdecl]<utf8_view, ulong*, script_status> load_asset;
-        private static delegate* unmanaged[Cdecl]<ulong, script_status> release_asset;
-        private static delegate* unmanaged[Cdecl]<ulong, node_handle, ulong, transform_value*, node_handle*, script_status> bind_asset;
-        private static delegate* unmanaged<camera*, script_status> get_camera;
-        private static delegate* unmanaged<camera*, script_status> set_camera;
+        private static delegate* unmanaged<node_handle, transform_value*, script_status> get_transform;
+        private static delegate* unmanaged<node_handle, transform_value*, script_status> set_transform;
+        private static delegate* unmanaged<ulong, utf8_view, transform_value*, node_handle*, script_status> try_spawn;
+        private static delegate* unmanaged<ulong, node_handle, script_status> try_despawn;
+        private static delegate* unmanaged<ulong*, script_status> create_scene_tree;
+        private static delegate* unmanaged<ulong, script_status> activate_scene;
+        private static delegate* unmanaged<ulong*, script_status> get_active_scene;
+        private static delegate* unmanaged<ulong, script_status> deactivate_scene;
+        private static delegate* unmanaged<ulong, script_status> destroy_scene_tree;
+        private static delegate* unmanaged<ulong, node_handle, utf8_view, transform_value*, node_handle*, script_status> create_node;
+        private static delegate* unmanaged<ulong, node_handle, script_status> destroy_node;
+        private static delegate* unmanaged<ulong, node_handle, transform_value*, script_status> get_node_transform;
+        private static delegate* unmanaged<ulong, node_handle, transform_value*, script_status> set_node_transform;
+        private static delegate* unmanaged<ulong, node_handle, byte, script_status> set_node_visible;
+        private static delegate* unmanaged<uint, utf8_view*, script_status> list_asset;
+        private static delegate* unmanaged<utf8_view, ulong*, script_status> load_asset;
+        private static delegate* unmanaged<ulong, script_status> release_asset;
+        private static delegate* unmanaged<ulong, node_handle, ulong, transform_value*, node_handle*, script_status> bind_asset;
+        private static delegate* unmanaged<orbit_camera*, script_status> get_camera;
+        private static delegate* unmanaged<orbit_camera*, script_status> set_camera;
         // Optional like the camera entries: a host that predates this pointer still works, and the
         // wrapper reports module_unavailable instead of dereferencing null. ABI 32 made it slot-aware:
         // 0 is the scene-wide environment, 1..3 are the per-material lanes.
@@ -341,7 +255,7 @@ namespace deren.scripting {
             // ABI 33: the host reports the table size, so a field count that drifted between the two
             // sides is a refused binding instead of a call through a pointer read past the table.
             if (byte_size != sizeof(scene_api_layout)) {
-                logger.write(api, 
+                host_logger.write(api, 
                     $"Managed host: the scene module table is {byte_size} bytes, this build expects " +
                     $"{sizeof(scene_api_layout)}.");
                 return script_status.module_invalid;
@@ -494,11 +408,11 @@ namespace deren.scripting {
             return is_ready() ? bind_asset(tree, parent, asset, offset, root) : script_status.module_unavailable;
         }
 
-        internal static script_status query_camera(camera* value) {
+        internal static script_status query_camera(orbit_camera* value) {
             return is_ready() && get_camera != null ? get_camera(value) : script_status.module_unavailable;
         }
 
-        internal static script_status assign_camera(camera* value) {
+        internal static script_status assign_camera(orbit_camera* value) {
             return is_ready() && set_camera != null ? set_camera(value) : script_status.module_unavailable;
         }
 
@@ -783,6 +697,99 @@ namespace deren.scripting {
             return is_ready() && gpu_timing_summary != null
                 ? gpu_timing_summary(text)
                 : script_status.module_unavailable;
+        }
+    }
+
+    /// <summary>
+    /// The scene module table as the host publishes it: the flat mirror of
+    /// deren::scripting::scene_api_layout. The host blits it through the module table pointer, so
+    /// the fields are positional; managed code only reads them and never assigns them.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe struct scene_api_layout {
+        public delegate* unmanaged<node_handle, transform_value*, script_status> get_transform;
+        public delegate* unmanaged<node_handle, transform_value*, script_status> set_transform;
+        public delegate* unmanaged<ulong, utf8_view, transform_value*, node_handle*, script_status> try_spawn;
+        public delegate* unmanaged<ulong, node_handle, script_status> try_despawn;
+        public delegate* unmanaged<ulong*, script_status> create_scene_tree;
+        public delegate* unmanaged<ulong, script_status> activate_scene;
+        public delegate* unmanaged<ulong*, script_status> get_active_scene;
+        public delegate* unmanaged<ulong, script_status> deactivate_scene;
+        public delegate* unmanaged<ulong, script_status> destroy_scene_tree;
+        public delegate* unmanaged<ulong, node_handle, utf8_view, transform_value*, node_handle*, script_status> create_node;
+        public delegate* unmanaged<ulong, node_handle, script_status> destroy_node;
+        public delegate* unmanaged<ulong, node_handle, transform_value*, script_status> get_node_transform;
+        public delegate* unmanaged<ulong, node_handle, transform_value*, script_status> set_node_transform;
+        public delegate* unmanaged<ulong, node_handle, byte, script_status> set_node_visible;
+        public delegate* unmanaged<uint, utf8_view*, script_status> list_asset;
+        public delegate* unmanaged<utf8_view, ulong*, script_status> load_asset;
+        public delegate* unmanaged<ulong, script_status> release_asset;
+        public delegate* unmanaged<ulong, node_handle, ulong, transform_value*, node_handle*, script_status> bind_asset;
+        public delegate* unmanaged<orbit_camera*, script_status> get_camera;
+        public delegate* unmanaged<orbit_camera*, script_status> set_camera;
+        public delegate* unmanaged<utf8_view, uint, script_status> set_environment_hdr;
+        public delegate* unmanaged<ulong, uint*, script_status> asset_pipeline_count;
+        public delegate* unmanaged<ulong, uint, utf8_view*, script_status> asset_pipeline;
+        public delegate* unmanaged<ulong, utf8_view*, script_status> asset_default_pipeline;
+        public delegate* unmanaged<ulong, node_handle, utf8_view, script_status> set_pipeline;
+        public delegate* unmanaged<float, script_status> set_exposure;
+        public delegate* unmanaged<int, script_status> set_tone_mapping;
+        public delegate* unmanaged<float, float, int, float, float, float, float, script_status> set_environment;
+        public delegate* unmanaged<float, script_status> set_sun_intensity;
+        public delegate* unmanaged<float, float, script_status> set_bloom;
+        public delegate* unmanaged<byte, float, float, script_status> set_fxaa;
+        public delegate* unmanaged<byte, float, float, script_status> set_taa;
+        public delegate* unmanaged<byte, float, float, uint, script_status> set_ssao;
+        public delegate* unmanaged<byte, script_status> set_gbuffer_debug;
+        public delegate* unmanaged<float, float, float, script_status> set_sun_direction;
+        public delegate* unmanaged<float, float, float, float, byte, float, float, float, float, script_status> set_area_light;
+        public delegate* unmanaged<byte, script_status> set_clustered_lights;
+        public delegate* unmanaged<point_light_desc*, uint, script_status> set_point_lights;
+        public delegate* unmanaged<ulong, node_handle, material_override_desc*, script_status> set_material_override;
+        public delegate* unmanaged<double, script_status> set_max_fps;
+        public delegate* unmanaged<float, float, script_status> set_toon_shading;
+        public delegate* unmanaged<byte, script_status> set_shadow_enabled;
+        // ABI 29: the face frame the loader measured, and the head frame derived from it.
+        public delegate* unmanaged<ulong, scene_api.face_frame_desc*, script_status> asset_face_frame;
+        public delegate* unmanaged<uint, scene_api.head_basis_desc*, script_status> set_head_basis;
+        // ABI 30: the offscreen cube camera and the radiance readback behind the reflect probe.
+        // The host installs the camera and runs the pass; the face loop, the cadence, and the
+        // output file belong to the game.
+        public delegate* unmanaged<byte, float*, uint, float, float, script_status> set_capture_camera;
+        public delegate* unmanaged<script_status> request_radiance_capture;
+        public delegate* unmanaged<uint*, uint*, float*, uint, script_status> acquire_radiance_image;
+        public delegate* unmanaged<script_status> reset_temporal_history;
+        public delegate* unmanaged<utf8_view, uint, float*, uint, script_status> write_radiance_cube;
+        // ABI 36: the host's character animation player. The three queries read the per-frame
+        // snapshot; the commands only queue work for the frame thread.
+        public delegate* unmanaged<animation_state*, script_status> get_animation_state;
+        public delegate* unmanaged<uint*, script_status> animation_playable_count;
+        public delegate* unmanaged<uint, utf8_view*, script_status> animation_playable_name;
+        public delegate* unmanaged<uint, script_status> select_animation;
+        public delegate* unmanaged<byte, script_status> set_animation_playing;
+        public delegate* unmanaged<float, script_status> set_animation_speed;
+        public delegate* unmanaged<float, script_status> set_animation_time;
+        // ABI 38: scene-graph queries, world/screen conversion, and diagnostics. Optional like the
+        // entries above: a host that predates them leaves the pointers null and every wrapper reports
+        // module_unavailable instead of calling through one.
+        public delegate* unmanaged<ulong, node_handle, uint*, script_status> node_child_count;
+        public delegate* unmanaged<ulong, node_handle, uint, node_handle*, script_status> node_child;
+        public delegate* unmanaged<ulong, node_handle, utf8_view*, script_status> node_name;
+        public delegate* unmanaged<ulong, node_handle, uint*, script_status> get_node_flags;
+        public delegate* unmanaged<ulong, node_handle, uint, uint, script_status> set_node_flags;
+        public delegate* unmanaged<ulong, node_handle, node_handle, byte, script_status> reparent_node;
+        public delegate* unmanaged<uint*, uint*, script_status> viewport_size;
+        public delegate* unmanaged<float*, float*, script_status> project_point;
+        public delegate* unmanaged<float, float, float*, float*, script_status> screen_ray;
+        public delegate* unmanaged<scene_api.diagnostic_counters*, script_status> query_counters;
+        public delegate* unmanaged<utf8_view*, script_status> gpu_timing_summary;
+
+        public readonly bool is_valid() {
+            return get_transform != null && set_transform != null && try_spawn != null && try_despawn != null &&
+                   create_scene_tree != null && activate_scene != null && get_active_scene != null &&
+                   deactivate_scene != null && destroy_scene_tree != null && create_node != null && destroy_node != null &&
+                   get_node_transform != null && set_node_transform != null && set_node_visible != null &&
+                   list_asset != null && load_asset != null && release_asset != null && bind_asset != null;
         }
     }
 }

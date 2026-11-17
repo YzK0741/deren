@@ -145,7 +145,10 @@ def main(argv: Sequence[str]) -> int:
         executable = build_dir_for(config, args.build_dir) / ("deren.exe" if IS_WINDOWS else "deren")
         print("  {}  ({})".format(executable, config))
     if not args.dry_run:
-        print("run with: python scripts/build_helpers/run.py")
+        directory = build_dir_for(args.configs[0], args.build_dir)
+        demo = directory / "source" / "scripting" / "test_game"
+        project = demo if (demo / "deren.toml").is_file() else "path/to/project"
+        print(f'run with: python scripts/build_helpers/run.py --build-dir "{directory}" run "{project}"')
     return 0
 
 

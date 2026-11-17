@@ -145,7 +145,7 @@ the forwarding.
 `native_api.request_screenshot` is the scripted counterpart of the F12 key: it asks the renderer
 to capture the next frame recorded after the request, which is then saved under
 `[paths] screenshot_dir` with a timestamped file name. C# projects call
-`deren.screenshot.try_request()`; there is no path argument and the call is a request, not a
+`deren.screen_snapshot.try_request()`; there is no path argument and the call is a request, not a
 synchronous save.
 
 `scene_api.set_environment_hdr(path, slot)` replaces ONE image-based-lighting slot. The path names
@@ -199,12 +199,12 @@ non-zero); `set_area_light` takes the emitter centre, its half side length (`hal
 in which case the axis and penumbra are ignored), the irradiance energy mode, the emitter's normal
 axis (non-zero for a live emitter), and a `penumbra >= 0`; `set_clustered_lights` flips the
 clustered path. A relight drops the accumulated TAA history, and the status model matches the
-post-processing knobs. C# projects call the `deren.lighting.try_set_*` entries.
+post-processing knobs. C# projects call the `deren.scene_lighting.try_set_*` entries.
 
 The punctual light set is runtime state as well, and it is the one lighting entry that carries data
 rather than a knob: `set_point_lights` replaces the WHOLE set from an array of `point_light_desc`
 records (a count of zero clears it), and the managed side pushes a rig -- a project file, in the
-demo's case -- with `deren.lighting.try_set_point_lights`. A record is validated field by field, so a
+demo's case -- with `deren.scene_lighting.try_set_point_lights`. A record is validated field by field, so a
 non-finite value, a non-positive range, or a spot with a zero direction rejects the call and leaves
 the previous set applied; a count above the engine's `max_punctual_lights` (128) is rejected rather
 than truncated, because a silently dropped light is a picture that no longer matches its data.
@@ -453,7 +453,7 @@ A label is never empty and a value pointer is never null; `minimum <= maximum`, 
 combo carries at most 64 items - anything else is `invalid_argument`. A host without the GUI plugin
 still publishes the table, and its entries reject with `module_unavailable` (or report false from
 `wants_mouse`), so a game can tell "no panel this session" from "no panel API at all". C# projects
-call the `deren.ui` facade and `deren.ui_value`.
+call the `deren.debug_ui` facade and `deren.ui_value`.
 
 ## 5. Managed API
 
@@ -508,32 +508,32 @@ sky. The call queues the change and returns whether the host accepted the path.
 Screen space and frame counters are read-only:
 
 ```csharp
-bool screen.try_get_viewport_size(out uint width, out uint height);
-bool screen.try_project_point(float x, float y, float z, out float pixel_x, out float pixel_y,
+bool camera_projection.try_get_viewport_size(out uint width, out uint height);
+bool camera_projection.try_project_point(float x, float y, float z, out float pixel_x, out float pixel_y,
                               out float depth);
-bool screen.try_screen_ray(float pixel_x, float pixel_y, out vector_3 origin, out vector_3 direction);
+bool camera_projection.try_screen_ray(float pixel_x, float pixel_y, out vector_3 origin, out vector_3 direction);
 
-bool diagnostics.try_get_counters(out diagnostics.frame_counters counters);
-string? diagnostics.gpu_timing_text();
+bool frame_diagnostics.try_get_counters(out frame_diagnostics.frame_counters counters);
+string? frame_diagnostics.gpu_timing_text();
 ```
 
-`screen` answers in render pixels and uses the jitter-free projection; `depth` is positive in front
-of the camera. `diagnostics.frame_counters` carries the render extent, the presented extent, the GPU
+`camera_projection` answers in render pixels and uses the jitter-free projection; `depth` is positive in front
+of the camera. `frame_diagnostics.frame_counters` carries the render extent, the presented extent, the GPU
 timing interval count and whether timing is available; `gpu_timing_text` copies the renderer's table
 into a managed string rather than handing out the borrowed view.
 
 The character animation player is global to the scene, and the game only drives it:
 
 ```csharp
-bool animation.try_get_info(out animation.info value);   // available, clip_count, current_clip,
+bool animation_player.try_get_info(out animation_player.animation_info value);   // available, clip_count, current_clip,
                                                           // has_active, playing, time, duration, speed
-string[] animation.get_clip_names();
-bool animation.try_get_clip_name(int index, out string? name);
-bool animation.try_play();
-bool animation.try_pause();
-bool animation.try_select(int index);
-bool animation.try_set_speed(float speed);
-bool animation.try_seek(float seconds);                   // scrub and pause
+string[] animation_player.get_clip_names();
+bool animation_player.try_get_clip_name(int index, out string? name);
+bool animation_player.try_play();
+bool animation_player.try_pause();
+bool animation_player.try_select(int index);
+bool animation_player.try_set_speed(float speed);
+bool animation_player.try_seek(float seconds);                   // scrub and pause
 ```
 
 The post-processing knobs are global too:
@@ -557,13 +557,13 @@ and logs `Game: ... rejected (status)` through the bridge.
 The lighting knobs use the same pattern:
 
 ```csharp
-bool lighting.try_set_sun_direction(vector_3 to_sun);
-bool lighting.try_set_area_light(vector_3 centre, float half, bool irradiance, vector_3 axis,
+bool scene_lighting.try_set_sun_direction(vector_3 to_sun);
+bool scene_lighting.try_set_area_light(vector_3 centre, float half, bool irradiance, vector_3 axis,
                                  float penumbra = 0.0f);
-bool lighting.try_clear_area_light();
-bool lighting.try_set_clustered_lights(bool enabled);
-public const int lighting.max_point_lights = 128;
-bool lighting.try_set_point_lights(point_light[]? lights);
+bool scene_lighting.try_clear_area_light();
+bool scene_lighting.try_set_clustered_lights(bool enabled);
+public const int scene_lighting.max_point_lights = 128;
+bool scene_lighting.try_set_point_lights(point_light[]? lights);
 ```
 
 `point_light` is the managed authoring record -- position, direction, colour, intensity, range, the
@@ -623,7 +623,7 @@ Frame pacing and the two render switches:
 ```csharp
 bool frame_scheduler.try_set_max_fps(double fps);          // 0 = uncapped
 bool post_processing.try_set_toon_shading(float steps, float softness = 0.15f);
-bool lighting.try_set_shadow_enabled(bool enabled);
+bool scene_lighting.try_set_shadow_enabled(bool enabled);
 ```
 
 Per-object materials hang off the tree that owns the node:
@@ -712,12 +712,12 @@ public static bool set_boundary_timeout_ms(uint milliseconds);
 
 ### Diagnostics
 
-`deren.scripting.logger` is the one place managed code writes outward. Neither call throws, so it
+`deren.scripting.host_logger` is the one place managed code writes outward. Neither call throws, so it
 is safe inside error handling and inside `finally`:
 
 ```csharp
-bool logger.write(string message);                       // false when the host is gone
-void logger.panic(string message,
+bool host_logger.write(string message);                       // false when the host is gone
+void host_logger.panic(string message,
                   [CallerFilePath] string file = "",     // filled in by the compiler
                   [CallerLineNumber] int line = 0);
 ```

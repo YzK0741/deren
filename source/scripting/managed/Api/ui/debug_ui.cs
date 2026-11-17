@@ -114,7 +114,7 @@ namespace deren {
     /// A session without the GUI plugin keeps the API published and every call returns false, which is
     /// why `available` exists: a game that must know can ask once instead of testing each call.
     /// </summary>
-    public static unsafe class ui {
+    public static unsafe class debug_ui {
         /// <summary>Whether the host resolved the panel table (the plugin may still be off).</summary>
         public static bool available => ui_api.is_ready();
 

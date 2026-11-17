@@ -13,7 +13,7 @@ namespace deren.scripting {
     /// ignore the answer without an exception escaping. The old `nothrow_log` wrapper existed only
     /// to swallow the failure the ordinary form raised, so the distinction is a bool now.
     /// </summary>
-    public static class logger {
+    public static class host_logger {
         /// <summary>
         /// Hands one line to the host. Returns false when it could not be handed over: no table
         /// yet, a host that publishes no logger, or a message that cannot be encoded. NEVER throws,
@@ -29,10 +29,7 @@ namespace deren.scripting {
         /// stored the table, and so does the module handshake that resolves it.
         /// </summary>
         internal static unsafe bool write(native_api* api, string message) {
-            if (api == null) {
-                return false;
-            }
-            return write(*api, message);
+            return api != null && write(*api, message);
         }
 
         internal static unsafe bool write(native_api api, string message) {
@@ -77,9 +74,9 @@ namespace deren.scripting {
             }
             if (api.panic != null) {
                 try {
-                    byte[] message_bytes = Encoding.UTF8.GetBytes(message ?? string.Empty);
-                    byte[] file_bytes = Encoding.UTF8.GetBytes(file ?? string.Empty);
-                    byte[] stack_bytes = Encoding.UTF8.GetBytes(managed_stack ?? string.Empty);
+                    var message_bytes = Encoding.UTF8.GetBytes(message );
+                    var file_bytes = Encoding.UTF8.GetBytes(file);
+                    var stack_bytes = Encoding.UTF8.GetBytes(managed_stack);
                     fixed (byte* message_data = message_bytes)
                     fixed (byte* file_data = file_bytes)
                     fixed (byte* stack_data = stack_bytes) {
@@ -103,6 +100,7 @@ namespace deren.scripting {
                 Console.Error.Write(fallback);
                 Console.Error.Flush();
             } catch (Exception) {
+                // no exception process...
             }
             Environment.FailFast(fallback);
         }
