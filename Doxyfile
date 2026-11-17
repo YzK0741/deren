@@ -1055,7 +1055,7 @@ WARN_LOGFILE           =
 # with no reading path). They are therefore listed as a reading path, and `docs/mainpage.md` carries the
 # same order as a \subpage table:
 #
-#     front page -> conventions -> dynamic_runtime -> the shader/pass spine -> the frontier subsystems
+#     front page -> conventions -> coding_standard -> dynamic_runtime -> the shader/pass spine -> the frontier subsystems
 #     -> the usage guide -> the migration record that explains why the code is shaped this way.
 #
 # WHY `dynamic_runtime.md` IS SECOND rather than last (it used to be the final line): it is the CURRENT
@@ -1065,6 +1065,10 @@ WARN_LOGFILE           =
 # organised now": one for the code's rules, one for its runtime. The MIGRATION record proper
 # (migration_tradeoffs and the heap/handover chapters) stays at the end, where history belongs.
 # Reordering here reorders the PDF; test_docs only checks set membership, not order.
+#
+# `coding_standard.md` FOLLOWS `conventions.md` and is not the same page: conventions.md records the naming and
+# layout decisions with their history, coding_standard.md is the page a reviewer cites for how a file is written -
+# modules and their tops, declarations, control flow, failure handling, tests, and one section per other language.
 #
 # `./runtime` IS INPUT TOO, and that is a fix rather than a new chapter: the runtime module lives at the
 # repository root since S5 and carries the `@defgroup runtime` definition plus the facade's
@@ -1093,6 +1097,7 @@ INPUT                  = ./docs/managed_resources.md \
 				./source/vstd \
 				./docs/mainpage.md \
 				./docs/conventions.md \
+				./docs/coding_standard.md \
 				./docs/dynamic_runtime.md \
 				./docs/rhi_api_standard.md \
 				./docs/resource_groups.md \
