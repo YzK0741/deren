@@ -30,6 +30,20 @@ Two properties matter more than any single rule:
 
 Passing a tool is necessary, not sufficient. The rules below are the part no tool checks.
 
+### Lint cleanliness
+
+A change leaves the lint result no worse than it found it. On the lines it touches it adds no
+`clang-format` fix, no `clang-tidy` diagnostic, no compiler warning, and no IDE analyzer diagnostic.
+The fix is the code. A suppression is allowed when it is justified - the check is wrong for this call
+site, the platform forces the shape, the third-party type owns the spelling - and then the reason is
+written where the suppression lives: a comment over the disable entry in `.clang-tidy`, a sentence
+above the `.editorconfig` section, an attribute beside the declaration. An unexplained suppression is
+the mistake, not the suppression itself.
+
+The enabled check set is part of the standard, not a per-change dial. Widening `.clang-tidy` or
+tightening `.editorconfig` is its own change, measured against the whole tree, never a side effect of
+a feature.
+
 ## C++ is the default language
 
 ### One unit, one file
@@ -102,13 +116,25 @@ mutators.
 
 ### Naming, in one line of shapes
 
-Types, functions, fields, constants and modules are `lower_snake_case`; a mutable operation is prefixed
-with a verb (`make`, `create`, `build`, `write`, `set`, `update`, `prepare`, `record` - the eight in
+Every first-party identifier is `lower_snake_case`: types, functions, fields, constants, modules,
+namespaces, enumerators, local names, and file names. A mutable operation is prefixed with a verb
+(`make`, `create`, `build`, `write`, `set`, `update`, `prepare`, `record` - the eight in
 `docs/conventions.md`), a query reads as a predicate (`ready()`, `is_empty()`, `resource_size()`), and
 an enum is `enum class <name> : std::uint32_t` with an explicit underlying width and unprefixed
-enumerators. No Hungarian notation, no trailing underscores on members: `this->resource_heap_size`, not
-`m_size`. Member access is spelled with `this->` throughout the backend (more than six thousand sites);
-follow the file being edited rather than mixing both spellings in one class.
+enumerators. Two exceptions, and only two:
+
+- Template parameters keep the usual C++ spelling (`T`, `Fetch`, `Parameters`). A parameter stands for
+  a type the caller supplies, not for a name this code owns.
+- A name that belongs to an external library keeps that library's spelling (`GLFWwindow`, the
+  `GLFW_INCLUDE_NONE` switch). Renaming it would be a lie about who owns it.
+
+The same shape holds in every language this page covers; the C# section repeats the rule with its
+analyzer behind it, and the Slang structs and Python classes follow it as well. Names that predate
+this page are brought into shape when their file is next edited, not in a rename-only sweep.
+
+No Hungarian notation, no trailing underscores on members: `this->resource_heap_size`, not `m_size`.
+Member access is spelled with `this->` throughout the backend (more than six thousand sites); follow
+the file being edited rather than mixing both spellings in one class.
 
 ### Declarations and types
 
