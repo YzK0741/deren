@@ -102,7 +102,7 @@ add_custom_command(OUTPUT "${game_assembly}"
     COMMAND "${DOTNET_EXECUTABLE}" build "${game_project}"
         --configuration Release --artifacts-path "${CMAKE_CURRENT_BINARY_DIR}/dotnet"
         --output "${game_output}"
-    DEPENDS "${game_project}" test_game/game_host.cs test_game/rotate_behaviour.cs
+    DEPENDS "${game_project}" test_game/game_host.cs test_game/demo_debug_windows.cs test_game/rotate_behaviour.cs
         test_game/helmet_controls.cs ${bridge_files}
     VERBATIM)
 add_custom_target(deren_managed_test_game DEPENDS "${game_assembly}")

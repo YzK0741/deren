@@ -99,7 +99,7 @@ namespace deren::app {
             return id.valid() ? id : utility::ecs::entity{};
         }
 
-        scripting::transform_value pose_from_matrix(glm::mat4 const& matrix) {
+        std::optional<scripting::transform_value> pose_from_matrix(glm::mat4 const& matrix) {
             glm::vec3 scale{1.0f, 1.0f, 1.0f};
             glm::vec3 translation{0.0f, 0.0f, 0.0f};
             glm::vec3 skew{0.0f, 0.0f, 0.0f};
@@ -110,10 +110,10 @@ namespace deren::app {
                 !std::isfinite(scale.x) || !std::isfinite(scale.y) || !std::isfinite(scale.z) ||
                 !std::isfinite(orientation.w) || !std::isfinite(orientation.x) || !std::isfinite(orientation.y) ||
                 !std::isfinite(orientation.z) || scale.x == 0.0f || scale.y == 0.0f || scale.z == 0.0f) {
-                return {};
+                return std::nullopt;
             }
             auto const rotation = glm::degrees(glm::eulerAngles(glm::normalize(orientation)));
-            return {
+            return scripting::transform_value{
                 {.x = translation.x, .y = translation.y, .z = translation.z},
                 {.x = rotation.x, .y = rotation.y, .z = rotation.z},
                 {.x = scale.x, .y = scale.y, .z = scale.z}};
@@ -1654,14 +1654,20 @@ namespace deren::app {
             return scripting::script_status::scene_not_found;
         }
         auto const id = to_entity(node);
-        if (scene->find_node(id) == nullptr) {
+        auto const* scene_node = scene->find_node(id);
+        if (scene_node == nullptr) {
             return scripting::script_status::invalid_node;
         }
-        auto const* placement_value = engine::scene_tree::components().try_get<placement>(id);
-        if (placement_value == nullptr) {
-            return scripting::script_status::invalid_node;
+        if (auto const* placement_value = engine::scene_tree::components().try_get<placement>(id)) {
+            *value = placement_value->transform;
+            return scripting::script_status::success;
         }
-        *value = placement_value->transform;
+        // Renderer-imported children have a local matrix even without a managed placement.
+        auto const pose = pose_from_matrix(scene_node->local);
+        if (!pose) {
+            return scripting::script_status::invalid_argument;
+        }
+        *value = *pose;
         return scripting::script_status::success;
     }
 
@@ -1855,7 +1861,7 @@ namespace deren::app {
             // Keep the transform the managed side can read back (the TRS pose) consistent with the
             // full matrix the move produced.
             if (auto* const placement_value = engine::scene_tree::components().try_get<placement>(id)) {
-                placement_value->transform = pose_from_matrix(*local_override);
+                placement_value->transform = pose_from_matrix(*local_override).value_or(scripting::transform_value{});
                 placement_value->dirty = true;
             }
         }
@@ -2284,7 +2290,7 @@ namespace deren::app {
                 node.node_name.assign(value.name.data(), value.name.size());
                 node.local = value.local_transform;
                 node.source_index = value.source_index;
-                if (!add_node_components(node, pose_from_matrix(value.local_transform))) {
+                if (!add_node_components(node, pose_from_matrix(value.local_transform).value_or(scripting::transform_value{}))) {
                     return false;
                 }
                 for (auto const child : value.children) {

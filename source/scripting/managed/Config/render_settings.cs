@@ -30,6 +30,8 @@ namespace deren {
 
         /// <summary>`[render] fxaa`: one extra fullscreen edge-adaptive pass.</summary>
         public bool fxaa = false;
+        /// <summary>`[render] shadow`, applied by the native host before the scene is bound.</summary>
+        public bool shadow = true;
 
         /// <summary>`[render] taa` plus its two history weights.</summary>
         public bool taa = false;
@@ -66,6 +68,7 @@ namespace deren {
             result.tone_mapping = render.integer("tone_mapping") ?? result.tone_mapping;
             result.bloom = render.flag("bloom") ?? result.bloom;
             result.fxaa = render.flag("fxaa") ?? result.fxaa;
+            result.shadow = render.flag("shadow") ?? result.shadow;
             result.taa = render.flag("taa") ?? result.taa;
             result.taa_blend_static = render.number("taa_blend_static") ?? result.taa_blend_static;
             result.taa_blend_min = render.number("taa_blend_min") ?? result.taa_blend_min;
