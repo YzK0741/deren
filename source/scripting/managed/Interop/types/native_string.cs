@@ -31,7 +31,7 @@ namespace deren.scripting {
         }
 
         /// <summary>The view the ABI takes. Empty input is a null pointer with length zero.</summary>
-        internal readonly utf8_view view => new utf8_view {
+        internal readonly utf8_view view => new() {
             data = length == 0 ? null : data,
             length = length,
         };

@@ -92,7 +92,7 @@ namespace deren {
             }
             uint count = 0;
             if (scene_api.query_asset_pipeline_count(asset.value, &count) != script_status.success) {
-                return Array.Empty<string>();
+                return [];
             }
             var pipelines = new List<string>((int)count);
             for (uint index = 0; index < count; ++index) {

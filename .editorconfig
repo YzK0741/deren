@@ -18,3 +18,10 @@ dotnet_naming_symbols.deren_symbols.applicable_kinds = *
 dotnet_naming_symbols.deren_symbols.applicable_accessibilities = *
 dotnet_naming_style.snake_case.capitalization = all_lower
 dotnet_naming_style.snake_case.word_separator = _
+
+# The managed assembly is the scripting surface: game assemblies built outside this repository call
+# its public members, so solution-wide analysis sees no consumers and suggests making them private.
+# The out script_status wrappers are a documented part of the API (docs/scripting_module_abi.md),
+# so keep the surface intact and mute the accessibility suggestion for the SDK sources.
+[source/scripting/managed/**/*.cs]
+resharper_member_can_be_private_global_highlighting = none

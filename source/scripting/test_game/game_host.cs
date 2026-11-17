@@ -42,7 +42,6 @@ namespace game {
         private static string? requested_probe;
         private static uint requested_probe_size = 256;
         private static vector_3 requested_probe_position;
-        private static bool requested_probe_position_set;
         // THE DEBUG PANEL IS THE GAME'S OWN WIDGETS, drawn by the host: this demo binds a handful of
         // runtime knobs so the panel proves the round trip (widget -> cell -> game -> runtime -> picture).
         // The cells live in unmanaged memory because the overlay reads them after update() returns.
@@ -126,7 +125,6 @@ namespace game {
                         }
                     } else {
                         requested_probe_position = parse_vector(chosen, requested_probe_position);
-                        requested_probe_position_set = true;
                     }
                     continue;
                 }

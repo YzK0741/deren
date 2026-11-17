@@ -267,12 +267,12 @@ namespace deren.scripting {
             // closure decides which boundaries reach the wrapped callable. The counter only moves
             // on the executing thread, so it needs no extra lock.
             ulong seen = 0;
-            Action wrapped = () => {
+            void wrapped() {
                 seen++;
                 if (seen % frame_count == 0) {
                     action();
                 }
-            };
+            }
             return add(before, wrapped, is_blocking, repeat: true, out var handle) ? handle : 0;
         }
 

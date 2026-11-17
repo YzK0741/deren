@@ -79,7 +79,7 @@ namespace deren {
         /// <summary>Every clip's name, copied out of the player.</summary>
         public static string[] get_clip_names() {
             if (!try_get_clip_count(out var count)) {
-                return Array.Empty<string>();
+                return [];
             }
             var names = new List<string>(count);
             for (var index = 0; index < count; ++index) {
