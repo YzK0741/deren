@@ -48,10 +48,10 @@ scale = [0.35, 0.35, 0.35]
 pipeline = "gaussian"
 ```
 
-Run it with:
+Put the entries above in the scene TOML the project's `deren.toml` names (its `main_scene`), then run it with:
 
 ```powershell
-./build/deren --config mixed.toml
+./build/deren.exe run <project>
 ```
 
 The first entry names no `model` or `asset`, so it reuses the top-level

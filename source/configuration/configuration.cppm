@@ -137,8 +137,9 @@ namespace deren::app_config {
         // The raster sun shadow term ([render] shadow): the runtime's `shadow_enabled` flag, which decides
         // whether the cascaded shadow maps are rendered and sampled at all. true by default (every frame
         // before this key was reachable from a file had it on). A measurement that wants no shadow
-        // contribution - and therefore no shadow pass cost - turns it off here; `rt_shadows` is the
-        // unrelated ray-traced replacement, and it wins only when both are on.
+        // contribution - and therefore no shadow pass cost - turns it off here. `rt_shadows` is independent:
+        // when it is on, the lighting stage takes the sun term from the traced visibility image instead,
+        // whatever this flag says.
         bool shadow = true;
         // Cascaded shadow maps ([render] shadow_cascades / shadow_cascade_blend): how many cascades the
         // shadow pass fits, renders and samples (1 = one box over the whole visible range, the historic

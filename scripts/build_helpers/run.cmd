@@ -10,9 +10,10 @@ rem the shell runs the Microsoft-signed `cmd.exe`, and the line below starts the
 rem has no such check, which is the point: a capture batch launches the renderer dozens of times.
 rem
 rem ARGUMENTS ARE FORWARDED, so this is also the way to run a capture by hand:
-rem     run.cmd run build\source\scripting\test_game --capture-frames 60 --capture-camera=0,0,2.4,0,-0.9,0
-rem The working directory becomes the build directory, which is where the renderer's relative paths (its
-rem `config.toml`, `chars\`, `shaders\`) resolve from.
+rem     run.cmd run source\scripting\test_game --capture-frames 60 --capture-camera=0,0,2.4,0,-0.9,0
+rem The working directory becomes the build directory and the project path is resolved from it, so the
+rem project is named WITHOUT the leading `build\`: the test project's copy lives at
+rem `<build>\source\scripting\test_game`, i.e. `build\build\...` from the repository root.
 rem ------------------------------------------------------------------------------------------------------------------
 setlocal
 set "REPO=%~dp0..\.."
@@ -24,16 +25,7 @@ if not exist "%BUILD%\deren.exe" (
     exit /b 1
 )
 pushd "%BUILD%"
-rem THE CONFIG IS SUPPLIED ONLY IF THE CALLER DID NOT SUPPLY ONE, and that check is not politeness: the renderer
-rem takes the FIRST `--config` on its command line, so hardcoding one in front of `%*` silently overrode a config
-rem passed by hand - which is how a capture into a scratch directory ended up writing its screenshot into the
-rem repository's folder instead.
-echo %* | find /i "--config" >nul
-if errorlevel 1 (
-    "%BUILD%\deren.exe" --config "%BUILD%\config.toml" %*
-) else (
-    "%BUILD%\deren.exe" %*
-)
+"%BUILD%\deren.exe" %*
 set "CODE=%ERRORLEVEL%"
 popd
 exit /b %CODE%

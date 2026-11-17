@@ -64,10 +64,11 @@ from the current sample instead of blending stale pixels.
 
 The README material preview uses this configuration with a 1080x960 offscreen capture at frame
 30; the exact camera, HDR and tone-mapping settings are recorded in
-[the screenshot notes](screenshots/README.md). A minimal run is:
+[the screenshot notes](screenshots/README.md). Put `reflection.toml`'s settings in the scene TOML
+the project's `deren.toml` names (its `main_scene`), then:
 
 ```powershell
-./build/deren --config reflection.toml --capture-frames 30
+./build/deren.exe run <project> --capture-frames 30
 ```
 
 ## Limitations
