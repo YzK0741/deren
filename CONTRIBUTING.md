@@ -64,6 +64,11 @@ that came before it.
    one; if the repository has a precedent, follow it rather than adding a second way
    to do the same thing. The established design is the authority, not the newest
    pattern that happens to work.
+10. **Write to the coding standard.** `docs/coding_standard.md` is the normative page
+    for how first-party code is written (modules, declarations, control flow, failure
+    handling, tests, and a section per non-C++ language). Its executable half is
+    `.clang-format`, `.clang-tidy`, the managed `.editorconfig`, and the local gate;
+    a review comment about layout should point there rather than to taste.
 
 ## Required local gate
 
