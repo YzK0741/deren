@@ -765,9 +765,7 @@ namespace game {
             try {
                 for (var index = 0; index < instance.scripts.Count; ++index) {
                     var script = instance.scripts[index];
-                    if (script.updates_enabled) {
-                        script.on_update(frame->delta_time);
-                    }
+                    script.on_update(frame->delta_time);
                 }
                 return script_status.success;
             } catch (Exception error) {

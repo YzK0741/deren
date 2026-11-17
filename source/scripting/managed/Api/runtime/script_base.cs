@@ -6,7 +6,6 @@ namespace deren {
     public abstract class script_base {
         private node_handle node;
         private int scene_thread;
-        internal bool updates_enabled = true;
 
         protected scene_access scene => new(this);
 
