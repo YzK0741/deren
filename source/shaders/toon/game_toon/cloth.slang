@@ -254,7 +254,7 @@ float3 game_toon_cloth_shade(surface_sample s, float3 world_pos, float3 geo_norm
     const float3 camera_forward = normalize(mul(camera_at(heap_camera_slot).view, float4(0.0, 0.0, 1.0, 0.0)).xyz); // `_609`
     const float3 view_dir = normalize(camera_pos - world_pos); // `_454`
     const float sun_intensity = max(0.001, light_at(heap_light_slot).sun_intensity);
-    const float shadow_vis = calc_shadow(world_pos, n_shading); // `_2148`/`_2151`'s role
+    const float shadow_vis = raster_shadows_enabled() ? calc_shadow(world_pos, n_shading) : 1.0; // `_2148`/`_2151`'s role
     const float no_l = dot(n_shading, light_dir);               // `_2152` (unclamped, as the game writes it)
 
     // ========================================================================================================

@@ -350,7 +350,7 @@ float3 game_toon_face_shade(surface_sample s, float3 world_pos, float3 geo_norma
     // a depth attachment, the same reason the article port documents for its depth rim).
     const float camera_ring = 1.0 - smoothstep(0.25, 0.75, head_face_dir_z);
     const float shadow_ring = max(face_mask.y, face_mask.z * camera_ring);
-    const float shadow = saturate(calc_shadow(world_pos, normal));
+    const float shadow = raster_shadows_enabled() ? saturate(calc_shadow(world_pos, normal)) : 1.0;
     // Missing screen-X visibility and its enable/override globals: neutral 1.
     // Raster shadow remains the screen-Y/ring substitute; do not conflate them.
     const float light_visibility = 1.0;

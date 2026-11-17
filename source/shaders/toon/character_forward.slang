@@ -1401,7 +1401,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     // EXACT expression that shipped - not a copy of it - so a default run compiles the same two functions it
     // always did. `calc_shadow_area` itself returns `calc_shadow(world_pos, normal)` for `<= 0` as well, which
     // makes the byte-identity guarantee hold at both levels.
-    const float shadow = toon_indices.w != 0u
+    const float shadow = toon_indices.w != 0u || !raster_shadows_enabled()
                              ? 1.0
                              : (light_at(heap_light_slot).area_light_axis.w > 0.0
                                     ? calc_shadow_area(world_pos, n)

@@ -2,17 +2,19 @@
 """Run the deren renderer from a built configuration.
 
 Usage:
-    python scripts/build_helpers/run.py
-    python scripts/build_helpers/run.py --type Debug
-    python scripts/build_helpers/run.py --model path/to/model.glb --demo gui
-    python scripts/build_helpers/run.py --build-dir build-local -- --version
+    python scripts/build_helpers/run.py run source/scripting/test_game --capture-frames 60
+    python scripts/build_helpers/run.py --type Debug run build/source/scripting/test_game
+    python scripts/build_helpers/run.py --build-dir build-local run <project>
+    python scripts/build_helpers/run.py --dry-run run <project> --capture-frames 1
 
-Runs from the repository root.  Arguments after ``--`` (and unknown options)
-are forwarded to the executable, so the subcommand goes through it:
-``run.py run build/source/scripting/test_game --capture-frames 60``.  The
-legacy -Type/-Model/-Grid/-BuildDir spellings are still accepted for callers
-migrating from the old platform wrappers.  There is no --config: the
-application reads the project's ``deren.toml``.
+Runs from the repository root.  Everything after the wrapper's own options is
+forwarded to the executable verbatim, which is how the ``run`` subcommand gets
+through: the application is launched as ``deren run <project>``, and the project
+directory (not a model path) is the first argument.  There is no --model,
+--grid or --config: models come from the project's scene TOML, and the
+application reads the project's ``deren.toml``.  The legacy -Type/-BuildDir
+spellings are still accepted for callers migrating from the old platform
+wrappers.
 """
 
 from __future__ import annotations
@@ -38,8 +40,6 @@ def _normalize_legacy_args(argv: Sequence[str]) -> List[str]:
     index = 0
     mapping = {
         "-Type": "--type",
-        "-Model": "--model",
-        "-Grid": "--grid",
         "-BuildDir": "--build-dir",
     }
     while index < len(values):
@@ -70,8 +70,6 @@ def _parse_args(argv: Sequence[str]) -> (argparse.Namespace, List[str]):
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--type", "-t", choices=CONFIGS, default="RelWithDebInfo", help="build configuration")
-    parser.add_argument("--model", help="model path passed as the first executable argument")
-    parser.add_argument("--grid", type=int, default=0, help="grid side passed after the model")
     parser.add_argument("--build-dir", help="explicit build directory")
     parser.add_argument("--dry-run", action="store_true", help="print the command without running it")
     known, unknown = parser.parse_known_args(left)
@@ -82,10 +80,6 @@ def main(argv: Sequence[str]) -> int:
     args, forward = _parse_args(argv)
     executable = executable_for(args.type, args.build_dir)
     command: List[str] = [str(executable)]
-    if args.model:
-        command.append(args.model)
-    if args.grid > 0:
-        command.append(str(args.grid))
     command += forward
     if args.dry_run:
         print_command(command, REPO_ROOT)

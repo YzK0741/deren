@@ -327,6 +327,22 @@ float calc_shadow(float3 world_pos, float3 normal) {
 }
 
 /**
+ * @brief whether this frame's shading stages may read the raster shadow map at all
+ * @return `true` when `runtime::set_shadow_enabled(true)` (and the shadow pass succeeded) put the map in use
+ *
+ * THE MAP IS ONLY RENDERED WHEN THIS IS TRUE: `runtime` records the shadow pass on `features.shadow`
+ * (`source/engine/runtime/runtime.frames.cppm:931`), so a frame with the knob off leaves the bound image
+ * holding whatever the last enabled frame wrote. A stage that samples it anyway therefore darkens the
+ * scene with STALE visibility - not with "no shadow". The PBR path has always read the flag before
+ * `calc_shadow()` (`shade_surface()` below); this predicate is the same read for the toon stages, whose
+ * call sites all predate the restored `[render] shadow` key. The shadow factor of a disabled frame is
+ * 1.0 (fully lit), which is what makes `shadow = false` a stable A/B against the enabled capture.
+ */
+bool raster_shadows_enabled() {
+    return light_at(heap_light_slot).shadow_enabled > 0.5;
+}
+
+/**
  * @brief the same per-cascade visibility as @ref calc_shadow_cascade, on a WIDER unrotated tap grid
  * @param world_pos receiver position in world space
  * @param normal receiver world-space normal

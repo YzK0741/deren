@@ -63,7 +63,7 @@ float3 game_toon_skin_shade(surface_sample s, float3 world_pos, float3 geo_norma
     // remains neutral 1, as on face. Body _2205/_2220 equals the shared face
     // material block at mask_y=1, so raster shadows directly affect its lit weights.
     // MISSING _20_m79.z (global dark scale): neutral 1, also matching the face.
-    const float shadow_scene = saturate(calc_shadow(world_pos, normal));
+    const float shadow_scene = raster_shadows_enabled() ? saturate(calc_shadow(world_pos, normal)) : 1.0;
     const float light_visibility = 1.0;
     const FaceDiffuseResult composition = game_face_diffuse_composition(
         skin.diffuse, skin.shadow, ramp_colour, ramp_alpha, s.alpha, shadow_scene, 1.0, light_visibility);
