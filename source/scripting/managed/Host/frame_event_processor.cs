@@ -171,11 +171,11 @@ namespace deren.scripting {
                 }
                 var status = managed_bootstrap.core.notify_rendering();
                 if (status != script_status.success) {
-                    logger.write($"Frame events: the host rejected the completion notice ({status}).");
+                    host_logger.write($"Frame events: the host rejected the completion notice ({status}).");
                 }
             } catch (Exception error) {
                 // This runs from a finally block, so it must not throw: the notice is already lost.
-                logger.write($"Frame events: the completion notice failed: {error.GetBaseException().Message}");
+                host_logger.write($"Frame events: the completion notice failed: {error.GetBaseException().Message}");
             }
         }
 
@@ -210,7 +210,7 @@ namespace deren.scripting {
                 try {
                     process(before);
                 } catch (Exception error) {
-                    logger.write($"Frame events: the boundary failed: {error.GetBaseException().Message}");
+                    host_logger.write($"Frame events: the boundary failed: {error.GetBaseException().Message}");
                 } finally {
                     // One signal, one answer, even when the batch could not be prepared: a skipped
                     // notice would leave the render loop waiting for its timeout instead.
@@ -241,7 +241,7 @@ namespace deren.scripting {
                 return false;
             }
             if (action == null) {
-                logger.write("Frame events: a null callable was refused.");
+                host_logger.write("Frame events: a null callable was refused.");
                 return false;
             }
             var entry = new frame_task { action = action };
@@ -258,7 +258,7 @@ namespace deren.scripting {
 
         private static ulong counted(bool before, ulong frame_count, Action? action, bool is_blocking) {
             if (action == null || frame_count == 0) {
-                logger.write(frame_count == 0
+                host_logger.write(frame_count == 0
                     ? "Frame events: a counted task needs a non-zero frame count."
                     : "Frame events: a counted task was refused.");
                 return 0;
@@ -420,7 +420,7 @@ namespace deren.scripting {
                 run(batch, "non-blocking callable failed");
                 var refused = host_call_guard.end_batch();
                 if (refused > 0) {
-                    logger.write($"Frame events: a non-blocking task called the scene API {refused} time(s); the calls were refused (module_unavailable).");
+                    host_logger.write($"Frame events: a non-blocking task called the scene API {refused} time(s); the calls were refused (module_unavailable).");
                 }
                 lock (concurrent_monitor) {
                     concurrent_idle = true;
@@ -434,7 +434,7 @@ namespace deren.scripting {
                 try {
                     action();
                 } catch (Exception error) {
-                    logger.write($"Frame events: {failure}: {error.GetBaseException().Message}");
+                    host_logger.write($"Frame events: {failure}: {error.GetBaseException().Message}");
                 }
             }
         }

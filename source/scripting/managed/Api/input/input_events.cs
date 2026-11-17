@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using deren.scripting;
 
 namespace deren {
@@ -23,38 +22,43 @@ namespace deren {
     /// Fields that a kind does not define keep their previous meaning (zero for a fresh struct), so
     /// a handler switches on <see cref="type"/> first.
     /// </summary>
-    public readonly struct input_event {
-        public input_event(input_type type, int button, bool down, int key, float x, float y, float dx,
-                           float dy, float wheel, uint codepoint) {
-            this.type = type;
-            this.button = button;
-            this.down = down;
-            this.key = key;
-            this.x = x;
-            this.y = y;
-            this.dx = dx;
-            this.dy = dy;
-            this.wheel = wheel;
-            this.codepoint = codepoint;
-        }
+    public readonly struct input_event(
+        input_type type,
+        int button,
+        bool down,
+        int key,
+        float x,
+        float y,
+        float dx,
+        float dy,
+        float wheel,
+        uint codepoint) {
+        public input_type type { get; } = type;
 
-        public input_type type { get; }
         /// <summary>The mouse button index (0 left, 1 right, 2 middle) for <see cref="input_type.mouse_button"/>.</summary>
-        public int button { get; }
+        public int button { get; } = button;
+
         /// <summary>Whether the button or key went down (false means it went up).</summary>
-        public bool down { get; }
+        public bool down { get; } = down;
+
         /// <summary>The GLFW keycode for <see cref="input_type.key"/>; compare against <see cref="key_code"/>.</summary>
-        public int key { get; }
+        public int key { get; } = key;
+
         /// <summary>The cursor position in window pixels, for the pointer events.</summary>
-        public float x { get; }
-        public float y { get; }
+        public float x { get; } = x;
+
+        public float y { get; } = y;
+
         /// <summary>How far the cursor moved since the previous event, for <see cref="input_type.mouse_move"/>.</summary>
-        public float dx { get; }
-        public float dy { get; }
+        public float dx { get; } = dx;
+
+        public float dy { get; } = dy;
+
         /// <summary>The scroll amount for <see cref="input_type.scroll"/> (positive is up/away).</summary>
-        public float wheel { get; }
+        public float wheel { get; } = wheel;
+
         /// <summary>The Unicode codepoint typed, for <see cref="input_type.character"/>.</summary>
-        public uint codepoint { get; }
+        public uint codepoint { get; } = codepoint;
     }
 
     /// <summary>
@@ -87,7 +91,7 @@ namespace deren {
         public static bool active => handler != null;
 
         [System.Runtime.InteropServices.UnmanagedCallersOnly]
-        private static void dispatch(void* context, scripting.native_input_event* value) {
+        private static void dispatch(void* context, native_input_event* value) {
             var callback = handler;
             if (callback == null || value == null) {
                 return;
@@ -97,7 +101,7 @@ namespace deren {
                 callback(new input_event((input_type)record.type, record.button, record.down != 0, record.key,
                                          record.x, record.y, record.dx, record.dy, record.wheel, record.codepoint));
             } catch (Exception error) {
-                logger.write(
+                host_logger.write(
                     $"Game: input handler threw: {error.GetBaseException().Message}");
             }
         }

@@ -10,7 +10,7 @@ namespace deren {
     /// belongs to the previous frame. Numbers are integers and costs are qualified (see
     /// <see cref="try_get_counters"/>) because both come straight from render code, not from a probe.
     /// </summary>
-    public static unsafe class diagnostics {
+    public static unsafe class frame_diagnostics {
         /// <summary>
         /// One frame's counters. <see cref="render_width"/> x <see cref="render_height"/> is the extent
         /// the shading passes ran at; <see cref="output_width"/> x <see cref="output_height"/> is the

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Text;
 
 namespace deren.scripting {
@@ -260,15 +261,16 @@ namespace deren.scripting {
                 return null;
             }
             var numeric = text.Replace("_", string.Empty, StringComparison.Ordinal);
-            if (numeric is "inf" or "+inf") {
-                return double.PositiveInfinity;
+            switch (numeric)
+            {
+                case "inf" or "+inf":
+                    return double.PositiveInfinity;
+                case "-inf":
+                    return double.NegativeInfinity;
+                case "nan" or "+nan" or "-nan":
+                    return double.NaN;
             }
-            if (numeric is "-inf") {
-                return double.NegativeInfinity;
-            }
-            if (numeric is "nan" or "+nan" or "-nan") {
-                return double.NaN;
-            }
+
             if (long.TryParse(numeric, NumberStyles.Integer, CultureInfo.InvariantCulture, out var integer)) {
                 return integer;
             }
@@ -334,11 +336,12 @@ namespace deren.scripting {
 
         private static string? literal_string(string text, ref string? error) {
             var end = text.IndexOf('\'', 1);
-            if (end < 0) {
-                error ??= "unterminated literal string";
-                return null;
+            if (end >= 0) {
+                return text[1..end];
             }
-            return text[1..end];
+
+            error ??= "unterminated literal string";
+            return null;
         }
 
         private static List<object>? array(string text, ref string? error) {
@@ -424,12 +427,13 @@ namespace deren.scripting {
                 }
             }
             parts.Add(text[start..]);
-            foreach (var part in parts.ConvertAll(part => part.Trim())) {
-                if (part.Length == 0 || part.Contains('"', StringComparison.Ordinal) || part.Contains('\'', StringComparison.Ordinal)) {
-                    return null;
-                }
+            var trimmed = parts.ConvertAll(part => part.Trim());
+            if (trimmed.Any(part => part.Length == 0 ||
+                                    part.Contains('"', StringComparison.Ordinal) ||
+                                    part.Contains('\'', StringComparison.Ordinal))) {
+                return null;
             }
-            return parts.ConvertAll(part => part.Trim()).ToArray();
+            return trimmed.ToArray();
         }
 
         private static int find_unquoted(string text, char needle) {
@@ -465,10 +469,13 @@ namespace deren.scripting {
                     }
                     continue;
                 }
-                if (c is '"' or '\'') {
-                    quote = c;
-                } else if (c == '#') {
-                    return line[..i];
+                switch (c)
+                {
+                    case '"' or '\'':
+                        quote = c;
+                        break;
+                    case '#':
+                        return line[..i];
                 }
             }
             return line;

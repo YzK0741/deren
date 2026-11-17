@@ -1,4 +1,3 @@
-using System;
 using deren.scripting;
 
 namespace deren {
@@ -24,7 +23,7 @@ namespace deren {
         public bool unlit;
 
         /// <summary>The factors every material starts from: no tint shift, no scale, lit.</summary>
-        public static material_override imported => new material_override {
+        public static material_override imported => new() {
             tint = new vector_3 { x = 1.0f, y = 1.0f, z = 1.0f },
             metallic_scale = 1.0f,
             roughness_scale = 1.0f,
@@ -37,7 +36,7 @@ namespace deren {
         /// Writes this override into the flat ABI record. <paramref name="enabled"/> is separate from
         /// the factors so a caller can restore the imported material without losing what it authored.
         /// </summary>
-        internal unsafe void write_to(material_override_desc* target, bool enabled) {
+        internal readonly unsafe void write_to(material_override_desc* target, bool enabled) {
             target->tint[0] = tint.x;
             target->tint[1] = tint.y;
             target->tint[2] = tint.z;

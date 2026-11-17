@@ -89,7 +89,7 @@ binding copies the hierarchy into a tree, so releasing the handle after binding 
 ## 5. Debug panel
 
 The debug panel is a HOST-DRAWN, MANAGED-DESCRIBED surface: the native overlay plugin renders the
-window content, and the widget list is the C# game's (`deren.ui`), rebuilt every frame. Nothing
+window content, and the widget list is the C# game's (`deren.debug_ui`), rebuilt every frame. Nothing
 about the panel's content lives on the native side; the host owns the widget backend and the input
 plumbing, the project owns which knobs exist.
 

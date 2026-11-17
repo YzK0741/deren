@@ -11,7 +11,7 @@ namespace deren {
     /// slot number makes its primitives sample that slot instead (the engine has four slots,
     /// `layout::heap_environment_capacity`).
     /// </remarks>
-    public static unsafe class global_environment {
+    public static class global_environment {
         /// <summary>The number of environment slots the renderer has (0 is the scene-wide one).</summary>
         public const int slot_count = 4;
 
@@ -44,9 +44,9 @@ namespace deren {
         }
 
         public static bool try_set_slot_hdr(int environment_slot, string? path, out script_status status) {
-            if (environment_slot < 0 || environment_slot >= slot_count) {
+            if (environment_slot is < 0 or >= slot_count) {
                 status = script_status.invalid_argument;
-                logger.write(
+                host_logger.write(
                     $"Game: environment slot {environment_slot} is out of range (0..{slot_count - 1})");
                 return false;
             }
@@ -57,12 +57,12 @@ namespace deren {
                 if (status == script_status.success) {
                     return true;
                 }
-                logger.write(
+                host_logger.write(
                     $"Game: cannot set the environment of slot {environment_slot} '{path}' ({status})");
                 return false;
             } catch (Exception error) {
                 status = script_status.script_failure;
-                logger.write(
+                host_logger.write(
                     $"Game: environment slot {environment_slot} request failed: {error.GetBaseException().Message}");
                 return false;
             }

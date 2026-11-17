@@ -18,14 +18,11 @@ namespace deren {
         public unsafe bool try_spawn(string asset_id, transform_value pose, out node_id target,
                                      out script_status status) {
             target = default;
-            if (owner == null) {
+            if (owner == null || string.IsNullOrEmpty(asset_id)) {
                 status = script_status.invalid_argument;
                 return false;
             }
-            if (string.IsNullOrEmpty(asset_id)) {
-                status = script_status.invalid_argument;
-                return false;
-            }
+
             owner.ensure_bound();
             using var asset = native_string.create(asset_id);
             node_handle handle;

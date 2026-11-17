@@ -1,5 +1,3 @@
-using System.Runtime.InteropServices;
-
 namespace deren.scripting {
     /// <summary>
     /// The project-owned entry point. The managed host loads the assembly before the renderer

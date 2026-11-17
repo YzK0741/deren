@@ -2,14 +2,14 @@ using deren.scripting;
 
 namespace deren {
     /// <summary>
-    /// World <-> screen conversion against the camera the frame actually renders with.
+    /// World from/to screen conversion against the camera the frame actually renders with.
     ///
     /// The answers are in RENDER pixels: the extent <see cref="try_get_viewport_size"/> reports and the
     /// passes shade at. That is the window's size only while the render scale is 1 - a game that wants
-    /// window pixels scales by <see cref="diagnostics.frame_counters"/>'s output/render ratio. The
+    /// window pixels scales by <see cref="frame_diagnostics.frame_counters"/>'s output/render ratio. The
     /// projection is the jitter-free one, so a world point lands on the same pixel in every TAA frame.
     /// </summary>
-    public static unsafe class screen {
+    public static unsafe class camera_projection {
         /// <summary>
         /// The resolution the frame shades at. Returns false when nothing has been rendered yet (no
         /// frame has picked an extent).
@@ -76,8 +76,8 @@ namespace deren {
                                           out script_status status) {
             origin = default;
             direction = default;
-            float* eye = stackalloc float[3];
-            float* unit = stackalloc float[3];
+            var eye = stackalloc float[3];
+            var unit = stackalloc float[3];
             status = scene_api.query_screen_ray(pixel_x, pixel_y, eye, unit);
             if (status != script_status.success) {
                 return false;

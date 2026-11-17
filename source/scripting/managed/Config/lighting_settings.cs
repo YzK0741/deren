@@ -142,7 +142,7 @@ namespace deren {
         }
 
         private static void report(string message) {
-            logger.write(message);
+            host_logger.write(message);
         }
 
         /// <summary>
@@ -208,7 +208,7 @@ namespace deren {
         }
 
         private static bool is_zero(vector_3 value) {
-            return value.x == 0.0f && value.y == 0.0f && value.z == 0.0f;
+            return value is { x: 0.0f, y: 0.0f, z: 0.0f };
         }
 
         private static vector_3 normalize(vector_3 direction) {

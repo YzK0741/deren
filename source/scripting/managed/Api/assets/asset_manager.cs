@@ -15,17 +15,17 @@ namespace deren {
         /// </summary>
         public static unsafe string[] list() {
             if (!scene_api.is_ready()) {
-                return Array.Empty<string>();
+                return [];
             }
             var ids = new List<string>();
             for (uint index = 0;; ++index) {
                 utf8_view view;
                 var status = scene_api.list_scene_asset(index, &view);
                 if (status == script_status.asset_not_found) {
-                    return ids.ToArray();
+                    return [.. ids];
                 }
                 if (status != script_status.success || view.data == null) {
-                    return Array.Empty<string>();
+                    return [];
                 }
                 ids.Add(Encoding.UTF8.GetString(view.data, checked((int)view.length)));
             }
@@ -36,7 +36,7 @@ namespace deren {
         /// not configured, or the source file cannot be read. Use the overload with an
         /// <c>out script_status</c> to tell those apart.
         /// </summary>
-        public static unsafe bool try_load(string id, out asset_handle asset) {
+        public static bool try_load(string id, out asset_handle asset) {
             return try_load(id, out asset, out _);
         }
 
@@ -88,7 +88,7 @@ namespace deren {
         /// </summary>
         public static unsafe string[] supported_pipelines(asset_handle asset) {
             if (!asset.is_valid) {
-                return Array.Empty<string>();
+                return [];
             }
             uint count = 0;
             if (scene_api.query_asset_pipeline_count(asset.value, &count) != script_status.success) {
@@ -98,18 +98,18 @@ namespace deren {
             for (uint index = 0; index < count; ++index) {
                 utf8_view view;
                 if (scene_api.query_asset_pipeline(asset.value, index, &view) != script_status.success || view.data == null) {
-                    return Array.Empty<string>();
+                    return [];
                 }
                 pipelines.Add(Encoding.UTF8.GetString(view.data, checked((int)view.length)));
             }
-            return pipelines.ToArray();
+            return [.. pipelines];
         }
 
         /// <summary>
         /// The pipeline a bind starts on. Returns false when the asset declares none or the handle
         /// is invalid; the name is copied out of native storage.
         /// </summary>
-        public static unsafe bool try_get_default_pipeline(asset_handle asset, out string? pipeline) {
+        public static bool try_get_default_pipeline(asset_handle asset, out string? pipeline) {
             return try_get_default_pipeline(asset, out pipeline, out _);
         }
 

@@ -85,7 +85,7 @@ namespace deren {
                     return false;
                 }
             }
-            if (!lighting.try_set_point_lights(lights, out status)) {
+            if (!scene_lighting.try_set_point_lights(lights, out status)) {
                 log_game($"light rig: the host rejected the {lights.Length} light(s) of '{path}'");
                 return false;
             }
@@ -148,7 +148,7 @@ namespace deren {
         }
 
         private static void log_game(string message) {
-            logger.write($"Game: {message}");
+            host_logger.write($"Game: {message}");
         }
     }
 }

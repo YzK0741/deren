@@ -69,7 +69,7 @@ namespace deren.scripting {
             }
             // ABI 33: same table-size check as the scene module (see scene_api.initialize).
             if (byte_size != sizeof(ui_api_layout)) {
-                logger.write(api, 
+                host_logger.write(api, 
                     $"Managed host: the ui module table is {byte_size} bytes, this build expects " +
                     $"{sizeof(ui_api_layout)}.");
                 return script_status.module_invalid;
