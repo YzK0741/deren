@@ -33,7 +33,7 @@ namespace deren {
         /// Writes this light into the flat ABI record. The half-angle cosine conversion lives here so
         /// the interop struct stays a dumb mirror of the C++ one.
         /// </summary>
-        internal unsafe void write_to(point_light_desc* target) {
+        internal readonly unsafe void write_to(point_light_desc* target) {
             target->position[0] = position.x;
             target->position[1] = position.y;
             target->position[2] = position.z;

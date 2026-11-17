@@ -20,7 +20,7 @@ namespace deren {
     /// </summary>
     public static class light_rig {
         /// <summary>The file name <see cref="try_load_project_rig"/> looks for in the project directory.</summary>
-        public const string file_name = "toon-light-rig.toml";
+        private const string file_name = "toon-light-rig.toml";
 
         /// <summary>
         /// Loads `toon-light-rig.toml` from the project's DATA directory - the entry scene's own
@@ -32,7 +32,7 @@ namespace deren {
             return try_load_project_rig(out _);
         }
 
-        public static bool try_load_project_rig(out script_status status) {
+        private static bool try_load_project_rig(out script_status status) {
             var directory = project_config.scene_directory;
             if (string.IsNullOrEmpty(directory)) {
                 directory = managed_bootstrap.project_directory;
@@ -45,11 +45,11 @@ namespace deren {
         }
 
         /// <summary>Loads one rig file and replaces the punctual light set with its lights.</summary>
-        public static unsafe bool try_load(string path) {
+        public static bool try_load(string path) {
             return try_load(path, out _);
         }
 
-        public static unsafe bool try_load(string path, out script_status status) {
+        private static bool try_load(string path, out script_status status) {
             string document;
             try {
                 document = File.ReadAllText(path);
@@ -75,7 +75,7 @@ namespace deren {
             }
             var staging = root.table("rig");
             var z_up = string.Equals(staging?.text("up_axis") ?? "y", "z", StringComparison.OrdinalIgnoreCase);
-            var offset = staging?.numbers("offset") is { Count: 3 } given ? given : new List<float> { 0.0f, 0.0f, 0.0f };
+            var offset = staging?.numbers("offset") is { Count: 3 } given ? given : [0.0f, 0.0f, 0.0f];
 
             var lights = new point_light[entries.Count];
             for (var index = 0; index < entries.Count; ++index) {

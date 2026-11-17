@@ -179,7 +179,7 @@ namespace deren.scripting {
             var description = args.ExceptionObject is Exception known
                                      ? $"unhandled managed exception: {known.GetType().FullName}: {known.Message}"
                                      : "unhandled managed exception";
-            var detail = args.ExceptionObject?.ToString() ?? string.Empty;
+            var detail = args.ExceptionObject.ToString() ?? string.Empty;
             // The report pairs a call site with every stack, so ask the exception where it was thrown
             // instead of leaving `source:` empty: the first frame carries the throw site's file and line.
             var file = string.Empty;

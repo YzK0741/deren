@@ -433,7 +433,7 @@ namespace deren.scripting {
                                     part.Contains('\'', StringComparison.Ordinal))) {
                 return null;
             }
-            return trimmed.ToArray();
+            return [.. trimmed];
         }
 
         private static int find_unquoted(string text, char needle) {

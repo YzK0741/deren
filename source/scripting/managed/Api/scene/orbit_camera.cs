@@ -16,11 +16,11 @@ namespace deren {
         /// Applies this pose to the active scene. Returns false when no scene is active; the
         /// overload with an <c>out script_status</c> says which.
         /// </summary>
-        public bool try_apply() {
+        public readonly bool try_apply() {
             return try_apply(out _);
         }
 
-        public unsafe bool try_apply(out script_status status) {
+        public readonly unsafe bool try_apply(out script_status status) {
             var copy = this;
             status = scene_api.assign_camera(&copy);
             return status == script_status.success;
