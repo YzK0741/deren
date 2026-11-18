@@ -1009,6 +1009,62 @@ int32_t main() {
     test_subtilis_extraction();
     test_consuming_resolve_moves_decoded_pixels();
     test_resolved_mip_payload_has_no_undeclared_tail();
+    // A shared image can be colour in one slot and linear data in another.
+    for (bool consume : {false, true}) {
+        deren::gltf::scenes shared;
+        shared.textures.resize(1);
+        shared.textures[0].width = 2;
+        shared.textures[0].height = 2;
+        shared.textures[0].component = 4;
+        shared.textures[0].data = {0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 0, 255, 255, 255, 255, 255};
+        shared.materials.resize(1);
+        shared.materials[0].texture_indices["albedo"] = 0;
+        shared.materials[0].texture_indices["metallic_roughness"] = 0;
+        auto const resolved = deren::gltf::resolve_materials(shared, consume);
+        CHECK(resolved[0].slots[0].data[16] == 188);
+        CHECK(resolved[0].slots[1].data[16] == 128);
+        if (consume) {
+            CHECK(shared.textures[0].data.empty());
+        }
+    }
+
+    // Shared colour/data caches must preserve both slots whichever material is resolved first.
+    for (bool consume : {false, true}) {
+        for (bool emissive_first : {false, true}) {
+            deren::gltf::scenes shared;
+            shared.textures.resize(1);
+            shared.textures[0].width = 2;
+            shared.textures[0].height = 2;
+            shared.textures[0].component = 4;
+            shared.textures[0].data = {0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 0, 255, 255, 255, 255, 255};
+            shared.materials.resize(2);
+            std::size_t const albedo_material = emissive_first ? 1 : 0;
+            std::size_t const emissive_material = emissive_first ? 0 : 1;
+            shared.materials[albedo_material].texture_indices["albedo"] = 0;
+            shared.materials[emissive_material].texture_indices["emissive"] = 0;
+            auto const resolved = deren::gltf::resolve_materials(shared, consume);
+            CHECK(resolved[albedo_material].slots[0].valid);
+            CHECK(resolved[emissive_material].slots[4].valid);
+            if (resolved[albedo_material].slots[0].valid && resolved[emissive_material].slots[4].valid) {
+                CHECK(resolved[albedo_material].slots[0].data[16] == 188);
+                CHECK(resolved[emissive_material].slots[4].data[16] == 128);
+            }
+        }
+    }
+
+    // Missing image references retain the resolver's skip contract, including its usage prepass.
+    for (bool consume : {false, true}) {
+        deren::gltf::scenes missing;
+        missing.textures.resize(1);
+        missing.materials.resize(1);
+        missing.materials[0].texture_indices["albedo"] = 1;
+        missing.materials[0].texture_indices["normal"] = std::numeric_limits<std::uint16_t>::max();
+        auto const resolved = deren::gltf::resolve_materials(missing, consume);
+        CHECK(resolved.size() == 1);
+        CHECK(!resolved[0].slots[0].valid);
+        CHECK(!resolved[0].slots[2].valid);
+    }
+
     test_consuming_resolve_matches_copy_path();
     test_load_damaged_helmet();
     test_async_load_matches_sync();

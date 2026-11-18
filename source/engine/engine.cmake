@@ -4,8 +4,9 @@ include_guard(GLOBAL)
 add_library(engine_visibility_support STATIC)
 target_sources(engine_visibility_support PUBLIC FILE_SET CXX_MODULES FILES
     source/engine/visibility/feedback_readback.cppm
-    source/engine/visibility/progressive_texture.cppm)
-target_link_libraries(engine_visibility_support PUBLIC promise vstd_lib)
+    source/engine/visibility/progressive_texture.cppm
+    source/engine/visibility/texture_cache.cppm)
+target_link_libraries(engine_visibility_support PUBLIC promise vstd_lib static_utility)
 
 add_library(deren_engine STATIC)
 target_link_libraries(deren_engine PRIVATE asset_subtilis_core engine_visibility_support)
@@ -150,6 +151,9 @@ target_sources(deren_engine
         source/engine/animation/mmd_motion.cpp
 )
 include(source/assets/assets.cmake)
+
+add_executable(deren_texture_export tools/textures/export.cpp)
+target_link_libraries(deren_texture_export PRIVATE deren_assets engine_visibility_support)
 
 
 target_include_directories(deren_engine SYSTEM PRIVATE source/third_party/meshoptimizer/src)

@@ -2,6 +2,7 @@ module;
 
 export module deren.engine.visibility.progressive_texture;
 export import deren.vstd;
+export import deren.promise.rhi;
 
 export namespace deren::engine::progressive_texture {
     struct fallback_image {
@@ -68,20 +69,21 @@ export namespace deren::engine::progressive_texture {
         std::uint64_t offset = 0, bytes = 0;
     };
     inline std::optional<mip_slice> mip_range(std::uint32_t width, std::uint32_t height,
-                                              std::uint32_t levels, std::uint32_t first) {
+                                              std::uint32_t levels, std::uint32_t first,
+                                              deren::promise::rhi::image_format format = deren::promise::rhi::image_format::rgba8_unorm) {
         if (!width || !height || !levels || levels > static_cast<std::uint32_t>(std::bit_width(std::max(width, height))) || first >= levels) {
             return {};
         }
         mip_slice result{std::max(1u, width >> first), std::max(1u, height >> first), levels - first, 0, 0};
         for (std::uint32_t mip = 0; mip < levels; ++mip) {
-            std::uint64_t pixels = static_cast<std::uint64_t>(std::max(1u, width >> mip)) * std::max(1u, height >> mip);
-            if (pixels > (std::numeric_limits<std::uint64_t>::max() - result.offset - result.bytes) / 4) {
+            auto const bytes = deren::promise::rhi::image_mip_bytes(format, std::max(1u, width >> mip), std::max(1u, height >> mip));
+            if (!bytes || bytes > std::numeric_limits<std::uint64_t>::max() - result.offset - result.bytes) {
                 return {};
             }
             if (mip < first) {
-                result.offset += pixels * 4;
+                result.offset += bytes;
             } else {
-                result.bytes += pixels * 4;
+                result.bytes += bytes;
             }
         }
         return result;
@@ -104,20 +106,25 @@ export namespace deren::engine::progressive_texture {
         }
         return mip;
     }
-    inline std::uint64_t tier_bytes(std::uint32_t width, std::uint32_t height, std::uint32_t levels, std::uint32_t mip) {
+    inline std::uint64_t tier_bytes(std::uint32_t width, std::uint32_t height, std::uint32_t levels, std::uint32_t mip,
+                                    deren::promise::rhi::image_format format = deren::promise::rhi::image_format::rgba8_unorm) {
         if (!width || !height || mip >= static_cast<std::uint32_t>(std::bit_width(std::max(width, height)))) {
             return 0;
         }
         if (mip < levels) {
-            auto slice = mip_range(width, height, levels, mip);
+            auto slice = mip_range(width, height, levels, mip, format);
             return slice ? slice->bytes : 0;
         }
-        return static_cast<std::uint64_t>(std::max(1u, width >> mip)) * std::max(1u, height >> mip) * 4;
+        if (deren::promise::rhi::format_layout(format).block_width != 1) {
+            return 0; // Compressed sources carry their mip chain; resampling requires decoded pixels.
+        }
+        return deren::promise::rhi::image_mip_bytes(format, std::max(1u, width >> mip), std::max(1u, height >> mip));
     }
     struct mip_candidate {
         std::uint32_t width = 0, height = 0, levels = 0, floor = 0, target = 0, resident = 0;
         std::uint64_t last_used = 0;
         bool wanted = false;
+        deren::promise::rhi::image_format format = deren::promise::rhi::image_format::rgba8_unorm;
     };
     inline std::vector<std::uint32_t> select_mips(std::span<mip_candidate const> entries, std::uint64_t now,
                                                   std::uint64_t budget, std::uint64_t resident_window) {
@@ -149,8 +156,8 @@ export namespace deren::engine::progressive_texture {
                 if (result[i] <= targets[i]) {
                     continue;
                 }
-                auto before = result[i] == e.floor ? 0 : tier_bytes(e.width, e.height, e.levels, result[i]);
-                auto after = tier_bytes(e.width, e.height, e.levels, result[i] - 1);
+                auto before = result[i] == e.floor ? 0 : tier_bytes(e.width, e.height, e.levels, result[i], e.format);
+                auto after = tier_bytes(e.width, e.height, e.levels, result[i] - 1, e.format);
                 if (after >= before && after - before <= budget) {
                     budget -= after - before;
                     --result[i];

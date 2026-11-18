@@ -60,6 +60,7 @@ struct Material {
                 //       `heap_environment_capacity`). Slot 0 is the scene-wide environment and 1..3 are custom
                 //       per-object HDRs; the deferred stage reads the two bits out of this record exactly as it
                 //       reads bit9, which is what lets one object choose its sky.
+                // bit12: traced-reflection eligibility; bit13: BC5 normal map with reconstructed positive Z.
     // ---- THE TOON SLOTS: what glTF's five cannot reach (see material_record in primitive.cppm) ----
     // x = diffuse ramp, y = shadow LUT, z = specular ramp, w = matcap. THE WHITE FALLBACK (element 0) IS THE
     // "DO NOT READ" VALUE and that is the contract rather than a convention: a lane holds a real index only

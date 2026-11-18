@@ -1,0 +1,1 @@
+ispc_texcomp==1.0.1

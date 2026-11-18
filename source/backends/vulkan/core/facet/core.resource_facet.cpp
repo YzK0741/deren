@@ -58,6 +58,12 @@ namespace deren::vulkan {
         [[nodiscard]] VkFormat native_image_format(deren::promise::rhi::image_format const format, VkFormat const depth_format) noexcept {
             using rhi_image_format = deren::promise::rhi::image_format;
             switch (format) {
+            case rhi_image_format::bc5_unorm:
+                return VK_FORMAT_BC5_UNORM_BLOCK;
+            case rhi_image_format::bc7_unorm:
+                return VK_FORMAT_BC7_UNORM_BLOCK;
+            case rhi_image_format::bc7_srgb:
+                return VK_FORMAT_BC7_SRGB_BLOCK;
             case rhi_image_format::rgba8_unorm:
                 return VK_FORMAT_R8G8B8A8_UNORM;
             case rhi_image_format::rgba8_srgb:
@@ -490,6 +496,17 @@ namespace deren::vulkan {
         // The format: named formats map one to one; the `depth` ROLE resolves to the device's depth
         // attachment format, which is the capability question §17 moved out of the caller's hands.
         VkFormat const native_format = native_image_format(desc.format, this->full_core.frame.depth_attachment_format);
+        if (rhi::format_layout(desc.format).block_width > 1) {
+            VkPhysicalDeviceFeatures features{};
+            vkGetPhysicalDeviceFeatures(this->full_core.device.physical_device, &features);
+            VkFormatProperties properties{};
+            vkGetPhysicalDeviceFormatProperties(this->full_core.device.physical_device, native_format, &properties);
+            auto const required = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+            if (!features.textureCompressionBC || (properties.optimalTilingFeatures & required) != required) {
+                deren::utility::log("rhi: block-compressed sampled textures are unavailable on this device");
+                return nullptr;
+            }
+        }
         // The allocator's type: the shape flags pick it, because the type is what carries the memory
         // intent and the cube-creatability (vma.cppm's image_type note).
         image_type type = image_type::texture_2d;

@@ -540,6 +540,8 @@ namespace deren::engine {
         rhi::shared_object<rhi::image> probe_image;
         rhi::shared_object<rhi::image_view> probe_view;
         std::uint32_t white_texture_index = 0;
+        deren::utility::vessel::array<std::optional<bool>, 3> compressed_sampled_available = {};
+        std::uint64_t compressed_texture_count = 0, compressed_source_bytes = 0, compressed_payload_bytes = 0;
         deren::utility::vessel::map<std::tuple<deren::utility::xxh3_digest, rhi::image_format, std::uint32_t, std::uint32_t, std::uint32_t>, std::uint32_t> texture_slot_cache = {}; // digest (data_block<16>), format, width, height, mip_levels
         // scene-wide IBL (bindings 2-4): prefiltered env / irradiance / BRDF LUT, uploaded once
         deren::utility::vessel::vector<rhi::shared_object<rhi::image_view>> ibl_views = {};

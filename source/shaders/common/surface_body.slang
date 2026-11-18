@@ -150,6 +150,10 @@ surface_sample gather_surface_finish(const surface_base base,
             s.normal = normal; // degenerate UV derivatives: fall back to the interpolated normal
         } else {
             float3 tbn_normal = DEREN_SURFACE_SAMPLE_TEXTURE(mat.tex_indices.z, uv).rgb * 2.0 - 1.0;
+            if ((mat.flags & 8192u) != 0u)
+            {
+                tbn_normal.z = sqrt(max(1e-8, 1.0 - dot(tbn_normal.xy, tbn_normal.xy)));
+            }
             tbn_normal.xy *= mat.normal_scale;
             tbn_normal = normalize(tbn_normal);
             s.normal = normalize(mul(tbn_normal, float3x3(frame_tangent, frame_bitangent, normal)));

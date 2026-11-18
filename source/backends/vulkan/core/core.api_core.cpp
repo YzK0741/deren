@@ -431,6 +431,12 @@ namespace deren::vulkan {
         [[nodiscard]] VkFormat native_image_format(deren::promise::rhi::image_format const format, VkFormat const depth_format) noexcept {
             using rhi_image_format = deren::promise::rhi::image_format;
             switch (format) {
+            case rhi_image_format::bc5_unorm:
+                return VK_FORMAT_BC5_UNORM_BLOCK;
+            case rhi_image_format::bc7_unorm:
+                return VK_FORMAT_BC7_UNORM_BLOCK;
+            case rhi_image_format::bc7_srgb:
+                return VK_FORMAT_BC7_SRGB_BLOCK;
             case rhi_image_format::rgba8_unorm:
                 return VK_FORMAT_R8G8B8A8_UNORM;
             case rhi_image_format::rgba8_srgb:

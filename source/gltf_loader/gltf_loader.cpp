@@ -2556,17 +2556,28 @@ namespace deren::gltf {
                 std::uint32_t height = 0;
                 std::uint32_t mip_levels = 1;
             };
-            deren::utility::vessel::vector<std::optional<decoded_texture>> cache(scenes.textures.size());
+            deren::utility::vessel::vector<deren::utility::vessel::array<std::optional<decoded_texture>, 2>> cache(scenes.textures.size());
+            deren::utility::vessel::vector<std::uint8_t> colour_uses(scenes.textures.size());
+            for (auto const& material : scenes.materials) {
+                for (auto const& [slot, index] : material.texture_indices) {
+                    if (index < colour_uses.size()) {
+                        // Match the existing slot decode policy: only albedo uses sRGB mips.
+                        colour_uses[index] |= slot == "albedo" ? 2u : 1u;
+                    }
+                }
+            }
 
-            auto const decode = [&scenes, &cache, consume_scene](std::uint16_t const texture_index, bool const srgb) -> decoded_texture {
+            auto const decode = [&scenes, &cache, &colour_uses, consume_scene](std::uint16_t const texture_index, bool const srgb) -> decoded_texture {
                 decoded_texture out = {};
-                auto& entry = cache[texture_index];
+                auto& entry = cache[texture_index][srgb ? 1 : 0];
                 if (!entry) {
                     entry = decoded_texture{};
                     deren::gltf::texture_data const& tex = scenes.textures[texture_index];
                     // Consuming mode moves the decoded RGBA bytes into mip0. The source is only left untouched when
                     // the caller keeps the ordinary read-only contract (toon sidecars, tests, repeat resolves).
-                    auto rgba = consume_scene != nullptr ? to_rgba(consume_scene->textures[texture_index], true) : to_rgba(tex);
+                    bool const can_consume = consume_scene != nullptr &&
+                                             (colour_uses[texture_index] != 3 || cache[texture_index][srgb ? 0 : 1].has_value());
+                    auto rgba = can_consume ? to_rgba(consume_scene->textures[texture_index], true) : to_rgba(tex);
                     if (!rgba.empty() && tex.width > 0 && tex.height > 0) {
                         mip_chain mips = generate_mip_chain(std::move(rgba), tex.width, tex.height, srgb);
                         entry->data = std::make_shared<deren::utility::vessel::vector<std::uint8_t> const>(std::move(mips.data));
