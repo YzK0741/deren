@@ -433,13 +433,13 @@ namespace deren::app {
                 bool base_recorded = false;
             };
             std::unordered_map<std::uint64_t, material_override_row> material_overrides;
-            // ABI 31: THE MANAGED DEBUG PANEL. `overlay::add_panel()` builds a new panel object per call,
-            // so the host keeps the registration (and the title it was made under) and empties the widget
-            // list each managed frame instead of asking for another panel. `ui_available` is the one flag
-            // that says the plugin came up; every verb checks it before touching `runtime::debug_gui()`,
-            // which panics on a session that never enabled the overlay.
+            struct debug_window {
+                deren::gui::panel* panel = nullptr;
+                bool submitted = false;
+            };
+            deren::utility::vessel::unordered_map<std::string, debug_window> ui_windows;
+            // Widget calls apply to the current begin/end pair.
             deren::gui::panel* ui_panel = nullptr;
-            std::string ui_panel_title;
             bool ui_panel_open = false;
             bool ui_available = false;
             // The size a panel falls back to when the game names none (`[gui] panel_width/panel_height`).
@@ -473,8 +473,8 @@ namespace deren::app {
                                             .clouds = {},
                                             .next_cloud_id = 1,
                                             .material_overrides = {},
+                                            .ui_windows = {},
                                             .ui_panel = nullptr,
-                                            .ui_panel_title = {},
                                             .ui_panel_open = false,
                                             .ui_available = false,
                                             .ui_default_width = 380.0F,
@@ -1275,27 +1275,22 @@ namespace deren::app {
             // ABI's zero means "the project's default", not "no size".
             managed_binding.ui_default_width = settings.gui.panel_width;
             managed_binding.ui_default_height = settings.gui.panel_height;
-            // ONE PANEL IS OPENED AT A TIME, and its widgets are rebuilt from the managed side every
-            // frame: the panel owns `unique_ptr<widget>`s, so a list that is never cleared would grow by
-            // one managed frame each time.
+            // One begin/end pair at a time. Each title keeps its own position and widget list.
             auto ui_begin_panel = +[](void* opaque, std::string_view title, float width, float height) -> bool {
                 auto& context = *static_cast<managed_bind_context*>(opaque);
                 if (!context.ui_available || title.empty() || context.ui_panel_open) {
                     return false;
                 }
                 auto& overlay = context.render_runtime->debug_gui();
-                // A RENAMED PANEL IS A NEW PANEL: the old registration is removed first, otherwise the
-                // overlay would keep drawing a panel whose widgets nobody rebuilt any more.
-                if (context.ui_panel != nullptr && context.ui_panel_title != title) {
-                    overlay.remove_panel(*context.ui_panel);
-                    context.ui_panel = nullptr;
+                auto& window = context.ui_windows[std::string{title}];
+                if (window.panel == nullptr) {
+                    window.panel = &overlay.add_panel(deren::utility::vessel::string{title});
                 }
-                if (context.ui_panel == nullptr) {
-                    auto& created = overlay.add_panel(deren::utility::vessel::string{title});
-                    created.set_open(true);
-                    context.ui_panel = &created;
-                    context.ui_panel_title.assign(title);
+                window.submitted = true;
+                if (!window.panel->open()) {
+                    return false;
                 }
+                context.ui_panel = window.panel;
                 {
                     // A zero side means "the project's `[gui]` size", so a game can size one axis only.
                     auto const panel_width = width > 0.0F ? width : context.ui_default_width;
@@ -1312,6 +1307,7 @@ namespace deren::app {
                     return false;
                 }
                 context.ui_panel_open = false;
+                context.ui_panel = nullptr;
                 return true;
             };
             auto ui_text = +[](void* opaque, std::string_view text) -> bool {
@@ -1591,8 +1587,21 @@ namespace deren::app {
                                  ? capture.animation_seconds_per_frame
                                  : static_cast<float>(std::min(frame_clock.delta_seconds(), 0.25));
             // the managed game drives the scene here: node transforms, spawns, script ticks
-            if (auto const input_frame = action_state.begin_frame(); input_frame.has_value() && !script_scene.update(dt, *input_frame)) {
-                return 2;
+            if (auto const input_frame = action_state.begin_frame(); input_frame.has_value()) {
+                if (!script_scene.update(dt, *input_frame)) {
+                    return 2;
+                }
+                for (auto it = managed_binding.ui_windows.begin(); it != managed_binding.ui_windows.end();) {
+                    if (!it->second.submitted) {
+                        runtime.debug_gui().remove_panel(*it->second.panel);
+                        it = managed_binding.ui_windows.erase(it);
+                    } else {
+                        it->second.submitted = false;
+                        ++it;
+                    }
+                }
+                managed_binding.ui_panel = nullptr;
+                managed_binding.ui_panel_open = false;
             }
             // A managed environment change is applied between frames: preparing the IBL is CPU work
             // and set_ibl waits for the GPU, so neither may run inside the managed callback. The

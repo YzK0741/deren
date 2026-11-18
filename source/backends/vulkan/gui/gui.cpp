@@ -146,7 +146,8 @@ namespace deren::vulkan::gui {
         // them out in a row instead: 400 px covers the default 380 px panel plus a readable gap.
         std::uint32_t const slot = this->panel_registrations++;
         if (slot > 0) {
-            panel->set_default_position(60.0f + 400.0f * static_cast<float>(slot), 60.0f);
+            panel->set_default_position(60.0f + 400.0f * static_cast<float>(slot),
+                                        60.0f + 32.0f * static_cast<float>((slot - 1) % 4));
         }
         this->panels.push_back(std::move(panel));
         return *this->panels.back();
@@ -253,14 +254,20 @@ namespace deren::vulkan::gui {
     }
 
     void debug_panel::draw() {
+        auto const* viewport = ImGui::GetMainViewport();
+        float const width = this->default_width > 0.0f
+                                ? std::min(this->default_width, viewport->WorkSize.x)
+                                : 0.0f;
         if (this->has_default_position) {
-            ImGui::SetNextWindowPos(ImVec2(this->default_x, this->default_y), ImGuiCond_FirstUseEver);
+            float const x = std::clamp(this->default_x, 0.0f, std::max(0.0f, viewport->WorkSize.x - std::max(width, 120.0f)));
+            float const y = std::clamp(this->default_y, 0.0f, std::max(0.0f, viewport->WorkSize.y - 80.0f));
+            ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + x, viewport->WorkPos.y + y), ImGuiCond_FirstUseEver);
         }
         // A ZERO AXIS MEANS AUTO-FIT (ImGui's own convention), so a caller can pin the width and let the
         // height follow the content - what a panel rebuilt every frame needs, since its row count is the
         // game's. Both axes zero keeps the panel entirely content-sized.
         if (this->default_width > 0.0f || this->default_height > 0.0f) {
-            ImGui::SetNextWindowSize(ImVec2(this->default_width, this->default_height), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(width, this->default_height), ImGuiCond_FirstUseEver);
         }
         if (!ImGui::Begin(this->title.c_str(), &this->is_open)) {
             ImGui::End();
@@ -370,9 +377,11 @@ namespace deren::vulkan::gui {
         if (ImGui::BeginCombo(this->label.c_str(), this->items[static_cast<std::size_t>(*this->current_item)].c_str())) {
             for (std::int32_t i = 0; i < static_cast<std::int32_t>(this->items.size()); ++i) {
                 bool const selected = i == *this->current_item;
+                ImGui::PushID(i);
                 if (ImGui::Selectable(this->items[static_cast<std::size_t>(i)].c_str(), selected)) {
                     *this->current_item = i;
                 }
+                ImGui::PopID();
             }
             ImGui::EndCombo();
         }

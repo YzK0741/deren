@@ -42,24 +42,9 @@ namespace game {
         private static string? requested_probe;
         private static uint requested_probe_size = 256;
         private static vector_3 requested_probe_position;
-        // THE DEBUG PANEL IS THE GAME'S OWN WIDGETS, drawn by the host: this demo binds a handful of
-        // runtime knobs so the panel proves the round trip (widget -> cell -> game -> runtime -> picture).
-        // The cells live in unmanaged memory because the overlay reads them after update() returns.
-        private static readonly ui_value exposure_cell = new(0.92f);
-        private static readonly ui_value sun_cell = new(0.0f, 0.25f, 1.0f);
-        private static readonly ui_value bloom_cell = new(false);
-        private static readonly ui_value fxaa_cell = new(true);
-        private static readonly ui_value tone_cell = new(1);
-        private static readonly ui_value shot_cell = new(false);
-        private static readonly string[] tone_names = ["linear", "reinhard", "aces"];
+        private demo_debug_windows? debug_windows;
+        private node_id initially_hidden;
         private bool input_registered;
-        private float last_exposure = 0.92f;
-        private float last_sun_x;
-        private float last_sun_y = 0.25f;
-        private float last_sun_z = 1.0f;
-        private bool last_bloom;
-        private bool last_fxaa = true;
-        private int tone_applied = 1;
         private bool left_down;
         private float orbit_dx;
         private static bool input_reported;
@@ -254,6 +239,7 @@ namespace game {
                     if (!tree.try_set_visible(spawned, false)) {
                         throw new InvalidOperationException("cannot hide the spawn root");
                     }
+                    initially_hidden = spawned;
                     attach(new move_helmet(), left);
                     attach(new spin_helmet(), right);
                 } finally {
@@ -501,9 +487,7 @@ namespace game {
             }
         }
 
-        /// Rebuilt every frame: the overlay draws the panel after this returns, so the widget list is the
-        /// game's description of the CURRENT state, never a cached one.
-        private void build_panel() {
+        private void update_debug_windows(float delta_time) {
             if (!input_registered) {
                 input_registered = true;
                 // ONE HANDLER FOR THE WHOLE WINDOW STREAM. The host reports what the window produced and
@@ -520,49 +504,10 @@ namespace game {
                 pose.try_apply();
                 orbit_dx = 0.0f;
             }
-            // The project sizes the panel (`[gui] panel_width`, auto height); the game only names it.
-            if (!debug_ui.begin_panel("deren demo")) {
-                return;
+            if (debug_ui.available && tree != null) {
+                debug_windows ??= new demo_debug_windows(initially_hidden);
+                debug_windows.update(tree, delta_time);
             }
-            debug_ui.text(debug_ui.wants_mouse() ? "pointer: panel" : "pointer: scene");
-            // A knob is only written when it disagrees with its cell, so a drag costs one call per frame
-            // of movement instead of one call per frame of the session.
-            if (exposure_cell.number != last_exposure) {
-                last_exposure = exposure_cell.number;
-                post_processing.try_set_exposure(last_exposure);
-            }
-            debug_ui.slider("exposure", exposure_cell, 0.05f, 4.0f);
-            if (bloom_cell.flag != last_bloom) {
-                last_bloom = bloom_cell.flag;
-                post_processing.try_set_bloom(last_bloom ? 0.6f : 0.0f, 0.75f);
-            }
-            debug_ui.checkbox("bloom", bloom_cell);
-            if (fxaa_cell.flag != last_fxaa) {
-                last_fxaa = fxaa_cell.flag;
-                post_processing.try_set_fxaa(last_fxaa);
-            }
-            debug_ui.checkbox("fxaa", fxaa_cell);
-            if (sun_cell.vector.x != last_sun_x || sun_cell.vector.y != last_sun_y || sun_cell.vector.z != last_sun_z) {
-                last_sun_x = sun_cell.vector.x;
-                last_sun_y = sun_cell.vector.y;
-                last_sun_z = sun_cell.vector.z;
-                scene_lighting.try_set_sun_direction(sun_cell.vector);
-            }
-            debug_ui.vec3("sun direction", sun_cell, 0.02f);
-            if (debug_ui.combo("tone mapping", tone_names, tone_cell) && tone_cell.selected != tone_applied) {
-                tone_applied = tone_cell.selected;
-                post_processing.try_set_tone_mapping(tone_applied);
-            }
-            // A BUTTON IS A ONE-SHOT: the cell is set while the overlay draws, and read on the next update.
-            debug_ui.button("capture screenshot", shot_cell);
-            if (shot_cell.flag) {
-                shot_cell.clear();
-                if (!screen_snapshot.try_request()) {
-                    managed_bootstrap.core.write_log(
-                        System.Text.Encoding.UTF8.GetBytes("Game: screenshot request rejected"));
-                }
-            }
-            debug_ui.end_panel();
         }
 
         /// Every window event, on the render thread. This demo orbits the camera while the left button is
@@ -755,7 +700,7 @@ namespace game {
             if (!instance.camera_checked && orbit_camera.try_get(out var pose)) {
                 instance.camera_checked = pose.try_apply();
             }
-            instance.build_panel();
+            instance.update_debug_windows(frame->delta_time);
             if (frame->input == null) {
                 return script_status.success;
             }
@@ -797,6 +742,8 @@ namespace game {
         }
 
         private void cleanup() {
+            debug_windows?.Dispose();
+            debug_windows = null;
             scripts.Clear();
             if (tree != null) {
                 tree.detach();
