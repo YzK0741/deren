@@ -188,7 +188,8 @@ namespace deren::engine::pass {
         // frame's recorded commands are identical to a sequential one's.
         deren::utility::vessel::vector<std::function<void()>> tasks;
         tasks.reserve(layers);
-        deren::utility::vessel::vector<bool> recorded(layers, false);
+        // Workers write different elements. Packed bits would share a storage word.
+        deren::utility::vessel::vector<std::uint8_t> recorded(layers, 0u);
         for (std::uint32_t cascade = 0; cascade < layers; ++cascade) {
             tasks.emplace_back([this, cascade, pipeline, mesh_stage, meshlets, &recorded] {
                 // THE CASCADE'S SECONDARY IS A CONTRACT HANDLE NOW (abi 20), REFERENCED from the frame: the

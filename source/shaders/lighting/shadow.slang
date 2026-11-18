@@ -178,10 +178,9 @@ shadow_vertex_output shadow_shade_vertex(const MeshVertex v, const uint vertex_i
 // triangles the draw's index window describes - and it was accepted on the gate being byte-identical BEFORE
 // the vertex entry was removed, which is what makes the removal a removal.
 //
-// IT WAS BUILT TO BE MEASURED, NOT TO BE FASTER: one workgroup emits up to 85 triangles with 1 invocation
-// doing the work, which is strictly worse than the vertex path was. What it established is the two facts a
-// meshlet path (step 3) is built on: that this renderer can feed geometry to a mesh stage at all, and how
-// much of a draw one workgroup's output budget covers.
+// Each workgroup emits up to 85 triangles. Its 64 lanes transform separate output vertices in parallel,
+// then write separate triangle indices. The output order matches the indexed geometry, and every lane
+// reaches SetMeshOutputCounts with the same counts before writing any output.
 //
 // `group_id.y` IS THE INSTANCE COUNT: vkCmdDrawMeshTasksEXT has no instanceCount and a mesh stage has no
 // SV_InstanceID, so the host dispatches (triangle groups, instance_count, 1) and the instanced draw this
@@ -190,8 +189,8 @@ shadow_vertex_output shadow_shade_vertex(const MeshVertex v, const uint vertex_i
 // =============================================================================================================
 [shader("mesh")]
 [outputtopology("triangle")]
-[numthreads(1, 1, 1)]
-void mesh_main(out vertices shadow_vertex_output verts[mesh_vertices_per_workgroup], out indices uint3 tris[mesh_triangles_per_workgroup], uint3 group_id : SV_GroupID)
+[numthreads(64, 1, 1)]
+void mesh_main(out vertices shadow_vertex_output verts[mesh_vertices_per_workgroup], out indices uint3 tris[mesh_triangles_per_workgroup], uint3 group_id : SV_GroupID, uint thread_index : SV_GroupIndex)
 {
     const MeshGeometryLanes geometry = push.geometry;
     const uint triangle_count = geometry.index_count / mesh_indices_per_triangle;
@@ -203,18 +202,18 @@ void mesh_main(out vertices shadow_vertex_output verts[mesh_vertices_per_workgro
     // ONE SetMeshOutputCounts for the whole workgroup, before any output is written.
     SetMeshOutputCounts(emit * mesh_indices_per_triangle, emit);
 
-    for (uint t = 0u; t < emit; ++t)
+    // Each lane shades independent output vertices and writes independent triangle indices.
+    for (uint vertex = thread_index; vertex < emit * mesh_indices_per_triangle; vertex += 64u)
     {
-        for (uint corner = 0u; corner < mesh_indices_per_triangle; ++corner)
-        {
-            // the triangle's corner vertex, exactly as the input assembler would have assembled it: the
-            // index at (first_index + triangle * 3 + corner), plus the draw's base vertex
-            const uint raw_index = mesh_index_at(geometry, geometry.first_index + (first_triangle + t) * mesh_indices_per_triangle + corner);
-            const uint vertex_index = uint(int(raw_index) + geometry.base_vertex);
-            const MeshVertex v = mesh_vertex_at(geometry, vertex_index);
-            verts[t * mesh_indices_per_triangle + corner] = shadow_shade_vertex(v, vertex_index, group_id.y);
-        }
-        tris[t] = uint3(t * mesh_indices_per_triangle + 0u, t * mesh_indices_per_triangle + 1u, t * mesh_indices_per_triangle + 2u);
+        const uint raw_index = mesh_index_at(geometry, geometry.first_index + first_triangle * mesh_indices_per_triangle + vertex);
+        const uint vertex_index = uint(int(raw_index) + geometry.base_vertex);
+        const MeshVertex v = mesh_vertex_at(geometry, vertex_index);
+        verts[vertex] = shadow_shade_vertex(v, vertex_index, group_id.y);
+    }
+    for (uint triangle = thread_index; triangle < emit; triangle += 64u)
+    {
+        const uint first_vertex = triangle * mesh_indices_per_triangle;
+        tris[triangle] = uint3(first_vertex, first_vertex + 1u, first_vertex + 2u);
     }
 }
 
@@ -237,14 +236,17 @@ void mesh_main(out vertices shadow_vertex_output verts[mesh_vertices_per_workgro
 // =============================================================================================================
 [shader("mesh")]
 [outputtopology("triangle")]
-[numthreads(1, 1, 1)]
-void meshlet_main(out vertices shadow_vertex_output verts[mesh_vertices_per_workgroup], out indices uint3 tris[mesh_triangles_per_workgroup], uint3 group_id : SV_GroupID)
+[numthreads(64, 1, 1)]
+void meshlet_main(out vertices shadow_vertex_output verts[mesh_vertices_per_workgroup], out indices uint3 tris[mesh_triangles_per_workgroup], uint3 group_id : SV_GroupID, uint thread_index : SV_GroupIndex)
 {
     const MeshGeometryLanes geometry = push.geometry;
     const MeshletRecord meshlet = meshlet_at(geometry.first_index + group_id.x);
     // ONE ATOMIC PER WORKGROUP: the shadow pass and the G-buffer share the counters, so the totals below are the
     // session's and the doc quotes them per pass where it can (docs/mesh_shaders.md step 3's measurement)
-    mesh_stat_add(push.frame_slot, mesh_stat_workgroups, 1u);
+    if (thread_index == 0u)
+    {
+        mesh_stat_add(push.frame_slot, mesh_stat_workgroups, 1u);
+    }
 
     // ---- PER-MESHLET CULLING, and it happens HERE rather than in a task stage (docs/mesh_shaders.md step 3) ----
     // A task stage cannot be given push data on this Slang, so the culling lives in the stage that can read the
@@ -269,7 +271,10 @@ void meshlet_main(out vertices shadow_vertex_output verts[mesh_vertices_per_work
     const float radius = meshlet.radius * matrix_max_axis_scale(world) * matrix_max_axis_scale(light);
     if (!deforming && !clip_sphere_visible(clip, radius))
     {
-        mesh_stat_add(push.frame_slot, mesh_stat_culled, 1u);
+        if (thread_index == 0u)
+        {
+            mesh_stat_add(push.frame_slot, mesh_stat_culled, 1u);
+        }
         SetMeshOutputCounts(0u, 0u); // culled: no vertices, no triangles, nothing rasterized
         return;
     }
@@ -277,18 +282,22 @@ void meshlet_main(out vertices shadow_vertex_output verts[mesh_vertices_per_work
     const uint triangle_count = min(meshlet.index_count, mesh_triangles_per_workgroup * mesh_indices_per_triangle) / mesh_indices_per_triangle;
 
     SetMeshOutputCounts(triangle_count * mesh_indices_per_triangle, triangle_count);
-    mesh_stat_add(push.frame_slot, mesh_stat_emitted, 1u);
-    mesh_stat_add(push.frame_slot, mesh_stat_triangles, triangle_count);
-
-    for (uint t = 0u; t < triangle_count; ++t)
+    if (thread_index == 0u)
     {
-        for (uint corner = 0u; corner < mesh_indices_per_triangle; ++corner)
-        {
-            const uint raw_index = mesh_index_at(geometry, meshlet.first_index + t * mesh_indices_per_triangle + corner);
-            const uint vertex_index = uint(int(raw_index) + meshlet.base_vertex);
-            const MeshVertex v = mesh_vertex_at(geometry, vertex_index);
-            verts[t * mesh_indices_per_triangle + corner] = shadow_shade_vertex(v, vertex_index, group_id.y);
-        }
-        tris[t] = uint3(t * mesh_indices_per_triangle + 0u, t * mesh_indices_per_triangle + 1u, t * mesh_indices_per_triangle + 2u);
+        mesh_stat_add(push.frame_slot, mesh_stat_emitted, 1u);
+        mesh_stat_add(push.frame_slot, mesh_stat_triangles, triangle_count);
+    }
+
+    for (uint vertex = thread_index; vertex < triangle_count * mesh_indices_per_triangle; vertex += 64u)
+    {
+        const uint raw_index = mesh_index_at(geometry, meshlet.first_index + vertex);
+        const uint vertex_index = uint(int(raw_index) + meshlet.base_vertex);
+        const MeshVertex v = mesh_vertex_at(geometry, vertex_index);
+        verts[vertex] = shadow_shade_vertex(v, vertex_index, group_id.y);
+    }
+    for (uint triangle = thread_index; triangle < triangle_count; triangle += 64u)
+    {
+        const uint first_vertex = triangle * mesh_indices_per_triangle;
+        tris[triangle] = uint3(first_vertex, first_vertex + 1u, first_vertex + 2u);
     }
 }

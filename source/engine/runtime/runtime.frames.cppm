@@ -908,6 +908,65 @@ namespace deren::engine {
         return fold(fold(signature, this->skin_matrix_hash), this->morph_revision.load(std::memory_order_relaxed));
     }
 
+    void runtime::prepare_shadow_cascade_casters() {
+        uint32_t const cascades = std::clamp(this->shadow_cascades, 1u, deren::engine::max_shadow_cascades);
+        deren::utility::vessel::array<deren::utility::frustum, deren::engine::max_shadow_cascades> light_frusta = {};
+        bool const can_cull = this->frustum_culling && this->light_state != nullptr;
+        for (uint32_t cascade = 0; cascade < cascades; ++cascade) {
+            auto& casters = this->shadow_cascade_casters[cascade];
+            casters.clear();
+            casters.reserve(this->shadow_casters.size());
+            if (can_cull) {
+                light_frusta[cascade] = deren::utility::make_frustum(this->light_state->light_view_proj[cascade]);
+                for (glm::vec4& plane : light_frusta[cascade].planes) {
+                    if (!std::isfinite(plane.x) || !std::isfinite(plane.y) || !std::isfinite(plane.z) || !std::isfinite(plane.w)) {
+                        // Treat an invalid plane as open so it cannot reject a caster.
+                        plane = glm::vec4(0.0f);
+                    }
+                }
+            }
+        }
+
+        std::size_t candidates = 0;
+        for (primitive const* const caster : this->shadow_casters) {
+            // Keep alpha-cutout leaves. The depth-only pass cannot blend transparent leaves.
+            if (caster->transparent) {
+                continue;
+            }
+            ++candidates;
+            // Bind-pose bounds cannot cover animated vertices. Instanced geometry may have no single bound.
+            bool test_bounds = can_cull && caster->has_bounds && !caster->deforming();
+            glm::vec3 min = {};
+            glm::vec3 max = {};
+            if (test_bounds) {
+                auto const [world_min, world_max] = caster->world_aabb();
+                test_bounds = glm::all(glm::lessThanEqual(world_min, world_max)) &&
+                              std::isfinite(world_min.x) && std::isfinite(world_min.y) && std::isfinite(world_min.z) &&
+                              std::isfinite(world_max.x) && std::isfinite(world_max.y) && std::isfinite(world_max.z);
+                if (test_bounds) {
+                    // Leave room for roundoff between the CPU AABB and the shader projection.
+                    glm::vec3 const pad = glm::vec3(0.001f) +
+                                          glm::max(glm::abs(world_min), glm::abs(world_max)) * (8.0f * std::numeric_limits<float>::epsilon());
+                    min = world_min - pad;
+                    max = world_max + pad;
+                }
+            }
+            for (uint32_t cascade = 0; cascade < cascades; ++cascade) {
+                if (!test_bounds || light_frusta[cascade].in(min, max)) {
+                    this->shadow_cascade_casters[cascade].push_back(caster);
+                }
+            }
+        }
+
+        if (this->gpu_timings_enabled) {
+            ++this->shadow_caster_sample_frames;
+            this->shadow_caster_candidate_total += candidates;
+            for (uint32_t cascade = 0; cascade < cascades; ++cascade) {
+                this->shadow_caster_submitted_total[cascade] += this->shadow_cascade_casters[cascade].size();
+            }
+        }
+    }
+
     void runtime::prepare_scene_recording() {
         deren::engine::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::engine::profiling::cpu_phase::prepare};
         if (!this->frame_command_buffer()) {
@@ -931,6 +990,9 @@ namespace deren::engine {
         this->graph_shadow_frame = this->main_graph_frame && features.shadow && !shadow_reuse && this->shadow_allocated_layers != 0 &&
                                    this->shadow_pass[0] != nullptr && frame_slot < this->shadow_images.size() &&
                                    static_cast<bool>(this->shadow_images[frame_slot]);
+        if (this->graph_shadow_frame) {
+            this->prepare_shadow_cascade_casters();
+        }
         // THE TAA RESOLVE'S LANES: reachable once the eligibility predicate lets a TAA frame through (that flip is
         // the next step); the resolve and its history copy are two graph passes because the model allows one
         // access per resource per pass, and the history's cross-frame state rides taa_history_in_transfer_state.
@@ -1090,11 +1152,7 @@ namespace deren::engine {
                 // shadow map is single-sampled; viewMask 0 = no multiview. The rendering
                 // inheritance struct hangs off VkCommandBufferInheritanceInfo::pNext (NOT the
                 // begin-info pNext), and a secondary buffer must always provide inheritance info.
-                // One secondary PER CASCADE: the caster content is identical, but each cascade pushes
-                // its index (a secondary records that itself - state is not inherited from the
-                // primary), and a buffer without SIMULTANEOUS_USE may not be executed twice in one
-                // primary anyway. The content is only the leaves/pipelines; the per-cascade difference
-                // is that single push.
+                // Each cascade records its own caster list and pushes its light matrix index in its secondary.
                 // ---- THE SHADOW PASS RECORDS IT (deren.engine.pass.shadow) ----
                 // What stays HERE is what the pass cannot know: the reuse test above (which is why this whole block
                 // is inside it), the map's image and its layer count (the hand-back below covers every
@@ -1203,7 +1261,7 @@ namespace deren::engine {
         // THE SESSION'S BUFFER IS THE CASCADE'S SECONDARY, handed over as a plain view: the runtime keeps
         // those buffers (`shadow_recording`) and this callback only records into one of them for the duration of the
         // call, so nothing is released here.
-        self->record_shadow_content(recording_target(secondary), pipeline, mesh_stage, meshlets);
+        self->record_shadow_content(recording_target(secondary), cascade_index, pipeline, mesh_stage, meshlets);
         // THE END IS THE CONTRACT'S MATCHING HALF, and it is checked: `end_recording()` on this buffer is the
         // contract's verb (the buffer is SUPPLIED BY THE CALLER, unlike the frame's), and a failed end means the
         // secondary is not executable - which is a cascade this frame must not execute (that is a VUID), so
@@ -1342,7 +1400,7 @@ namespace deren::engine {
     // scene casts shadows). Pure bind/push/draw commands - the caller supplies the barriers and
     // the depth-only rendering instance around it. Recorded inline today; stage 2 records the
     // same content into a per-slot secondary command buffer for parallel pass recording.
-    void runtime::record_shadow_content(recording_target secondary, deren::promise::rhi::pipeline* const pipeline, bool const mesh_stage, bool const meshlets) const {
+    void runtime::record_shadow_content(recording_target secondary, uint32_t const cascade_index, deren::promise::rhi::pipeline* const pipeline, bool const mesh_stage, bool const meshlets) const {
         // THE SESSION'S BUFFER IS THE CONTRACT HANDLE (abi 20/21), and here it is the CASCADE'S secondary: the
         // shadow pass hands this callback that buffer and everything this session records goes into it - which is
         // why the handle has to be the same object the pass began and will execute. THE PIPELINE IS THE CONTRACT
@@ -1434,31 +1492,9 @@ namespace deren::engine {
             // counts live in a command table at the primitive's slot, which is what a compute culling pass
             // will rewrite. The casters' form decides whether it is used, which is why it is set for both.
             env.draw_mesh_tasks_indirect = &runtime::draw_mesh_tasks_indirect;
-            // ONE LINE, ONCE, SAYING HOW THE CASTERS ARE FED - because a mesh stage produces the SAME picture as
-            // the vertex stage by construction, so "which one drew this frame" is deliberately invisible in the
-            // output and must not be inferred from it. (Measured both ways: the capture gate is byte-identical
-            // with either pipeline, and forcing the mesh entry to emit nothing changes it - see
-            // docs/mesh_shaders.md step 1.)
-            static bool logged = false;
-            if (!logged) {
-                logged = true;
-                deren::utility::log("shadow: the casters are DISPATCHED (mesh stage) - {} casters, {} triangles per workgroup",
-                                    this->shadow_casters.size(),
-                                    85u);
-            }
         }
-        // draw only the casters that can throw a shadow into the camera frustum (see
-        // shadow_casters in begin_recording); the whole scene only when culling is disabled.
-        // BLEND (transparent) leaves are skipped: a depth-only pass has no sensible way to blend
-        // an alpha-blended shadow, so "no shadow" stays the correct fallback. MASK leaves ARE
-        // drawn - shadow.frag runs the same alpha-cutoff discard as pbr.frag, on the same texture
-        // array and material record, so a cut-out caster (foliage, a curtain) casts a cut-out
-        // shadow instead of a solid one or, as before, none at all.
-        for (primitive const* m : this->shadow_casters) {
-            if (m->transparent) {
-                continue;
-            }
-            m->draw(env); // depth-only: shadow.vert transforms into light space
+        for (primitive const* const caster : this->shadow_cascade_casters[cascade_index]) {
+            caster->draw(env);
         }
     }
 

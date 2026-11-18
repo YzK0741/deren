@@ -2242,6 +2242,11 @@ namespace deren::engine {
         // drawn as a caster would put the character inside a shadow it casts on itself, and the ground disc
         // has nothing to cast onto that the frame can see. It is filtered where the list is built.
         deren::utility::vessel::vector<primitive const*> shadow_casters = {};
+        // Built before the shadow recording tasks start and read only by their respective tasks.
+        deren::utility::vessel::array<deren::utility::vessel::vector<primitive const*>, deren::engine::max_shadow_cascades> shadow_cascade_casters = {};
+        std::uint64_t shadow_caster_sample_frames = 0;
+        std::uint64_t shadow_caster_candidate_total = 0;
+        deren::utility::vessel::array<std::uint64_t, deren::engine::max_shadow_cascades> shadow_caster_submitted_total = {};
         /**
          * THE RAY-TRACING GEOMETRY SET: every mesh leaf the BLAS/TLAS may contain, independent of raster
          * culling and of `primitive::casts_shadow`. The two RT visibility flags are applied as the TLAS
@@ -3464,7 +3469,8 @@ namespace deren::engine {
         static void run_shadow_tasks(void* parent, std::span<std::function<void()>> tasks);
         /// @brief record the casters of one cascade, with either pipeline: @p mesh_stage says whether they are
         ///        DISPATCHED (the mesh form, see docs/mesh_shaders.md step 1) or drawn with the input assembler
-        void record_shadow_content(::deren::engine::recording_target secondary, rhi::pipeline* pipeline, bool mesh_stage, bool meshlets) const;
+        void prepare_shadow_cascade_casters();
+        void record_shadow_content(::deren::engine::recording_target secondary, std::uint32_t cascade_index, rhi::pipeline* pipeline, bool mesh_stage, bool meshlets) const;
 
         /**
          * @ingroup runtime
