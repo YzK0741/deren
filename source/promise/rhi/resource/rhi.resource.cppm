@@ -211,7 +211,10 @@ export namespace deren::promise::rhi {
                                               r32g32b32_sfloat = 7,     ///< three 32-bit float channels
                                               depth = 0x7FFFFFFFu,      ///< ROLE: a depth attachment the backend shapes
                                               r16_sfloat = 0x80000000u, ///< APPENDED: one half-float channel (ray-traced visibility)
-                                              r32_uint = 0x80000001u,   ///< APPENDED: one 32-bit unsigned channel (visibility buffer)
+                                              bc5_unorm = 0x80000004u,
+                                              bc7_unorm = 0x80000002u,
+                                              bc7_srgb = 0x80000003u,
+                                              r32_uint = 0x80000001u, ///< APPENDED: one 32-bit unsigned channel (visibility buffer)
     };
 
     /// How many bytes ONE texel of @p format takes in host memory. `unknown` answers 0 (a format the
@@ -239,11 +242,40 @@ export namespace deren::promise::rhi {
             return 2u; // one half-float
         case image_format::r32_uint:
             return 4u; // one 32-bit unsigned word
+        case image_format::bc5_unorm:
+        case image_format::bc7_unorm:
+        case image_format::bc7_srgb:
         case image_format::unknown:
         case image_format::depth:
             break;
         }
         return 0u;
+    }
+
+    struct image_format_layout {
+        std::uint32_t block_width = 1, block_height = 1, bytes_per_block = 0;
+    };
+
+    [[nodiscard]] constexpr image_format_layout format_layout(image_format format) noexcept {
+        if (format == image_format::bc5_unorm || format == image_format::bc7_unorm || format == image_format::bc7_srgb) {
+            return {4, 4, 16};
+        }
+        return {1, 1, bytes_per_pixel(format)};
+    }
+
+    /// Tightly packed bytes of one 2D mip, including the final partial compression blocks.
+    /// Zero means an unsupported format, a zero extent, or overflow.
+    [[nodiscard]] constexpr std::uint64_t image_mip_bytes(image_format format, std::uint32_t width, std::uint32_t height) noexcept {
+        auto const layout = format_layout(format);
+        if (!width || !height || !layout.bytes_per_block) {
+            return 0;
+        }
+        auto const columns = (static_cast<std::uint64_t>(width) + layout.block_width - 1) / layout.block_width;
+        auto const rows = (static_cast<std::uint64_t>(height) + layout.block_height - 1) / layout.block_height;
+        if (columns > std::numeric_limits<std::uint64_t>::max() / rows / layout.bytes_per_block) {
+            return 0;
+        }
+        return columns * rows * layout.bytes_per_block;
     }
 
     // ---- RELEASE: WHAT IT IS, AND WHAT IT IS NOT ---------------------------------------------------

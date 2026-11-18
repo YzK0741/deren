@@ -27,6 +27,7 @@ module deren.engine.runtime:constructor;
 import deren.vstd;
 import deren.utility.shared;
 import deren.engine.visibility.progressive_texture;
+import deren.engine.visibility.texture_cache;
 
 import :declarations;
 import deren.engine.profiling;
@@ -2745,10 +2746,11 @@ namespace deren::engine {
         };
 
         deren::utility::vessel::array<std::uint32_t, 5 + static_cast<std::size_t>(toon_slot::count)> texture_indices = {};
+        bool compressed_normal = false;
         std::uint32_t heap_texture_descriptors = 0; // how many went into the descriptor heap (see the log below)
         for (std::size_t i = 0; i < slots.size(); ++i) {
             texture_input tex = *slots[i].first;
-            auto const texture_format = tex.override_format ? tex.format : slots[i].second;
+            auto texture_format = tex.override_format ? tex.format : slots[i].second;
             // Capture probe for imported single/partial-mip sources. Ordinary sessions leave it unset.
             if (auto* limit_text = std::getenv("DEREN_BENCH_TEXTURE_LEVELS")) {
                 std::string_view const text{limit_text};
@@ -2756,7 +2758,7 @@ namespace deren::engine {
                 auto const parsed = std::from_chars(limit_text, limit_text + text.size(), limit);
                 if (parsed.ec == std::errc{} && parsed.ptr == limit_text + text.size() &&
                     limit > 0 && limit < tex.mip_levels) {
-                    auto range = progressive_texture::mip_range(tex.width, tex.height, limit, 0);
+                    auto range = progressive_texture::mip_range(tex.width, tex.height, limit, 0, texture_format);
                     if (range && range->bytes <= tex.data.size_bytes()) {
                         tex.mip_levels = limit;
                         tex.data = tex.data.first(range->bytes);
@@ -2766,6 +2768,46 @@ namespace deren::engine {
             if (!tex.valid || tex.data.empty()) {
                 texture_indices[i] = this->white_texture_index; // white fallback
                 continue;
+            }
+            // Colour and data slots keep separate content keys and GPU formats.
+            std::shared_ptr<deren::utility::vessel::vector<std::uint8_t> const> compressed_source;
+            bool const albedo = i == 0 && !info.factors.alpha_mask && !info.factors.alpha_blend &&
+                                texture_format == rhi::image_format::rgba8_srgb;
+            bool const data_slot = (i == 1 || i == 2) && texture_format == rhi::image_format::rgba8_unorm;
+            if (info.toon_family == 0 && (albedo || data_slot)) {
+                if (auto const* directory = std::getenv("DEREN_TEXTURE_CACHE"); directory && *directory) {
+                    auto format = albedo ? rhi::image_format::bc7_srgb : (i == 2 ? rhi::image_format::bc5_unorm : rhi::image_format::bc7_unorm);
+                    auto read_cache = [&](rhi::image_format candidate) {
+                        auto const key = texture_cache::source_key(tex.data, tex.width, tex.height, tex.mip_levels, albedo, candidate);
+                        return texture_cache::load(std::filesystem::path(directory) / (key + ".dds"),
+                                                   tex.width, tex.height, tex.mip_levels, albedo, candidate);
+                    };
+                    compressed_source = read_cache(format);
+                    if (!compressed_source && i == 2) {
+                        // Normals with negative Z retain three components in BC7 UNORM.
+                        format = rhi::image_format::bc7_unorm;
+                        compressed_source = read_cache(format);
+                    }
+                    if (compressed_source) {
+                        auto& available = this->compressed_sampled_available[format == rhi::image_format::bc5_unorm ? 0 : (albedo ? 2 : 1)];
+                        if (!available.has_value()) {
+                            rhi::image_desc probe{};
+                            probe.extent = {.width = 4, .height = 4, .depth = 1};
+                            probe.format = format;
+                            probe.flags = rhi::to_bits(rhi::image_flag::sampled);
+                            probe.debug_name = "compressed texture capability probe";
+                            available = static_cast<bool>(this->rhi_face().resources->create_image(probe));
+                        }
+                        if (*available) {
+                            tex.data = *compressed_source;
+                            tex.parent = compressed_source;
+                            texture_format = format;
+                        }
+                    }
+                }
+            }
+            if (i == 2) {
+                compressed_normal = texture_format == rhi::image_format::bc5_unorm;
             }
             // Content-addressed dedup: the loader hands every material its byte copy of a
             // shared glTF image, so identical pixels arrive under different pointers. Hash the
@@ -2809,9 +2851,12 @@ namespace deren::engine {
                 auto low = image_info;
                 auto full_levels = tex.mip_levels ? tex.mip_levels : std::bit_width(std::max(tex.width, tex.height));
                 auto low_mip = progressive_texture::floor_mip(tex.width, tex.height);
+                if (rhi::format_layout(texture_format).block_width > 1) {
+                    low_mip = std::min(low_mip, tex.mip_levels - 1);
+                }
                 std::optional<progressive_texture::fallback_image> reduced;
-                auto suffix = progressive_texture::mip_range(tex.width, tex.height, full_levels, low_mip);
-                if (progressive_mips && suffix) {
+                auto suffix = progressive_texture::mip_range(tex.width, tex.height, full_levels, low_mip, texture_format);
+                if ((progressive_mips || rhi::format_layout(texture_format).block_width > 1) && suffix) {
                     if (suffix->offset + suffix->bytes > tex.data.size_bytes()) {
                         deren::utility::panic("contract violation: invalid source mip suffix");
                     }
@@ -2844,9 +2889,9 @@ namespace deren::engine {
                 if (!entry.description.mip_levels) {
                     entry.description.mip_levels = std::bit_width(std::max(tex.width, tex.height));
                 }
-                entry.fallback_mip = progressive_texture::floor_mip(tex.width, tex.height);
+                entry.fallback_mip = low_mip;
                 entry.resident_mip = entry.fallback_mip;
-                if (progressive_mips && entry.fallback_mip == 0) {
+                if ((progressive_mips || rhi::format_layout(texture_format).block_width > 1) && entry.fallback_mip == 0) {
                     // This low image already contains every original mip; no duplicate upload is needed.
                     entry.pinned = true;
                     entry.high = entry.fallback;
@@ -2895,6 +2940,14 @@ namespace deren::engine {
             // its `size()` - taken before its push - was this index.
             std::uint32_t const index = static_cast<std::uint32_t>(this->scene_texture_views.size() - 1);
             this->texture_slot_cache.emplace(key, index);
+            if (rhi::format_layout(texture_format).block_width > 1) {
+                ++this->compressed_texture_count;
+                auto const original = progressive_texture::mip_range(tex.width, tex.height, tex.mip_levels, 0);
+                this->compressed_source_bytes += original ? original->bytes : 0;
+                this->compressed_payload_bytes += tex.data.size_bytes();
+                deren::utility::log("compressed textures: {} unique, source mip bytes {}, compressed mip bytes {}",
+                                    this->compressed_texture_count, this->compressed_source_bytes, this->compressed_payload_bytes);
+            }
             texture_indices[i] = index;
 
             // A texture is registered ONCE, at scene load, and never rewritten - which is why the texture array is
@@ -3000,7 +3053,7 @@ namespace deren::engine {
         // The toon family the loader classified this material's name into (0 == none). It rides the record's
         // fourth uint lane, which the std430 layout had already reserved as padding - see material_record.
         record.toon_family = info.toon_family;
-        record.flags = 0;
+        record.flags = compressed_normal ? 8192u : 0u; // bit13: BC5 tangent-space normal
         // bit12: this material opted into the traced-reflection whitelist at import. The gate itself lives
         // where the name still exists (see `runtime::rt_reflection_material_matches`); the record only carries
         // the answer to the per-pixel stages.

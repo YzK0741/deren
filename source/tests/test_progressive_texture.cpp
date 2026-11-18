@@ -6,6 +6,7 @@
 #include <vector>
 
 import deren.engine.visibility.progressive_texture;
+import deren.engine.visibility.texture_cache;
 
 int main() {
     namespace p = deren::engine::progressive_texture;
@@ -46,6 +47,52 @@ int main() {
     CHECK(!p::can_start(40, 60, 2, 100, 2));
     CHECK(!p::can_start(std::numeric_limits<std::uint64_t>::max(), 1, 0, 100, 2));
     // Mip suffixes must upload existing bytes without re-filtering or losing odd source edges.
+    namespace rhi = deren::promise::rhi;
+    CHECK(rhi::bytes_per_pixel(rhi::image_format::bc7_srgb) == 0);
+    CHECK(rhi::image_mip_bytes(rhi::image_format::bc7_srgb, 5, 7) == 64);
+    CHECK(rhi::image_mip_bytes(rhi::image_format::bc7_unorm, 1, 1) == 16);
+    CHECK(rhi::image_mip_bytes(rhi::image_format::unknown, 4, 4) == 0);
+    CHECK(rhi::image_mip_bytes(rhi::image_format::rgba8_unorm, UINT32_MAX, UINT32_MAX) == 0);
+    auto bc7 = p::mip_range(9, 8, 4, 1, rhi::image_format::bc7_srgb);
+    CHECK(bc7 && bc7->offset == 96 && bc7->bytes == 48 && bc7->width == 4);
+    CHECK(p::tier_bytes(9, 8, 4, 0, rhi::image_format::bc7_srgb) == 144);
+    CHECK(!p::tier_bytes(9, 8, 1, 1, rhi::image_format::bc7_srgb));
+    namespace cache = deren::engine::texture_cache;
+    CHECK(rhi::image_mip_bytes(rhi::image_format::bc5_unorm, 5, 7) == 64);
+    CHECK(cache::normal_bc5_compatible(std::array<std::uint8_t, 4>{128, 128, 255, 255}));
+    CHECK(!cache::normal_bc5_compatible(std::array<std::uint8_t, 4>{128, 128, 127, 255}));
+    CHECK(!cache::normal_bc5_compatible({}));
+    std::vector<std::uint8_t> dds(148 + 16);
+    auto put = [&](std::size_t at, std::uint32_t value) {
+        for (unsigned byte = 0; byte < 4; ++byte) {
+            dds[at + byte] = static_cast<std::uint8_t>(value >> (8 * byte));
+        }
+    };
+    put(0, 0x20534444u);
+    put(4, 124);
+    put(12, 1);
+    put(16, 1);
+    put(28, 1);
+    put(76, 32);
+    put(80, 4);
+    put(84, 0x30315844u);
+    put(128, 99);
+    put(132, 3);
+    put(140, 1);
+    CHECK(cache::valid_dds(dds, 1, 1, 1, true));
+    CHECK(!cache::valid_dds(dds, 1, 1, 1, false));
+    put(128, 83);
+    CHECK(cache::valid_dds(dds, 1, 1, 1, false, rhi::image_format::bc5_unorm));
+    CHECK(!cache::valid_dds(dds, 1, 1, 1, false));
+    put(128, 99);
+    put(140, 2);
+    CHECK(!cache::valid_dds(dds, 1, 1, 1, true));
+    put(140, 1);
+    dds.pop_back();
+    CHECK(!cache::valid_dds(dds, 1, 1, 1, true));
+    CHECK(!cache::valid_dds({}, 1, 1, 1, true));
+    std::array<p::mip_candidate, 1> compressed_budget{{{.width = 8, .height = 8, .levels = 4, .floor = 3, .target = 0, .resident = 3, .last_used = 1, .wanted = true, .format = rhi::image_format::bc7_srgb}}};
+    CHECK(p::select_mips(compressed_budget, 1, 112, 0)[0] == 0);
     auto suffix = p::mip_range(9, 8, 4, 1);
     CHECK(suffix && suffix->width == 4 && suffix->height == 4 && suffix->levels == 3);
     CHECK(suffix && suffix->offset == 288 && suffix->bytes == 84);

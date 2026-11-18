@@ -478,6 +478,18 @@ namespace deren::engine {
         }
         report += deren::utility::vessel::format(" total {:.2f} ms", total);
         deren::utility::log("{}", report);
+        if (this->shadow_caster_sample_frames != 0) {
+            double const frames = static_cast<double>(this->shadow_caster_sample_frames);
+            report = deren::utility::vessel::format("shadow caster leaves (avg of {} prepared frames, submitted/candidates):",
+                                                    this->shadow_caster_sample_frames);
+            uint32_t const cascades = std::clamp(this->shadow_cascades, 1u, deren::engine::max_shadow_cascades);
+            for (uint32_t cascade = 0; cascade < cascades; ++cascade) {
+                report += deren::utility::vessel::format(" cascade {} {:.1f}/{:.1f} |", cascade + 1,
+                                                         static_cast<double>(this->shadow_caster_submitted_total[cascade]) / frames,
+                                                         static_cast<double>(this->shadow_caster_candidate_total) / frames);
+            }
+            deren::utility::log("{}", report);
+        }
     }
 
     bool runtime::enable_debug_gui() {

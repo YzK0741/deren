@@ -315,6 +315,7 @@ namespace deren::engine {
                 resident,
                 entry.last_used,
                 visible,
+                desc.format,
             };
             if (entry.failed) {
                 ++failures;
@@ -358,7 +359,7 @@ namespace deren::engine {
                              ? std::max(selected_mips[i], entry.resident_mip ? entry.resident_mip - 1 : 0)
                              : 0;
             auto const& original = entry.description;
-            auto bytes = progressive_texture::tier_bytes(original.extent.width, original.extent.height, original.mip_levels, first);
+            auto bytes = progressive_texture::tier_bytes(original.extent.width, original.extent.height, original.mip_levels, first, original.format);
             auto upload_budget = texture_streaming.restore_pending && jobs == 0 ? std::max(progressive_upload_budget, bytes) : progressive_upload_budget;
             if (!progressive_texture::can_start(bytes, pending_bytes, jobs, upload_budget, progressive_max_jobs)) {
                 continue;
@@ -369,7 +370,7 @@ namespace deren::engine {
             entry.upload_mip = first;
             entry.upload_bytes = bytes;
             entry.upload = std::async(std::launch::async, [factory, description, source, first]() mutable {
-                if (auto suffix = progressive_texture::mip_range(description.extent.width, description.extent.height, description.mip_levels, first)) {
+                if (auto suffix = progressive_texture::mip_range(description.extent.width, description.extent.height, description.mip_levels, first, description.format)) {
                     if (suffix->offset + suffix->bytes > source->size()) {
                         return rhi::shared_object<rhi::image>{};
                     }

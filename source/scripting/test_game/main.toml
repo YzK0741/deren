@@ -18,6 +18,9 @@ fxaa = true
 # the demo's own sun, bloom on, ssao on).
 character_forward = true
 game_toon = true
+# A single cascade covers the character preview.
+shadow_cascades = 1
+shadow_map_size = 2048
 exposure = 0.92
 tone_mapping = 1
 
