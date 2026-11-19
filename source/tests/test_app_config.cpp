@@ -43,7 +43,8 @@ namespace {
         fs::create_directories(root / "scenes");
         auto const manifest = root / "deren.toml";
         auto const scene = root / "scenes" / "main.toml";
-        auto const valid_scene = std::string("[paths]\nasset_library = \"unused\"\nscreenshot_dir = \"captures\"\n");
+        auto const valid_scene = std::string("[paths]\nasset_library = \"unused\"\nscreenshot_dir = \"captures\"\n"
+                                             "[gui]\nrml_document = \"ui/main.rml\"\nrml_font = \"fonts/ui.ttf\"\nrml_fallback_font = \"fonts/fallback.ttf\"\n");
         auto const valid_manifest = std::string("[project]\nname = \"Test Game\"\nmain_scene = \"scenes/main.toml\"\n"
                                                 "[paths]\nasset_library = \"assets\"\n"
                                                 "[scripts]\nassembly = \"Game.dll\"\n"
@@ -66,9 +67,16 @@ namespace {
             CHECK(fs::path(settings.config_file) == scene);
             CHECK(fs::path(settings.paths.asset_library) == root / "assets");
             CHECK(fs::path(settings.paths.screenshot_dir) == root / "captures");
+            CHECK(fs::path(settings.gui.rml_document) == root / "ui/main.rml");
+            CHECK(fs::path(settings.gui.rml_font) == root / "fonts/ui.ttf");
+            CHECK(fs::path(settings.gui.rml_fallback_font) == root / "fonts/fallback.ttf");
             CHECK(settings.scene.objects.empty());
             CHECK(result->input_actions.size() == 1);
         }
+        std::ofstream(scene) << "[gui]\nrml_document = \"ui/main.rml\"\n";
+        CHECK(!deren::app_config::load_project_settings(root));
+        std::ofstream(scene) << "[gui]\nrml_fallback_font = \"fonts/fallback.ttf\"\n";
+        CHECK(!deren::app_config::load_project_settings(root));
         std::ofstream(scene) << valid_scene << "[[scene.objects]]\nname = \"Dead\"\nasset = \"helmet\"\n";
         auto const rejected_objects = deren::app_config::load_project_settings(root);
         CHECK(!rejected_objects);

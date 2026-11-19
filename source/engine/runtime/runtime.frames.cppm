@@ -2850,7 +2850,8 @@ namespace deren::engine {
             .finish = &runtime::finish_overlay_after,
             .parent = const_cast<runtime*>(this),
             .has_recording = [](void* parent) noexcept {
-                return static_cast<bool>(static_cast<runtime*>(parent)->overlay_segment);
+                auto const& self = *static_cast<runtime*>(parent);
+                return self.overlay_segment || self.output_overlay_segment;
             },
         };
     }
@@ -3326,6 +3327,9 @@ namespace deren::engine {
                                             rhi::command_buffer_begin_info const& begin) {
         (void)commands;
         this->overlay_segment = {};
+        this->output_overlay_segment = this->output_overlay_record
+                                           ? this->output_overlay_record(this->output_overlay_context, begin)
+                                           : rhi::mergeable_command_buffer_ref{};
         if (!this->debug_gui_shown || this->debug_overlay == nullptr || !this->debug_overlay->is_active()) {
             return;
         }
@@ -3337,7 +3341,7 @@ namespace deren::engine {
     }
 
     rhi::error runtime::finish_overlay_if_enabled(rhi::command_buffer& commands, rhi::rendering_info const& rendering) {
-        if (!this->overlay_segment) {
+        if (!this->overlay_segment && !this->output_overlay_segment) {
             return rhi::error::ok;
         }
         // THE OVERLAY'S INSTANCE: the same attachments as the pass just drew, LOADed (the overlay composites
@@ -3361,19 +3365,24 @@ namespace deren::engine {
             .has_depth = false,
             .secondary_contents = true,
         };
+        deren::utility::vessel::array<rhi::mergeable_command_buffer_ref, 2> segments = {};
+        std::size_t segment_count = 0;
+        if (this->output_overlay_segment) {
+            segments[segment_count++] = std::move(this->output_overlay_segment);
+        }
+        if (this->overlay_segment) {
+            segments[segment_count++] = std::move(this->overlay_segment);
+        }
         auto const begun = commands.begin_rendering(overlay_rendering);
         if (begun != rhi::error::ok) {
             deren::utility::log("gui overlay: the backend refused the overlay's rendering instance");
-            this->overlay_segment = {};
             return begun;
         }
-        rhi::mergeable_command_buffer_ref const segments[1] = {this->overlay_segment};
-        auto const executed = commands.execute(std::span<rhi::mergeable_command_buffer_ref const>{segments});
+        auto const executed = commands.execute({segments.data(), segment_count});
         if (executed != rhi::error::ok) {
             deren::utility::log("gui overlay: the recorded segment was refused by the frame's command buffer");
         }
         commands.end_rendering();
-        this->overlay_segment = {};
         return executed;
     }
 

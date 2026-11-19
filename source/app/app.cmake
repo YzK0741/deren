@@ -85,6 +85,7 @@ target_sources(app_support
         source/app/run.cpp
     )
 target_link_libraries(app_support
+        deren_scripting_audio
         app_config
         asset_library
         deren_assets
@@ -122,6 +123,7 @@ target_link_libraries(${PROJECT_NAME}
         # Linking deren_assets' import library is what makes the image load before main. Its banner
         # states why an asset loader, unlike a backend, has nothing to gain from the manual regime.
         deren_assets
+        deren_audio      # automatic import; the Meyers mixer remains lazy until first playback
         app_config
         vstd_lib
         glm::glm
@@ -135,3 +137,22 @@ target_link_libraries(${PROJECT_NAME}
 # listing deren_vulkan here also drags it in, and the explicit pair below documents the package: the
 # backend ships as deren_vulkan.dll + shared_utility.dll, both beside the executable.
 add_dependencies(${PROJECT_NAME} deren_vulkan shared_utility)
+
+if(DEREN_ENABLE_RMLUI)
+    find_package(RmlUi 6.3 EXACT CONFIG REQUIRED)
+    add_library(rmlui_support STATIC)
+    target_sources(rmlui_support PUBLIC FILE_SET CXX_MODULES FILES
+        source/ui/rml_document.cppm source/ui/rml_overlay.cppm)
+    target_sources(rmlui_support PRIVATE source/ui/rml_document.cpp source/ui/rml_overlay.cpp)
+    target_link_libraries(rmlui_support PUBLIC promise vstd_lib static_utility PRIVATE RmlUi::Core)
+    target_link_libraries(app_support rmlui_support)
+    target_compile_definitions(app_support PRIVATE DEREN_ENABLE_RMLUI)
+    if(VR_BUILD_TESTS)
+        add_executable(test_rml_document source/tests/test_rml_document.cpp)
+        target_link_libraries(test_rml_document PRIVATE rmlui_support vstd_lib static_utility)
+        target_compile_definitions(test_rml_document PRIVATE
+            VR_RMLUI_DEMO_DIR="${CMAKE_CURRENT_SOURCE_DIR}/source/ui/demo")
+        add_test(NAME test_rml_document COMMAND test_rml_document)
+        list(APPEND DEREN_OPTIONAL_TEST_TARGETS test_rml_document)
+    endif()
+endif()

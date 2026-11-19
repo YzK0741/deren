@@ -40,6 +40,8 @@ $slangSources = @(
     "toon/toon_screen_rim.slang:main:fragment:toon_screen_rim.frag.spv",
     "toon/game_toon_depth_rim.slang:main:fragment:game_toon_depth_rim.frag.spv",
         "toon/overlay.slang:main:fragment:overlay.frag.spv",
+    "ui/rmlui.slang:vertex_main:vertex:rmlui.vert.spv",
+    "ui/rmlui.slang:fragment_main:fragment:rmlui.frag.spv",
     "post/fxaa.slang:main:fragment:fxaa.frag.spv",
     "post/upscale.slang:main:fragment:upscale.frag.spv",
     "post/post.slang:main:vertex:post.vert.spv",

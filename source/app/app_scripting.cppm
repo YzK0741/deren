@@ -276,6 +276,8 @@ export namespace deren::app {
     };
 
     class script_scene {
+        bool owns_audio_session = false;
+
     public:
         script_scene() = default;
         ~script_scene();

@@ -114,7 +114,7 @@ namespace deren::app_config {
                                     unknown);
             }
             if (auto const* gui = table.get_as<toml::table>("gui")) {
-                append_unknown_keys(*gui, "gui", {"show", "panel_width", "panel_height"}, unknown);
+                append_unknown_keys(*gui, "gui", {"show", "panel_width", "panel_height", "rml_document", "rml_font", "rml_fallback_font"}, unknown);
             }
             if (auto const* scene = table.get_as<toml::table>("scene")) {
                 append_unknown_keys(*scene, "scene", {"objects"}, unknown);
@@ -817,6 +817,16 @@ namespace deren::app_config {
         }
 
         if (toml::table const* gui = table.get_as<toml::table>("gui")) {
+            if (auto value = (*gui)["rml_document"].value<std::string>()) {
+                settings.gui.rml_document = *value;
+            }
+            if (auto value = (*gui)["rml_font"].value<std::string>()) {
+                settings.gui.rml_font = *value;
+            }
+            if (auto value = (*gui)["rml_fallback_font"].value<std::string>()) {
+                settings.gui.rml_fallback_font = *value;
+            }
+
             if (toml::node const* node = gui->get("show")) {
                 if (std::optional<bool> const value = node->value<bool>()) {
                     settings.gui.show = *value;
@@ -1306,6 +1316,10 @@ namespace deren::app_config {
             }
             settings.paths.asset_library = *path;
         }
+        if (settings.gui.rml_document.empty() != settings.gui.rml_font.empty() ||
+            (settings.gui.rml_document.empty() && !settings.gui.rml_fallback_font.empty())) {
+            return std::unexpected(std::format("project '{}' requires gui.rml_document and gui.rml_font together; a fallback needs a document", manifest_path));
+        }
         fs::path script_assembly;
         if (auto const scripts = manifest.table()["scripts"]; scripts) {
             auto const assembly = scripts["assembly"].value<std::string_view>();
@@ -1335,6 +1349,9 @@ namespace deren::app_config {
         resolve(settings.paths.model_dir);
         resolve(settings.paths.shaders_dir);
         resolve(settings.paths.screenshot_dir);
+        resolve(settings.gui.rml_document);
+        resolve(settings.gui.rml_font);
+        resolve(settings.gui.rml_fallback_font);
         resolve(settings.render.background_glb);
         resolve(settings.reflection_probe.asset);
         deren::utility::vessel::vector<deren::input::action_binding> input_actions;

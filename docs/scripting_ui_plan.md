@@ -106,8 +106,8 @@ plumbing, the project owns which knobs exist.
 - A button reports its press through the caller's byte during the draw; the game reads it on the
   next update, exactly like a one-shot key.
 - `panel::add_button` is why the GUI plugin ABI moved to 7. The panel verbs are the plugin's
-  existing label/checkbox/slider/vec3/combo set; there is no markup layer (no RmlUi), because a
-  widget set the engine already ships does not need a second UI toolkit.
+  existing label/checkbox/slider/vec3/combo set; this debug widget module remains independent of the
+  optional RmlUi document frontend.
 
 Window events reach the game through `native_api.set_input_event_callback`: one handler, on the
 render thread, for keys, mouse buttons, cursor moves (with deltas), scroll, typed characters, and
@@ -148,3 +148,23 @@ native fallback scene, empty object root, or hidden spawn root for a scripted pr
 `managed_host_*` covers bootstrap failures, ABI mismatch, module availability, node lifetime,
 activation/deactivation, visibility, asset load/bind/release, and frame/stop. `test_docs` checks
 links and formatting; `clang-format-check` covers native sources.
+
+## 9. Optional native RmlUi frontend
+
+The first integration is native-only and opt-in through `DEREN_ENABLE_RMLUI`.
+It loads a document and font from project-relative `[gui] rml_document` and
+`rml_font` paths, then renders through the existing RHI after scene composition.
+The debug panel remains the foreground overlay. UI pointer capture and text focus
+are routed before named game actions; releases still reach the game.
+
+Document geometry is prepared only after the frame slot fence completes. Texture
+resources remain referenced by every in-flight slot using them. The initial
+backend supports raster images, font atlases and rectangular scissor clipping.
+CSS transforms, advanced clip masks, layer filters, IME composition and clipboard
+integration remain outside this first stage.
+
+C# document bindings and editor panels are subsequent stages. They will use owned
+identifiers, copied event payloads and explicit document lifetime operations;
+managed code will not receive RmlUi pointers. The existing scripting ABI and
+debug widget module do not change in this stage. Build and demo instructions live
+in [the native frontend README](../source/ui/README.md).

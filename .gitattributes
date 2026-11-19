@@ -34,3 +34,12 @@ asset/**/*.ibl -text
 # rendering, a plain checkout, the docs build) for a history cost of a few megabytes. The two large
 # MODEL assets above are the ones that go to LFS. `-text` keeps their bytes unnormalized.
 docs/screenshots/** -text
+
+# Keep pinned audio codec sources byte-identical to upstream; their whitespace is upstream-owned.
+source/third_party/miniaudio/** -text -whitespace
+source/third_party/ogg-1.3.5/** -text -whitespace
+source/third_party/opus-1.5.2/** -text -whitespace
+source/third_party/opusfile-0.12/** -text -whitespace
+source/third_party/qoa/** -text -whitespace
+source/third_party/stb/stb_vorbis.c -text -whitespace
+source/tests/fixtures/audio/** -text

@@ -581,6 +581,7 @@ namespace deren::app_config {
      * @brief debug-overlay panel settings ([gui] in the config)
      */
     export struct gui_settings {
+        deren::utility::vessel::string rml_document, rml_font, rml_fallback_font;
         bool show = true;            // show the Dear ImGui debug overlay by default
         float panel_width = 380.0f;  // default debug-panel width (0 = ImGui auto-size)
         float panel_height = 140.0f; // default debug-panel height (0 = ImGui auto-size)

@@ -47,6 +47,43 @@ export namespace deren::app {
 
     /// One window event, in the app's own vocabulary: GLFW's constants stay on this side of the seam
     /// and the scripting boundary converts to its flat mirror when a managed game asks for input.
+    unsigned ui_key(int key) noexcept {
+        if (key >= 32 && key <= 126) {
+            return static_cast<unsigned>(key);
+        }
+        switch (key) {
+        case GLFW_KEY_BACKSPACE:
+            return 8;
+        case GLFW_KEY_TAB:
+            return 9;
+        case GLFW_KEY_ENTER:
+        case GLFW_KEY_KP_ENTER:
+            return 13;
+        case GLFW_KEY_ESCAPE:
+            return 27;
+        case GLFW_KEY_LEFT:
+            return 256;
+        case GLFW_KEY_RIGHT:
+            return 257;
+        case GLFW_KEY_UP:
+            return 258;
+        case GLFW_KEY_DOWN:
+            return 259;
+        case GLFW_KEY_DELETE:
+            return 260;
+        case GLFW_KEY_HOME:
+            return 261;
+        case GLFW_KEY_END:
+            return 262;
+        case GLFW_KEY_PAGE_UP:
+            return 263;
+        case GLFW_KEY_PAGE_DOWN:
+            return 264;
+        default:
+            return 0;
+        }
+    }
+
     enum class window_event_type : unsigned {
         mouse_move = 1,
         mouse_button,
@@ -74,6 +111,8 @@ export namespace deren::app {
         float wheel = 0.0F;
         /// The typed character, for `character`.
         unsigned codepoint = 0;
+        int modifiers = 0;
+        bool repeated = false;
     };
 
     // The application's complete GLFW surface: window lifecycle, queries and input callbacks.
@@ -165,6 +204,11 @@ export namespace deren::app {
     // reader keeps state for the other.
     struct glfw_action_input {
         using event_sink = void (*)(void* context, window_event const& event);
+        using event_filter = bool (*)(void* context, window_event const& event);
+        void set_event_filter(event_filter filter, void* context) noexcept {
+            this->filter = filter;
+            this->filter_context = context;
+        }
 
         glfw_action_input(glfw_window const* host, deren::input::action_state& state)
             : window_(host == nullptr ? nullptr : host->native_handle())
@@ -173,16 +217,17 @@ export namespace deren::app {
                 return;
             }
             active = this;
-            glfwSetKeyCallback(window_, [](GLFWwindow* event_window, int code, int, int action, int) {
+            glfwSetKeyCallback(window_, [](GLFWwindow* event_window, int code, int, int action, int mods) {
                 if (active->window_ != event_window) {
                     return;
                 }
-                if (action == GLFW_PRESS || action == GLFW_RELEASE) {
-                    active->state.set_key(action_key(code), action == GLFW_PRESS);
-                    window_event event{.type = window_event_type::key,
-                                       .down = action == GLFW_PRESS,
-                                       .key = code};
-                    active->publish(event);
+                active->modifiers = mods;
+                if (action == GLFW_PRESS || action == GLFW_RELEASE || action == GLFW_REPEAT) {
+                    window_event event{.type = window_event_type::key, .down = action != GLFW_RELEASE, .key = code, .modifiers = mods, .repeated = action == GLFW_REPEAT};
+                    bool const consumed = active->publish(event);
+                    if (action != GLFW_REPEAT) {
+                        active->state.set_key(action_key(code), action == GLFW_PRESS && !consumed);
+                    }
                 }
             });
             glfwSetWindowFocusCallback(window_, [](GLFWwindow* event_window, int focused) {
@@ -191,6 +236,7 @@ export namespace deren::app {
                 }
                 if (focused == GLFW_FALSE) {
                     active->state.release_keys();
+                    active->modifiers = 0;
                     window_event event{.type = window_event_type::focus_lost, .down = false};
                     active->publish(event);
                 }
@@ -208,23 +254,24 @@ export namespace deren::app {
                 active->cursor_x = fx;
                 active->cursor_y = fy;
                 active->has_cursor = true;
-                window_event event{.type = window_event_type::mouse_move, .x = fx, .y = fy, .dx = dx, .dy = dy};
+                window_event event{.type = window_event_type::mouse_move, .x = fx, .y = fy, .dx = dx, .dy = dy, .modifiers = active->modifiers};
                 active->publish(event);
             });
-            glfwSetMouseButtonCallback(window_, [](GLFWwindow* event_window, int button, int action, int) {
+            glfwSetMouseButtonCallback(window_, [](GLFWwindow* event_window, int button, int action, int mods) {
                 if (active->window_ != event_window || (action != GLFW_PRESS && action != GLFW_RELEASE)) {
                     return;
                 }
                 window_event event{.type = window_event_type::mouse_button,
                                    .button = button,
-                                   .down = action == GLFW_PRESS};
+                                   .down = action == GLFW_PRESS,
+                                   .modifiers = mods};
                 active->publish(event);
             });
             glfwSetScrollCallback(window_, [](GLFWwindow* event_window, double, double yoffset) {
                 if (active->window_ != event_window) {
                     return;
                 }
-                window_event event{.type = window_event_type::scroll, .wheel = static_cast<float>(yoffset)};
+                window_event event{.type = window_event_type::scroll, .wheel = static_cast<float>(yoffset), .modifiers = active->modifiers};
                 active->publish(event);
             });
             glfwSetCharCallback(window_, [](GLFWwindow* event_window, unsigned codepoint) {
@@ -258,15 +305,21 @@ export namespace deren::app {
         glfw_action_input& operator=(glfw_action_input const&) = delete;
 
     private:
-        void publish(window_event const& event) const noexcept {
-            if (this->sink != nullptr) {
+        bool publish(window_event const& event) const noexcept {
+            bool const consumed = this->filter && this->filter(this->filter_context, event);
+            bool const release = (event.type == window_event_type::key || event.type == window_event_type::mouse_button) && !event.down;
+            if (this->sink && !event.repeated && (!consumed || release || event.type == window_event_type::focus_lost)) {
                 this->sink(this->sink_context, event);
             }
+            return consumed;
         }
 
         GLFWwindow* window_;
         deren::input::action_state& state;
         // The raw stream's one reader, and where the cursor was on the previous move event.
+        int modifiers = 0;
+        event_filter filter = nullptr;
+        void* filter_context = nullptr;
         event_sink sink = nullptr;
         void* sink_context = nullptr;
         float cursor_x = 0.0F;
