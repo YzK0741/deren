@@ -1494,7 +1494,9 @@ namespace deren::app {
             .project_point = project_point,
             .screen_ray = screen_ray,
             .query_counters = query_counters,
-            .gpu_timing_summary = gpu_timing_summary};
+            .gpu_timing_summary = gpu_timing_summary,
+            .set_toon_rig = set_toon_rig,
+            .get_toon_rig = get_toon_rig};
         *table = &scene_api;
         *byte_size = sizeof(scene_api);
         return scripting::script_status::success;
@@ -1518,6 +1520,7 @@ namespace deren::app {
             {.type = abi_type::face_frame_desc, .size = sizeof(scripting::face_frame_desc)},
             {.type = abi_type::animation_state, .size = sizeof(scripting::animation_state)},
             {.type = abi_type::diagnostic_counters, .size = sizeof(scripting::diagnostic_counters)},
+            {.type = abi_type::toon_rig_desc, .size = sizeof(scripting::toon_rig_desc)},
         };
         constexpr auto count = static_cast<std::uint32_t>(std::size(entries));
         if (out == nullptr || capacity < count) {
@@ -1979,6 +1982,61 @@ namespace deren::app {
         }
         *text = {.data = borrowed.data(), .length = static_cast<std::uint32_t>(borrowed.size())};
         return scripting::script_status::success;
+    }
+
+    scripting::script_status script_scene::set_toon_rig(scripting::toon_rig_desc const* const value) {
+        if (value == nullptr) {
+            return scripting::script_status::invalid_argument;
+        }
+        scripting::toon_rig_desc rig = *value;
+        // THE RIG IS ART DIRECTION, SO A NON-FINITE LANE IS A CALLER ERROR rather than a value to
+        // clamp: it would ride the block into every character's shading and cannot be reasoned about
+        // afterwards. The two RESERVED lanes are refused for the same reason - a caller that writes
+        // them believes they do something.
+        auto const finite = [](float const(&lane)[4]) {
+            return std::isfinite(lane[0]) && std::isfinite(lane[1]) && std::isfinite(lane[2]) && std::isfinite(lane[3]);
+        };
+        auto const finite_lanes = finite(rig.day) && finite(rig.other_light) && finite(rig.other_colour) &&
+                                  finite(rig.main_dark) && finite(rig.rim) && finite(rig.sss) && finite(rig.env) &&
+                                  finite(rig.misc) && finite(rig.shadow_softness) && finite(rig.reference_modes);
+        if (!finite_lanes || rig.reference_modes[2] != 0.0F || rig.reference_modes[3] != 0.0F) {
+            return scripting::script_status::invalid_argument;
+        }
+        // THE TWO CLAMPED LANES ARE THE CONFIG PARSER'S RULES (`[toon]` profile and
+        // `[render] toon_shadow_softness`): the day strength is a blend weight between two whole
+        // shading outcomes, the expression index selects a painted face, and the shadow ladder is a
+        // discrete 0..4. The two flags are booleans the managed side may hand over as 0/1 or any
+        // non-zero; both spell the same thing here. Every other lane is an artist's scale.
+        rig.day[0] = std::clamp(rig.day[0], 0.0F, 1.0F);
+        rig.other_colour[3] = std::clamp(rig.other_colour[3], 0.0F, 3.0F);
+        rig.shadow_softness[0] = std::clamp(std::round(rig.shadow_softness[0]), 0.0F, 4.0F);
+        rig.reference_modes[0] = rig.reference_modes[0] != 0.0F ? 1.0F : 0.0F;
+        rig.reference_modes[1] = rig.reference_modes[1] != 0.0F ? 1.0F : 0.0F;
+        script_scene* const owner = current_owner();
+        if (owner == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        if (owner->host.set_toon_rig == nullptr) {
+            return scripting::script_status::module_unavailable;
+        }
+        return owner->host.set_toon_rig(owner->host.context, rig) ? scripting::script_status::success
+                                                                  : scripting::script_status::script_failure;
+    }
+
+    scripting::script_status script_scene::get_toon_rig(scripting::toon_rig_desc* const value) {
+        if (value == nullptr) {
+            return scripting::script_status::invalid_argument;
+        }
+        *value = {};
+        script_scene* const owner = current_owner();
+        if (owner == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        if (owner->host.get_toon_rig == nullptr) {
+            return scripting::script_status::module_unavailable;
+        }
+        return owner->host.get_toon_rig(owner->host.context, *value) ? scripting::script_status::success
+                                                                     : scripting::script_status::script_failure;
     }
 
     scripting::script_status script_scene::list_asset(std::uint32_t const index,

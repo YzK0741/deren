@@ -343,6 +343,9 @@ namespace deren::app {
         // the reason it cannot move into the frame loop. Without this block every lane keeps the
         // struct's construction value, and the character stage's day/head/rim/environment shading
         // (plus the shadow softness ladder and the face/hair shaping switches) is flat.
+        // What the managed get_toon_rig answers before its first set: the rig the config published.
+        deren::scripting::toon_rig_desc startup_toon_rig{};
+        static_assert(sizeof(deren::engine::toon_rig) == sizeof(deren::scripting::toon_rig_desc));
         {
             deren::engine::toon_rig rig = {};
             rig.day.x = settings.toon.day_strength;
@@ -371,6 +374,7 @@ namespace deren::app {
             rig.shadow_softness.z = settings.toon.hair_highlight_width;
             rig.shadow_softness.w = settings.toon.hair_highlight_shift;
             runtime.set_toon_rig(rig);
+            std::memcpy(&startup_toon_rig, &rig, sizeof(rig));
             deren::utility::log("toon: light rig published - day strength {:.3f}, head light {:.2f} at day 1 of {:.2f} at day 0, env strength {:.2f}, shadow softness {}",
                                 rig.day.x, rig.other_light.y, rig.other_light.x, rig.env.x,
                                 static_cast<int>(rig.shadow_softness.x));
@@ -417,6 +421,13 @@ namespace deren::app {
             std::filesystem::path pending_environment;
             std::uint32_t pending_environment_slot = 0;
             bool environment_pending = false;
+            // A managed set_toon_rig() request is validated in app_scripting (finite lanes, clamped
+            // expression index and shadow ladder) and queued here: the rig's block may not be written
+            // while a frame is in flight, so the frame thread publishes it between frames. `toon_rig`
+            // is therefore "what the next frame uses" - the pending value while one is queued,
+            // otherwise the rig the last frame rendered with, which is what get_toon_rig answers.
+            deren::scripting::toon_rig_desc toon_rig{};
+            bool toon_rig_pending = false;
             // Clone sources for leaves currently shaded by the unlit pipeline, keyed by the
             // leaf's lifetime id (pointer identity alone would reuse a freed leaf's entry).
             pipeline_material_bases pipeline_bases;
@@ -474,6 +485,8 @@ namespace deren::app {
                                              .pending_environment = {},
                                              .pending_environment_slot = 0,
                                              .environment_pending = false,
+                                             .toon_rig = startup_toon_rig,
+                                             .toon_rig_pending = false,
                                              .pipeline_bases = {},
                                              .shadow_scene_radius = 0.0f,
                                              .clouds = {},
@@ -817,6 +830,26 @@ namespace deren::app {
             context->pending_environment = std::move(request);
             context->pending_environment_slot = environment_slot;
             context->environment_pending = true;
+            return true;
+        };
+        // The toon light rig: the managed side hands over all ten lanes, the frame thread publishes
+        // them between frames. This writes the queued value only; the block the character stage reads
+        // is the runtime's, and it may not move while a frame is in flight.
+        auto const set_managed_toon_rig = +[](void* opaque, deren::scripting::toon_rig_desc const& rig) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->render_runtime == nullptr) {
+                return false;
+            }
+            context->toon_rig = rig;
+            context->toon_rig_pending = true;
+            return true;
+        };
+        auto const get_managed_toon_rig = +[](void* opaque, deren::scripting::toon_rig_desc& out) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr) {
+                return false;
+            }
+            out = context->toon_rig;
             return true;
         };
         // ---- ABI 35: THE ANIMATION ENTRIES ----
@@ -1562,7 +1595,9 @@ namespace deren::app {
                                            .project_point = query_project_point,
                                            .screen_ray = query_screen_ray,
                                            .counters = query_counters,
-                                           .gpu_timing_summary = query_gpu_timing_summary},
+                                           .gpu_timing_summary = query_gpu_timing_summary,
+                                           .set_toon_rig = set_managed_toon_rig,
+                                           .get_toon_rig = get_managed_toon_rig},
             settings.paths.asset_library,
             deren::app::managed_asset_binder{.context = &managed_binding, .bind = bind_managed_asset});
         if (!started) {
@@ -1754,6 +1789,19 @@ namespace deren::app {
                                         cache.hit ? ", cache hit" : cache.write_failed ? ", cache write failed"
                                                                                        : ", cached");
                 }
+            }
+            // The managed toon rig is published here for the same reason: the block the character
+            // stage reads may not be written while a frame is in flight, and the managed callback
+            // runs during script_scene.update(). Newest request wins; lanes a request leaves at the
+            // struct defaults keep the construction value.
+            if (managed_binding.toon_rig_pending) {
+                managed_binding.toon_rig_pending = false;
+                deren::engine::toon_rig rig = {};
+                std::memcpy(&rig, &managed_binding.toon_rig, sizeof(rig));
+                runtime.set_toon_rig(rig);
+                deren::utility::log("toon: light rig applied from managed code - day strength {:.3f}, head light {:.2f} at day 1 of {:.2f} at day 0, env strength {:.2f}, shadow softness {}",
+                                    rig.day.x, rig.other_light.y, rig.other_light.x, rig.env.x,
+                                    static_cast<int>(rig.shadow_softness.x));
             }
             // A: THE FALLBACK SKY IS BAKED HERE, NOT AT STARTUP. A project that names slot 0's
             // environment before its first recorded frame (in initialize, or in update) never reaches

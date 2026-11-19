@@ -18,6 +18,7 @@ namespace deren.scripting {
         face_frame_desc = 10,
         animation_state = 11,
         diagnostic_counters = 12,
+        toon_rig_desc = 13,
     }
 
     /// <summary>One <c>{type, sizeof}</c> answer from the host's abi_layout entry point.</summary>

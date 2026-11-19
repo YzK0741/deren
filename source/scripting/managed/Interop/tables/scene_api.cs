@@ -67,6 +67,25 @@ namespace deren.scripting {
         }
 
         /// <summary>
+        /// ABI 39: the toon light rig (160 bytes): the lane-for-lane mirror of deren::scripting::toon_rig_desc,
+        /// which is itself the mirror of the engine's deren::engine::toon_rig. Every lane is a float4 the
+        /// character stage reads; the managed-friendly names live in Api/scene/toon_rig.cs.
+        /// </summary>
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct toon_rig_desc {
+            public fixed float day[4];
+            public fixed float other_light[4];
+            public fixed float other_colour[4];
+            public fixed float main_dark[4];
+            public fixed float rim[4];
+            public fixed float sss[4];
+            public fixed float env[4];
+            public fixed float misc[4];
+            public fixed float shadow_softness[4];
+            public fixed float reference_modes[4];
+        }
+
+        /// <summary>
         /// ABI 38: the frame's shape - the extent the passes shade, the extent presentation shows, and the
         /// size of the GPU timing table. The mirror of deren::scripting::diagnostic_counters (24 bytes).
         /// </summary>
@@ -159,6 +178,9 @@ namespace deren.scripting {
         private static delegate* unmanaged<float, float, float*, float*, script_status> screen_ray;
         private static delegate* unmanaged<diagnostic_counters*, script_status> query_counters;
         private static delegate* unmanaged<utf8_view*, script_status> gpu_timing_summary;
+        // ABI 39: the toon light rig. Both are optional for the same reason as the batch above.
+        private static delegate* unmanaged<scene_api.toon_rig_desc*, script_status> set_toon_rig;
+        private static delegate* unmanaged<scene_api.toon_rig_desc*, script_status> get_toon_rig;
 
         internal static bool is_ready() {
             if (!host_call_guard.host_calls_allowed) {
@@ -242,6 +264,8 @@ namespace deren.scripting {
             screen_ray = null;
             query_counters = null;
             gpu_timing_summary = null;
+            set_toon_rig = null;
+            get_toon_rig = null;
 
             void* table = null;
             uint byte_size = 0;
@@ -331,6 +355,8 @@ namespace deren.scripting {
             screen_ray = resolved.screen_ray;
             query_counters = resolved.query_counters;
             gpu_timing_summary = resolved.gpu_timing_summary;
+            set_toon_rig = resolved.set_toon_rig;
+            get_toon_rig = resolved.get_toon_rig;
             return script_status.success;
         }
 
@@ -698,6 +724,18 @@ namespace deren.scripting {
                 ? gpu_timing_summary(text)
                 : script_status.module_unavailable;
         }
+
+        internal static script_status assign_toon_rig(scene_api.toon_rig_desc* value) {
+            return is_ready() && set_toon_rig != null
+                ? set_toon_rig(value)
+                : script_status.module_unavailable;
+        }
+
+        internal static script_status read_toon_rig(scene_api.toon_rig_desc* value) {
+            return is_ready() && get_toon_rig != null
+                ? get_toon_rig(value)
+                : script_status.module_unavailable;
+        }
     }
 
     /// <summary>
@@ -783,6 +821,10 @@ namespace deren.scripting {
         public delegate* unmanaged<float, float, float*, float*, script_status> screen_ray;
         public delegate* unmanaged<scene_api.diagnostic_counters*, script_status> query_counters;
         public delegate* unmanaged<utf8_view*, script_status> gpu_timing_summary;
+        // ABI 39: the toon light rig, queued by the host and applied between frames; get answers what the
+        // next frame will use (the pending value while one is queued, otherwise the published rig).
+        public delegate* unmanaged<scene_api.toon_rig_desc*, script_status> set_toon_rig;
+        public delegate* unmanaged<scene_api.toon_rig_desc*, script_status> get_toon_rig;
 
         public readonly bool is_valid() {
             return get_transform != null && set_transform != null && try_spawn != null && try_despawn != null &&

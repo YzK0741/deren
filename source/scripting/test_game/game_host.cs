@@ -100,6 +100,10 @@ namespace game {
                     frame_events_selftest = true;
                     continue;
                 }
+                if (argument == "--toon-selftest") {
+                    toon_selftest.requested = true;
+                    continue;
+                }
                 var separator = argument.IndexOf('=');
                 var name = separator < 0 ? argument : argument[..separator];
                 if (name == "--asset" || name == "--pipeline") {
@@ -203,6 +207,9 @@ namespace game {
             }
             if (audio_selftest.path != null) {
                 return audio_selftest.initialize(scripts);
+            }
+            if (toon_selftest.requested) {
+                return toon_selftest.initialize(scripts);
             }
             // ABI 35: every run exercises the settable boundary wait, so the host test can assert
             // the value arrived and the demo keeps a wait that is still generous for its batches.

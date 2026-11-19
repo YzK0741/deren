@@ -1,6 +1,6 @@
 # C# Module ABI
 
-Status: implemented for the `scene`, `ui`, `audio` and `rml_ui` modules; managed ABI v38.
+Status: implemented for the `scene`, `ui`, `audio` and `rml_ui` modules; managed ABI v39.
 
 Baseline: `feature/csharp-scene-tree`. Native code owns rendering, the Vulkan runtime, the
 module resolver, and primitive/scene import. Managed code owns scene construction, asset
@@ -285,13 +285,16 @@ struct scene_api {
     screen_ray;             // (float x, float y, float origin[3], float direction[3])
     query_counters;         // (diagnostic_counters* out)
     gpu_timing_summary;     // (utf8_view* text)
+    // ABI 39: the toon light rig, queued and published between frames.
+    set_toon_rig;           // (toon_rig_desc const* rig)
+    get_toon_rig;           // (toon_rig_desc* rig)
 };
 ```
 
 The order is part of the ABI. C# mirrors it with one layout and validates every pointer before
 publishing the table. The camera, environment, pipeline, post-processing, lighting, graph read-back,
-screen-space, and diagnostic entries are optional: a host that predates them leaves the pointer null,
-and the C# wrapper reports `module_unavailable`.
+screen-space, diagnostic and toon-rig entries are optional: a host that predates them leaves the
+pointer null, and the C# wrapper reports `module_unavailable`.
 
 - `create_scene_tree` creates an empty independent tree and returns a process-wide tree id.
 - `activate_scene` attaches the tree to the current project scene and calls the native
@@ -586,6 +589,32 @@ carried a head position it also sends the centre, so the shader's head-sphere te
 origin; when it did not, the `has_center` flag stays 0 and that term is switched off rather than
 measured from the world origin.
 
+The toon light rig is the character stage's ten-lane value block, editable at runtime:
+
+```csharp
+public sealed class toon_rig {
+    public float day_strength;              // 0 = the head light carries the character, 1 = full sun
+    public float head_light_day0, head_light_day1;
+    public vector_3 head_light_colour;
+    public int emotion_type;                // 0..3, clamped by the host
+    public int shadow_softness;             // 0..4, rounded then clamped
+    public bool hair_masked_highlights, face_angular_sdf;
+    // ... plus the remaining lanes, each named after the configuration key it feeds
+    public bool try_apply();
+    public bool try_apply(out script_status status);
+    public static bool try_current(out toon_rig rig);
+    public static bool try_current(out toon_rig rig, out script_status status);
+}
+```
+
+`try_current` answers what the next frame will render with - a queued request if one is pending,
+otherwise the rig the last frame used - so a game changes one lane and keeps the rest. `try_apply`
+queues the whole block; the host publishes it between frames (the same pending-write pattern as the
+environment switch), so the frame the game is scripting keeps the old rig. A non-finite lane or a
+non-zero reserved lane is rejected with `invalid_argument` and leaves the queued value untouched; the
+day strength, emotion index and shadow softness are clamped/normalised to their documented ranges
+instead.
+
 The reflection probe is driven entirely from managed code; the host only installs the camera and
 performs the readback:
 
@@ -809,7 +838,7 @@ Status values are returned through the ABI; no exception crosses the native boun
 
 ## 8. Layout and versioning
 
-- One global `managed_abi_version`, currently 38.
+- One global `managed_abi_version`, currently 39.
 - No `context` parameter and no per-module version.
 - One version means one exact layout, and since v33 the layout is checked as well: the host
   publishes `{type, sizeof}` for every struct both sides share through `native_api.abi_layout`,
@@ -952,6 +981,15 @@ Status values are returned through the ABI; no exception crosses the native boun
   (`try_get_viewport_size`, `try_project_point`, `try_screen_ray`) and `deren.diagnostics`
   (`try_get_counters`, `gpu_timing_text`). Every new entry is optional: an older host answers
   `module_unavailable`, and `abi_type::diagnostic_counters` (24 bytes) joined the layout check.
+- v39 made the character light rig runtime state: `scene_api` gained `set_toon_rig` and
+  `get_toon_rig` over the new 160-byte `toon_rig_desc` (ten float4 lanes, a lane-for-lane mirror of
+  `deren::engine::toon_rig`), with the C# `deren.toon_rig` entry (`try_apply`, `try_current`). The
+  block used to be published once, before the first frame, because the lane block may not be written
+  while a frame is in flight; the host now validates every lane (a non-finite lane or a non-zero
+  reserved lane is `invalid_argument`), normalises the day strength, emotion index and shadow
+  softness ladder to their documented ranges, and queues the whole block for the frame boundary - so
+  the frame the game is scripting keeps the old rig, and `get_toon_rig` answers what the next frame
+  will use. `abi_type::toon_rig_desc` (160 bytes) joined the layout check.
 
 ## Audio module
 
