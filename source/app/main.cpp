@@ -9,11 +9,8 @@
  * the lifecycle.
  */
 
-#include "../audio/module_entry.hpp"
-
 import deren.app.application;
 
 int main(int argc, char** argv) {
-    deren_audio_ensure_linked();
     return deren::app::run(argc, argv);
 }

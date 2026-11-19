@@ -9,8 +9,6 @@ set_target_properties(deren_audio PROPERTIES PREFIX "" WINDOWS_EXPORT_ALL_SYMBOL
 target_sources(deren_audio PUBLIC FILE_SET CXX_MODULES FILES
     source/audio/audio.cppm source/audio/declarations.cppm
     source/audio/audio_load.cppm source/audio/miniaudio_load.cppm)
-target_sources(deren_audio PRIVATE source/audio/audio.cpp)
-
 target_link_libraries(deren_audio PUBLIC vstd_lib PRIVATE miniaudio_vendored)
 
 # Keep upstream options scoped: no shared libraries, upstream tests or HTTP support.
