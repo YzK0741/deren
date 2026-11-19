@@ -117,6 +117,10 @@ namespace deren.scripting {
             if (audio_status == script_status.module_invalid) {
                 host_logger.write(api, "Managed host: invalid audio module; audio calls will fail.");
             }
+            var rml_status = rml_ui_api.initialize(api);
+            if (rml_status == script_status.module_invalid) {
+                host_logger.write(api, "Managed host: invalid RmlUi module; document calls will fail.");
+            }
             // Framework baseline first: the project's initialize can still move anything after.
             project_config.apply();
             var status = game.initialize(api, scripts);
@@ -147,6 +151,7 @@ namespace deren.scripting {
             try {
                 return project_stop == null ? script_status.script_failure : project_stop();
             } finally {
+                rml_ui_api.shutdown();
                 audio_api.shutdown();
             }
         }

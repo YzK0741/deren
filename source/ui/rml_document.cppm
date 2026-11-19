@@ -77,12 +77,20 @@ export namespace deren::ui {
         }
         bool wants_keyboard() const;
         bool set_text(std::string_view id, std::string_view text);
+        bool set_value(std::string_view id, std::string_view value);
+        bool set_visible(std::string_view id, bool visible);
         deren::utility::vessel::string text(std::string_view id) const;
         deren::utility::vessel::string value(std::string_view id) const;
         deren::utility::vessel::vector<ui_event> take_events();
 
         // Draws are in document paint order. Views remain valid until the next paint, open or close.
+        // `width` and `height` are framebuffer pixels; the document's pixel ratio (default 1) turns them
+        // into density-independent document pixels.
         std::span<draw const> paint(std::uint32_t width, std::uint32_t height);
+
+        // Framebuffer pixels per density-independent pixel, i.e. the window's content scale. A value
+        // <= 0 (or a non-finite one) resets to 1. Set it before paint(); it is kept until changed again.
+        void set_density_independent_pixel_ratio(float ratio) noexcept;
 
     private:
         friend struct rml_render_interface;
@@ -109,9 +117,11 @@ export namespace deren::ui {
         deren::utility::vessel::vector<std::unique_ptr<generated_texture>> retired_textures;
         int viewport_width = 0;
         int viewport_height = 0;
+        float density_independent_pixel_ratio = 1.0F;
         rectangle scissor;
         std::uint32_t pressed_buttons = 0;
         bool rendering = false;
+        bool suppress_events = false;
         bool scissor_enabled = false;
     };
 } // namespace deren::ui

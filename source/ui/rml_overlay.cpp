@@ -29,10 +29,14 @@ namespace deren::ui {
 
     bool rml_overlay::open(std::filesystem::path const& markup, std::filesystem::path const& font,
                            std::filesystem::path const& fallback_font, std::filesystem::path const& shaders) {
+        return this->initialize(shaders) && this->document.open(markup, font, fallback_font);
+    }
+
+    bool rml_overlay::initialize(std::filesystem::path const& shaders) {
         constexpr std::uintmax_t max_shader_bytes = 1024 * 1024;
         auto vertex_data = utility::read_binary_to_vector(shaders / "rmlui.vert.spv", max_shader_bytes);
         auto fragment_data = utility::read_binary_to_vector(shaders / "rmlui.frag.spv", max_shader_bytes);
-        if (!vertex_data || !fragment_data || !this->document.open(markup, font, fallback_font)) {
+        if (!vertex_data || !fragment_data) {
             return false;
         }
         this->sampler = rhi::shared_object<rhi::sampler>(
@@ -45,7 +49,8 @@ namespace deren::ui {
         return true;
     }
 
-    bool rml_overlay::prepare(std::uint32_t width, std::uint32_t height, rhi::image_format format, std::uint32_t slot) {
+    bool rml_overlay::prepare(std::uint32_t width, std::uint32_t height, rhi::image_format format, std::uint32_t slot,
+                              float density_independent_pixel_ratio) {
         if (slot >= this->frames.size()) {
             return false;
         }
@@ -55,6 +60,7 @@ namespace deren::ui {
             frame.batches.clear();
             return true;
         }
+        this->document.set_density_independent_pixel_ratio(density_independent_pixel_ratio);
 
         rhi::unique_object<rhi::pipeline> new_pipeline;
         if (!this->pipeline || this->format != format) {

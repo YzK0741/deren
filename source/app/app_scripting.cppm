@@ -9,6 +9,7 @@ import deren.engine.scene_tree;
 import deren.gaussian_loader;
 import deren.gltf_loader;
 import deren.scripting.managed_host;
+import deren.scripting.rml_ui_api;
 import deren.utility;
 
 export namespace deren::app {
@@ -277,6 +278,7 @@ export namespace deren::app {
 
     class script_scene {
         bool owns_audio_session = false;
+        scripting::rml_ui_api const* document_ui = nullptr;
 
     public:
         script_scene() = default;
@@ -302,6 +304,7 @@ export namespace deren::app {
         [[nodiscard]] bool signal_after_frame();
         /** Installs the debug panel host (ABI 31); empty when the project draws no panel. */
         void install_ui(managed_ui_host host);
+        void install_document_ui(scripting::rml_ui_api const* table) noexcept;
         /// ABI 31: hands one window event to the managed game's registered handler, if it has one.
         ///
         /// THE HOST OWNS DELIVERY, THE GAME OWNS MEANING: the app forwards what the window produced

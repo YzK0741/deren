@@ -1,7 +1,8 @@
 # C# Scripting and Scene UI Plan
 
-Status: implemented for the managed scene path and the managed debug panel; editor panel work
-remains. Managed ABI v33, the `scene` module and the `ui` module are in place. A project `game_entry` owns startup parsing, scene construction,
+Status: implemented for the managed scene path, the managed debug panel and managed RmlUi
+documents; editor panel work remains. Managed ABI v38, and the `scene`, `ui`, `audio` and `rml_ui`
+modules are in place. A project `game_entry` owns startup parsing, scene construction,
 activation, asset binding, scripts, and the frame/shutdown callbacks.
 
 Baseline: `feature/csharp-scene-tree`.
@@ -146,16 +147,27 @@ native fallback scene, empty object root, or hidden spawn root for a scripted pr
 ## 8. Tests
 
 `managed_host_*` covers bootstrap failures, ABI mismatch, module availability, node lifetime,
-activation/deactivation, visibility, asset load/bind/release, and frame/stop. `test_docs` checks
-links and formatting; `clang-format-check` covers native sources.
+activation/deactivation, visibility, asset load/bind/release, and frame/stop; the `Audio module` and
+`RmlUi document module` sections of [the ABI document](scripting_module_abi.md) list the module
+cases, and `managed_host_audio_*` / `managed_host_rml_*` run the real C# wrappers against absent,
+wrong-size and incomplete tables. `test_rml_document` and `test_rml_scripting` cover the native
+document and its managed bridge. `test_docs` checks links and formatting; `clang-format-check`
+covers native sources.
 
-## 9. Optional native RmlUi frontend
+## 9. RmlUi frontend
 
-The first integration is native-only and opt-in through `DEREN_ENABLE_RMLUI`.
+RmlUi and FreeType are vendored under `source/third_party/`, so there is no build option and no
+installed prefix. The frontend is part of every build.
 It loads a document and font from project-relative `[gui] rml_document` and
 `rml_font` paths, then renders through the existing RHI after scene composition.
 The debug panel remains the foreground overlay. UI pointer capture and text focus
 are routed before named game actions; releases still reach the game.
+
+Documents are sized with the window's content scale, so layouts authored in `dp`
+keep their logical size at 150%/200% scaling. Only text entry takes the keyboard
+from the game (a focused button does not), and only a widget under the pointer
+takes the mouse; non-interactive full-screen layers should use
+`pointer-events: none`.
 
 Document geometry is prepared only after the frame slot fence completes. Texture
 resources remain referenced by every in-flight slot using them. The initial
@@ -163,8 +175,9 @@ backend supports raster images, font atlases and rectangular scissor clipping.
 CSS transforms, advanced clip masks, layer filters, IME composition and clipboard
 integration remain outside this first stage.
 
-C# document bindings and editor panels are subsequent stages. They will use owned
-identifiers, copied event payloads and explicit document lifetime operations;
-managed code will not receive RmlUi pointers. The existing scripting ABI and
-debug widget module do not change in this stage. Build and demo instructions live
-in [the native frontend README](../source/ui/README.md).
+Managed code drives the same document through module id 4 (`rml_ui`) and the C#
+`deren.rml_document` entry: `try_open` with project-relative markup and font paths, then
+`set_text` / `set_value` / `set_visible`, `try_poll_event` for copied click/change payloads, and
+`close`/`Dispose`. Handles are owned ids, never RmlUi pointers, and an old session's handle cannot
+reach a new session. Editor panels remain a subsequent stage. Build and demo instructions live in
+[the native frontend README](../source/ui/README.md).

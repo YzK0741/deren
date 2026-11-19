@@ -105,18 +105,30 @@ add_custom_command(OUTPUT "${game_assembly}"
         --configuration Release --artifacts-path "${CMAKE_CURRENT_BINARY_DIR}/dotnet"
         --output "${game_output}"
     DEPENDS "${game_project}" test_game/game_host.cs test_game/demo_debug_windows.cs test_game/rotate_behaviour.cs
-        test_game/helmet_controls.cs test_game/audio_selftest.cs ${bridge_files}
+        test_game/helmet_controls.cs test_game/audio_selftest.cs test_game/demo_audio_panel.cs test_game/rml_selftest.cs ${bridge_files}
+    VERBATIM)
+# Package the managed UI assets beside Game.dll; authored scene TOMLs stay in the source tree.
+add_custom_target(deren_managed_ui_assets
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${game_output}/ui"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_game/ui/audio.rml" "${game_output}/ui/audio.rml"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ui/demo/LatoLatin-Regular.ttf" "${game_output}/ui/LatoLatin-Regular.ttf"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ui/demo/FONT-LICENSE.txt" "${game_output}/ui/FONT-LICENSE.txt"
     VERBATIM)
 add_custom_target(deren_managed_test_game DEPENDS "${game_assembly}")
+add_dependencies(deren_managed_test_game deren_managed_ui_assets)
 add_dependencies(deren_managed_test_game deren_managed_bridge)
 
 enable_testing()
 add_executable(test_managed_host ../tests/test_managed_host.cpp)
-target_link_libraries(test_managed_host PRIVATE deren_managed_host deren_scripting_audio)
-target_compile_definitions(test_managed_host PRIVATE VR_AUDIO_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/../tests/fixtures/audio")
+target_link_libraries(test_managed_host PRIVATE deren_managed_host deren_scripting_audio rmlui_support)
+target_compile_definitions(test_managed_host PRIVATE VR_AUDIO_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/../tests/fixtures/audio"
+    VR_RMLUI_DEMO_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../ui/demo")
 add_dependencies(test_managed_host deren_managed_test_game)
 set(managed_host_tests "")
-foreach(scenario IN ITEMS round_trip missing_assembly missing_game_assembly missing_runtime abi_mismatch abi_layout_mismatch scene_module_unavailable scene_module_invalid scene_lifecycle scene_input frame_events audio_lifecycle audio_module_unavailable audio_module_invalid audio_module_incomplete)
+foreach(scenario IN ITEMS round_trip missing_assembly missing_game_assembly missing_runtime abi_mismatch abi_layout_mismatch scene_module_unavailable scene_module_invalid scene_lifecycle scene_input frame_events audio_lifecycle audio_module_unavailable audio_module_invalid audio_module_incomplete rml_lifecycle rml_module_unavailable rml_module_invalid rml_module_incomplete)
     add_test(NAME managed_host_${scenario} COMMAND test_managed_host "${bridge_output}" "${scenario}" "${game_assembly}")
     list(APPEND managed_host_tests managed_host_${scenario})
 endforeach()

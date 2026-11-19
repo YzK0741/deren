@@ -12,6 +12,7 @@ module;
 #include <RmlUi/Core/Input.h>
 #include <RmlUi/Core/RenderInterface.h>
 #include <RmlUi/Core/StringUtilities.h>
+#include <cmath>
 #include <stb/stb_image.h>
 
 module deren.ui.rml_document;
@@ -138,6 +139,9 @@ namespace deren::ui {
             auto* control = target->GetTagName() == "input" || target->GetTagName() == "textarea" || target->GetTagName() == "select"
                                 ? static_cast<Rml::ElementFormControl*>(target)
                                 : nullptr;
+            if (render_interface.document->suppress_events) {
+                return;
+            }
             ui_event result;
             result.type.assign(event.GetType().data(), event.GetType().size());
             result.id.assign(target->GetId().data(), target->GetId().size());
@@ -207,6 +211,10 @@ namespace deren::ui {
         this->pressed_buttons = 0;
     }
 
+    void rml_document::set_density_independent_pixel_ratio(float ratio) noexcept {
+        this->density_independent_pixel_ratio = ratio > 0.0F && std::isfinite(ratio) ? ratio : 1.0F;
+    }
+
     std::span<draw const> rml_document::paint(std::uint32_t width, std::uint32_t height) {
         if (render_interface.document != this) {
             return {};
@@ -224,6 +232,9 @@ namespace deren::ui {
         this->viewport_height = dimensions.y;
         this->scissor_enabled = false;
         auto* const context = Rml::GetContext(context_name);
+        // Framebuffer pixels in, document pixels out: without this a 150%/200% window draws the whole
+        // document at half the size it was authored for.
+        context->SetDensityIndependentPixelRatio(this->density_independent_pixel_ratio);
         context->SetDimensions(dimensions);
         if (!context->Update()) {
             return {};
@@ -244,6 +255,38 @@ namespace deren::ui {
             return false;
         }
         element->SetInnerRML(Rml::StringUtilities::EncodeRml(Rml::String(text)));
+        return true;
+    }
+    bool rml_document::set_value(std::string_view id, std::string_view value) {
+        auto* context = render_interface.document == this ? Rml::GetContext(context_name) : nullptr;
+        auto* element = context ? context->GetDocument(0)->GetElementById(Rml::String(id)) : nullptr;
+        if (!element) {
+            return false;
+        }
+        // The tree builds with -fno-rtti in Release, so the downcast is proven by tag name - only `input`,
+        // `textarea` and `select` derive from ElementFormControl - and then made with static_cast, the same
+        // idiom text() uses for `#text` nodes.
+        auto const& tag = element->GetTagName();
+        if (tag != "input" && tag != "textarea" && tag != "select") {
+            return false;
+        }
+        auto* const control = static_cast<Rml::ElementFormControl*>(element);
+        // Programmatic updates must not feed the managed change-event handler back into itself.
+        this->suppress_events = true;
+        control->SetValue(Rml::String(value));
+        this->suppress_events = false;
+        return true;
+    }
+    bool rml_document::set_visible(std::string_view id, bool visible) {
+        auto* context = render_interface.document == this ? Rml::GetContext(context_name) : nullptr;
+        auto* element = context ? context->GetDocument(0)->GetElementById(Rml::String(id)) : nullptr;
+        if (!element) {
+            return false;
+        }
+        if (!visible) {
+            this->input({.type = input_type::focus_lost});
+        }
+        element->SetProperty("visibility", visible ? "visible" : "hidden");
         return true;
     }
     utility::vessel::string rml_document::text(std::string_view id) const {
@@ -281,8 +324,18 @@ namespace deren::ui {
     }
     bool rml_document::wants_mouse() const {
         auto* context = render_interface.document == this ? Rml::GetContext(context_name) : nullptr;
-        auto* hover = context ? context->GetHoverElement() : nullptr;
-        return this->pressed_buttons != 0 || (hover && hover != context->GetRootElement() && hover->GetTagName() != "body");
+        if (this->pressed_buttons != 0) {
+            return context != nullptr;
+        }
+        auto* const hover = context ? context->GetHoverElement() : nullptr;
+        if (hover == nullptr || hover == context->GetRootElement()) {
+            return false;
+        }
+        // The document element is the RML <body>: it fills the viewport, so resting the mouse over
+        // empty HUD space must not look like an interaction - the game keeps its mouse. Any element
+        // under the pointer is a hit unless it (or a parent) opted out with `pointer-events: none`,
+        // which makes GetElementAtPoint return nothing at all.
+        return hover->GetOwnerDocument() != hover;
     }
     bool rml_document::wants_keyboard() const {
         auto* context = render_interface.document == this ? Rml::GetContext(context_name) : nullptr;
@@ -290,8 +343,10 @@ namespace deren::ui {
         if (!focus) {
             return false;
         }
+        // Buttons keep focus after a click (so Tab navigation keeps working upstream), but for a game
+        // overlay only text entry should take the keyboard away from the game.
         auto const& tag = focus->GetTagName();
-        return tag == "input" || tag == "textarea" || tag == "select" || tag == "button";
+        return tag == "input" || tag == "textarea" || tag == "select";
     }
     bool rml_document::input(input_event const& event) {
         auto* context = render_interface.document == this ? Rml::GetContext(context_name) : nullptr;
@@ -322,11 +377,20 @@ namespace deren::ui {
             context->ProcessMouseWheel(Rml::Vector2f{0, -event.wheel}, event.modifiers);
             return mouse;
         case input_type::character:
+            if (!keyboard) {
+                return false;
+            }
             if (event.codepoint <= 0x10ffff && !(event.codepoint >= 0xd800 && event.codepoint <= 0xdfff)) {
                 context->ProcessTextInput(static_cast<Rml::Character>(event.codepoint));
             }
-            return keyboard;
+            return true;
         case input_type::key: {
+            // Only text entry takes the keyboard. A focused button is not a reason to hide key
+            // events from the game, and forwarding them would activate the button while the game
+            // also handled the key.
+            if (!keyboard) {
+                return false;
+            }
             using namespace Rml::Input;
             auto key = KI_UNKNOWN;
             if (event.key >= 'A' && event.key <= 'Z') {
@@ -386,7 +450,7 @@ namespace deren::ui {
             } else {
                 context->ProcessKeyUp(key, event.modifiers);
             }
-            return keyboard;
+            return true;
         }
         case input_type::mouse_leave:
             context->ProcessMouseLeave();
