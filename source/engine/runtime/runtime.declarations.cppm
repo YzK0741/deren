@@ -407,6 +407,12 @@ namespace deren::engine {
         /// reached the device without naming the backend" can do. Nothing else calls them from outside
         /// the class, and no call site inside loses an access level because of this.
         [[nodiscard]] rhi::api_core& rhi_face() const noexcept;
+
+        using output_overlay_recorder = rhi::mergeable_command_buffer_ref (*)(void*, rhi::command_buffer_begin_info const&);
+        void set_output_overlay(void* context, output_overlay_recorder record) noexcept {
+            this->output_overlay_context = context;
+            this->output_overlay_record = record;
+        }
         /// THE DEVICE ROOT behind `rhi_face()`, for A separate caller that prepares device state OUTSIDE the frame
         /// graph (the Gaussian probe): the returned handle keeps this runtime's device valid underneath it.
         [[nodiscard]] rhi::shared_object<rhi::api_core> device_root() const noexcept {
@@ -3572,6 +3578,9 @@ namespace deren::engine {
                                        deren::promise::rhi::command_buffer_begin_info const& begin);
         /// the recorded overlay segment, waiting for @c finish_overlay_after
         rhi::mergeable_command_buffer_ref overlay_segment = {};
+        rhi::mergeable_command_buffer_ref output_overlay_segment = {};
+        void* output_overlay_context = nullptr;
+        output_overlay_recorder output_overlay_record = nullptr;
         rhi::error finish_overlay_if_enabled(rhi::command_buffer& commands,
                                              rhi::rendering_info const& rendering);
 

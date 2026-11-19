@@ -113,6 +113,10 @@ namespace deren.scripting {
             if (ui_status != script_status.success) {
                 host_logger.write(api, $"Managed host: no panel module ({ui_status}); ui calls will fail.");
             }
+            var audio_status = audio_api.initialize(api);
+            if (audio_status == script_status.module_invalid) {
+                host_logger.write(api, "Managed host: invalid audio module; audio calls will fail.");
+            }
             // Framework baseline first: the project's initialize can still move anything after.
             project_config.apply();
             var status = game.initialize(api, scripts);
@@ -140,7 +144,11 @@ namespace deren.scripting {
         [UnmanagedCallersOnly]
         public static script_status stop_from_engine() {
             frame_event_processor.shutdown();
-            return project_stop == null ? script_status.script_failure : project_stop();
+            try {
+                return project_stop == null ? script_status.script_failure : project_stop();
+            } finally {
+                audio_api.shutdown();
+            }
         }
 
         /// <summary>

@@ -97,6 +97,7 @@ namespace {
     struct target_manifest {
         deren::utility::vessel::set<deren::utility::vessel::string> test_targets;
         deren::utility::vessel::set<deren::utility::vessel::string> device_targets;
+        deren::utility::vessel::set<deren::utility::vessel::string> optional_targets;
         deren::utility::vessel::set<deren::utility::vessel::string> executables;
     };
 
@@ -111,6 +112,8 @@ namespace {
             stream >> kind >> name;
             if (kind == "test_target") {
                 manifest.test_targets.insert(name);
+            } else if (kind == "optional_test_target") {
+                manifest.optional_targets.insert(name);
             } else if (kind == "device_target") {
                 manifest.device_targets.insert(name);
             } else if (kind == "executable") {
@@ -495,6 +498,10 @@ int32_t main() {
         CHECK_MSG(literal.size() >= 7u, "the generated target manifest lists the literal test executables");
         deren::utility::vessel::set<deren::utility::vessel::string> registered = manifest.test_targets;
         for (deren::utility::vessel::string const& target : device) {
+            registered.insert(target);
+        }
+        for (auto const& target : manifest.optional_targets) {
+            CHECK_MSG(literal.contains(target), "an optional test must name an existing executable");
             registered.insert(target);
         }
         // The boundary spike is report-shaped rather than pass/fail: CMakeLists says so where it is created,

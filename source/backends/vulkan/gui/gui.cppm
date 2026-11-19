@@ -363,6 +363,7 @@ namespace deren::vulkan::gui {
         // true between a successful init() and shutdown(). The ImGui context and backend data
         // themselves live in ImGui's global storage, not here.
         bool active = false;
+        GLFWwindow* input_window = nullptr;
         // frames in flight captured at init() (the backend's min-image hint on recreation)
         std::uint32_t frames_in_flight = 2;
         // registration count: new panels start one column to the right (no .ini exists to remember

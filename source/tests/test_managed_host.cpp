@@ -4,6 +4,10 @@
 #include <cstring>
 
 import deren.scripting.managed_host;
+import deren.scripting.audio_host;
+
+extern "C" bool deren_audio_test_no_device();
+extern "C" bool deren_audio_test_read_frames(float* output, std::uint64_t samples);
 
 namespace {
 
@@ -53,6 +57,8 @@ namespace {
     };
 
     scene_fixture* module_context = nullptr;
+    int audio_module_mode = 0;
+
     bool* log_target = nullptr;
     std::uint32_t screenshot_requests = 0;
     std::uint32_t environment_requests = 0;
@@ -1061,6 +1067,15 @@ namespace {
         }
         *table = nullptr;
         *byte_size = 0;
+        if (module == static_cast<std::uint32_t>(native_module::audio)) {
+            if (audio_module_mode == 0) {
+                return script_status::module_unavailable;
+            }
+            static audio_api const incomplete{};
+            *table = audio_module_mode == 3 ? &incomplete : &audio_host::table();
+            *byte_size = sizeof(audio_api) + (audio_module_mode == 2 ? 8 : 0);
+            return script_status::success;
+        }
         if (module == static_cast<std::uint32_t>(native_module::ui)) {
             static ui_api const published_ui{.begin_panel = ui_begin_panel,
                                              .end_panel = ui_end_panel,
@@ -1549,6 +1564,39 @@ namespace {
         return true;
     }
 
+    bool run_audio(host_paths const& paths, int mode) {
+        audio_module_mode = mode;
+        std::string fixture = (std::filesystem::path(VR_AUDIO_FIXTURES) / "tone.opus").string();
+        char const* arguments[]{"test_managed_host", "--audio-selftest", mode == 1 ? fixture.c_str() : "missing"};
+        auto configured = paths;
+        configured.argc = 3;
+        configured.argv = const_cast<char**>(arguments);
+        scene_fixture scene;
+        module_context = &scene;
+        if (!deren_audio_test_no_device() || !audio_host::begin_session()) {
+            return false;
+        }
+        native_api const api{.log = scene_log, .get_module = get_scene_module, .request_screenshot = request_screenshot, .set_input_event_callback = set_input_callback, .abi_layout = publish_abi_layout, .notify_rendering = record_notify, .set_frame_boundary_timeout = record_timeout, .panic = record_panic};
+        managed_api scripts;
+        auto const result = initialize_managed_host(configured, api, scripts);
+        bool ok = result.status == host_status::success;
+        if (ok && mode == 1) {
+            float output[512]{};
+            ok = deren_audio_test_read_frames(output, 512) && update_scene(scripts, 7, 0.01f) == script_status::success;
+        }
+        if (ok) {
+            ok = scripts.stop && scripts.stop() == script_status::success;
+        }
+        audio_host::end_session();
+        if (ok && mode == 1) {
+            ok = update_scene(scripts, 7, 0.01f) == script_status::success;
+        }
+        if (!ok) {
+            std::fprintf(stderr, "audio self-test failed: mode %d, host status %d\n", mode, static_cast<int>(result.status));
+        }
+        return ok;
+    }
+
     void log_message(char const* message, std::uint32_t length) {
         auto const view = std::string_view{message, length};
         last_log.assign(view);
@@ -1569,6 +1617,13 @@ int main(int argc, char** argv) {
         .runtime_config = bridge_directory / "Deren.Managed.runtimeconfig.json",
         .nethost = bridge_directory / "nethost.dll",
         .game_assembly = std::filesystem::path{argv[3]}};
+    if (scenario == "audio_lifecycle" || scenario == "audio_module_unavailable" ||
+        scenario == "audio_module_invalid" || scenario == "audio_module_incomplete") {
+        int const mode = scenario == "audio_lifecycle" ? 1 : scenario == "audio_module_invalid"  ? 2
+                                                         : scenario == "audio_module_incomplete" ? 3
+                                                                                                 : 0;
+        return run_audio(paths, mode) ? 0 : 1;
+    }
     if (scenario == "frame_events") {
         if (!run_frame_events(paths)) {
             std::fputs("Managed frame event boundaries failed\n", stderr);

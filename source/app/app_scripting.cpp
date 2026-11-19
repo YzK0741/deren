@@ -5,6 +5,7 @@ module;
 #include <glm/gtx/matrix_decompose.hpp>
 module deren.app.scripting;
 import deren.vstd;
+import deren.scripting.audio_host;
 import deren.app.toon;
 import deren.asset_library;
 import deren.engine.primitive;
@@ -280,6 +281,9 @@ namespace deren::app {
         if (running && scripts.stop != nullptr && scripts.stop() != scripting::script_status::success) {
             utility::log("scripts: managed game stopped with script errors");
         }
+        if (this->owns_audio_session) {
+            scripting::audio_host::end_session();
+        }
         auto& scenes = active_scenes();
         std::erase(scenes, this);
         if (tree_id != 0) {
@@ -334,6 +338,10 @@ namespace deren::app {
     std::expected<void, std::string> script_scene::start(
         std::filesystem::path const& assembly, managed_scene_host scene_host,
         std::filesystem::path const& asset_library_root, managed_asset_binder binder) {
+        if (this->owns_audio_session || !scripting::audio_host::begin_session()) {
+            return std::unexpected("an audio scripting session is already active");
+        }
+        this->owns_audio_session = true;
         configure_asset_library(asset_library_root);
         static std::uint64_t next_scene_id = 1;
         scene_id = next_scene_id++;
@@ -1375,6 +1383,11 @@ namespace deren::app {
         }
         *table = nullptr;
         *byte_size = 0;
+        if (module == static_cast<std::uint32_t>(scripting::native_module::audio)) {
+            *table = &scripting::audio_host::table();
+            *byte_size = sizeof(scripting::audio_api);
+            return scripting::script_status::success;
+        }
         if (module == static_cast<std::uint32_t>(scripting::native_module::ui)) {
             // The panel table exists even when no overlay is installed: the managed side then gets
             // module_unavailable from the first widget instead of a silently empty frame.

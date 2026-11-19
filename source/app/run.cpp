@@ -12,6 +12,10 @@ import :capture;
 import :environment_loader;
 import :startup_splash;
 
+#ifdef DEREN_ENABLE_RMLUI
+import deren.ui.rml_overlay;
+import deren.ui.rml_document;
+#endif
 import deren.vstd;
 import deren.utility.shared;
 import deren.utility; // re-exports frame_clock / frame_stats / bvh / vessel / thread_pool / data_block
@@ -172,6 +176,14 @@ namespace deren::app {
         }
         deren::utility::vessel::vector<deren::input::action_binding> project_actions = std::move(project->input_actions);
         deren::app_config::app_settings launch_settings = std::move(project->settings);
+        if (launch_settings.gui.rml_document.empty() != launch_settings.gui.rml_font.empty()) {
+            return fail_project("gui.rml_document and gui.rml_font must be configured together");
+        }
+#ifndef DEREN_ENABLE_RMLUI
+        if (!launch_settings.gui.rml_document.empty()) {
+            return fail_project("RmlUi requires DEREN_ENABLE_RMLUI=ON");
+        }
+#endif
         deren::app::script_scene script_scene;
         capture::options capture{};
         auto startup = script_scene.preinit(script_assembly, argc, argv);
@@ -464,26 +476,26 @@ namespace deren::app {
             std::vector<animation_command> animation_pending;
         };
         managed_bind_context managed_binding{.render_runtime = &runtime,
-                                            .renderer = &app_renderer,
-                                            .pending_environment = {},
-                                            .pending_environment_slot = 0,
-                                            .environment_pending = false,
-                                            .pipeline_bases = {},
-                                            .shadow_scene_radius = 0.0f,
-                                            .clouds = {},
-                                            .next_cloud_id = 1,
-                                            .material_overrides = {},
-                                            .ui_windows = {},
-                                            .ui_panel = nullptr,
-                                            .ui_panel_open = false,
-                                            .ui_available = false,
-                                            .ui_default_width = 380.0F,
-                                            .ui_default_height = 140.0F,
-                                            .player = nullptr,
-                                            .animation_state = {},
-                                            .animation_names = {},
-                                            .animation_mutex = {},
-                                            .animation_pending = {}};
+                                             .renderer = &app_renderer,
+                                             .pending_environment = {},
+                                             .pending_environment_slot = 0,
+                                             .environment_pending = false,
+                                             .pipeline_bases = {},
+                                             .shadow_scene_radius = 0.0f,
+                                             .clouds = {},
+                                             .next_cloud_id = 1,
+                                             .material_overrides = {},
+                                             .ui_windows = {},
+                                             .ui_panel = nullptr,
+                                             .ui_panel_open = false,
+                                             .ui_available = false,
+                                             .ui_default_width = 380.0F,
+                                             .ui_default_height = 140.0F,
+                                             .player = nullptr,
+                                             .animation_state = {},
+                                             .animation_names = {},
+                                             .animation_mutex = {},
+                                             .animation_pending = {}};
         // The snapshot every ABI 35 query reads. The frame thread writes it once per frame; a managed
         // thread reads it under the same lock, so a query never sees a half-built state.
         constexpr auto publish_animation_state = +[](managed_bind_context& context) {
@@ -573,15 +585,9 @@ namespace deren::app {
                 deren::engine::animation::backend const backend{
                     .scene = &runtime.get_scene(),
                     .morph_scratch_active = [&runtime]() { return static_cast<float*>(runtime.morph_scratch()); },
-                    .set_skin_matrices_active = [&runtime](std::span<glm::mat4 const> matrices, std::uint32_t base) {
-                        runtime.set_skin_matrices_at(matrices, base);
-                    },
-                    .morph_scratch_slot = [&runtime](std::uint32_t slot) {
-                        return static_cast<float*>(runtime.morph_scratch(slot));
-                    },
-                    .set_skin_matrices_slot = [&runtime](std::span<glm::mat4 const> matrices, std::uint32_t slot) {
-                        runtime.set_skin_matrices(matrices, slot);
-                    },
+                    .set_skin_matrices_active = [&runtime](std::span<glm::mat4 const> matrices, std::uint32_t base) { runtime.set_skin_matrices_at(matrices, base); },
+                    .morph_scratch_slot = [&runtime](std::uint32_t slot) { return static_cast<float*>(runtime.morph_scratch(slot)); },
+                    .set_skin_matrices_slot = [&runtime](std::span<glm::mat4 const> matrices, std::uint32_t slot) { runtime.set_skin_matrices(matrices, slot); },
                     .scene_changed = [&runtime]() { runtime.scene_changed(); },
                     .run_tasks = [&runtime](std::span<std::function<void()>> tasks) { runtime.run_tasks(tasks); },
                     .task_worker_count = [&runtime]() { return runtime.task_pool_threads(); },
@@ -855,23 +861,23 @@ namespace deren::app {
             // with success only when the frame thread will certainly be able to apply it.
             std::lock_guard const lock(context->animation_mutex);
             switch (kind) {
-                case deren::app::animation_command_kind::select:
-                    if (index >= context->animation_state.playable_count) {
-                        return false;
-                    }
-                    break;
-                case deren::app::animation_command_kind::playing:
-                    break;
-                case deren::app::animation_command_kind::speed:
-                    if (!std::isfinite(value) || value < 0.0F) {
-                        return false;
-                    }
-                    break;
-                case deren::app::animation_command_kind::time:
-                    if (!std::isfinite(value)) {
-                        return false;
-                    }
-                    break;
+            case deren::app::animation_command_kind::select:
+                if (index >= context->animation_state.playable_count) {
+                    return false;
+                }
+                break;
+            case deren::app::animation_command_kind::playing:
+                break;
+            case deren::app::animation_command_kind::speed:
+                if (!std::isfinite(value) || value < 0.0F) {
+                    return false;
+                }
+                break;
+            case deren::app::animation_command_kind::time:
+                if (!std::isfinite(value)) {
+                    return false;
+                }
+                break;
             }
             context->animation_pending.push_back({.kind = kind, .index = index, .value = value});
             return true;
@@ -994,7 +1000,7 @@ namespace deren::app {
             return true;
         };
         auto const set_managed_point_lights = +[](void* opaque, deren::scripting::point_light_desc const* lights,
-                                                   std::uint32_t count) -> bool {
+                                                  std::uint32_t count) -> bool {
             auto* context = static_cast<managed_bind_context*>(opaque);
             if (context == nullptr || context->render_runtime == nullptr) {
                 return false;
@@ -1085,7 +1091,7 @@ namespace deren::app {
             if (context == nullptr || context->render_runtime == nullptr) {
                 return false;
             }
-            auto const axis = [](float const (&values)[3]) {
+            auto const axis = [](float const(&values)[3]) {
                 return glm::vec3(values[0], values[1], values[2]);
             };
             context->render_runtime->set_head_basis(
@@ -1169,7 +1175,7 @@ namespace deren::app {
             return true;
         };
         auto const write_managed_radiance_cube = +[](void*, std::string_view path, std::uint32_t size,
-                                                      float const* pixels, std::uint32_t float_count) -> bool {
+                                                     float const* pixels, std::uint32_t float_count) -> bool {
             if (pixels == nullptr || path.empty()) {
                 return false;
             }
@@ -1267,6 +1273,88 @@ namespace deren::app {
         // answers. A project with `[gui] show = false` keeps the ui module published as well, so the
         // game's panel calls report `module_unavailable` and the game can say so in its log - a null
         // table would look like a bug in the game instead of a setting in the project.
+#ifdef DEREN_ENABLE_RMLUI
+        std::optional<deren::ui::rml_overlay> game_ui;
+        struct ui_input_context {
+            deren::ui::rml_overlay* overlay;
+            glfw_window* window;
+            deren::input::action_state* actions;
+            deren::engine::runtime* renderer;
+            bool debug_keyboard_owner = false;
+        };
+        ui_input_context ui_input{};
+        if (!settings.gui.rml_document.empty()) {
+            game_ui.emplace(runtime.rhi_face());
+            if (!game_ui->open(settings.gui.rml_document, settings.gui.rml_font, settings.gui.rml_fallback_font, shaders_dir)) {
+                return fail_project("RmlUi could not load its document, font or shaders");
+            }
+            runtime.set_output_overlay(&*game_ui, &deren::ui::rml_overlay::record);
+            ui_input = {&*game_ui, &window, &action_state, &runtime};
+            action_input.set_event_filter(+[](void* opaque, window_event const& event) -> bool {
+                auto& host = *static_cast<ui_input_context*>(opaque);
+                auto& document = host.overlay->content();
+                using type = window_event_type;
+                bool const pointer = event.type == type::mouse_move || event.type == type::mouse_button || event.type == type::scroll;
+                bool const keyboard = event.type == type::key || event.type == type::character;
+                bool const debug_mouse = host.renderer->debug_gui_wants_mouse() && !document.has_mouse_capture();
+                if (event.type == type::focus_lost) {
+                    host.debug_keyboard_owner = false;
+                }
+                if (event.type == type::mouse_button && event.down) {
+                    host.debug_keyboard_owner = debug_mouse;
+                    if (debug_mouse) {
+                        document.input({.type = deren::ui::input_type::focus_lost});
+                        host.actions->release_keys();
+                    }
+                }
+                if (pointer && debug_mouse) {
+                    document.input({.type = deren::ui::input_type::mouse_leave});
+                    return true;
+                }
+                if (keyboard && host.debug_keyboard_owner) {
+                    return true;
+                }
+                deren::ui::input_event input{};
+                switch (event.type) {
+                case type::mouse_move: {
+                    input.type = deren::ui::input_type::move;
+                    int w = 0, h = 0, fw = 0, fh = 0;
+                    host.window->window_size(w, h);
+                    host.window->framebuffer_size(fw, fh);
+                    input.x = w > 0 ? static_cast<int>(event.x * fw / w) : 0;
+                    input.y = h > 0 ? static_cast<int>(event.y * fh / h) : 0;
+                    break;
+                }
+                case type::mouse_button:
+                    input.type = deren::ui::input_type::button;
+                    input.button = event.button;
+                    break;
+                case type::scroll:
+                    input.type = deren::ui::input_type::wheel;
+                    input.wheel = event.wheel;
+                    break;
+                case type::character:
+                    input.type = deren::ui::input_type::character;
+                    input.codepoint = event.codepoint;
+                    break;
+                case type::focus_lost:
+                    input.type = deren::ui::input_type::focus_lost;
+                    break;
+                case type::key:
+                    input.type = deren::ui::input_type::key;
+                    input.key = ui_key(event.key);
+                    break;
+                }
+                input.down = event.down;
+                input.modifiers = ((event.modifiers & 1) ? 2 : 0) | ((event.modifiers & 2) ? 1 : 0) | (event.modifiers & 12);
+                bool const consumed = host.overlay->content().input(input);
+                if (host.overlay->content().wants_keyboard()) {
+                    host.actions->release_keys();
+                }
+                return consumed;
+            }, &ui_input);
+        }
+#endif
         managed_binding.ui_available = settings.gui.show && runtime.enable_debug_gui();
         if (managed_binding.ui_available) {
             deren::utility::log("gui: managed debug panel enabled (default {}x{})", settings.gui.panel_width,
@@ -1457,20 +1545,20 @@ namespace deren::app {
                                            .set_toon_shading = set_managed_toon_shading,
                                            .set_shadow_enabled = set_managed_shadow_enabled,
                                            .set_head_basis = set_managed_head_basis,
-                                             .set_capture_camera = set_managed_capture_camera,
-                                             .request_radiance_capture = request_managed_radiance,
-                                             .acquire_radiance_image = acquire_managed_radiance,
-                                             .reset_temporal_history = reset_managed_temporal_history,
-                                             .write_radiance_cube = write_managed_radiance_cube,
-                                             .animation_state = get_managed_animation_state,
-                                             .animation_playable_name = get_managed_animation_name,
-                                             .animation_command = queue_managed_animation,
-                                             .panic = report_managed_panic,
-                                             .viewport_size = query_viewport_size,
-                                             .project_point = query_project_point,
-                                             .screen_ray = query_screen_ray,
-                                             .counters = query_counters,
-                                             .gpu_timing_summary = query_gpu_timing_summary},
+                                           .set_capture_camera = set_managed_capture_camera,
+                                           .request_radiance_capture = request_managed_radiance,
+                                           .acquire_radiance_image = acquire_managed_radiance,
+                                           .reset_temporal_history = reset_managed_temporal_history,
+                                           .write_radiance_cube = write_managed_radiance_cube,
+                                           .animation_state = get_managed_animation_state,
+                                           .animation_playable_name = get_managed_animation_name,
+                                           .animation_command = queue_managed_animation,
+                                           .panic = report_managed_panic,
+                                           .viewport_size = query_viewport_size,
+                                           .project_point = query_project_point,
+                                           .screen_ray = query_screen_ray,
+                                           .counters = query_counters,
+                                           .gpu_timing_summary = query_gpu_timing_summary},
             settings.paths.asset_library,
             deren::app::managed_asset_binder{.context = &managed_binding, .bind = bind_managed_asset});
         if (!started) {
@@ -1515,7 +1603,7 @@ namespace deren::app {
         deren::utility::vessel::vector<std::pair<double, double>> frame_trace;
         auto trace_previous = std::chrono::steady_clock::now();
         auto const trace_origin = trace_previous;
-        double const trace_unix_ms = std::chrono::duration<double, std::milli>(std::chrono::system_clock::now().time_since_epoch()).count();  //NOLINT
+        double const trace_unix_ms = std::chrono::duration<double, std::milli>(std::chrono::system_clock::now().time_since_epoch()).count(); // NOLINT
         if (frame_trace_path) {
             frame_trace.reserve(4096);
         }
@@ -1618,7 +1706,7 @@ namespace deren::app {
                 auto const prepare_start = std::chrono::steady_clock::now();
                 environment_cache_report cache;
                 auto prepared = prepare_environment_cached(request, environment_cache_dir, sun_direction,
-                                                                       env_size, env_mip_count, irr_size, 1.0f, &cache);
+                                                           env_size, env_mip_count, irr_size, 1.0f, &cache);
                 if (!prepared.error.empty()) {
                     deren::utility::log("environment slot {}: '{}' rejected: {} (keeping the slot's current IBL)",
                                         environment_slot, request.empty() ? "procedural sky" : request.string(), prepared.error.c_str());
@@ -1641,12 +1729,12 @@ namespace deren::app {
                                                       });
                     } else {
                         applied = runtime.set_ibl(environment_slot, deren::engine::ibl_input{
-                                                                       .prefiltered_env = prepared.environment,
-                                                                       .irradiance = prepared.irradiance,
-                                                                       .env_size = static_cast<std::uint32_t>(env_size),
-                                                                       .env_mip_count = static_cast<std::uint32_t>(env_mip_count),
-                                                                       .irr_size = static_cast<std::uint32_t>(irr_size),
-                                                                   });
+                                                                        .prefiltered_env = prepared.environment,
+                                                                        .irradiance = prepared.irradiance,
+                                                                        .env_size = static_cast<std::uint32_t>(env_size),
+                                                                        .env_mip_count = static_cast<std::uint32_t>(env_mip_count),
+                                                                        .irr_size = static_cast<std::uint32_t>(irr_size),
+                                                                    });
                     }
                     // the history holds the old radiance; a new environment invalidates every pixel
                     app_renderer.reset_temporal_history();
@@ -1659,7 +1747,8 @@ namespace deren::app {
                                         environment_slot, request.empty() ? "procedural sky" : request.string(),
                                         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - prepare_start).count(),
                                         applied ? "uploaded" : "upload failed",
-                                        cache.hit ? ", cache hit" : cache.write_failed ? ", cache write failed" : ", cached");
+                                        cache.hit ? ", cache hit" : cache.write_failed ? ", cache write failed"
+                                                                                       : ", cached");
                 }
             }
             // A: THE FALLBACK SKY IS BAKED HERE, NOT AT STARTUP. A project that names slot 0's
@@ -1724,18 +1813,18 @@ namespace deren::app {
                 deren::engine::animation::controller& player = *managed_binding.player;
                 for (managed_bind_context::animation_command const& command : commands) {
                     switch (command.kind) {
-                        case deren::app::animation_command_kind::select:
-                            player.select(command.index);
-                            break;
-                        case deren::app::animation_command_kind::playing:
-                            player.set_playing(command.value != 0.0F);
-                            break;
-                        case deren::app::animation_command_kind::speed:
-                            player.set_speed(command.value);
-                            break;
-                        case deren::app::animation_command_kind::time:
-                            player.set_time(command.value);
-                            break;
+                    case deren::app::animation_command_kind::select:
+                        player.select(command.index);
+                        break;
+                    case deren::app::animation_command_kind::playing:
+                        player.set_playing(command.value != 0.0F);
+                        break;
+                    case deren::app::animation_command_kind::speed:
+                        player.set_speed(command.value);
+                        break;
+                    case deren::app::animation_command_kind::time:
+                        player.set_time(command.value);
+                        break;
                     }
                 }
                 player.update(dt);
@@ -1753,6 +1842,21 @@ namespace deren::app {
             if (rec == deren::engine::frame_status::closed || deren::engine::is_failure(rec)) {
                 break;
             }
+#ifdef DEREN_ENABLE_RMLUI
+            if (game_ui) {
+                auto* image = runtime.rhi_face().frames->frame_image();
+                auto const extent = image->extent();
+                if (!game_ui->prepare(extent.width, extent.height, image->format(), runtime.rhi_face().frames->walk_frames()->position())) {
+                    return fail_project("RmlUi could not prepare its overlay");
+                }
+                for (auto const& event : game_ui->content().take_events()) {
+                    deren::utility::log("rmlui: {} {} {}", event.type, event.id, event.value);
+                    if (event.type == "click" && event.id == "apply") {
+                        game_ui->content().set_text("status", game_ui->content().value("name"));
+                    }
+                }
+            }
+#endif
             runtime.prepare_scene_recording();
             deren::engine::frame_status const recorded = runtime.record_graph();
             if (recorded == deren::engine::frame_status::closed || deren::engine::is_failure(recorded)) {

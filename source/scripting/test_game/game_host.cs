@@ -81,6 +81,10 @@ namespace game {
                     options->capture_windowed = 1;
                     continue;
                 }
+                if (argument == "--audio-selftest" && i + 1 < args.Length) {
+                    audio_selftest.path = args[++i];
+                    continue;
+                }
                 if (argument == "--frame-events-selftest") {
                     frame_events_selftest = true;
                     continue;
@@ -182,6 +186,9 @@ namespace game {
             var module_status = scene_api.initialize(api);
             if (module_status != script_status.success) {
                 return module_status;
+            }
+            if (audio_selftest.path != null) {
+                return audio_selftest.initialize(scripts);
             }
             // ABI 35: every run exercises the settable boundary wait, so the host test can assert
             // the value arrived and the demo keeps a wait that is still generous for its batches.
@@ -539,9 +546,9 @@ namespace game {
         private script_status frame_events_register() {
             frame_events_registered = true;
             if (!frame_event_processor.do_before_frame_once(() => {
-                    System.Threading.Interlocked.Increment(ref frame_events_before);
-                    frame_events_before_serial = System.Threading.Interlocked.Increment(ref frame_events_serial);
-                }) ||
+                System.Threading.Interlocked.Increment(ref frame_events_before);
+                frame_events_before_serial = System.Threading.Interlocked.Increment(ref frame_events_serial);
+            }) ||
                 !frame_event_processor.do_after_frame_once(() => {
                     System.Threading.Interlocked.Increment(ref frame_events_after);
                     frame_events_after_serial = System.Threading.Interlocked.Increment(ref frame_events_serial);

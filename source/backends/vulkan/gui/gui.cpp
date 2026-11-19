@@ -4,6 +4,7 @@ module;
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_vulkan.h>
+#include <imgui_internal.h>
 
 module deren.vulkan.graphical_user_interface;
 import deren.vstd;
@@ -110,6 +111,7 @@ namespace deren::vulkan::gui {
             return false;
         }
 
+        this->input_window = info.window;
         this->active = true;
         this->frames_in_flight = info.frames_in_flight;
         deren::utility::log("gui_content: ImGui overlay initialized (dynamic rendering, 1x swapchain)");
@@ -126,6 +128,7 @@ namespace deren::vulkan::gui {
         ImGui_ImplGlfw_Shutdown();
         ImGui::DestroyContext();
         this->active = false;
+        this->input_window = nullptr;
         this->panels.clear();
     }
 
@@ -134,7 +137,22 @@ namespace deren::vulkan::gui {
     }
 
     bool gui_content::wants_mouse() const noexcept {
-        return this->active && ImGui::GetIO().WantCaptureMouse;
+        if (!this->active || !this->input_window) {
+            return false;
+        }
+        double x = 0, y = 0;
+        glfwGetCursorPos(this->input_window, &x, &y);
+        ImGuiWindow* hovered = nullptr;
+        ImGuiWindow* beneath_moving = nullptr;
+        auto const origin = ImGui::GetMainViewport()->Pos;
+        ImGui::FindHoveredWindowEx(ImVec2(static_cast<float>(x) + origin.x, static_cast<float>(y) + origin.y),
+                                   false, &hovered, &beneath_moving);
+        auto const& context = *ImGui::GetCurrentContext();
+        auto const& io = ImGui::GetIO();
+        bool const held = io.MouseDown[0] || io.MouseDown[1] || io.MouseDown[2];
+        bool const dragging = held && (context.MovingWindow ||
+                                       (context.ActiveId != 0 && context.ActiveIdSource == ImGuiInputSource_Mouse));
+        return hovered || dragging || context.OpenPopupStack.Size != 0;
     }
 
     // ---- panel management ----

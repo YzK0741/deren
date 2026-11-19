@@ -1,6 +1,6 @@
 # C# Module ABI
 
-Status: implemented for the `scene` and `ui` modules; managed ABI v38.
+Status: implemented for the `scene`, `ui` and `audio` modules; managed ABI v38.
 
 Baseline: `feature/csharp-scene-tree`. Native code owns rendering, the Vulkan runtime, the
 module resolver, and primitive/scene import. Managed code owns scene construction, asset
@@ -949,3 +949,60 @@ Status values are returned through the ABI; no exception crosses the native boun
   (`try_get_viewport_size`, `try_project_point`, `try_screen_ray`) and `deren.diagnostics`
   (`try_get_counters`, `gpu_timing_text`). Every new entry is optional: an older host answers
   `module_unavailable`, and `abi_type::diagnostic_counters` (24 bytes) joined the layout check.
+
+## Audio module
+
+Module id 3 is optional. `audio_api` is a table of nine function pointers, resolved
+and checked by byte size before any callback is installed. The existing core,
+scene and UI layouts and managed ABI version are unchanged. A host without this
+module reports `module_unavailable`; a wrong size or missing entry is rejected.
+
+| Entry | Arguments after the implicit function name | Result |
+| --- | --- | --- |
+| load_buffer | UTF-8 path, output buffer id | Load one shared PCM owner |
+| release_buffer | buffer id | Drop the load reference |
+| create | buffer id, output audio id | Create stopped audio with an independent cursor |
+| create_from_file | UTF-8 path, output audio id | Load and create stopped audio |
+| clone | audio id, byte clone_state, output audio id | Share PCM and optionally copy transport/settings |
+| release | audio id | Detach sound before releasing PCM ownership |
+| command | audio id, command uint, double argument | Control transport/settings |
+| query | audio id, query uint, output double | Copy one audio property |
+| buffer_query | buffer id, query uint, output double | Copy decoded metadata |
+
+Commands 0..7 are play, pause, stop, seek seconds, volume, pan, pitch and looping.
+Audio queries 0..7 are position seconds, duration seconds, is_playing, at_end,
+volume, pan, pitch and looping. Buffer queries 0..3 are channels, sample_rate,
+frame_count and duration seconds. Looping arguments are exactly zero or one.
+Invalid ids report `asset_invalid`, invalid parameters `invalid_argument`,
+missing files `asset_not_found`, decode failures `asset_invalid`, and unavailable
+audio output or an inactive session `module_unavailable`.
+
+Native `audio_host` serializes registry/control calls. Buffer and audio ids share
+one monotonic sequence and are not recycled between sessions. Existing audio
+retains shared PCM ownership when its load handle is released. At script stop,
+managed callbacks are invalidated and the native registry detaches all remaining
+sounds before dropping buffers. Every managed wrapper captures a session epoch,
+so an object from an old session cannot control a new session's resource.
+
+C# exposes `deren.audio_buffer` and `deren.audio`, both disposable. Convenience
+factories return null on failure; `try_*` overloads additionally return
+`script_status`. `audio.load_audio_buffer_from_file` returns a reusable buffer;
+`audio.create(buffer)` and `audio.create_from_file(path)` create playback objects.
+`clone(false)` starts with defaults at frame zero; `clone(true)` copies settings,
+position and running state. `pause` preserves position and `stop` resets it.
+`try_set_volume`, `try_set_pan`, `try_set_pitch` and `try_set_looping` report a
+rejected setting rather than hiding it in a property setter.
+
+Relative paths resolve against the managed project's directory; UTF-8 paths
+cross the wire by value for the duration of the call. Callers serialize control
+and disposal on their wrapper. Nonblocking frame workers are refused by the same
+host-call guard used by scene APIs. Dispose during game cleanup for prompt
+release; host session teardown also cleans abandoned handles. There is no GC
+finalizer that calls native code after the host has shut down.
+
+The shared wire primitives live in `deren.scripting.api_types`; audio table
+layout lives in `deren.scripting.audio_api`. Neither depends on .NET runtime
+loading, so the adapter does not inherit the host implementation's compiler mode.
+`test_scripting_audio` covers native id/ownership rules. `managed_host_audio_*`
+executes the real C# wrappers and covers Unicode loading, independent clones,
+disposal, shutdown invalidation, absent modules, size mismatch and incomplete tables.

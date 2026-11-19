@@ -3,6 +3,8 @@
 
 export module deren.scripting.managed_host;
 export import deren.vstd;
+export import deren.scripting.api_types;
+export import deren.scripting.audio_api;
 
 export namespace deren::scripting {
 
@@ -116,25 +118,6 @@ export namespace deren::scripting {
         vector_3 scale;
     };
 
-    struct utf8_view {
-        char const* data;
-        std::uint32_t length;
-    };
-
-    enum class script_status : std::int32_t {
-        success = 0,
-        invalid_argument = 1,
-        invalid_node = 2,
-        scene_exists = 3,
-        scene_not_found = 4,
-        script_failure = 5,
-        spawn_unavailable = 6,
-        module_unavailable = 7,
-        module_invalid = 8,
-        asset_not_found = 9,
-        asset_invalid = 10
-    };
-
     /**
      * @brief resolved scene module table
      *
@@ -184,15 +167,15 @@ export namespace deren::scripting {
     // clip plays, from when, and how fast. `available` is 0 until such an asset is bound; the rest of
     // the struct is a snapshot taken once per frame, which keeps the query side lock-free.
     struct animation_state {
-        std::uint32_t playable_count = 0;  // clips the player holds
-        std::uint32_t current = 0;         // index of the selected clip
-        std::uint8_t has_active = 0;       // a clip is selected
-        std::uint8_t playing = 0;          // the clock advances on each frame
-        std::uint8_t available = 0;        // the host has a player at all
+        std::uint32_t playable_count = 0; // clips the player holds
+        std::uint32_t current = 0;        // index of the selected clip
+        std::uint8_t has_active = 0;      // a clip is selected
+        std::uint8_t playing = 0;         // the clock advances on each frame
+        std::uint8_t available = 0;       // the host has a player at all
         std::uint8_t padding = 0;
-        float time = 0.0F;      // seconds into the clip
-        float duration = 0.0F;  // the clip's looping length in seconds
-        float speed = 0.0F;     // playback-rate multiplier (0..16)
+        float time = 0.0F;     // seconds into the clip
+        float duration = 0.0F; // the clip's looping length in seconds
+        float speed = 0.0F;    // playback-rate multiplier (0..16)
     };
 
     static_assert(sizeof(animation_state) == 24);
@@ -214,49 +197,49 @@ export namespace deren::scripting {
     static_assert(sizeof(diagnostic_counters) == 24);
 
     struct scene_api {
-        script_status(* get_transform)(node_handle node, transform_value* value) = nullptr;
-        script_status(* set_transform)(node_handle node, transform_value const* value) = nullptr;
-        script_status(* try_spawn)(std::uint64_t scene, utf8_view asset, transform_value const* value,
-                                          node_handle* node) = nullptr;
-        script_status(* try_despawn)(std::uint64_t scene, node_handle node) = nullptr;
+        script_status (*get_transform)(node_handle node, transform_value* value) = nullptr;
+        script_status (*set_transform)(node_handle node, transform_value const* value) = nullptr;
+        script_status (*try_spawn)(std::uint64_t scene, utf8_view asset, transform_value const* value,
+                                   node_handle* node) = nullptr;
+        script_status (*try_despawn)(std::uint64_t scene, node_handle node) = nullptr;
         // Creates an empty managed scene tree. The returned id is independent of script scene ids.
-        script_status(* create_scene_tree)(std::uint64_t* tree) = nullptr;
+        script_status (*create_scene_tree)(std::uint64_t* tree) = nullptr;
         // Hands a managed tree to the renderer for the current scene startup. The tree becomes
         // the runtime scene and must not be destroyed while active.
-        script_status(* activate_scene)(std::uint64_t tree) = nullptr;
-        script_status(* get_active_scene)(std::uint64_t* tree) = nullptr;
+        script_status (*activate_scene)(std::uint64_t tree) = nullptr;
+        script_status (*get_active_scene)(std::uint64_t* tree) = nullptr;
         // Detaches the active tree from the current script scene before it is destroyed. The
         // native renderer must not have begun a frame with this tree after the call returns.
-        script_status(* deactivate_scene)(std::uint64_t tree) = nullptr;
-        script_status(* destroy_scene_tree)(std::uint64_t tree) = nullptr;
+        script_status (*deactivate_scene)(std::uint64_t tree) = nullptr;
+        script_status (*destroy_scene_tree)(std::uint64_t tree) = nullptr;
         // Appends a node to a managed tree. A zero parent creates a root. The returned node id is
         // process-wide and stays valid until the node or one of its ancestors is destroyed.
-        script_status(* create_node)(std::uint64_t tree, node_handle parent, utf8_view name,
-                                            transform_value const* local, node_handle* node) = nullptr;
-        script_status(* destroy_node)(std::uint64_t tree, node_handle node) = nullptr;
+        script_status (*create_node)(std::uint64_t tree, node_handle parent, utf8_view name,
+                                     transform_value const* local, node_handle* node) = nullptr;
+        script_status (*destroy_node)(std::uint64_t tree, node_handle node) = nullptr;
         // Local transform of a managed-tree node, stored in its placement component. These calls
         // do not consult a script scene's spawn slots.
-        script_status(* get_node_transform)(std::uint64_t tree, node_handle node,
-                                                   transform_value* value) = nullptr;
-        script_status(* set_node_transform)(std::uint64_t tree, node_handle node,
-                                                   transform_value const* value) = nullptr;
-        script_status(* set_node_visible)(std::uint64_t tree, node_handle node,
-                                                 std::uint8_t visible) = nullptr;
+        script_status (*get_node_transform)(std::uint64_t tree, node_handle node,
+                                            transform_value* value) = nullptr;
+        script_status (*set_node_transform)(std::uint64_t tree, node_handle node,
+                                            transform_value const* value) = nullptr;
+        script_status (*set_node_visible)(std::uint64_t tree, node_handle node,
+                                          std::uint8_t visible) = nullptr;
         // Enumerates library asset ids in sorted order. The returned view borrows the library's
         // storage and stays valid until the library is rescanned. Out-of-range indexes return
         // asset_not_found.
-        script_status(* list_asset)(std::uint32_t index, utf8_view* id) = nullptr;
+        script_status (*list_asset)(std::uint32_t index, utf8_view* id) = nullptr;
         // The asset manager loads one library asset and returns a process-wide handle. The
         // source data stays alive while at least one handle is held.
-        script_status(* load_asset)(utf8_view id, asset_handle* asset) = nullptr;
-        script_status(* release_asset)(asset_handle asset) = nullptr;
+        script_status (*load_asset)(utf8_view id, asset_handle* asset) = nullptr;
+        script_status (*release_asset)(asset_handle asset) = nullptr;
         // Instantiates the whole asset as a subtree under parent (a zero parent creates a root).
         // The offset is the asset instance root's local transform.
-        script_status(* bind_asset)(std::uint64_t tree, node_handle parent, asset_handle asset,
-                                           transform_value const* offset, node_handle* root) = nullptr;
+        script_status (*bind_asset)(std::uint64_t tree, node_handle parent, asset_handle asset,
+                                    transform_value const* offset, node_handle* root) = nullptr;
         // The managed game owns the camera pose. Calls fail if no scene is active.
-        script_status(* get_camera)(camera_state* value) = nullptr;
-        script_status(* set_camera)(camera_state const* value) = nullptr;
+        script_status (*get_camera)(camera_state* value) = nullptr;
+        script_status (*set_camera)(camera_state const* value) = nullptr;
         // Replaces ONE image-based-lighting slot with the environment named by @p path: a baked .ibl or
         // an equirectangular .hdr, relative paths resolved against the executable directory. An empty
         // path loads the procedural sky into that slot. The call is a request: the host validates the
@@ -270,131 +253,131 @@ export namespace deren::scripting {
         // side), and the shaders pick the slot's cubemap pair out of the descriptor heap
         // (`heap_access.slang`, `custom_env_cube + slot - 1`). `layout::heap_environment_capacity` is the
         // upper bound; a larger slot is rejected with `invalid_argument`.
-        script_status(* set_environment_hdr)(utf8_view path, std::uint32_t environment_slot) = nullptr;
+        script_status (*set_environment_hdr)(utf8_view path, std::uint32_t environment_slot) = nullptr;
         // The asset manifest declares which renderer pipelines its meshes support and which one a
         // bind starts on. These return that declaration for parameter validation on the managed
         // side; the strings borrow the registry's storage while the handle is alive.
-        script_status(* asset_pipeline_count)(asset_handle asset, std::uint32_t* count) = nullptr;
-        script_status(* asset_pipeline)(asset_handle asset, std::uint32_t index, utf8_view* name) = nullptr;
-        script_status(* asset_default_pipeline)(asset_handle asset, utf8_view* name) = nullptr;
+        script_status (*asset_pipeline_count)(asset_handle asset, std::uint32_t* count) = nullptr;
+        script_status (*asset_pipeline)(asset_handle asset, std::uint32_t index, utf8_view* name) = nullptr;
+        script_status (*asset_default_pipeline)(asset_handle asset, utf8_view* name) = nullptr;
         // Switches the primitives under a bind_asset() root to @p pipeline. Names outside that
         // asset's supported list are rejected with invalid_argument; a node that is not a bind
         // root is rejected with invalid_node. The host rewrites the imported leaves between frames.
-        script_status(* set_pipeline)(std::uint64_t tree, node_handle node, utf8_view pipeline) = nullptr;
+        script_status (*set_pipeline)(std::uint64_t tree, node_handle node, utf8_view pipeline) = nullptr;
         // Post-processing and environment calibration as RUNTIME state (ABI 24). These replace the
         // startup-only [render]/[lighting] hand-off: the values are CPU-side and take effect on the
         // next frame, so a managed game can move them between frames. Each entry validates the
         // arguments and returns invalid_argument instead of clamping silently.
-        script_status(* set_exposure)(float exposure) = nullptr;
+        script_status (*set_exposure)(float exposure) = nullptr;
         // 0 = none/linear, 1 = ACES, 2 = the character-forward grading (see tone_mapping in the shaders)
-        script_status(* set_tone_mapping)(std::int32_t mode) = nullptr;
+        script_status (*set_tone_mapping)(std::int32_t mode) = nullptr;
         // Rotation is in DEGREES and wraps; strength is 0..64, background is a mode 0..3, and the
         // background colour channels and blur are 0..1.
-        script_status(* set_environment)(float rotation_degrees, float strength, std::int32_t background,
+        script_status (*set_environment)(float rotation_degrees, float strength, std::int32_t background,
                                          float color_r, float color_g, float color_b, float blur) = nullptr;
         // 0..3, 1.0 = the shading path's constant unchanged.
-        script_status(* set_sun_intensity)(float scale) = nullptr;
+        script_status (*set_sun_intensity)(float scale) = nullptr;
         // intensity 0..4 (0 disables), threshold 0..0.75.
-        script_status(* set_bloom)(float intensity, float threshold) = nullptr;
+        script_status (*set_bloom)(float intensity, float threshold) = nullptr;
         // subpixel 0..1, edge_threshold 0..1 (the shader's default is 0.166).
-        script_status(* set_fxaa)(std::uint8_t enabled, float subpixel, float edge_threshold) = nullptr;
+        script_status (*set_fxaa)(std::uint8_t enabled, float subpixel, float edge_threshold) = nullptr;
         // blend_static 0..0.99, blend_min 0..blend_static.
-        script_status(* set_taa)(std::uint8_t enabled, float blend_static, float blend_min) = nullptr;
+        script_status (*set_taa)(std::uint8_t enabled, float blend_static, float blend_min) = nullptr;
         // radius >= 0, intensity 0..1, samples 0..16 (the shader's array bound).
-        script_status(* set_ssao)(std::uint8_t enabled, float radius, float intensity, std::uint32_t samples) = nullptr;
-        script_status(* set_gbuffer_debug)(std::uint8_t enabled) = nullptr;
+        script_status (*set_ssao)(std::uint8_t enabled, float radius, float intensity, std::uint32_t samples) = nullptr;
+        script_status (*set_gbuffer_debug)(std::uint8_t enabled) = nullptr;
         // The direction points FROM the surface TOWARD the sun; it must be finite and non-zero.
-        script_status(* set_sun_direction)(float x, float y, float z) = nullptr;
+        script_status (*set_sun_direction)(float x, float y, float z) = nullptr;
         // A square emitter: half <= 0 clears it (axis and penumbra are then ignored); a live one needs
         // a finite non-zero axis and penumbra >= 0. irradiance selects the energy mode.
-        script_status(* set_area_light)(float centre_x, float centre_y, float centre_z, float half,
+        script_status (*set_area_light)(float centre_x, float centre_y, float centre_z, float half,
                                         std::uint8_t irradiance, float axis_x, float axis_y, float axis_z,
                                         float penumbra) = nullptr;
         // Flips the clustered-light path; false is the "few lights, forward loop" mode.
-        script_status(* set_clustered_lights)(std::uint8_t enabled) = nullptr;
+        script_status (*set_clustered_lights)(std::uint8_t enabled) = nullptr;
         // Replaces the WHOLE punctual light set (ABI 26). `count` may be 0, which clears every light;
         // a count above deren::engine::max_punctual_lights, or a null array with a non-zero count, is
         // rejected with invalid_argument rather than truncated. Each record is validated field by
         // field, so a non-finite value fails the call instead of reaching the light UBO.
-        script_status(* set_point_lights)(point_light_desc const* lights, std::uint32_t count) = nullptr;
+        script_status (*set_point_lights)(point_light_desc const* lights, std::uint32_t count) = nullptr;
         // One node subtree's per-object material factors. The walk is the same one apply_pipeline
         // uses, so a hidden subtree is rewritten too; see material_override_desc for the semantics.
-        script_status(* set_material_override)(std::uint64_t tree, node_handle node, material_override_desc const* value) = nullptr;
+        script_status (*set_material_override)(std::uint64_t tree, node_handle node, material_override_desc const* value) = nullptr;
         // Frame pacing (ABI 28): 0 means uncapped, a positive value caps the render loop. A negative or
         // non-finite value is rejected; the runtime itself clamps anything it does accept.
-        script_status(* set_max_fps)(double fps) = nullptr;
+        script_status (*set_max_fps)(double fps) = nullptr;
         // Cel shading for the toon stages: the number of diffuse bands (0 disables banding) and the
         // softness of each step (0..1). Band counts above 32 are rejected as a caller error.
-        script_status(* set_toon_shading)(float steps, float softness) = nullptr;
+        script_status (*set_toon_shading)(float steps, float softness) = nullptr;
         // Directional shadow mapping on or off. Turning it off clears the maps and drops the pass; the
         // shadow fit is recomputed when it comes back on.
-        script_status(* set_shadow_enabled)(std::uint8_t enabled) = nullptr;
+        script_status (*set_shadow_enabled)(std::uint8_t enabled) = nullptr;
         // The face frame the loader measured for a loaded asset (ABI 29), or asset_invalid when that
         // asset has no usable face primitive. The managed side derives the head basis from it.
-        script_status(* asset_face_frame)(asset_handle asset, face_frame_desc* value) = nullptr;
+        script_status (*asset_face_frame)(asset_handle asset, face_frame_desc* value) = nullptr;
         // Publishes one game-toon character's head frame: the direction the face looks, its right and up,
         // and the head's world position. `index` must be below deren::engine::max_game_toon_characters
         // (16); a character that never publishes one keeps the renderer's glTF-basis fallback.
-        script_status(* set_head_basis)(std::uint32_t index, head_basis_desc const* value) = nullptr;
+        script_status (*set_head_basis)(std::uint32_t index, head_basis_desc const* value) = nullptr;
         // OFFSCREEN CUBE CAPTURE (ABI 30): a managed game can render its scene six times from one
         // world position and write the result as a reflection-probe cube. The host only installs the
         // camera and runs the pass; the face loop, the frame cadence, and the output path are the
         // game's. enabled == 0 restores the orbit camera and turns the capture pass off (the other
         // arguments are then ignored). face is 0..5 in the engine's cube order; near/far must
         // bracket the scene.
-        script_status(* set_capture_camera)(std::uint8_t enabled, float const position[3], std::uint32_t face,
-                                           float near_plane, float far_plane) = nullptr;
+        script_status (*set_capture_camera)(std::uint8_t enabled, float const position[3], std::uint32_t face,
+                                            float near_plane, float far_plane) = nullptr;
         // Arms the readback of the next presented frame. Success means it is armed; the pixels are
         // collected once with acquire_radiance_image. A second request before that collection is
         // invalid_argument rather than a silently dropped image.
-        script_status(* request_radiance_capture)() = nullptr;
+        script_status (*request_radiance_capture)() = nullptr;
         // Copies the armed image out as width*height RGBA float pixels (4 floats per pixel). The caller
         // owns the buffer; a capacity that does not match the image is invalid_argument, and nothing
         // armed (or a failed readback) is script_failure. The pixels are consumed by the call.
-        script_status(* acquire_radiance_image)(std::uint32_t* width, std::uint32_t* height, float* rgba,
+        script_status (*acquire_radiance_image)(std::uint32_t* width, std::uint32_t* height, float* rgba,
                                                 std::uint32_t float_count) = nullptr;
         // Drops the accumulated temporal history. The face loop needs it: the next face is a different
         // camera, and a history carried across faces would blend one into the next.
-        script_status(* reset_temporal_history)() = nullptr;
+        script_status (*reset_temporal_history)() = nullptr;
         // Writes a captured cube (six faces in the engine's face order, each size*size*4 floats) as the
         // engine's IBL1 probe file at @p path. Called once, after all six faces are collected.
-        script_status(* write_radiance_cube)(utf8_view path, std::uint32_t size, float const* pixels,
+        script_status (*write_radiance_cube)(utf8_view path, std::uint32_t size, float const* pixels,
                                              std::uint32_t float_count) = nullptr;
         // ABI 36: THE ANIMATION PLAYER. The host samples the clip, writes the skin matrices and
         // uploads the morph deltas between frames; these entries only choose the clip and the clock.
         // Every call reports module_unavailable until an asset that names a motion file is bound, and
         // select/set_* report invalid_argument for a clip index or a value the player cannot take.
-        script_status(* get_animation_state)(animation_state * out) = nullptr;
-        script_status(* animation_playable_count)(std::uint32_t* count) = nullptr;
+        script_status (*get_animation_state)(animation_state* out) = nullptr;
+        script_status (*animation_playable_count)(std::uint32_t* count) = nullptr;
         // The clip name borrows the player's storage and stays valid until the player is rebuilt.
-        script_status(* animation_playable_name)(std::uint32_t index, utf8_view* name) = nullptr;
-        script_status(* select_animation)(std::uint32_t index) = nullptr;
-        script_status(* set_animation_playing)(std::uint8_t playing) = nullptr;
-        script_status(* set_animation_speed)(float speed) = nullptr;
+        script_status (*animation_playable_name)(std::uint32_t index, utf8_view* name) = nullptr;
+        script_status (*select_animation)(std::uint32_t index) = nullptr;
+        script_status (*set_animation_playing)(std::uint8_t playing) = nullptr;
+        script_status (*set_animation_speed)(float speed) = nullptr;
         // Scrubbing: sets the clip time in seconds and pauses, so a GUI timeline drag does not fight
         // the advancing clock. A time outside [0, duration] is clamped.
-        script_status(* set_animation_time)(float seconds) = nullptr;
+        script_status (*set_animation_time)(float seconds) = nullptr;
         // ABI 38: TREE QUERIES. create_node() already takes a name and a parent, but until now a
         // managed module could not read either back, so every subtree it built had to be remembered
         // in its own side table. These entries make the scene tree itself the source of truth.
         // Children are addressed by index in the parent's own order; the count is 0 for a leaf.
-        script_status(* node_child_count)(std::uint64_t tree, node_handle node, std::uint32_t* count) = nullptr;
-        script_status(* node_child)(std::uint64_t tree, node_handle node, std::uint32_t index,
+        script_status (*node_child_count)(std::uint64_t tree, node_handle node, std::uint32_t* count) = nullptr;
+        script_status (*node_child)(std::uint64_t tree, node_handle node, std::uint32_t index,
                                     node_handle* child) = nullptr;
         // The node name borrows the node's own storage and stays valid until the node is renamed or
         // destroyed; an unnamed node reports an empty view.
-        script_status(* node_name)(std::uint64_t tree, node_handle node, utf8_view* name) = nullptr;
+        script_status (*node_name)(std::uint64_t tree, node_handle node, utf8_view* name) = nullptr;
         // ABI 38: the opaque 32-bit gameplay word the renderer never interprets (see scene_node).
         // set_node_flags is a masked write: only the bits set in @p mask change.
-        script_status(* get_node_flags)(std::uint64_t tree, node_handle node, std::uint32_t* flags) = nullptr;
-        script_status(* set_node_flags)(std::uint64_t tree, node_handle node, std::uint32_t flags,
+        script_status (*get_node_flags)(std::uint64_t tree, node_handle node, std::uint32_t* flags) = nullptr;
+        script_status (*set_node_flags)(std::uint64_t tree, node_handle node, std::uint32_t flags,
                                         std::uint32_t mask) = nullptr;
         // ABI 38: moves @p node (and its subtree) under @p parent, or among the roots when
         // @p parent is a null handle. keep_transform != 0 rewrites the local transform so the node
         // keeps the WORLD pose it had before the move; 0 keeps the local transform, which changes
         // the world pose. The node keeps its handle and every component; moving a node into its own
         // subtree is invalid_argument (that would carry the new parent away with it).
-        script_status(* reparent_node)(std::uint64_t tree, node_handle node, node_handle parent,
+        script_status (*reparent_node)(std::uint64_t tree, node_handle node, node_handle parent,
                                        std::uint8_t keep_transform) = nullptr;
         // ABI 38: VIEW/SCREEN MAPPING. viewport_size is the presentation (up-scaled) extent in
         // pixels. project_point maps a world position to {x, y, view_depth}: x and y are pixels with
@@ -403,14 +386,14 @@ export namespace deren::scripting {
         // is the inverse: a pixel position becomes the camera position and a normalised world-space
         // direction. Both use the same unjittered matrices the frame's motion vectors use, so they
         // ignore the TAA jitter and the Vulkan y flip is already accounted for.
-        script_status(* viewport_size)(std::uint32_t* width, std::uint32_t* height) = nullptr;
-        script_status(* project_point)(float const* world, float* screen) = nullptr;
-        script_status(* screen_ray)(float x, float y, float* origin, float* direction) = nullptr;
+        script_status (*viewport_size)(std::uint32_t* width, std::uint32_t* height) = nullptr;
+        script_status (*project_point)(float const* world, float* screen) = nullptr;
+        script_status (*screen_ray)(float x, float y, float* origin, float* direction) = nullptr;
         // ABI 38: the renderer's own counters (see diagnostic_counters) and the debug overlay's
         // per-pass GPU timing text. The text borrows the runtime's last completed window and stays
         // valid until the next frame, so copy it if it must outlive the callback.
-        script_status(* query_counters)(diagnostic_counters * counters) = nullptr;
-        script_status(* gpu_timing_summary)(utf8_view * text) = nullptr;
+        script_status (*query_counters)(diagnostic_counters* counters) = nullptr;
+        script_status (*gpu_timing_summary)(utf8_view* text) = nullptr;
     };
     // ONE FRAME'S PANEL CONTENT (ABI 31). The managed game describes its debug panel every frame and the
     // host turns each call into the overlay plugin's widget. Every pointer is borrowed until the frame is
@@ -420,20 +403,20 @@ export namespace deren::scripting {
         // Opens the frame's panel by title (creating it on first use) and empties its widget list.
         // default_width/height are the first-use size; 0 keeps the overlay's auto-size. A repeated or
         // nested begin_panel before end_panel is invalid_argument.
-        script_status(* begin_panel)(utf8_view title, float default_width, float default_height) = nullptr;
-        script_status(* end_panel)() = nullptr;
+        script_status (*begin_panel)(utf8_view title, float default_width, float default_height) = nullptr;
+        script_status (*end_panel)() = nullptr;
         // A line of text the game already formatted; the host never interprets it.
-        script_status(* text)(utf8_view text) = nullptr;
+        script_status (*text)(utf8_view text) = nullptr;
         // Appends a control bound to the caller's storage. A checkbox value is a byte holding 0 or 1;
         // a button writes 1 into its byte when pressed, and the caller clears it.
-        script_status(* checkbox)(utf8_view label, std::uint8_t* value) = nullptr;
-        script_status(* slider)(utf8_view label, float* value, float minimum, float maximum) = nullptr;
-        script_status(* vec3)(utf8_view label, float* value, float speed) = nullptr;
-        script_status(* combo)(utf8_view label, utf8_view const* items, std::uint32_t count,
+        script_status (*checkbox)(utf8_view label, std::uint8_t* value) = nullptr;
+        script_status (*slider)(utf8_view label, float* value, float minimum, float maximum) = nullptr;
+        script_status (*vec3)(utf8_view label, float* value, float speed) = nullptr;
+        script_status (*combo)(utf8_view label, utf8_view const* items, std::uint32_t count,
                                std::int32_t* selected) = nullptr;
-        script_status(* button)(utf8_view label, std::uint8_t* pressed) = nullptr;
+        script_status (*button)(utf8_view label, std::uint8_t* pressed) = nullptr;
         // Whether the overlay currently captures the mouse (a panel is focused or being dragged).
-        script_status(* wants_mouse)(std::uint8_t* value) = nullptr;
+        script_status (*wants_mouse)(std::uint8_t* value) = nullptr;
     };
 
     // RAW WINDOW INPUT (ABI 31). The managed game owns what the input means; the host only reports what
@@ -449,13 +432,13 @@ export namespace deren::scripting {
 
     struct input_event {
         input_event_type type = input_event_type::mouse_move;
-        std::int32_t button = 0;     // mouse_button: the backend's mouse button index
-        std::uint8_t down = 0;       // mouse_button and key: 1 pressed, 0 released
+        std::int32_t button = 0; // mouse_button: the backend's mouse button index
+        std::uint8_t down = 0;   // mouse_button and key: 1 pressed, 0 released
         std::uint8_t padding[3] = {};
-        std::int32_t key = 0;        // key: the backend's key code, as the window reports it
-        float x = 0.0F;              // mouse: cursor position in window coordinates
+        std::int32_t key = 0; // key: the backend's key code, as the window reports it
+        float x = 0.0F;       // mouse: cursor position in window coordinates
         float y = 0.0F;
-        float dx = 0.0F;             // mouse_move: movement since the previous event
+        float dx = 0.0F; // mouse_move: movement since the previous event
         float dy = 0.0F;
         float wheel = 0.0F;          // scroll: vertical wheel delta
         std::uint32_t codepoint = 0; // character: one Unicode code point
@@ -494,40 +477,41 @@ export namespace deren::scripting {
     enum class native_module : std::uint32_t {
         scene = 1,
         // ABI 31: the debug panel and the overlay state (ui_api).
-        ui = 2
+        ui = 2,
+        audio = 3
     };
 
     // Keep layouts and calling conventions in sync with managed_bootstrap.cs.
     struct native_api {
-        void(* log)(char const* utf8, std::uint32_t length) = nullptr;
+        void (*log)(char const* utf8, std::uint32_t length) = nullptr;
         // ABI 33: @p byte_size receives sizeof() of the module table @p table points at, so the
         // managed side compares the host's layout against its own mirror instead of trusting it.
-        script_status(* get_module)(std::uint32_t module, void const** table, std::uint32_t* byte_size) = nullptr;
+        script_status (*get_module)(std::uint32_t module, void const** table, std::uint32_t* byte_size) = nullptr;
         // Requests the same one-shot screenshot path as the F12 key. The next recorded frame
         // copies the presented image, and the renderer saves it under [paths] screenshot_dir with
         // a timestamped file name. Null before initialize; projects call it through
         // deren.screenshot.
-        script_status(* request_screenshot)() = nullptr;
+        script_status (*request_screenshot)() = nullptr;
         // ABI 31: raw window input. The host calls @p callback on the render thread for every event
         // the window reports and passes @p context back unchanged; passing a null callback stops the
         // forwarding. The game owns the meaning of the input, the host only reports it.
-        void(* set_input_event_callback)(void(*callback)(void* context, input_event const* event), void* context) = nullptr;
+        void (*set_input_event_callback)(void (*callback)(void* context, input_event const* event), void* context) = nullptr;
         // ABI 33: writes one {type, sizeof} entry per mirrored type and returns success; a null
         // @p out or a @p capacity below the number of entries is invalid_argument rather than a
         // truncated answer. The managed side refuses to bind when any entry disagrees with its own
         // struct layout, which turns a forgotten field into "module_invalid" at startup.
-        script_status(* abi_layout)(abi_layout_entry* out, std::uint32_t capacity) = nullptr;
+        script_status (*abi_layout)(abi_layout_entry* out, std::uint32_t capacity) = nullptr;
         // ABI 34: the managed side reports that the frame-boundary work the host handed it has
         // finished, which releases the wait the host entered after before_frame/after_frame.
         // Exactly one call answers each signal; a call with nothing outstanding is
         // invalid_argument so an out-of-step managed side is visible in the log instead of
         // silently borrowing the next frame's wait.
-        script_status(* notify_rendering)() = nullptr;
+        script_status (*notify_rendering)() = nullptr;
         // ABI 35: how long the host waits for one frame boundary before it treats the managed host
         // as dead. 0 waits indefinitely, which is what a debugger breakpoint or a deliberately long
         // blocking task needs; anything else is milliseconds, capped so an absurd value cannot turn
         // a stuck boundary into an apparently frozen process. Null (an older host) keeps 5000 ms.
-        script_status(* set_frame_boundary_timeout)(std::uint32_t milliseconds) = nullptr;
+        script_status (*set_frame_boundary_timeout)(std::uint32_t milliseconds) = nullptr;
         // ABI 37: the managed side reports a fault it cannot continue from, and the host answers it
         // by writing one crash report and terminating the process - the same sink, the same report
         // shape and the same exit as deren::utility::panic, so a reader does not have to know which
@@ -535,7 +519,7 @@ export namespace deren::scripting {
         // returns success took the report (only a test host does); a host that is gone, or that
         // answers any other status, leaves the managed side to write stderr and fail fast on its
         // own.
-        script_status(* panic)(utf8_view message, utf8_view source_file, std::uint32_t line,
+        script_status (*panic)(utf8_view message, utf8_view source_file, std::uint32_t line,
                                utf8_view managed_stack) = nullptr;
     };
 
@@ -559,13 +543,13 @@ export namespace deren::scripting {
         // The managed game owns its scene and script lifetime. The host only forwards frames
         // and asks for one program-wide shutdown.
         // The frame and its input bytes are borrowed only during the update.
-        script_status(* update)(frame_info const* frame) = nullptr;
-        script_status(* stop)() = nullptr;
+        script_status (*update)(frame_info const* frame) = nullptr;
+        script_status (*stop)() = nullptr;
         // Emitted before the frame is recorded (after the host has decided to draw it) and again
         // after it is presented. Managed code dispatches its collected callables here and calls
         // notify_rendering once the batch is done, which is what releases the host.
-        void(* before_frame)() = nullptr;
-        void(* after_frame)() = nullptr;
+        void (*before_frame)() = nullptr;
+        void (*after_frame)() = nullptr;
     };
 
     enum class host_status : std::int32_t {
@@ -611,10 +595,10 @@ export namespace deren::scripting {
      * A later initialize_managed_host() call reuses this session and runs the scene phase.
      */
     [[nodiscard]] host_result configure_managed_host(host_paths const& paths, native_api const& api,
-                                                    startup_options& options,
-                                                    std::uint32_t abi_version = managed_abi_version);
+                                                     startup_options& options,
+                                                     std::uint32_t abi_version = managed_abi_version);
 
     [[nodiscard]] host_result initialize_managed_host(host_paths const& paths, native_api const& api, managed_api& scripts,
-                                                     std::uint32_t abi_version = managed_abi_version);
+                                                      std::uint32_t abi_version = managed_abi_version);
 
 } // namespace deren::scripting

@@ -172,3 +172,27 @@ are not listed here.
   compiled into `shared_utility.dll` (the process-wide half), so that dll
   dependency is gone on every configuration.
 - license: MIT (`LICENSE` in the subtree)
+
+## miniaudio
+
+- version: 0.11.26
+- upstream: https://github.com/mackron/miniaudio (fetched from the Gitee mirror
+  https://gitee.com/mirrors/miniaudio, whose master reports 0.11.26)
+- local changes: none; only `miniaudio.h`, the `miniaudio.c` implementation unit and
+  the MIT `LICENSE`
+- build: `miniaudio_vendored` compiles the single-header implementation once, with
+  MA_NO_ENCODING and MA_NO_GENERATION. The audio module uses its decoder,
+  PCM buffer, engine and sound APIs; device output is available.
+- license: MIT (public domain alternative in the same `LICENSE`)
+
+## Audio codec dependencies
+
+- stb_vorbis: `nothings/stb` commit `9600522de53973336fa033a289858a4354cbb04c`;
+  source and license are in `stb/stb_vorbis.c` (MIT/public domain).
+- QOA: `phoboslab/qoa` commit `93b0680030d1312e7a2829e53272353cc1de6ece`;
+  upstream `qoa.h` plus a local implementation TU `qoa/qoa.c` (MIT, `qoa/LICENSE`).
+- libogg 1.3.5: `xiph/ogg`, tag `v1.3.5`; upstream source in `ogg-1.3.5` (BSD, `COPYING`).
+- libopus 1.5.2: `xiph/opus`, tag `v1.5.2`; upstream source in `opus-1.5.2` (BSD, `COPYING`).
+- libopusfile 0.12: `xiph/opusfile`, tag `v0.12`; upstream source in `opusfile-0.12`
+  (BSD, `COPYING`). Only its local-file/memory decoding sources are built; HTTP is disabled.
+- All codecs link statically. Their upstream source is unmodified; deren owns the build glue.
