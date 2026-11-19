@@ -6,6 +6,6 @@ include_guard(GLOBAL)
 add_library(stb_vendored INTERFACE)
 
 target_include_directories(stb_vendored
-    INTERFACE
+    SYSTEM INTERFACE
         ${DEREN_REPO_ROOT}/source/third_party
 )

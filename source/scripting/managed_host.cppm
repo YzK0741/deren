@@ -478,7 +478,8 @@ export namespace deren::scripting {
         scene = 1,
         // ABI 31: the debug panel and the overlay state (ui_api).
         ui = 2,
-        audio = 3
+        audio = 3,
+        rml_ui = 4
     };
 
     // Keep layouts and calling conventions in sync with managed_bootstrap.cs.

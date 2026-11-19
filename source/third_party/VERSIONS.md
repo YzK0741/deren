@@ -196,3 +196,34 @@ are not listed here.
 - libopusfile 0.12: `xiph/opusfile`, tag `v0.12`; upstream source in `opusfile-0.12`
   (BSD, `COPYING`). Only its local-file/memory decoding sources are built; HTTP is disabled.
 - All codecs link statically. Their upstream source is unmodified; deren owns the build glue.
+
+## RmlUi
+
+- version: 6.3.0 (upstream release tag `6.3.0`, MIT)
+- upstream: https://github.com/mikke89/RmlUi
+- local changes: none - the release tree is vendored with `CMake/`, `Include/`,
+  `Source/`, `Samples/CMakeLists.txt` (the samples tree's parent `add_subdirectory`
+  is unconditional, so that one file must exist while its subdirectories are not
+  needed), plus `LICENSE.txt`, `readme.md` and `changelog.md`. Backends, tests and
+  samples are not vendored.
+- build: `third_party/rmlui.cmake` sets `RMLUI_SAMPLES/SHELL/LOTTIE/SVG/LUA` off,
+  the FreeType font engine on, and adds the subtree as an `EXCLUDE_FROM_ALL`
+  subdirectory; `rmlui_core`/`RmlUi::Core` link into `rmlui_support`. The upstream
+  `FindFreetype` path is satisfied by `Freetype::Freetype` from the vendored
+  FreeType below.
+- license: MIT (`rmlui/LICENSE.txt`)
+
+## FreeType
+
+- version: 2.13.3 (from `builds/unix/configure.raw`'s libtool `version_info`)
+- upstream: https://github.com/freetype/freetype
+- local changes: none - `include/`, `src/`, `builds/` and the CMake files are
+  vendored; `builds/` is required because the upstream CMakeLists reads
+  `builds/unix/configure.raw` for its version numbers.
+- build: `third_party/freetype.cmake` disables zlib, bzip2, png, harfbuzz and
+  brotli via the upstream `FT_DISABLE_*` cache options, disables the forced
+  debug postfix, and adds the subtree as an `EXCLUDE_FROM_ALL` subdirectory, so
+  the build is offline and needs no system packages. It exposes
+  `Freetype::Freetype` for RmlUi.
+- license: FreeType License (BSD-style) plus the GPLv2 option in `LICENSE.TXT`
+

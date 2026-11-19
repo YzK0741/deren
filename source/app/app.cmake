@@ -138,21 +138,27 @@ target_link_libraries(${PROJECT_NAME}
 # backend ships as deren_vulkan.dll + shared_utility.dll, both beside the executable.
 add_dependencies(${PROJECT_NAME} deren_vulkan shared_utility)
 
-if(DEREN_ENABLE_RMLUI)
-    find_package(RmlUi 6.3 EXACT CONFIG REQUIRED)
-    add_library(rmlui_support STATIC)
-    target_sources(rmlui_support PUBLIC FILE_SET CXX_MODULES FILES
-        source/ui/rml_document.cppm source/ui/rml_overlay.cppm)
-    target_sources(rmlui_support PRIVATE source/ui/rml_document.cpp source/ui/rml_overlay.cpp)
-    target_link_libraries(rmlui_support PUBLIC promise vstd_lib static_utility PRIVATE RmlUi::Core)
-    target_link_libraries(app_support rmlui_support)
-    target_compile_definitions(app_support PRIVATE DEREN_ENABLE_RMLUI)
-    if(VR_BUILD_TESTS)
-        add_executable(test_rml_document source/tests/test_rml_document.cpp)
-        target_link_libraries(test_rml_document PRIVATE rmlui_support vstd_lib static_utility)
-        target_compile_definitions(test_rml_document PRIVATE
-            VR_RMLUI_DEMO_DIR="${CMAKE_CURRENT_SOURCE_DIR}/source/ui/demo")
-        add_test(NAME test_rml_document COMMAND test_rml_document)
-        list(APPEND DEREN_OPTIONAL_TEST_TARGETS test_rml_document)
-    endif()
+add_library(rmlui_support STATIC)
+target_sources(rmlui_support PUBLIC FILE_SET CXX_MODULES FILES
+    source/ui/rml_document.cppm source/ui/rml_overlay.cppm source/ui/rml_scripting.cppm)
+target_sources(rmlui_support PRIVATE source/ui/rml_document.cpp source/ui/rml_overlay.cpp)
+target_link_libraries(rmlui_support PUBLIC promise vstd_lib static_utility deren_script_api
+    PRIVATE RmlUi::Core stb_vendored)
+target_link_libraries(app_support rmlui_support)
+if(VR_BUILD_TESTS)
+    add_executable(test_rml_document source/tests/test_rml_document.cpp)
+    target_link_libraries(test_rml_document PRIVATE rmlui_support vstd_lib static_utility)
+    target_compile_definitions(test_rml_document PRIVATE
+        VR_RMLUI_DEMO_DIR="${CMAKE_CURRENT_SOURCE_DIR}/source/ui/demo")
+    add_test(NAME test_rml_document COMMAND test_rml_document)
+    list(APPEND DEREN_OPTIONAL_TEST_TARGETS test_rml_document)
+endif()
+
+if(VR_BUILD_TESTS)
+    add_executable(test_rml_scripting source/tests/test_rml_scripting.cpp)
+    target_link_libraries(test_rml_scripting PRIVATE rmlui_support deren_script_api)
+    target_compile_definitions(test_rml_scripting PRIVATE
+        VR_RMLUI_DEMO_DIR="${CMAKE_CURRENT_SOURCE_DIR}/source/ui/demo")
+    add_test(NAME test_rml_scripting COMMAND test_rml_scripting)
+    list(APPEND DEREN_OPTIONAL_TEST_TARGETS test_rml_scripting)
 endif()

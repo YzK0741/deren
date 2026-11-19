@@ -43,6 +43,8 @@ namespace game {
         private static uint requested_probe_size = 256;
         private static vector_3 requested_probe_position;
         private demo_debug_windows? debug_windows;
+        private demo_audio_panel? audio_panel;
+        private static string? requested_audio;
         private node_id initially_hidden;
         private bool input_registered;
         private bool left_down;
@@ -79,6 +81,14 @@ namespace game {
                 var argument = args[i];
                 if (argument == "--capture-windowed") {
                     options->capture_windowed = 1;
+                    continue;
+                }
+                if (argument == "--audio-panel" && i + 1 < args.Length) {
+                    requested_audio = args[++i];
+                    continue;
+                }
+                if (argument == "--rml-selftest" && i + 1 < args.Length) {
+                    rml_selftest.path = args[++i];
                     continue;
                 }
                 if (argument == "--audio-selftest" && i + 1 < args.Length) {
@@ -187,6 +197,9 @@ namespace game {
             if (module_status != script_status.success) {
                 return module_status;
             }
+            if (rml_selftest.path != null) {
+                return rml_selftest.initialize(scripts);
+            }
             if (audio_selftest.path != null) {
                 return audio_selftest.initialize(scripts);
             }
@@ -218,6 +231,7 @@ namespace game {
                     cleanup();
                     return script_status.script_failure;
                 }
+                audio_panel = demo_audio_panel.create(requested_audio);
                 instance = this;
                 scripts->update = &update;
                 scripts->stop = &stop;
@@ -261,6 +275,7 @@ namespace game {
                 return script_status.script_failure;
             }
 
+            audio_panel = demo_audio_panel.create(requested_audio);
             instance = this;
             scripts->update = &update;
             scripts->stop = &stop;
@@ -650,6 +665,7 @@ namespace game {
             if (instance == null || frame == null) {
                 return script_status.invalid_argument;
             }
+            instance.audio_panel?.update(frame->delta_time);
             if (instance.frame_events_selftest) {
                 return instance.frame_events_check();
             }
@@ -749,6 +765,8 @@ namespace game {
         }
 
         private void cleanup() {
+            audio_panel?.Dispose();
+            audio_panel = null;
             debug_windows?.Dispose();
             debug_windows = null;
             scripts.Clear();

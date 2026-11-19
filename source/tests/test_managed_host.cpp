@@ -5,6 +5,7 @@
 
 import deren.scripting.managed_host;
 import deren.scripting.audio_host;
+import deren.ui.rml_scripting;
 
 extern "C" bool deren_audio_test_no_device();
 extern "C" bool deren_audio_test_read_frames(float* output, std::uint64_t samples);
@@ -58,6 +59,7 @@ namespace {
 
     scene_fixture* module_context = nullptr;
     int audio_module_mode = 0;
+    int rml_module_mode = 0;
 
     bool* log_target = nullptr;
     std::uint32_t screenshot_requests = 0;
@@ -1067,6 +1069,15 @@ namespace {
         }
         *table = nullptr;
         *byte_size = 0;
+        if (module == static_cast<std::uint32_t>(native_module::rml_ui)) {
+            if (rml_module_mode == 0) {
+                return script_status::module_unavailable;
+            }
+            static rml_ui_api const incomplete{};
+            *table = rml_module_mode == 3 ? &incomplete : &deren::ui::rml_scripting::table();
+            *byte_size = sizeof(rml_ui_api) + (rml_module_mode == 2 ? 8 : 0);
+            return script_status::success;
+        }
         if (module == static_cast<std::uint32_t>(native_module::audio)) {
             if (audio_module_mode == 0) {
                 return script_status::module_unavailable;
@@ -1564,6 +1575,38 @@ namespace {
         return true;
     }
 
+    bool run_rml(host_paths const& paths, int mode) {
+        rml_module_mode = mode;
+        deren::ui::rml_document document;
+        deren::ui::rml_scripting host(document);
+        std::string fixture = VR_RMLUI_DEMO_DIR;
+        char const* arguments[]{"test_managed_host", "--rml-selftest", mode == 1 ? fixture.c_str() : "missing"};
+        auto configured = paths;
+        configured.argc = 3;
+        configured.argv = const_cast<char**>(arguments);
+        scene_fixture scene;
+        module_context = &scene;
+        native_api const api{.log = scene_log, .get_module = get_scene_module, .request_screenshot = request_screenshot, .set_input_event_callback = set_input_callback, .abi_layout = publish_abi_layout, .notify_rendering = record_notify, .set_frame_boundary_timeout = record_timeout, .panic = record_panic};
+        managed_api scripts;
+        auto const result = initialize_managed_host(configured, api, scripts);
+        bool ok = result.status == host_status::success;
+        if (ok && mode == 1) {
+            ok = document.text("status") == "Copied <text> & \xe4\xb8\xad";
+            document.paint(640, 480);
+            document.input({.type = deren::ui::input_type::move, .x = 60, .y = 190});
+            document.input({.type = deren::ui::input_type::button, .button = 0, .down = true});
+            document.input({.type = deren::ui::input_type::button, .button = 0, .down = false});
+            ok = update_scene(scripts, 7, 0.01F) == script_status::success && ok;
+        }
+        if (result.status == host_status::success) {
+            ok = scripts.stop != nullptr && scripts.stop() == script_status::success && ok;
+        }
+        if (!ok) {
+            std::fprintf(stderr, "RmlUi self-test failed: mode %d, host status %d\n", mode, static_cast<int>(result.status));
+        }
+        return ok;
+    }
+
     bool run_audio(host_paths const& paths, int mode) {
         audio_module_mode = mode;
         std::string fixture = (std::filesystem::path(VR_AUDIO_FIXTURES) / "tone.opus").string();
@@ -1617,6 +1660,13 @@ int main(int argc, char** argv) {
         .runtime_config = bridge_directory / "Deren.Managed.runtimeconfig.json",
         .nethost = bridge_directory / "nethost.dll",
         .game_assembly = std::filesystem::path{argv[3]}};
+    if (scenario == "rml_lifecycle" || scenario == "rml_module_unavailable" ||
+        scenario == "rml_module_invalid" || scenario == "rml_module_incomplete") {
+        int const mode = scenario == "rml_lifecycle" ? 1 : scenario == "rml_module_invalid"  ? 2
+                                                       : scenario == "rml_module_incomplete" ? 3
+                                                                                             : 0;
+        return run_rml(paths, mode) ? 0 : 1;
+    }
     if (scenario == "audio_lifecycle" || scenario == "audio_module_unavailable" ||
         scenario == "audio_module_invalid" || scenario == "audio_module_incomplete") {
         int const mode = scenario == "audio_lifecycle" ? 1 : scenario == "audio_module_invalid"  ? 2

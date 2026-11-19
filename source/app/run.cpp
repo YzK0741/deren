@@ -12,10 +12,9 @@ import :capture;
 import :environment_loader;
 import :startup_splash;
 
-#ifdef DEREN_ENABLE_RMLUI
-import deren.ui.rml_overlay;
 import deren.ui.rml_document;
-#endif
+import deren.ui.rml_overlay;
+import deren.ui.rml_scripting;
 import deren.vstd;
 import deren.utility.shared;
 import deren.utility; // re-exports frame_clock / frame_stats / bvh / vessel / thread_pool / data_block
@@ -179,11 +178,6 @@ namespace deren::app {
         if (launch_settings.gui.rml_document.empty() != launch_settings.gui.rml_font.empty()) {
             return fail_project("gui.rml_document and gui.rml_font must be configured together");
         }
-#ifndef DEREN_ENABLE_RMLUI
-        if (!launch_settings.gui.rml_document.empty()) {
-            return fail_project("RmlUi requires DEREN_ENABLE_RMLUI=ON");
-        }
-#endif
         deren::app::script_scene script_scene;
         capture::options capture{};
         auto startup = script_scene.preinit(script_assembly, argc, argv);
@@ -1273,7 +1267,6 @@ namespace deren::app {
         // answers. A project with `[gui] show = false` keeps the ui module published as well, so the
         // game's panel calls report `module_unavailable` and the game can say so in its log - a null
         // table would look like a bug in the game instead of a setting in the project.
-#ifdef DEREN_ENABLE_RMLUI
         std::optional<deren::ui::rml_overlay> game_ui;
         struct ui_input_context {
             deren::ui::rml_overlay* overlay;
@@ -1283,10 +1276,16 @@ namespace deren::app {
             bool debug_keyboard_owner = false;
         };
         ui_input_context ui_input{};
-        if (!settings.gui.rml_document.empty()) {
-            game_ui.emplace(runtime.rhi_face());
-            if (!game_ui->open(settings.gui.rml_document, settings.gui.rml_font, settings.gui.rml_fallback_font, shaders_dir)) {
-                return fail_project("RmlUi could not load its document, font or shaders");
+        game_ui.emplace(runtime.rhi_face());
+        if (!game_ui->initialize(shaders_dir)) {
+            return fail_project("RmlUi could not load its shaders");
+        }
+        deren::ui::rml_scripting document_ui(game_ui->content());
+        script_scene.install_document_ui(&deren::ui::rml_scripting::table());
+        {
+            if (!settings.gui.rml_document.empty() &&
+                !game_ui->content().open(settings.gui.rml_document, settings.gui.rml_font, settings.gui.rml_fallback_font)) {
+                return fail_project("RmlUi could not load its document or font");
             }
             runtime.set_output_overlay(&*game_ui, &deren::ui::rml_overlay::record);
             ui_input = {&*game_ui, &window, &action_state, &runtime};
@@ -1351,10 +1350,8 @@ namespace deren::app {
                 if (host.overlay->content().wants_keyboard()) {
                     host.actions->release_keys();
                 }
-                return consumed;
-            }, &ui_input);
+                return consumed; }, &ui_input);
         }
-#endif
         managed_binding.ui_available = settings.gui.show && runtime.enable_debug_gui();
         if (managed_binding.ui_available) {
             deren::utility::log("gui: managed debug panel enabled (default {}x{})", settings.gui.panel_width,
@@ -1842,21 +1839,31 @@ namespace deren::app {
             if (rec == deren::engine::frame_status::closed || deren::engine::is_failure(rec)) {
                 break;
             }
-#ifdef DEREN_ENABLE_RMLUI
             if (game_ui) {
                 auto* image = runtime.rhi_face().frames->frame_image();
                 auto const extent = image->extent();
-                if (!game_ui->prepare(extent.width, extent.height, image->format(), runtime.rhi_face().frames->walk_frames()->position())) {
+                // The document is authored in density-independent pixels: on a 150%/200% window the
+                // framebuffer is larger than the window, and the ratio is what keeps the HUD the
+                // authored size instead of shrinking it. Headless windows report 0 and use 1.
+                int window_width = 0;
+                int window_height = 0;
+                window.window_size(window_width, window_height);
+                float const pixel_ratio = window_width > 0 && window_height > 0
+                                              ? static_cast<float>(extent.width) / static_cast<float>(window_width)
+                                              : 1.0F;
+                if (!game_ui->prepare(extent.width, extent.height, image->format(),
+                                      runtime.rhi_face().frames->walk_frames()->position(), pixel_ratio)) {
                     return fail_project("RmlUi could not prepare its overlay");
                 }
-                for (auto const& event : game_ui->content().take_events()) {
-                    deren::utility::log("rmlui: {} {} {}", event.type, event.id, event.value);
-                    if (event.type == "click" && event.id == "apply") {
-                        game_ui->content().set_text("status", game_ui->content().value("name"));
+                if (!document_ui.has_managed_document()) {
+                    for (auto const& event : game_ui->content().take_events()) {
+                        deren::utility::log("rmlui: {} {} {}", event.type, event.id, event.value);
+                        if (event.type == "click" && event.id == "apply") {
+                            game_ui->content().set_text("status", game_ui->content().value("name"));
+                        }
                     }
                 }
             }
-#endif
             runtime.prepare_scene_recording();
             deren::engine::frame_status const recorded = runtime.record_graph();
             if (recorded == deren::engine::frame_status::closed || deren::engine::is_failure(recorded)) {

@@ -42,4 +42,7 @@ source/third_party/opus-1.5.2/** -text -whitespace
 source/third_party/opusfile-0.12/** -text -whitespace
 source/third_party/qoa/** -text -whitespace
 source/third_party/stb/stb_vorbis.c -text -whitespace
+# Pinned library trees (RmlUi, FreeType): upstream-owned bytes, whitespace left untouched.
+source/third_party/rmlui/** -text -whitespace
+source/third_party/freetype/** -text -whitespace
 source/tests/fixtures/audio/** -text

@@ -1,6 +1,6 @@
 # C# Module ABI
 
-Status: implemented for the `scene`, `ui` and `audio` modules; managed ABI v38.
+Status: implemented for the `scene`, `ui`, `audio` and `rml_ui` modules; managed ABI v38.
 
 Baseline: `feature/csharp-scene-tree`. Native code owns rendering, the Vulkan runtime, the
 module resolver, and primitive/scene import. Managed code owns scene construction, asset
@@ -818,6 +818,9 @@ Status values are returned through the ABI; no exception crosses the native boun
   so a field added, removed, or reordered without a version bump fails loudly instead of calling
   through a signature the callee does not have.
 - A field addition, removal, reorder, or signature change bumps the global version.
+- A new optional MODULE id does not bump the version: it is discovered through
+  `get_module` and size-checked like the others, so a host that does not publish it leaves an
+  older game running with `module_unavailable` instead of an ABI mismatch.
 - The managed bootstrap compares the ABI version before it loads the project assembly and
   returns `abi_mismatch` on any difference; `configure_from_engine` runs before `initialize_from_engine`.
 
@@ -1006,3 +1009,47 @@ loading, so the adapter does not inherit the host implementation's compiler mode
 `test_scripting_audio` covers native id/ownership rules. `managed_host_audio_*`
 executes the real C# wrappers and covers Unicode loading, independent clones,
 disposal, shutdown invalidation, absent modules, size mismatch and incomplete tables.
+
+## RmlUi document module
+
+Module id 4 is optional. `rml_ui_api` is a table of six function pointers, resolved and
+size-checked before any call. The module id alone does not change the core ABI: `managed_abi_version`
+stays 38, a host without the module answers `module_unavailable`, and a table of the wrong size or
+one with a missing entry is rejected as `module_invalid`.
+
+| Entry | Arguments after the implicit function name | Result |
+| --- | --- | --- |
+| open | UTF-8 markup path, font path, fallback font path, output document id | Load one document |
+| close | document id | Close it |
+| set_text | document id, element id, UTF-8 text | Replace an element's text |
+| set_value | document id, element id, UTF-8 value | Set a form control's value |
+| set_visible | document id, element id, byte visible | Toggle an element |
+| poll_event | document id, output event record, buffer, capacity | Copy one queued click/change |
+
+A document id is nonzero and belongs to the session that opened it; ids are not recycled. The
+C# wrapper resolves relative paths against the managed project directory, an empty fallback font
+path means "no fallback", and `open` while a document is already open reports `scene_exists`.
+Element ids are the document's own ids: an unknown id reports `invalid_node`, while a malformed
+path, a string over the 1 MiB cap, or a `visible` byte outside 0/1 is `invalid_argument`.
+
+`poll_event` with a null buffer only peeks: it writes the event's type (`1` click, `2` change), id
+length and value length into the record and leaves the queue alone, and a null buffer with a
+non-zero capacity is `invalid_argument`. With a non-null buffer it copies the id then the value
+(UTF-8, no terminators) and consumes exactly one event; a buffer that cannot hold both leaves the
+event queued and reports `invalid_argument`. An empty queue returns `success` with a zero type.
+
+The document is the host's single `rml_document`, the same one the native `[gui] rml_document` path
+opens: a managed `open` replaces a document the host opened at startup, and `close` leaves the
+overlay without one. So only one document exists per process, and a second `open` reports
+`scene_exists`. Calls must arrive on the render thread that created the session; any other thread
+reports `module_unavailable`, and a handle from an earlier session reports `invalid_node` while a
+new session is live (the C# side additionally captures a session epoch, the same pattern as audio).
+`set_value` writes the control directly and suppresses the resulting change event, so a programmatic
+update is not echoed back to the managed handler; `set_visible(false)` also drops keyboard focus.
+
+C# exposes `deren.rml_document` (`try_open`, `set_text`, `set_value`, `set_visible`,
+`try_poll_event`, `close`, `Dispose`) plus `deren.rml_event` and `deren.rml_event_type`. `try_open`
+returns `module_unavailable` when the host publishes no table, `asset_not_found` when the markup or
+font cannot be loaded, and `scene_exists` for a second document; the wrappers own the returned event
+strings. `test_rml_scripting` covers the native table (including thread and lifetime refusals), and
+`managed_host_rml_*` runs the real wrappers for absent, wrong-size and incomplete tables.

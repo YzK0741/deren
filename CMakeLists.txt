@@ -43,6 +43,11 @@ find_package(Vulkan REQUIRED)
 #     and the capability is LOST, and that loss is listed in deren-ab/msvc/msvc_dialect_result.md rather
 #     than imitated with something that means a different thing.
 #
+# ONE DELIBERATE DEPARTURE FROM THE FROZEN LIST: -fno-rtti is unconditional beside -fno-exceptions (it used
+# to ride the Release group), so a `dynamic_cast` or `typeid` now fails the Debug and RelWithDebInfo builds
+# too instead of only Release. `ninja -t commands` therefore differs from the historical line by that flag's
+# position - the only intended difference.
+#
 # What the MSVC branch cannot express (all measured, MSVC 19.44.35229 / VS 17.14):
 #   -fno-exceptions, -fno-rtti          nothing. /EHs-c- is not a supported spelling of "no exceptions"
 #                                       beside the STL, so MSVC gets /EHsc and default /GR.
@@ -97,7 +102,6 @@ if(MSVC)
 else()
     set(COMPILE_OPTIONS
             $<$<CONFIG:Release>:
-            -fno-rtti
             -ffunction-sections
             -fdata-sections
             $<$<NOT:$<BOOL:${VR_DIAGNOSTICS}>>:-flto>
@@ -109,6 +113,7 @@ else()
             -fno-omit-frame-pointer
             >
             -fno-exceptions
+            -fno-rtti
             -Wall
             -Wextra
             -Werror
@@ -133,6 +138,8 @@ include(source/third_party/glfw.cmake)
 include(source/third_party/imgui.cmake)
 include(source/third_party/xxhash.cmake)
 include(source/third_party/boost.cmake)
+include(source/third_party/freetype.cmake)
+include(source/third_party/rmlui.cmake)
 include(source/vstd/vstd.cmake)
 include(source/utility/utility.cmake)
 include(source/promise/rhi/rhi.cmake)
@@ -202,7 +209,6 @@ option(VR_BUILD_TESTS "Build the headless unit tests" ON)
 include(source/scripting/api_types.cmake)
 add_subdirectory(source/scripting)
 include(source/scripting/audio_host.cmake)
-option(DEREN_ENABLE_RMLUI "Build the optional RmlUi overlay" OFF)
 include(source/app/app.cmake)
 
 
@@ -580,13 +586,9 @@ if(CLANG_FORMAT_EXECUTABLE)
     # the old root-level `chores` module needed a manual clang-format because its source fed both the
     # format stamp and a target that depended on other format-listed targets. Splitting it into
     # source/app/app_*.cpp* removed that cycle.
-    foreach(_tgt deren_audio deren_script_api deren_scripting_audio shared_utility static_utility backend_loader promise rhi_sync_contract app_config deren_vulkan vulkan_constant_init vulkan_synchronization renderer_layout vulkan_error_tables deren_engine deren_assets resource_cluster_core render_graph_core render_graph_rhi render_graph_execute render_graph_compose render_graph_bloom render_graph_post render_graph_lighting render_graph_geometry app_support ${VR_APP_EXE})
+    foreach(_tgt deren_audio deren_script_api deren_scripting_audio shared_utility static_utility backend_loader promise rhi_sync_contract app_config deren_vulkan vulkan_constant_init vulkan_synchronization renderer_layout vulkan_error_tables deren_engine deren_assets resource_cluster_core render_graph_core render_graph_rhi render_graph_execute render_graph_compose render_graph_bloom render_graph_post render_graph_lighting render_graph_geometry rmlui_support app_support ${VR_APP_EXE})
         add_dependencies(${_tgt} clang-format)
     endforeach()
-
-    if(TARGET rmlui_support)
-        add_dependencies(rmlui_support clang-format)
-    endif()
 
     # Check only, do not modify (useful for CI)
     add_custom_target(clang-format-check

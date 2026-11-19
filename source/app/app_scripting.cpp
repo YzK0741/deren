@@ -1376,6 +1376,10 @@ namespace deren::app {
         utility::log("scripts: {}", std::string_view{text, length});
     }
 
+    void script_scene::install_document_ui(scripting::rml_ui_api const* table) noexcept {
+        this->document_ui = table;
+    }
+
     scripting::script_status script_scene::get_module(std::uint32_t const module, void const** table,
                                                       std::uint32_t* const byte_size) {
         if (table == nullptr || byte_size == nullptr) {
@@ -1383,6 +1387,15 @@ namespace deren::app {
         }
         *table = nullptr;
         *byte_size = 0;
+        if (module == static_cast<std::uint32_t>(scripting::native_module::rml_ui)) {
+            auto const* owner = current_owner();
+            if (!owner || !owner->document_ui) {
+                return scripting::script_status::module_unavailable;
+            }
+            *table = owner->document_ui;
+            *byte_size = sizeof(scripting::rml_ui_api);
+            return scripting::script_status::success;
+        }
         if (module == static_cast<std::uint32_t>(scripting::native_module::audio)) {
             *table = &scripting::audio_host::table();
             *byte_size = sizeof(scripting::audio_api);

@@ -464,4 +464,11 @@ jobs:
         # build-asan/source/scripting/test_managed_host.exe", tests 90-99). The Release job builds the whole
         # product and runs all nine (`ctest -LE device` there, run 43693954145 job 132750290510: 9/9 Passed),
         # which is also the only place they CAN run: this lane deliberately builds test targets only.
-        run: ctest --test-dir build-asan --output-on-failure -E "test_native_boundary_zero|managed_host_" -LE device
+        #
+        # `test_rml_document|test_rml_scripting` ARE EXCLUDED FOR A THIRD REASON, again not to drop coverage:
+        # source/app/app.cmake registers them as DEREN_OPTIONAL_TEST_TARGETS (behind VR_BUILD_TESTS), so they are
+        # not in VR_TEST_TARGETS - and the --target list above must equal VR_TEST_TARGETS in BOTH directions,
+        # which source/tests/test_docs.cpp check 6 enforces. This lane therefore has no executable for them and
+        # reports two "Not Run" entries (measured, run 44524766813: tests 1-2 "Not Run", exit 8); the Release
+        # job builds the whole product and runs both (ctest -LE device there: both Passed).
+        run: ctest --test-dir build-asan --output-on-failure -E "test_native_boundary_zero|managed_host_|test_rml_document|test_rml_scripting" -LE device

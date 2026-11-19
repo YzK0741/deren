@@ -1,0 +1,23 @@
+<rml>
+<head><title>Audio</title><style>
+body { width: 100%; height: 100%; margin: 0; font-family: LatoLatin; font-size: 16dp; color: #edf1f7; }
+#panel { position: absolute; right: 24dp; top: 24dp; width: 360dp; padding: 18dp; background-color: #202936f2; border: 1dp #65758d; }
+h1 { margin: 0 0 14dp; font-size: 22dp; }
+#path { display: block; box-sizing: border-box; width: 100%; height: 32dp; margin-bottom: 10dp; background-color: #111820; color: #fff; border: 1dp #6d8299; }
+button { width: 75dp; height: 30dp; margin-right: 7dp; background-color: #335b80; text-align: center; }
+button:hover { background-color: #487dab; }
+button:active { background-color: #6b9bc1; }
+#status { margin: 12dp 0; }
+label { display: block; margin-top: 10dp; }
+input.range { display: block; width: 100%; height: 24dp; margin: 6dp 0; }
+input.range slidertrack { height: 4dp; margin-top: 10dp; background-color: #47576d; }
+input.range sliderbar { width: 12dp; height: 20dp; background-color: #8cbbf0; }
+#time { margin-top: 6dp; }
+</style></head>
+<body><div id="panel"><h1>Audio</h1>
+<input id="path" type="text"/><button id="load">Load</button><button id="play">Play</button><button id="pause">Pause</button><button id="stop">Stop</button>
+<div id="status">Enter an audio file path, then Load.</div>
+<label>Volume</label><input id="volume" class="range" type="range" min="0" max="100" step="1" value="70"/>
+<label>Position</label><input id="position" class="range" type="range" min="0" max="1000" step="1" value="0"/>
+<div id="time">0:00 / 0:00</div>
+</div></body></rml>

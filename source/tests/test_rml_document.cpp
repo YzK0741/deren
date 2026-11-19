@@ -50,6 +50,22 @@ int main() {
     CHECK(document.value("name").find("A") != std::string::npos);
     CHECK(document.value("name").find("\xe4\xb8\xad") != std::string::npos);
     document.paint(640, 480);
+    // Only a real widget under the pointer takes the mouse: empty space over the document is not an
+    // interaction, so a HUD covering the screen cannot swallow the game's mouse.
+    document.input({.type = input_type::move, .x = 600, .y = 300});
+    CHECK(!document.wants_mouse());
+    // Geometry authored in `dp` follows the content scale: the same 640x480 framebuffer at ratio 2
+    // lays the 320dp panel out at 640 px instead of 320 px.
+    document.set_density_independent_pixel_ratio(2.0F);
+    float widest = 0;
+    for (auto const& draw : document.paint(640, 480)) {
+        for (auto const& vertex : draw.vertices) {
+            widest = vertex.x > widest ? vertex.x : widest;
+        }
+    }
+    CHECK(widest > 500.0F);
+    document.set_density_independent_pixel_ratio(1.0F);
+    document.paint(640, 480);
     document.input({.type = input_type::move, .x = 60, .y = 190});
     document.input({.type = input_type::button, .button = 0, .down = true});
     document.input({.type = input_type::button, .button = 0, .down = false});
@@ -58,10 +74,29 @@ int main() {
         clicked |= event.type == "click" && event.id == "apply";
     }
     CHECK(clicked);
+    // A click focuses the button and RmlUi keeps it focused for Tab navigation, but a focused button
+    // must not take the keyboard from the game: only text entry does.
+    CHECK(!document.wants_keyboard());
+    CHECK(!document.input({.type = input_type::key, .key = 'W', .down = true}));
+    CHECK(!document.input({.type = input_type::character, .codepoint = 'x'}));
+    CHECK(document.value("name").find("x") == std::string::npos);
     document.input({.type = input_type::focus_lost});
     CHECK(!document.wants_keyboard());
     document.close();
     CHECK(document.paint(640, 480).empty());
+    // A root with an explicit size makes `right:`/`bottom:` anchors resolve against the window: an
+    // unsized root leaves the containing block zero wide and the layer ends up off the left edge.
+    CHECK(document.open(demo / "anchored.rml", demo / "LatoLatin-Regular.ttf"));
+    bool inside = true;
+    for (auto const& draw : document.paint(640, 480)) {
+        for (auto const& vertex : draw.vertices) {
+            float const x = vertex.x + static_cast<float>(draw.offset_x);
+            float const y = vertex.y + static_cast<float>(draw.offset_y);
+            inside = inside && x >= 0.0F && x <= 640.0F && y >= 0.0F && y <= 480.0F;
+        }
+    }
+    CHECK(inside);
+    document.close();
     CHECK(second.open(demo / "hud.rml", demo / "LatoLatin-Regular.ttf"));
     second.close();
     return deren::vk_test::finish("test_rml_document");

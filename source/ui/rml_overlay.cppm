@@ -14,9 +14,15 @@ export namespace deren::ui {
         rml_overlay(rml_overlay const&) = delete;
         rml_overlay& operator=(rml_overlay const&) = delete;
 
+        bool initialize(std::filesystem::path const& shaders);
         bool open(std::filesystem::path const& markup, std::filesystem::path const& font,
                   std::filesystem::path const& fallback_font, std::filesystem::path const& shaders);
-        bool prepare(std::uint32_t width, std::uint32_t height, deren::promise::rhi::image_format format, std::uint32_t slot);
+        // `width`/`height` are framebuffer pixels, `density_independent_pixel_ratio` is the window's
+        // content scale (RmlUi's own backend spelling): HiDPI windows draw the document at its
+        // authored size instead of at half of it.
+        bool prepare(std::uint32_t width, std::uint32_t height,
+                     deren::promise::rhi::image_format format, std::uint32_t slot,
+                     float density_independent_pixel_ratio);
         rml_document& content() noexcept {
             return this->document;
         }
