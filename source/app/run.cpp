@@ -1282,6 +1282,13 @@ namespace deren::app {
         }
         deren::ui::rml_scripting document_ui(game_ui->content());
         script_scene.install_document_ui(&deren::ui::rml_scripting::table());
+        // Destruct before document_ui/game_ui, on early returns as well as normal shutdown.
+        struct script_session_guard {
+            deren::app::script_scene& scene;
+            ~script_session_guard() {
+                this->scene.stop();
+            }
+        } script_session{script_scene};
         {
             if (!settings.gui.rml_document.empty() &&
                 !game_ui->content().open(settings.gui.rml_document, settings.gui.rml_font, settings.gui.rml_fallback_font)) {

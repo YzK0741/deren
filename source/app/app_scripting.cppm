@@ -291,6 +291,8 @@ export namespace deren::app {
         [[nodiscard]] std::expected<void, std::string> start(
             std::filesystem::path const& assembly, managed_scene_host host,
             std::filesystem::path const& asset_library_root = {}, managed_asset_binder binder = {});
+        // Stop once while the runtime and UI callbacks are still alive. Safe before start or after stop.
+        void stop();
         [[nodiscard]] bool update(float dt, std::span<std::uint8_t const> input_frame);
         /**
          * Emits the before-frame callback and waits for managed code to report the batch done.

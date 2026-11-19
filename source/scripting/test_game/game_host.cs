@@ -83,8 +83,9 @@ namespace game {
                     options->capture_windowed = 1;
                     continue;
                 }
-                if (argument == "--audio-panel" && i + 1 < args.Length) {
-                    requested_audio = args[++i];
+                if (argument == "--audio-panel") {
+                    requested_audio = i + 1 < args.Length && !args[i + 1].StartsWith("--", StringComparison.Ordinal)
+                        ? args[++i] : string.Empty;
                     continue;
                 }
                 if (argument == "--rml-selftest" && i + 1 < args.Length) {

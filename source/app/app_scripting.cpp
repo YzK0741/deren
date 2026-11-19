@@ -276,11 +276,16 @@ namespace deren::app {
 
     } // namespace
 
-    script_scene::~script_scene() {
-        closing = true;
-        if (running && scripts.stop != nullptr && scripts.stop() != scripting::script_status::success) {
+    void script_scene::stop() {
+        this->closing = true;
+        if (std::exchange(this->running, false) && this->scripts.stop != nullptr &&
+            this->scripts.stop() != scripting::script_status::success) {
             utility::log("scripts: managed game stopped with script errors");
         }
+    }
+
+    script_scene::~script_scene() {
+        this->stop();
         if (this->owns_audio_session) {
             scripting::audio_host::end_session();
         }

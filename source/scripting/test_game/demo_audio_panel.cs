@@ -16,7 +16,7 @@ namespace game {
 
         private demo_audio_panel(rml_document document) { this.document = document; }
         internal static demo_audio_panel? create(string? initial_path) {
-            if (!rml_document.is_available) { return null; }
+            if (initial_path == null || !rml_document.is_available) { return null; }
             var root = Path.Combine(managed_bootstrap.project_directory, "ui");
             if (!rml_document.try_open(Path.Combine(root, "audio.rml"), Path.Combine(root, "LatoLatin-Regular.ttf"),
                                        out var document, out var status) || document == null) {

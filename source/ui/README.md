@@ -54,7 +54,8 @@ render thread, and old handles are invalidated when the script session ends. The
 debug widget API remains separate. The optional module is named `rml_ui` (id 4); its table
 is size-checked without changing the core scripting ABI.
 
-The test_game audio panel appears in the top right. Enter a path and press Load, then use
+The test_game audio panel is opt-in: pass `--audio-panel` to open it in the top right.
+Without this flag, a configured document is left in place. Enter a path and press Load, then use
 Play/Pause/Stop and the volume/position sliders. Loading does not autoplay. A command-line
 path can also be supplied:
 
