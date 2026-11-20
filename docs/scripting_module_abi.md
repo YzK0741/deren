@@ -1,6 +1,6 @@
 # C# Module ABI
 
-Status: implemented for the `scene`, `ui`, `audio` and `rml_ui` modules; managed ABI v40.
+Status: implemented for the `scene`, `ui`, `audio` and `rml_ui` modules; managed ABI v42.
 
 Baseline: `feature/csharp-scene-tree`. Native code owns rendering, the Vulkan runtime, the
 module resolver, and primitive/scene import. Managed code owns scene construction, asset
@@ -60,7 +60,9 @@ struct native_api {
 enum class abi_type : std::uint32_t {
     native_api = 1, managed_api, frame_info, transform_value, input_event,
     point_light_desc, material_override_desc, startup_options, head_basis_desc, face_frame_desc,
-    animation_state,
+    animation_state, diagnostic_counters, toon_rig_desc,
+    // ABI 42: the rml_ui table passes this payload by pointer, so its size is mirrored here too.
+    rml_ui_event,
 };
 
 struct abi_layout_entry {
@@ -290,13 +292,15 @@ struct scene_api {
     get_toon_rig;           // (toon_rig_desc* rig)
     // ABI 40: renaming a node in place.
     set_node_name;          // (uint64 tree, node_handle node, utf8_view name)
+    // ABI 41: the projection aspect the scene is rendered with; 0 follows the window again.
+    set_scene_aspect;       // (float aspect)
 };
 ```
 
 The order is part of the ABI. C# mirrors it with one layout and validates every pointer before
 publishing the table. The camera, environment, pipeline, post-processing, lighting, graph read-back,
-screen-space, diagnostic, toon-rig and rename entries are optional: a host that predates them leaves
-the pointer null, and the C# wrapper reports `module_unavailable`.
+screen-space, diagnostic, toon-rig, rename and aspect entries are optional: a host that predates them
+leaves the pointer null, and the C# wrapper reports `module_unavailable`.
 
 - `create_scene_tree` creates an empty independent tree and returns a process-wide tree id.
 - `activate_scene` attaches the tree to the current project scene and calls the native
@@ -404,6 +408,13 @@ the pointer null, and the C# wrapper reports `module_unavailable`.
   only assigns the node's own string and the engine keeps no name index, so nothing else needs
   refreshing; a `utf8_view` `node_name` returned before the rename borrows the old string and is
   invalid afterwards (`try_get_name` copies, so the C# string survives).
+- `set_scene_aspect` tells the renderer the shape of the rectangle the game shows the scene in. The
+  render keeps covering the whole window - only the projection changes, so a game that draws the
+  window image into a document viewport (`deren://scene` in an RmlUi `<img>`) gets correct geometry
+  instead of a stretched world. A finite aspect greater than zero sets it, `0` restores the
+  presentation extent's aspect, and anything else is `invalid_argument`; the value applies from the
+  next frame and `project_point`/`screen_ray` answer in the same projection. Optional: a host that
+  predates v41 answers `module_unavailable`.
 - `get_node_flags`/`set_node_flags` are 32 opaque bits per node. Nothing in the renderer reads them:
   they are storage the game can use for its own marking (layers, selection, gameplay tags) that
   survives the graph rebuild a scene replacement performs. `set_node_flags` writes
@@ -524,13 +535,15 @@ bool camera_projection.try_get_viewport_size(out uint width, out uint height);
 bool camera_projection.try_project_point(float x, float y, float z, out float pixel_x, out float pixel_y,
                               out float depth);
 bool camera_projection.try_screen_ray(float pixel_x, float pixel_y, out vector_3 origin, out vector_3 direction);
+bool camera_projection.try_set_aspect(float aspect);
 
 bool frame_diagnostics.try_get_counters(out frame_diagnostics.frame_counters counters);
 string? frame_diagnostics.gpu_timing_text();
 ```
 
 `camera_projection` answers in render pixels and uses the jitter-free projection; `depth` is positive in front
-of the camera. `frame_diagnostics.frame_counters` carries the render extent, the presented extent, the GPU
+of the camera. `try_set_aspect` names the shape of the rectangle the game shows the scene in (0 follows the
+window again); `frame_diagnostics.frame_counters` carries the render extent, the presented extent, the GPU
 timing interval count and whether timing is available; `gpu_timing_text` copies the renderer's table
 into a managed string rather than handing out the borrowed view.
 
@@ -847,7 +860,7 @@ Status values are returned through the ABI; no exception crosses the native boun
 
 ## 8. Layout and versioning
 
-- One global `managed_abi_version`, currently 40.
+- One global `managed_abi_version`, currently 42.
 - No `context` parameter and no per-module version.
 - One version means one exact layout, and since v33 the layout is checked as well: the host
   publishes `{type, sizeof}` for every struct both sides share through `native_api.abi_layout`,
@@ -859,6 +872,11 @@ Status values are returned through the ABI; no exception crosses the native boun
 - A new optional MODULE id does not bump the version: it is discovered through
   `get_module` and size-checked like the others, so a host that does not publish it leaves an
   older game running with `module_unavailable` instead of an ABI mismatch.
+- A new optional ENTRY appended to an existing module table bumps the version when the table's
+  payload structs change too: ABI 42 appended the rml rect/style entries and grew
+  `rml_ui_event`, so that payload is listed in `abi_layout` (`abi_type::rml_ui_event`). A managed
+  build from before ABI 42 refuses any table because the version check already failed, and the
+  payload entry makes a silently resized event record a startup failure instead of a bad read.
 - The managed bootstrap compares the ABI version before it loads the project assembly and
   returns `abi_mismatch` on any difference; `configure_from_engine` runs before `initialize_from_engine`.
 
@@ -1008,6 +1026,30 @@ Status values are returned through the ABI; no exception crosses the native boun
   lookup answers the first depth-first match) and there is no name index to rebuild, so a rename is
   visible to the next lookup immediately; a `utf8_view` returned by `node_name` before the rename
   borrows the old storage and is invalid afterwards.
+- v41 made the scene's projection aspect settable: `scene_api` gained `set_scene_aspect(aspect)`, the
+  C# wrapper `camera_projection.try_set_aspect` (and its `out script_status` twin). It exists for the
+  editor's viewport image: the render keeps covering the window, but the projection is built for the
+  aspect of the rectangle the UI stretches that image into, so the world is not squeezed by the
+  document layout. Zero restores the presentation extent's aspect, a non-finite or non-positive value
+  is `invalid_argument`, and the value applies from the next frame - including to the culling frustum
+  and to `project_point`/`screen_ray`. The entry is optional like the ones before it.
+- v42 opened the RmlUi document to a laid-out editor: `rml_ui_event` grew by 16 bytes (dp position,
+  button, modifiers) and `rml_ui_api` gained `get_element_rect` and `set_element_style` at its tail.
+  `poll_event` now also reports pointer feedback - type `3` down, `4` move, `5` up - which the host
+  records from the input it already forwards, so a move keeps arriving after the pointer leaves the
+  element it pressed: that is what a splitter drag needs, and it is independent of RmlUi's hover
+  chain and of any DOM click/change event. The event id is the nearest ancestor with an id, so a
+  splitter keeps naming itself once it gains children. Every position and rect is in
+  density-independent pixels (the unit documents author in), which the host derives by dividing its
+  framebuffer pixels by the document pixel ratio - the same ratio `dp` units are resolved with.
+  `get_element_rect` answers the border box of the last layout pass, and an empty id the document
+  root, i.e. the viewport; `set_element_style` writes one CSS declaration through RmlUi's own parser
+  (`width` with `360dp`, `background-color` with `#4a9eff`), raising no change event. A malformed
+  declaration or an empty property is `invalid_argument`, an unknown element `invalid_node`. Both
+  entries are optional: a host built before them leaves them null (an incomplete table is still
+  `module_invalid`) and the managed wrappers report `module_unavailable` for those calls only.
+  `abi_type::rml_ui_event` (28 bytes) joined the layout check, because the table passes that record
+  by pointer.
 
 ## Audio module
 
@@ -1068,10 +1110,13 @@ disposal, shutdown invalidation, absent modules, size mismatch and incomplete ta
 
 ## RmlUi document module
 
-Module id 4 is optional. `rml_ui_api` is a table of six function pointers, resolved and
-size-checked before any call. The module id alone does not change the core ABI: `managed_abi_version`
-stays 38, a host without the module answers `module_unavailable`, and a table of the wrong size or
-one with a missing entry is rejected as `module_invalid`.
+Module id 4 is optional. `rml_ui_api` is a table of eight function pointers, resolved and
+size-checked before any call. The module id alone does not change the core ABI; ABI 42 grew
+`rml_ui_event` and appended two entries, so `managed_abi_version` moved from 41 to 42. A host
+without the module answers `module_unavailable`, and a table of the wrong size or one with a
+missing base entry is rejected as `module_invalid`. The last two entries stay optional: a host that
+leaves them null keeps the first six working and the managed wrappers report `module_unavailable`
+for those two calls.
 
 | Entry | Arguments after the implicit function name | Result |
 | --- | --- | --- |
@@ -1080,7 +1125,9 @@ one with a missing entry is rejected as `module_invalid`.
 | set_text | document id, element id, UTF-8 text | Replace an element's text |
 | set_value | document id, element id, UTF-8 value | Set a form control's value |
 | set_visible | document id, element id, byte visible | Toggle an element |
-| poll_event | document id, output event record, buffer, capacity | Copy one queued click/change |
+| poll_event | document id, output event record, buffer, capacity | Copy one queued click/change/pointer event |
+| get_element_rect | document id, element id, output `element_rect` | An element's laid-out border box |
+| set_element_style | document id, element id, CSS property, UTF-8 value | Write one inline declaration |
 
 A document id is nonzero and belongs to the session that opened it; ids are not recycled. The
 C# wrapper resolves relative paths against the managed project directory, an empty fallback font
@@ -1088,11 +1135,40 @@ path means "no fallback", and `open` while a document is already open reports `s
 Element ids are the document's own ids: an unknown id reports `invalid_node`, while a malformed
 path, a string over the 1 MiB cap, or a `visible` byte outside 0/1 is `invalid_argument`.
 
-`poll_event` with a null buffer only peeks: it writes the event's type (`1` click, `2` change), id
-length and value length into the record and leaves the queue alone, and a null buffer with a
-non-zero capacity is `invalid_argument`. With a non-null buffer it copies the id then the value
-(UTF-8, no terminators) and consumes exactly one event; a buffer that cannot hold both leaves the
-event queued and reports `invalid_argument`. An empty queue returns `success` with a zero type.
+`poll_event` with a null buffer only peeks: it writes the event's type (`1` click, `2` change,
+`3` pointer down, `4` pointer move, `5` pointer up), id length, value length and - for pointer
+events - the position, button and modifiers into the record and leaves the queue alone; a null
+buffer with a non-zero capacity is `invalid_argument`. With a non-null buffer it copies the id then
+the value (UTF-8, no terminators) and consumes exactly one event; a buffer that cannot hold both
+leaves the event queued and reports `invalid_argument`. An empty queue returns `success` with a
+zero type. DOM click/change events are delivered before the pointer events recorded in the same
+input, and pointer events carry no value, so their value length is zero.
+
+Pointer feedback is the host's record of the mouse input it already forwards, not a translation of
+RmlUi's event dispatch: a move is reported for every move, including while a button is held and the
+pointer has left the pressed element, which is what a drag needs. The id is the nearest ancestor
+with an id (empty when the hit element and every ancestor have none), so a splitter element still
+names itself after it gains child nodes. Positions are in density-independent pixels: the host
+divides the framebuffer coordinates it forwards by the document's pixel ratio, the same ratio that
+resolves `dp` units during layout, so a managed splitter can compare `event.x` against
+`get_element_rect` numbers directly at any window scale. `button` is the window button the host
+forwarded (`0` left) and `modifiers` is the same bit mask the input event carried; both are zero
+for moves.
+
+`get_element_rect` answers `x`, `y`, `width`, `height` of an element's border box in
+density-independent pixels; an empty element id is the document root, i.e. the whole viewport,
+which is how a managed layout derives its proportions without naming an element. The answer
+describes the last layout pass, so a style written by `set_element_style` becomes visible after the
+host's next `paint` re-runs layout - not in the same frame. A null output record is
+`invalid_argument` and an unknown element `invalid_node`.
+
+`set_element_style` writes one CSS declaration through the same parser an inline style uses, so
+`width` with `360dp`, `height` with `240dp`, `color: #4a9eff` and `background-color: transparent`
+all work; the value is handed over verbatim and a declaration RmlUi refuses is
+`invalid_argument`, with the element left unchanged. Nothing raises a change event, so a drag that
+resizes a panel cannot feed managed callbacks back into itself. An empty property is
+`invalid_argument` and an unknown element `invalid_node`; the entry is optional, so a host built
+before ABI 42 makes the C# wrapper report `module_unavailable` rather than call a null pointer.
 
 The document is the host's single `rml_document`, the same one the native `[gui] rml_document` path
 opens: a managed `open` replaces a document the host opened at startup, and `close` leaves the
@@ -1104,8 +1180,13 @@ new session is live (the C# side additionally captures a session epoch, the same
 update is not echoed back to the managed handler; `set_visible(false)` also drops keyboard focus.
 
 C# exposes `deren.rml_document` (`try_open`, `set_text`, `set_value`, `set_visible`,
-`try_poll_event`, `close`, `Dispose`) plus `deren.rml_event` and `deren.rml_event_type`. `try_open`
+`try_poll_event`, `try_get_element_rect`, `try_set_element_style`, `close`, `Dispose`) plus
+`deren.rml_event`, `deren.rml_event_type` and `deren.rml_rect`. `try_open`
 returns `module_unavailable` when the host publishes no table, `asset_not_found` when the markup or
 font cannot be loaded, and `scene_exists` for a second document; the wrappers own the returned event
-strings. `test_rml_scripting` covers the native table (including thread and lifetime refusals), and
-`managed_host_rml_*` runs the real wrappers for absent, wrong-size and incomplete tables.
+strings. `rml_event` keeps its original three arguments (type, id, value) and appends the pointer
+payload as optional arguments, so existing handlers compile unchanged.
+`test_rml_scripting` covers the native table (including thread and lifetime refusals), and
+`managed_host_rml_*` runs the real wrappers for absent, wrong-size and incomplete tables;
+`managed_host_rml_layout` and `managed_host_rml_module_optional_absent` cover the ABI 42 pointer,
+rect and style surface, including a host that predates the optional entries.

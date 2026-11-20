@@ -108,6 +108,18 @@ namespace game {
                     node_name_selftest.requested = true;
                     continue;
                 }
+                if (argument == "--scene-aspect-selftest") {
+                    aspect_selftest.requested = true;
+                    continue;
+                }
+                if (argument == "--rml-layout-selftest" && i + 1 < args.Length) {
+                    rml_layout_selftest.path = args[++i];
+                    continue;
+                }
+                if (argument == "--rml-optional-absent") {
+                    rml_layout_selftest.optional_absent = true;
+                    continue;
+                }
                 var separator = argument.IndexOf('=');
                 var name = separator < 0 ? argument : argument[..separator];
                 if (name == "--asset" || name == "--pipeline") {
@@ -209,6 +221,9 @@ namespace game {
             if (rml_selftest.path != null) {
                 return rml_selftest.initialize(scripts);
             }
+            if (rml_layout_selftest.path != null) {
+                return rml_layout_selftest.initialize(scripts);
+            }
             if (audio_selftest.path != null) {
                 return audio_selftest.initialize(scripts);
             }
@@ -217,6 +232,9 @@ namespace game {
             }
             if (node_name_selftest.requested) {
                 return node_name_selftest.initialize(scripts);
+            }
+            if (aspect_selftest.requested) {
+                return aspect_selftest.initialize(scripts);
             }
             // ABI 35: every run exercises the settable boundary wait, so the host test can assert
             // the value arrived and the demo keeps a wait that is still generous for its batches.

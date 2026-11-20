@@ -59,6 +59,8 @@ export namespace deren::app {
         void* context = nullptr;
         bool (*bind)(void* context, engine::scene_tree::scene_node& parent, std::string_view asset_id,
                      managed_asset_source const& source) = nullptr;
+        // Finish in-flight draws before a live edit releases a node's render resources.
+        void (*before_remove)(void* context) = nullptr;
     };
 
     /**
@@ -285,6 +287,15 @@ export namespace deren::app {
          */
         bool (*set_toon_rig)(void* context, scripting::toon_rig_desc const& value) = nullptr;
         bool (*get_toon_rig)(void* context, scripting::toon_rig_desc& value) = nullptr;
+        /**
+         * @brief ABI 41: the projection aspect the scene is rendered with.
+         *
+         * The game tells the host the shape of the rectangle it will show the scene in (an editor
+         * viewport drawn as a document image). The render still covers the window; the projection
+         * is built for this aspect so the stretched image looks right. False means the host has no
+         * runtime yet. Passing 0 restores the window's aspect.
+         */
+        bool (*set_scene_aspect)(void* context, float aspect) = nullptr;
     };
 
     class script_scene {
@@ -324,7 +335,7 @@ export namespace deren::app {
         /// and keeps no input state of its own, so a game that wants a pointer-locked camera, a text
         /// field or a hotkey reads this stream and decides. Safe to call with nobody listening.
         static void publish_input_event(scripting::input_event const& event);
-        /** Drops the startup-only asset binder; bindings after the scene started are unsupported. */
+        /** Drops the asset binder before its host context is destroyed. */
         void clear_asset_binder() noexcept;
 
     private:
@@ -372,6 +383,8 @@ export namespace deren::app {
         /// ABI 40: renames a node; an empty, NUL-carrying or over-256-byte name is refused.
         static scripting::script_status set_node_name(std::uint64_t tree, scripting::node_handle node,
                                                       scripting::utf8_view name);
+        /// ABI 41: the projection aspect the scene is drawn with; 0 restores the window's.
+        static scripting::script_status set_scene_aspect(float aspect);
         static scripting::script_status get_node_flags(std::uint64_t tree, scripting::node_handle node,
                                                        std::uint32_t* flags);
         static scripting::script_status set_node_flags(std::uint64_t tree, scripting::node_handle node,

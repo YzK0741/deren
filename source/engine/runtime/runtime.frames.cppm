@@ -308,7 +308,10 @@ namespace deren::engine {
         // that rounds the two axes differently would otherwise tilt the projection by a fraction of a
         // pixel's worth of aspect).
         rhi::image_extent const output = this->presentation_extent();
-        this->current_aspect = static_cast<float>(output.width) / static_cast<float>(output.height);
+        // A game that shows the scene in a sub-rectangle of the window (the editor's viewport image)
+        // overrides the aspect: the projection must match the shape the image is stretched to, not
+        // the window's. The render extent stays window-sized either way.
+        this->current_aspect = this->scene_aspect_override.value_or(static_cast<float>(output.width) / static_cast<float>(output.height));
         this->current_ubo = this->camera_override ? *this->camera_override : make_orbit_camera_ubo(this->camera.yaw, this->camera.pitch, this->camera.distance, this->camera.target, this->scene_extent_radius, this->current_aspect);
         // Motion-vector support: the G-buffer computes its vectors from the UNJITTERED pair, and the
         // previous matrix is the one THIS swapchain image's history was rendered with (not simply the
@@ -3417,6 +3420,31 @@ namespace deren::engine {
         // filtered image). Both cannot run, and the upscale is the one that must: it is what makes a scaled frame
         // fill the presented image at all.
         return this->fxaa_on && this->pass_ready("fxaa") && !this->post_upscale_active();
+    }
+
+    runtime::scene_color_target runtime::current_scene_color() const noexcept {
+        // A skipped frame (zero-sized window, out-of-date swapchain) returns before the frame's image index
+        // is updated, so the index below would still describe the PREVIOUS frame. No frame is in flight in
+        // that case, and that is exactly what the frame command buffer records.
+        if (this->frame_command_buffer() == nullptr) {
+            return {};
+        }
+        // The image the composite writes instead of the swapchain exists only on frames a resolve finishes
+        // (the two predicates are the frame's one answer to that, see their notes). Asking them keeps this
+        // accessor and the target choice the same decision rather than two that can drift.
+        if (!this->post_fxaa_active() && !this->post_upscale_active()) {
+            return {};
+        }
+        auto const index = static_cast<std::size_t>(this->current_image_index);
+        if (index >= this->ldr_images.size() || !this->ldr_images[index]) {
+            return {};
+        }
+        auto* const image = this->ldr_images[index].get();
+        return {
+            .image = image->share(),
+            .extent = image->extent(),
+            .format = image->format(),
+        };
     }
 
     bool runtime::post_upscale_active() const noexcept {

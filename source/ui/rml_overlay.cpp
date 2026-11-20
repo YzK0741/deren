@@ -50,7 +50,7 @@ namespace deren::ui {
     }
 
     bool rml_overlay::prepare(std::uint32_t width, std::uint32_t height, rhi::image_format format, std::uint32_t slot,
-                              float density_independent_pixel_ratio) {
+                              float density_independent_pixel_ratio, scene_texture const& scene_color) {
         if (slot >= this->frames.size()) {
             return false;
         }
@@ -88,39 +88,70 @@ namespace deren::ui {
 
         utility::vessel::set<std::tuple<utility::xxh3_digest, std::uint32_t, std::uint32_t>> used_textures;
         constexpr std::uint32_t white = 0xffffffff;
+        // The scene image belongs to the render chain. This slot samples the same swapchain image until the
+        // swapchain is recreated, so ONE group per slot is enough; the image handle is kept with it both
+        // to compare generations and to keep the sampled image alive for the group's lifetime.
+        if (scene_color.image && (!frame.scene_group || frame.scene_image.get() != scene_color.image.get())) {
+            rhi::resource_group_entry const entries[] = {
+                {.binding = 0, .kind = rhi::resource_kind::sampled_image, .resource = scene_color.image},
+                {.binding = 1, .kind = rhi::resource_kind::sampler, .resource = this->sampler},
+            };
+            auto group = this->core.resources->create_resource_group({.entries = entries});
+            if (!group) {
+                return false;
+            }
+            frame.scene_group = std::move(*group);
+            frame.scene_image = scene_color.image;
+        }
         for (auto const& draw : this->document.paint(width, height)) {
-            texture_view const texture = draw.texture.pixels.empty()
-                                             ? texture_view{1, 1, std::as_bytes(std::span(&white, 1))}
-                                             : draw.texture;
-            auto const source = std::span(reinterpret_cast<std::uint8_t const*>(texture.pixels.data()), texture.pixels.size());
-            auto const key = std::tuple{utility::xxh3_128bits(source), texture.width, texture.height};
-            used_textures.insert(key);
-            auto [texture_entry, inserted] = this->textures.try_emplace(key);
-            if (inserted) {
-                auto image = this->core.resources->create_image({
-                    .extent = {.width = texture.width, .height = texture.height, .depth = 1},
-                    .format = rhi::image_format::rgba8_unorm,
-                    .flags = rhi::to_bits(rhi::image_flag::sampled),
-                    .initial_bytes = texture.pixels,
-                });
-                if (!image) {
-                    return false;
+            rhi::resource_group_ref texture_group;
+            if (draw.texture.scene_color) {
+                if (!frame.scene_group) {
+                    // A blank viewport with no explanation is the worst outcome: the frame has no resolved
+                    // image to sample (see runtime::current_scene_color). Name the configuration mistake once.
+                    if (!this->scene_missing_logged) {
+                        utility::error("rmlui: the document asks for deren://scene but this frame has no resolved scene image; "
+                                       "enable [render] fxaa or a render scale below 1.0");
+                        this->scene_missing_logged = true;
+                    }
+                    continue;
                 }
-                rhi::resource_group_entry const entries[] = {
-                    {.binding = 0, .kind = rhi::resource_kind::sampled_image, .resource = rhi::shared_object<rhi::image>(std::move(image))},
-                    {.binding = 1, .kind = rhi::resource_kind::sampler, .resource = this->sampler},
-                };
-                auto group = this->core.resources->create_resource_group({.entries = entries});
-                if (!group) {
-                    return false;
+                texture_group = frame.scene_group;
+            } else {
+                texture_view const texture = draw.texture.pixels.empty()
+                                                 ? texture_view{1, 1, std::as_bytes(std::span(&white, 1))}
+                                                 : draw.texture;
+                auto const source = std::span(reinterpret_cast<std::uint8_t const*>(texture.pixels.data()), texture.pixels.size());
+                auto const key = std::tuple{utility::xxh3_128bits(source), texture.width, texture.height};
+                used_textures.insert(key);
+                auto [texture_entry, inserted] = this->textures.try_emplace(key);
+                if (inserted) {
+                    auto image = this->core.resources->create_image({
+                        .extent = {.width = texture.width, .height = texture.height, .depth = 1},
+                        .format = rhi::image_format::rgba8_unorm,
+                        .flags = rhi::to_bits(rhi::image_flag::sampled),
+                        .initial_bytes = texture.pixels,
+                    });
+                    if (!image) {
+                        return false;
+                    }
+                    rhi::resource_group_entry const entries[] = {
+                        {.binding = 0, .kind = rhi::resource_kind::sampled_image, .resource = rhi::shared_object<rhi::image>(std::move(image))},
+                        {.binding = 1, .kind = rhi::resource_kind::sampler, .resource = this->sampler},
+                    };
+                    auto group = this->core.resources->create_resource_group({.entries = entries});
+                    if (!group) {
+                        return false;
+                    }
+                    texture_entry->second = std::move(*group);
                 }
-                texture_entry->second = std::move(*group);
+                texture_group = texture_entry->second;
             }
             if (draw.indices.size() > std::numeric_limits<std::uint32_t>::max() - expanded.size()) {
                 return false;
             }
             new_batches.push_back({
-                .texture = texture_entry->second,
+                .texture = texture_group,
                 .clip = {draw.clip_x, draw.clip_y, static_cast<std::uint32_t>(draw.clip_width), static_cast<std::uint32_t>(draw.clip_height)},
                 .first_vertex = static_cast<std::uint32_t>(expanded.size()),
                 .vertex_count = static_cast<std::uint32_t>(draw.indices.size()),

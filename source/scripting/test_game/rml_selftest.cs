@@ -39,8 +39,13 @@ namespace deren {
         [UnmanagedCallersOnly]
         private static script_status update(frame_info* frame) {
             if (missing) { return script_status.success; }
+            // ABI 42: pointer feedback follows the DOM events. The click above came from a press and
+            // release on the button, so the host reports the move, the press and the release after it.
             if (document == null || !document.try_poll_event(out copied) ||
                 copied.type != rml_event_type.click || copied.id != "apply" ||
+                !pointer(rml_event_type.pointer_move, 60.0F, 190.0F) ||
+                !pointer(rml_event_type.pointer_down) ||
+                !pointer(rml_event_type.pointer_up) ||
                 document.try_poll_event(out _, out var empty_status) || empty_status != script_status.success) {
                 return script_status.script_failure;
             }
@@ -55,6 +60,15 @@ namespace deren {
             }
             return script_status.success;
         }
+        private static bool pointer(rml_event_type type, float x, float y) =>
+            document!.try_poll_event(out var value) && value.type == type && value.id == "apply" &&
+            MathF.Abs(value.x - x) <= 0.5F && MathF.Abs(value.y - y) <= 0.5F;
+
+        // The press and the release carry no position of their own in this scenario, so they only
+        // have to name the element the mouse is over.
+        private static bool pointer(rml_event_type type) =>
+            document!.try_poll_event(out var value) && value.type == type && value.id == "apply";
+
         [UnmanagedCallersOnly]
         private static script_status stop() {
             if (document != null && !document.set_text("status", "Stopped while UI is alive")) {

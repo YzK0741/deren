@@ -7,7 +7,7 @@ namespace deren.scripting {
     /// later as a call through a wrong signature instead of a startup failure.
     /// </summary>
     internal static unsafe class abi_manifest {
-        private const int entry_count = 13;
+        private const int entry_count = 14;
 
         /// <summary>
         /// Asks the host for every mirrored struct size and compares it with <c>sizeof</c> of the
@@ -54,6 +54,7 @@ namespace deren.scripting {
                 abi_type.animation_state => (uint)sizeof(animation_state),
                 abi_type.diagnostic_counters => (uint)sizeof(scene_api.diagnostic_counters),
                 abi_type.toon_rig_desc => (uint)sizeof(scene_api.toon_rig_desc),
+                abi_type.rml_ui_event => (uint)sizeof(rml_ui_event_layout),
                 // An entry this build does not know: the caller reports the mismatch by name.
                 _ => 0u,
             };

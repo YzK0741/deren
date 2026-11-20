@@ -8,7 +8,7 @@ export import deren.scripting.audio_api;
 
 export namespace deren::scripting {
 
-    inline constexpr std::uint32_t managed_abi_version = 40;
+    inline constexpr std::uint32_t managed_abi_version = 42;
 
     struct node_handle {
         std::uint64_t value = 0;
@@ -450,6 +450,14 @@ export namespace deren::scripting {
         // else needs refreshing. The view node_name() hands out borrows the node's own string, so a
         // successful rename invalidates every view obtained before it.
         script_status (*set_node_name)(std::uint64_t tree, node_handle node, utf8_view name) = nullptr;
+        // ABI 41: THE PROJECTION ASPECT. `set_scene_aspect` tells the renderer the shape of the
+        // rectangle the game shows the scene in. The render still covers the whole window; only the
+        // projection changes - the world is built for that aspect, so when the UI stretches the
+        // image into the rectangle the geometry looks right. A finite aspect greater than zero sets
+        // it; 0 restores the presentation extent's aspect; anything else is invalid_argument. The
+        // value applies from the next frame, and project_point/screen_ray answer in that same
+        // projection. No active scene or no host yet is scene_not_found.
+        script_status (*set_scene_aspect)(float aspect) = nullptr;
     };
     // ONE FRAME'S PANEL CONTENT (ABI 31). The managed game describes its debug panel every frame and the
     // host turns each call into the overlay plugin's widget. Every pointer is borrowed until the frame is
@@ -507,7 +515,9 @@ export namespace deren::scripting {
     // disagree about; these entries also catch a field added, removed, or reordered without a
     // version bump, which used to surface as a call through a wrong signature. The module tables
     // (scene_api, ui_api) are not listed here: get_module() reports their size instead, so each
-    // module checks its own table where it consumes it. Never renumber a value once shipped.
+    // module checks its own table where it consumes it. rml_ui_event is listed because the rml_ui
+    // table passes it by pointer, so its size is the one such payload the table itself cannot
+    // describe. Never renumber a value once shipped.
     enum class abi_type : std::uint32_t {
         native_api = 1,
         managed_api = 2,
@@ -521,7 +531,9 @@ export namespace deren::scripting {
         face_frame_desc = 10,
         animation_state = 11,
         diagnostic_counters = 12,
-        toon_rig_desc = 13
+        toon_rig_desc = 13,
+        // ABI 42: the pointer-event payload of the rml_ui table (28 bytes).
+        rml_ui_event = 14
     };
 
     struct abi_layout_entry {

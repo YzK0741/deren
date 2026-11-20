@@ -413,6 +413,20 @@ namespace deren::engine {
             this->output_overlay_context = context;
             this->output_overlay_record = record;
         }
+        /// @brief the display-encoded LDR image the frame's post chain wrote, for an overlay that wants to
+        ///        show the 3D scene inside its own document (an editor viewport, not a second window).
+        ///
+        /// THE COMPOSITE WRITES THAT IMAGE ONLY WHEN A RESOLVE FINISHES THE FRAME - see `post_fxaa_active()`
+        /// and `post_upscale_active()`. On every other frame the displayed pixels live in the swapchain image
+        /// and `image` answers empty, which is the honest answer rather than a stale frame: the overlay then
+        /// has nothing to sample and draws nothing for the request.
+        /// The handle keeps the image alive, so a caller may hold it for the frame it was made in.
+        struct scene_color_target {
+            rhi::shared_object<rhi::image> image;
+            rhi::image_extent extent{};
+            rhi::image_format format = rhi::image_format::unknown;
+        };
+        [[nodiscard]] scene_color_target current_scene_color() const noexcept;
         /// THE DEVICE ROOT behind `rhi_face()`, for A separate caller that prepares device state OUTSIDE the frame
         /// graph (the Gaussian probe): the returned handle keeps this runtime's device valid underneath it.
         [[nodiscard]] rhi::shared_object<rhi::api_core> device_root() const noexcept {
@@ -2178,7 +2192,13 @@ namespace deren::engine {
         // so an external caller can interleave its work between the same steps)
         std::uint32_t current_image_index = 0; // swapchain image acquired by pace_and_acquire()
         float current_aspect = 1.0f;           // swapchain aspect for the frame's UBO + culling
-        camera_ubo current_ubo = {};           // camera UBO snapshot written in pace_and_acquire()
+        // A game that shows the scene inside a sub-rectangle of the window (an editor viewport
+        // drawn as a document image, say) wants the projection built for THAT rectangle. Set, it
+        // replaces the presentation extent's aspect in current_aspect; the render extent and every
+        // pass stay window-sized - the image the UI samples is still the whole window, and the
+        // projection simply squeezes the world into the shape the viewer will stretch it to.
+        std::optional<float> scene_aspect_override = std::nullopt;
+        camera_ubo current_ubo = {}; // camera UBO snapshot written in pace_and_acquire()
         // called frame_leaves_buffer, not frame_leaves: the local view of that name in
         // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
         deren::utility::vessel::vector<primitive const*> frame_leaves_buffer = {}; // every scene leaf this frame (shadow + cull input)
@@ -4698,6 +4718,13 @@ namespace deren::engine {
         void set_camera_override(std::optional<camera_ubo> view) noexcept {
             camera_override = std::move(view);
             camera_override_changed = true;
+        }
+        /// The projection aspect the scene is rendered with. nullopt restores the presentation
+        /// extent's aspect; a value must be finite and positive (callers validate before getting
+        /// here). Applies from the next frame, like every other frame-start quantity, and feeds the
+        /// UBO, the culling frustum and the projection helpers (project_point/screen_ray) alike.
+        void set_scene_aspect(std::optional<float> aspect) noexcept {
+            scene_aspect_override = aspect;
         }
         /// One unread request at a time. No allocation until the frame graph records the copy.
         [[nodiscard]] bool request_radiance_capture() noexcept {

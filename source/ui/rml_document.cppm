@@ -1,4 +1,4 @@
-// module version: 0.1.0
+// module version: 0.2.0
 export module deren.ui.rml_document;
 
 export import deren.vstd;
@@ -41,6 +41,25 @@ export namespace deren::ui {
     struct ui_event {
         deren::utility::vessel::string type, id, value;
     };
+    // ABI 42: what the forwarded mouse input did, kept separately from `ui_event` because these are
+    // not RmlUi dispatches - a drag keeps reporting moves after the pointer leaves the element it
+    // started on, and no click is invented. Coordinates and every rect query are in
+    // density-independent pixels, the unit documents author in.
+    enum class pointer_type { down,
+                              move,
+                              up };
+    struct pointer_event {
+        pointer_type type = pointer_type::move;
+        // The nearest ancestor with an id, so a hit on a splitter's child still names the splitter.
+        deren::utility::vessel::string id;
+        float x = 0.0F;
+        float y = 0.0F;
+        int button = 0;         // The forwarded input_event::button; 0 for moves.
+        unsigned modifiers = 0; // The modifiers the window reported.
+    };
+    enum class style_status { success,
+                              missing_element,
+                              rejected };
     struct vertex {
         float x, y, u, v;
         std::uint8_t r, g, b, a; // Premultiplied RGBA.
@@ -49,6 +68,9 @@ export namespace deren::ui {
     struct texture_view {
         std::uint32_t width = 0, height = 0;
         std::span<std::byte const> pixels; // Premultiplied RGBA8, or empty for untextured draws.
+        // A draw whose texture is the scene itself (`deren://scene`): the overlay samples the engine's
+        // render-chain image instead of an atlas this document owns.
+        bool scene_color = false;
     };
 
     struct draw {
@@ -82,6 +104,19 @@ export namespace deren::ui {
         deren::utility::vessel::string text(std::string_view id) const;
         deren::utility::vessel::string value(std::string_view id) const;
         deren::utility::vessel::vector<ui_event> take_events();
+        // ABI 42: the pointer events forwarded since the previous call, in arrival order. At most 256
+        // are retained; a session that never polls loses the ones beyond that rather than growing the
+        // queue without bound. open() and close() start empty.
+        deren::utility::vessel::vector<pointer_event> take_pointer_events();
+        // ABI 42: the element's border box in density-independent pixels. An empty id reports the
+        // document root, i.e. the whole viewport, which is how a managed UI derives its proportions.
+        // The answer describes the last layout pass, so a style written through set_style is visible
+        // here only after the next paint(), because RmlUi runs layout there.
+        bool element_rect(std::string_view id, float& x, float& y, float& width, float& height) const;
+        // ABI 42: one CSS declaration through the parser an inline style uses, so `width` with `360dp`
+        // and any colour property work. missing_element means the id is unknown, rejected means the
+        // parser refused the declaration. Nothing here raises a change event.
+        style_status set_style(std::string_view id, std::string_view property, std::string_view value);
 
         // Draws are in document paint order. Views remain valid until the next paint, open or close.
         // `width` and `height` are framebuffer pixels; the document's pixel ratio (default 1) turns them
@@ -96,6 +131,8 @@ export namespace deren::ui {
         friend struct rml_render_interface;
         friend struct rml_event_listener;
         deren::utility::vessel::vector<ui_event> events;
+        deren::utility::vessel::vector<pointer_event> pointer_events;
+        void push_pointer(pointer_type type, int x, int y, int button, unsigned modifiers, std::string_view id);
 
         struct compiled_geometry {
             deren::utility::vessel::vector<vertex> vertices;

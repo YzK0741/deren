@@ -282,6 +282,7 @@ namespace deren::app {
             this->scripts.stop() != scripting::script_status::success) {
             utility::log("scripts: managed game stopped with script errors");
         }
+        this->clear_asset_binder();
     }
 
     script_scene::~script_scene() {
@@ -1497,7 +1498,8 @@ namespace deren::app {
             .gpu_timing_summary = gpu_timing_summary,
             .set_toon_rig = set_toon_rig,
             .get_toon_rig = get_toon_rig,
-            .set_node_name = set_node_name};
+            .set_node_name = set_node_name,
+            .set_scene_aspect = set_scene_aspect};
         *table = &scene_api;
         *byte_size = sizeof(scene_api);
         return scripting::script_status::success;
@@ -1522,6 +1524,9 @@ namespace deren::app {
             {.type = abi_type::animation_state, .size = sizeof(scripting::animation_state)},
             {.type = abi_type::diagnostic_counters, .size = sizeof(scripting::diagnostic_counters)},
             {.type = abi_type::toon_rig_desc, .size = sizeof(scripting::toon_rig_desc)},
+            // ABI 42: the rml_ui table's pointer-event payload. The table itself is checked where the
+            // managed side installs it, like scene_api and ui_api.
+            {.type = abi_type::rml_ui_event, .size = sizeof(scripting::rml_ui_event)},
         };
         constexpr auto count = static_cast<std::uint32_t>(std::size(entries));
         if (out == nullptr || capacity < count) {
@@ -1675,6 +1680,14 @@ namespace deren::app {
         auto const id = to_entity(node);
         if (!id.valid()) {
             return scripting::script_status::invalid_argument;
+        }
+        if (scene->find_node(id) == nullptr) {
+            return scripting::script_status::invalid_node;
+        }
+        auto const* entry = find_managed_tree_entry(tree);
+        auto const* owner = entry ? entry->owner : nullptr;
+        if (entry && entry->active && owner && owner->asset_binder.before_remove) {
+            owner->asset_binder.before_remove(owner->asset_binder.context);
         }
         return scene->destroy_node(id) ? scripting::script_status::success : scripting::script_status::invalid_node;
     }
@@ -1846,6 +1859,23 @@ namespace deren::app {
         }
         scene_node->node_name.assign(text.data(), text.size());
         return scripting::script_status::success;
+    }
+
+    scripting::script_status script_scene::set_scene_aspect(float const aspect) {
+        // The game names the shape of the rectangle it shows the scene in. Zero is the explicit
+        // "back to the window" value; everything else must be a usable aspect.
+        if (aspect != 0.0F && (!std::isfinite(aspect) || aspect <= 0.0F)) {
+            return scripting::script_status::invalid_argument;
+        }
+        script_scene* const owner = current_owner();
+        if (owner == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        if (owner->host.set_scene_aspect == nullptr) {
+            return scripting::script_status::module_unavailable;
+        }
+        return owner->host.set_scene_aspect(owner->host.context, aspect) ? scripting::script_status::success
+                                                                         : scripting::script_status::script_failure;
     }
 
     scripting::script_status script_scene::get_node_flags(std::uint64_t const tree, scripting::node_handle const node,

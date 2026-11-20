@@ -146,10 +146,10 @@ export namespace deren::engine::pass {
         // called pass_pipeline, not pipeline: the class declares pipeline_handle() and a member of that name
         // would duplicate it and hide the override.
         std::optional<pipelines::pipeline_handle> pass_pipeline = std::nullopt;
-        float rim_width = 1.0f;
-        float rim_scale = 4.0f;
-        float rim_strength = 0.55f;
-        float rim_colour[3] = {1.0f, 0.94f, 0.90f};
+        float rim_width = 0.368f;
+        float rim_scale = 10.0f;
+        float rim_strength = 0.25f;
+        float rim_colour[3] = {1.0f, 0.85f, 0.95f};
     }; // namespace deren::engine::pass
 
     /// the pass's block: the eight composed values plus the colour, and the framework appends the two heap

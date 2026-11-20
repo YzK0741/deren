@@ -153,6 +153,13 @@ namespace {
     std::uint32_t node_name_rejections = 0;
     std::uint32_t node_name_misses = 0;
     std::uint32_t node_name_reads = 0;
+    // ABI 41: the projection aspect. The self check accepts a box aspect, restores the window aspect
+    // with zero, and has a negative value and NaN refused, so forwarding and host-side validation are
+    // both visible here.
+    std::uint32_t aspect_sets = 0;
+    std::uint32_t aspect_rejections = 0;
+    std::uint32_t aspect_last_reset = 0;
+    float aspect_last = 0.0F;
 
     constexpr node_handle node_zero{.value = 1};
     constexpr node_handle node_one{.value = 2};
@@ -434,6 +441,17 @@ namespace {
         std::memcpy(found->name, name.data, name.length);
         found->name_length = name.length;
         ++node_name_renames;
+        return script_status::success;
+    }
+
+    script_status set_scene_aspect(float aspect) {
+        if (aspect != 0.0F && (!std::isfinite(aspect) || aspect <= 0.0F)) {
+            ++aspect_rejections;
+            return script_status::invalid_argument;
+        }
+        ++aspect_sets;
+        aspect_last = aspect;
+        aspect_last_reset = aspect == 0.0F ? 1u : 0u;
         return script_status::success;
     }
 
@@ -1134,7 +1152,17 @@ namespace {
                 return script_status::module_unavailable;
             }
             static rml_ui_api const incomplete{};
-            *table = rml_module_mode == 3 ? &incomplete : &deren::ui::rml_scripting::table();
+            // ABI 42: a host built before the pointer/rect/style entries. The base six stay valid, so
+            // the managed side must keep working and refuse only the two optional calls.
+            static rml_ui_api const legacy = [] {
+                rml_ui_api value = deren::ui::rml_scripting::table();
+                value.get_element_rect = nullptr;
+                value.set_element_style = nullptr;
+                return value;
+            }();
+            *table = rml_module_mode == 3   ? &incomplete
+                     : rml_module_mode == 4 ? &legacy
+                                            : &deren::ui::rml_scripting::table();
             *byte_size = sizeof(rml_ui_api) + (rml_module_mode == 2 ? 8 : 0);
             return script_status::success;
         }
@@ -1231,7 +1259,8 @@ namespace {
             .node_name = node_name,
             .set_toon_rig = set_toon_rig,
             .get_toon_rig = get_toon_rig,
-            .set_node_name = set_node_name};
+            .set_node_name = set_node_name,
+            .set_scene_aspect = set_scene_aspect};
         *table = &published;
         *byte_size = sizeof(published);
         return script_status::success;
@@ -1797,6 +1826,48 @@ namespace {
         return true;
     }
 
+    // ABI 41: the projection aspect. The demo turns itself into a self check when it sees
+    // `--scene-aspect-selftest`: it activates a tree and then names the shape of an editor viewport,
+    // resets to the window aspect with zero, and has a negative aspect and NaN refused. This case owns
+    // the host half: exactly the two accepted values arrived, the last one was the reset, and the two
+    // malformed ones never got past validation.
+    bool run_scene_aspect(host_paths const& paths) {
+        char const* selftest_argv[]{"test_managed_host", "--scene-aspect-selftest"};
+        auto selftest_paths = paths;
+        selftest_paths.argc = 2;
+        selftest_paths.argv = const_cast<char**>(selftest_argv);
+        scene_fixture scene;
+        module_context = &scene;
+        native_api const api{.log = scene_log,
+                             .get_module = get_scene_module,
+                             .request_screenshot = request_screenshot,
+                             .set_input_event_callback = set_input_callback,
+                             .abi_layout = publish_abi_layout,
+                             .notify_rendering = record_notify,
+                             .set_frame_boundary_timeout = record_timeout,
+                             .panic = record_panic};
+        managed_api scripts;
+        if (initialize_managed_host(selftest_paths, api, scripts).status != host_status::success) {
+            std::fputs("scene aspect: managed host initialization failed\n", stderr);
+            return false;
+        }
+        if (update_scene(scripts, 7, 0.5F) != script_status::success) {
+            std::fputs("scene aspect: the managed self check failed\n", stderr);
+            return false;
+        }
+        if (aspect_sets != 2 || aspect_rejections != 2 || aspect_last_reset != 1 ||
+            aspect_last != 0.0F) {
+            std::fprintf(stderr, "scene aspect: sets=%u rejections=%u last=%g reset=%u\n", aspect_sets,
+                         aspect_rejections, static_cast<double>(aspect_last), aspect_last_reset);
+            return false;
+        }
+        if (scripts.stop() != script_status::success) {
+            std::fputs("scene aspect: managed stop failed\n", stderr);
+            return false;
+        }
+        return true;
+    }
+
     bool run_rml(host_paths const& paths, int mode) {
         rml_module_mode = mode;
         deren::ui::rml_document document;
@@ -1825,6 +1896,52 @@ namespace {
         }
         if (!ok) {
             std::fprintf(stderr, "RmlUi self-test failed: mode %d, host status %d\n", mode, static_cast<int>(result.status));
+        }
+        return ok;
+    }
+
+    bool run_rml_layout(host_paths const& paths, bool optional_absent) {
+        rml_module_mode = optional_absent ? 4 : 1;
+        deren::ui::rml_document document;
+        deren::ui::rml_scripting host(document);
+        std::string fixture = VR_RMLUI_DEMO_DIR;
+        char const* arguments[]{"test_managed_host", "--rml-layout-selftest", fixture.c_str(),
+                                optional_absent ? "--rml-optional-absent" : "--rml-layout-present"};
+        auto configured = paths;
+        configured.argc = 4;
+        configured.argv = const_cast<char**>(arguments);
+        scene_fixture scene;
+        module_context = &scene;
+        native_api const api{.log = scene_log, .get_module = get_scene_module, .request_screenshot = request_screenshot, .set_input_event_callback = set_input_callback, .abi_layout = publish_abi_layout, .notify_rendering = record_notify, .set_frame_boundary_timeout = record_timeout, .panic = record_panic};
+        managed_api scripts;
+        auto const result = initialize_managed_host(configured, api, scripts);
+        bool ok = result.status == host_status::success;
+        if (ok) {
+            // The managed side authors in density-independent pixels; the window is 2x, so the
+            // viewport reports 320x240 and a pointer at framebuffer (10, 10) reports (5, 5).
+            document.set_density_independent_pixel_ratio(2.0F);
+            document.paint(640, 480);
+            auto const first = update_scene(scripts, 7, 0.01F);
+            ok = first == script_status::success && ok;
+        }
+        if (ok && !optional_absent) {
+            document.paint(640, 480); // The width style written by the first tick needs a layout pass.
+            float x = 0, y = 0, width = 0, height = 0;
+            ok = document.element_rect("apply", x, y, width, height) && ok;
+            int const center_x = static_cast<int>((x + width * 0.5F) * 2.0F);
+            int const center_y = static_cast<int>((y + height * 0.5F) * 2.0F);
+            document.input({.type = deren::ui::input_type::move, .x = center_x, .y = center_y});
+            document.input({.type = deren::ui::input_type::button, .x = center_x, .y = center_y, .button = 0, .down = true});
+            document.input({.type = deren::ui::input_type::move, .x = 10, .y = 10});
+            document.input({.type = deren::ui::input_type::button, .x = 10, .y = 10, .button = 0, .down = false});
+            ok = update_scene(scripts, 7, 0.01F) == script_status::success && ok;
+        }
+        if (result.status == host_status::success) {
+            ok = scripts.stop != nullptr && scripts.stop() == script_status::success && ok;
+        }
+        if (!ok) {
+            std::fprintf(stderr, "RmlUi layout self-test failed: optional_absent %d, host status %d\n",
+                         optional_absent ? 1 : 0, static_cast<int>(result.status));
         }
         return ok;
     }
@@ -1889,6 +2006,9 @@ int main(int argc, char** argv) {
                                                                                              : 0;
         return run_rml(paths, mode) ? 0 : 1;
     }
+    if (scenario == "rml_layout" || scenario == "rml_module_optional_absent") {
+        return run_rml_layout(paths, scenario == "rml_module_optional_absent") ? 0 : 1;
+    }
     if (scenario == "audio_lifecycle" || scenario == "audio_module_unavailable" ||
         scenario == "audio_module_invalid" || scenario == "audio_module_incomplete") {
         int const mode = scenario == "audio_lifecycle" ? 1 : scenario == "audio_module_invalid"  ? 2
@@ -1913,6 +2033,13 @@ int main(int argc, char** argv) {
     if (scenario == "node_name") {
         if (!run_node_name(paths)) {
             std::fputs("Managed node rename failed\n", stderr);
+            return 1;
+        }
+        return 0;
+    }
+    if (scenario == "scene_aspect") {
+        if (!run_scene_aspect(paths)) {
+            std::fputs("Managed scene aspect failed\n", stderr);
             return 1;
         }
         return 0;

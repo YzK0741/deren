@@ -4,8 +4,15 @@ using System.Threading;
 using deren.scripting;
 
 namespace deren {
-    public enum rml_event_type : uint { click = 1, change = 2 }
-    public readonly record struct rml_event(rml_event_type type, string id, string value);
+    public enum rml_event_type : uint { click = 1, change = 2, pointer_down = 3, pointer_move = 4, pointer_up = 5 }
+    /// <summary>
+    /// One UI event. <c>x</c>/<c>y</c>, <c>button</c> and <c>modifiers</c> are ABI 42 pointer-event
+    /// payload, in density-independent pixels; click and change leave them at zero.
+    /// </summary>
+    public readonly record struct rml_event(rml_event_type type, string id, string value,
+                                            float x = 0.0f, float y = 0.0f, int button = 0, uint modifiers = 0);
+    /// <summary>ABI 42: one element's border box in density-independent pixels.</summary>
+    public readonly record struct rml_rect(float x, float y, float width, float height);
 
     /// <summary>A render-thread document owned by this script session. Close it with Dispose.</summary>
     public sealed class rml_document : IDisposable {
@@ -87,6 +94,56 @@ namespace deren {
             status = rml_ui_api.table.set_visible(handle, element.view, visible ? (byte)1 : (byte)0);
             return status == script_status.success;
         }
+        /// <summary>
+        /// ABI 42: the element's border box in density-independent pixels. A null or empty id is the
+        /// document root, i.e. the viewport, which is how proportions are derived without naming an
+        /// element. The rect describes the last layout pass, so a style written here - or by
+        /// <see cref="try_set_element_style(string?, string?, string?)"/> - becomes visible after the
+        /// host paints again.
+        /// </summary>
+        public bool try_get_element_rect(string? id, out rml_rect rect) => try_get_element_rect(id, out rect, out _);
+        public unsafe bool try_get_element_rect(string? id, out rml_rect rect, out script_status status) {
+            rect = default;
+            if (!available(out status)) { return false; }
+            if (rml_ui_api.table.get_element_rect == null) {
+                status = script_status.module_unavailable;
+                return false;
+            }
+            if (id != null && !valid_text(id)) {
+                status = script_status.invalid_argument;
+                return false;
+            }
+            using var element = native_string.create(id);
+            element_rect_layout result = default;
+            status = rml_ui_api.table.get_element_rect(handle, element.view, &result);
+            if (status != script_status.success) { return false; }
+            rect = new rml_rect(result.x, result.y, result.width, result.height);
+            return true;
+        }
+        /// <summary>
+        /// ABI 42: writes one CSS declaration - <c>"width"</c> with <c>"360dp"</c>, or
+        /// <c>"background-color"</c> with <c>"#4a9eff"</c> - through the same parser an inline style
+        /// uses. A host built before ABI 42 reports module_unavailable. No change event is raised.
+        /// </summary>
+        public bool try_set_element_style(string? id, string? property, string? value) =>
+            try_set_element_style(id, property, value, out _);
+        public unsafe bool try_set_element_style(string? id, string? property, string? value, out script_status status) {
+            if (!available(out status)) { return false; }
+            if (rml_ui_api.table.set_element_style == null) {
+                status = script_status.module_unavailable;
+                return false;
+            }
+            if (id == null || !valid_text(id, false) || property == null || !valid_text(property, false) ||
+                !valid_text(value)) {
+                status = script_status.invalid_argument;
+                return false;
+            }
+            using var element = native_string.create(id);
+            using var name = native_string.create(property);
+            using var content = native_string.create(value);
+            status = rml_ui_api.table.set_element_style(handle, element.view, name.view, content.view);
+            return status == script_status.success;
+        }
         /// <summary>False with success means the queue is empty. Returned strings are owned copies.</summary>
         public bool try_poll_event(out rml_event result) => try_poll_event(out result, out _);
         public unsafe bool try_poll_event(out rml_event result, out script_status status) {
@@ -96,7 +153,7 @@ namespace deren {
             status = rml_ui_api.table.poll_event(handle, &info, null, 0);
             if (status != script_status.success || info.type == 0) { return false; }
             var size = (ulong)info.id_length + info.value_length;
-            if (size > 1024 * 1024 || info.type > 2) {
+            if (size > 1024 * 1024 || info.type is < 1 or > 5) {
                 status = script_status.module_invalid;
                 return false;
             }
@@ -105,13 +162,14 @@ namespace deren {
                 status = rml_ui_api.table.poll_event(handle, &info, buffer, (uint)bytes.Length);
             }
             if (status != script_status.success) { return false; }
-            if (info.type is < 1 or > 2 || (ulong)info.id_length + info.value_length > (ulong)bytes.Length) {
+            if (info.type is < 1 or > 5 || (ulong)info.id_length + info.value_length > (ulong)bytes.Length) {
                 status = script_status.module_invalid;
                 return false;
             }
             result = new rml_event((rml_event_type)info.type,
                 Encoding.UTF8.GetString(bytes, 0, (int)info.id_length),
-                Encoding.UTF8.GetString(bytes, (int)info.id_length, (int)info.value_length));
+                Encoding.UTF8.GetString(bytes, (int)info.id_length, (int)info.value_length),
+                info.x, info.y, info.button, info.modifiers);
             return true;
         }
         public bool close() => close(out _);

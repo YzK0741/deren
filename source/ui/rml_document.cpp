@@ -2,8 +2,10 @@ module;
 
 #define STB_IMAGE_STATIC
 #define STB_IMAGE_IMPLEMENTATION
+#include <RmlUi/Core/Box.h>
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/Core.h>
+#include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
 #include <RmlUi/Core/ElementText.h>
 #include <RmlUi/Core/Elements/ElementFormControl.h>
@@ -21,6 +23,14 @@ import deren.vstd;
 import deren.utility;
 
 namespace deren::ui {
+    namespace {
+        // The one URI a document can name to ask the overlay for the 3D scene instead of a file texture,
+        // and the sentinel handle LoadTexture hands out for it. Its low value cannot collide with
+        // `generated_texture` pointers and lets ReleaseTexture skip a real free.
+        constexpr std::string_view scene_color_uri = "deren://scene";
+        Rml::TextureHandle const scene_color_texture = reinterpret_cast<Rml::TextureHandle>(std::uintptr_t{1});
+    } // namespace
+
     struct rml_render_interface final : Rml::RenderInterface {
         using compiled_geometry = rml_document::compiled_geometry;
         using generated_texture = rml_document::generated_texture;
@@ -54,7 +64,9 @@ namespace deren::ui {
             }
 
             texture_view texture;
-            if (auto const* data = reinterpret_cast<generated_texture const*>(texture_handle)) {
+            if (texture_handle == scene_color_texture) {
+                texture.scene_color = true;
+            } else if (auto const* data = reinterpret_cast<generated_texture const*>(texture_handle)) {
                 texture = {data->width, data->height, data->pixels};
             }
             this->document->draws.push_back({geometry.vertices, geometry.indices, texture, offset.x, offset.y, clip.Left(),
@@ -69,6 +81,13 @@ namespace deren::ui {
         }
 
         Rml::TextureHandle LoadTexture(Rml::Vector2i& dimensions, Rml::String const& source) override {
+            // `deren://scene` is answered without touching the filesystem: the overlay resolves it to the
+            // frame's render-chain image. The dimensions are the intrinsic size placeholder RmlUi wants;
+            // a document sizes the viewport element in CSS, so this only matters if it does not.
+            if (source == scene_color_uri) {
+                dimensions = {1920, 1080};
+                return scene_color_texture;
+            }
             auto bytes = utility::read_binary_to_vector(std::filesystem::path(source), 64u * 1024u * 1024u);
             if (!bytes) {
                 return 0;
@@ -110,6 +129,9 @@ namespace deren::ui {
         }
 
         void ReleaseTexture(Rml::TextureHandle handle) override {
+            if (handle == scene_color_texture) {
+                return; // borrowed from the overlay, never owned here
+            }
             std::unique_ptr<generated_texture> texture(reinterpret_cast<generated_texture*>(handle));
             if (this->document->rendering || !this->document->draws.empty()) {
                 this->document->retired_textures.push_back(std::move(texture));
@@ -154,7 +176,18 @@ namespace deren::ui {
     };
     namespace {
         rml_event_listener event_listener;
-    }
+
+        // ABI 42: the id a hit reports is the nearest ancestor that has one. A splitter's future
+        // children then still name the splitter instead of reporting an empty id the editor cannot
+        // match, and the root element reports empty, the same as hitting nothing.
+        std::string_view hit_id(Rml::Element* element, Rml::Element* root) {
+            while (element != nullptr && element != root && element->GetId().empty()) {
+                element = element->GetParentNode();
+            }
+            return element != nullptr && element != root ? std::string_view(element->GetId().data(), element->GetId().size())
+                                                         : std::string_view{};
+        }
+    } // namespace
 
     rml_document::~rml_document() {
         this->close();
@@ -208,6 +241,7 @@ namespace deren::ui {
         render_interface.document = nullptr;
         Rml::SetRenderInterface(nullptr);
         this->events.clear();
+        this->pointer_events.clear();
         this->pressed_buttons = 0;
     }
 
@@ -284,7 +318,18 @@ namespace deren::ui {
             return false;
         }
         if (!visible) {
-            this->input({.type = input_type::focus_lost});
+            // Hiding a subtree only has to drop keyboard focus when the focused control lives inside it, so
+            // walk the focus chain instead of synthesizing a full focus-loss. A synthesized focus-loss also
+            // clears the hover chain, and a panel that hides its unused rows every frame would then wipe the
+            // hovered element on the frame the mouse is over it - pointer presses could never land, because
+            // the click target is resolved from the hover chain (the editor's outliner hides rows per frame).
+            auto* focus = context->GetFocusElement();
+            for (auto* node = focus; node != nullptr; node = node->GetParentNode()) {
+                if (node == element) {
+                    this->input({.type = input_type::focus_lost});
+                    break;
+                }
+            }
         }
         element->SetProperty("visibility", visible ? "visible" : "hidden");
         return true;
@@ -322,6 +367,66 @@ namespace deren::ui {
         result.swap(this->events);
         return result;
     }
+    utility::vessel::vector<pointer_event> rml_document::take_pointer_events() {
+        utility::vessel::vector<pointer_event> result;
+        result.swap(this->pointer_events);
+        return result;
+    }
+    void rml_document::push_pointer(pointer_type type, int x, int y, int button, unsigned modifiers, std::string_view id) {
+        // A session that never polls must not grow this without bound; such a session also reports no
+        // pointer feedback to anyone, so dropping the newest event loses nothing anyone reads.
+        constexpr std::size_t max_pointer_events = 256;
+        if (this->pointer_events.size() >= max_pointer_events) {
+            return;
+        }
+        auto const ratio = this->density_independent_pixel_ratio;
+        pointer_event event;
+        event.type = type;
+        event.id.assign(id.data(), id.size());
+        // The managed side authors in dp, so the framebuffer pixels the window reports are divided
+        // here once, and pointer coordinates and rects then share a unit.
+        event.x = static_cast<float>(x) / ratio;
+        event.y = static_cast<float>(y) / ratio;
+        event.button = button;
+        event.modifiers = modifiers;
+        this->pointer_events.push_back(std::move(event));
+    }
+    bool rml_document::element_rect(std::string_view id, float& x, float& y, float& width, float& height) const {
+        x = 0.0F;
+        y = 0.0F;
+        width = 0.0F;
+        height = 0.0F;
+        auto* context = render_interface.document == this ? Rml::GetContext(context_name) : nullptr;
+        if (!context) {
+            return false;
+        }
+        Rml::Element* element = nullptr;
+        if (id.empty()) {
+            element = context->GetRootElement();
+        } else if (auto* document = context->GetDocument(0)) {
+            element = document->GetElementById(Rml::String(id));
+        }
+        if (!element) {
+            return false;
+        }
+        auto const offset = element->GetAbsoluteOffset(Rml::BoxArea::Border);
+        auto const size = element->GetBox().GetSize();
+        auto const ratio = this->density_independent_pixel_ratio;
+        x = offset.x / ratio;
+        y = offset.y / ratio;
+        width = size.x / ratio;
+        height = size.y / ratio;
+        return true;
+    }
+    style_status rml_document::set_style(std::string_view id, std::string_view property, std::string_view value) {
+        auto* context = render_interface.document == this ? Rml::GetContext(context_name) : nullptr;
+        auto* const document = context ? context->GetDocument(0) : nullptr;
+        auto* element = document && !id.empty() ? document->GetElementById(Rml::String(id)) : nullptr;
+        if (!element) {
+            return style_status::missing_element;
+        }
+        return element->SetProperty(Rml::String(property), Rml::String(value)) ? style_status::success : style_status::rejected;
+    }
     bool rml_document::wants_mouse() const {
         auto* context = render_interface.document == this ? Rml::GetContext(context_name) : nullptr;
         if (this->pressed_buttons != 0) {
@@ -331,10 +436,21 @@ namespace deren::ui {
         if (hover == nullptr || hover == context->GetRootElement()) {
             return false;
         }
-        // The document element is the RML <body>: it fills the viewport, so resting the mouse over
-        // empty HUD space must not look like an interaction - the game keeps its mouse. Any element
-        // under the pointer is a hit unless it (or a parent) opted out with `pointer-events: none`,
-        // which makes GetElementAtPoint return nothing at all.
+        // A document shows the 3D scene through <img src="deren://scene">: while the pointer rests on that
+        // image the game keeps the mouse, so the overlay reports no mouse exposure and the camera behind it
+        // can orbit. Every other element under the pointer is a UI hit.
+        for (auto* node = hover; node != nullptr; node = node->GetParentNode()) {
+            if (node->GetTagName() == "img" && node->GetAttribute("src", Rml::String{}) == Rml::String(scene_color_uri)) {
+                return false;
+            }
+        }
+        // The document element is the RML <body>: it fills the viewport, so resting the mouse over empty
+        // HUD space must not look like an interaction - the game keeps its mouse. Any element under the
+        // pointer is a hit unless it (or a parent) opted out with `pointer-events: none`, which makes
+        // GetElementAtPoint return nothing at all and lets the hover fall through to <body>.
+        if (hover->GetTagName() == "body") {
+            return false;
+        }
         return hover->GetOwnerDocument() != hover;
     }
     bool rml_document::wants_keyboard() const {
@@ -358,6 +474,10 @@ namespace deren::ui {
         switch (event.type) {
         case input_type::move:
             context->ProcessMouseMove(event.x, event.y, event.modifiers);
+            // ABI 42: every forwarded move is reported, including the moves of a drag that has left
+            // the element it started on, because the editor locks its target on pointer_down.
+            this->push_pointer(pointer_type::move, event.x, event.y, event.button,
+                               static_cast<unsigned>(event.modifiers), hit_id(context->GetHoverElement(), context->GetRootElement()));
             return this->wants_mouse();
         case input_type::button:
             if (event.button < 0 || event.button >= 8) {
@@ -368,9 +488,13 @@ namespace deren::ui {
                     this->pressed_buttons |= 1u << event.button;
                 }
                 context->ProcessMouseButtonDown(event.button, event.modifiers);
+                this->push_pointer(pointer_type::down, event.x, event.y, event.button,
+                                   static_cast<unsigned>(event.modifiers), hit_id(context->GetHoverElement(), context->GetRootElement()));
             } else {
                 context->ProcessMouseButtonUp(event.button, event.modifiers);
                 this->pressed_buttons &= ~(1u << event.button);
+                this->push_pointer(pointer_type::up, event.x, event.y, event.button,
+                                   static_cast<unsigned>(event.modifiers), hit_id(context->GetHoverElement(), context->GetRootElement()));
             }
             return mouse;
         case input_type::wheel:

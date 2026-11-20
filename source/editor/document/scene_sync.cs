@@ -30,11 +30,15 @@ internal static class scene_sync
         if (!scene_tree.try_create(out var created, out status) || created == null) {
             return false;
         }
-        if (!create_all(doc, created, doc.roots, null, out status)) {
+        if (!created.try_activate(out status)) {
             created.destroy();
             return false;
         }
-        if (!created.try_activate(out status)) {
+        // Bind the assets only after activation: the native side materialises the render instances of
+        // a bound asset when the tree is already active, and a tree that is populated beforehand never
+        // gets them.
+        if (!create_all(doc, created, doc.roots, null, out status)) {
+            created.detach();
             created.destroy();
             return false;
         }
@@ -78,10 +82,21 @@ internal static class scene_sync
             return false;
         }
         try {
+            if (node.pipeline == null && asset_manager.try_get_default_pipeline(asset, out var declared)) {
+                node.pipeline = declared;
+            }
             if (!tree.try_bind_asset(parent_runtime, asset, node.local, out var bound, out status)) {
                 return false;
             }
             node.runtime = bound;
+            // Importing an asset is authoring, not a request to start its bundled motion.
+            // Pause before the next frame consumes the new player's first update.
+            if (animation_player.try_get_info(out _) && !animation_player.try_pause()) {
+                tree.destroy_node(bound);
+                node.runtime = default;
+                status = script_status.script_failure;
+                return false;
+            }
             status = script_status.success;
             return true;
         } finally {

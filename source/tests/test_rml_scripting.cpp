@@ -50,6 +50,17 @@ int main() {
         char payload[64]{};
         CHECK(api.poll_event(id, &event, payload, sizeof(payload)) == script_status::success);
         CHECK(std::string_view(payload, event.id_length) == "apply");
+        // ABI 42: the forwarded mouse input follows the DOM events in arrival order. The first move
+        // happened while the panel was hidden, so it names no element.
+        CHECK(api.poll_event(id, &event, payload, sizeof(payload)) == script_status::success);
+        CHECK(event.type == 4 && event.id_length == 0);
+        CHECK(api.poll_event(id, &event, payload, sizeof(payload)) == script_status::success);
+        CHECK(event.type == 4 && std::string_view(payload, event.id_length) == "apply");
+        CHECK(event.x == 60.0F && event.y == 190.0F && event.button == 0 && event.modifiers == 0);
+        CHECK(api.poll_event(id, &event, payload, sizeof(payload)) == script_status::success);
+        CHECK(event.type == 3 && std::string_view(payload, event.id_length) == "apply");
+        CHECK(api.poll_event(id, &event, payload, sizeof(payload)) == script_status::success);
+        CHECK(event.type == 5 && std::string_view(payload, event.id_length) == "apply");
         CHECK(api.poll_event(id, &event, payload, sizeof(payload)) == script_status::success);
         CHECK(event.type == 0);
         script_status worker_result = script_status::success;

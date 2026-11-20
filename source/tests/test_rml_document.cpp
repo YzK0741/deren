@@ -80,6 +80,23 @@ int main() {
     CHECK(!document.input({.type = input_type::key, .key = 'W', .down = true}));
     CHECK(!document.input({.type = input_type::character, .codepoint = 'x'}));
     CHECK(document.value("name").find("x") == std::string::npos);
+    // Hiding an unfocused element must not synthesize a focus-loss: a focus-loss clears the hover chain,
+    // and the editor's outliner hides its unused rows every frame, which used to wipe the hovered element
+    // on the very frame the press was resolved, so no click could ever land on a button.
+    document.input({.type = input_type::move, .x = 60, .y = 190});
+    CHECK(document.wants_mouse());
+    for (int index = 0; index < 4; ++index) {
+        CHECK(document.set_visible("status", false));
+        CHECK(document.set_visible("status", true));
+    }
+    CHECK(document.wants_mouse());
+    document.input({.type = input_type::button, .button = 0, .down = true});
+    document.input({.type = input_type::button, .button = 0, .down = false});
+    bool clicked_after_hides = false;
+    for (auto const& event : document.take_events()) {
+        clicked_after_hides |= event.type == "click" && event.id == "apply";
+    }
+    CHECK(clicked_after_hides);
     document.input({.type = input_type::focus_lost});
     CHECK(!document.wants_keyboard());
     document.close();

@@ -4,7 +4,13 @@ screenshot_dir = "captures"
 # The editor window is deliberately large: the RmlUi outliner lists up to 64 nodes without scrolling.
 # The managed editor opens its own document from C# (rml_document.try_open), so this file must NOT
 # configure [gui] rml_document/rml_font - that is the native HUD path and would open a second document.
+#
+# FXAA IS ON BECAUSE OF THE VIEWPORT: the document shows the 3D scene (`deren://scene`), and the
+# engine only writes the display-encoded LDR image a resolve (FXAA/upscale) finishes the frame with.
+# With it off the viewport element would be empty on every frame.
 [render]
 window_title = "deren editor"
+dark_window_frame = true
 window_width = 1600
 window_height = 900
+fxaa = true

@@ -128,24 +128,27 @@ float4 main([[vk::location(0)]] float2 v_uv : TEXCOORD0) : SV_Target
     }
 
     const float surface_distance = rim_view_distance(stored_depth);
-    // THE CAPTURED OFFSET LENGTH, probed on both screen axes (adaptation 1 above). `rim_width * 0.006` is a
-    // fraction of the uv extent: 0.368 -> 0.0022 uv = a little over two pixels at 1000 px, which is the width the
-    // captured viewer draws. (The ARTICLE's contour instead divides by `(eye_depth + 3)`, which at the same
-    // rimWidth is a THIRD of a pixel - the reason it is invisible on the game chain.)
-    const float step = pc.rim_width * game_rim_offset_scale;
-    const float2 probes[4] = {float2(step, 0.0), float2(-step, 0.0), float2(0.0, step), float2(0.0, -step)};
-    float rise = 0.0;
+    // Hold the close-up width and shrink it in perspective as the character moves away.
+    // Use at least one texel for the depth probe and fade the contribution below one texel.
+    uint width, height;
+    heap_at<Texture2D<float4>>(heap_slots_gbuffer_depth + heap_image_index).GetDimensions(width, height);
+    const float2 texel = 1.0 / float2(width, height);
+    const float distance_scale = saturate(4.0 / max(surface_distance, 0.001));
+    const float target_step = pc.rim_width * game_rim_offset_scale * distance_scale;
+    const float2 step = max(float2(target_step, target_step), texel);
+    const float2 coverage = saturate(target_step / texel);
+    const float2 probes[4] = {float2(step.x, 0.0), float2(-step.x, 0.0), float2(0.0, step.y), float2(0.0, -step.y)};
+    float rim_area = 0.0;
     for (int i = 0; i < 4; ++i)
     {
         const float neighbour_depth = rim_depth_at(saturate(v_uv + probes[i]));
         // A FAR-PLANE NEIGHBOUR IS THE STRONGEST CONTOUR there is (the character against the background); the
         // captured comparison would linearize it to the far distance and saturate the same way.
         const float neighbour_distance = neighbour_depth >= 1.0 ? 1.0e6 : rim_view_distance(neighbour_depth);
-        rise = max(rise, neighbour_distance - surface_distance);
+        const float rise = neighbour_distance - surface_distance;
+        rim_area = max(rim_area, rim_smoothstep((rise - game_rim_depth_bias) * pc.rim_scale) * coverage[i / 2]);
     }
 
-    // THE CAPTURED COMPARISON (`depth.h:244-247`): smoothstep of the biased difference times the pass's gain.
-    const float rim_area = rim_smoothstep((rise - game_rim_depth_bias) * pc.rim_scale);
     if (rim_area <= 0.0)
     {
         return float4(0.0, 0.0, 0.0, 0.0);

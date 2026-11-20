@@ -183,6 +183,8 @@ namespace deren.scripting {
         private static delegate* unmanaged<scene_api.toon_rig_desc*, script_status> get_toon_rig;
         // ABI 40: renaming a node; optional like the entries above.
         private static delegate* unmanaged<ulong, node_handle, utf8_view, script_status> set_node_name;
+        // ABI 41: the projection aspect the scene is rendered with; optional like the entries above.
+        private static delegate* unmanaged<float, script_status> set_scene_aspect;
 
         internal static bool is_ready() {
             if (!host_call_guard.host_calls_allowed) {
@@ -269,6 +271,7 @@ namespace deren.scripting {
             set_toon_rig = null;
             get_toon_rig = null;
             set_node_name = null;
+            set_scene_aspect = null;
 
             void* table = null;
             uint byte_size = 0;
@@ -361,6 +364,7 @@ namespace deren.scripting {
             set_toon_rig = resolved.set_toon_rig;
             get_toon_rig = resolved.get_toon_rig;
             set_node_name = resolved.set_node_name;
+            set_scene_aspect = resolved.set_scene_aspect;
             return script_status.success;
         }
 
@@ -748,6 +752,14 @@ namespace deren.scripting {
                 ? set_node_name(tree, node, name)
                 : script_status.module_unavailable;
         }
+
+        // ---- ABI 41: the projection aspect ---------------------------------------------------------
+
+        internal static script_status assign_scene_aspect(float aspect) {
+            return is_ready() && set_scene_aspect != null
+                ? set_scene_aspect(aspect)
+                : script_status.module_unavailable;
+        }
     }
 
     /// <summary>
@@ -840,6 +852,9 @@ namespace deren.scripting {
         // ABI 40: renaming a node. Optional like the batch above: a host that predates it leaves the
         // pointer null and assign_node_name() reports module_unavailable instead of calling through it.
         public delegate* unmanaged<ulong, node_handle, utf8_view, script_status> set_node_name;
+        // ABI 41: the projection aspect the scene is rendered with. The render still covers the window;
+        // the projection is built for the shape the game stretches the image to. 0 restores the window's.
+        public delegate* unmanaged<float, script_status> set_scene_aspect;
 
         public readonly bool is_valid() {
             return get_transform != null && set_transform != null && try_spawn != null && try_despawn != null &&
